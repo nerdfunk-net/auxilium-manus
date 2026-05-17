@@ -39,6 +39,39 @@ plugins:
         - name: failure
           description: Device selection failed.
 
+  - id: get-nautboot-attributes
+    name: Get Nautobot Attributes
+    description: Retrieve attributes from Nautobot for selected devices.
+    artifact_type: inventory_selector
+    filename: get_nautboot_attributes.py
+    enabled: true
+    metadata:
+      mandatory_input:
+        - name: selected_devices
+          description: Devices selected for configuration retrieval.
+          data_type: device_list
+          required: true
+      configuration_input:
+        - name: list_of_attributes
+          description: List of Nautobot attributes to retrieve for each device.
+          data_type: string_list
+          required: true
+          description: List of Nautobot attributes to retrieve for each device.
+          data_type: list
+          required: true
+          example:
+            - location
+            - role      
+      supported_output:
+        - name: attributes_by_device
+          description: Retrieved Nautobot attributes organized by device.
+          data_type: device_attribute_map
+      outcomes:
+        - name: success
+          description: Devices were selected successfully.
+        - name: failure
+          description: Device selection failed.
+
   - id: get-configs
     name: Get Configs
     description: Get device configuration in the specified format.

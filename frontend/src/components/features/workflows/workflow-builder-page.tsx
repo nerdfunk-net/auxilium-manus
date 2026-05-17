@@ -129,7 +129,9 @@ export function WorkflowBuilderPage() {
               <WorkflowExecutionsPanel />
             )}
           </section>
-          {mode === "editor" ? <WorkflowPropertiesPanel nodes={nodes} /> : null}
+          {mode === "editor" ? (
+            <WorkflowPropertiesPanel nodes={nodes} plugins={plugins} />
+          ) : null}
         </main>
         <WorkflowRunControls />
       </div>

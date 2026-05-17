@@ -2,6 +2,8 @@
 
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Code2,
   FileArchive,
@@ -120,11 +122,11 @@ export function NodePalette({
   plugins,
 }: NodePaletteProps) {
   const paletteGroups = useMemo(() => groupPaletteItems(plugins), [plugins]);
-  const firstItem = paletteGroups[0]?.items[0];
   const hideActionsPanel = useWorkflowBuilderStore(
     (state) => state.hideActionsPanel,
   );
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<PaletteGroup | null>(null);
   const [position, setPosition] = useState<PanelPosition>(
     INITIAL_PANEL_POSITION,
   );
@@ -271,71 +273,71 @@ export function NodePalette({
         </div>
       </div>
       <div id={PALETTE_BODY_ID} hidden={isCollapsed}>
-        <div>
-          <div className="mb-3 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
-            <div>
-              <p className="text-xs font-medium">Quick add</p>
-              <p className="text-xs text-muted-foreground">
-                Add the first workflow step
-              </p>
-            </div>
-            {firstItem ? (
-              <Button
-                aria-label="Add workflow step"
-                onClick={() => addStep(firstItem)}
-                size="icon"
-                variant="outline"
-              >
-                <Plus className="size-4" />
-              </Button>
-            ) : null}
-          </div>
-          {isLoading ? (
-            <p className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
-              Loading plugins...
-            </p>
-          ) : errorMessage ? (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-4 text-sm text-destructive">
-              {errorMessage}
-            </p>
-          ) : paletteGroups.length === 0 ? (
-            <p className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
-              No plugins are available.
-            </p>
-          ) : (
-            <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
-              {paletteGroups.map((group) => (
-                <details
-                  className="rounded-lg border bg-background/60"
+        {isLoading ? (
+          <p className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            Loading plugins...
+          </p>
+        ) : errorMessage ? (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-4 text-sm text-destructive">
+            {errorMessage}
+          </p>
+        ) : paletteGroups.length === 0 ? (
+          <p className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            No plugins are available.
+          </p>
+        ) : selectedGroup === null ? (
+          <div className="max-h-[60vh] space-y-1 overflow-y-auto">
+            {paletteGroups.map((group) => {
+              const Icon = iconByArtifactType[group.artifactType] ?? Code2;
+              return (
+                <button
                   key={group.artifactType}
-                  open
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => setSelectedGroup(group)}
+                  type="button"
                 >
-                  <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-muted-foreground">
-                    {group.label}
-                  </summary>
-                  <div className="space-y-1 px-1 pb-1">
-                    {group.items.map((item) => (
-                      <button
-                        key={item.kind}
-                        className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => addStep(item)}
-                        type="button"
-                      >
-                        <item.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0">
-                          <span className="block truncate">{item.label}</span>
-                          <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
-                            {item.description}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </details>
+                  <Icon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 font-medium">{group.label}</span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div>
+            <div className="mb-2 flex items-center gap-1">
+              <Button
+                aria-label="Back to categories"
+                onClick={() => setSelectedGroup(null)}
+                size="icon"
+                variant="ghost"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="text-xs font-semibold text-muted-foreground">
+                {selectedGroup.label}
+              </span>
+            </div>
+            <div className="max-h-[60vh] space-y-1 overflow-y-auto">
+              {selectedGroup.items.map((item) => (
+                <button
+                  key={item.kind}
+                  className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => addStep(item)}
+                  type="button"
+                >
+                  <item.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0">
+                    <span className="block truncate">{item.label}</span>
+                    <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                      {item.description}
+                    </span>
+                  </span>
+                </button>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
       {isCollapsed ? (
         <Button

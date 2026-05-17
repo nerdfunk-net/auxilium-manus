@@ -129,7 +129,6 @@ export default function MyFeatureRoute() {
 
 **Backend Core:**
 - `/backend/core/models/` - SQLAlchemy table definitions (one file per domain)
-  - `agents.py` - `CockpitAgentCommand`
   - `audit.py` - `AuditLog`
   - `credentials.py` - `Credential`, `LoginCredential`, `SNMPMapping`
   - `git.py` - `GitRepository`
@@ -519,11 +518,11 @@ useEffect(() => {
 **Backend** (`.env`):
 ```bash
 SECRET_KEY=change-in-production  # JWT signing
-BACKEND_SERVER_HOST=127.0.0.1
+BACKEND_SERVER_HOST=localhost
 BACKEND_SERVER_PORT=8000
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
-DATABASE_NAME=cockpit
+DATABASE_NAME=manus
 DATABASE_USERNAME=postgres
 DATABASE_PASSWORD=password
 INITIAL_USERNAME=admin
