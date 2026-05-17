@@ -541,8 +541,8 @@ PORT=3000
 1. Define SQLAlchemy model in `/backend/core/models/{domain}.py` and export it from `/backend/core/models/__init__.py`
 2. Create Pydantic models in `/backend/models/{domain}.py`
 3. Create repository in `/backend/repositories/{domain}_repository.py`
-4. Create service in `/backend/services/{domain}/{domain}_service.py`
-5. Create router in `/backend/routers/{domain}.py` with auth dependencies
+4. Create service in `/backend/services/{domain}/{domain}/{domain}_service.py`
+5. Create router in `/backend/routers/{domain}/{domain}.py` with auth dependencies
 6. Register router in `/backend/main.py`
 
 ### Adding New Frontend Page

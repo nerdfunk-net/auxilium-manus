@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type {
@@ -90,6 +91,29 @@ function OutcomeRow({ outcome }: { outcome: PluginOutcome }) {
           {outcome.description}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function MockConfigRow({ field }: { field: PluginIOField }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <span className="font-mono text-xs font-medium">{field.name}</span>
+        <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+          {field.data_type}
+        </Badge>
+        {field.required && (
+          <span className="ml-auto text-[10px] text-destructive">required</span>
+        )}
+      </div>
+      <div className="rounded border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
+        {field.example != null
+          ? String(field.example)
+          : field.default != null
+            ? String(field.default)
+            : "—"}
+      </div>
     </div>
   );
 }
@@ -223,8 +247,46 @@ export function WorkflowPropertiesPanel({
           </div>
         </div>
       ) : selectedNode ? (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="config">
+          <TabsList className="h-7 w-full shrink-0 rounded-none border-b bg-transparent p-0">
+            <TabsTrigger
+              className="h-7 flex-1 rounded-none text-xs data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none"
+              value="config"
+            >
+              Config
+            </TabsTrigger>
+            <TabsTrigger
+              className="h-7 flex-1 rounded-none text-xs data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none"
+              value="description"
+            >
+              Description
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent
+            className="min-h-0 flex-1 overflow-y-auto p-4 mt-0"
+            value="config"
+          >
+            {plugin && plugin.metadata.configuration_input.length > 0 ? (
+              <div className="space-y-3">
+                <SectionHeader icon={Settings2} label="Configuration" />
+                <div className="space-y-2">
+                  {plugin.metadata.configuration_input.map((field) => (
+                    <MockConfigRow field={field} key={field.name} />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No configuration fields defined for this step.
+              </p>
+            )}
+          </TabsContent>
+
+          <TabsContent
+            className="min-h-0 flex-1 overflow-y-auto p-4 mt-0"
+            value="description"
+          >
             <div className="mb-4">
               {selectedNode.data.artifactType ? (
                 <Badge className="mb-2" variant="secondary">
@@ -288,14 +350,8 @@ export function WorkflowPropertiesPanel({
                 Plugin metadata not available.
               </p>
             )}
-          </div>
-
-          <div className="border-t p-4">
-            <Button className="w-full" variant="outline">
-              Open full configuration
-            </Button>
-          </div>
-        </>
+          </TabsContent>
+        </Tabs>
       ) : (
         <div className="p-5 text-sm text-muted-foreground">
           Select a node or connection on the canvas to inspect its properties.
