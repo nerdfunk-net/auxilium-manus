@@ -20,6 +20,7 @@ class PluginMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mandatory_input: list[PluginIOField] = Field(default_factory=list)
+    configuration_input: list[PluginIOField] = Field(default_factory=list)
     supported_output: list[PluginIOField] = Field(default_factory=list)
 
 
