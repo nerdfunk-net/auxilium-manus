@@ -24,7 +24,7 @@ export interface PluginDefinition {
   name: string;
   description: string;
   artifact_type: string;
-  filename: string;
+  directory: string;
   enabled: boolean;
   metadata: PluginMetadata;
 }

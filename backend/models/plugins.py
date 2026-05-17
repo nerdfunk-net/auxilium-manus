@@ -49,19 +49,19 @@ class PluginDefinition(BaseModel):
     name: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
     artifact_type: str = Field(..., min_length=1)
-    filename: str = Field(..., min_length=1)
+    directory: str = Field(..., min_length=1)
     enabled: bool = True
     metadata: PluginMetadata
 
-    @field_validator("filename")
+    @field_validator("directory")
     @classmethod
-    def validate_filename(cls, filename: str) -> str:
-        path = PurePath(filename)
+    def validate_directory(cls, directory: str) -> str:
+        path = PurePath(directory)
 
         if path.is_absolute() or ".." in path.parts:
-            raise ValueError("filename must be a relative path without parent traversal")
+            raise ValueError("directory must be a relative path without parent traversal")
 
-        return filename
+        return directory
 
 
 class PluginRegistry(BaseModel):
@@ -78,3 +78,20 @@ class PluginListResponse(BaseModel):
 class PluginRegistryResponse(BaseModel):
     schema_version: int
     plugins: list[PluginDefinition]
+
+
+class DeviceSelectionPreviewRequest(BaseModel):
+    inventory_source: str = Field(..., min_length=1)
+    device_filter: dict[str, str] = Field(default_factory=dict)
+
+
+class DevicePreview(BaseModel):
+    name: str
+    site: str | None = None
+    role: str | None = None
+    status: str | None = None
+
+
+class DeviceSelectionPreviewResponse(BaseModel):
+    devices: list[DevicePreview]
+    total: int

@@ -81,6 +81,19 @@ export function WorkflowBuilderPage() {
     [setEdges],
   );
 
+  const handleNodeConfigChange = useCallback(
+    (nodeId: string, config: Record<string, unknown>) => {
+      setNodes((current) =>
+        current.map((n) =>
+          n.id !== nodeId
+            ? n
+            : { ...n, data: { ...n.data, pluginConfig: config } },
+        ),
+      );
+    },
+    [setNodes],
+  );
+
   const handleAddStep = useCallback(
     (step: {
       kind: WorkflowNodeKind;
@@ -145,6 +158,7 @@ export function WorkflowBuilderPage() {
               edges={edges}
               nodes={nodes}
               onEdgeStyleChange={handleEdgeStyleChange}
+              onNodeConfigChange={handleNodeConfigChange}
               plugins={plugins}
             />
           ) : null}

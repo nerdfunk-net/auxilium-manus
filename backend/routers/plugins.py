@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from core.auth import get_current_user
-from models.plugins import PluginDefinition, PluginListResponse, PluginRegistryResponse
+from models.plugins import (
+    DeviceSelectionPreviewRequest,
+    DeviceSelectionPreviewResponse,
+    DevicePreview,
+    PluginDefinition,
+    PluginListResponse,
+    PluginRegistryResponse,
+)
+from plugins.nautobot_inventory_selector.backend.preview import (
+    NautobotNotConfiguredError,
+    preview_device_selection,
+)
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/plugins",
@@ -66,3 +81,29 @@ async def get_plugin(
         )
 
     return plugin
+
+
+@router.post("/device-selection/preview", response_model=DeviceSelectionPreviewResponse)
+async def preview_device_selection_endpoint(
+    body: DeviceSelectionPreviewRequest,
+    _: dict = Depends(get_current_user),
+) -> DeviceSelectionPreviewResponse:
+    """Query Nautobot for devices matching the provided filter.
+
+    Requires NAUTOBOT_URL and NAUTOBOT_TOKEN environment variables.
+    """
+    try:
+        devices = await preview_device_selection(device_filter=body.device_filter)
+        previews = [DevicePreview(**d) for d in devices]
+        return DeviceSelectionPreviewResponse(devices=previews, total=len(previews))
+    except NautobotNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        logger.exception("Device selection preview failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to reach Nautobot. Check NAUTOBOT_URL and NAUTOBOT_TOKEN.",
+        )

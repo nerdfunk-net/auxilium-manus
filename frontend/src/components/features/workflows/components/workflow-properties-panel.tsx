@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+import { getPluginUI } from "@/lib/plugin-ui-registry";
+
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type {
   PluginDefinition,
@@ -36,6 +38,7 @@ interface WorkflowPropertiesPanelProps {
   edges?: WorkflowCanvasEdge[];
   plugins?: PluginDefinition[];
   onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
+  onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
 }
 
 function formatArtifactType(artifactType: string) {
@@ -123,6 +126,7 @@ export function WorkflowPropertiesPanel({
   edges = EMPTY_EDGES,
   plugins = EMPTY_PLUGINS,
   onEdgeStyleChange,
+  onNodeConfigChange,
 }: WorkflowPropertiesPanelProps) {
   const selectedNodeId = useWorkflowBuilderStore(
     (state) => state.selectedNodeId,
@@ -155,6 +159,11 @@ export function WorkflowPropertiesPanel({
   const plugin = useMemo(
     () => plugins.find((p) => p.id === selectedNode?.data.kind),
     [plugins, selectedNode],
+  );
+
+  const pluginUI = useMemo(
+    () => (plugin ? getPluginUI(plugin.id) : undefined),
+    [plugin],
   );
 
   if (isMinimized) {
@@ -267,7 +276,21 @@ export function WorkflowPropertiesPanel({
             className="min-h-0 flex-1 overflow-y-auto p-4 mt-0"
             value="config"
           >
-            {plugin && plugin.metadata.configuration_input.length > 0 ? (
+            {pluginUI && selectedNode ? (
+              <pluginUI.ConfigPanel
+                config={
+                  (selectedNode.data.pluginConfig ?? {}) as Record<
+                    string,
+                    unknown
+                  >
+                }
+                nodeId={selectedNode.id}
+                onChange={(config) =>
+                  onNodeConfigChange?.(selectedNode.id, config)
+                }
+                onPreview={() => undefined}
+              />
+            ) : plugin && plugin.metadata.configuration_input.length > 0 ? (
               <div className="space-y-3">
                 <SectionHeader icon={Settings2} label="Configuration" />
                 <div className="space-y-2">

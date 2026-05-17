@@ -15,6 +15,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   condition?: string;
   artifactPath?: string;
   outcomes?: string[];
+  pluginConfig?: Record<string, unknown>;
 }
 
 export interface Waypoint {

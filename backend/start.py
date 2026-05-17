@@ -1,6 +1,11 @@
+import sys
 from os import environ
+from pathlib import Path
 
-import uvicorn
+# Expose the repo root so that plugin packages (plugins/*/backend/) are importable.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import uvicorn  # noqa: E402
 
 if __name__ == "__main__":
     is_development = environ.get("ENV", "development") == "development"

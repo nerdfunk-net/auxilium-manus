@@ -9,7 +9,7 @@ plugins:
     name: Device Selection
     description: Select one or more target devices from the inventory.
     artifact_type: inventory_selector
-    filename: device_selection.py
+    directory: nautobot_inventory_selector
     enabled: true
     metadata:
       # Source node: all inputs are configured in the UI, not received from previous nodes.
@@ -43,7 +43,7 @@ plugins:
     name: Get Nautobot Attributes
     description: Retrieve attributes from Nautobot for selected devices.
     artifact_type: inventory_selector
-    filename: get_nautboot_attributes.py
+    directory: nautobot_attribute_retriever
     enabled: true
     metadata:
       mandatory_input:
@@ -55,9 +55,6 @@ plugins:
         - name: list_of_attributes
           description: List of Nautobot attributes to retrieve for each device.
           data_type: string_list
-          required: true
-          description: List of Nautobot attributes to retrieve for each device.
-          data_type: list
           required: true
           example:
             - location
@@ -72,11 +69,11 @@ plugins:
         - name: failure
           description: Device selection failed.
 
-  - id: get-configs
+  - id: get-device-configs
     name: Get Configs
     description: Get device configuration in the specified format.
     artifact_type: configuration_retrieval
-    filename: get_configs.py
+    directory: get_device_configs
     enabled: true
     metadata:
       mandatory_input:
@@ -109,7 +106,7 @@ plugins:
     name: Run Command
     description: Execute one or more CLI commands on connected devices.
     artifact_type: command_execution
-    filename: run_command.py
+    directory: run_command
     enabled: true
     metadata:
       mandatory_input:
@@ -146,7 +143,7 @@ plugins:
     name: Condition
     description: Branch workflow execution based on metadata or content values.
     artifact_type: control_flow
-    filename: condition.py
+    directory: conditions/simple_condition
     enabled: true
     metadata:
       mandatory_input:
@@ -179,7 +176,7 @@ plugins:
     name: Store Artifact
     description: Persist generated content such as backups, reports, or logs.
     artifact_type: persistent_artifact
-    filename: store_artifact.py
+    directory: store_artifact
     enabled: true
     metadata:
       mandatory_input:
