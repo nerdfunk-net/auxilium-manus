@@ -33,17 +33,22 @@ plugins:
         - name: selection_metadata
           description: Metadata about the inventory query and selected count.
           data_type: object
+      outcomes:
+        - name: success
+          description: Devices were selected successfully.
+        - name: failure
+          description: Device selection failed.
 
-  - id: ssh-login
-    name: SSH Login
-    description: Open a managed SSH session against each selected device.
-    artifact_type: connection
-    filename: ssh_login.py
+  - id: get-configs
+    name: Get Configs
+    description: Get device configuration in the specified format.
+    artifact_type: configuration_retrieval
+    filename: get_configs.py
     enabled: true
     metadata:
       mandatory_input:
         - name: selected_devices
-          description: Device list produced by a previous selection step.
+          description: Devices selected for configuration retrieval.
           data_type: device_list
           required: true
       configuration_input:
@@ -51,13 +56,21 @@ plugins:
           description: Reference to credentials stored in the backend.
           data_type: credential_ref
           required: true
+        - name: config_format
+          description: Format of the configuration to retrieve.
+          data_type: string
+          required: false
+          default: running
+          example: running
       supported_output:
-        - name: connection_handles
-          description: Runtime connection references for subsequent command steps.
-          data_type: connection_list
-        - name: connection_status
-          description: Per-device connection status and timestamps.
-          data_type: object
+        - name: configuration
+          description: Running and startup configuration of the selected devices.
+          data_type: text_map
+      outcomes:
+        - name: success
+          description: Configurations were retrieved successfully.
+        - name: failure
+          description: Configuration retrieval failed.
 
   - id: run-command
     name: Run Command
@@ -67,11 +80,15 @@ plugins:
     enabled: true
     metadata:
       mandatory_input:
-        - name: connection_handles
-          description: Runtime connection references produced by a previous SSH login step.
-          data_type: connection_list
+        - name: selected_devices
+          description: Devices selected for command execution.
+          data_type: device_list
           required: true
       configuration_input:
+        - name: credential_reference
+          description: Reference to credentials stored in the backend.
+          data_type: credential_ref
+          required: true
         - name: commands
           description: CLI commands to execute in order.
           data_type: string_list
@@ -86,6 +103,11 @@ plugins:
         - name: raw_output
           description: Raw CLI output grouped by device.
           data_type: text_map
+      outcomes:
+        - name: success
+          description: Commands were executed successfully.
+        - name: failure
+          description: Command execution failed.
 
   - id: condition
     name: Condition
@@ -112,6 +134,13 @@ plugins:
         - name: evaluation_metadata
           description: Expression evaluation details for audit and debugging.
           data_type: object
+      outcomes:
+        - name: "true"
+          description: Expression evaluated to true.
+        - name: "false"
+          description: Expression evaluated to false.
+        - name: failure
+          description: Expression evaluation failed.
 
   - id: store-artifact
     name: Store Artifact
@@ -138,3 +167,8 @@ plugins:
         - name: artifact_metadata
           description: Stored artifact metadata including size, timestamps, and hash.
           data_type: object
+      outcomes:
+        - name: success
+          description: Artifact was stored successfully.
+        - name: failure
+          description: Artifact storage failed.

@@ -23,6 +23,7 @@ export interface WorkflowStepDefinition {
 
 export interface WorkflowInputMapping {
   sourceStepId: string;
+  sourceOutcome: string;
   sourceKey: string;
   targetKey: string;
 }

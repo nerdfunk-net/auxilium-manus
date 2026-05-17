@@ -5,28 +5,15 @@ import type {
 import type {
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
-  WorkflowNodeKind,
 } from "../types/workflow-canvas";
 
-const outputKeyByKind: Record<WorkflowNodeKind, string> = {
-  trigger: "trigger",
-  "device-selection": "devices",
-  "ssh-login": "session",
-  "run-command": "commandOutput",
-  condition: "branch",
-  "store-artifact": "artifact",
-  result: "result",
-};
+function getPrimaryOutputKey(node: WorkflowCanvasNode | undefined) {
+  return node?.data.supportedOutputs?.[0] ?? "unknown";
+}
 
-const inputKeyByKind: Record<WorkflowNodeKind, string> = {
-  trigger: "trigger",
-  "device-selection": "inventory",
-  "ssh-login": "devices",
-  "run-command": "session",
-  condition: "content",
-  "store-artifact": "content",
-  result: "metadata",
-};
+function getPrimaryInputKey(node: WorkflowCanvasNode) {
+  return node.data.mandatoryInputs?.[0] ?? "metadata";
+}
 
 export function mapCanvasToWorkflowDefinition(
   nodes: WorkflowCanvasNode[],
@@ -48,10 +35,9 @@ export function mapCanvasToWorkflowDefinition(
 
         return {
           sourceStepId: edge.source,
-          sourceKey: sourceNode
-            ? outputKeyByKind[sourceNode.data.kind]
-            : "unknown",
-          targetKey: inputKeyByKind[node.data.kind],
+          sourceOutcome: edge.sourceHandle ?? "success",
+          sourceKey: getPrimaryOutputKey(sourceNode),
+          targetKey: getPrimaryInputKey(node),
         };
       }),
       metadata: {

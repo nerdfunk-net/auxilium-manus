@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import PurePath
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PluginIOField(BaseModel):
@@ -13,7 +13,15 @@ class PluginIOField(BaseModel):
     description: str = Field(..., min_length=1)
     data_type: str = Field(..., min_length=1)
     required: bool = False
+    default: Any = None
     example: Any = None
+
+
+class PluginOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, pattern=r"^[a-z][a-z0-9_-]*$")
+    description: str = Field(..., min_length=1)
 
 
 class PluginMetadata(BaseModel):
@@ -22,6 +30,16 @@ class PluginMetadata(BaseModel):
     mandatory_input: list[PluginIOField] = Field(default_factory=list)
     configuration_input: list[PluginIOField] = Field(default_factory=list)
     supported_output: list[PluginIOField] = Field(default_factory=list)
+    outcomes: list[PluginOutcome] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_outcome_names(self) -> "PluginMetadata":
+        outcome_names = [outcome.name for outcome in self.outcomes]
+
+        if len(outcome_names) != len(set(outcome_names)):
+            raise ValueError("outcome names must be unique within a plugin")
+
+        return self
 
 
 class PluginDefinition(BaseModel):

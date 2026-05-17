@@ -18,6 +18,7 @@ import { useCallback } from "react";
 import "@xyflow/react/dist/style.css";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+import type { PluginDefinition } from "../types/plugin-registry";
 import type {
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
@@ -33,6 +34,9 @@ const nodeTypes: NodeTypes = {
 interface WorkflowCanvasProps {
   nodes: WorkflowCanvasNode[];
   edges: WorkflowCanvasEdge[];
+  isPluginsLoading: boolean;
+  pluginErrorMessage?: string;
+  plugins: PluginDefinition[];
   onNodesChange: OnNodesChange<WorkflowCanvasNode>;
   onEdgesChange: OnEdgesChange<WorkflowCanvasEdge>;
   setEdges: Dispatch<SetStateAction<WorkflowCanvasEdge[]>>;
@@ -40,12 +44,19 @@ interface WorkflowCanvasProps {
     kind: WorkflowNodeKind;
     title: string;
     description: string;
+    artifactType: string;
+    mandatoryInputs: string[];
+    supportedOutputs: string[];
+    outcomes: string[];
   }) => void;
 }
 
 export function WorkflowCanvas({
   nodes,
   edges,
+  isPluginsLoading,
+  pluginErrorMessage,
+  plugins,
   onNodesChange,
   onEdgesChange,
   setEdges,
@@ -106,7 +117,14 @@ export function WorkflowCanvas({
           </div>
         </div>
       ) : null}
-      {isActionsPanelVisible ? <NodePalette onAddStep={onAddStep} /> : null}
+      {isActionsPanelVisible ? (
+        <NodePalette
+          errorMessage={pluginErrorMessage}
+          isLoading={isPluginsLoading}
+          onAddStep={onAddStep}
+          plugins={plugins}
+        />
+      ) : null}
     </div>
   );
 }

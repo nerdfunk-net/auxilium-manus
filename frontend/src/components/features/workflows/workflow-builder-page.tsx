@@ -3,6 +3,8 @@
 import { useEdgesState, useNodesState } from "@xyflow/react";
 import { useCallback } from "react";
 
+import { usePluginsQuery } from "@/hooks/queries/use-plugins-query";
+
 import { WorkflowCanvas } from "./components/workflow-canvas";
 import { WorkflowExecutionsPanel } from "./components/workflow-executions-panel";
 import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel";
@@ -14,9 +16,12 @@ import {
   initialWorkflowNodes,
 } from "./constants/initial-workflow";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
+import type { PluginDefinition } from "./types/plugin-registry";
 import type { WorkflowNodeKind } from "./types/workflow-canvas";
 import { mapCanvasToWorkflowDefinition } from "./utils/workflow-mapper";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
+
+const EMPTY_PLUGINS: PluginDefinition[] = [];
 
 export function WorkflowBuilderPage() {
   const mode = useWorkflowBuilderStore((state) => state.mode);
@@ -25,8 +30,14 @@ export function WorkflowBuilderPage() {
   const markRunning = useWorkflowBuilderStore((state) => state.markRunning);
   const markError = useWorkflowBuilderStore((state) => state.markError);
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
+  const {
+    data: pluginResponse,
+    error: pluginError,
+    isLoading: isPluginsLoading,
+  } = usePluginsQuery();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialWorkflowNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialWorkflowEdges);
+  const plugins = pluginResponse?.plugins ?? EMPTY_PLUGINS;
 
   const handleSave = useCallback(() => {
     const validation = validateCanvasWorkflow(nodes, edges);
@@ -64,6 +75,10 @@ export function WorkflowBuilderPage() {
       kind: WorkflowNodeKind;
       title: string;
       description: string;
+      artifactType: string;
+      mandatoryInputs: string[];
+      supportedOutputs: string[];
+      outcomes: string[];
     }) => {
       const nextIndex = nodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
@@ -78,6 +93,10 @@ export function WorkflowBuilderPage() {
             kind: step.kind,
             title: step.title,
             description: step.description,
+            artifactType: step.artifactType,
+            mandatoryInputs: step.mandatoryInputs,
+            supportedOutputs: step.supportedOutputs,
+            outcomes: step.outcomes,
             status: "draft",
           },
         },
@@ -97,10 +116,13 @@ export function WorkflowBuilderPage() {
             {mode === "editor" ? (
               <WorkflowCanvas
                 edges={edges}
+                isPluginsLoading={isPluginsLoading}
                 nodes={nodes}
                 onEdgesChange={onEdgesChange}
                 onNodesChange={onNodesChange}
                 onAddStep={handleAddStep}
+                pluginErrorMessage={pluginError?.message}
+                plugins={plugins}
                 setEdges={setEdges}
               />
             ) : (

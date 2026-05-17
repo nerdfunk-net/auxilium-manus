@@ -6,45 +6,48 @@ import {
   Database,
   FileArchive,
   GitBranch,
-  Network,
+  HardDriveDownload,
   Router,
   TerminalSquare,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-import type { WorkflowCanvasNode, WorkflowNodeKind } from "../../types/workflow-canvas";
+import type { WorkflowCanvasNode } from "../../types/workflow-canvas";
 
-const nodeIcons: Record<WorkflowNodeKind, typeof Network> = {
+const nodeIconsByType: Record<string, LucideIcon> = {
+  command_execution: TerminalSquare,
+  configuration_retrieval: HardDriveDownload,
+  control_flow: GitBranch,
+  inventory_selector: Router,
+  persistent_artifact: FileArchive,
   trigger: GitBranch,
-  "device-selection": Router,
-  "ssh-login": Network,
-  "run-command": TerminalSquare,
-  condition: GitBranch,
-  "store-artifact": FileArchive,
   result: CheckCircle2,
 };
 
-const nodeAccentClasses: Record<WorkflowNodeKind, string> = {
+const nodeAccentClassesByType: Record<string, string> = {
+  command_execution: "bg-emerald-100 text-emerald-700",
+  configuration_retrieval: "bg-indigo-100 text-indigo-700",
+  control_flow: "bg-amber-100 text-amber-700",
+  inventory_selector: "bg-sky-100 text-sky-700",
+  persistent_artifact: "bg-violet-100 text-violet-700",
   trigger: "bg-slate-100 text-slate-700",
-  "device-selection": "bg-sky-100 text-sky-700",
-  "ssh-login": "bg-indigo-100 text-indigo-700",
-  "run-command": "bg-emerald-100 text-emerald-700",
-  condition: "bg-amber-100 text-amber-700",
-  "store-artifact": "bg-violet-100 text-violet-700",
   result: "bg-teal-100 text-teal-700",
 };
 
 export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) {
-  const Icon = nodeIcons[data.kind] ?? Database;
-  const hasTargetHandle = data.kind !== "trigger" && data.kind !== "device-selection";
-  const hasSourceHandle = data.kind !== "result";
+  const nodeType = data.artifactType ?? data.kind;
+  const Icon = nodeIconsByType[nodeType] ?? Database;
+  const outcomes = data.outcomes ?? ["success"];
+  const hasTargetHandle = (data.mandatoryInputs?.length ?? 0) > 0;
+  const hasSourceHandle = outcomes.length > 0;
 
   return (
     <div
       className={cn(
-        "min-w-56 rounded-xl border bg-card p-4 shadow-sm transition-shadow",
+        "relative min-w-56 rounded-xl border bg-card p-4 shadow-sm transition-shadow",
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
@@ -59,7 +62,7 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
         <div
           className={cn(
             "flex size-10 shrink-0 items-center justify-center rounded-lg",
-            nodeAccentClasses[data.kind],
+            nodeAccentClassesByType[nodeType] ?? "bg-muted text-muted-foreground",
           )}
         >
           <Icon className="size-5" />
@@ -78,13 +81,31 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
           </p>
         </div>
       </div>
-      {hasSourceHandle ? (
-        <Handle
-          className="!size-3 !border-2 !bg-background"
-          position={Position.Right}
-          type="source"
-        />
-      ) : null}
+      {hasSourceHandle
+        ? outcomes.map((outcome, index) => (
+            <div key={outcome}>
+              {outcomes.length > 1 ? (
+                <span
+                  className="absolute right-4 -translate-y-1/2 rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm"
+                  style={{
+                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                  }}
+                >
+                  {outcome}
+                </span>
+              ) : null}
+              <Handle
+                className="!size-3 !border-2 !bg-background"
+                id={outcome}
+                position={Position.Right}
+                style={{
+                  top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                }}
+                type="source"
+              />
+            </div>
+          ))
+        : null}
     </div>
   );
 }
