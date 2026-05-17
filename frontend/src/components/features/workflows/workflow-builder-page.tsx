@@ -17,7 +17,7 @@ import {
 } from "./constants/initial-workflow";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "./types/plugin-registry";
-import type { WorkflowNodeKind } from "./types/workflow-canvas";
+import type { EdgeStyle, WorkflowNodeKind } from "./types/workflow-canvas";
 import { mapCanvasToWorkflowDefinition } from "./utils/workflow-mapper";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 
@@ -69,6 +69,17 @@ export function WorkflowBuilderPage() {
 
     markRunning(`Mock execution queued for ${definition.steps.length} steps`);
   }, [edges, markError, markRunning, nodes, workflowName]);
+
+  const handleEdgeStyleChange = useCallback(
+    (edgeId: string, style: EdgeStyle) => {
+      setEdges((current) =>
+        current.map((e) =>
+          e.id !== edgeId ? e : { ...e, data: { ...e.data, edgeStyle: style } },
+        ),
+      );
+    },
+    [setEdges],
+  );
 
   const handleAddStep = useCallback(
     (step: {
@@ -130,7 +141,12 @@ export function WorkflowBuilderPage() {
             )}
           </section>
           {mode === "editor" ? (
-            <WorkflowPropertiesPanel nodes={nodes} plugins={plugins} />
+            <WorkflowPropertiesPanel
+              edges={edges}
+              nodes={nodes}
+              onEdgeStyleChange={handleEdgeStyleChange}
+              plugins={plugins}
+            />
           ) : null}
         </main>
         <WorkflowRunControls />

@@ -17,5 +17,17 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   outcomes?: string[];
 }
 
+export interface Waypoint {
+  x: number;
+  y: number;
+}
+
+export type EdgeStyle = "straight" | "smooth";
+
+export interface WorkflowEdgeData extends Record<string, unknown> {
+  waypoints?: Waypoint[];
+  edgeStyle?: EdgeStyle;
+}
+
 export type WorkflowCanvasNode = Node<WorkflowNodeData, "workflowNode">;
-export type WorkflowCanvasEdge = Edge;
+export type WorkflowCanvasEdge = Edge<WorkflowEdgeData, "waypoint">;

@@ -5,6 +5,7 @@ import {
   ArrowUpFromLine,
   ChevronsRight,
   GitBranch,
+  MoveRight,
   PanelRightOpen,
   Settings2,
   type LucideIcon,
@@ -20,13 +21,20 @@ import type {
   PluginIOField,
   PluginOutcome,
 } from "../types/plugin-registry";
-import type { WorkflowCanvasNode } from "../types/workflow-canvas";
+import type {
+  EdgeStyle,
+  WorkflowCanvasEdge,
+  WorkflowCanvasNode,
+} from "../types/workflow-canvas";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
+const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 interface WorkflowPropertiesPanelProps {
   nodes: WorkflowCanvasNode[];
+  edges?: WorkflowCanvasEdge[];
   plugins?: PluginDefinition[];
+  onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
 }
 
 function formatArtifactType(artifactType: string) {
@@ -88,16 +96,36 @@ function OutcomeRow({ outcome }: { outcome: PluginOutcome }) {
 
 export function WorkflowPropertiesPanel({
   nodes,
+  edges = EMPTY_EDGES,
   plugins = EMPTY_PLUGINS,
+  onEdgeStyleChange,
 }: WorkflowPropertiesPanelProps) {
   const selectedNodeId = useWorkflowBuilderStore(
     (state) => state.selectedNodeId,
+  );
+  const selectedEdgeId = useWorkflowBuilderStore(
+    (state) => state.selectedEdgeId,
   );
   const [isMinimized, setIsMinimized] = useState(false);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId),
     [nodes, selectedNodeId],
+  );
+
+  const selectedEdge = useMemo(
+    () => edges.find((e) => e.id === selectedEdgeId),
+    [edges, selectedEdgeId],
+  );
+
+  const sourceNode = useMemo(
+    () => nodes.find((n) => n.id === selectedEdge?.source),
+    [nodes, selectedEdge],
+  );
+
+  const targetNode = useMemo(
+    () => nodes.find((n) => n.id === selectedEdge?.target),
+    [nodes, selectedEdge],
   );
 
   const plugin = useMemo(
@@ -139,7 +167,62 @@ export function WorkflowPropertiesPanel({
         </Button>
       </div>
 
-      {selectedNode ? (
+      {selectedEdge ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Connection
+            </p>
+            <h2 className="mt-1 flex items-center gap-1.5 text-base font-semibold">
+              <span className="truncate">
+                {sourceNode?.data.title ?? selectedEdge.source}
+              </span>
+              <MoveRight className="size-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">
+                {targetNode?.data.title ?? selectedEdge.target}
+              </span>
+            </h2>
+            {selectedEdge.label ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Label: <span className="font-medium">{String(selectedEdge.label)}</span>
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-3">
+            <SectionHeader icon={Settings2} label="Edge style" />
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => onEdgeStyleChange?.(selectedEdge.id, "straight")}
+                size="sm"
+                variant={
+                  (selectedEdge.data?.edgeStyle ?? "straight") === "straight"
+                    ? "default"
+                    : "outline"
+                }
+              >
+                Straight
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => onEdgeStyleChange?.(selectedEdge.id, "smooth")}
+                size="sm"
+                variant={
+                  selectedEdge.data?.edgeStyle === "smooth" ? "default" : "outline"
+                }
+              >
+                Smooth
+              </Button>
+            </div>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {(selectedEdge.data?.edgeStyle ?? "straight") === "straight"
+                ? "Polyline path with bend points. Double-click the line to add a bend point, drag to reposition, right-click to remove."
+                : "Bezier curve managed automatically. Bend points are inactive in smooth mode."}
+            </p>
+          </div>
+        </div>
+      ) : selectedNode ? (
         <>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <div className="mb-4">
@@ -215,8 +298,7 @@ export function WorkflowPropertiesPanel({
         </>
       ) : (
         <div className="p-5 text-sm text-muted-foreground">
-          Select a node on the canvas to inspect its metadata, content
-          settings, and execution role.
+          Select a node or connection on the canvas to inspect its properties.
         </div>
       )}
     </aside>

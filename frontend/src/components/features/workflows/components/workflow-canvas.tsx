@@ -8,6 +8,7 @@ import {
   MiniMap,
   ReactFlow,
   type Connection,
+  type EdgeTypes,
   type NodeTypes,
   type OnEdgesChange,
   type OnNodesChange,
@@ -24,11 +25,16 @@ import type {
   WorkflowCanvasNode,
   WorkflowNodeKind,
 } from "../types/workflow-canvas";
+import { WaypointEdge } from "./edges/waypoint-edge";
 import { WorkflowNode } from "./nodes/workflow-node";
 import { NodePalette } from "./workflow-node-palette";
 
 const nodeTypes: NodeTypes = {
   workflowNode: WorkflowNode,
+};
+
+const edgeTypes: EdgeTypes = {
+  waypoint: WaypointEdge,
 };
 
 interface WorkflowCanvasProps {
@@ -63,13 +69,14 @@ export function WorkflowCanvas({
   onAddStep,
 }: WorkflowCanvasProps) {
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
+  const selectEdge = useWorkflowBuilderStore((state) => state.selectEdge);
   const isActionsPanelVisible = useWorkflowBuilderStore(
     (state) => state.isActionsPanelVisible,
   );
 
   const handleConnect = useCallback(
     (connection: Connection) => {
-      setEdges((currentEdges) => addEdge(connection, currentEdges));
+      setEdges((currentEdges) => addEdge({ ...connection, type: "waypoint" }, currentEdges));
     },
     [setEdges],
   );
@@ -78,6 +85,12 @@ export function WorkflowCanvas({
       selectNode(node.id);
     },
     [selectNode],
+  );
+  const handleEdgeClick = useCallback(
+    (_: MouseEvent, edge: WorkflowCanvasEdge) => {
+      selectEdge(edge.id);
+    },
+    [selectEdge],
   );
   const handlePaneClick = useCallback(() => {
     selectNode(null);
@@ -89,9 +102,12 @@ export function WorkflowCanvas({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        defaultEdgeOptions={{ type: "waypoint" }}
         onConnect={handleConnect}
+        onEdgeClick={handleEdgeClick}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
         fitView

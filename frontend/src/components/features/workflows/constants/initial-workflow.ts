@@ -86,6 +86,7 @@ export const initialWorkflowNodes: WorkflowCanvasNode[] = [
 export const initialWorkflowEdges: WorkflowCanvasEdge[] = [
   {
     id: "device-selection-to-get-configs",
+    type: "waypoint",
     source: "device-selection",
     sourceHandle: "success",
     target: "get-configs",
@@ -93,6 +94,7 @@ export const initialWorkflowEdges: WorkflowCanvasEdge[] = [
   },
   {
     id: "get-configs-to-condition",
+    type: "waypoint",
     source: "get-configs",
     sourceHandle: "success",
     target: "condition",
@@ -100,6 +102,7 @@ export const initialWorkflowEdges: WorkflowCanvasEdge[] = [
   },
   {
     id: "condition-to-store-artifact",
+    type: "waypoint",
     source: "condition",
     sourceHandle: "true",
     target: "store-artifact",
@@ -108,6 +111,7 @@ export const initialWorkflowEdges: WorkflowCanvasEdge[] = [
   },
   {
     id: "condition-to-result",
+    type: "waypoint",
     source: "condition",
     sourceHandle: "false",
     target: "result",
