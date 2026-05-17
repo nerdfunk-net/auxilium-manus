@@ -5,6 +5,8 @@ import { ReactNode, useState } from "react";
 
 import { createQueryClient } from "@/lib/query-client";
 
+import { AuthBootstrap } from "./auth-bootstrap";
+
 interface AppProvidersProps {
   children: ReactNode;
 }
@@ -13,6 +15,9 @@ export function AppProviders({ children }: AppProvidersProps) {
   const [queryClient] = useState(() => createQueryClient());
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthBootstrap />
+      {children}
+    </QueryClientProvider>
   );
 }

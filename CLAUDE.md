@@ -193,13 +193,15 @@ async def delete_critical(user: dict = Depends(verify_admin_token)):
 ```typescript
 import { useAuthStore } from '@/lib/auth-store'
 const user = useAuthStore(state => state.user)
-const token = useAuthStore(state => state.token)
 
-// API calls via proxy
-fetch('/api/proxy/users', {
-  headers: { 'Authorization': `Bearer ${token}` }
-})
+// API calls always go through the Next.js proxy on the same origin.
+fetch('/api/proxy/users')
 ```
+
+**Proxy-only auth rule:** Browsers must never call the FastAPI backend directly
+and the backend must not rely on CORS for frontend access. Frontend requests go
+to `/api/proxy/*`; the Next.js server forwards them to `BACKEND_URL` and attaches
+the HTTP-only auth cookie as a backend `Authorization` header.
 
 ## Database Schema (Key Tables)
 

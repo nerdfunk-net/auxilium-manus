@@ -52,6 +52,9 @@ export function WorkflowCanvas({
   onAddStep,
 }: WorkflowCanvasProps) {
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
+  const isActionsPanelVisible = useWorkflowBuilderStore(
+    (state) => state.isActionsPanelVisible,
+  );
 
   const handleConnect = useCallback(
     (connection: Connection) => {
@@ -103,7 +106,7 @@ export function WorkflowCanvas({
           </div>
         </div>
       ) : null}
-      <NodePalette onAddStep={onAddStep} />
+      {isActionsPanelVisible ? <NodePalette onAddStep={onAddStep} /> : null}
     </div>
   );
 }

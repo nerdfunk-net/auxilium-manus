@@ -1,10 +1,13 @@
 "use client";
 
-import { MoreHorizontal, Play, Save } from "lucide-react";
+import { LogOut, Play, Save } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuthStore } from "@/lib/auth-store";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 
@@ -14,12 +17,20 @@ interface WorkflowTopbarProps {
 }
 
 export function WorkflowTopbar({ onSave, onRun }: WorkflowTopbarProps) {
+  const router = useRouter();
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
   const workflowStatus = useWorkflowBuilderStore(
     (state) => state.workflowStatus,
   );
   const mode = useWorkflowBuilderStore((state) => state.mode);
   const setMode = useWorkflowBuilderStore((state) => state.setMode);
+  const handleLogout = useCallback(async () => {
+    await logout();
+    router.replace("/login");
+    router.refresh();
+  }, [logout, router]);
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-5">
@@ -44,6 +55,9 @@ export function WorkflowTopbar({ onSave, onRun }: WorkflowTopbarProps) {
       </div>
 
       <div className="flex items-center gap-3">
+        {user ? (
+          <span className="text-xs text-muted-foreground">{user.username}</span>
+        ) : null}
         <Tabs value={mode} onValueChange={(value) => setMode(value as typeof mode)}>
           <TabsList>
             <TabsTrigger value="editor">Editor</TabsTrigger>
@@ -58,8 +72,13 @@ export function WorkflowTopbar({ onSave, onRun }: WorkflowTopbarProps) {
           <Play className="size-4" />
           Run
         </Button>
-        <Button aria-label="More workflow actions" size="icon" variant="ghost">
-          <MoreHorizontal className="size-4" />
+        <Button
+          aria-label="Sign out"
+          onClick={handleLogout}
+          size="icon"
+          variant="ghost"
+        >
+          <LogOut className="size-4" />
         </Button>
       </div>
     </header>
