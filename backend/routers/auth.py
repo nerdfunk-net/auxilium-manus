@@ -12,7 +12,7 @@ from core.config import settings
 from core.database import get_db
 from core.models.users import User
 from models.auth import LoginRequest, TokenResponse, UserResponse
-from services.auth_service import AuthenticationError, AuthService
+from services.auth.auth_service import AuthenticationError, AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 LOGIN_RATE_LIMIT_ATTEMPTS = 5

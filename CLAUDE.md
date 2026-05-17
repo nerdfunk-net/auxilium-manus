@@ -68,7 +68,7 @@ Keep these concepts separate in both frontend and backend code:
 1. SQLAlchemy Model    → /backend/core/models/{domain}.py (tables, indexes, relationships)
 2. Pydantic Models     → /backend/models/{domain}.py (request/response schemas)
 3. Repository          → /backend/repositories/{domain}_repository.py (data access)
-4. Service             → /backend/services/{domain}_service.py (business logic)
+4. Service             → /backend/services/{domain}/{domain}_service.py (business logic)
 5. Router              → /backend/routers/{domain}.py (HTTP endpoints)
 6. Register in main.py → app.include_router({domain}_router)
 ```
@@ -541,7 +541,7 @@ PORT=3000
 1. Define SQLAlchemy model in `/backend/core/models/{domain}.py` and export it from `/backend/core/models/__init__.py`
 2. Create Pydantic models in `/backend/models/{domain}.py`
 3. Create repository in `/backend/repositories/{domain}_repository.py`
-4. Create service in `/backend/services/{domain}_service.py`
+4. Create service in `/backend/services/{domain}/{domain}_service.py`
 5. Create router in `/backend/routers/{domain}.py` with auth dependencies
 6. Register router in `/backend/main.py`
 

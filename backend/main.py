@@ -10,8 +10,8 @@ from core.database import SessionLocal, init_db
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
 from routers.plugins import router as plugins_router
-from services.auth_service import AuthService
-from services.plugin_registry_service import PluginRegistryService
+from services.auth.auth_service import AuthService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
 
 @asynccontextmanager

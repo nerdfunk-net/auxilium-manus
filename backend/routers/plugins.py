@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from core.auth import get_current_user
 from models.plugins import PluginDefinition, PluginListResponse, PluginRegistryResponse
-from services.plugin_registry_service import PluginRegistryService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
 router = APIRouter(
     prefix="/plugins",
