@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from core.config import settings
+
+# Fallback for direct uvicorn imports. start.py passes an explicit uvicorn log_config.
+if not logging.root.handlers:
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format=settings.log_format,
+        stream=sys.stdout,
+    )
+
 from core.database import SessionLocal, init_db
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
-from routers.plugins import router as plugins_router
+from routers.workflow_steps import router as workflow_steps_router
+from routers.workflows import router as workflows_router
 from services.auth.auth_service import AuthService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
@@ -40,7 +52,8 @@ app = FastAPI(
 )
 
 app.include_router(auth_router, prefix=settings.api_prefix)
-app.include_router(plugins_router, prefix=settings.api_prefix)
+app.include_router(workflow_steps_router, prefix=settings.api_prefix)
+app.include_router(workflows_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["health"])

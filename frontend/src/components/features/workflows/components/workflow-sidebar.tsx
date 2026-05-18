@@ -2,7 +2,7 @@
 
 import {
   Boxes,
-  FileArchive,
+  Layers,
   Network,
   PlayCircle,
   Settings,
@@ -16,14 +16,14 @@ import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 type NavigationItem = {
   label: string;
   icon: typeof Workflow;
-  kind: "workflows" | "artifacts" | "runs" | "placeholder";
+  kind: "workflows" | "steps" | "runs" | "placeholder";
 };
 
 const navigationItems = [
   { label: "Workflows", icon: Workflow, kind: "workflows" },
+  { label: "Steps", icon: Layers, kind: "steps" },
   { label: "Inventory", icon: Network, kind: "placeholder" },
   { label: "Runs", icon: PlayCircle, kind: "runs" },
-  { label: "Artifacts", icon: FileArchive, kind: "artifacts" },
   { label: "Settings", icon: Settings, kind: "placeholder" },
 ] satisfies NavigationItem[];
 
@@ -54,10 +54,10 @@ export function WorkflowSidebar() {
           const isActive =
             (item.kind === "workflows" && mode === "editor") ||
             (item.kind === "runs" && mode === "executions") ||
-            (item.kind === "artifacts" && isActionsPanelVisible);
+            (item.kind === "steps" && isActionsPanelVisible);
           const isPlaceholder = item.kind === "placeholder";
           const handleClick =
-            item.kind === "artifacts"
+            item.kind === "steps"
               ? toggleActionsPanel
               : item.kind === "workflows"
                 ? () => setMode("editor")
@@ -68,10 +68,10 @@ export function WorkflowSidebar() {
           return (
             <button
               aria-current={
-                item.kind !== "artifacts" && isActive ? "page" : undefined
+                item.kind !== "steps" && isActive ? "page" : undefined
               }
               aria-pressed={
-                item.kind === "artifacts" ? isActionsPanelVisible : undefined
+                item.kind === "steps" ? isActionsPanelVisible : undefined
               }
               disabled={isPlaceholder}
               key={item.label}
