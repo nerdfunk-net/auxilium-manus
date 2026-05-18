@@ -3,18 +3,23 @@ import type { Edge, Node } from "@xyflow/react";
 // Plugin ids are loaded from the backend registry at startup, so node kinds are dynamic.
 export type WorkflowNodeKind = string;
 
+export interface WorkflowIOField {
+  name: string;
+  dataType: string;
+}
+
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
   stepUuid?: string;
   title: string;
   description: string;
   artifactType?: string;
-  mandatoryInputs?: string[];
+  mandatoryInputs?: WorkflowIOField[];
   status?: "ready" | "draft" | "running" | "success" | "warning";
   command?: string;
   condition?: string;
   artifactPath?: string;
-  outcomes?: string[];
+  outcomes?: WorkflowIOField[];
   pluginConfig?: Record<string, unknown>;
 }
 

@@ -40,9 +40,10 @@ const nodeAccentClassesByType: Record<string, string> = {
 export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) {
   const nodeType = data.artifactType ?? data.kind;
   const Icon = nodeIconsByType[nodeType] ?? Database;
-  const outcomes = data.outcomes ?? ["success"];
-  const hasTargetHandle = (data.mandatoryInputs?.length ?? 0) > 0;
-  const hasSourceHandle = outcomes.length > 0;
+  const inputs = data.mandatoryInputs ?? [];
+  const outcomes = data.outcomes ?? [];
+  const hasTargetHandles = inputs.length > 0;
+  const hasSourceHandles = outcomes.length > 0;
 
   return (
     <div
@@ -51,13 +52,31 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
-      {hasTargetHandle ? (
-        <Handle
-          className="!size-3 !border-2 !bg-background"
-          position={Position.Left}
-          type="target"
-        />
-      ) : null}
+      {hasTargetHandles
+        ? inputs.map((input, index) => (
+            <div key={input.name}>
+              {inputs.length > 1 ? (
+                <span
+                  className="absolute left-4 -translate-y-1/2 rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm"
+                  style={{
+                    top: `${((index + 1) / (inputs.length + 1)) * 100}%`,
+                  }}
+                >
+                  {input.name}
+                </span>
+              ) : null}
+              <Handle
+                className="!size-3 !border-2 !bg-background"
+                id={input.name}
+                position={Position.Left}
+                style={{
+                  top: `${((index + 1) / (inputs.length + 1)) * 100}%`,
+                }}
+                type="target"
+              />
+            </div>
+          ))
+        : null}
       <div className="flex items-start gap-3">
         <div
           className={cn(
@@ -81,9 +100,9 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
           </p>
         </div>
       </div>
-      {hasSourceHandle
+      {hasSourceHandles
         ? outcomes.map((outcome, index) => (
-            <div key={outcome}>
+            <div key={outcome.name}>
               {outcomes.length > 1 ? (
                 <span
                   className="absolute right-4 -translate-y-1/2 rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm"
@@ -91,12 +110,12 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
                     top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
                   }}
                 >
-                  {outcome}
+                  {outcome.name}
                 </span>
               ) : null}
               <Handle
                 className="!size-3 !border-2 !bg-background"
-                id={outcome}
+                id={outcome.name}
                 position={Position.Right}
                 style={{
                   top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,

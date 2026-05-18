@@ -39,7 +39,7 @@ plugins:
     metadata:
       mandatory_input:
         - name: selected_devices
-          description: Devices selected for configuration retrieval.
+          description: Devices selected for further attribute retrieval.
           data_type: device_list
           required: true
       configuration_input:

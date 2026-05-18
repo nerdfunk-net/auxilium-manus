@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { ReactNode, useState } from "react";
 
 import { createQueryClient } from "@/lib/query-client";
+import { Toaster } from "@/components/ui/toaster";
 
 import { AuthBootstrap } from "./auth-bootstrap";
 
@@ -18,6 +19,7 @@ export function AppProviders({ children }: AppProvidersProps) {
     <QueryClientProvider client={queryClient}>
       <AuthBootstrap />
       {children}
+      <Toaster />
     </QueryClientProvider>
   );
 }

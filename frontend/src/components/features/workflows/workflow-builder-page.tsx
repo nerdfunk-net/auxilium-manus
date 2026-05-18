@@ -31,6 +31,7 @@ import type {
   EdgeStyle,
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
+  WorkflowIOField,
   WorkflowNodeKind,
 } from "./types/workflow-canvas";
 import { mapCanvasToWorkflowDefinition } from "./utils/workflow-mapper";
@@ -304,8 +305,8 @@ export function WorkflowBuilderPage() {
       title: string;
       description: string;
       artifactType: string;
-      mandatoryInputs: string[];
-      outcomes: string[];
+      mandatoryInputs: WorkflowIOField[];
+      outcomes: WorkflowIOField[];
     }) => {
       const nextIndex = nodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;

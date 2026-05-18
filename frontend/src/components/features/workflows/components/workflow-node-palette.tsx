@@ -29,15 +29,15 @@ import { cn } from "@/lib/utils";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "../types/plugin-registry";
-import type { WorkflowNodeKind } from "../types/workflow-canvas";
+import type { WorkflowIOField, WorkflowNodeKind } from "../types/workflow-canvas";
 
 type PaletteItem = {
   kind: WorkflowNodeKind;
   label: string;
   description: string;
   artifactType: string;
-  mandatoryInputs: string[];
-  outcomes: string[];
+  mandatoryInputs: WorkflowIOField[];
+  outcomes: WorkflowIOField[];
   icon: LucideIcon;
 };
 
@@ -60,8 +60,8 @@ interface NodePaletteProps {
     title: string;
     description: string;
     artifactType: string;
-    mandatoryInputs: string[];
-    outcomes: string[];
+    mandatoryInputs: WorkflowIOField[];
+    outcomes: WorkflowIOField[];
   }) => void;
   plugins: PluginDefinition[];
 }
@@ -88,8 +88,14 @@ function toPaletteItem(plugin: PluginDefinition): PaletteItem {
     label: plugin.name,
     description: plugin.description,
     artifactType: plugin.artifact_type,
-    mandatoryInputs: plugin.metadata.mandatory_input.map((field) => field.name),
-    outcomes: plugin.metadata.outcomes.map((outcome) => outcome.name),
+    mandatoryInputs: plugin.metadata.mandatory_input.map((field) => ({
+      name: field.name,
+      dataType: field.data_type,
+    })),
+    outcomes: plugin.metadata.outcomes.map((outcome) => ({
+      name: outcome.name,
+      dataType: outcome.data_type ?? "",
+    })),
     icon: iconByArtifactType[plugin.artifact_type] ?? Code2,
   };
 }

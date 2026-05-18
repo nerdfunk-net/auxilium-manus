@@ -9,12 +9,15 @@ import {
   ReactFlow,
   type Connection,
   type EdgeTypes,
+  type FinalConnectionState,
   type NodeTypes,
   type OnEdgesChange,
   type OnNodesChange,
 } from "@xyflow/react";
 import type { Dispatch, MouseEvent, SetStateAction } from "react";
 import { useCallback } from "react";
+
+import { useToast } from "@/hooks/use-toast";
 
 import "@xyflow/react/dist/style.css";
 
@@ -23,6 +26,7 @@ import type { PluginDefinition } from "../types/plugin-registry";
 import type {
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
+  WorkflowIOField,
   WorkflowNodeKind,
 } from "../types/workflow-canvas";
 import { WaypointEdge } from "./edges/waypoint-edge";
@@ -51,8 +55,8 @@ interface WorkflowCanvasProps {
     title: string;
     description: string;
     artifactType: string;
-    mandatoryInputs: string[];
-    outcomes: string[];
+    mandatoryInputs: WorkflowIOField[];
+    outcomes: WorkflowIOField[];
   }) => void;
 }
 
@@ -72,6 +76,7 @@ export function WorkflowCanvas({
   const isActionsPanelVisible = useWorkflowBuilderStore(
     (state) => state.isActionsPanelVisible,
   );
+  const { toast } = useToast();
 
   const handleConnect = useCallback(
     (connection: Connection) => {
@@ -79,6 +84,39 @@ export function WorkflowCanvas({
     },
     [setEdges],
   );
+
+  const isValidConnection = useCallback(
+    (connection: Connection | WorkflowCanvasEdge): boolean => {
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const targetNode = nodes.find((n) => n.id === connection.target);
+      if (!sourceNode || !targetNode) return false;
+
+      const sourceOutcome = sourceNode.data.outcomes?.find(
+        (o) => o.name === connection.sourceHandle,
+      );
+      const targetInput = targetNode.data.mandatoryInputs?.find(
+        (i) => i.name === connection.targetHandle,
+      );
+
+      if (!sourceOutcome || !targetInput) return false;
+      return sourceOutcome.dataType !== "" && sourceOutcome.dataType === targetInput.dataType;
+    },
+    [nodes],
+  );
+  const handleConnectEnd = useCallback(
+    (_: unknown, connectionState: FinalConnectionState) => {
+      if (connectionState.isValid === false) {
+        toast({
+          title: "Incompatible step types",
+          description:
+            "The output type of the source step does not match the required input type of the target step.",
+          variant: "destructive",
+        });
+      }
+    },
+    [toast],
+  );
+
   const handleNodeClick = useCallback(
     (_: MouseEvent, node: WorkflowCanvasNode) => {
       selectNode(node.id);
@@ -106,6 +144,8 @@ export function WorkflowCanvas({
         onEdgesChange={onEdgesChange}
         defaultEdgeOptions={{ type: "waypoint" }}
         onConnect={handleConnect}
+        onConnectEnd={handleConnectEnd}
+        isValidConnection={isValidConnection}
         onEdgeClick={handleEdgeClick}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
