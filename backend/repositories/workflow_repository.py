@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid as uuid_mod
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -50,6 +51,7 @@ class WorkflowRepository:
         canvas_edges: list[dict[str, Any]] | None,
     ) -> Workflow:
         workflow = Workflow(
+            uuid=str(uuid_mod.uuid4()),
             name=name,
             creator_id=creator_id,
             description=description,

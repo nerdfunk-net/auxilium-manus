@@ -6,6 +6,7 @@ type WorkflowMode = "editor" | "executions";
 
 interface WorkflowMetadata {
   workflowId: number | null;
+  workflowUuid: string | null;
   workflowName: string;
   workflowDescription: string;
   workflowFolder: string;
@@ -31,6 +32,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   markRunning: (message?: string) => void;
   markError: (message: string) => void;
   setWorkflowId: (id: number | null) => void;
+  setWorkflowUuid: (uuid: string | null) => void;
   setWorkflowName: (name: string) => void;
   setWorkflowDescription: (description: string) => void;
   setWorkflowFolder: (folder: string) => void;
@@ -41,6 +43,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
 
 const NEW_WORKFLOW_DEFAULTS: WorkflowMetadata = {
   workflowId: null,
+  workflowUuid: null,
   workflowName: "Untitled Workflow",
   workflowDescription: "",
   workflowFolder: "/",
@@ -84,6 +87,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       lastAction: message,
     }),
   setWorkflowId: (workflowId) => set({ workflowId }),
+  setWorkflowUuid: (workflowUuid) => set({ workflowUuid }),
   setWorkflowName: (workflowName) => set({ workflowName }),
   setWorkflowDescription: (workflowDescription) => set({ workflowDescription }),
   setWorkflowFolder: (workflowFolder) => set({ workflowFolder }),

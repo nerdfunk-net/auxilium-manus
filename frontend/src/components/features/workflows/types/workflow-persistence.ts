@@ -20,6 +20,7 @@ export interface WorkflowUpdate {
 
 export interface WorkflowSummary {
   id: number;
+  uuid: string | null;
   name: string;
   creator_id: number | null;
   creator_username: string | null;

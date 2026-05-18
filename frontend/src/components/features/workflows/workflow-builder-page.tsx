@@ -136,6 +136,7 @@ export function WorkflowBuilderPage() {
         });
         loadWorkflow({
           workflowId: saved.id,
+          workflowUuid: saved.uuid ?? null,
           workflowName: saved.name,
           workflowDescription: saved.description ?? "",
           workflowFolder: saved.folder ?? "/",
@@ -242,6 +243,7 @@ export function WorkflowBuilderPage() {
           setEdges(loadedEdges);
           loadWorkflow({
             workflowId: full.id,
+            workflowUuid: full.uuid ?? null,
             workflowName: full.name,
             workflowDescription: full.description ?? "",
             workflowFolder: full.folder ?? "/",
@@ -307,6 +309,7 @@ export function WorkflowBuilderPage() {
     }) => {
       const nextIndex = nodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
+      const stepUuid = crypto.randomUUID();
 
       setNodes((currentNodes) => [
         ...currentNodes,
@@ -316,6 +319,7 @@ export function WorkflowBuilderPage() {
           position: { x: 160 + nextIndex * 44, y: 460 },
           data: {
             kind: step.kind,
+            stepUuid,
             title: step.title,
             description: step.description,
             artifactType: step.artifactType,

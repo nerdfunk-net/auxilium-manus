@@ -569,6 +569,11 @@ PORT=3000
 
 ## Development Workflow
 ```bash
+# IMPORTANT: Always use the project virtual environment for Python commands.
+# The venv is at /.venv/ (project root, not backend/), using Python 3.14.
+# Wrong: python start.py  →  Right: ../.venv/bin/python start.py  (or activate first)
+source ../.venv/bin/activate  # run once to activate, then use `python` normally
+
 # Terminal 1 - Backend
 cd backend && python start.py
 

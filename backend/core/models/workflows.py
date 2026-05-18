@@ -12,6 +12,7 @@ class Workflow(Base):
     __tablename__ = "workflows"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     creator_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True

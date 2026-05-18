@@ -5,6 +5,7 @@ export type WorkflowNodeKind = string;
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
+  stepUuid?: string;
   title: string;
   description: string;
   artifactType?: string;

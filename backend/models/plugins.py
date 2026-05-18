@@ -33,7 +33,7 @@ class PluginMetadata(BaseModel):
     outcomes: list[PluginOutcome] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_unique_outcome_names(self) -> "PluginMetadata":
+    def validate_unique_outcome_names(self) -> PluginMetadata:
         outcome_names = [outcome.name for outcome in self.outcomes]
 
         if len(outcome_names) != len(set(outcome_names)):
@@ -80,18 +80,63 @@ class PluginRegistryResponse(BaseModel):
     plugins: list[PluginDefinition]
 
 
+class LogicalConditionRequest(BaseModel):
+    field: str
+    operator: str
+    value: str
+
+
+class LogicalOperationRequest(BaseModel):
+    operation_type: str
+    conditions: list[LogicalConditionRequest] = Field(default_factory=list)
+    nested_operations: list[LogicalOperationRequest] = Field(default_factory=list)
+
+
+LogicalOperationRequest.model_rebuild()
+
+
 class DeviceSelectionPreviewRequest(BaseModel):
-    inventory_source: str = Field(..., min_length=1)
-    device_filter: dict[str, str] = Field(default_factory=dict)
+    nautobot_url: str = Field(..., min_length=1)
+    nautobot_token: str = Field(..., min_length=1)
+    operations: list[LogicalOperationRequest] = Field(default_factory=list)
 
 
 class DevicePreview(BaseModel):
-    name: str
-    site: str | None = None
+    id: str
+    name: str | None = None
+    serial: str | None = None
+    location: str | None = None
     role: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    device_type: str | None = None
+    manufacturer: str | None = None
+    platform: str | None = None
+    primary_ip4: str | None = None
     status: str | None = None
 
 
 class DeviceSelectionPreviewResponse(BaseModel):
     devices: list[DevicePreview]
     total: int
+
+
+class FieldOption(BaseModel):
+    value: str
+    label: str
+
+
+class FieldOptionsResponse(BaseModel):
+    fields: list[FieldOption]
+    operators: list[FieldOption]
+
+
+class FieldValuesRequest(BaseModel):
+    nautobot_url: str = Field(..., min_length=1)
+    nautobot_token: str = Field(..., min_length=1)
+    field: str = Field(..., min_length=1)
+
+
+class FieldValuesResponse(BaseModel):
+    field: str
+    values: list[str]
+    input_type: str

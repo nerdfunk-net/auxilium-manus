@@ -28,6 +28,7 @@ class WorkflowUpdate(BaseModel):
 
 class WorkflowSummary(BaseModel):
     id: int
+    uuid: str | None
     name: str
     creator_id: int | None
     creator_username: str | None

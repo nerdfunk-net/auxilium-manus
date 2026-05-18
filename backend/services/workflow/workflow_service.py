@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSummary:
     return WorkflowSummary(
         id=workflow.id,
+        uuid=workflow.uuid,
         name=workflow.name,
         creator_id=workflow.creator_id,
         creator_username=creator_username,
@@ -36,6 +37,7 @@ def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSum
 def _to_response(workflow: Workflow, creator_username: str | None) -> WorkflowResponse:
     return WorkflowResponse(
         id=workflow.id,
+        uuid=workflow.uuid,
         name=workflow.name,
         creator_id=workflow.creator_id,
         creator_username=creator_username,
