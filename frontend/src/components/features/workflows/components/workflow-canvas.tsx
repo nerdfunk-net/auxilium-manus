@@ -52,7 +52,6 @@ interface WorkflowCanvasProps {
     description: string;
     artifactType: string;
     mandatoryInputs: string[];
-    supportedOutputs: string[];
     outcomes: string[];
   }) => void;
 }

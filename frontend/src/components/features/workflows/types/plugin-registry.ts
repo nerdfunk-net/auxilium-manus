@@ -10,12 +10,13 @@ export interface PluginIOField {
 export interface PluginOutcome {
   name: string;
   description: string;
+  data_type?: string;
+  example?: unknown;
 }
 
 export interface PluginMetadata {
   mandatory_input: PluginIOField[];
   configuration_input: PluginIOField[];
-  supported_output: PluginIOField[];
   outcomes: PluginOutcome[];
 }
 

@@ -10,7 +10,6 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   description: string;
   artifactType?: string;
   mandatoryInputs?: string[];
-  supportedOutputs?: string[];
   status?: "ready" | "draft" | "running" | "success" | "warning";
   command?: string;
   condition?: string;

@@ -8,7 +8,7 @@ import type {
 } from "../types/workflow-canvas";
 
 function getPrimaryOutputKey(node: WorkflowCanvasNode | undefined) {
-  return node?.data.supportedOutputs?.[0] ?? "unknown";
+  return node?.data.outcomes?.[0] ?? "unknown";
 }
 
 function getPrimaryInputKey(node: WorkflowCanvasNode) {

@@ -37,7 +37,6 @@ type PaletteItem = {
   description: string;
   artifactType: string;
   mandatoryInputs: string[];
-  supportedOutputs: string[];
   outcomes: string[];
   icon: LucideIcon;
 };
@@ -62,7 +61,6 @@ interface NodePaletteProps {
     description: string;
     artifactType: string;
     mandatoryInputs: string[];
-    supportedOutputs: string[];
     outcomes: string[];
   }) => void;
   plugins: PluginDefinition[];
@@ -91,7 +89,6 @@ function toPaletteItem(plugin: PluginDefinition): PaletteItem {
     description: plugin.description,
     artifactType: plugin.artifact_type,
     mandatoryInputs: plugin.metadata.mandatory_input.map((field) => field.name),
-    supportedOutputs: plugin.metadata.supported_output.map((field) => field.name),
     outcomes: plugin.metadata.outcomes.map((outcome) => outcome.name),
     icon: iconByArtifactType[plugin.artifact_type] ?? Code2,
   };
@@ -147,7 +144,6 @@ export function NodePalette({
         description: item.description,
         artifactType: item.artifactType,
         mandatoryInputs: item.mandatoryInputs,
-        supportedOutputs: item.supportedOutputs,
         outcomes: item.outcomes,
       });
     },

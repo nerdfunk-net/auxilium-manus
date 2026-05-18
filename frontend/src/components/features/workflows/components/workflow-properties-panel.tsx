@@ -2,7 +2,6 @@
 
 import {
   ArrowDownToLine,
-  ArrowUpFromLine,
   ChevronsRight,
   GitBranch,
   MoveRight,
@@ -88,7 +87,14 @@ function FieldRow({ field }: { field: PluginIOField }) {
 function OutcomeRow({ outcome }: { outcome: PluginOutcome }) {
   return (
     <div className="rounded-lg border bg-background/60 px-3 py-2">
-      <span className="font-mono text-xs font-medium">{outcome.name}</span>
+      <div className="flex items-center gap-1.5">
+        <span className="font-mono text-xs font-medium">{outcome.name}</span>
+        {outcome.data_type ? (
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            {outcome.data_type}
+          </Badge>
+        ) : null}
+      </div>
       {outcome.description ? (
         <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
           {outcome.description}
@@ -345,15 +351,6 @@ export function WorkflowPropertiesPanel({
                       label="Mandatory inputs"
                     />
                     {plugin.metadata.mandatory_input.map((field) => (
-                      <FieldRow field={field} key={field.name} />
-                    ))}
-                  </div>
-                ) : null}
-
-                {plugin.metadata.supported_output.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <SectionHeader icon={ArrowUpFromLine} label="Outputs" />
-                    {plugin.metadata.supported_output.map((field) => (
                       <FieldRow field={field} key={field.name} />
                     ))}
                   </div>

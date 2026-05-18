@@ -12,13 +12,12 @@ plugins:
     directory: get_nautobot_devices
     enabled: true
     metadata:
-      # Source node: all inputs are configured in the UI, not received from previous nodes.
       configuration_input:
         - name: inventory_source
           description: Inventory provider used to resolve target devices.
-          data_type: string
+          data_type: dict
           required: true
-          example: nautobot
+          example: {'url': 'localhost:8000', 'token': 'abc123'}
         - name: device_filter
           description: Filter expression that selects devices for this workflow.
           data_type: object
@@ -26,18 +25,10 @@ plugins:
           example:
             site: dc1
             role: leaf
-      supported_output:
+      outcomes:
         - name: selected_devices
           description: Devices selected for downstream workflow steps.
           data_type: device_list
-        - name: selection_metadata
-          description: Metadata about the inventory query and selected count.
-          data_type: object
-      outcomes:
-        - name: success
-          description: Devices were selected successfully.
-        - name: failure
-          description: Device selection failed.
 
   - id: get-nautboot-attributes
     name: Get Nautobot Attributes
@@ -59,15 +50,13 @@ plugins:
           example:
             - location
             - role      
-      supported_output:
+      outcomes:
         - name: attributes_by_device
           description: Retrieved Nautobot attributes organized by device.
           data_type: device_attribute_map
-      outcomes:
-        - name: success
-          description: Devices were selected successfully.
         - name: failure
-          description: Device selection failed.
+          description: Attribute retrieval failed.
+          data_type: device_list
 
   - id: get-device-configs
     name: Get Configs
@@ -92,15 +81,14 @@ plugins:
           required: false
           default: running
           example: running
-      supported_output:
+      outcomes:
         - name: configuration
           description: Running and startup configuration of the selected devices.
           data_type: text_map
-      outcomes:
-        - name: success
-          description: Configurations were retrieved successfully.
         - name: failure
           description: Configuration retrieval failed.
+          data_type: dict
+          example: {'device1': 'timeout', 'device2': 'authentication failure'}
 
   - id: run-command
     name: Run Command
@@ -126,51 +114,43 @@ plugins:
           example:
             - show version
             - show running-config
-      supported_output:
+      outcomes:
         - name: command_results
           description: Structured command results split by device and command.
           data_type: command_result_list
         - name: raw_output
           description: Raw CLI output grouped by device.
           data_type: text_map
-      outcomes:
-        - name: success
-          description: Commands were executed successfully.
         - name: failure
           description: Command execution failed.
+          data_type: dict
+          example: {'device1': 'timeout', 'device2': 'authentication failure'}
 
-  - id: condition
-    name: Condition
-    description: Branch workflow execution based on metadata or content values.
+  - id: cisco-device-os
+    name: Name of Cisco Device OS
+    description: Identify the operating system running on each device.
     artifact_type: control_flow
     directory: condition
     enabled: true
     metadata:
       mandatory_input:
-        - name: input_reference
-          description: Reference to data emitted by an earlier workflow step.
-          data_type: output_ref
+        - name: devices
+          description: List of devices to evaluate.
+          data_type: device_list
           required: true
-      configuration_input:
-        - name: expression
-          description: Boolean expression evaluated against previous step output.
-          data_type: expression
-          required: true
-          example: command_results[*].exit_code == 0
-      supported_output:
-        - name: branch_result
-          description: Boolean result used to choose the next workflow path.
-          data_type: boolean
-        - name: evaluation_metadata
-          description: Expression evaluation details for audit and debugging.
-          data_type: object
       outcomes:
-        - name: "true"
-          description: Expression evaluated to true.
-        - name: "false"
-          description: Expression evaluated to false.
-        - name: failure
-          description: Expression evaluation failed.
+        - name: ios
+          description: If the device is running Cisco IOS.
+          data_type: device_list
+        - name: ios_xe
+          description: If the device is running Cisco IOS XE.
+          data_type: device_list
+        - name: ios_xr
+          description: If the device is running Cisco IOS XR.
+          data_type: device_list
+        - name: nxos
+          description: If the device is running Cisco NX-OS.
+          data_type: device_list
 
   - id: store-artifact
     name: Store Artifact
@@ -190,13 +170,6 @@ plugins:
           data_type: string
           required: true
           example: standard-90-days
-      supported_output:
-        - name: artifact_id
-          description: Durable artifact identifier.
-          data_type: string
-        - name: artifact_metadata
-          description: Stored artifact metadata including size, timestamps, and hash.
-          data_type: object
       outcomes:
         - name: success
           description: Artifact was stored successfully.

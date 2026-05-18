@@ -305,7 +305,6 @@ export function WorkflowBuilderPage() {
       description: string;
       artifactType: string;
       mandatoryInputs: string[];
-      supportedOutputs: string[];
       outcomes: string[];
     }) => {
       const nextIndex = nodes.length + 1;
@@ -325,7 +324,6 @@ export function WorkflowBuilderPage() {
             description: step.description,
             artifactType: step.artifactType,
             mandatoryInputs: step.mandatoryInputs,
-            supportedOutputs: step.supportedOutputs,
             outcomes: step.outcomes,
             status: "draft",
           },

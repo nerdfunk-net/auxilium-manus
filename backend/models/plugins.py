@@ -22,6 +22,8 @@ class PluginOutcome(BaseModel):
 
     name: str = Field(..., min_length=1, pattern=r"^[a-z][a-z0-9_-]*$")
     description: str = Field(..., min_length=1)
+    data_type: str | None = None
+    example: Any = None
 
 
 class PluginMetadata(BaseModel):
@@ -29,7 +31,6 @@ class PluginMetadata(BaseModel):
 
     mandatory_input: list[PluginIOField] = Field(default_factory=list)
     configuration_input: list[PluginIOField] = Field(default_factory=list)
-    supported_output: list[PluginIOField] = Field(default_factory=list)
     outcomes: list[PluginOutcome] = Field(default_factory=list)
 
     @model_validator(mode="after")
