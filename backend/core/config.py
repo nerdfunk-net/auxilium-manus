@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / "backend"
-DEFAULT_PLUGINS_FILE = PROJECT_ROOT / "plugins" / "plugins.yaml"
+DEFAULT_PLUGINS_FILE = BACKEND_ROOT / "workflow_steps" / "registry.yaml"
 DEFAULT_ENV_FILE = BACKEND_ROOT / ".env"
 DEFAULT_SECRET_KEY = "change-in-production-use-at-least-32-characters"
 DEFAULT_INITIAL_PASSWORD = "admin"

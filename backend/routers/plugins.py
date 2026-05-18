@@ -13,7 +13,7 @@ from models.plugins import (
     PluginListResponse,
     PluginRegistryResponse,
 )
-from plugins.nautobot_inventory_selector.backend.preview import (
+from workflow_steps.device_selection.preview import (
     NautobotNotConfiguredError,
     preview_device_selection,
 )

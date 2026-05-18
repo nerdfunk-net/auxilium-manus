@@ -9,7 +9,7 @@ plugins:
     name: Device Selection
     description: Select one or more target devices from the inventory.
     artifact_type: inventory_selector
-    directory: nautobot_inventory_selector
+    directory: device_selection
     enabled: true
     metadata:
       # Source node: all inputs are configured in the UI, not received from previous nodes.
@@ -43,7 +43,7 @@ plugins:
     name: Get Nautobot Attributes
     description: Retrieve attributes from Nautobot for selected devices.
     artifact_type: inventory_selector
-    directory: nautobot_attribute_retriever
+    directory: nautobot_attributes
     enabled: true
     metadata:
       mandatory_input:
@@ -143,7 +143,7 @@ plugins:
     name: Condition
     description: Branch workflow execution based on metadata or content values.
     artifact_type: control_flow
-    directory: conditions/simple_condition
+    directory: condition
     enabled: true
     metadata:
       mandatory_input:

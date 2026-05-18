@@ -2,8 +2,8 @@ import sys
 from os import environ
 from pathlib import Path
 
-# Expose the repo root so that plugin packages (plugins/*/backend/) are importable.
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Ensure the backend directory is on sys.path so workflow_steps packages are importable.
+sys.path.insert(0, str(Path(__file__).parent))
 
 import uvicorn  # noqa: E402
 
