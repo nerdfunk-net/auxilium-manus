@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -81,6 +82,7 @@ export function InventoryBuilderDialog({
       <DialogContent className="flex h-[80vh] max-w-4xl flex-col gap-0 p-0">
         {/* Header */}
         <DialogHeader className="shrink-0 border-b bg-primary px-6 py-3">
+          <DialogDescription className="sr-only">Build filter conditions to select devices from the inventory.</DialogDescription>
           <DialogTitle className="flex items-center gap-2 text-primary-foreground">
             <Filter className="h-4 w-4" />
             Device Filter

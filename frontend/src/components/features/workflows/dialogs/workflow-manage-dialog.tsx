@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -178,6 +179,7 @@ export function WorkflowManageDialog({ open, onClose }: WorkflowManageDialogProp
       <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>Manage Workflows</DialogTitle>
+          <DialogDescription>View, rename, and delete your saved workflows.</DialogDescription>
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -55,6 +56,7 @@ export function InventorySourceDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Configure Nautobot Source</DialogTitle>
+          <DialogDescription>Set the Nautobot URL and API token for device inventory.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">

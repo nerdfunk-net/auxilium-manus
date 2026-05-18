@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { Plus, Trash2, RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,6 @@ import { useDeviceSelectionFieldValuesQuery } from "@/hooks/queries/use-device-s
 import {
   emptyTree,
   isCondition,
-  isGroup,
   type FilterCondition,
   type FilterGroup,
   type FilterItem,

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -408,11 +409,11 @@ export function WorkflowBuilderPage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogDescription>
+              The current workflow has unsaved changes. Creating a new workflow
+              will discard them permanently.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            The current workflow has unsaved changes. Creating a new workflow
-            will discard them permanently.
-          </p>
           <DialogFooter>
             <Button
               variant="outline"
@@ -434,11 +435,11 @@ export function WorkflowBuilderPage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Unsaved changes</DialogTitle>
+            <DialogDescription>
+              The current workflow has unsaved changes. Save before opening
+              another workflow?
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            The current workflow has unsaved changes. Save before opening
-            another workflow?
-          </p>
           <DialogFooter className="flex-col gap-2 sm:flex-row">
             <Button
               variant="outline"

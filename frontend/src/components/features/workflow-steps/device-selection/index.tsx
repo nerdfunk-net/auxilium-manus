@@ -43,7 +43,6 @@ function filterFromConfig(config: Record<string, unknown>): FilterTree {
 }
 
 function DeviceSelectionConfigPanel({
-  nodeId,
   config,
   onChange,
 }: PluginConfigPanelProps) {
