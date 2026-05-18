@@ -1,4 +1,4 @@
-import type { LogicalConditionPayload, LogicalOperationPayload } from "@/hooks/queries/use-device-selection-preview-mutation";
+import type { LogicalConditionPayload, LogicalOperationPayload } from "@/hooks/queries/use-get-nautobot-devices-preview-mutation";
 import { isCondition, isGroup } from "./types";
 import type { FilterTree, FilterGroup } from "./types";
 

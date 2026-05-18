@@ -39,11 +39,11 @@ interface PreviewRequest {
   operations: LogicalOperationPayload[];
 }
 
-export function useDeviceSelectionPreviewMutation() {
+export function useGetNautobotDevicesPreviewMutation() {
   const { apiCall } = useApi();
   return useMutation<PreviewResponse, Error, PreviewRequest>({
     mutationFn: (data) =>
-      apiCall("workflow-steps/device-selection/preview", {
+      apiCall("workflow-steps/get-nautobot-devices/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

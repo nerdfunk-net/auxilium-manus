@@ -29,7 +29,7 @@ interface DeviceSelectionPreviewDialogProps {
 
 async function fetchDevicePreview(config: PreviewConfig): Promise<PreviewResponse> {
   const response = await fetch(
-    "/api/proxy/workflow-steps/device-selection/preview",
+    "/api/proxy/workflow-steps/get-nautobot-devices/preview",
     {
       method: "POST",
       credentials: "include",
@@ -62,7 +62,7 @@ export function DeviceSelectionPreviewDialog({
 }: DeviceSelectionPreviewDialogProps) {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: [
-      "device-selection-preview",
+      "get-nautobot-devices-preview",
       config.inventory_source,
       JSON.stringify(config.device_filter),
     ],

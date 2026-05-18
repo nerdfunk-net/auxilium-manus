@@ -13,12 +13,12 @@ export interface FieldOptionsResponse {
   operators: FieldOption[];
 }
 
-export function useDeviceSelectionFieldOptionsQuery() {
+export function useGetNautobotDevicesFieldOptionsQuery() {
   const { apiCall } = useApi();
   return useQuery<FieldOptionsResponse>({
-    queryKey: queryKeys.deviceSelection.fieldOptions,
+    queryKey: queryKeys.getNautobotDevices.fieldOptions,
     queryFn: () =>
-      apiCall("workflow-steps/device-selection/field-options", { method: "GET" }),
+      apiCall("workflow-steps/get-nautobot-devices/field-options", { method: "GET" }),
     staleTime: Infinity,
   });
 }

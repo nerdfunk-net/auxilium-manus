@@ -22,12 +22,12 @@ from models.plugins import (
     PluginRegistryResponse,
 )
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
-from workflow_steps.device_selection.models import (
+from workflow_steps.get_nautobot_devices.models import (
     LogicalCondition,
     LogicalOperation,
 )
-from workflow_steps.device_selection.nautobot.evaluator import NautobotEvaluator
-from workflow_steps.device_selection.nautobot.query_service import NautobotQueryService
+from workflow_steps.get_nautobot_devices.nautobot.evaluator import NautobotEvaluator
+from workflow_steps.get_nautobot_devices.nautobot.query_service import NautobotQueryService
 
 _WORKFLOW_STEPS_ROOT = Path(__file__).resolve().parent.parent / "workflow_steps"
 
@@ -99,7 +99,7 @@ async def get_plugin_registry(
     return PluginRegistryResponse(schema_version=registry.schema_version, plugins=registry.plugins)
 
 
-@router.get("/device-selection/field-options", response_model=FieldOptionsResponse)
+@router.get("/get-nautobot-devices/field-options", response_model=FieldOptionsResponse)
 async def get_field_options(
     _: dict = Depends(get_current_user),
 ) -> FieldOptionsResponse:
@@ -107,7 +107,7 @@ async def get_field_options(
     return FieldOptionsResponse(fields=_FIELD_OPTIONS, operators=_OPERATOR_OPTIONS)
 
 
-@router.post("/device-selection/field-values", response_model=FieldValuesResponse)
+@router.post("/get-nautobot-devices/field-values", response_model=FieldValuesResponse)
 async def get_field_values(
     body: FieldValuesRequest,
     _: dict = Depends(get_current_user),
@@ -132,7 +132,7 @@ async def get_field_values(
     return FieldValuesResponse(field=body.field, values=values, input_type=input_type)
 
 
-@router.post("/device-selection/preview", response_model=DeviceSelectionPreviewResponse)
+@router.post("/get-nautobot-devices/preview", response_model=DeviceSelectionPreviewResponse)
 async def preview_device_selection_endpoint(
     body: DeviceSelectionPreviewRequest,
     _: dict = Depends(get_current_user),

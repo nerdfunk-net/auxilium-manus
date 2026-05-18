@@ -7,10 +7,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from workflow_steps.device_selection.models import DeviceInfo, LogicalCondition, LogicalOperation
+from workflow_steps.get_nautobot_devices.models import DeviceInfo, LogicalCondition, LogicalOperation
 
 if TYPE_CHECKING:
-    from workflow_steps.device_selection.nautobot.query_service import NautobotQueryService
+    from workflow_steps.get_nautobot_devices.nautobot.query_service import NautobotQueryService
 
 logger = logging.getLogger(__name__)
 

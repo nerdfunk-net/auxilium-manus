@@ -5,12 +5,12 @@ import type {
 
 export const initialWorkflowNodes: WorkflowCanvasNode[] = [
   {
-    id: "device-selection",
+    id: "get-nautobot-devices",
     type: "workflowNode",
     position: { x: 80, y: 210 },
     data: {
-      kind: "device-selection",
-      title: "Device Selection",
+      kind: "get-nautobot-devices",
+      title: "Get from Nautobot",
       description: "Choose target devices from inventory.",
       artifactType: "inventory_selector",
       mandatoryInputs: [],
@@ -85,9 +85,9 @@ export const initialWorkflowNodes: WorkflowCanvasNode[] = [
 
 export const initialWorkflowEdges: WorkflowCanvasEdge[] = [
   {
-    id: "device-selection-to-get-configs",
+    id: "get-nautobot-devices-to-get-configs",
     type: "waypoint",
-    source: "device-selection",
+    source: "get-nautobot-devices",
     sourceHandle: "success",
     target: "get-configs",
     animated: false,

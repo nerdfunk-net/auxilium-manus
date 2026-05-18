@@ -16,7 +16,7 @@ interface UseFieldValuesOptions {
   enabled?: boolean;
 }
 
-export function useDeviceSelectionFieldValuesQuery({
+export function useGetNautobotDevicesFieldValuesQuery({
   nautobot_url,
   nautobot_token,
   field,
@@ -26,9 +26,9 @@ export function useDeviceSelectionFieldValuesQuery({
   const hasCredentials = Boolean(nautobot_url && nautobot_token);
 
   return useQuery<FieldValuesResponse>({
-    queryKey: queryKeys.deviceSelection.fieldValues(field),
+    queryKey: queryKeys.getNautobotDevices.fieldValues(field),
     queryFn: () =>
-      apiCall("workflow-steps/device-selection/field-values", {
+      apiCall("workflow-steps/get-nautobot-devices/field-values", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nautobot_url, nautobot_token, field }),

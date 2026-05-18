@@ -145,6 +145,6 @@ function DeviceSelectionConfigPanel({
   );
 }
 
-export const DeviceSelectionPlugin: PluginUIComponent = {
+export const GetNautobotDevicesPlugin: PluginUIComponent = {
   ConfigPanel: DeviceSelectionConfigPanel,
 };

@@ -12,8 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDeviceSelectionFieldOptionsQuery } from "@/hooks/queries/use-device-selection-field-options-query";
-import { useDeviceSelectionFieldValuesQuery } from "@/hooks/queries/use-device-selection-field-values-query";
+import { useGetNautobotDevicesFieldOptionsQuery } from "@/hooks/queries/use-get-nautobot-devices-field-options-query";
+import { useGetNautobotDevicesFieldValuesQuery } from "@/hooks/queries/use-get-nautobot-devices-field-values-query";
 
 import {
   emptyTree,
@@ -43,7 +43,7 @@ function ConditionRow({
   onUpdate,
   onRemove,
 }: ConditionRowProps) {
-  const { data: valuesData } = useDeviceSelectionFieldValuesQuery({
+  const { data: valuesData } = useGetNautobotDevicesFieldValuesQuery({
     nautobot_url,
     nautobot_token,
     field: condition.field,
@@ -330,7 +330,7 @@ export function ConditionBuilder({
   nautobot_token,
   onChange,
 }: ConditionBuilderProps) {
-  const { data: fieldOptions } = useDeviceSelectionFieldOptionsQuery();
+  const { data: fieldOptions } = useGetNautobotDevicesFieldOptionsQuery();
   const fields = fieldOptions?.fields ?? [];
   const operators = fieldOptions?.operators ?? [];
 

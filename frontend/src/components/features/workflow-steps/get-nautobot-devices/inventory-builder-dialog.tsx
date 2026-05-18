@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useDeviceSelectionPreviewMutation } from "@/hooks/queries/use-device-selection-preview-mutation";
+import { useGetNautobotDevicesPreviewMutation } from "@/hooks/queries/use-get-nautobot-devices-preview-mutation";
 
 import { ConditionBuilder } from "./condition-builder/condition-builder";
 import { treeToOperations } from "./condition-builder/tree-to-operation";
@@ -37,7 +37,7 @@ export function InventoryBuilderDialog({
   onApply,
 }: InventoryBuilderDialogProps) {
   const [tree, setTree] = useState<FilterTree>(initialTree);
-  const previewMutation = useDeviceSelectionPreviewMutation();
+  const previewMutation = useGetNautobotDevicesPreviewMutation();
 
   const hasSource = Boolean(nautobot_url && nautobot_token);
 

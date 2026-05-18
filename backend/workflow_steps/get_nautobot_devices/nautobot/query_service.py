@@ -8,8 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from workflow_steps.device_selection.models import DeviceInfo
-from workflow_steps.device_selection.nautobot.client import graphql_query
+from workflow_steps.get_nautobot_devices.models import DeviceInfo
+from workflow_steps.get_nautobot_devices.nautobot.client import graphql_query
 
 logger = logging.getLogger(__name__)
 

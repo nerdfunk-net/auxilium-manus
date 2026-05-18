@@ -5,11 +5,11 @@
 schema_version: 1
 
 plugins:
-  - id: device-selection
-    name: Device Selection
+  - id: get-nautobot-devices
+    name: Get from Nautobot
     description: Select one or more target devices from the inventory.
     artifact_type: inventory_selector
-    directory: device_selection
+    directory: get_nautobot_devices
     enabled: true
     metadata:
       # Source node: all inputs are configured in the UI, not received from previous nodes.
