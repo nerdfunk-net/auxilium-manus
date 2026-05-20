@@ -17,12 +17,17 @@ import { useGetNautobotDevicesPreviewMutation } from "@/hooks/queries/use-get-na
 import { ConditionBuilder } from "./condition-builder/condition-builder";
 import { treeToOperations } from "./condition-builder/tree-to-operation";
 import { countConditions, type FilterTree } from "./condition-builder/types";
+import type { SavedInventory } from "./types/saved-inventory";
 
 interface DeviceFilterCardProps {
   tree: FilterTree;
   nautobot_url: string;
   nautobot_token: string;
   onChange: (tree: FilterTree) => void;
+  loadedInventory?: SavedInventory | null;
+  onSave?: () => void;
+  onSaveAs?: () => void;
+  onLoad?: () => void;
   /** When omitted (e.g. inside the filter modal), Manage Inventory is hidden. */
   onManageInventory?: () => void;
   className?: string;
@@ -33,6 +38,10 @@ export function DeviceFilterCard({
   nautobot_url,
   nautobot_token,
   onChange,
+  loadedInventory = null,
+  onSave,
+  onSaveAs,
+  onLoad,
   onManageInventory,
   className,
 }: DeviceFilterCardProps) {
@@ -40,6 +49,7 @@ export function DeviceFilterCard({
   const hasSource = Boolean(nautobot_url && nautobot_token);
   const conditionCount = countConditions(tree);
   const canPreview = hasSource && conditionCount > 0;
+  const canSave = conditionCount > 0;
 
   const handlePreview = useCallback(() => {
     const operations = treeToOperations(tree);
@@ -50,7 +60,6 @@ export function DeviceFilterCard({
     <div
       className={`flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm ${className ?? ""}`}
     >
-      {/* Header — sky blue like legacy inventory builder */}
       <div className="flex items-center justify-between bg-sky-500 px-4 py-2.5 text-white">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Filter className="h-4 w-4 shrink-0" aria-hidden />
@@ -58,6 +67,14 @@ export function DeviceFilterCard({
           {conditionCount > 0 ? (
             <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium">
               {conditionCount} condition{conditionCount !== 1 ? "s" : ""}
+            </span>
+          ) : null}
+          {loadedInventory ? (
+            <span
+              className="max-w-[140px] truncate rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-normal"
+              title={loadedInventory.name}
+            >
+              {loadedInventory.name}
             </span>
           ) : null}
         </div>
@@ -71,7 +88,6 @@ export function DeviceFilterCard({
         </button>
       </div>
 
-      {/* Body */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/80 p-4">
         {!hasSource ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -149,7 +165,6 @@ export function DeviceFilterCard({
         )}
       </div>
 
-      {/* Footer actions */}
       <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white px-4 py-3">
         <Button
           className="h-8 gap-1.5 rounded-lg text-xs"
@@ -168,9 +183,14 @@ export function DeviceFilterCard({
         </Button>
         <Button
           className="h-8 gap-1.5 rounded-lg text-xs"
-          disabled
+          disabled={!canSave || !onSave}
+          onClick={onSave}
           size="sm"
-          title="Filter is saved automatically with the workflow step"
+          title={
+            loadedInventory
+              ? `Update "${loadedInventory.name}"`
+              : "Save as a new filter (opens save dialog)"
+          }
           type="button"
           variant="secondary"
         >
@@ -179,9 +199,9 @@ export function DeviceFilterCard({
         </Button>
         <Button
           className="h-8 gap-1.5 rounded-lg text-xs"
-          disabled
+          disabled={!canSave || !onSaveAs}
+          onClick={onSaveAs}
           size="sm"
-          title="Coming soon"
           type="button"
           variant="secondary"
         >
@@ -190,9 +210,9 @@ export function DeviceFilterCard({
         </Button>
         <Button
           className="h-8 gap-1.5 rounded-lg border-slate-300 text-xs"
-          disabled
+          disabled={!onLoad}
+          onClick={onLoad}
           size="sm"
-          title="Coming soon"
           type="button"
           variant="outline"
         >
