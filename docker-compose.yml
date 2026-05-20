@@ -7,7 +7,7 @@
 #
 # Hatchet first-time setup:
 #   1. docker compose up -d
-#   2. Wait for hatchet-setup-config to finish (docker compose logs -f hatchet-setup-config)
+#   2. Wait ~60s for hatchet-setup-config to complete and hatchet-dashboard to start
 #   3. Open http://localhost:8888, sign in (admin@example.com / Admin1234!)
 #   4. Settings → API Tokens → Create Token → copy token
 #   5. Add to backend/.env:
@@ -22,6 +22,8 @@ services:
     restart: unless-stopped
     ports:
       - "5432:5432"
+    networks:
+      - internal
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -40,6 +42,8 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+    networks:
+      - internal
     volumes:
       - redis_data:/data
 
@@ -47,6 +51,8 @@ services:
   hatchet-postgres:
     image: postgres:15
     restart: unless-stopped
+    networks:
+      - internal
     environment:
       POSTGRES_USER: hatchet
       POSTGRES_PASSWORD: hatchet
@@ -62,6 +68,8 @@ services:
   hatchet-rabbitmq:
     image: rabbitmq:3-management
     restart: unless-stopped
+    networks:
+      - internal
     environment:
       RABBITMQ_DEFAULT_USER: hatchet
       RABBITMQ_DEFAULT_PASS: hatchet
@@ -73,82 +81,87 @@ services:
       timeout: 10s
       retries: 5
 
-  # Runs DB migrations and generates initial config + TLS certs
-  hatchet-setup-config:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.53.15
-    command: >
-      /hatchet-admin quickstart
-        --skip env
-        --generated-config-dir /hatchet/config
-        --overwrite=false
+  # Step 1: run DB migrations
+  hatchet-migrate:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.86.23
+    command: /hatchet/hatchet-migrate
     depends_on:
       hatchet-postgres:
         condition: service_healthy
+    networks:
+      - internal
     environment:
-      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
-      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
-      SERVER_AUTH_COOKIE_SECRETS: "devonly-secret-1 devonly-secret-2"
-      SERVER_GRPC_BROADCAST_ADDRESS: "localhost:7077"
-      SERVER_URL: "http://localhost:8888"
-      SERVER_AUTH_COOKIE_INSECURE: "t"
-      SERVER_GRPC_INSECURE: "t"
-    volumes:
-      - hatchet_config:/hatchet/config
-      - hatchet_certs:/hatchet/certs
+      DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
 
-  hatchet-engine:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.53.15
-    restart: on-failure
+  # Step 2: generate encryption keys, seed admin user (skips cert generation)
+  hatchet-setup-config:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.86.23
+    command: /hatchet/hatchet-admin quickstart --skip certs --generated-config-dir /hatchet/config --overwrite=false
     depends_on:
-      hatchet-postgres:
-        condition: service_healthy
+      hatchet-migrate:
+        condition: service_completed_successfully
       hatchet-rabbitmq:
         condition: service_healthy
-      hatchet-setup-config:
-        condition: service_completed_successfully
-    environment:
-      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
-      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
-      SERVER_AUTH_COOKIE_SECRETS: "devonly-secret-1 devonly-secret-2"
-      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
-      SERVER_GRPC_BROADCAST_ADDRESS: "localhost:7077"
-      SERVER_GRPC_INSECURE: "t"
-      SERVER_AUTH_COOKIE_INSECURE: "t"
-      SERVER_URL: "http://localhost:8888"
-    volumes:
-      - hatchet_config:/hatchet/config
-      - hatchet_certs:/hatchet/certs
-    ports:
-      - "7077:7077"
-
-  hatchet-api:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.53.15
-    restart: on-failure
-    depends_on:
       hatchet-postgres:
         condition: service_healthy
+    networks:
+      - internal
+    environment:
+      DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
+      SERVER_MSGQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+      SERVER_AUTH_COOKIE_DOMAIN: "localhost:8888"
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_GRPC_BROADCAST_ADDRESS: "localhost:7077"
+      SERVER_DEFAULT_ENGINE_VERSION: "V1"
+      SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7070"
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+
+  # Step 3: engine (listens on container port 7070, exposed as host port 7077)
+  hatchet-engine:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.86.23
+    command: /hatchet/hatchet-engine --config /hatchet/config
+    restart: on-failure
+    depends_on:
+      hatchet-migrate:
+        condition: service_completed_successfully
       hatchet-setup-config:
         condition: service_completed_successfully
+    networks:
+      - internal
     environment:
-      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
-      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
-      SERVER_AUTH_COOKIE_SECRETS: "devonly-secret-1 devonly-secret-2"
-      SERVER_AUTH_COOKIE_INSECURE: "t"
+      DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
       SERVER_GRPC_INSECURE: "t"
-      SERVER_URL: "http://localhost:8888"
     volumes:
       - hatchet_config:/hatchet/config
       - hatchet_certs:/hatchet/certs
     ports:
-      - "8888:8080"
+      - "7077:7070"
 
-  hatchet-frontend:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-frontend:v0.53.15
-    restart: unless-stopped
-    ports:
-      - "8889:80"
+  # Step 4: dashboard (API + UI combined, port 8888)
+  hatchet-dashboard:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.86.23
+    command: sh ./entrypoint.sh --config /hatchet/config
+    restart: on-failure
+    depends_on:
+      hatchet-migrate:
+        condition: service_completed_successfully
+      hatchet-setup-config:
+        condition: service_completed_successfully
+    networks:
+      - internal
+      - backend
     environment:
-      VITE_HATCHET_API_URL: "http://localhost:8888"
+      DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+    ports:
+      - "8888:80"
 
 volumes:
   postgres_data:
@@ -157,3 +170,9 @@ volumes:
   hatchet_rabbitmq_data:
   hatchet_config:
   hatchet_certs:
+
+networks:
+  backend:
+    external: true
+  internal:
+    external: true

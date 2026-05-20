@@ -10,7 +10,18 @@ A NetDevOps workflow builder for network engineers. Design, configure, and execu
 
 ## First-time setup
 
-### 1. Start infrastructure
+### 1. Create Docker networks
+
+The compose file uses two external networks that must exist before starting services:
+
+```bash
+docker network create internal
+docker network create backend
+```
+
+Only needed once. Skip if the networks already exist.
+
+### 2. Start infrastructure
 
 ```bash
 docker compose up -d
@@ -18,12 +29,12 @@ docker compose up -d
 
 This starts PostgreSQL, Redis, and the Hatchet workflow engine. Wait ~30 seconds for all services to become healthy.
 
-### 2. Configure Hatchet
+### 3. Configure Hatchet
 
 Open the Hatchet dashboard at [http://localhost:8888](http://localhost:8888) and sign in:
 
 - Email: `admin@example.com`
-- Password: `Admin1234!`
+- Password: `Admin123!!`
 
 Go to **Settings → API Tokens → Create Token**, copy the token, then add it to `backend/.env`:
 
@@ -31,7 +42,7 @@ Go to **Settings → API Tokens → Create Token**, copy the token, then add it 
 HATCHET_CLIENT_TOKEN=<paste token here>
 ```
 
-### 3. Install dependencies
+### 4. Install dependencies
 
 ```bash
 # Backend
