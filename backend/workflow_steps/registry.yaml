@@ -30,7 +30,7 @@ plugins:
           description: Devices selected for downstream workflow steps.
           data_type: device_list
 
-  - id: get-nautboot-attributes
+  - id: get-nautobot-attributes
     name: Get Nautobot Attributes
     description: Retrieve attributes from Nautobot for selected devices.
     artifact_type: inventory_selector

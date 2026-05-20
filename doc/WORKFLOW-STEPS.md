@@ -26,27 +26,32 @@ together by a shared step `id`.
 backend/workflow_steps/           # Backend root — one sub-package per step
 ├── __init__.py
 ├── registry.yaml                 # Step registry (loaded at startup)
-└── device_selection/             # One directory per step (snake_case)
+└── get_nautobot_devices/         # One directory per step (snake_case)
     ├── __init__.py
-    └── preview.py                # Step-specific backend logic
+    ├── config.py                 # Default configuration values (optional)
+    ├── models.py                 # Step-specific Pydantic models (optional)
+    ├── preview.py                # Step-specific backend logic
+    └── nautobot/                 # Sub-packages allowed for complex steps
 
 frontend/src/
 ├── components/features/
 │   └── workflow-steps/           # Frontend root — one sub-directory per step
-│       └── device-selection/     # Matches the step id (kebab-case)
+│       └── get-nautobot-devices/ # Matches the step id (kebab-case)
 │           ├── index.tsx         # Exports the PluginUIComponent (ConfigPanel)
-│           └── preview-dialog.tsx
+│           ├── preview-dialog.tsx
+│           ├── types/            # Step-specific TypeScript types (optional)
+│           └── utils/            # Step-specific utilities (optional)
 └── lib/
-    └── plugin-ui-registry.ts     # Maps step id → PluginUIComponent
+    └── plugin-ui-registry.ts     # Maps step id → PluginUIComponent via getPluginUI()
 ```
 
 ### Naming conventions
 
-| Layer    | Convention   | Example                  |
-|----------|--------------|--------------------------|
-| Backend  | `snake_case` | `device_selection/`      |
-| Frontend | `kebab-case` | `device-selection/`      |
-| Step id  | `kebab-case` | `"device-selection"`     |
+| Layer    | Convention   | Example                       |
+|----------|--------------|--------------------------------|
+| Backend  | `snake_case` | `get_nautobot_devices/`       |
+| Frontend | `kebab-case` | `get-nautobot-devices/`       |
+| Step id  | `kebab-case` | `"get-nautobot-devices"`      |
 
 The `id` field in `registry.yaml` is the single source of truth that links the backend
 directory, the frontend directory, and the UI registry entry.
@@ -61,39 +66,44 @@ to populate the canvas palette.
 
 ### Entry structure
 
+The file starts with a `schema_version` header and a `plugins:` list:
+
 ```yaml
-- id: device-selection            # kebab-case, unique, immutable
-  name: Device Selection          # Human-readable label shown in the UI
-  description: >                  # One-sentence description for the palette tooltip
-    Select one or more target devices from the inventory.
-  artifact_type: inventory_selector  # Semantic category (see below)
-  directory: device_selection     # Sub-directory inside backend/workflow_steps/
-  enabled: true                   # false hides the step from the palette
+schema_version: 1
 
-  metadata:
-    mandatory_input:              # Data that MUST arrive from a predecessor step
-      - name: selected_devices
-        description: Devices selected for configuration retrieval.
-        data_type: device_list
-        required: true
+plugins:
+  - id: get-nautobot-devices      # kebab-case, unique, immutable
+    name: Get from Nautobot       # Human-readable label shown in the UI
+    description: >                # One-sentence description for the palette tooltip
+      Select one or more target devices from the inventory.
+    artifact_type: inventory_selector  # Semantic category (see below)
+    directory: get_nautobot_devices    # Sub-directory inside backend/workflow_steps/
+    enabled: true                 # false hides the step from the palette
 
-    configuration_input:          # Values the user sets in the config panel
-      - name: credential_reference
-        description: Reference to credentials stored in the backend.
-        data_type: credential_ref
-        required: true
+    metadata:
+      mandatory_input:            # Data that MUST arrive from a predecessor step
+        - name: selected_devices
+          description: Devices selected for configuration retrieval.
+          data_type: device_list
+          required: true
 
-    supported_output:             # Data this step emits to successor steps
-      - name: configuration
-        description: Running configuration of the selected devices.
-        data_type: text_map
+      configuration_input:        # Values the user sets in the config panel
+        - name: credential_reference
+          description: Reference to credentials stored in the backend.
+          data_type: credential_ref
+          required: true
 
-    outcomes:                     # Named exit paths used by condition edges
-      - name: success
-        description: Step completed without errors.
-      - name: failure
-        description: Step encountered an error.
+      outcomes:                   # Named exit paths and output data for successor steps
+        - name: selected_devices
+          description: Devices selected for downstream workflow steps.
+          data_type: device_list
+        - name: failure
+          description: Step encountered an error.
 ```
+
+> **Note:** There is no separate `supported_output` section. The `outcomes` list
+> serves both purposes: it declares the named exit paths used by condition edges
+> **and** the data each path emits to successor steps.
 
 ### Artifact types
 
@@ -114,7 +124,8 @@ Every step that requires server-side logic adds a Python sub-package under
 
 - The package must contain an `__init__.py`.
 - Business logic lives in dedicated modules within the package (e.g. `preview.py`,
-  `executor.py`).
+  `executor.py`). Additional modules such as `models.py` and sub-packages are allowed
+  for more complex steps.
 - The package must **not** be imported directly by routers or services outside the
   `workflow_steps` package. All external access goes through the router in
   `backend/routers/workflow_steps.py`.
@@ -141,7 +152,7 @@ The `ConfigPanel` component receives:
 | `nodeId`   | `string`                                | Stable React Flow node id                |
 | `config`   | `Record<string, unknown>`               | Current step configuration               |
 | `onChange` | `(config: Record<string, unknown>) => void` | Must be called on every user change  |
-| `onPreview`| `() => void`                            | Optional — trigger a preview action      |
+| `onPreview`| `() => void`                            | Trigger a preview action                 |
 
 ### Plugin config contract
 
@@ -149,11 +160,11 @@ A step may optionally expose default configuration values by providing a
 `config.py` module in its backend package:
 
 ```python
-# backend/workflow_steps/device_selection/config.py
+# backend/workflow_steps/get_nautobot_devices/config.py
 def get_config() -> dict:
     return {
-        "inventory_source": "nautobot",
-        "device_filter": {},
+        "inventory_source": {"url": "", "token": ""},
+        "device_filter": {"logic": "AND", "negate": False, "id": "root", "items": []},
     }
 ```
 
@@ -167,8 +178,15 @@ and includes the resulting config when saving a workflow to the database.
 The component must be registered in `frontend/src/lib/plugin-ui-registry.ts`:
 
 ```typescript
+import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
+import { GetNautobotDevicesPlugin } from "@/components/features/workflow-steps/get-nautobot-devices";
+
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
-  "device-selection": DeviceSelectionPlugin,
+  "get-nautobot-devices": GetNautobotDevicesPlugin,
   // add new steps here
 };
+
+export function getPluginUI(pluginId: string): PluginUIComponent | undefined {
+  return PLUGIN_UI_REGISTRY[pluginId];
+}
 ```
