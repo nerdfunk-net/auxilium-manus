@@ -15,6 +15,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { SettingsMockCanvas } from "@/components/features/settings/components/settings-mock-canvas";
+import { SettingsTopbar } from "@/components/features/settings/components/settings-topbar";
+import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
+
 import { WorkflowCanvas } from "./components/workflow-canvas";
 import { WorkflowExecutionsPanel } from "./components/workflow-executions-panel";
 import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel";
@@ -42,6 +46,7 @@ const EMPTY_NODES: WorkflowCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 export function WorkflowBuilderPage() {
+  const workspace = useWorkspaceStore((state) => state.workspace);
   const mode = useWorkflowBuilderStore((state) => state.mode);
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
@@ -340,43 +345,55 @@ export function WorkflowBuilderPage() {
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <WorkflowSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <WorkflowTopbar
-          onNew={handleNew}
-          onOpen={handleOpen}
-          onManage={() => setIsManageOpen(true)}
-          onRun={handleRun}
-          onSave={handleSave}
-          onSaveAs={() => setIsSaveAsOpen(true)}
-        />
+        {workspace === "settings" ? (
+          <SettingsTopbar />
+        ) : (
+          <WorkflowTopbar
+            onNew={handleNew}
+            onOpen={handleOpen}
+            onManage={() => setIsManageOpen(true)}
+            onRun={handleRun}
+            onSave={handleSave}
+            onSaveAs={() => setIsSaveAsOpen(true)}
+          />
+        )}
         <main className="flex min-h-0 flex-1">
-          <section className="min-w-0 flex-1">
-            {mode === "editor" ? (
-              <WorkflowCanvas
-                edges={edges}
-                isPluginsLoading={isPluginsLoading}
-                nodes={nodes}
-                onEdgesChange={handleEdgesChange}
-                onNodesChange={handleNodesChange}
-                onAddStep={handleAddStep}
-                pluginErrorMessage={pluginError?.message}
-                plugins={plugins}
-                setEdges={setEdges}
-              />
-            ) : (
-              <WorkflowExecutionsPanel />
-            )}
-          </section>
-          {mode === "editor" ? (
-            <WorkflowPropertiesPanel
-              edges={edges}
-              nodes={nodes}
-              onEdgeStyleChange={handleEdgeStyleChange}
-              onNodeConfigChange={handleNodeConfigChange}
-              plugins={plugins}
-            />
-          ) : null}
+          {workspace === "settings" ? (
+            <section className="min-w-0 flex-1">
+              <SettingsMockCanvas />
+            </section>
+          ) : (
+            <>
+              <section className="min-w-0 flex-1">
+                {mode === "editor" ? (
+                  <WorkflowCanvas
+                    edges={edges}
+                    isPluginsLoading={isPluginsLoading}
+                    nodes={nodes}
+                    onEdgesChange={handleEdgesChange}
+                    onNodesChange={handleNodesChange}
+                    onAddStep={handleAddStep}
+                    pluginErrorMessage={pluginError?.message}
+                    plugins={plugins}
+                    setEdges={setEdges}
+                  />
+                ) : (
+                  <WorkflowExecutionsPanel />
+                )}
+              </section>
+              {mode === "editor" ? (
+                <WorkflowPropertiesPanel
+                  edges={edges}
+                  nodes={nodes}
+                  onEdgeStyleChange={handleEdgeStyleChange}
+                  onNodeConfigChange={handleNodeConfigChange}
+                  plugins={plugins}
+                />
+              ) : null}
+            </>
+          )}
         </main>
-        <WorkflowRunControls />
+        {workspace === "workflow" ? <WorkflowRunControls /> : null}
       </div>
 
       <WorkflowSaveAsDialog

@@ -1,0 +1,94 @@
+"use client";
+
+import { SETTINGS_SECTIONS } from "../constants/settings-sections";
+import { useWorkspaceStore } from "../hooks/use-workspace-store";
+import type { SettingsSection } from "../types/settings-section";
+import { SourcesSettingsCanvas } from "./sources-settings-canvas";
+
+type MockPlaceholderSection = Exclude<SettingsSection, "sources">;
+
+const MOCK_PLACEHOLDERS: Record<
+  MockPlaceholderSection,
+  { title: string; items: string[] }
+> = {
+  general: {
+    title: "General settings",
+    items: [
+      "Application name and branding",
+      "Default workflow folder",
+      "Timezone and locale",
+    ],
+  },
+  credentials: {
+    title: "Credential vault",
+    items: [
+      "SSH login credentials",
+      "SNMP community mappings",
+      "OIDC provider secrets",
+    ],
+  },
+  users: {
+    title: "User management",
+    items: [
+      "Local accounts",
+      "Role assignments",
+      "Permission overrides",
+    ],
+  },
+};
+
+export function SettingsMockCanvas() {
+  const settingsSection = useWorkspaceStore((state) => state.settingsSection);
+
+  if (settingsSection === "sources") {
+    return <SourcesSettingsCanvas />;
+  }
+
+  const sectionMeta = SETTINGS_SECTIONS.find((s) => s.id === settingsSection);
+  const placeholder =
+    MOCK_PLACEHOLDERS[settingsSection as MockPlaceholderSection];
+
+  if (!sectionMeta || !placeholder) {
+    return null;
+  }
+
+  const SectionIcon = sectionMeta.icon;
+
+  return (
+    <div className="flex h-full items-center justify-center bg-slate-50 p-10">
+      <div className="w-full max-w-3xl rounded-2xl border bg-card p-6 shadow-sm">
+        <div className="mb-6 flex items-start gap-4">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <SectionIcon className="size-6" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">{sectionMeta.label}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {sectionMeta.description}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-dashed bg-muted/30 p-6">
+          <p className="text-sm font-medium text-muted-foreground">
+            Mock canvas — {placeholder.title}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Preview only. Configuration forms and API wiring will be added later.
+          </p>
+          <ul className="mt-4 space-y-2">
+            {placeholder.items.map((item) => (
+              <li
+                key={item}
+                className="flex items-center gap-2 rounded-lg border bg-background px-4 py-3 text-sm"
+              >
+                <span className="size-2 shrink-0 rounded-full bg-muted-foreground/40" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}

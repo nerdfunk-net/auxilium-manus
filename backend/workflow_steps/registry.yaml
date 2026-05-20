@@ -13,11 +13,11 @@ plugins:
     enabled: true
     metadata:
       configuration_input:
-        - name: inventory_source
-          description: Inventory provider used to resolve target devices.
-          data_type: dict
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
           required: true
-          example: {'url': 'localhost:8000', 'token': 'abc123'}
+          example: prod-lab
         - name: device_filter
           description: Filter expression that selects devices for this workflow.
           data_type: object
@@ -43,11 +43,11 @@ plugins:
           data_type: device_list
           required: true
       configuration_input:
-        - name: inventory_source
-          description: Inventory provider used to resolve target devices.
-          data_type: dict
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
           required: true
-          example: {'url': 'localhost:8000', 'token': 'abc123'}
+          example: prod-lab
         - name: list_of_attributes
           description: List of Nautobot attributes to retrieve for each device.
           data_type: string_list

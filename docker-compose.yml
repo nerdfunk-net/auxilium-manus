@@ -1,0 +1,159 @@
+# Auxilium Manus — development infrastructure
+#
+# Services:
+#   postgres      — app database (port 5432)
+#   redis         — cache and pub/sub (port 6379)
+#   hatchet-*     — workflow orchestration engine (dashboard: http://localhost:8888)
+#
+# Hatchet first-time setup:
+#   1. docker compose up -d
+#   2. Wait for hatchet-setup-config to finish (docker compose logs -f hatchet-setup-config)
+#   3. Open http://localhost:8888, sign in (admin@example.com / Admin1234!)
+#   4. Settings → API Tokens → Create Token → copy token
+#   5. Add to backend/.env:
+#        HATCHET_CLIENT_TOKEN=<paste token here>
+#   6. Start the worker (separate terminal):
+#        cd backend && python -m hatchet.worker
+
+services:
+  # ─── App database ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: manus
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Cache / pub-sub ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # ─── Hatchet infrastructure ──────────────────────────────────────────────────
+  hatchet-postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: hatchet
+      POSTGRES_DB: hatchet
+    volumes:
+      - hatchet_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  hatchet-rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: hatchet
+      RABBITMQ_DEFAULT_PASS: hatchet
+    volumes:
+      - hatchet_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Runs DB migrations and generates initial config + TLS certs
+  hatchet-setup-config:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.53.15
+    command: >
+      /hatchet-admin quickstart
+        --skip env
+        --generated-config-dir /hatchet/config
+        --overwrite=false
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
+      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+      SERVER_AUTH_COOKIE_SECRETS: "devonly-secret-1 devonly-secret-2"
+      SERVER_GRPC_BROADCAST_ADDRESS: "localhost:7077"
+      SERVER_URL: "http://localhost:8888"
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_INSECURE: "t"
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+
+  hatchet-engine:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.53.15
+    restart: on-failure
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+      hatchet-rabbitmq:
+        condition: service_healthy
+      hatchet-setup-config:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
+      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+      SERVER_AUTH_COOKIE_SECRETS: "devonly-secret-1 devonly-secret-2"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_BROADCAST_ADDRESS: "localhost:7077"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_URL: "http://localhost:8888"
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+    ports:
+      - "7077:7077"
+
+  hatchet-api:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.53.15
+    restart: on-failure
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+      hatchet-setup-config:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
+      SERVER_TASKQUEUE_RABBITMQ_URL: "amqp://hatchet:hatchet@hatchet-rabbitmq:5672/"
+      SERVER_AUTH_COOKIE_SECRETS: "devonly-secret-1 devonly-secret-2"
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_URL: "http://localhost:8888"
+    volumes:
+      - hatchet_config:/hatchet/config
+      - hatchet_certs:/hatchet/certs
+    ports:
+      - "8888:8080"
+
+  hatchet-frontend:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-frontend:v0.53.15
+    restart: unless-stopped
+    ports:
+      - "8889:80"
+    environment:
+      VITE_HATCHET_API_URL: "http://localhost:8888"
+
+volumes:
+  postgres_data:
+  redis_data:
+  hatchet_postgres_data:
+  hatchet_rabbitmq_data:
+  hatchet_config:
+  hatchet_certs:

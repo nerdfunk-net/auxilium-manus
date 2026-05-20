@@ -8,28 +8,20 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
 
+import {
+  NAUTOBOT_SOURCE_ID_KEY,
+  isNautobotSourceConfigured,
+  nautobotSourceIdFromConfig,
+} from "../shared/nautobot-source-config";
+import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { InventoryBuilderDialog } from "./inventory-builder-dialog";
-import { InventorySourceDialog, type InventorySource } from "./inventory-source-dialog";
 import {
   emptyTree,
   countConditions,
   type FilterTree,
 } from "./condition-builder/types";
-
-const EMPTY_SOURCE: InventorySource = { url: "", token: "" };
-
-function sourceFromConfig(config: Record<string, unknown>): InventorySource {
-  const raw = config.inventory_source;
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const s = raw as Record<string, unknown>;
-    return {
-      url: typeof s.url === "string" ? s.url : "",
-      token: typeof s.token === "string" ? s.token : "",
-    };
-  }
-  return EMPTY_SOURCE;
-}
 
 function filterFromConfig(config: Record<string, unknown>): FilterTree {
   const raw = config.device_filter;
@@ -46,15 +38,17 @@ function DeviceSelectionConfigPanel({
   config,
   onChange,
 }: PluginConfigPanelProps) {
-  const source = useMemo(() => sourceFromConfig(config), [config]);
+  const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const filterTree = useMemo(() => filterFromConfig(config), [config]);
+  const credentials = useNautobotSourceCredentials({ sourceId });
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const [builderOpen, setBuilderOpen] = useState(false);
 
-  const handleSourceChange = useCallback(
-    (newSource: InventorySource) => {
-      onChange({ ...config, inventory_source: newSource });
+  const handleSourceIdChange = useCallback(
+    (newSourceId: string) => {
+      const { inventory_source: _legacy, ...rest } = config;
+      onChange({ ...rest, [NAUTOBOT_SOURCE_ID_KEY]: newSourceId });
     },
     [config, onChange],
   );
@@ -67,21 +61,35 @@ function DeviceSelectionConfigPanel({
   );
 
   const conditionCount = useMemo(() => countConditions(filterTree), [filterTree]);
-  const isSourceConfigured = Boolean(source.url && source.token);
+  const isSourceConfigured = isNautobotSourceConfigured(config);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Inventory Source */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">inventory_source</span>
+          <span className="font-mono text-xs font-medium">
+            {NAUTOBOT_SOURCE_ID_KEY}
+          </span>
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
             nautobot
           </Badge>
         </div>
 
         {isSourceConfigured ? (
-          <p className="truncate text-[11px] text-muted-foreground">{source.url}</p>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            {sourceId}
+            {credentials.isReady ? (
+              <span className="block truncate font-sans text-muted-foreground">
+                {credentials.url}
+              </span>
+            ) : credentials.isLoading ? (
+              <span className="block font-sans">Loading credentials…</span>
+            ) : (
+              <span className="block font-sans text-amber-600">
+                Source not found in settings
+              </span>
+            )}
+          </p>
         ) : (
           <p className="text-[11px] text-amber-600">Not configured</p>
         )}
@@ -97,7 +105,6 @@ function DeviceSelectionConfigPanel({
         </Button>
       </div>
 
-      {/* Device Filter */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">device_filter</span>
@@ -111,7 +118,9 @@ function DeviceSelectionConfigPanel({
             {conditionCount} condition{conditionCount !== 1 ? "s" : ""} configured
           </p>
         ) : (
-          <p className="text-[11px] text-muted-foreground">No filter configured — all devices</p>
+          <p className="text-[11px] text-muted-foreground">
+            No filter configured — all devices
+          </p>
         )}
 
         <Button
@@ -125,19 +134,18 @@ function DeviceSelectionConfigPanel({
         </Button>
       </div>
 
-      {/* Dialogs */}
-      <InventorySourceDialog
+      <NautobotSourceSelectDialog
         open={sourceOpen}
+        selectedSourceId={sourceId}
         onClose={() => setSourceOpen(false)}
-        value={source}
-        onChange={handleSourceChange}
+        onSave={handleSourceIdChange}
       />
 
       <InventoryBuilderDialog
         open={builderOpen}
         onClose={() => setBuilderOpen(false)}
-        nautobot_url={source.url}
-        nautobot_token={source.token}
+        nautobot_url={credentials.url}
+        nautobot_token={credentials.token}
         initialTree={filterTree}
         onApply={handleFilterApply}
       />

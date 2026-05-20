@@ -25,6 +25,8 @@ from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
 )
+from routers.settings import router as settings_router
+from routers.workflow_runs import router as workflow_runs_router
 from routers.workflow_steps import router as workflow_steps_router
 from routers.workflows import router as workflows_router
 from services.nautobot.client import NautobotService
@@ -71,6 +73,8 @@ app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)
 app.include_router(workflow_steps_router, prefix=settings.api_prefix)
 app.include_router(workflows_router, prefix=settings.api_prefix)
+app.include_router(workflow_runs_router, prefix=settings.api_prefix)
+app.include_router(settings_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["health"])

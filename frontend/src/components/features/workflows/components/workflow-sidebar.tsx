@@ -11,12 +11,14 @@ import {
 
 import { cn } from "@/lib/utils";
 
+import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
+
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 
 type NavigationItem = {
   label: string;
   icon: typeof Workflow;
-  kind: "workflows" | "steps" | "runs" | "placeholder";
+  kind: "workflows" | "steps" | "runs" | "settings" | "placeholder";
 };
 
 const navigationItems = [
@@ -24,10 +26,13 @@ const navigationItems = [
   { label: "Steps", icon: Layers, kind: "steps" },
   { label: "Inventory", icon: Network, kind: "placeholder" },
   { label: "Runs", icon: PlayCircle, kind: "runs" },
-  { label: "Settings", icon: Settings, kind: "placeholder" },
+  { label: "Settings", icon: Settings, kind: "settings" },
 ] satisfies NavigationItem[];
 
 export function WorkflowSidebar() {
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const openSettings = useWorkspaceStore((state) => state.openSettings);
+  const openWorkflow = useWorkspaceStore((state) => state.openWorkflow);
   const mode = useWorkflowBuilderStore((state) => state.mode);
   const setMode = useWorkflowBuilderStore((state) => state.setMode);
   const isActionsPanelVisible = useWorkflowBuilderStore(
@@ -52,18 +57,36 @@ export function WorkflowSidebar() {
       <nav className="flex flex-1 flex-col gap-1 p-3">
         {navigationItems.map((item) => {
           const isActive =
-            (item.kind === "workflows" && mode === "editor") ||
-            (item.kind === "runs" && mode === "executions") ||
-            (item.kind === "steps" && isActionsPanelVisible);
+            (item.kind === "settings" && workspace === "settings") ||
+            (item.kind === "workflows" &&
+              workspace === "workflow" &&
+              mode === "editor") ||
+            (item.kind === "runs" &&
+              workspace === "workflow" &&
+              mode === "executions") ||
+            (item.kind === "steps" &&
+              workspace === "workflow" &&
+              isActionsPanelVisible);
           const isPlaceholder = item.kind === "placeholder";
           const handleClick =
-            item.kind === "steps"
-              ? toggleActionsPanel
-              : item.kind === "workflows"
-                ? () => setMode("editor")
-                : item.kind === "runs"
-                  ? () => setMode("executions")
-                  : undefined;
+            item.kind === "settings"
+              ? () => openSettings()
+              : item.kind === "steps"
+                ? () => {
+                    openWorkflow();
+                    toggleActionsPanel();
+                  }
+                : item.kind === "workflows"
+                  ? () => {
+                      openWorkflow();
+                      setMode("editor");
+                    }
+                  : item.kind === "runs"
+                    ? () => {
+                        openWorkflow();
+                        setMode("executions");
+                      }
+                    : undefined;
 
           return (
             <button
