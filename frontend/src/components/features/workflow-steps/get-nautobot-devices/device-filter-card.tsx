@@ -60,7 +60,7 @@ export function DeviceFilterCard({
     <div
       className={`flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm ${className ?? ""}`}
     >
-      <div className="flex items-center justify-between bg-sky-500 px-4 py-2.5 text-white">
+      <div className="flex items-center justify-between bg-gradient-to-r from-teal-600 to-teal-500 px-4 py-2.5 text-white">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Filter className="h-4 w-4 shrink-0" aria-hidden />
           Device Filter
@@ -88,7 +88,7 @@ export function DeviceFilterCard({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/80 p-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50 p-4">
         {!hasSource ? (
           <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {onManageInventory

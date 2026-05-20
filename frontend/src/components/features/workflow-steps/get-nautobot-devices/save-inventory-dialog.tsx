@@ -206,7 +206,7 @@ export function SaveInventoryDialog({
                         key={inv.id}
                         className="flex items-center gap-2 rounded-md border border-transparent px-2 py-2 hover:bg-muted/50"
                       >
-                        <FileText className="h-4 w-4 shrink-0 text-sky-600" aria-hidden />
+                        <FileText className="h-4 w-4 shrink-0 text-teal-500" aria-hidden />
                         <span className="min-w-0 flex-1 truncate text-sm">{inv.name}</span>
                         <Badge className="shrink-0 text-[10px]" variant="secondary">
                           {inv.scope}

@@ -100,6 +100,14 @@ function toPaletteItem(plugin: PluginDefinition): PaletteItem {
   };
 }
 
+const ARTIFACT_TYPE_ORDER = [
+  "inventory_selector",
+  "control_flow",
+  "command_execution",
+  "configuration_retrieval",
+  "persistent_artifact",
+];
+
 function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
   const groups = new Map<string, PaletteItem[]>();
 
@@ -110,7 +118,13 @@ function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
   }
 
   return Array.from(groups.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => {
+      const leftIndex = ARTIFACT_TYPE_ORDER.indexOf(left);
+      const rightIndex = ARTIFACT_TYPE_ORDER.indexOf(right);
+      const leftOrder = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+      const rightOrder = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+      return leftOrder - rightOrder || left.localeCompare(right);
+    })
     .map(([artifactType, items]) => ({
       artifactType,
       label: formatArtifactType(artifactType),

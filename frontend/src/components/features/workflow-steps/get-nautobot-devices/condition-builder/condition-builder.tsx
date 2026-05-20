@@ -153,7 +153,7 @@ function ConditionRow({
         </Select>
       ) : (
         <input
-          className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400/40"
+          className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400/40"
           placeholder={condition.field ? "Value..." : "Select a field first"}
           disabled={!condition.field}
           value={condition.value}
@@ -267,7 +267,7 @@ function GroupBlock({
             type="checkbox"
             checked={group.negate}
             onChange={(e) => onUpdate({ ...group, negate: e.target.checked })}
-            className="h-3.5 w-3.5 rounded accent-sky-500"
+            className="h-3.5 w-3.5 rounded accent-teal-500"
           />
           <label
             htmlFor={`negate-${group.id}`}
@@ -512,7 +512,7 @@ function DraftConditionRow({
           </Select>
         ) : (
           <input
-            className="h-9 w-full rounded-lg border border-input bg-white px-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400/40 disabled:cursor-not-allowed disabled:bg-muted/50"
+            className="h-9 w-full rounded-lg border border-input bg-white px-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400/40 disabled:cursor-not-allowed disabled:bg-muted/50"
             disabled={!draft.field}
             placeholder={draft.field ? "Enter value..." : "Select a field first"}
             value={draft.value}
@@ -542,7 +542,7 @@ function DraftConditionRow({
         <div className="flex items-center gap-1 pt-0.5">
           <input
             checked={negate}
-            className="h-3.5 w-3.5 rounded accent-sky-500"
+            className="h-3.5 w-3.5 rounded accent-teal-500"
             id="draft-negate"
             onChange={(e) => onNegateChange(e.target.checked)}
             type="checkbox"
@@ -559,7 +559,7 @@ function DraftConditionRow({
       <div className="flex shrink-0 items-center gap-1.5 pb-0.5">
         <Button
           aria-label="Add condition"
-          className="h-9 w-9 rounded-full bg-sky-500 p-0 text-white shadow-sm hover:bg-sky-600"
+          className="h-9 w-9 rounded-full bg-teal-500 p-0 text-white shadow-sm hover:bg-teal-600"
           disabled={!canAdd}
           onClick={onAddCondition}
           size="sm"
@@ -686,9 +686,9 @@ export function ConditionBuilder({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg bg-sky-100/80 px-3 py-2 text-xs text-sky-900">
+      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
         Adding conditions to:{" "}
-        <span className="inline-flex rounded-full border border-white bg-white px-2 py-0.5 font-medium text-sky-950 shadow-sm">
+        <span className="inline-flex rounded-full border border-teal-200 bg-white px-2 py-0.5 font-medium text-teal-900 shadow-sm">
           Root
         </span>
       </div>

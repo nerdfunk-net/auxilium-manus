@@ -130,7 +130,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
                           className={cn(
                             "flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors",
                             isSelected
-                              ? "border-sky-300 bg-sky-50"
+                              ? "border-teal-300 bg-teal-50"
                               : "border-transparent hover:bg-muted/50",
                           )}
                           type="button"
@@ -141,7 +141,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
                             onClose();
                           }}
                         >
-                          <FileText className="h-4 w-4 shrink-0 text-sky-600" aria-hidden />
+                          <FileText className="h-4 w-4 shrink-0 text-teal-500" aria-hidden />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">
                             {inv.name}
                           </span>
