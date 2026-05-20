@@ -1,73 +1,66 @@
 "use client";
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
-
-interface DeviceRow {
-  name: string;
-  site: string | null;
-  role: string | null;
-  status: string | null;
-}
-
-interface PreviewResponse {
-  devices: DeviceRow[];
-  total: number;
-}
+import {
+  treeToOperations,
+} from "@/components/features/workflow-steps/get-nautobot-devices/condition-builder/tree-to-operation";
+import type { FilterTree } from "@/components/features/workflow-steps/get-nautobot-devices/condition-builder/types";
+import { useApi } from "@/hooks/use-api";
+import type { DevicePreview } from "@/hooks/queries/use-get-nautobot-devices-preview-mutation";
+import { queryKeys } from "@/lib/query-keys";
 
 interface PreviewConfig {
-  inventory_source: string;
-  device_filter: Record<string, string>;
+  nautobot_url: string;
+  nautobot_token: string;
+  device_filter: FilterTree;
 }
 
-interface DeviceSelectionPreviewDialogProps {
+interface PreviewDialogProps {
   open: boolean;
   config: PreviewConfig;
   onClose: () => void;
 }
 
-async function fetchDevicePreview(config: PreviewConfig): Promise<PreviewResponse> {
-  const response = await fetch(
-    "/api/proxy/workflow-steps/get-nautobot-devices/preview",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        inventory_source: config.inventory_source,
-        device_filter: config.device_filter,
-      }),
-    },
-  );
+interface PreviewApiResponse {
+  devices: DevicePreview[];
+  total_count: number;
+}
 
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) message = body.detail;
-    } catch {
-      // ignore parse error — use status message
-    }
-    throw new Error(message);
-  }
-
-  return (await response.json()) as PreviewResponse;
+async function fetchDevicePreview(
+  apiCall: ReturnType<typeof useApi>["apiCall"],
+  config: PreviewConfig,
+): Promise<{ devices: DevicePreview[]; total: number }> {
+  const operations = treeToOperations(config.device_filter);
+  const response = await apiCall<PreviewApiResponse>("sources/nautobot/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      nautobot_url: config.nautobot_url,
+      nautobot_token: config.nautobot_token,
+      operations,
+    }),
+  });
+  return { devices: response.devices, total: response.total_count };
 }
 
 export function DeviceSelectionPreviewDialog({
   open,
   config,
   onClose,
-}: DeviceSelectionPreviewDialogProps) {
+}: PreviewDialogProps) {
+  const { apiCall } = useApi();
+  const operationsKey = useMemo(
+    () => JSON.stringify(treeToOperations(config.device_filter)),
+    [config.device_filter],
+  );
+
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: [
-      "get-nautobot-devices-preview",
-      config.inventory_source,
-      JSON.stringify(config.device_filter),
-    ],
-    queryFn: () => fetchDevicePreview(config),
-    enabled: open,
+    queryKey: queryKeys.sourcesNautobot.preview(config.nautobot_url, operationsKey),
+    queryFn: () => fetchDevicePreview(apiCall, config),
+    enabled: open && Boolean(config.nautobot_url && config.nautobot_token),
     staleTime: 0,
     gcTime: 0,
     retry: false,
@@ -81,24 +74,16 @@ export function DeviceSelectionPreviewDialog({
       className="fixed inset-0 z-50 flex items-center justify-center"
       role="dialog"
     >
-      {/* Backdrop */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-      />
+      <div aria-hidden="true" className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      {/* Panel */}
       <div className="relative z-10 mx-4 flex w-full max-w-lg flex-col rounded-lg border bg-card shadow-lg">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div>
             <p className="text-sm font-semibold">Device Preview</p>
             <p className="text-xs text-muted-foreground">
               Devices from{" "}
-              <span className="font-medium">
-                {config.inventory_source || "—"}
-              </span>{" "}
-              matching current filter
+              <span className="font-medium">{config.nautobot_url || "—"}</span> matching
+              current filter
             </p>
           </div>
           <Button
@@ -115,28 +100,21 @@ export function DeviceSelectionPreviewDialog({
         <div className="min-h-[160px] p-4">
           {isLoading && (
             <div className="space-y-2">
-              {[...Array(4)].map((_, i) => (
-                <div className="h-8 animate-pulse rounded bg-muted" key={i} />
+              {[...Array(4)].map((_, index) => (
+                <div className="h-8 animate-pulse rounded bg-muted" key={index} />
               ))}
             </div>
           )}
 
           {isError && (
             <div className="flex flex-col items-center gap-2 py-4 text-center">
-              <p className="text-sm font-medium text-destructive">
-                Preview unavailable
-              </p>
+              <p className="text-sm font-medium text-destructive">Preview unavailable</p>
               <p className="max-w-xs text-xs text-muted-foreground">
                 {error instanceof Error
                   ? error.message
                   : "Could not reach the backend. Make sure the server is running."}
               </p>
-              <Button
-                className="mt-2"
-                onClick={() => void refetch()}
-                size="sm"
-                variant="outline"
-              >
+              <Button className="mt-2" onClick={() => void refetch()} size="sm" variant="outline">
                 Retry
               </Button>
             </div>
@@ -158,19 +136,17 @@ export function DeviceSelectionPreviewDialog({
                   <thead className="sticky top-0 bg-muted/80">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Name</th>
-                      <th className="px-3 py-2 text-left font-medium">Site</th>
+                      <th className="px-3 py-2 text-left font-medium">Location</th>
                       <th className="px-3 py-2 text-left font-medium">Role</th>
-                      <th className="px-3 py-2 text-left font-medium">
-                        Status
-                      </th>
+                      <th className="px-3 py-2 text-left font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.devices.map((device: DeviceRow) => (
-                      <tr className="border-t" key={device.name}>
-                        <td className="px-3 py-2 font-mono">{device.name}</td>
+                    {data.devices.map((device) => (
+                      <tr className="border-t" key={device.id}>
+                        <td className="px-3 py-2 font-mono">{device.name ?? "—"}</td>
                         <td className="px-3 py-2 text-muted-foreground">
-                          {device.site ?? "—"}
+                          {device.location ?? "—"}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {device.role ?? "—"}

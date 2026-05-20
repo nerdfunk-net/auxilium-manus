@@ -28,12 +28,19 @@ export interface DevicePreview {
   status: string | null;
 }
 
+interface PreviewApiResponse {
+  devices: DevicePreview[];
+  total_count: number;
+  operations_executed: number;
+}
+
 export interface PreviewResponse {
   devices: DevicePreview[];
   total: number;
+  operations_executed: number;
 }
 
-interface PreviewRequest {
+export interface PreviewRequest {
   nautobot_url: string;
   nautobot_token: string;
   operations: LogicalOperationPayload[];
@@ -42,11 +49,17 @@ interface PreviewRequest {
 export function useGetNautobotDevicesPreviewMutation() {
   const { apiCall } = useApi();
   return useMutation<PreviewResponse, Error, PreviewRequest>({
-    mutationFn: (data) =>
-      apiCall("workflow-steps/get-nautobot-devices/preview", {
+    mutationFn: async (data) => {
+      const response = await apiCall<PreviewApiResponse>("sources/nautobot/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      }),
+      });
+      return {
+        devices: response.devices,
+        total: response.total_count,
+        operations_executed: response.operations_executed,
+      };
+    },
   });
 }

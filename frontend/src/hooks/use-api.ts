@@ -23,7 +23,25 @@ export function useApi() {
       }
 
       if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+        let message = `API request failed with status ${response.status}`;
+        try {
+          const body = (await response.json()) as {
+            detail?: string | { message?: string };
+          };
+          if (typeof body.detail === "string") {
+            message = body.detail;
+          } else if (
+            body.detail &&
+            typeof body.detail === "object" &&
+            "message" in body.detail &&
+            typeof body.detail.message === "string"
+          ) {
+            message = body.detail.message;
+          }
+        } catch {
+          // use default message
+        }
+        throw new Error(message);
       }
 
       if (response.status === 204) {

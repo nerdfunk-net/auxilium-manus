@@ -20,8 +20,15 @@ if not logging.root.handlers:
 from core.database import SessionLocal, init_db
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
+from routers.nautobot.custom_fields import router as nautobot_custom_fields_router
+from routers.sources.nautobot import (
+    nautobot_source_crud_router,
+    nautobot_source_ops_router,
+)
 from routers.workflow_steps import router as workflow_steps_router
 from routers.workflows import router as workflows_router
+from services.nautobot.client import NautobotService
+import service_factory
 from services.auth.auth_service import AuthService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
@@ -39,7 +46,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     plugin_service.load_registry()
     app.state.plugin_service = plugin_service
 
+    nautobot_service = NautobotService()
+    await nautobot_service.startup()
+    service_factory.set_nautobot_app_service(nautobot_service)
+    service_factory.build_cache_service()
+
     yield
+
+    await nautobot_service.shutdown()
 
 
 app = FastAPI(
@@ -52,6 +66,9 @@ app = FastAPI(
 )
 
 app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)
+app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
+app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)
 app.include_router(workflow_steps_router, prefix=settings.api_prefix)
 app.include_router(workflows_router, prefix=settings.api_prefix)
 

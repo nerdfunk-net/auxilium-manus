@@ -36,6 +36,11 @@ class Settings:
     initial_permissions: int
     log_level: str
     log_format: str
+    redis_host: str
+    redis_port: int
+    redis_password: str
+    redis_url: str
+    redis_key_prefix: str
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -63,6 +68,19 @@ class Settings:
         self.log_format = environ.get(
             "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
+        self.redis_host = environ.get("MANUS_REDIS_HOST", "localhost")
+        self.redis_port = self._get_int("MANUS_REDIS_PORT", 6379)
+        self.redis_password = environ.get("MANUS_REDIS_PASSWORD", "")
+        self.redis_key_prefix = environ.get("MANUS_REDIS_KEY_PREFIX", "manus-cache")
+        self.redis_url = environ.get("MANUS_REDIS_URL", self._build_redis_url())
+
+    def _build_redis_url(self) -> str:
+        if self.redis_password:
+            return (
+                f"redis://:{quote_plus(self.redis_password)}"
+                f"@{self.redis_host}:{self.redis_port}/0"
+            )
+        return f"redis://{self.redis_host}:{self.redis_port}/0"
 
     def _build_database_url(self, database_name: str | None = None) -> str:
         username = quote_plus(self.database_username)
