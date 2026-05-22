@@ -41,7 +41,8 @@ function GetNautobotAttributesConfigPanel({
 
   const handleSourceIdChange = useCallback(
     (newSourceId: string) => {
-      const { inventory_source: _legacy, ...rest } = config;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { inventory_source, ...rest } = config;
       onChange({ ...rest, [NAUTOBOT_SOURCE_ID_KEY]: newSourceId });
     },
     [config, onChange],

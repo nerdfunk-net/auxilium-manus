@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ export function NautobotSourceSelectDialog({
   onSave,
 }: NautobotSourceSelectDialogProps) {
   const [sourceId, setSourceId] = useState(selectedSourceId);
+  const [prevOpen, setPrevOpen] = useState(open);
   const openSettingsSources = useWorkspaceStore((state) => state.openSettings);
   const { data, isLoading } = useSettingsListQuery({
     keyPrefix: SOURCE_KEY_PREFIXES.nautobot,
@@ -46,11 +47,12 @@ export function NautobotSourceSelectDialog({
 
   const { nautobot: sources } = groupSourceSettings(data?.settings ?? []);
 
-  useEffect(() => {
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setSourceId(selectedSourceId);
     }
-  }, [open, selectedSourceId]);
+  }
 
   const handleSave = useCallback(() => {
     if (!sourceId) {

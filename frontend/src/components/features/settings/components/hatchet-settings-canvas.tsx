@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 
 import { Badge } from "@/components/ui/badge";
@@ -90,7 +90,8 @@ export function HatchetSettingsCanvas() {
     saveSettings.mutate(payload);
   };
 
-  const dashboardUrl = form.watch("dashboard_url") || data?.dashboard_url || "";
+  const watchedDashboardUrl = useWatch({ control: form.control, name: "dashboard_url" });
+  const dashboardUrl = watchedDashboardUrl || data?.dashboard_url || "";
 
   const statusToShow = lastStatus;
 
@@ -237,7 +238,7 @@ export function HatchetSettingsCanvas() {
                       <FormControl>
                         <Input placeholder="http://localhost:8888" {...field} />
                       </FormControl>
-                      <FormDescription>Used for the "Open Dashboard" shortcut.</FormDescription>
+                      <FormDescription>Used for the &quot;Open Dashboard&quot; shortcut.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
