@@ -9,10 +9,18 @@ import {
   ChevronRight,
   Loader2,
   Play,
+  ScrollText,
   XCircle,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useApi } from "@/hooks/use-api";
 import { queryKeys } from "@/lib/query-keys";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
@@ -21,6 +29,7 @@ import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations
 import type {
   WorkflowRunDetail,
   WorkflowRunStatus,
+  WorkflowStepResult,
   StepStatus,
   WorkflowRunSummary,
 } from "../types/workflow-runs";
@@ -72,8 +81,56 @@ function StepStatusBadge({ status }: { status: StepStatus }) {
   );
 }
 
+function StepLogsModal({
+  step,
+  onClose,
+}: {
+  step: WorkflowStepResult | null;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={!!step} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{step?.step_name ?? "Step Logs"}</DialogTitle>
+          <DialogDescription className="flex items-center gap-2">
+            <span className="font-mono">{step?.step_type}</span>
+            {step && <StepStatusBadge status={step.status} />}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {step?.error_message && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-red-500">
+                Error
+              </p>
+              <pre className="max-h-[30vh] overflow-auto rounded bg-red-50 p-4 text-xs font-mono text-red-700 dark:bg-red-950/30 dark:text-red-400">
+                {step.error_message}
+              </pre>
+            </div>
+          )}
+          {step?.output ? (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Output
+              </p>
+              <pre className="max-h-[60vh] overflow-auto rounded bg-muted/30 p-4 text-xs font-mono">
+                {JSON.stringify(step.output, null, 2)}
+              </pre>
+            </div>
+          ) : !step?.error_message ? (
+            <p className="text-sm text-muted-foreground">No output recorded for this step.</p>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RunDetail({ runId }: { runId: number }) {
   const { apiCall } = useApi();
+
+  const [logsStep, setLogsStep] = useState<WorkflowStepResult | null>(null);
 
   const { data, isLoading } = useQuery<WorkflowRunDetail>({
     queryKey: queryKeys.workflowRuns.detail(runId),
@@ -103,30 +160,39 @@ function RunDetail({ runId }: { runId: number }) {
   }
 
   return (
-    <div className="border-t divide-y">
-      {data.step_results.map((step) => (
-        <div key={step.id} className="flex items-start justify-between px-4 py-3 gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate">{step.step_name}</p>
-            <p className="text-xs text-muted-foreground font-mono">{step.step_type}</p>
-            {step.error_message && (
-              <p className="mt-1 text-xs text-red-500 line-clamp-2">{step.error_message}</p>
-            )}
-            {step.output && (
-              <pre className="mt-1 text-xs text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto max-h-20 overflow-y-auto">
-                {JSON.stringify(step.output, null, 2)}
-              </pre>
-            )}
+    <>
+      <div className="border-t divide-y">
+        {data.step_results.map((step) => (
+          <div key={step.id} className="flex items-center justify-between px-4 py-3 gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium truncate">{step.step_name}</p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setLogsStep(step)}
+                  title="Show logs"
+                >
+                  <ScrollText className="size-3.5" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground font-mono">{step.step_type}</p>
+              {step.error_message && (
+                <p className="mt-0.5 text-xs text-red-500 line-clamp-1">{step.error_message}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <StepStatusBadge status={step.status} />
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {formatDuration(step.started_at, step.finished_at)}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 mt-0.5">
-            <StepStatusBadge status={step.status} />
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {formatDuration(step.started_at, step.finished_at)}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+      <StepLogsModal step={logsStep} onClose={() => setLogsStep(null)} />
+    </>
   );
 }
 
