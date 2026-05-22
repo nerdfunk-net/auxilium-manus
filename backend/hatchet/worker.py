@@ -13,13 +13,12 @@ import logging
 import sys
 from pathlib import Path
 
-# Ensure backend root is on sys.path when invoked via `python -m hatchet.worker`
 _backend_root = Path(__file__).resolve().parents[1]
 if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
-from hatchet.client import hatchet  # noqa: E402 (after path setup)
-from hatchet.workflows.workflow_run import WorkflowExecutionWorkflow  # noqa: E402
+from hatchet.client import hatchet  # noqa: E402
+from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,8 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    worker = hatchet.worker("auxilium-manus-worker", max_runs=10)
-    worker.register_workflow(WorkflowExecutionWorkflow())
+    worker = hatchet.worker(
+        "auxilium-manus-worker",
+        slots=10,
+        workflows=[workflow_execution],
+    )
     logger.info("Starting Hatchet worker — listening for workflow:run events")
     worker.start()
 

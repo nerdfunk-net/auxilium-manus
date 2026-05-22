@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
+import { useTriggerRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,7 +39,6 @@ import type {
   WorkflowIOField,
   WorkflowNodeKind,
 } from "./types/workflow-canvas";
-import { mapCanvasToWorkflowDefinition } from "./utils/workflow-mapper";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
@@ -64,6 +64,7 @@ export function WorkflowBuilderPage() {
   const markDirty = useWorkflowBuilderStore((state) => state.markDirty);
   const markRunning = useWorkflowBuilderStore((state) => state.markRunning);
   const markError = useWorkflowBuilderStore((state) => state.markError);
+  const setMode = useWorkflowBuilderStore((state) => state.setMode);
   const loadWorkflow = useWorkflowBuilderStore((state) => state.loadWorkflow);
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
@@ -78,6 +79,7 @@ export function WorkflowBuilderPage() {
   const [openAfterSave, setOpenAfterSave] = useState(false);
 
   const { createWorkflow, updateWorkflow } = useWorkflowMutations();
+  const triggerRun = useTriggerRunMutation(workflowId);
   const {
     data: pluginResponse,
     error: pluginError,
@@ -262,21 +264,28 @@ export function WorkflowBuilderPage() {
     [setNodes, setEdges, loadWorkflow, markError],
   );
 
-  const handleRun = useCallback(() => {
+  const handleRun = useCallback(async () => {
+    if (!workflowId) {
+      markError("Save the workflow before running");
+      return;
+    }
+    if (isDirty) {
+      markError("Save the workflow before running");
+      return;
+    }
     const validation = validateCanvasWorkflow(nodes, edges);
-
     if (!validation.isValid) {
       markError(`Cannot run: ${validation.issues[0]}`);
       return;
     }
-
-    const definition = mapCanvasToWorkflowDefinition(nodes, edges, {
-      id: "workflow-network-backup",
-      name: workflowName,
-    });
-
-    markRunning(`Mock execution queued for ${definition.steps.length} steps`);
-  }, [edges, markError, markRunning, nodes, workflowName]);
+    try {
+      await triggerRun.mutateAsync({ device_ids: [], trigger_type: "manual" });
+      markRunning("Run queued");
+      setMode("executions");
+    } catch {
+      markError("Failed to trigger run");
+    }
+  }, [workflowId, isDirty, nodes, edges, triggerRun, markRunning, markError, setMode]);
 
   const handleEdgeStyleChange = useCallback(
     (edgeId: string, style: EdgeStyle) => {

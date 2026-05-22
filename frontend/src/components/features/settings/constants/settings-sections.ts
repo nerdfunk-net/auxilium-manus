@@ -1,4 +1,4 @@
-import { KeyRound, Plug, Settings2, Users } from "lucide-react";
+import { KeyRound, Plug, Settings2, Users, Workflow } from "lucide-react";
 
 import type { SettingsSection } from "../types/settings-section";
 
@@ -31,5 +31,11 @@ export const SETTINGS_SECTIONS: {
     label: "Users",
     description: "Accounts, roles, and permission assignments.",
     icon: Users,
+  },
+  {
+    id: "hatchet",
+    label: "Hatchet",
+    description: "Workflow execution engine configuration.",
+    icon: Workflow,
   },
 ];

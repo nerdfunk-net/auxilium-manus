@@ -132,6 +132,7 @@ services:
         condition: service_completed_successfully
     networks:
       - internal
+      - backend
     environment:
       DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
       SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"

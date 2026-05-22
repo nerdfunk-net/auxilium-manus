@@ -36,8 +36,9 @@ class StepRunner:
         step_results: dict[str, WorkflowStepResult] = {}
         for node in ordered_nodes:
             node_id: str = node.get("id", "")
-            step_type: str = node.get("type", "unknown")
-            step_name: str = node.get("data", {}).get("label", step_type)
+            node_data: dict[str, Any] = node.get("data", {})
+            step_type: str = node_data.get("kind", "unknown")
+            step_name: str = node_data.get("title", step_type)
             step_results[node_id] = self.repo.create_step_result(
                 run_id=run.id,
                 step_node_id=node_id,
@@ -51,8 +52,9 @@ class StepRunner:
         for node in ordered_nodes:
             node_id = node.get("id", "")
             step_result = step_results[node_id]
-            step_type = node.get("type", "unknown")
-            step_config: dict[str, Any] = node.get("data", {})
+            node_data = node.get("data", {})
+            step_type = node_data.get("kind", "unknown")
+            step_config: dict[str, Any] = node_data.get("pluginConfig", {})
 
             if failed:
                 self.repo.update_step_result(step_result, status="skipped")

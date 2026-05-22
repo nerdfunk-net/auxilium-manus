@@ -1,54 +1,240 @@
-import { CheckCircle2, CircleDashed, Timer } from "lucide-react";
+"use client";
 
-const mockExecutions = [
-  {
-    id: "run-001",
-    title: "Manual backup test",
-    status: "Success",
-    timestamp: "Not persisted yet",
-  },
-  {
-    id: "run-002",
-    title: "Draft validation",
-    status: "Queued",
-    timestamp: "Mock data",
-  },
-];
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Ban,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Play,
+  XCircle,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { useApi } from "@/hooks/use-api";
+import { queryKeys } from "@/lib/query-keys";
+import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+import { useWorkflowRunsQuery } from "@/hooks/queries/use-workflow-runs-query";
+import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
+import type {
+  WorkflowRunDetail,
+  WorkflowRunStatus,
+  StepStatus,
+  WorkflowRunSummary,
+} from "../types/workflow-runs";
+
+function formatDuration(started: string | null, finished: string | null): string {
+  if (!started) return "—";
+  const start = new Date(started).getTime();
+  const end = finished ? new Date(finished).getTime() : Date.now();
+  const secs = Math.floor((end - start) / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  return `${mins}m ${secs % 60}s`;
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function RunStatusIcon({ status }: { status: WorkflowRunStatus }) {
+  switch (status) {
+    case "success":
+      return <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />;
+    case "failed":
+      return <XCircle className="size-4 shrink-0 text-red-500" />;
+    case "cancelled":
+      return <Ban className="size-4 shrink-0 text-slate-400" />;
+    case "running":
+    case "pending":
+      return <Loader2 className="size-4 shrink-0 animate-spin text-teal-500" />;
+  }
+}
+
+function StepStatusBadge({ status }: { status: StepStatus }) {
+  const colors: Record<StepStatus, string> = {
+    success: "bg-emerald-100 text-emerald-700",
+    failed: "bg-red-100 text-red-700",
+    running: "bg-teal-100 text-teal-700",
+    pending: "bg-slate-100 text-slate-500",
+    skipped: "bg-amber-100 text-amber-600",
+  };
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${colors[status]}`}>
+      {status}
+    </span>
+  );
+}
+
+function RunDetail({ runId }: { runId: number }) {
+  const { apiCall } = useApi();
+
+  const { data, isLoading } = useQuery<WorkflowRunDetail>({
+    queryKey: queryKeys.workflowRuns.detail(runId),
+    queryFn: () => apiCall(`runs/${runId}`, { method: "GET" }),
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const d = query.state.data as WorkflowRunDetail | undefined;
+      if (!d) return 2000;
+      return d.status === "pending" || d.status === "running" ? 2000 : false;
+    },
+  });
+
+  if (isLoading || !data) {
+    return (
+      <div className="border-t px-4 py-3">
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (data.step_results.length === 0) {
+    return (
+      <div className="border-t px-4 py-3 text-xs text-muted-foreground">
+        No step results yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t divide-y">
+      {data.step_results.map((step) => (
+        <div key={step.id} className="flex items-start justify-between px-4 py-3 gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate">{step.step_name}</p>
+            <p className="text-xs text-muted-foreground font-mono">{step.step_type}</p>
+            {step.error_message && (
+              <p className="mt-1 text-xs text-red-500 line-clamp-2">{step.error_message}</p>
+            )}
+            {step.output && (
+              <pre className="mt-1 text-xs text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto max-h-20 overflow-y-auto">
+                {JSON.stringify(step.output, null, 2)}
+              </pre>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0 mt-0.5">
+            <StepStatusBadge status={step.status} />
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {formatDuration(step.started_at, step.finished_at)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RunRow({
+  run,
+  workflowId,
+}: {
+  run: WorkflowRunSummary;
+  workflowId: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const cancelRun = useCancelRunMutation(workflowId);
+  const canCancel = run.status === "pending" || run.status === "running";
+
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden">
+      <div className="flex items-center">
+        <button
+          type="button"
+          className="flex flex-1 min-w-0 items-center gap-3 p-4 text-left hover:bg-muted/30 transition-colors"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <RunStatusIcon status={run.status} />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate">
+              Run #{run.id}
+              <span className="ml-2 text-xs text-muted-foreground font-normal">
+                {run.uuid.slice(0, 8)}…
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {run.triggered_by_username ?? "unknown"} · {formatTime(run.created_at)}
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground tabular-nums mr-1">
+            {formatDuration(run.started_at, run.finished_at)}
+          </span>
+          {expanded ? (
+            <ChevronDown className="size-4 text-muted-foreground shrink-0" />
+          ) : (
+            <ChevronRight className="size-4 text-muted-foreground shrink-0" />
+          )}
+        </button>
+        {canCancel && (
+          <div className="pr-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              disabled={cancelRun.isPending}
+              onClick={() => cancelRun.mutate(run.id)}
+              title="Cancel run"
+            >
+              <Ban className="size-3.5" />
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {expanded && <RunDetail runId={run.id} />}
+    </div>
+  );
+}
 
 export function WorkflowExecutionsPanel() {
+  const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
+  const { data, isLoading } = useWorkflowRunsQuery(workflowId);
+
+  const runs = data?.runs ?? [];
+
   return (
-    <div className="flex h-full items-center justify-center bg-slate-50 p-10">
-      <div className="w-full max-w-3xl rounded-2xl border bg-card p-6 shadow-sm">
-        <div className="mb-6">
+    <div className="flex h-full flex-col bg-slate-50">
+      <div className="flex items-center justify-between border-b bg-background px-6 py-4">
+        <div>
           <p className="text-sm font-semibold">Executions</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Real Hatchet-backed runs will appear here after backend integration.
+          <p className="text-xs text-muted-foreground">
+            {data ? `${data.total} run${data.total !== 1 ? "s" : ""}` : "Loading…"}
           </p>
         </div>
-        <div className="space-y-3">
-          {mockExecutions.map((execution) => (
-            <div
-              key={execution.id}
-              className="flex items-center justify-between rounded-xl border p-4"
-            >
-              <div className="flex items-center gap-3">
-                {execution.status === "Success" ? (
-                  <CheckCircle2 className="size-5 text-emerald-600" />
-                ) : (
-                  <CircleDashed className="size-5 text-amber-600" />
-                )}
-                <div>
-                  <p className="text-sm font-medium">{execution.title}</p>
-                  <p className="text-xs text-muted-foreground">{execution.id}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Timer className="size-4" />
-                {execution.timestamp}
-              </div>
+        {isLoading && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+        {!workflowId ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center text-muted-foreground">
+              <Play className="mx-auto mb-2 size-8 opacity-30" />
+              <p className="text-sm">Save the workflow first, then click Run.</p>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : isLoading ? (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : runs.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center text-muted-foreground">
+              <Play className="mx-auto mb-2 size-8 opacity-30" />
+              <p className="text-sm">No runs yet — click Run to start the workflow.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {runs.map((run) => (
+              <RunRow key={run.id} run={run} workflowId={workflowId} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

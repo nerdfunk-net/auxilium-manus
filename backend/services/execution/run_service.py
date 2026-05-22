@@ -109,13 +109,11 @@ class RunService:
         logger.info("Created run id=%s workflow_id=%s user_id=%s", run.id, workflow_id, user_id)
 
         try:
-            from hatchet.client import hatchet
+            from hatchet.workflows.workflow_run import WorkflowRunInput
+            from hatchet.workflows.workflow_run import workflow as workflow_execution
 
-            ref = hatchet.admin.run_workflow(
-                "WorkflowExecution",
-                {"run_id": run.id},
-            )
-            hatchet_run_id = str(getattr(ref, "workflow_run_id", "") or "")
+            ref = workflow_execution.run_no_wait(WorkflowRunInput(run_id=run.id))
+            hatchet_run_id = str(ref.workflow_run_id or "")
             self.run_repo.update_run_status(run, status="pending", hatchet_run_id=hatchet_run_id)
             logger.info("Dispatched run_id=%s hatchet_run_id=%s", run.id, hatchet_run_id)
         except Exception:
@@ -161,7 +159,7 @@ class RunService:
             try:
                 from hatchet.client import hatchet
 
-                hatchet.admin.cancel_workflow_run(run.hatchet_run_id)
+                hatchet.runs.cancel(run.hatchet_run_id)
             except Exception:
                 logger.warning(
                     "Could not cancel Hatchet run hatchet_run_id=%s", run.hatchet_run_id

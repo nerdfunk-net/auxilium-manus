@@ -41,9 +41,6 @@ class Settings:
     redis_password: str
     redis_url: str
     redis_key_prefix: str
-    hatchet_token: str
-    hatchet_host_port: str
-    hatchet_debug: bool
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -76,9 +73,6 @@ class Settings:
         self.redis_password = environ.get("MANUS_REDIS_PASSWORD", "")
         self.redis_key_prefix = environ.get("MANUS_REDIS_KEY_PREFIX", "manus-cache")
         self.redis_url = environ.get("MANUS_REDIS_URL", self._build_redis_url())
-        self.hatchet_token = environ.get("HATCHET_CLIENT_TOKEN", "")
-        self.hatchet_host_port = environ.get("HATCHET_CLIENT_HOST_PORT", "localhost:7077")
-        self.hatchet_debug = self._get_bool("HATCHET_DEBUG", self.environment == "development")
 
     def _build_redis_url(self) -> str:
         if self.redis_password:
