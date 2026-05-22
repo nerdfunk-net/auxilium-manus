@@ -557,6 +557,32 @@ PORT=3000
 1. UI: `/settings/permissions` → Add Permission → Assign to roles
 2. Code: Use `require_permission("resource", "action")` in routers
 
+### Adding a New Workflow Step
+
+> Full specification: `doc/WORKFLOW-STEPS.md`
+
+Each workflow step is a self-contained Python package under `backend/workflow_steps/{step_id}/`.
+The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/executor.py`.
+
+**Backend (5 files/entries):**
+1. `backend/workflow_steps/{step_id}/__init__.py` — empty
+2. `backend/workflow_steps/{step_id}/executor.py` — business logic:
+   ```python
+   async def execute(*, config: dict, parent_outputs: dict, run: WorkflowRun) -> dict: ...
+   ```
+3. `backend/workflow_steps/{step_id}/config.py` — `def get_config() -> dict` (if step has config)
+4. `backend/services/execution/step_registry.py` — add one import + one dict entry
+5. `backend/workflow_steps/registry.yaml` — add registry entry
+
+**Frontend (2 files):**
+6. `frontend/src/components/features/workflow-steps/{step-id}/index.tsx` — `PluginUIComponent`
+7. `frontend/src/lib/plugin-ui-registry.ts` — add entry to `PLUGIN_UI_REGISTRY`
+
+**Rules:**
+- ❌ No business logic in `step_registry.py` — dispatch table only
+- ❌ External code must never import `workflow_steps` packages directly; only `StepRunner` calls executors
+- ✅ Raise `ValueError` for config/input errors, `RuntimeError` for execution failures
+
 ## Security Checklist
 - ✅ Change `SECRET_KEY` and default admin password
 - ✅ All backend endpoints use JWT auth

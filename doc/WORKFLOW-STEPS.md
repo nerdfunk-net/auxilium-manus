@@ -26,12 +26,16 @@ together by a shared step `id`.
 backend/workflow_steps/           # Backend root — one sub-package per step
 ├── __init__.py
 ├── registry.yaml                 # Step registry (loaded at startup)
-└── get_nautobot_devices/         # One directory per step (snake_case)
-    ├── __init__.py
-    ├── config.py                 # Default configuration values (optional)
-    ├── models.py                 # Step-specific Pydantic models (optional)
-    ├── preview.py                # Step-specific backend logic
-    └── nautobot/                 # Sub-packages allowed for complex steps
+├── get_nautobot_devices/         # One directory per step (snake_case)
+│   ├── __init__.py
+│   ├── executor.py               # Step execution logic — REQUIRED
+│   ├── config.py                 # Default configuration values (optional)
+│   ├── models.py                 # Step-specific Pydantic models (optional)
+│   └── nautobot/                 # Sub-packages allowed for complex steps
+
+backend/services/execution/
+├── step_registry.py              # Dispatch table — maps step id → executor.execute
+└── step_runner.py                # Topological execution engine (do not modify per step)
 
 frontend/src/
 ├── components/features/
@@ -119,16 +123,89 @@ plugins:
 
 ## Backend contract
 
-Every step that requires server-side logic adds a Python sub-package under
-`backend/workflow_steps/<step_directory>/`.
+### executor.py — required for every executable step
 
-- The package must contain an `__init__.py`.
-- Business logic lives in dedicated modules within the package (e.g. `preview.py`,
-  `executor.py`). Additional modules such as `models.py` and sub-packages are allowed
-  for more complex steps.
-- The package must **not** be imported directly by routers or services outside the
-  `workflow_steps` package. All external access goes through the router in
-  `backend/routers/workflow_steps.py`.
+Every step that runs during workflow execution must provide an `executor.py` module
+inside its package. The module must expose a single async function with this exact
+signature:
+
+```python
+# backend/workflow_steps/get_nautobot_devices/executor.py
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    parent_outputs: dict[str, Any],
+    run: WorkflowRun,
+) -> dict[str, Any]:
+    ...
+```
+
+| Parameter      | Type                  | Description                                        |
+|----------------|-----------------------|----------------------------------------------------|
+| `config`       | `dict[str, Any]`      | `pluginConfig` from the canvas node                |
+| `parent_outputs` | `dict[str, Any]`    | `{node_id: output_dict}` from upstream steps       |
+| `run`          | `WorkflowRun`         | ORM instance — use `object_session(run)` for DB   |
+
+The function must return a JSON-serialisable dict. That dict becomes the step's output,
+is persisted to `workflow_step_results`, and is made available to downstream steps via
+`parent_outputs`.
+
+Raise a `ValueError` for configuration errors (bad input, missing field). Raise a
+`RuntimeError` for unexpected execution failures. The `StepRunner` catches all
+exceptions, marks the step failed, and skips remaining steps.
+
+### Registering a new step
+
+After creating `executor.py`, add one import and one dict entry to the dispatch table:
+
+```python
+# backend/services/execution/step_registry.py
+
+from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
+from workflow_steps.my_new_step.executor import execute as my_new_step  # ← add
+
+STEP_REGISTRY: dict[str, StepExecutor] = {
+    "get-nautobot-devices": get_nautobot_devices,
+    "my-new-step": my_new_step,  # ← add
+}
+```
+
+The `step_registry.py` file must remain a thin dispatch table — no business logic.
+
+### Execution path
+
+```
+Hatchet workflow task
+  └── StepRunner.execute_all()          services/execution/step_runner.py
+        └── STEP_REGISTRY[step_type]    services/execution/step_registry.py
+              └── execute()             workflow_steps/{step}/executor.py
+```
+
+External code (routers, other services) must never import `workflow_steps` packages
+directly. The `StepRunner` is the only authorised caller.
+
+### Optional modules
+
+| File         | Purpose                                              |
+|--------------|------------------------------------------------------|
+| `config.py`  | `get_config() -> dict` — default values for the step |
+| `models.py`  | Step-specific Pydantic models                        |
+
+A `config.py` is exposed via `GET /api/workflow-steps/{plugin_id}/get-config` and used
+by the frontend to pre-populate a step's config panel.
+
+```python
+# backend/workflow_steps/get_nautobot_devices/config.py
+def get_config() -> dict:
+    return {
+        "nautobot_source_id": "",
+        "device_filter": {"logic": "AND", "negate": False, "id": "root", "items": []},
+    }
+```
+
+Sub-packages are allowed for complex steps that need to split logic across multiple
+modules (e.g. `get_nautobot_devices/nautobot/`).
 
 ---
 
@@ -154,27 +231,6 @@ The `ConfigPanel` component receives:
 | `onChange` | `(config: Record<string, unknown>) => void` | Must be called on every user change  |
 | `onPreview`| `() => void`                            | Trigger a preview action                 |
 
-### Plugin config contract
-
-A step may optionally expose default configuration values by providing a
-`config.py` module in its backend package:
-
-```python
-# backend/workflow_steps/get_nautobot_devices/config.py
-def get_config() -> dict:
-    return {
-        "inventory_source": {"url": "", "token": ""},
-        "device_filter": {"logic": "AND", "negate": False, "id": "root", "items": []},
-    }
-```
-
-The backend exposes this via `GET /api/workflow-steps/{plugin_id}/get-config`.
-If `config.py` does not exist the endpoint returns `{"plugin_id": "...", "config": {}}`.
-The frontend uses this to pre-populate a step's `ConfigPanel` with initial values
-and includes the resulting config when saving a workflow to the database.
-
----
-
 The component must be registered in `frontend/src/lib/plugin-ui-registry.ts`:
 
 ```typescript
@@ -190,3 +246,21 @@ export function getPluginUI(pluginId: string): PluginUIComponent | undefined {
   return PLUGIN_UI_REGISTRY[pluginId];
 }
 ```
+
+---
+
+## Adding a new step — checklist
+
+1. **Backend package** — create `backend/workflow_steps/{step_id}/`:
+   - `__init__.py` (empty)
+   - `executor.py` with `async def execute(*, config, parent_outputs, run)`
+   - `config.py` with `def get_config() -> dict` (if the step has configuration)
+   - `models.py` with step-specific Pydantic models (if needed)
+
+2. **Dispatch table** — add one import and one entry to `services/execution/step_registry.py`
+
+3. **Registry** — add an entry to `workflow_steps/registry.yaml`
+
+4. **Frontend component** — create `frontend/src/components/features/workflow-steps/{step-id}/index.tsx`
+
+5. **UI registry** — add an entry to `frontend/src/lib/plugin-ui-registry.ts`
