@@ -23,3 +23,10 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-devices": get_nautobot_devices,
     "get-nautobot-attributes": get_nautobot_attributes,
 }
+
+# Maps step type id → the data_type the executor must produce on success.
+# Used by StepRunner to validate executor output against the registered schema.
+# Add an entry here whenever a new step with a declared output type is implemented.
+STEP_OUTPUT_TYPES: dict[str, str] = {
+    "get-nautobot-devices": "device_list",
+}

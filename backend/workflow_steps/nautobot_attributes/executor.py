@@ -18,8 +18,8 @@ async def execute(
 ) -> dict[str, Any]:
     device_ids: list[str] = []
     for output in parent_outputs.values():
-        if isinstance(output, dict) and "devices" in output:
-            device_ids = output["devices"]
+        if isinstance(output, dict) and "device_ids" in output:
+            device_ids = output["device_ids"]
             break
 
     attributes = config.get("list_of_attributes", [])

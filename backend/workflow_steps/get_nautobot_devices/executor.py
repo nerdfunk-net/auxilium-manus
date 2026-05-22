@@ -113,8 +113,10 @@ async def execute(
     )
 
     return {
-        "devices": [d.id for d in devices],
+        "general": {
+            "source_id": source_id,
+            "total": len(devices),
+        },
+        "device_ids": [d.id for d in devices],
         "device_details": [d.model_dump() for d in devices],
-        "source_id": source_id,
-        "total": len(devices),
     }

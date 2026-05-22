@@ -16,6 +16,9 @@ from sqlalchemy.orm import Session
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.workflows import Workflow
 from repositories.run_repository import RunRepository
+from services.validation.step_output_validator import StepOutputValidator
+
+_validator = StepOutputValidator()
 
 logger = logging.getLogger(__name__)
 
@@ -111,13 +114,24 @@ class StepRunner:
         parent_outputs: dict[str, Any],
         run: WorkflowRun,
     ) -> dict[str, Any]:
-        from services.execution.step_registry import STEP_REGISTRY
+        from services.execution.step_registry import STEP_OUTPUT_TYPES, STEP_REGISTRY
 
         executor = STEP_REGISTRY.get(step_type)
         if executor is None:
             raise ValueError(f"Unknown step type: {step_type!r}")
 
-        return await executor(config=config, parent_outputs=parent_outputs, run=run)
+        output = await executor(config=config, parent_outputs=parent_outputs, run=run)
+
+        data_type = STEP_OUTPUT_TYPES.get(step_type)
+        if data_type:
+            result = _validator.validate(data_type, output)
+            if not result.valid:
+                raise ValueError(
+                    f"Output validation failed for step '{step_type}' "
+                    f"(data_type={data_type}): {'; '.join(result.errors)}"
+                )
+
+        return output
 
     def _topological_sort(
         self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
