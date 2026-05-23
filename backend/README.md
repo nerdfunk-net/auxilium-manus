@@ -71,3 +71,34 @@ GET /api/plugins?include_disabled=true
 GET /api/plugins/registry
 GET /api/plugins/{plugin_id}
 ```
+
+## Workflow run retention
+
+Finished runs (`success`, `failed`, `cancelled`) and their step logs (`workflow_step_results`,
+including `output` and `error_message`) can be purged from PostgreSQL after a retention period.
+`pending` and `running` runs are never deleted.
+
+Configure in `.env`:
+
+```text
+RUN_RETENTION_ENABLED=true
+RUN_RETENTION_DAYS=90
+RUN_RETENTION_BATCH_SIZE=500
+```
+
+Preview and purge manually:
+
+```bash
+cd backend
+python scripts/purge_retention.py --dry-run
+python scripts/purge_retention.py --force   # when RUN_RETENTION_ENABLED=false
+```
+
+Example cron (daily at 03:00):
+
+```cron
+0 3 * * * cd /path/to/auxilium-manus/backend && /path/to/.venv/bin/python scripts/purge_retention.py
+```
+
+Hatchet keeps its own run history in the Hatchet database; purging Postgres does not remove
+those dashboard entries.

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from core.auth import get_current_user
@@ -40,10 +41,31 @@ async def trigger_run(
 @router.get("/workflows/{workflow_id}/runs", response_model=WorkflowRunListResponse)
 async def list_runs(
     workflow_id: int,
+    status: list[str] | None = Query(
+        None,
+        description=(
+            "Filter by run status (pending, running, success, failed, cancelled) "
+            "or 'skipped' for runs with at least one skipped step. Repeat for multiple."
+        ),
+    ),
+    created_from: datetime | None = Query(
+        None,
+        description="Include runs created at or after this time (ISO 8601).",
+    ),
+    created_to: datetime | None = Query(
+        None,
+        description="Include runs created at or before this time (ISO 8601).",
+    ),
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
 ) -> WorkflowRunListResponse:
-    return service.list_runs(workflow_id=workflow_id, user_id=current_user.id)
+    return service.list_runs(
+        workflow_id=workflow_id,
+        user_id=current_user.id,
+        statuses=status,
+        created_from=created_from,
+        created_to=created_to,
+    )
 
 
 @router.get("/runs/{run_id}", response_model=WorkflowRunResponse)

@@ -41,6 +41,9 @@ class Settings:
     redis_password: str
     redis_url: str
     redis_key_prefix: str
+    run_retention_enabled: bool
+    run_retention_days: int
+    run_retention_batch_size: int
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -73,6 +76,16 @@ class Settings:
         self.redis_password = environ.get("MANUS_REDIS_PASSWORD", "")
         self.redis_key_prefix = environ.get("MANUS_REDIS_KEY_PREFIX", "manus-cache")
         self.redis_url = environ.get("MANUS_REDIS_URL", self._build_redis_url())
+        self.run_retention_enabled = self._get_bool("RUN_RETENTION_ENABLED", False)
+        self.run_retention_days = self._get_int("RUN_RETENTION_DAYS", 90)
+        self.run_retention_batch_size = self._get_int("RUN_RETENTION_BATCH_SIZE", 500)
+        self._validate_run_retention()
+
+    def _validate_run_retention(self) -> None:
+        if self.run_retention_days < 1:
+            raise RuntimeError("RUN_RETENTION_DAYS must be at least 1")
+        if self.run_retention_batch_size < 1:
+            raise RuntimeError("RUN_RETENTION_BATCH_SIZE must be at least 1")
 
     def _build_redis_url(self) -> str:
         if self.redis_password:

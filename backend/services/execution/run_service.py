@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.safe_http_errors import raise_internal_server_error
 from models.runs import (
+    RUN_LIST_STATUS_FILTERS,
     WorkflowRunCreate,
     WorkflowRunListResponse,
     WorkflowRunResponse,
@@ -127,9 +129,29 @@ class RunService:
 
         return _run_to_response(run, None, [])
 
-    def list_runs(self, workflow_id: int, user_id: int) -> WorkflowRunListResponse:
+    def list_runs(
+        self,
+        workflow_id: int,
+        user_id: int,
+        *,
+        statuses: list[str] | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> WorkflowRunListResponse:
         self._assert_workflow_access(workflow_id, user_id)
-        rows = self.run_repo.list_runs_for_workflow(workflow_id)
+        if statuses:
+            invalid = [s for s in statuses if s not in RUN_LIST_STATUS_FILTERS]
+            if invalid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status filter(s): {', '.join(invalid)}",
+                )
+        rows = self.run_repo.list_runs_for_workflow(
+            workflow_id,
+            statuses=statuses,
+            created_from=created_from,
+            created_to=created_to,
+        )
         summaries = [_run_to_summary(run, username) for run, username in rows]
         return WorkflowRunListResponse(runs=summaries, total=len(summaries))
 

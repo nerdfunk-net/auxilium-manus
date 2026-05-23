@@ -4,11 +4,12 @@ import uuid as uuid_mod
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
+from models.runs import TERMINAL_RUN_STATUSES
 
 
 class RunRepository:
@@ -61,14 +62,45 @@ class RunRepository:
         return (row.WorkflowRun, row.triggered_by_username)
 
     def list_runs_for_workflow(
-        self, workflow_id: int
+        self,
+        workflow_id: int,
+        *,
+        statuses: list[str] | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
     ) -> list[tuple[WorkflowRun, str | None]]:
         stmt = (
             select(WorkflowRun, User.username.label("triggered_by_username"))
             .outerjoin(User, WorkflowRun.triggered_by_id == User.id)
             .where(WorkflowRun.workflow_id == workflow_id)
-            .order_by(WorkflowRun.created_at.desc())
         )
+
+        if statuses:
+            run_statuses = [s for s in statuses if s != "skipped"]
+            include_skipped_steps = "skipped" in statuses
+            status_conditions = []
+            if run_statuses:
+                status_conditions.append(WorkflowRun.status.in_(run_statuses))
+            if include_skipped_steps:
+                status_conditions.append(
+                    exists(
+                        select(1).where(
+                            WorkflowStepResult.run_id == WorkflowRun.id,
+                            WorkflowStepResult.status == "skipped",
+                        )
+                    )
+                )
+            if len(status_conditions) == 1:
+                stmt = stmt.where(status_conditions[0])
+            elif len(status_conditions) > 1:
+                stmt = stmt.where(or_(*status_conditions))
+
+        if created_from is not None:
+            stmt = stmt.where(WorkflowRun.created_at >= created_from)
+        if created_to is not None:
+            stmt = stmt.where(WorkflowRun.created_at <= created_to)
+
+        stmt = stmt.order_by(WorkflowRun.created_at.desc())
         return [(row.WorkflowRun, row.triggered_by_username) for row in self.db.execute(stmt)]
 
     def update_run_status(
@@ -146,3 +178,45 @@ class RunRepository:
             .order_by(WorkflowStepResult.id)
         )
         return list(self.db.execute(stmt).scalars())
+
+    def _finished_runs_older_than_filter(self, *, cutoff: datetime):
+        return (
+            WorkflowRun.status.in_(TERMINAL_RUN_STATUSES),
+            WorkflowRun.created_at < cutoff,
+        )
+
+    def count_finished_runs_older_than(self, *, cutoff: datetime) -> int:
+        status_filter, created_filter = self._finished_runs_older_than_filter(cutoff=cutoff)
+        stmt = (
+            select(func.count())
+            .select_from(WorkflowRun)
+            .where(status_filter, created_filter)
+        )
+        return int(self.db.scalar(stmt) or 0)
+
+    def purge_finished_runs_older_than(
+        self,
+        *,
+        cutoff: datetime,
+        batch_size: int = 500,
+    ) -> int:
+        """Delete finished runs before cutoff. Step results cascade on delete."""
+        total_deleted = 0
+        status_filter, created_filter = self._finished_runs_older_than_filter(cutoff=cutoff)
+
+        while True:
+            id_stmt = (
+                select(WorkflowRun.id)
+                .where(status_filter, created_filter)
+                .order_by(WorkflowRun.id)
+                .limit(batch_size)
+            )
+            run_ids = list(self.db.scalars(id_stmt))
+            if not run_ids:
+                break
+
+            result = self.db.execute(delete(WorkflowRun).where(WorkflowRun.id.in_(run_ids)))
+            self.db.commit()
+            total_deleted += result.rowcount or 0
+
+        return total_deleted

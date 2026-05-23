@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
@@ -26,6 +26,12 @@ import { queryKeys } from "@/lib/query-keys";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import { useWorkflowRunsQuery } from "@/hooks/queries/use-workflow-runs-query";
 import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
+import { WorkflowRunFiltersBar } from "./workflow-run-filters-bar";
+import {
+  EMPTY_WORKFLOW_RUN_FILTERS,
+  hasActiveWorkflowRunFilters,
+} from "../types/workflow-run-filters";
+import type { WorkflowRunListFilters } from "../types/workflow-run-filters";
 import type {
   WorkflowRunDetail,
   WorkflowRunStatus,
@@ -259,9 +265,15 @@ function RunRow({
 
 export function WorkflowExecutionsPanel() {
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
-  const { data, isLoading } = useWorkflowRunsQuery(workflowId);
+  const [filters, setFilters] = useState<WorkflowRunListFilters>(EMPTY_WORKFLOW_RUN_FILTERS);
+  const handleFiltersChange = useCallback((next: WorkflowRunListFilters) => {
+    setFilters(next);
+  }, []);
+
+  const { data, isLoading, isFetching } = useWorkflowRunsQuery(workflowId, { filters });
 
   const runs = data?.runs ?? [];
+  const filtersActive = hasActiveWorkflowRunFilters(filters);
 
   return (
     <div className="flex h-full flex-col bg-slate-50">
@@ -270,10 +282,17 @@ export function WorkflowExecutionsPanel() {
           <p className="text-sm font-semibold">Executions</p>
           <p className="text-xs text-muted-foreground">
             {data ? `${data.total} run${data.total !== 1 ? "s" : ""}` : "Loading…"}
+            {filtersActive ? " (filtered)" : ""}
           </p>
         </div>
-        {isLoading && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        {(isLoading || isFetching) && (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        )}
       </div>
+
+      {workflowId ? (
+        <WorkflowRunFiltersBar filters={filters} onChange={handleFiltersChange} />
+      ) : null}
 
       <div className="flex-1 overflow-y-auto p-6">
         {!workflowId ? (
@@ -291,7 +310,11 @@ export function WorkflowExecutionsPanel() {
           <div className="flex h-full items-center justify-center">
             <div className="text-center text-muted-foreground">
               <Play className="mx-auto mb-2 size-8 opacity-30" />
-              <p className="text-sm">No runs yet — click Run to start the workflow.</p>
+              <p className="text-sm">
+                {filtersActive
+                  ? "No runs match the current filters."
+                  : "No runs yet — click Run to start the workflow."}
+              </p>
             </div>
           </div>
         ) : (

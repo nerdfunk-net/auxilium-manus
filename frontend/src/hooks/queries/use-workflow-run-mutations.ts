@@ -22,7 +22,9 @@ export function useTriggerRunMutation(workflowId: number | null) {
       }),
     onSuccess: () => {
       if (workflowId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.list(workflowId) });
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
       }
       toast({ title: "Run queued", description: "Workflow execution has been started." });
     },
@@ -49,7 +51,9 @@ export function useCancelRunMutation(workflowId: number | null) {
       }),
     onSuccess: (_data, runId) => {
       if (workflowId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.list(workflowId) });
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
       toast({ title: "Run cancelled", description: "The run has been cancelled." });

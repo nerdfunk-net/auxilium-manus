@@ -6,8 +6,18 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 RunStatus = Literal["pending", "running", "success", "failed", "cancelled"]
+RunListStatusFilter = Literal["pending", "running", "success", "failed", "cancelled", "skipped"]
 StepStatus = Literal["pending", "running", "success", "failed", "skipped"]
 TriggerType = Literal["manual", "scheduled", "webhook"]
+
+RUN_LIST_STATUS_FILTERS: frozenset[str] = frozenset(
+    ["pending", "running", "success", "failed", "cancelled", "skipped"]
+)
+RUN_STATUS_FILTERS: frozenset[str] = frozenset(
+    ["pending", "running", "success", "failed", "cancelled"]
+)
+# Safe to purge via retention — never delete pending/running runs.
+TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(["success", "failed", "cancelled"])
 
 
 class WorkflowRunCreate(BaseModel):
