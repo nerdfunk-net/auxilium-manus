@@ -29,4 +29,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
 # Add an entry here whenever a new step with a declared output type is implemented.
 STEP_OUTPUT_TYPES: dict[str, str] = {
     "get-nautobot-devices": "device_list",
+    "get-nautobot-attributes": "device_attribute_map",
 }
