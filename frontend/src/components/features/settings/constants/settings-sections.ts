@@ -1,4 +1,4 @@
-import { KeyRound, Plug, Settings2, Users, Workflow } from "lucide-react";
+import { Database, KeyRound, Plug, Settings2, Users, Workflow } from "lucide-react";
 
 import type { SettingsSection } from "../types/settings-section";
 
@@ -37,5 +37,11 @@ export const SETTINGS_SECTIONS: {
     label: "Hatchet",
     description: "Workflow execution engine configuration.",
     icon: Workflow,
+  },
+  {
+    id: "redis",
+    label: "Redis",
+    description: "Device cache TTL and cache management.",
+    icon: Database,
   },
 ];

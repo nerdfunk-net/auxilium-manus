@@ -19,9 +19,7 @@ class Workflow(Base):
     )
     description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     folder: Mapped[str | None] = mapped_column(String(500), nullable=True, default="/")
-    visibility: Mapped[str] = mapped_column(
-        String(10), nullable=False, default="private"
-    )
+    visibility: Mapped[str] = mapped_column(String(10), nullable=False, default="private")
     canvas_nodes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     canvas_edges: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

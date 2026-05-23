@@ -6,11 +6,11 @@ import logging
 
 from fastapi import APIRouter, Depends
 
+import service_factory
 from core.auth import get_current_user
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import nautobot_credentials_from_query
-import service_factory
 from services.nautobot.credentials import NautobotCredentials
 
 logger = logging.getLogger(__name__)

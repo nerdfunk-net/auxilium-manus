@@ -17,22 +17,23 @@ if not logging.root.handlers:
         stream=sys.stdout,
     )
 
+import service_factory
 from core.database import SessionLocal, init_db
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
+from routers.cache_settings import router as cache_settings_router
+from routers.hatchet_settings import router as hatchet_settings_router
 from routers.nautobot.custom_fields import router as nautobot_custom_fields_router
+from routers.settings import router as settings_router
 from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
 )
-from routers.hatchet_settings import router as hatchet_settings_router
-from routers.settings import router as settings_router
 from routers.workflow_runs import router as workflow_runs_router
 from routers.workflow_steps import router as workflow_steps_router
 from routers.workflows import router as workflows_router
-from services.nautobot.client import NautobotService
-import service_factory
 from services.auth.auth_service import AuthService
+from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
 
@@ -77,6 +78,7 @@ app.include_router(workflows_router, prefix=settings.api_prefix)
 app.include_router(workflow_runs_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)
 app.include_router(hatchet_settings_router, prefix=settings.api_prefix)
+app.include_router(cache_settings_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["health"])

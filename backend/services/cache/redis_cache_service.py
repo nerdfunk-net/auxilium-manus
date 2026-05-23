@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis
 
@@ -44,7 +44,7 @@ class RedisCacheService:
         """Increment a statistics counter."""
         self._redis.hincrby(self._stats_key, stat_name, amount)
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get cached value by key.
 
         Args:
@@ -168,7 +168,7 @@ class RedisCacheService:
             logger.error("Cache clear_all error: %s", e)
             return 0
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Get comprehensive cache statistics."""
         try:
             now = time.time()
@@ -206,9 +206,7 @@ class RedisCacheService:
             for key in cache_keys:
                 # Remove prefix to get user-facing key
                 user_key = (
-                    key[len(self._prefix) + 1 :]
-                    if key.startswith(f"{self._prefix}:")
-                    else key
+                    key[len(self._prefix) + 1 :] if key.startswith(f"{self._prefix}:") else key
                 )
                 namespace = user_key.split(":")[0] if ":" in user_key else "default"
 
@@ -230,17 +228,13 @@ class RedisCacheService:
 
             # Get user-facing keys (without prefix)
             user_keys = [
-                k[len(self._prefix) + 1 :]
-                for k in cache_keys
-                if k.startswith(f"{self._prefix}:")
+                k[len(self._prefix) + 1 :] for k in cache_keys if k.startswith(f"{self._prefix}:")
             ]
 
             return {
                 "overview": {
                     "total_items": len(cache_keys),
-                    "valid_items": len(
-                        cache_keys
-                    ),  # Redis auto-expires, so all are valid
+                    "valid_items": len(cache_keys),  # Redis auto-expires, so all are valid
                     "expired_items": 0,  # Redis handles expiration automatically
                     "total_size_bytes": total_size,
                     "total_size_mb": round(total_size / 1024 / 1024, 2),
@@ -267,7 +261,7 @@ class RedisCacheService:
                 "keys": [],
             }
 
-    def get_entries(self, include_expired: bool = False) -> List[Dict[str, Any]]:
+    def get_entries(self, include_expired: bool = False) -> list[dict[str, Any]]:
         """Get detailed information about all cache entries.
 
         Args:
@@ -330,7 +324,7 @@ class RedisCacheService:
             logger.error("Error getting cache entries: %s", e)
             return []
 
-    def get_namespace_info(self, namespace: str) -> Dict[str, Any]:
+    def get_namespace_info(self, namespace: str) -> dict[str, Any]:
         """Get detailed information about a specific namespace.
 
         Args:
@@ -402,7 +396,7 @@ class RedisCacheService:
                 "entries": [],
             }
 
-    def get_performance_metrics(self) -> Dict[str, Any]:
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Get detailed performance metrics."""
         try:
             now = time.time()
@@ -430,9 +424,7 @@ class RedisCacheService:
             return {
                 "uptime_seconds": round(uptime, 1),
                 "total_requests": total_requests,
-                "requests_per_second": round(total_requests / uptime, 2)
-                if uptime > 0
-                else 0,
+                "requests_per_second": round(total_requests / uptime, 2) if uptime > 0 else 0,
                 "cache_hits": hits,
                 "cache_misses": misses,
                 "hit_rate_percent": round(

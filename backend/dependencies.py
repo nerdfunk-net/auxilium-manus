@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.database import get_db
 from models.sources_nautobot import NautobotConnection
-from repositories.inventory_repository import InventoryRepository
 from services.nautobot.credentials import NautobotCredentials
 from services.sources.nautobot.persistence_service import InventoryPersistenceService
 

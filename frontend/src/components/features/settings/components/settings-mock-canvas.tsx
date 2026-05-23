@@ -4,9 +4,10 @@ import { SETTINGS_SECTIONS } from "../constants/settings-sections";
 import { useWorkspaceStore } from "../hooks/use-workspace-store";
 import type { SettingsSection } from "../types/settings-section";
 import { HatchetSettingsCanvas } from "./hatchet-settings-canvas";
+import { RedisSettingsCanvas } from "./redis-settings-canvas";
 import { SourcesSettingsCanvas } from "./sources-settings-canvas";
 
-type MockPlaceholderSection = Exclude<SettingsSection, "sources" | "hatchet">;
+type MockPlaceholderSection = Exclude<SettingsSection, "sources" | "hatchet" | "redis">;
 
 const MOCK_PLACEHOLDERS: Record<
   MockPlaceholderSection,
@@ -47,6 +48,10 @@ export function SettingsMockCanvas() {
 
   if (settingsSection === "hatchet") {
     return <HatchetSettingsCanvas />;
+  }
+
+  if (settingsSection === "redis") {
+    return <RedisSettingsCanvas />;
   }
 
   const sectionMeta = SETTINGS_SECTIONS.find((s) => s.id === settingsSection);

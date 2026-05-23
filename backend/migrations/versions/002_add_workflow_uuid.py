@@ -12,9 +12,7 @@ ALTER TABLE workflows
 ADD COLUMN IF NOT EXISTS uuid VARCHAR(36) UNIQUE
 """
 
-CREATE_UUID_INDEX = (
-    "CREATE UNIQUE INDEX IF NOT EXISTS ix_workflows_uuid ON workflows (uuid)"
-)
+CREATE_UUID_INDEX = "CREATE UNIQUE INDEX IF NOT EXISTS ix_workflows_uuid ON workflows (uuid)"
 
 
 class Migration(BaseMigration):

@@ -97,6 +97,7 @@ class DeviceInfo(BaseModel):
     device_type: str | None = None
     manufacturer: str | None = None
     platform: str | None = None
+    platform_network_driver: str | None = None
     primary_ip4: str | None = None
     status: str | None = None
 

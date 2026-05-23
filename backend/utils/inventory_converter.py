@@ -12,14 +12,14 @@ Used by:
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from models.sources_nautobot import LogicalCondition, LogicalOperation
 
 logger = logging.getLogger(__name__)
 
 
-def tree_to_operations(tree_data: Dict[str, Any]) -> List[LogicalOperation]:
+def tree_to_operations(tree_data: dict[str, Any]) -> list[LogicalOperation]:
     """
     Convert tree structure (version 2) to LogicalOperation objects.
 
@@ -63,9 +63,7 @@ def tree_to_operations(tree_data: Dict[str, Any]) -> List[LogicalOperation]:
 
     internal_logic = tree_data.get("internalLogic", "AND")
 
-    logger.info(
-        "Converting tree with %s items, internal logic: %s", len(items), internal_logic
-    )
+    logger.info("Converting tree with %s items, internal logic: %s", len(items), internal_logic)
 
     # Convert all items
     regular_items = []
@@ -75,11 +73,7 @@ def tree_to_operations(tree_data: Dict[str, Any]) -> List[LogicalOperation]:
         converted = _convert_item(item)
 
         # Check if this is a NOT group
-        if (
-            isinstance(item, dict)
-            and item.get("type") == "group"
-            and item.get("logic") == "NOT"
-        ):
+        if isinstance(item, dict) and item.get("type") == "group" and item.get("logic") == "NOT":
             # Mark as NOT operation
             converted.operation_type = "NOT"
             not_items.append(converted)
@@ -121,7 +115,7 @@ def tree_to_operations(tree_data: Dict[str, Any]) -> List[LogicalOperation]:
     return operations
 
 
-def _convert_item(item: Dict[str, Any]) -> LogicalOperation:
+def _convert_item(item: dict[str, Any]) -> LogicalOperation:
     """
     Convert a single item (condition or group) to LogicalOperation.
 
@@ -177,8 +171,8 @@ def _convert_item(item: Dict[str, Any]) -> LogicalOperation:
 
 
 def convert_saved_inventory_to_operations(
-    conditions: List[Any],
-) -> List[LogicalOperation]:
+    conditions: list[Any],
+) -> list[LogicalOperation]:
     """
     Convert saved inventory conditions to LogicalOperation objects.
 
@@ -217,7 +211,8 @@ def convert_saved_inventory_to_operations(
 
     if version != 2:
         raise ValueError(
-            f"Unsupported conditions format version: {version}. Only version 2 (tree structure) is supported."
+            f"Unsupported conditions format version: {version}. "
+            "Only version 2 (tree structure) is supported."
         )
 
     if not tree:

@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+import service_factory
 from core.auth import get_current_user
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
@@ -21,7 +22,6 @@ from models.sources_nautobot import (
     RenameGroupRequest,
     RenameGroupResponse,
 )
-import service_factory
 from services.nautobot.credentials import NautobotCredentials
 from services.sources.nautobot.persistence_service import InventoryPersistenceService
 from services.sources.nautobot.source_service import NautobotSourceService
@@ -248,11 +248,7 @@ async def resolve_inventory_to_devices_detailed(
                 )
                 device_details.append(detail)
                 primary_ip4 = detail.get("primary_ip4")
-                address = (
-                    primary_ip4.get("address")
-                    if isinstance(primary_ip4, dict)
-                    else None
-                )
+                address = primary_ip4.get("address") if isinstance(primary_ip4, dict) else None
                 device_list.append(
                     {"id": detail.get("id"), "name": detail.get("name"), "primary_ip4": address}
                 )

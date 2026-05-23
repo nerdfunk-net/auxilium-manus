@@ -9,7 +9,7 @@ from services.nautobot.credentials import NautobotCredentials
 
 logger = logging.getLogger(__name__)
 
-DEVICE_CACHE_TTL = 30 * 60
+DEVICE_CACHE_TTL = 30 * 60  # default 30 minutes
 
 DEVICE_DETAILS_QUERY = """
 query DeviceDetails($deviceId: ID!) {
@@ -41,11 +41,13 @@ class DeviceQueryService:
         nautobot: NautobotService,
         credentials: NautobotCredentials,
         cache_service=None,
+        device_ttl: int = DEVICE_CACHE_TTL,
     ) -> None:
         self._nautobot = nautobot
         self._credentials = credentials
         self._cache = cache_service
         self._cache_scope = credentials.cache_scope
+        self._device_ttl = device_ttl
 
     def _details_cache_key(self, device_id: str) -> str:
         return f"nautobot:device_details:{self._cache_scope}:{device_id}"
@@ -70,5 +72,5 @@ class DeviceQueryService:
             raise ValueError(f"Device {device_id} not found in Nautobot")
 
         if self._cache is not None:
-            self._cache.set(cache_key, device, DEVICE_CACHE_TTL)
+            self._cache.set(cache_key, device, self._device_ttl)
         return device

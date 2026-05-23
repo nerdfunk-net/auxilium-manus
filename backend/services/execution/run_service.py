@@ -183,9 +183,7 @@ class RunService:
 
                 hatchet.runs.cancel(run.hatchet_run_id)
             except Exception:
-                logger.warning(
-                    "Could not cancel Hatchet run hatchet_run_id=%s", run.hatchet_run_id
-                )
+                logger.warning("Could not cancel Hatchet run hatchet_run_id=%s", run.hatchet_run_id)
 
         self.run_repo.update_run_status(run, status="cancelled")
         step_results = self.run_repo.get_step_results_for_run(run_id)

@@ -20,12 +20,14 @@ Cache strategy (Option A — cache-first):
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from models.sources_nautobot import DeviceInfo
 
 if TYPE_CHECKING:
     from services.cache.redis_cache_service import RedisCacheService
+    from services.nautobot.client import NautobotService
+    from services.nautobot.credentials import NautobotCredentials
 
 logger = logging.getLogger(__name__)
 
@@ -37,25 +39,23 @@ class NautobotSourceQueryService:
 
     def __init__(
         self,
-        nautobot: "NautobotService",
-        credentials: "NautobotCredentials",
-        cache_service: Optional["RedisCacheService"] = None,
+        nautobot: NautobotService,
+        credentials: NautobotCredentials,
+        cache_service: RedisCacheService | None = None,
     ):
-        from services.nautobot.client import NautobotService
-        from services.nautobot.credentials import NautobotCredentials
 
         self._nautobot = nautobot
         self._credentials = credentials
         self._cache_service = cache_service
         self._bulk_cache_key = f"{_BULK_CACHE_KEY_PREFIX}:{credentials.cache_scope}"
-        self._devices_cache: Optional[List[DeviceInfo]] = None
-        self._custom_field_types_cache: Optional[Dict[str, str]] = None
+        self._devices_cache: list[DeviceInfo] | None = None
+        self._custom_field_types_cache: dict[str, str] | None = None
 
     # ------------------------------------------------------------------
     # Cache helpers
     # ------------------------------------------------------------------
 
-    def _parse_device_from_cache(self, raw: Dict[str, Any]) -> DeviceInfo:
+    def _parse_device_from_cache(self, raw: dict[str, Any]) -> DeviceInfo:
         """Convert a flat cache dict (from extract_device_essentials) to DeviceInfo."""
         tags = raw.get("tags") or []
         return DeviceInfo(
@@ -68,11 +68,12 @@ class NautobotSourceQueryService:
             role=raw.get("role"),
             location=raw.get("location"),
             platform=raw.get("platform"),
+            platform_network_driver=raw.get("platform_network_driver"),
             tags=tags,
             manufacturer=raw.get("manufacturer"),
         )
 
-    async def _get_all_devices_cached(self) -> List[DeviceInfo]:
+    async def _get_all_devices_cached(self) -> list[DeviceInfo]:
         """
         Return all devices, preferring the Redis bulk cache over a live API call.
 
@@ -110,7 +111,7 @@ class NautobotSourceQueryService:
     # Custom field metadata
     # ------------------------------------------------------------------
 
-    async def _get_custom_field_types(self) -> Dict[str, str]:
+    async def _get_custom_field_types(self) -> dict[str, str]:
         """
         Fetch custom field types from Nautobot API and cache them.
 
@@ -133,20 +134,14 @@ class NautobotSourceQueryService:
                 field_key = field.get("key")
                 field_type_dict = field.get("type", {})
                 field_type_value = (
-                    field_type_dict.get("value")
-                    if isinstance(field_type_dict, dict)
-                    else None
+                    field_type_dict.get("value") if isinstance(field_type_dict, dict) else None
                 )
 
                 if field_key and field_type_value:
                     type_mapping[field_key] = field_type_value
-                    logger.info(
-                        "Custom field '%s' has type '%s'", field_key, field_type_value
-                    )
+                    logger.info("Custom field '%s' has type '%s'", field_key, field_type_value)
 
-            logger.info(
-                "Loaded %s custom field types: %s", len(type_mapping), type_mapping
-            )
+            logger.info("Loaded %s custom field types: %s", len(type_mapping), type_mapping)
 
             self._custom_field_types_cache = type_mapping
             return type_mapping
@@ -159,7 +154,7 @@ class NautobotSourceQueryService:
     # Live Nautobot GraphQL helpers (used as fallback or for uncacheable queries)
     # ------------------------------------------------------------------
 
-    async def _query_all_devices_live(self) -> List[DeviceInfo]:
+    async def _query_all_devices_live(self) -> list[DeviceInfo]:
         """Query all devices from Nautobot without any filters (no cache)."""
         query = """
         query all_devices {
@@ -190,6 +185,7 @@ class NautobotSourceQueryService:
                 }
                 platform {
                     name
+                    network_driver
                 }
             }
         }
@@ -200,7 +196,7 @@ class NautobotSourceQueryService:
         logger.info("Retrieved %s total devices from Nautobot", len(devices_data))
         return self._parse_device_data(devices_data)
 
-    async def _query_all_devices(self) -> List[DeviceInfo]:
+    async def _query_all_devices(self) -> list[DeviceInfo]:
         """Return all devices, using the bulk cache when available."""
         return await self._get_all_devices_cached()
 
@@ -210,7 +206,7 @@ class NautobotSourceQueryService:
 
     async def _query_devices_by_name(
         self, name_filter: str, use_contains: bool = False
-    ) -> List[DeviceInfo]:
+    ) -> list[DeviceInfo]:
         """Filter devices by name using the bulk cache."""
         if not name_filter or name_filter.strip() == "":
             logger.warning("Empty name_filter provided, returning empty result")
@@ -234,7 +230,7 @@ class NautobotSourceQueryService:
 
     async def _query_devices_by_role(
         self, role_filter: str, use_negation: bool = False
-    ) -> List[DeviceInfo]:
+    ) -> list[DeviceInfo]:
         """Filter devices by role using the bulk cache."""
         if not role_filter or role_filter.strip() == "":
             logger.warning("Empty role_filter provided, returning empty result")
@@ -255,7 +251,7 @@ class NautobotSourceQueryService:
         )
         return result
 
-    async def _query_devices_by_status(self, status_filter: str) -> List[DeviceInfo]:
+    async def _query_devices_by_status(self, status_filter: str) -> list[DeviceInfo]:
         """Filter devices by status using the bulk cache."""
         if not status_filter or status_filter.strip() == "":
             logger.warning("Empty status_filter provided, returning empty result")
@@ -266,7 +262,7 @@ class NautobotSourceQueryService:
         logger.info("Cache filter status='%s': %s devices", status_filter, len(result))
         return result
 
-    async def _query_devices_by_tag(self, tag_filter: str) -> List[DeviceInfo]:
+    async def _query_devices_by_tag(self, tag_filter: str) -> list[DeviceInfo]:
         """Filter devices by tag using the bulk cache."""
         if not tag_filter or tag_filter.strip() == "":
             logger.warning("Empty tag_filter provided, returning empty result")
@@ -279,7 +275,7 @@ class NautobotSourceQueryService:
 
     async def _query_devices_by_devicetype(
         self, devicetype_filter: str, use_negation: bool = False
-    ) -> List[DeviceInfo]:
+    ) -> list[DeviceInfo]:
         """Filter devices by device type using the bulk cache."""
         if not devicetype_filter or devicetype_filter.strip() == "":
             logger.warning("Empty devicetype_filter provided, returning empty result")
@@ -302,7 +298,7 @@ class NautobotSourceQueryService:
 
     async def _query_devices_by_manufacturer(
         self, manufacturer_filter: str, use_negation: bool = False
-    ) -> List[DeviceInfo]:
+    ) -> list[DeviceInfo]:
         """Filter devices by manufacturer using the bulk cache."""
         if not manufacturer_filter or manufacturer_filter.strip() == "":
             logger.warning("Empty manufacturer_filter provided, returning empty result")
@@ -323,9 +319,7 @@ class NautobotSourceQueryService:
         )
         return result
 
-    async def _query_devices_by_platform(
-        self, platform_filter: str
-    ) -> List[DeviceInfo]:
+    async def _query_devices_by_platform(self, platform_filter: str) -> list[DeviceInfo]:
         """Filter devices by platform using the bulk cache."""
         if not platform_filter or platform_filter.strip() == "":
             logger.warning("Empty platform_filter provided, returning empty result")
@@ -333,14 +327,10 @@ class NautobotSourceQueryService:
 
         all_devices = await self._get_all_devices_cached()
         result = [d for d in all_devices if d.platform == platform_filter]
-        logger.info(
-            "Cache filter platform='%s': %s devices", platform_filter, len(result)
-        )
+        logger.info("Cache filter platform='%s': %s devices", platform_filter, len(result))
         return result
 
-    async def _query_devices_by_has_primary(
-        self, has_primary_filter: str
-    ) -> List[DeviceInfo]:
+    async def _query_devices_by_has_primary(self, has_primary_filter: str) -> list[DeviceInfo]:
         """Filter devices by whether they have a primary IP using the bulk cache."""
         has_primary_bool = has_primary_filter.lower() == "true"
 
@@ -351,9 +341,7 @@ class NautobotSourceQueryService:
         else:
             result = [d for d in all_devices if not d.primary_ip4]
 
-        logger.info(
-            "Cache filter has_primary=%s: %s devices", has_primary_bool, len(result)
-        )
+        logger.info("Cache filter has_primary=%s: %s devices", has_primary_bool, len(result))
         return result
 
     # ------------------------------------------------------------------
@@ -365,7 +353,7 @@ class NautobotSourceQueryService:
         location_filter: str,
         use_contains: bool = False,
         use_negation: bool = False,
-    ) -> List[DeviceInfo]:
+    ) -> list[DeviceInfo]:
         """Query devices by location using GraphQL.
 
         Intentionally kept as a live Nautobot call: Nautobot resolves the full
@@ -412,6 +400,7 @@ class NautobotSourceQueryService:
                     }
                     platform {
                         name
+                        network_driver
                     }
                 }
             }
@@ -446,6 +435,7 @@ class NautobotSourceQueryService:
                     }
                     platform {
                         name
+                        network_driver
                     }
                 }
             }
@@ -480,6 +470,7 @@ class NautobotSourceQueryService:
                     }
                     platform {
                         name
+                        network_driver
                     }
                 }
             }
@@ -499,7 +490,7 @@ class NautobotSourceQueryService:
 
     async def _query_devices_by_ip_prefix(
         self, prefix_filter: str, operator: str = "within_include"
-    ) -> List[DeviceInfo]:
+    ) -> list[DeviceInfo]:
         """Query devices by IP prefix using GraphQL.
 
         Intentionally kept as a live Nautobot call: CIDR containment filtering
@@ -522,7 +513,8 @@ class NautobotSourceQueryService:
             logger.warning("Empty prefix_filter provided, returning empty result")
             return []
 
-        # Split CIDR and optional namespace: "192.168.183.0/24 Global" → ("192.168.183.0/24", "Global")
+        # Split CIDR and optional namespace:
+        # "192.168.183.0/24 Global" → ("192.168.183.0/24", "Global")
         parts = prefix_filter.strip().split(None, 1)
         cidr = parts[0]
         namespace = parts[1].strip() if len(parts) > 1 else None
@@ -559,7 +551,7 @@ class NautobotSourceQueryService:
                                 role {{ name }}
                                 location {{ name }}
                                 tags {{ name }}
-                                platform {{ name }}
+                                platform {{ name network_driver }}
                             }}
                         }}
                     }}
@@ -575,7 +567,7 @@ class NautobotSourceQueryService:
             return []
 
         prefixes_data = result.get("data", {}).get("prefixes", [])
-        seen_ids: Dict[str, DeviceInfo] = {}
+        seen_ids: dict[str, DeviceInfo] = {}
 
         for prefix in prefixes_data:
             for ip_addr in prefix.get("ip_addresses", []):
@@ -603,7 +595,7 @@ class NautobotSourceQueryService:
         custom_field_name: str,
         custom_field_value: str,
         use_contains: bool = False,
-    ) -> List[DeviceInfo]:
+    ) -> list[DeviceInfo]:
         """
         Query devices by custom field value.
 
@@ -619,14 +611,10 @@ class NautobotSourceQueryService:
             List of matching devices
         """
         try:
-
             if (
                 not custom_field_name
                 or not custom_field_value
-                or (
-                    isinstance(custom_field_value, str)
-                    and custom_field_value.strip() == ""
-                )
+                or (isinstance(custom_field_value, str) and custom_field_value.strip() == "")
             ):
                 logger.warning(
                     "Empty custom_field_name or custom_field_value provided, returning empty result"
@@ -685,6 +673,7 @@ class NautobotSourceQueryService:
                     }}
                     platform {{
                       name
+                      network_driver
                     }}
                   }}
                 }}
@@ -719,6 +708,7 @@ class NautobotSourceQueryService:
                     }}
                     platform {{
                       name
+                      network_driver
                     }}
                   }}
                 }}
@@ -742,34 +732,26 @@ class NautobotSourceQueryService:
             result = await self._nautobot.graphql_query(query, variables, self._credentials)
 
             if "errors" in result:
-                logger.error(
-                    "GraphQL errors in custom field query: %s", result["errors"]
-                )
+                logger.error("GraphQL errors in custom field query: %s", result["errors"])
                 return []
 
             return self._parse_device_data(result.get("data", {}).get("devices", []))
 
         except Exception as e:
-            logger.error(
-                "Error querying devices by custom field '%s': %s", custom_field_name, e
-            )
+            logger.error("Error querying devices by custom field '%s': %s", custom_field_name, e)
             return []
 
     # ------------------------------------------------------------------
     # Shared parser
     # ------------------------------------------------------------------
 
-    def _parse_device_data(
-        self, devices_data: List[Dict[str, Any]]
-    ) -> List[DeviceInfo]:
+    def _parse_device_data(self, devices_data: list[dict[str, Any]]) -> list[DeviceInfo]:
         """Parse GraphQL device data (nested dicts) into DeviceInfo objects."""
         devices = []
 
         for device_data in devices_data:
             primary_ip = None
-            if device_data.get("primary_ip4") and device_data["primary_ip4"].get(
-                "address"
-            ):
+            if device_data.get("primary_ip4") and device_data["primary_ip4"].get("address"):
                 primary_ip = device_data["primary_ip4"]["address"]
 
             status = None
@@ -777,9 +759,7 @@ class NautobotSourceQueryService:
                 status = device_data["status"]["name"]
 
             device_type = None
-            if device_data.get("device_type") and device_data["device_type"].get(
-                "model"
-            ):
+            if device_data.get("device_type") and device_data["device_type"].get("model"):
                 device_type = device_data["device_type"]["model"]
 
             manufacturer = None
@@ -799,16 +779,14 @@ class NautobotSourceQueryService:
                 location = device_data["location"]["name"]
 
             platform = None
-            if device_data.get("platform") and device_data["platform"].get("name"):
-                platform = device_data["platform"]["name"]
+            platform_network_driver = None
+            if device_data.get("platform"):
+                platform = device_data["platform"].get("name")
+                platform_network_driver = device_data["platform"].get("network_driver")
 
             tags = []
             if device_data.get("tags"):
-                tags = [
-                    tag.get("name", "")
-                    for tag in device_data["tags"]
-                    if tag.get("name")
-                ]
+                tags = [tag.get("name", "") for tag in device_data["tags"] if tag.get("name")]
 
             device = DeviceInfo(
                 id=device_data.get("id", ""),
@@ -820,6 +798,7 @@ class NautobotSourceQueryService:
                 role=role,
                 location=location,
                 platform=platform,
+                platform_network_driver=platform_network_driver,
                 tags=tags,
                 manufacturer=manufacturer,
             )

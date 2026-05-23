@@ -3,6 +3,7 @@
 Each method queries Nautobot directly using the per-step credentials.
 An instance-level device cache avoids repeated calls within one preview request.
 """
+
 from __future__ import annotations
 
 import logging
@@ -283,17 +284,19 @@ class NautobotQueryService:
 
             tags = [t["name"] for t in (d.get("tags") or []) if t.get("name")]
 
-            result.append(DeviceInfo(
-                id=d.get("id", ""),
-                name=d.get("name"),
-                serial=d.get("serial"),
-                primary_ip4=primary_ip4,
-                status=status,
-                device_type=device_type,
-                manufacturer=manufacturer,
-                role=role,
-                location=location,
-                platform=platform,
-                tags=tags,
-            ))
+            result.append(
+                DeviceInfo(
+                    id=d.get("id", ""),
+                    name=d.get("name"),
+                    serial=d.get("serial"),
+                    primary_ip4=primary_ip4,
+                    status=status,
+                    device_type=device_type,
+                    manufacturer=manufacturer,
+                    role=role,
+                    location=location,
+                    platform=platform,
+                    tags=tags,
+                )
+            )
         return result

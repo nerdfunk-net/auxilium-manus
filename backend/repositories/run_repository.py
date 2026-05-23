@@ -187,11 +187,7 @@ class RunRepository:
 
     def count_finished_runs_older_than(self, *, cutoff: datetime) -> int:
         status_filter, created_filter = self._finished_runs_older_than_filter(cutoff=cutoff)
-        stmt = (
-            select(func.count())
-            .select_from(WorkflowRun)
-            .where(status_filter, created_filter)
-        )
+        stmt = select(func.count()).select_from(WorkflowRun).where(status_filter, created_filter)
         return int(self.db.scalar(stmt) or 0)
 
     def purge_finished_runs_older_than(

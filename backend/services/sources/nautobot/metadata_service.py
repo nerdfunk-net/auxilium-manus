@@ -41,9 +41,7 @@ class NautobotSourceMetadataService:
                 field_type = field.get("type", "text")
                 if isinstance(field_type, dict):
                     field_type = (
-                        field_type.get("value")
-                        or field_type.get("label")
-                        or str(field_type)
+                        field_type.get("value") or field_type.get("label") or str(field_type)
                     )
                 transformed_fields.append(
                     {
@@ -95,9 +93,7 @@ class NautobotSourceMetadataService:
                     values.sort(key=lambda item: (item.get("label") or "").lower())
                     return values
             except Exception as exc:
-                logger.error(
-                    "Error fetching choices for custom field '%s': %s", cf_key, exc
-                )
+                logger.error("Error fetching choices for custom field '%s': %s", cf_key, exc)
         return []
 
     async def _get_custom_field_list(self) -> list[dict[str, str]]:

@@ -14,17 +14,27 @@ class DeviceListGeneral(BaseModel):
     total: int
 
 
+class PrimaryIp4Detail(BaseModel):
+    address: str
+
+
+class PlatformDetail(BaseModel):
+    name: str | None = None
+    manufacturer: str | None = None
+    network_driver: str | None = None
+
+
 class DeviceDetail(BaseModel):
     id: str
-    name: str | None = None
+    name: str
     serial: str | None = None
     location: str | None = None
     role: str | None = None
     tags: list[str] = []
     device_type: str | None = None
     manufacturer: str | None = None
-    platform: str | None = None
-    primary_ip4: str | None = None
+    platform: PlatformDetail | None = None
+    primary_ip4: PrimaryIp4Detail | None = None
     status: str | None = None
 
 

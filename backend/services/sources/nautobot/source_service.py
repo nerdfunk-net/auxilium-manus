@@ -25,11 +25,14 @@ class NautobotSourceService:
         credentials: NautobotCredentials,
         cache_service=None,
         persistence_service: InventoryPersistenceService | None = None,
+        device_ttl: int = 1800,
     ) -> None:
         self.query_service = NautobotSourceQueryService(nautobot, credentials, cache_service)
         self.evaluator = NautobotSourceEvaluator(self.query_service)
         self.metadata_service = NautobotSourceMetadataService(nautobot, credentials)
-        self.device_query_service = DeviceQueryService(nautobot, credentials, cache_service)
+        self.device_query_service = DeviceQueryService(
+            nautobot, credentials, cache_service, device_ttl
+        )
         self.export_service = NautobotSourceExportService(self.device_query_service)
         self._persistence_service = persistence_service
 

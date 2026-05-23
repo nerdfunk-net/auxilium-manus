@@ -8,7 +8,7 @@ See: doc/refactoring/REFACTORING_SERVICES.md — Phase 4
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Set
+from typing import TYPE_CHECKING
 
 from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
 
@@ -37,7 +37,7 @@ class NautobotSourceEvaluator:
 
     async def _execute_operation(
         self, operation: LogicalOperation
-    ) -> tuple[Set[str], int, Dict[str, DeviceInfo]]:
+    ) -> tuple[set[str], int, dict[str, DeviceInfo]]:
         """
         Execute a single logical operation.
 
@@ -55,11 +55,11 @@ class NautobotSourceEvaluator:
         )
 
         operations_count = 0
-        all_devices_data: Dict[str, DeviceInfo] = {}
+        all_devices_data: dict[str, DeviceInfo] = {}
 
         # Execute all conditions in this operation
-        condition_results: List[Set[str]] = []
-        not_results: List[Set[str]] = []  # Separate list for NOT operations
+        condition_results: list[set[str]] = []
+        not_results: list[set[str]] = []  # Separate list for NOT operations
 
         for i, condition in enumerate(operation.conditions):
             logger.info(
@@ -77,12 +77,8 @@ class NautobotSourceEvaluator:
 
         # Execute nested operations
         for i, nested_op in enumerate(operation.nested_operations):
-            logger.info(
-                "  Executing nested operation %s: type=%s", i, nested_op.operation_type
-            )
-            nested_result, nested_count, nested_data = await self._execute_operation(
-                nested_op
-            )
+            logger.info("  Executing nested operation %s: type=%s", i, nested_op.operation_type)
+            nested_result, nested_count, nested_data = await self._execute_operation(nested_op)
             operations_count += nested_count
             all_devices_data.update(nested_data)
             logger.info(
@@ -158,7 +154,7 @@ class NautobotSourceEvaluator:
 
     async def _execute_condition(
         self, condition: LogicalCondition
-    ) -> tuple[Set[str], int, Dict[str, DeviceInfo]]:
+    ) -> tuple[set[str], int, dict[str, DeviceInfo]]:
         """
         Execute a single condition by calling the appropriate GraphQL query.
 
@@ -334,7 +330,7 @@ class NautobotSourceEvaluator:
             )
             return set(), 0, {}
 
-    def _intersect_sets(self, sets: List[Set[str]]) -> Set[str]:
+    def _intersect_sets(self, sets: list[set[str]]) -> set[str]:
         """Compute intersection of multiple sets (AND operation)."""
         if not sets:
             return set()
@@ -343,7 +339,7 @@ class NautobotSourceEvaluator:
             result = result.intersection(s)
         return result
 
-    def _union_sets(self, sets: List[Set[str]]) -> Set[str]:
+    def _union_sets(self, sets: list[set[str]]) -> set[str]:
         """Compute union of multiple sets (OR operation)."""
         result = set()
         for s in sets:

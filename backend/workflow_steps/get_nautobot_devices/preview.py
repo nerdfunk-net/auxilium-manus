@@ -1,4 +1,5 @@
 """Device selection preview — queries Nautobot for devices matching a filter."""
+
 from __future__ import annotations
 
 import os

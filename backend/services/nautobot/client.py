@@ -102,9 +102,7 @@ class NautobotService:
                     return {"status": "success", "message": "Resource deleted successfully"}
                 return response.json()
             if response.status_code == 404:
-                raise NautobotNotFoundError(
-                    f"Resource not found: {endpoint} — {response.text}"
-                )
+                raise NautobotNotFoundError(f"Resource not found: {endpoint} — {response.text}")
             raise NautobotAPIError(
                 f"REST request failed with status {response.status_code}: {response.text}"
             )
@@ -127,9 +125,7 @@ class NautobotService:
         verify_ssl: bool,
     ) -> httpx.Response:
         if self._client is not None:
-            return await self._client.post(
-                url, json=payload, headers=headers, timeout=timeout
-            )
+            return await self._client.post(url, json=payload, headers=headers, timeout=timeout)
         async with httpx.AsyncClient(verify=verify_ssl) as client:
             return await client.post(url, json=payload, headers=headers, timeout=timeout)
 
@@ -147,6 +143,4 @@ class NautobotService:
                 method, url, json=data, headers=headers, timeout=timeout
             )
         async with httpx.AsyncClient(verify=verify_ssl) as client:
-            return await client.request(
-                method, url, json=data, headers=headers, timeout=timeout
-            )
+            return await client.request(method, url, json=data, headers=headers, timeout=timeout)

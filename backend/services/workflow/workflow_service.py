@@ -96,7 +96,9 @@ class WorkflowService:
         except HTTPException:
             raise
         except Exception:
-            logger.info("Failed to create workflow name=%r user_id=%s", data.name, user_id, exc_info=True)
+            logger.info(
+                "Failed to create workflow name=%r user_id=%s", data.name, user_id, exc_info=True
+            )
             raise
 
     def update_workflow(
@@ -106,7 +108,9 @@ class WorkflowService:
         try:
             result = self.repo.get_by_id(workflow_id)
             if result is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+                )
             workflow, creator_username = result
             if workflow.creator_id != user_id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
@@ -117,7 +121,9 @@ class WorkflowService:
         except HTTPException:
             raise
         except Exception:
-            logger.info("Failed to update workflow id=%s user_id=%s", workflow_id, user_id, exc_info=True)
+            logger.info(
+                "Failed to update workflow id=%s user_id=%s", workflow_id, user_id, exc_info=True
+            )
             raise
 
     def check_name_available(

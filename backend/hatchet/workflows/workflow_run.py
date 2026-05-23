@@ -3,9 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from pydantic import BaseModel
-
 from hatchet_sdk import Context
+from pydantic import BaseModel
 
 from hatchet.client import hatchet
 

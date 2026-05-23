@@ -2,6 +2,7 @@
 
 Credentials are passed per-call — no global state, no env-var dependency.
 """
+
 from __future__ import annotations
 
 from typing import Any

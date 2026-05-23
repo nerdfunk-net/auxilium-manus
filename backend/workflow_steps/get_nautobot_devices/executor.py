@@ -9,11 +9,32 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.sources_nautobot import LogicalCondition, LogicalOperation
+from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
 from repositories.settings_repository import SettingsRepository
 from services.settings.source_keys import build_source_key
 
 logger = logging.getLogger(__name__)
+
+
+def _to_device_detail(d: DeviceInfo) -> dict[str, Any]:
+    return {
+        "id": d.id,
+        "name": d.name,
+        "primary_ip4": {"address": d.primary_ip4} if d.primary_ip4 else None,
+        "platform": {
+            "name": d.platform,
+            "manufacturer": d.manufacturer,
+            "network_driver": d.platform_network_driver,
+        }
+        if (d.platform or d.platform_network_driver)
+        else None,
+        "serial": d.serial,
+        "location": d.location,
+        "role": d.role,
+        "tags": d.tags,
+        "device_type": d.device_type,
+        "status": d.status,
+    }
 
 
 def _filter_tree_to_operations(tree: dict[str, Any]) -> list[LogicalOperation]:
@@ -93,7 +114,7 @@ async def execute(
         )
 
     credentials = service_factory.credentials_from_connection(nautobot_url, nautobot_token)
-    source_service = service_factory.build_nautobot_source_service(credentials)
+    source_service = service_factory.build_nautobot_source_service(credentials, db)
 
     operations = _filter_tree_to_operations(device_filter)
 
@@ -118,5 +139,5 @@ async def execute(
             "total": len(devices),
         },
         "device_ids": [d.id for d in devices],
-        "device_details": [d.model_dump() for d in devices],
+        "device_details": [_to_device_detail(d) for d in devices],
     }

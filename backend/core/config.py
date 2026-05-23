@@ -90,8 +90,7 @@ class Settings:
     def _build_redis_url(self) -> str:
         if self.redis_password:
             return (
-                f"redis://:{quote_plus(self.redis_password)}"
-                f"@{self.redis_host}:{self.redis_port}/0"
+                f"redis://:{quote_plus(self.redis_password)}@{self.redis_host}:{self.redis_port}/0"
             )
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 

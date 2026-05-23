@@ -61,16 +61,13 @@ class InventoryRepository:
         return list(self.db.scalars(stmt.order_by(Inventory.updated_at.desc())).all())
 
     def get_distinct_group_paths(self, username: str) -> list[str]:
-        stmt = (
-            select(distinct(Inventory.group_path))
-            .where(
-                Inventory.is_active.is_(True),
-                Inventory.group_path.isnot(None),
-                or_(
-                    Inventory.scope == "global",
-                    (Inventory.scope == "private") & (Inventory.created_by == username),
-                ),
-            )
+        stmt = select(distinct(Inventory.group_path)).where(
+            Inventory.is_active.is_(True),
+            Inventory.group_path.isnot(None),
+            or_(
+                Inventory.scope == "global",
+                (Inventory.scope == "private") & (Inventory.created_by == username),
+            ),
         )
         return [row[0] for row in self.db.execute(stmt).all()]
 
@@ -131,9 +128,12 @@ class InventoryRepository:
     def get_active_count(self) -> int:
         from sqlalchemy import func
 
-        return self.db.scalar(
-            select(func.count()).select_from(Inventory).where(Inventory.is_active.is_(True))
-        ) or 0
+        return (
+            self.db.scalar(
+                select(func.count()).select_from(Inventory).where(Inventory.is_active.is_(True))
+            )
+            or 0
+        )
 
     def get_total_count(self) -> int:
         from sqlalchemy import func

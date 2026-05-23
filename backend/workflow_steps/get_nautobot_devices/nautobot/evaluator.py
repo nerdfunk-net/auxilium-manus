@@ -2,12 +2,17 @@
 
 Ported from cockpit inventory evaluator with adjusted imports.
 """
+
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
-from workflow_steps.get_nautobot_devices.models import DeviceInfo, LogicalCondition, LogicalOperation
+from workflow_steps.get_nautobot_devices.models import (
+    DeviceInfo,
+    LogicalCondition,
+    LogicalOperation,
+)
 
 if TYPE_CHECKING:
     from workflow_steps.get_nautobot_devices.nautobot.query_service import NautobotQueryService
