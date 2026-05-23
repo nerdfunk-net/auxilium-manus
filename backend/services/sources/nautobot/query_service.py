@@ -513,8 +513,7 @@ class NautobotSourceQueryService:
             logger.warning("Empty prefix_filter provided, returning empty result")
             return []
 
-        # Split CIDR and optional namespace:
-        # "192.168.183.0/24 Global" → ("192.168.183.0/24", "Global")
+        # Split CIDR and optional namespace: "192.168.183.0/24 Global" → ("192.168.183.0/24", "Global")
         parts = prefix_filter.strip().split(None, 1)
         cidr = parts[0]
         namespace = parts[1].strip() if len(parts) > 1 else None

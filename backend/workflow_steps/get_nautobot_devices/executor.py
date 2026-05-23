@@ -28,12 +28,6 @@ def _to_device_detail(d: DeviceInfo) -> dict[str, Any]:
         }
         if (d.platform or d.platform_network_driver)
         else None,
-        "serial": d.serial,
-        "location": d.location,
-        "role": d.role,
-        "tags": d.tags,
-        "device_type": d.device_type,
-        "status": d.status,
     }
 
 
