@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from workflow_steps.get_git_devices.executor import execute as get_git_devices
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
 from workflow_steps.nautobot_attributes.executor import execute as get_nautobot_attributes
 
@@ -21,6 +22,7 @@ StepExecutor = Callable[..., Awaitable[dict[str, Any]]]
 
 STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-devices": get_nautobot_devices,
+    "get-git-devices": get_git_devices,
     "get-nautobot-attributes": get_nautobot_attributes,
 }
 
@@ -29,5 +31,6 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
 # Add an entry here whenever a new step with a declared output type is implemented.
 STEP_OUTPUT_TYPES: dict[str, str] = {
     "get-nautobot-devices": "device_list",
+    "get-git-devices": "device_list",
     "get-nautobot-attributes": "device_attribute_map",
 }

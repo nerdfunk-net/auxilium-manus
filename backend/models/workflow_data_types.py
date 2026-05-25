@@ -25,7 +25,7 @@ class PlatformDetail(BaseModel):
 
 
 class DeviceDetail(BaseModel):
-    id: str
+    id: str | None = None
     name: str
     serial: str | None = None
     location: str | None = None
@@ -42,5 +42,5 @@ class DeviceList(BaseModel):
     """Canonical device_list type produced by inventory-selector steps."""
 
     general: DeviceListGeneral
-    device_ids: list[str]
+    device_ids: list[str | None]
     device_details: list[DeviceDetail]

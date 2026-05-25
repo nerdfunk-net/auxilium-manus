@@ -25,6 +25,8 @@ from routers.cache_settings import router as cache_settings_router
 from routers.hatchet_settings import router as hatchet_settings_router
 from routers.nautobot.custom_fields import router as nautobot_custom_fields_router
 from routers.settings import router as settings_router
+from routers.git import router as git_router
+from routers.sources.git.ops import router as git_source_ops_router
 from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
@@ -70,6 +72,8 @@ app = FastAPI(
 )
 
 app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(git_router, prefix=settings.api_prefix)
+app.include_router(git_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)

@@ -23,12 +23,42 @@ plugins:
           data_type: object
           required: true
           example:
-            site: dc1
-            role: leaf
+            location: dc1
+            role: network
       outcomes:
         - name: selected_devices
           description: Devices selected for downstream workflow steps.
           data_type: device_list
+
+  - id: get-git-devices
+    name: Get from Git
+    description: Select one or more target devices from the inventory.
+    artifact_type: inventory_selector
+    directory: get_git_devices
+    enabled: true
+    metadata:
+      configuration_input:
+        - name: git_source_id
+          description: ID of a Git source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: filename_pattern
+          description: Pattern to identify relevant files in the Git repository.
+          data_type: string
+          required: true
+          example: 'configs/*.yaml'
+        - name: device_mapping
+          description: Mapping that extracts device identifiers from file contents.
+          data_type: object
+          required: false
+          example:
+            device_id_field: hostname
+      outcomes:
+        - name: selected_devices
+          description: Devices selected for downstream workflow steps.
+          data_type: device_list
+
 
   - id: get-nautobot-attributes
     name: Get Nautobot Attributes

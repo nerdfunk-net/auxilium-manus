@@ -27,19 +27,7 @@ _ATTR_TO_VAR: dict[str, str] = {
     "power_ports": "get_power_port",
 }
 
-_DEVICE_DETAILS_QUERY = """
-query DeviceDetails(
-  $deviceId: ID!,
-  $get_primary_ipv4: Boolean = false,
-  $get_interfaces: Boolean = false,
-  $get_config_context: Boolean = false,
-  $get_custom_fields: Boolean = false,
-  $get_tags: Boolean = false,
-  $get_secret_groups: Boolean = false,
-  $get_console_port: Boolean = false,
-  $get_power_port: Boolean = false
-) {
-  device(id: $deviceId) {
+_DEVICE_FIELDS = """
     id
     name
     hostname: name
@@ -181,9 +169,34 @@ query DeviceDetails(
       name
       color
     }
-  }
-}
 """
+
+_QUERY_VARIABLES = """
+  $get_primary_ipv4: Boolean = false,
+  $get_interfaces: Boolean = false,
+  $get_config_context: Boolean = false,
+  $get_custom_fields: Boolean = false,
+  $get_tags: Boolean = false,
+  $get_secret_groups: Boolean = false,
+  $get_console_port: Boolean = false,
+  $get_power_port: Boolean = false
+"""
+
+_DEVICE_DETAILS_QUERY = (
+    "query DeviceDetails(\n  $deviceId: ID!,\n"
+    + _QUERY_VARIABLES
+    + ") {\n  device(id: $deviceId) {"
+    + _DEVICE_FIELDS
+    + "  }\n}"
+)
+
+_DEVICE_DETAILS_BY_NAME_QUERY = (
+    "query DeviceDetailsByName(\n  $deviceName: [String]!,\n"
+    + _QUERY_VARIABLES
+    + ") {\n  devices(name: $deviceName) {"
+    + _DEVICE_FIELDS
+    + "  }\n}"
+)
 
 
 async def _fetch_device(
@@ -198,13 +211,33 @@ async def _fetch_device(
     )
     device = (response.get("data") or {}).get("device")
     if device is None:
-        errors = response.get("errors")
         logger.warning(
             "get-nautobot-attributes: no device data for id=%s errors=%s",
             device_id,
-            errors,
+            response.get("errors"),
         )
     return device
+
+
+async def _fetch_device_by_name(
+    nautobot_service: NautobotService,
+    credentials: NautobotCredentials,
+    device_name: str,
+    variables: dict[str, Any],
+) -> dict[str, Any] | None:
+    vars_with_name = {"deviceName": [device_name], **variables}
+    response = await nautobot_service.graphql_query(
+        _DEVICE_DETAILS_BY_NAME_QUERY, vars_with_name, credentials
+    )
+    devices = (response.get("data") or {}).get("devices") or []
+    if not devices:
+        logger.warning(
+            "get-nautobot-attributes: no device data for name=%s errors=%s",
+            device_name,
+            response.get("errors"),
+        )
+        return None
+    return devices[0]
 
 
 async def execute(
@@ -219,14 +252,28 @@ async def execute(
 
     list_of_attributes: list[str] = config.get("list_of_attributes") or []
 
-    device_ids: list[str] = []
+    device_ids: list[str | None] = []
+    parent_device_details: list[dict] = []
     for output in parent_outputs.values():
         if isinstance(output, dict) and "device_ids" in output:
             device_ids = output["device_ids"]
+            parent_device_details = output.get("device_details") or []
             break
 
-    if not device_ids:
-        raise ValueError("get-nautobot-attributes: no device_ids found in parent step output")
+    fetch_specs: list[tuple[str, str]] = []
+    for i, device_id in enumerate(device_ids):
+        if device_id:
+            fetch_specs.append(("id", device_id))
+        else:
+            detail = parent_device_details[i] if i < len(parent_device_details) else {}
+            name = (detail.get("name") or "").strip()
+            if name:
+                fetch_specs.append(("name", name))
+
+    if not fetch_specs:
+        raise ValueError(
+            "get-nautobot-attributes: no device IDs or names found in parent step output"
+        )
 
     db = object_session(run)
     if db is None:
@@ -259,22 +306,25 @@ async def execute(
         "get-nautobot-attributes run_id=%s source_id=%s devices=%d attributes=%s",
         run.id,
         source_id,
-        len(device_ids),
+        len(fetch_specs),
         list_of_attributes,
     )
 
     tasks = [
-        _fetch_device(nautobot_service, credentials, device_id, variables)
-        for device_id in device_ids
+        _fetch_device(nautobot_service, credentials, identifier, variables)
+        if method == "id"
+        else _fetch_device_by_name(nautobot_service, credentials, identifier, variables)
+        for method, identifier in fetch_specs
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     device_details: list[dict[str, Any]] = []
-    for device_id, result in zip(device_ids, results):
+    for (method, identifier), result in zip(fetch_specs, results):
         if isinstance(result, BaseException):
             logger.error(
-                "get-nautobot-attributes: failed to fetch device id=%s error=%s",
-                device_id,
+                "get-nautobot-attributes: failed to fetch device %s=%s error=%s",
+                method,
+                identifier,
                 result,
             )
         elif result is not None:
@@ -283,7 +333,7 @@ async def execute(
     logger.info(
         "get-nautobot-attributes returning %d/%d devices run_id=%s",
         len(device_details),
-        len(device_ids),
+        len(fetch_specs),
         run.id,
     )
 

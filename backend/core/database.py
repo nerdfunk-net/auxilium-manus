@@ -27,6 +27,10 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def get_db_session() -> Session:
+    return SessionLocal()
+
+
 def init_db() -> None:
     from migrations.runner import MigrationRunner
 

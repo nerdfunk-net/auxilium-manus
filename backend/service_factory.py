@@ -84,3 +84,40 @@ def build_nautobot_metadata_service(
     credentials: NautobotCredentials,
 ) -> NautobotMetadataService:
     return NautobotMetadataService(get_nautobot_app_service(), credentials)
+
+
+def build_git_service():
+    from services.git.service import GitService
+
+    return GitService()
+
+
+def build_git_auth_service():
+    from services.git.auth import GitAuthenticationService
+
+    return GitAuthenticationService()
+
+
+def build_git_cache_service():
+    from services.git.cache import GitCacheService
+
+    cache = build_cache_service()
+    return GitCacheService(cache)
+
+
+def build_git_repository_service():
+    from services.git.repository_service import GitRepositoryService
+
+    return GitRepositoryService()
+
+
+def build_git_operations_service():
+    from services.git.operations import GitOperationsService
+
+    return GitOperationsService()
+
+
+def build_git_connection_service():
+    from services.git.connection import GitConnectionService
+
+    return GitConnectionService()

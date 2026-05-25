@@ -31,3 +31,27 @@ def nautobot_credentials_from_query(
     nautobot_token: str = Query(..., min_length=1),
 ) -> NautobotCredentials:
     return service_factory.credentials_from_connection(nautobot_url, nautobot_token)
+
+
+def get_git_service():
+    return service_factory.build_git_service()
+
+
+def get_git_auth_service():
+    return service_factory.build_git_auth_service()
+
+
+def get_git_cache_service():
+    return service_factory.build_git_cache_service()
+
+
+def get_git_operations_service():
+    return service_factory.build_git_operations_service()
+
+
+def get_git_connection_service():
+    return service_factory.build_git_connection_service()
+
+
+def get_cache_service():
+    return service_factory.build_cache_service()
