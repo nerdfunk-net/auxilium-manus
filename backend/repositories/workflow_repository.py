@@ -94,6 +94,26 @@ class WorkflowRepository:
             stmt = stmt.where(Workflow.id != exclude_id)
         return self.db.execute(stmt).first() is not None
 
+    def find_id_by_name(
+        self,
+        *,
+        name: str,
+        folder: str,
+        visibility: str,
+        creator_id: int,
+    ) -> int | None:
+        """Return the ID of a matching workflow, or None if not found.
+        Follows the same uniqueness rules as name_exists."""
+        stmt = select(Workflow.id).where(
+            Workflow.name == name,
+            Workflow.folder == (folder or "/"),
+            Workflow.visibility == visibility,
+        )
+        if visibility == "private":
+            stmt = stmt.where(Workflow.creator_id == creator_id)
+        row = self.db.execute(stmt).first()
+        return row[0] if row else None
+
     def delete(self, workflow: Workflow) -> None:
         self.db.delete(workflow)
         self.db.commit()

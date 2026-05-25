@@ -135,20 +135,19 @@ class WorkflowService:
         user_id: int,
         exclude_id: int | None = None,
     ) -> WorkflowNameCheckResponse:
-        exists = self.repo.name_exists(
+        existing_id = self.repo.find_id_by_name(
             name=name,
             folder=folder or "/",
             visibility=visibility,
             creator_id=user_id,
-            exclude_id=exclude_id,
         )
-        if not exists:
+        if existing_id is None or existing_id == exclude_id:
             return WorkflowNameCheckResponse(available=True)
         if visibility == "public":
             msg = f'A public workflow named "{name}" already exists in folder "{folder or "/"}".'
         else:
             msg = f'You already have a private workflow named "{name}" in folder "{folder or "/"}".'
-        return WorkflowNameCheckResponse(available=False, message=msg)
+        return WorkflowNameCheckResponse(available=False, message=msg, existing_id=existing_id)
 
     def delete_workflow(self, workflow_id: int, user_id: int) -> None:
         result = self.repo.get_by_id(workflow_id)

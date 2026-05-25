@@ -164,6 +164,50 @@ export function WorkflowBuilderPage() {
     [nodes, edges, createWorkflow, loadWorkflow, markSaved, markError, openAfterSave],
   );
 
+  const handleOverwrite = useCallback(
+    async (
+      values: {
+        name: string;
+        description?: string;
+        folder?: string;
+        visibility: WorkflowVisibility;
+      },
+      existingId: number,
+    ) => {
+      const validation = validateCanvasWorkflow(nodes, edges);
+      if (!validation.isValid) {
+        markError(`Cannot save: ${validation.issues[0]}`);
+        return;
+      }
+      try {
+        const saved = await updateWorkflow.mutateAsync({
+          id: existingId,
+          data: {
+            name: values.name,
+            description: values.description,
+            folder: values.folder,
+            visibility: values.visibility,
+            canvas_nodes: nodes as unknown as Record<string, unknown>[],
+            canvas_edges: edges as unknown as Record<string, unknown>[],
+          },
+        });
+        loadWorkflow({
+          workflowId: saved.id,
+          workflowUuid: saved.uuid ?? null,
+          workflowName: saved.name,
+          workflowDescription: saved.description ?? "",
+          workflowFolder: saved.folder ?? "/",
+          workflowVisibility: saved.visibility as WorkflowVisibility,
+        });
+        setIsSaveAsOpen(false);
+        markSaved(`Saved as "${saved.name}"`);
+      } catch {
+        markError("Failed to overwrite workflow");
+      }
+    },
+    [nodes, edges, updateWorkflow, loadWorkflow, markSaved, markError],
+  );
+
   const handleSave = useCallback(() => {
     if (!workflowId) {
       setIsSaveAsOpen(true);
@@ -411,8 +455,9 @@ export function WorkflowBuilderPage() {
         defaultDescription={workflowDescription}
         defaultFolder={workflowFolder}
         defaultVisibility={workflowVisibility}
-        isSaving={createWorkflow.isPending}
+        isSaving={createWorkflow.isPending || updateWorkflow.isPending}
         onSave={handleSaveAs}
+        onOverwrite={handleOverwrite}
         onClose={() => { setIsSaveAsOpen(false); setOpenAfterSave(false); }}
       />
 

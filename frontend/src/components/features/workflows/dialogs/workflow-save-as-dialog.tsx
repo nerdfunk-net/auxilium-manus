@@ -35,6 +35,13 @@ const saveAsSchema = z.object({
 
 type SaveAsFormValues = z.infer<typeof saveAsSchema>;
 
+type SaveValues = {
+  name: string;
+  description?: string;
+  folder?: string;
+  visibility: WorkflowVisibility;
+};
+
 interface WorkflowSaveAsDialogProps {
   open: boolean;
   defaultName?: string;
@@ -42,12 +49,8 @@ interface WorkflowSaveAsDialogProps {
   defaultFolder?: string;
   defaultVisibility?: WorkflowVisibility;
   isSaving?: boolean;
-  onSave: (values: {
-    name: string;
-    description?: string;
-    folder?: string;
-    visibility: WorkflowVisibility;
-  }) => void;
+  onSave: (values: SaveValues) => void;
+  onOverwrite: (values: SaveValues, existingId: number) => void;
   onClose: () => void;
 }
 
@@ -59,9 +62,14 @@ export function WorkflowSaveAsDialog({
   defaultVisibility = "private",
   isSaving = false,
   onSave,
+  onOverwrite,
   onClose,
 }: WorkflowSaveAsDialogProps) {
-  const [nameConflictError, setNameConflictError] = useState<string | null>(null);
+  const [pendingOverwrite, setPendingOverwrite] = useState<{
+    message: string;
+    existingId: number;
+    values: SaveAsFormValues;
+  } | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
   const {
@@ -84,7 +92,7 @@ export function WorkflowSaveAsDialog({
 
   const onSubmit = useCallback(
     async (values: SaveAsFormValues) => {
-      setNameConflictError(null);
+      setPendingOverwrite(null);
       setIsChecking(true);
       try {
         const folder = values.folder || "/";
@@ -97,9 +105,15 @@ export function WorkflowSaveAsDialog({
           credentials: "include",
         });
         if (res.ok) {
-          const check = await res.json() as { available: boolean; message?: string };
+          const check = await res.json() as { available: boolean; message?: string; existing_id?: number };
           if (!check.available) {
-            setNameConflictError(check.message ?? "A workflow with this name already exists.");
+            if (check.existing_id !== undefined) {
+              setPendingOverwrite({
+                message: check.message ?? "A workflow with this name already exists.",
+                existingId: check.existing_id,
+                values,
+              });
+            }
             return;
           }
         }
@@ -128,14 +142,34 @@ export function WorkflowSaveAsDialog({
               id="wf-name"
               placeholder="My workflow"
               {...register("name", {
-                onChange: () => setNameConflictError(null),
+                onChange: () => setPendingOverwrite(null),
               })}
             />
             {errors.name ? (
               <p className="text-xs text-destructive">{errors.name.message}</p>
             ) : null}
-            {nameConflictError ? (
-              <p className="text-xs text-destructive">{nameConflictError}</p>
+            {pendingOverwrite ? (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs">
+                <p className="text-destructive">{pendingOverwrite.message}</p>
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => onOverwrite(pendingOverwrite.values, pendingOverwrite.existingId)}
+                  >
+                    Overwrite
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPendingOverwrite(null)}
+                  >
+                    Choose different name
+                  </Button>
+                </div>
+              </div>
             ) : null}
           </div>
 
@@ -154,7 +188,7 @@ export function WorkflowSaveAsDialog({
               id="wf-folder"
               placeholder="/"
               {...register("folder", {
-                onChange: () => setNameConflictError(null),
+                onChange: () => setPendingOverwrite(null),
               })}
             />
           </div>
@@ -165,7 +199,7 @@ export function WorkflowSaveAsDialog({
               value={visibility}
               onValueChange={(v) => {
                 setValue("visibility", v as WorkflowVisibility);
-                setNameConflictError(null);
+                setPendingOverwrite(null);
               }}
             >
               <SelectTrigger id="wf-visibility">

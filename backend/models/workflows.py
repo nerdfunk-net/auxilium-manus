@@ -52,3 +52,4 @@ class WorkflowListResponse(BaseModel):
 class WorkflowNameCheckResponse(BaseModel):
     available: bool
     message: str | None = None
+    existing_id: int | None = None
