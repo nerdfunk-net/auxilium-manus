@@ -21,6 +21,7 @@ from workflow_steps.get_git_devices.executor import execute as get_git_devices
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
 from workflow_steps.nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.run_command.executor import execute as run_command
+from workflow_steps.store_artifact.executor import execute as store_artifact
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 
@@ -30,4 +31,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-attributes": get_nautobot_attributes,
     "get-device-configs": get_device_configs,
     "run-command": run_command,
+    "store-artifact": store_artifact,
 }

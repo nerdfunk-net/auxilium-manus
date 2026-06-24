@@ -1,0 +1,121 @@
+"""Tests for store-artifact executor."""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from models.workflow_context import (
+    ArtifactRef,
+    Capability,
+    CommandResult,
+    DeviceContext,
+    DeviceStatus,
+    WorkflowContext,
+)
+from services.artifacts import InMemoryArtifactService
+from workflow_steps.store_artifact.executor import execute
+
+
+def _device_with_running_config() -> DeviceContext:
+    return DeviceContext(
+        id="device-1",
+        name="lab",
+        hostname="lab",
+        attributes={"location": {"name": "DC1"}},
+        running_config_ref=ArtifactRef(
+            artifact_id="artifact-running",
+            kind="running_config",
+            size_bytes=12,
+        ),
+        capabilities={Capability.IDENTITY, Capability.RUNNING_CONFIG},
+        status=DeviceStatus.OK,
+    )
+
+
+class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exports_running_config_to_filesystem(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        artifact_service = InMemoryArtifactService()
+        await artifact_service.store(
+            content="hostname lab",
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-uuid-1",
+        )
+        # Re-use the in-memory store by patching resolve
+        device = _device_with_running_config()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch(
+                "workflow_steps.store_artifact.executor.settings"
+            ) as settings_mock, patch.object(
+                artifact_service,
+                "resolve",
+                new=AsyncMock(return_value="hostname lab"),
+            ):
+                settings_mock.data_directory = Path(tmp)
+
+                outcomes = await execute(
+                    config={
+                        "content_source": "running_config",
+                        "filename_template": "{name}_{attributes.location.name}.cfg",
+                        "output_subdirectory": "exports",
+                    },
+                    context=WorkflowContext(
+                        run_id="run-uuid-1",
+                        workflow_id="wf-1",
+                        devices={"device-1": device},
+                    ),
+                    run=run,
+                    artifact_service=artifact_service,
+                    node_id="store-artifact-4",
+                )
+
+            export_root = Path(tmp) / "exports" / "wf-1" / "run-uuid-1"
+            files = list(export_root.glob("*.cfg"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0].read_text(encoding="utf-8"), "hostname lab")
+            self.assertEqual(files[0].name, "lab_DC1.cfg")
+
+        self.assertEqual(len(outcomes), 1)
+        stored = outcomes[0].context.metadata["store-artifact-4.stored_artifacts"]
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["destination"], "filesystem")
+
+    async def test_missing_content_goes_to_failure(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            status=DeviceStatus.OK,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("workflow_steps.store_artifact.executor.settings") as settings_mock:
+                settings_mock.data_directory = Path(tmp)
+                outcomes = await execute(
+                    config={"content_source": "running_config"},
+                    context=WorkflowContext(
+                        run_id="run-uuid-1",
+                        workflow_id="wf-1",
+                        devices={"device-1": device},
+                    ),
+                    run=run,
+                    artifact_service=InMemoryArtifactService(),
+                    node_id="store-artifact-4",
+                )
+
+        self.assertEqual(len(outcomes), 2)
+        self.assertEqual(outcomes[0].name, "success")
+        self.assertEqual(outcomes[0].context.devices, {})
+        self.assertEqual(outcomes[1].name, "failure")
+
+
+if __name__ == "__main__":
+    unittest.main()
