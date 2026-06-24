@@ -1,0 +1,151 @@
+Using 2250 out of 131072 bytes
+!
+! Last configuration change at 16:42:29 UTC Wed Jun 10 2026 by noc
+!
+version 17.15
+service timestamps debug datetime msec
+service timestamps log datetime msec
+service password-encryption
+!
+hostname LAB
+!
+boot-start-marker
+boot-end-marker
+!
+!
+no aaa new-model
+!
+!
+!
+!
+ip vrf vrf-1
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+ip domain name local.zz
+ip cef
+login on-success log
+no ipv6 cef
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+crypto pki trustpoint TP-self-signed-131184641
+ enrollment selfsigned
+ subject-name cn=IOS-Self-Signed-Certificate-131184641
+ revocation-check none
+ rsakeypair TP-self-signed-131184641
+ hash sha512
+!
+!
+crypto pki certificate chain TP-self-signed-131184641
+ certificate self-signed 01 nvram:IOS-Self-Sig#1.cer
+!
+!
+memory free low-watermark processor 80093
+!
+!
+spanning-tree mode rapid-pvst
+!
+!
+username noc privilege 15 secret 9 $9$WXQeGCehFfu8Sk$aOtpD7t0/N5zQYxLlQ.MaYhyDfok8bmYqs.Yd7uupoc
+!
+!
+!
+!
+!
+! 
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+interface Ethernet0/0
+ description test
+ ip address 192.168.178.120 255.255.255.0 secondary
+ ip address 192.168.178.240 255.255.255.0
+!
+interface Ethernet0/1
+ description test
+ ip vrf forwarding vrf-1
+ ip address 192.168.179.240 255.255.255.0
+!
+interface Ethernet0/2
+ description test
+ no ip address
+ shutdown
+!
+interface Ethernet0/3
+ description test
+ no ip address
+ shutdown
+!
+router ospf 100
+ network 192.168.178.240 0.0.0.0 area 0
+!
+ip forward-protocol nd
+!
+!
+no ip http server
+ip http secure-server
+ip route 0.0.0.0 0.0.0.0 192.168.255.1
+ip route 1.1.1.0 255.255.255.0 192.168.178.1
+ip route 10.0.0.1 255.255.255.255 192.168.178.241
+ip ssh bulk-mode 131072
+!
+ip access-list standard MGMT_100
+ 10 remark Access from the management
+ 10 permit 172.16.9.100
+!
+ip access-list extended TRAFFIC_in
+ 110 remark test access list for lab
+ 110 permit tcp host 192.168.178.240 host 192.168.0.2 eq www
+ip access-list extended TRAFFIC_out
+ 110 remark test access list for lab
+ 110 permit tcp host 192.168.178.240 host 192.168.0.2 eq www
+no logging btrace
+!
+snmp-server view all-view iso included
+snmp-server community snmpcommunity RO
+snmp-server location Home-Lab-Rack-01
+snmp-server contact admin@homelab.local
+!
+!
+control-plane
+!
+!
+!
+line con 0
+ logging synchronous
+line aux 0
+line vty 0 4
+ login local
+ transport input ssh
+!
+!
+!
+!
+end

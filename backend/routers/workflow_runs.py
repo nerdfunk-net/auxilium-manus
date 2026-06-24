@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user
 from core.database import get_db
 from core.models.users import User
+from models.artifacts import ArtifactContentResponse
 from models.runs import WorkflowRunCreate, WorkflowRunListResponse, WorkflowRunResponse
 from services.execution.run_service import RunService
 
@@ -75,6 +76,20 @@ async def get_run(
     service: RunService = Depends(_service),
 ) -> WorkflowRunResponse:
     return service.get_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.get("/runs/{run_id}/artifacts/{artifact_id}", response_model=ArtifactContentResponse)
+async def get_run_artifact(
+    run_id: int,
+    artifact_id: str,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> ArtifactContentResponse:
+    return service.get_run_artifact(
+        run_id=run_id,
+        artifact_id=artifact_id,
+        user_id=current_user.id,
+    )
 
 
 @router.post("/runs/{run_id}/cancel", response_model=WorkflowRunResponse)

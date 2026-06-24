@@ -36,13 +36,32 @@ def pre_step_guard(*, spec: StepCapabilitySpec, context: WorkflowContext) -> Non
         )
 
 
+def effective_produces(
+    *,
+    spec: StepCapabilitySpec,
+    step_type: str,
+    config: dict,
+) -> frozenset[Capability]:
+    """Return capabilities a step must add on the success path for this config."""
+    if step_type == "get-device-configs":
+        config_format = str(config.get("config_format") or "both").strip().lower()
+        if config_format == "running":
+            return frozenset({Capability.RUNNING_CONFIG})
+        if config_format == "startup":
+            return frozenset({Capability.STARTUP_CONFIG})
+        return frozenset({Capability.RUNNING_CONFIG, Capability.STARTUP_CONFIG})
+    return spec.produces
+
+
 def post_step_guard(
     *,
     spec: StepCapabilitySpec,
     input_context: WorkflowContext,
     outcomes: list[StepOutcome],
+    expected_produces: frozenset[Capability] | None = None,
 ) -> None:
     """Validate the success outcome after a step returns."""
+    produces = expected_produces if expected_produces is not None else spec.produces
     success_outcome = next((outcome for outcome in outcomes if outcome.name == "success"), None)
     if success_outcome is None:
         return
@@ -51,10 +70,10 @@ def post_step_guard(
     for device_id in touched:
         device = success_outcome.context.devices[device_id]
 
-        missing_produces = set(spec.produces) - device.capabilities
+        missing_produces = set(produces) - device.capabilities
         if missing_produces:
             raise RuntimeError(
-                f"Step {spec.step_id} declared produces={set(spec.produces)} but device "
+                f"Step {spec.step_id} expected produces={set(produces)} but device "
                 f"{device_id} is missing {missing_produces} on the success path"
             )
 

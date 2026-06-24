@@ -1,10 +1,11 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, FileJson, Server, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileJson, Loader2, Server, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useArtifactQuery } from "@/hooks/queries/use-artifact-query";
 import type { Capability } from "@/lib/capability-types";
 import type {
   ArtifactRef,
@@ -18,6 +19,7 @@ interface StepResultViewerProps {
   output: Record<string, unknown> | null;
   errorMessage?: string | null;
   compact?: boolean;
+  runId?: number | null;
 }
 
 function DeviceStatusIcon({ status }: { status: DeviceContext["status"] }) {
@@ -51,11 +53,85 @@ function ArtifactRefRow({ label, artifactRef }: { label: string; artifactRef: Ar
   return (
     <div className="rounded border bg-background/60 px-2 py-1.5 text-xs">
       <p className="font-medium text-muted-foreground">{label}</p>
-      <p className="font-mono">{artifactRef.artifact_id}</p>
       <p className="text-muted-foreground">
         {artifactRef.kind}
         {artifactRef.size_bytes != null ? ` · ${artifactRef.size_bytes} bytes` : ""}
       </p>
+    </div>
+  );
+}
+
+function ConfigArtifactPanel({
+  runId,
+  label,
+  artifactRef,
+}: {
+  runId: number;
+  label: string;
+  artifactRef: ArtifactRef;
+}) {
+  const { data, isLoading, error } = useArtifactQuery({ runId, artifactRef });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" />
+        Loading {label.toLowerCase()}…
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <p className="text-xs text-amber-600">
+        {label} unavailable — re-run the workflow to persist config content.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <pre className="max-h-60 overflow-auto rounded bg-muted/40 p-2 text-[11px] font-mono whitespace-pre-wrap">
+        {data.content}
+      </pre>
+    </div>
+  );
+}
+
+function DeviceConfigsContent({
+  runId,
+  device,
+}: {
+  runId: number | null;
+  device: DeviceContext;
+}) {
+  if (runId == null) {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        Config content is available from a workflow run detail view.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-3">
+      {device.running_config_ref ? (
+        <ConfigArtifactPanel
+          runId={runId}
+          label="Running config"
+          artifactRef={device.running_config_ref}
+        />
+      ) : null}
+      {device.startup_config_ref ? (
+        <ConfigArtifactPanel
+          runId={runId}
+          label="Startup config"
+          artifactRef={device.startup_config_ref}
+        />
+      ) : null}
     </div>
   );
 }
@@ -81,9 +157,13 @@ function DeviceErrorList({ errors }: { errors: DeviceError[] }) {
   );
 }
 
-function DeviceCard({ device }: { device: DeviceContext }) {
+function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number | null }) {
   const [showAttributes, setShowAttributes] = useState(false);
+  const [showConfigs, setShowConfigs] = useState(false);
   const attributeKeys = Object.keys(device.attributes);
+  const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
+  const configCount =
+    (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
 
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -113,7 +193,7 @@ function DeviceCard({ device }: { device: DeviceContext }) {
             </p>
             <CapabilityBadges capabilities={device.capabilities} />
           </div>
-          {device.running_config_ref || device.startup_config_ref ? (
+          {hasConfigs ? (
             <div className="mt-2 space-y-1">
               {device.running_config_ref ? (
                 <ArtifactRefRow
@@ -130,21 +210,35 @@ function DeviceCard({ device }: { device: DeviceContext }) {
             </div>
           ) : null}
           <DeviceErrorList errors={device.errors} />
-          {attributeKeys.length > 0 ? (
-            <div className="mt-2">
-              <button
-                type="button"
-                className="text-xs text-primary hover:underline"
-                onClick={() => setShowAttributes((value) => !value)}
-              >
-                {showAttributes ? "Hide" : "Show"} attributes ({attributeKeys.length})
-              </button>
-              {showAttributes ? (
-                <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted/40 p-2 text-[11px] font-mono">
-                  {JSON.stringify(device.attributes, null, 2)}
-                </pre>
+          {hasConfigs || attributeKeys.length > 0 ? (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {attributeKeys.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowAttributes((value) => !value)}
+                >
+                  {showAttributes ? "Hide" : "Show"} attributes ({attributeKeys.length})
+                </button>
+              ) : null}
+              {hasConfigs ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowConfigs((value) => !value)}
+                >
+                  {showConfigs ? "Hide" : "Show"} configs ({configCount})
+                </button>
               ) : null}
             </div>
+          ) : null}
+          {showAttributes && attributeKeys.length > 0 ? (
+            <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted/40 p-2 text-[11px] font-mono">
+              {JSON.stringify(device.attributes, null, 2)}
+            </pre>
+          ) : null}
+          {showConfigs && hasConfigs ? (
+            <DeviceConfigsContent runId={runId ?? null} device={device} />
           ) : null}
         </div>
       </div>
@@ -177,7 +271,13 @@ function MetadataPanel({ metadata }: { metadata: Record<string, unknown> }) {
   );
 }
 
-function OutcomeContextView({ context }: { context: WorkflowContext }) {
+function OutcomeContextView({
+  context,
+  runId,
+}: {
+  context: WorkflowContext;
+  runId?: number | null;
+}) {
   const devices = Object.values(context.devices);
   const pendingCommandNodes = Object.keys(context.pending_commands);
 
@@ -193,7 +293,7 @@ function OutcomeContextView({ context }: { context: WorkflowContext }) {
         ) : (
           <div className="space-y-2">
             {devices.map((device) => (
-              <DeviceCard key={device.id} device={device} />
+              <DeviceCard key={device.id} device={device} runId={runId} />
             ))}
           </div>
         )}
@@ -224,6 +324,7 @@ export function StepResultViewer({
   output,
   errorMessage,
   compact = false,
+  runId = null,
 }: StepResultViewerProps) {
   const envelope = useMemo(() => parseStepOutput(output), [output]);
   const outcomeNames = useMemo(
@@ -287,7 +388,7 @@ export function StepResultViewer({
       </TabsList>
       {outcomeNames.map((name) => (
         <TabsContent key={name} value={name} className="mt-3">
-          <OutcomeContextView context={envelope.outcomes[name]} />
+          <OutcomeContextView context={envelope.outcomes[name]} runId={runId} />
         </TabsContent>
       ))}
     </Tabs>

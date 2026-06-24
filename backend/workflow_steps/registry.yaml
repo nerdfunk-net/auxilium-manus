@@ -108,8 +108,8 @@ plugins:
           description: Format of the configuration to retrieve.
           data_type: string
           required: false
-          default: running
-          example: running
+          default: both
+          example: both
 
   - id: run-command
     name: Run Command

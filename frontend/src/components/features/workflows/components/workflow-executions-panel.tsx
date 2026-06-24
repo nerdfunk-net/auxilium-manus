@@ -96,9 +96,11 @@ function StepStatusBadge({ status }: { status: DerivedStepStatus }) {
 
 function StepLogsModal({
   step,
+  runId,
   onClose,
 }: {
   step: WorkflowStepResult | null;
+  runId: number;
   onClose: () => void;
 }) {
   return (
@@ -120,7 +122,11 @@ function StepLogsModal({
             ) : null}
           </DialogDescription>
         </DialogHeader>
-        <StepResultViewer output={step?.output ?? null} errorMessage={step?.error_message} />
+        <StepResultViewer
+          output={step?.output ?? null}
+          errorMessage={step?.error_message}
+          runId={runId}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -128,6 +134,7 @@ function StepLogsModal({
 
 interface StepResultRowProps {
   step: WorkflowStepResult;
+  runId: number;
   expanded: boolean;
   onToggle: () => void;
   onOpenModal: () => void;
@@ -136,6 +143,7 @@ interface StepResultRowProps {
 
 function StepResultRow({
   step,
+  runId,
   expanded,
   onToggle,
   onOpenModal,
@@ -211,6 +219,7 @@ function StepResultRow({
             output={step.output}
             errorMessage={step.error_message}
             compact
+            runId={runId}
           />
         </div>
       ) : null}
@@ -268,6 +277,7 @@ function RunDetail({
           <StepResultRow
             key={step.id}
             step={step}
+            runId={runId}
             expanded={expandedStepId === step.id}
             onToggle={() => toggleStep(step.id)}
             onOpenModal={() => setLogsStep(step)}
@@ -275,7 +285,7 @@ function RunDetail({
           />
         ))}
       </div>
-      <StepLogsModal step={logsStep} onClose={() => setLogsStep(null)} />
+      <StepLogsModal step={logsStep} runId={runId} onClose={() => setLogsStep(null)} />
     </>
   );
 }

@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.safe_http_errors import raise_internal_server_error
 from models.runs import (
@@ -163,6 +164,33 @@ class RunService:
         self._assert_workflow_access(run.workflow_id, user_id)
         step_results = self.run_repo.get_step_results_for_run(run_id)
         return _run_to_response(run, username, step_results)
+
+    def get_run_artifact(self, run_id: int, artifact_id: str, user_id: int):
+        from models.artifacts import ArtifactContentResponse
+        from services.artifacts import ArtifactNotFoundError, FilesystemArtifactService
+
+        result = self.run_repo.get_run_by_id(run_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+        run, _username = result
+        self._assert_workflow_access(run.workflow_id, user_id)
+
+        service = FilesystemArtifactService(settings.data_directory)
+        try:
+            ref, content = service.get_for_run(run_uuid=run.uuid, artifact_id=artifact_id)
+        except ArtifactNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Artifact not found",
+            ) from exc
+
+        return ArtifactContentResponse(
+            artifact_id=ref.artifact_id,
+            kind=ref.kind,
+            media_type=ref.media_type,
+            size_bytes=ref.size_bytes,
+            content=content,
+        )
 
     def cancel_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         result = self.run_repo.get_run_by_id(run_id)

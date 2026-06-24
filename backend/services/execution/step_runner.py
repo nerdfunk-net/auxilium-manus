@@ -20,10 +20,15 @@ from core.models.workflows import Workflow
 from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
-from services.artifacts import InMemoryArtifactService
+from core.config import settings
+from services.artifacts import FilesystemArtifactService
 from services.execution.step_result_status import derive_step_result_status
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
-from services.workflow_context.guards import post_step_guard, pre_step_guard
+from services.workflow_context.guards import (
+    effective_produces,
+    post_step_guard,
+    pre_step_guard,
+)
 from services.workflow_context.merge import merge_workflow_contexts
 from services.workflow_context.registry import capability_spec_from_plugin
 
@@ -41,7 +46,7 @@ class StepRunner:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.repo = RunRepository(db)
-        self.artifact_service = InMemoryArtifactService()
+        self.artifact_service = FilesystemArtifactService(settings.data_directory)
         self.plugin_registry = _plugin_registry_service()
 
     async def execute_all(self, *, run: WorkflowRun, workflow: Workflow) -> bool:
@@ -194,7 +199,16 @@ class StepRunner:
         if not outcomes:
             raise RuntimeError(f"Step {step_type!r} returned no outcomes")
 
-        post_step_guard(spec=spec, input_context=context, outcomes=outcomes)
+        post_step_guard(
+            spec=spec,
+            input_context=context,
+            outcomes=outcomes,
+            expected_produces=effective_produces(
+                spec=spec,
+                step_type=step_type,
+                config=config,
+            ),
+        )
         return outcomes
 
     @staticmethod
