@@ -1,5 +1,10 @@
 # Description of all data types used in the workflow steps  
 
+## Basis data class
+
+All other datatypes are inherited by this data class.
+
+
 ## device_list
 
   "general": {
