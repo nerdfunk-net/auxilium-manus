@@ -44,6 +44,8 @@ class Settings:
     run_retention_enabled: bool
     run_retention_days: int
     run_retention_batch_size: int
+    credential_encryption_key: str
+    data_directory: Path
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -80,6 +82,10 @@ class Settings:
         self.run_retention_days = self._get_int("RUN_RETENTION_DAYS", 90)
         self.run_retention_batch_size = self._get_int("RUN_RETENTION_BATCH_SIZE", 500)
         self._validate_run_retention()
+        self.credential_encryption_key = environ.get("CREDENTIAL_ENCRYPTION_KEY", "")
+        self.data_directory = Path(
+            environ.get("DATA_DIRECTORY", PROJECT_ROOT / "data")
+        ).resolve()
 
     def _validate_run_retention(self) -> None:
         if self.run_retention_days < 1:

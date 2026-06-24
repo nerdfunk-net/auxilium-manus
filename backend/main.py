@@ -21,6 +21,7 @@ import service_factory
 from core.database import SessionLocal, init_db
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
+from routers.credentials import router as credentials_router
 from routers.cache_settings import router as cache_settings_router
 from routers.hatchet_settings import router as hatchet_settings_router
 from routers.nautobot.custom_fields import router as nautobot_custom_fields_router
@@ -81,6 +82,7 @@ app.include_router(workflow_steps_router, prefix=settings.api_prefix)
 app.include_router(workflows_router, prefix=settings.api_prefix)
 app.include_router(workflow_runs_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)
+app.include_router(credentials_router, prefix=settings.api_prefix)
 app.include_router(hatchet_settings_router, prefix=settings.api_prefix)
 app.include_router(cache_settings_router, prefix=settings.api_prefix)
 

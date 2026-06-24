@@ -121,3 +121,11 @@ def build_git_connection_service():
     from services.git.connection import GitConnectionService
 
     return GitConnectionService()
+
+
+def build_credentials_service(db: Session | None = None):
+    from core.database import SessionLocal
+    from services.credentials.credentials_service import CredentialsService
+
+    session = db if db is not None else SessionLocal()
+    return CredentialsService(session)

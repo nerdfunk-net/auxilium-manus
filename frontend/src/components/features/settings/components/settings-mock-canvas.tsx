@@ -3,11 +3,15 @@
 import { SETTINGS_SECTIONS } from "../constants/settings-sections";
 import { useWorkspaceStore } from "../hooks/use-workspace-store";
 import type { SettingsSection } from "../types/settings-section";
+import { CredentialsSettingsCanvas } from "./credentials-settings-canvas";
 import { HatchetSettingsCanvas } from "./hatchet-settings-canvas";
 import { RedisSettingsCanvas } from "./redis-settings-canvas";
 import { SourcesSettingsCanvas } from "./sources-settings-canvas";
 
-type MockPlaceholderSection = Exclude<SettingsSection, "sources" | "hatchet" | "redis">;
+type MockPlaceholderSection = Exclude<
+  SettingsSection,
+  "sources" | "hatchet" | "redis" | "credentials"
+>;
 
 const MOCK_PLACEHOLDERS: Record<
   MockPlaceholderSection,
@@ -19,14 +23,6 @@ const MOCK_PLACEHOLDERS: Record<
       "Application name and branding",
       "Default workflow folder",
       "Timezone and locale",
-    ],
-  },
-  credentials: {
-    title: "Credential vault",
-    items: [
-      "SSH login credentials",
-      "SNMP community mappings",
-      "OIDC provider secrets",
     ],
   },
   users: {
@@ -52,6 +48,10 @@ export function SettingsMockCanvas() {
 
   if (settingsSection === "redis") {
     return <RedisSettingsCanvas />;
+  }
+
+  if (settingsSection === "credentials") {
+    return <CredentialsSettingsCanvas />;
   }
 
   const sectionMeta = SETTINGS_SECTIONS.find((s) => s.id === settingsSection);

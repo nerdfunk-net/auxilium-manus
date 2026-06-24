@@ -53,138 +53,141 @@ class GitAuthenticationService:
 
         try:
             import service_factory
+            from core.database import SessionLocal
 
-            cred_mgr = service_factory.build_credentials_service()
-
-            creds = cred_mgr.list_credentials(include_expired=False)
-            logger.debug(
-                "Found %s active credentials, searching for '%s' with type '%s'",
-                len(creds),
+            db = SessionLocal()
+            try:
+                cred_mgr = service_factory.build_credentials_service(db)
+                return self._resolve_from_manager(cred_mgr, credential_name, auth_type)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(
+                "Failed to resolve credentials for '%s': %s",
                 credential_name,
-                auth_type,
+                e,
+                exc_info=True,
             )
-
-            if auth_type == "ssh_key":
-                # Look for SSH key credential
-                match = next(
-                    (
-                        c
-                        for c in creds
-                        if c["name"] == credential_name and c["type"] == "ssh_key"
-                    ),
-                    None,
-                )
-                if match:
-                    logger.debug(
-                        "Found SSH key credential: id=%s, username=%s",
-                        match["id"],
-                        match.get("username"),
-                    )
-                    # Get the SSH key file path
-                    ssh_key_path = cred_mgr.get_ssh_key_path(match["id"])
-                    if ssh_key_path:
-                        logger.debug("SSH key path resolved: %s", ssh_key_path)
-                        return match.get("username"), None, ssh_key_path
-                    else:
-                        logger.error(
-                            "SSH key file not found for credential '%s'",
-                            credential_name,
-                        )
-                        return None, None, None
-                else:
-                    logger.warning(
-                        "SSH key credential '%s' not found in %s credentials",
-                        credential_name,
-                        len(creds),
-                    )
-                    return None, None, None
-            elif auth_type == "generic":
-                # Look for generic credential (username/password, not for SSH)
-                match = next(
-                    (
-                        c
-                        for c in creds
-                        if c["name"] == credential_name and c["type"] == "generic"
-                    ),
-                    None,
-                )
-                if match:
-                    username = match.get("username")
-                    logger.debug(
-                        "Found generic credential: id=%s, username=%s",
-                        match["id"],
-                        username,
-                    )
-                    try:
-                        password = cred_mgr.get_decrypted_password(match["id"])
-                        logger.debug(
-                            "Successfully decrypted password for '%s'", credential_name
-                        )
-                        return username, password, None
-                    except Exception as de:
-                        logger.error(
-                            "Failed to decrypt credential '%s': %s",
-                            credential_name,
-                            de,
-                            exc_info=True,
-                        )
-                        return None, None, None
-                else:
-                    logger.warning(
-                        "Generic credential '%s' not found in %s credentials",
-                        credential_name,
-                        len(creds),
-                    )
-                    logger.debug(
-                        "Available generic credentials: %s",
-                        [c["name"] for c in creds if c["type"] == "generic"],
-                    )
-                    return None, None, None
-            else:
-                # Look for token credential (default behavior)
-                match = next(
-                    (
-                        c
-                        for c in creds
-                        if c["name"] == credential_name and c["type"] == "token"
-                    ),
-                    None,
-                )
-                if match:
-                    username = match.get("username")
-                    logger.debug(
-                        "Found token credential: id=%s, username=%s",
-                        match["id"],
-                        username,
-                    )
-                    try:
-                        token = cred_mgr.get_decrypted_password(match["id"])
-                        logger.debug(
-                            "Successfully decrypted token for '%s'", credential_name
-                        )
-                        return username, token, None
-                    except Exception as de:
-                        logger.error(
-                            "Failed to decrypt credential '%s': %s",
-                            credential_name,
-                            de,
-                            exc_info=True,
-                        )
-                        return None, None, None
-                else:
-                    logger.warning(
-                        "Token credential '%s' not found in %s credentials",
-                        credential_name,
-                        len(creds),
-                    )
-                    logger.debug(
-                        "Available token credentials: %s",
-                        [c["name"] for c in creds if c["type"] == "token"],
-                    )
-                    return None, None, None
-        except Exception as ce:
-            logger.error("Error resolving credential '%s': %s", credential_name, ce)
             return None, None, None
+
+    def _resolve_from_manager(
+        self,
+        cred_mgr,
+        credential_name: str,
+        auth_type: str,
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        creds = cred_mgr.list_credentials(include_expired=False)
+        logger.debug(
+            "Found %s active credentials, searching for '%s' with type '%s'",
+            len(creds),
+            credential_name,
+            auth_type,
+        )
+
+        if auth_type == "ssh_key":
+            match = next(
+                (
+                    c
+                    for c in creds
+                    if c["name"] == credential_name and c["type"] == "ssh_key"
+                ),
+                None,
+            )
+            if match:
+                logger.debug(
+                    "Found SSH key credential: id=%s, username=%s",
+                    match["id"],
+                    match.get("username"),
+                )
+                ssh_key_path = cred_mgr.get_ssh_key_path(match["id"])
+                if ssh_key_path:
+                    logger.debug("SSH key path resolved: %s", ssh_key_path)
+                    return match.get("username"), None, ssh_key_path
+                logger.error(
+                    "SSH key file not found for credential '%s'",
+                    credential_name,
+                )
+                return None, None, None
+
+            logger.warning(
+                "SSH key credential '%s' not found in %s credentials",
+                credential_name,
+                len(creds),
+            )
+            return None, None, None
+
+        if auth_type == "generic":
+            match = next(
+                (
+                    c
+                    for c in creds
+                    if c["name"] == credential_name and c["type"] == "generic"
+                ),
+                None,
+            )
+            if match:
+                username = match.get("username")
+                logger.debug(
+                    "Found generic credential: id=%s, username=%s",
+                    match["id"],
+                    username,
+                )
+                try:
+                    password = cred_mgr.get_decrypted_password(match["id"])
+                    logger.debug(
+                        "Successfully decrypted password for '%s'", credential_name
+                    )
+                    return username, password, None
+                except Exception as de:
+                    logger.error(
+                        "Failed to decrypt credential '%s': %s",
+                        credential_name,
+                        de,
+                        exc_info=True,
+                    )
+                    return None, None, None
+
+            logger.warning(
+                "Generic credential '%s' not found in %s credentials",
+                credential_name,
+                len(creds),
+            )
+            return None, None, None
+
+        match = next(
+            (
+                c
+                for c in creds
+                if c["name"] == credential_name and c["type"] == "token"
+            ),
+            None,
+        )
+        if match:
+            username = match.get("username")
+            logger.debug(
+                "Found token credential: id=%s, username=%s",
+                match["id"],
+                username,
+            )
+            try:
+                token = cred_mgr.get_decrypted_password(match["id"])
+                logger.debug("Successfully decrypted token for '%s'", credential_name)
+                return username, token, None
+            except Exception as de:
+                logger.error(
+                    "Failed to decrypt credential '%s': %s",
+                    credential_name,
+                    de,
+                    exc_info=True,
+                )
+                return None, None, None
+
+        logger.warning(
+            "Token credential '%s' not found in %s credentials",
+            credential_name,
+            len(creds),
+        )
+        return None, None, None
 
     def build_auth_url(
         self, url: str, username: Optional[str], token: Optional[str]
