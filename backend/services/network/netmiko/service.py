@@ -55,9 +55,10 @@ class NetmikoService:
         commands: list[str],
         privileged: bool = True,
         use_textfsm: bool = False,
+        device_type: str | None = None,
     ) -> CommandResult:
         loop = asyncio.get_running_loop()
-        device_type = resolve_netmiko_device_type(
+        resolved_device_type = device_type or resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
@@ -65,7 +66,7 @@ class NetmikoService:
             self._executor,
             _sync_send_commands,
             host,
-            device_type,
+            resolved_device_type,
             username,
             password,
             commands,

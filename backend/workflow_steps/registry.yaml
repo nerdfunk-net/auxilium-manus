@@ -135,6 +135,16 @@ plugins:
           example:
             - show version
             - show running-config
+        - name: use_textfsm
+          description: Parse command output with TextFSM templates when available.
+          data_type: boolean
+          required: false
+          default: false
+        - name: network_driver_override
+          description: Override the Netmiko device type for all devices in this step.
+          data_type: string
+          required: false
+          example: cisco_ios
 
   - id: cisco-device-os
     name: Name of Cisco Device OS

@@ -29,6 +29,31 @@ _PLATFORM_MAP: dict[str, str] = {
 }
 
 
+def resolve_netmiko_device_type(
+    *,
+    network_driver: str | None,
+    platform: str | None = None,
+) -> str:
+    """Return a Netmiko ``device_type`` string for the given device metadata."""
+    candidates = [network_driver, platform]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        normalized = candidate.strip().lower()
+        if normalized in _PLATFORM_MAP:
+            return _PLATFORM_MAP[normalized]
+        for key, value in _PLATFORM_MAP.items():
+            if key in normalized:
+                return value
+
+    logger.warning(
+        "Unknown platform/network_driver (%r / %r); defaulting to cisco_ios",
+        network_driver,
+        platform,
+    )
+    return "cisco_ios"
+
+
 def resolve_connection_device_type(
     *,
     network_driver: str | None,

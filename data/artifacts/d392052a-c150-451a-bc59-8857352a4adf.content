@@ -1,0 +1,26 @@
+[
+  {
+    "interface": "Ethernet0/0",
+    "ip_address": "192.168.178.240",
+    "status": "up",
+    "proto": "up"
+  },
+  {
+    "interface": "Ethernet0/1",
+    "ip_address": "192.168.179.240",
+    "status": "up",
+    "proto": "up"
+  },
+  {
+    "interface": "Ethernet0/2",
+    "ip_address": "unassigned",
+    "status": "administratively down",
+    "proto": "down"
+  },
+  {
+    "interface": "Ethernet0/3",
+    "ip_address": "unassigned",
+    "status": "administratively down",
+    "proto": "down"
+  }
+]

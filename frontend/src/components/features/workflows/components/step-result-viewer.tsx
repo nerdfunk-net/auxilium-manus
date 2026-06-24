@@ -9,6 +9,7 @@ import { useArtifactQuery } from "@/hooks/queries/use-artifact-query";
 import type { Capability } from "@/lib/capability-types";
 import type {
   ArtifactRef,
+  CommandResult,
   DeviceContext,
   DeviceError,
   WorkflowContext,
@@ -136,6 +137,55 @@ function DeviceConfigsContent({
   );
 }
 
+function DeviceCommandResultsContent({
+  runId,
+  commandResults,
+}: {
+  runId: number | null;
+  commandResults: Record<string, CommandResult[]>;
+}) {
+  if (runId == null) {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        Command output is available from a workflow run detail view.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-3">
+      {Object.entries(commandResults).map(([stepNodeId, results]) => (
+        <div key={stepNodeId} className="space-y-2">
+          <p className="font-mono text-[10px] text-muted-foreground">node: {stepNodeId}</p>
+          {results.map((result) => (
+            <div key={`${stepNodeId}-${result.command}-${result.executed_at}`} className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-mono font-medium">{result.command}</span>
+                <Badge
+                  className="text-[10px]"
+                  variant={result.success ? "secondary" : "destructive"}
+                >
+                  {result.success ? "success" : "failed"}
+                </Badge>
+                {result.summary ? (
+                  <span className="text-muted-foreground">{result.summary}</span>
+                ) : null}
+              </div>
+              {result.output_ref ? (
+                <ConfigArtifactPanel
+                  runId={runId}
+                  label="Output"
+                  artifactRef={result.output_ref}
+                />
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DeviceErrorList({ errors }: { errors: DeviceError[] }) {
   if (errors.length === 0) {
     return null;
@@ -160,10 +210,16 @@ function DeviceErrorList({ errors }: { errors: DeviceError[] }) {
 function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number | null }) {
   const [showAttributes, setShowAttributes] = useState(false);
   const [showConfigs, setShowConfigs] = useState(false);
+  const [showCommands, setShowCommands] = useState(false);
   const attributeKeys = Object.keys(device.attributes);
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
   const configCount =
     (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
+  const commandResultCount = Object.values(device.command_results).reduce(
+    (total, results) => total + results.length,
+    0,
+  );
+  const hasCommandResults = commandResultCount > 0;
 
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -209,8 +265,18 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
               ) : null}
             </div>
           ) : null}
+          {hasCommandResults ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Command results
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {commandResultCount} command{commandResultCount !== 1 ? "s" : ""} recorded
+              </p>
+            </div>
+          ) : null}
           <DeviceErrorList errors={device.errors} />
-          {hasConfigs || attributeKeys.length > 0 ? (
+          {hasConfigs || hasCommandResults || attributeKeys.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {attributeKeys.length > 0 ? (
                 <button
@@ -230,6 +296,15 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
                   {showConfigs ? "Hide" : "Show"} configs ({configCount})
                 </button>
               ) : null}
+              {hasCommandResults ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowCommands((value) => !value)}
+                >
+                  {showCommands ? "Hide" : "Show"} command output ({commandResultCount})
+                </button>
+              ) : null}
             </div>
           ) : null}
           {showAttributes && attributeKeys.length > 0 ? (
@@ -239,6 +314,12 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
           ) : null}
           {showConfigs && hasConfigs ? (
             <DeviceConfigsContent runId={runId ?? null} device={device} />
+          ) : null}
+          {showCommands && hasCommandResults ? (
+            <DeviceCommandResultsContent
+              runId={runId ?? null}
+              commandResults={device.command_results}
+            />
           ) : null}
         </div>
       </div>
