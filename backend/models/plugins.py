@@ -17,15 +17,6 @@ class PluginIOField(BaseModel):
     example: Any = None
 
 
-class PluginOutcome(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(..., min_length=1, pattern=r"^[a-z][a-z0-9_-]*$")
-    description: str = Field(default="", min_length=0)
-    data_type: str | None = None
-    example: Any = None
-
-
 class PluginStepOutcome(BaseModel):
     """Named exit path for capability-based workflow routing."""
 
@@ -35,20 +26,11 @@ class PluginStepOutcome(BaseModel):
 
 
 class PluginMetadata(BaseModel):
+    """Step configuration form fields shown in the node config panel."""
+
     model_config = ConfigDict(extra="forbid")
 
-    mandatory_input: list[PluginIOField] = Field(default_factory=list)
     configuration_input: list[PluginIOField] = Field(default_factory=list)
-    outcomes: list[PluginOutcome] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_unique_outcome_names(self) -> PluginMetadata:
-        outcome_names = [outcome.name for outcome in self.outcomes]
-
-        if len(outcome_names) != len(set(outcome_names)):
-            raise ValueError("outcome names must be unique within a plugin")
-
-        return self
 
 
 class PluginDefinition(BaseModel):
@@ -66,7 +48,7 @@ class PluginDefinition(BaseModel):
     requires_parsed: list[str] = Field(default_factory=list)
     produces_parsed: list[str] = Field(default_factory=list)
     outcomes: list[PluginStepOutcome] = Field(default_factory=list)
-    metadata: PluginMetadata
+    metadata: PluginMetadata = Field(default_factory=PluginMetadata)
 
     @field_validator("directory")
     @classmethod
@@ -77,6 +59,15 @@ class PluginDefinition(BaseModel):
             raise ValueError("directory must be a relative path without parent traversal")
 
         return directory
+
+    @model_validator(mode="after")
+    def validate_unique_outcome_names(self) -> PluginDefinition:
+        outcome_names = [outcome.name for outcome in self.outcomes]
+
+        if len(outcome_names) != len(set(outcome_names)):
+            raise ValueError("outcome names must be unique within a plugin")
+
+        return self
 
 
 class PluginRegistry(BaseModel):

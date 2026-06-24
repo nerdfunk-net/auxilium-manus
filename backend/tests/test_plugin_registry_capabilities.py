@@ -50,9 +50,7 @@ class PluginRegistryCapabilityTests(unittest.TestCase):
                 "produces_parsed": ["bgp"],
                 "outcomes": [{"name": "success"}],
                 "metadata": {
-                    "mandatory_input": [],
                     "configuration_input": [],
-                    "outcomes": [],
                 },
             }
         )

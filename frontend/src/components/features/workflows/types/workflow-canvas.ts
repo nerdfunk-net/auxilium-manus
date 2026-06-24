@@ -5,14 +5,8 @@ import type { Capability } from "@/lib/capability-types";
 // Plugin ids are loaded from the backend registry at startup, so node kinds are dynamic.
 export type WorkflowNodeKind = string;
 
-export interface WorkflowIOField {
-  name: string;
-  dataType: string;
-}
-
 export interface WorkflowOutcomeField {
   name: string;
-  dataType?: string;
 }
 
 export interface WorkflowNodeData extends Record<string, unknown> {
@@ -21,7 +15,6 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   title: string;
   description: string;
   artifactType?: string;
-  mandatoryInputs?: WorkflowIOField[];
   requires?: Capability[];
   requiresParsed?: string[];
   produces?: Capability[];

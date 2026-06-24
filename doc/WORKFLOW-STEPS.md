@@ -84,30 +84,26 @@ plugins:
     directory: get_nautobot_devices    # Sub-directory inside backend/workflow_steps/
     enabled: true                 # false hides the step from the palette
 
+    requires: []                  # Capabilities the step needs from upstream steps
+    produces: [identity]          # Capabilities this step adds to WorkflowContext
+    consumes: []                  # Capabilities removed after this step runs
+    requires_parsed: []             # Parser keys required (when requires includes parsed)
+    produces_parsed: []             # Parser keys produced (when produces includes parsed)
+    outcomes:                     # Named exit handles for branching edges
+      - name: success
+      - name: failure
+
     metadata:
-      mandatory_input:            # Data that MUST arrive from a predecessor step
-        - name: selected_devices
-          description: Devices selected for configuration retrieval.
-          data_type: device_list
-          required: true
-
       configuration_input:        # Values the user sets in the config panel
-        - name: credential_reference
-          description: Reference to credentials stored in the backend.
-          data_type: credential_ref
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
           required: true
-
-      outcomes:                   # Named exit paths and output data for successor steps
-        - name: selected_devices
-          description: Devices selected for downstream workflow steps.
-          data_type: device_list
-        - name: failure
-          description: Step encountered an error.
 ```
 
-> **Note:** There is no separate `supported_output` section. The `outcomes` list
-> serves both purposes: it declares the named exit paths used by condition edges
-> **and** the data each path emits to successor steps.
+> **Note:** Canvas connection validation uses `requires` / `produces` capability sets
+> (subset check), not per-handle `data_type` matching. `metadata.configuration_input`
+> drives step configuration forms only.
 
 ### Artifact types
 
@@ -135,21 +131,26 @@ signature:
 async def execute(
     *,
     config: dict[str, Any],
-    parent_outputs: dict[str, Any],
+    context: WorkflowContext,
     run: WorkflowRun,
-) -> dict[str, Any]:
+    artifact_service: ArtifactService,
+    node_id: str,
+) -> list[StepOutcome]:
     ...
 ```
 
-| Parameter      | Type                  | Description                                        |
-|----------------|-----------------------|----------------------------------------------------|
-| `config`       | `dict[str, Any]`      | `pluginConfig` from the canvas node                |
-| `parent_outputs` | `dict[str, Any]`    | `{node_id: output_dict}` from upstream steps       |
-| `run`          | `WorkflowRun`         | ORM instance — use `object_session(run)` for DB   |
+| Parameter          | Type                  | Description                                        |
+|--------------------|-----------------------|----------------------------------------------------|
+| `config`           | `dict[str, Any]`      | `pluginConfig` from the canvas node                |
+| `context`          | `WorkflowContext`     | Merged upstream step outcomes for this node        |
+| `run`              | `WorkflowRun`         | ORM instance — use `object_session(run)` for DB   |
+| `artifact_service` | `ArtifactService`     | Store/retrieve bulky content via `ArtifactRef`     |
+| `node_id`          | `str`                 | React Flow node id (for metadata namespacing)      |
 
-The function must return a JSON-serialisable dict. That dict becomes the step's output,
-is persisted to `workflow_step_results`, and is made available to downstream steps via
-`parent_outputs`.
+The function must return one or more `StepOutcome` values. Each outcome carries a
+`WorkflowContext` snapshot for downstream routing via `sourceHandle` on canvas edges.
+Outcomes are persisted to `workflow_step_results` and used by `StepRunner` when
+assembling input context for dependent steps.
 
 Raise a `ValueError` for configuration errors (bad input, missing field). Raise a
 `RuntimeError` for unexpected execution failures. The `StepRunner` catches all
@@ -253,7 +254,7 @@ export function getPluginUI(pluginId: string): PluginUIComponent | undefined {
 
 1. **Backend package** — create `backend/workflow_steps/{step_id}/`:
    - `__init__.py` (empty)
-   - `executor.py` with `async def execute(*, config, parent_outputs, run)`
+   - `executor.py` with `async def execute(*, config, context, run, artifact_service, node_id)`
    - `config.py` with `def get_config() -> dict` (if the step has configuration)
    - `models.py` with step-specific Pydantic models (if needed)
 

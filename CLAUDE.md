@@ -568,7 +568,7 @@ The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/e
 1. `backend/workflow_steps/{step_id}/__init__.py` — empty
 2. `backend/workflow_steps/{step_id}/executor.py` — business logic:
    ```python
-   async def execute(*, config: dict, parent_outputs: dict, run: WorkflowRun) -> dict: ...
+   async def execute(*, config: dict, context: WorkflowContext, run: WorkflowRun, artifact_service, node_id) -> list[StepOutcome]: ...
    ```
 3. `backend/workflow_steps/{step_id}/config.py` — `def get_config() -> dict` (if step has config)
 4. `backend/services/execution/step_registry.py` — add one import + one dict entry

@@ -40,10 +40,8 @@ const nodeAccentClassesByType: Record<string, string> = {
 export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) {
   const nodeType = data.artifactType ?? data.kind;
   const Icon = nodeIconsByType[nodeType] ?? Database;
-  const inputs = data.mandatoryInputs ?? [];
-  const hasCapabilityInput = (data.requires?.length ?? 0) > 0;
+  const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
-  const hasTargetHandles = hasCapabilityInput || inputs.length > 0;
   const hasSourceHandles = outcomes.length > 0;
 
   return (
@@ -53,31 +51,15 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
-      {hasTargetHandles
-        ? inputs.map((input, index) => (
-            <div key={input.name}>
-              {inputs.length > 1 ? (
-                <span
-                  className="absolute left-4 -translate-y-1/2 rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm"
-                  style={{
-                    top: `${((index + 1) / (inputs.length + 1)) * 100}%`,
-                  }}
-                >
-                  {input.name}
-                </span>
-              ) : null}
-              <Handle
-                className="!size-3 !border-2 !bg-background"
-                id={input.name}
-                position={Position.Left}
-                style={{
-                  top: `${((index + 1) / (inputs.length + 1)) * 100}%`,
-                }}
-                type="target"
-              />
-            </div>
-          ))
-        : null}
+      {hasTargetHandles ? (
+        <Handle
+          className="!size-3 !border-2 !bg-background"
+          id="input"
+          position={Position.Left}
+          style={{ top: "50%" }}
+          type="target"
+        />
+      ) : null}
       <div className="flex items-start gap-3">
         <div
           className={cn(

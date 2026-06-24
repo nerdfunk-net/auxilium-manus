@@ -21,7 +21,7 @@ import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type {
   PluginDefinition,
   PluginIOField,
-  PluginOutcome,
+  PluginStepOutcome,
 } from "../types/plugin-registry";
 import type {
   EdgeStyle,
@@ -84,22 +84,37 @@ function FieldRow({ field }: { field: PluginIOField }) {
   );
 }
 
-function OutcomeRow({ outcome }: { outcome: PluginOutcome }) {
+function OutcomeRow({ outcome }: { outcome: PluginStepOutcome }) {
   return (
     <div className="rounded-lg border bg-background/60 px-3 py-2">
-      <div className="flex items-center gap-1.5">
-        <span className="font-mono text-xs font-medium">{outcome.name}</span>
-        {outcome.data_type ? (
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            {outcome.data_type}
+      <span className="font-mono text-xs font-medium">{outcome.name}</span>
+    </div>
+  );
+}
+
+function CapabilityList({
+  icon: Icon,
+  label,
+  values,
+}: {
+  icon: LucideIcon;
+  label: string;
+  values: string[];
+}) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <SectionHeader icon={Icon} label={label} />
+      <div className="flex flex-wrap gap-1.5">
+        {values.map((value) => (
+          <Badge key={value} className="font-mono text-[10px]" variant="secondary">
+            {value}
           </Badge>
-        ) : null}
+        ))}
       </div>
-      {outcome.description ? (
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-          {outcome.description}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -344,22 +359,40 @@ export function WorkflowPropertiesPanel({
                   </div>
                 ) : null}
 
-                {plugin.metadata.mandatory_input.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <SectionHeader
-                      icon={ArrowDownToLine}
-                      label="Mandatory inputs"
-                    />
-                    {plugin.metadata.mandatory_input.map((field) => (
-                      <FieldRow field={field} key={field.name} />
-                    ))}
-                  </div>
+                <CapabilityList
+                  icon={ArrowDownToLine}
+                  label="Requires"
+                  values={plugin.requires}
+                />
+                {plugin.requires_parsed.length > 0 ? (
+                  <CapabilityList
+                    icon={ArrowDownToLine}
+                    label="Requires parsed"
+                    values={plugin.requires_parsed}
+                  />
                 ) : null}
+                <CapabilityList
+                  icon={MoveRight}
+                  label="Produces"
+                  values={plugin.produces}
+                />
+                {plugin.produces_parsed.length > 0 ? (
+                  <CapabilityList
+                    icon={MoveRight}
+                    label="Produces parsed"
+                    values={plugin.produces_parsed}
+                  />
+                ) : null}
+                <CapabilityList
+                  icon={ChevronsRight}
+                  label="Consumes"
+                  values={plugin.consumes}
+                />
 
-                {plugin.metadata.outcomes.length > 0 ? (
+                {plugin.outcomes.length > 0 ? (
                   <div className="space-y-1.5">
                     <SectionHeader icon={GitBranch} label="Outcomes" />
-                    {plugin.metadata.outcomes.map((outcome) => (
+                    {plugin.outcomes.map((outcome) => (
                       <OutcomeRow key={outcome.name} outcome={outcome} />
                     ))}
                   </div>

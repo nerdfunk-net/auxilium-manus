@@ -31,8 +31,8 @@ import type { PluginDefinition } from "../types/plugin-registry";
 import type {
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
-  WorkflowIOField,
   WorkflowNodeKind,
+  WorkflowOutcomeField,
 } from "../types/workflow-canvas";
 import { WaypointEdge } from "./edges/waypoint-edge";
 import { WorkflowNode } from "./nodes/workflow-node";
@@ -65,8 +65,7 @@ interface WorkflowCanvasProps {
     produces: Capability[];
     producesParsed: string[];
     consumes: Capability[];
-    mandatoryInputs: WorkflowIOField[];
-    outcomes: WorkflowIOField[];
+    outcomes: WorkflowOutcomeField[];
   }) => void;
 }
 
@@ -115,6 +114,14 @@ export function WorkflowCanvas({
       const requiredParsed = targetNode.data.requiresParsed ?? [];
 
       if (requiredCapabilities.length === 0 && requiredParsed.length === 0) {
+        return false;
+      }
+
+      if (
+        requiredCapabilities.length > 0 &&
+        connection.targetHandle &&
+        connection.targetHandle !== "input"
+      ) {
         return false;
       }
 

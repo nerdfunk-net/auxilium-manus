@@ -1,7 +1,3 @@
-export interface PluginStepOutcome {
-  name: string;
-}
-
 export interface PluginIOField {
   name: string;
   description: string;
@@ -11,17 +7,12 @@ export interface PluginIOField {
   example?: unknown;
 }
 
-export interface PluginOutcome {
+export interface PluginStepOutcome {
   name: string;
-  description: string;
-  data_type?: string;
-  example?: unknown;
 }
 
 export interface PluginMetadata {
-  mandatory_input: PluginIOField[];
   configuration_input: PluginIOField[];
-  outcomes: PluginOutcome[];
 }
 
 export interface PluginDefinition {

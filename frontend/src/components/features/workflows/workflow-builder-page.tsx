@@ -38,10 +38,11 @@ import type {
   EdgeStyle,
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
-  WorkflowIOField,
   WorkflowNodeKind,
+  WorkflowOutcomeField,
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
+import { migrateCanvasState } from "./utils/migrate-canvas";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: WorkflowCanvasNode[] = [];
@@ -294,8 +295,10 @@ export function WorkflowBuilderPage() {
         .then((full) => {
           const loadedNodes = (full.canvas_nodes ?? []) as WorkflowCanvasNode[];
           const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
-          setNodes(loadedNodes);
-          setEdges(loadedEdges);
+          const { nodes: migratedNodes, edges: migratedEdges, migrated } =
+            migrateCanvasState(loadedNodes, loadedEdges, plugins);
+          setNodes(migratedNodes);
+          setEdges(migratedEdges);
           loadWorkflow({
             workflowId: full.id,
             workflowUuid: full.uuid ?? null,
@@ -304,10 +307,13 @@ export function WorkflowBuilderPage() {
             workflowFolder: full.folder ?? "/",
             workflowVisibility: full.visibility as WorkflowVisibility,
           });
+          if (migrated) {
+            markDirty();
+          }
         })
         .catch(() => markError("Failed to load workflow"));
     },
-    [setNodes, setEdges, loadWorkflow, markError],
+    [setNodes, setEdges, loadWorkflow, markError, markDirty, plugins],
   );
 
   const handleRun = useCallback(async () => {
@@ -370,8 +376,7 @@ export function WorkflowBuilderPage() {
       produces: Capability[];
       producesParsed: string[];
       consumes: Capability[];
-      mandatoryInputs: WorkflowIOField[];
-      outcomes: WorkflowIOField[];
+      outcomes: WorkflowOutcomeField[];
     }) => {
       const nextIndex = nodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
@@ -394,8 +399,7 @@ export function WorkflowBuilderPage() {
             produces: step.produces,
             producesParsed: step.producesParsed,
             consumes: step.consumes,
-            mandatoryInputs: step.mandatoryInputs,
-            outcomes: step.outcomes.map((outcome) => ({ name: outcome.name })),
+            outcomes: step.outcomes,
             status: "draft",
           },
         },

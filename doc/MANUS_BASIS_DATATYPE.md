@@ -930,29 +930,6 @@ Quick reference for step authors.
 
 ---
 
-## Existing DATATYPES.md — Mapping to WorkflowContext
-
-The current `DATATYPES.md` describes `device_list` and `device_attribute_map` as
-standalone output dicts. These map onto WorkflowContext fields as follows:
-
-| Legacy field | WorkflowContext equivalent |
-|---|---|
-| `device_list.general.source_id` | `metadata["<node-id>.source_id"]` |
-| `device_list.general.total` | `len(context.devices)` |
-| `device_list.device_ids[]` | `list(context.devices.keys())` |
-| `device_list.device_details[].id` | `context.devices[id].id` |
-| `device_list.device_details[].name` | `context.devices[id].name` |
-| `device_list.device_details[].primary_ip4` | `context.devices[id].primary_ip4` |
-| `device_list.device_details[].platform` | `context.devices[id].platform` / `network_driver` |
-| `device_attribute_map.device_details[].interfaces` | `context.devices[id].attributes["interfaces"]` |
-| `device_attribute_map.device_details[]._custom_field_data` | `context.devices[id].attributes["custom_fields"]` |
-| `device_attribute_map.device_details[].role` | `context.devices[id].attributes["role"]` |
-
-Note: `metadata` keys are namespaced by graph `node_id`, not step type, to avoid
-collisions when the same step type appears more than once in a workflow.
-
----
-
 ## Open Decisions
 
 1. **Artifact storage backend** — DB large-object, filesystem, or object store (S3/MinIO)?

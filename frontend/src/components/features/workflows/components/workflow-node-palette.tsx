@@ -31,7 +31,7 @@ import type { Capability } from "@/lib/capability-types";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "../types/plugin-registry";
-import type { WorkflowIOField, WorkflowNodeKind } from "../types/workflow-canvas";
+import type { WorkflowNodeKind, WorkflowOutcomeField } from "../types/workflow-canvas";
 
 type PaletteItem = {
   kind: WorkflowNodeKind;
@@ -43,8 +43,7 @@ type PaletteItem = {
   produces: Capability[];
   producesParsed: string[];
   consumes: Capability[];
-  mandatoryInputs: WorkflowIOField[];
-  outcomes: WorkflowIOField[];
+  outcomes: WorkflowOutcomeField[];
   icon: LucideIcon;
 };
 
@@ -72,8 +71,7 @@ interface NodePaletteProps {
     produces: Capability[];
     producesParsed: string[];
     consumes: Capability[];
-    mandatoryInputs: WorkflowIOField[];
-    outcomes: WorkflowIOField[];
+    outcomes: WorkflowOutcomeField[];
   }) => void;
   plugins: PluginDefinition[];
 }
@@ -95,33 +93,17 @@ function formatArtifactType(artifactType: string) {
 }
 
 function toPaletteItem(plugin: PluginDefinition): PaletteItem {
-  const requires = (plugin.requires ?? []) as Capability[];
-  const outcomes =
-    plugin.outcomes.length > 0
-      ? plugin.outcomes.map((outcome) => ({ name: outcome.name, dataType: "" }))
-      : plugin.metadata.outcomes.map((outcome) => ({
-          name: outcome.name,
-          dataType: outcome.data_type ?? "",
-        }));
-
   return {
     kind: plugin.id,
     label: plugin.name,
     description: plugin.description,
     artifactType: plugin.artifact_type,
-    requires,
+    requires: (plugin.requires ?? []) as Capability[],
     requiresParsed: plugin.requires_parsed ?? [],
     produces: (plugin.produces ?? []) as Capability[],
     producesParsed: plugin.produces_parsed ?? [],
     consumes: (plugin.consumes ?? []) as Capability[],
-    mandatoryInputs:
-      requires.length > 0
-        ? [{ name: "input", dataType: "" }]
-        : plugin.metadata.mandatory_input.map((field) => ({
-            name: field.name,
-            dataType: field.data_type,
-          })),
-    outcomes,
+    outcomes: plugin.outcomes.map((outcome) => ({ name: outcome.name })),
     icon: iconByArtifactType[plugin.artifact_type] ?? Code2,
   };
 }
@@ -194,7 +176,6 @@ export function NodePalette({
         produces: item.produces,
         producesParsed: item.producesParsed,
         consumes: item.consumes,
-        mandatoryInputs: item.mandatoryInputs,
         outcomes: item.outcomes,
       });
     },

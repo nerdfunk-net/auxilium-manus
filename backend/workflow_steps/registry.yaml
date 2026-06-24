@@ -30,8 +30,6 @@ plugins:
           example:
             location: dc1
             role: network
-      mandatory_input: []
-      outcomes: []
 
   - id: get-git-devices
     name: Get from Git
@@ -62,8 +60,6 @@ plugins:
           required: false
           example:
             device_id_field: hostname
-      mandatory_input: []
-      outcomes: []
 
   - id: get-nautobot-attributes
     name: Get Nautobot Attributes
@@ -77,7 +73,6 @@ plugins:
       - name: success
       - name: failure
     metadata:
-      mandatory_input: []
       configuration_input:
         - name: nautobot_source_id
           description: ID of a Nautobot source configured under Settings → Sources.
@@ -91,7 +86,6 @@ plugins:
           example:
             - location
             - role
-      outcomes: []
 
   - id: get-device-configs
     name: Get Configs
@@ -105,7 +99,6 @@ plugins:
       - name: success
       - name: failure
     metadata:
-      mandatory_input: []
       configuration_input:
         - name: credential_reference
           description: Reference to credentials stored in the backend.
@@ -117,7 +110,6 @@ plugins:
           required: false
           default: running
           example: running
-      outcomes: []
 
   - id: run-command
     name: Run Command
@@ -131,7 +123,6 @@ plugins:
       - name: success
       - name: failure
     metadata:
-      mandatory_input: []
       configuration_input:
         - name: credential_reference
           description: Reference to credentials stored in the backend.
@@ -144,7 +135,6 @@ plugins:
           example:
             - show version
             - show running-config
-      outcomes: []
 
   - id: cisco-device-os
     name: Name of Cisco Device OS
@@ -159,9 +149,6 @@ plugins:
       - name: ios_xe
       - name: ios_xr
       - name: nxos
-    metadata:
-      mandatory_input: []
-      outcomes: []
 
   - id: store-artifact
     name: Store Artifact
@@ -175,11 +162,9 @@ plugins:
       - name: success
       - name: failure
     metadata:
-      mandatory_input: []
       configuration_input:
         - name: retention_policy
           description: Retention policy that controls artifact lifecycle.
           data_type: string
           required: true
           example: standard-90-days
-      outcomes: []
