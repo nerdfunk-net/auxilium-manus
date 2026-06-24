@@ -21,9 +21,17 @@ class PluginOutcome(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1, pattern=r"^[a-z][a-z0-9_-]*$")
-    description: str = Field(..., min_length=1)
+    description: str = Field(default="", min_length=0)
     data_type: str | None = None
     example: Any = None
+
+
+class PluginStepOutcome(BaseModel):
+    """Named exit path for capability-based workflow routing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, pattern=r"^[a-z][a-z0-9_-]*$")
 
 
 class PluginMetadata(BaseModel):
@@ -52,6 +60,12 @@ class PluginDefinition(BaseModel):
     artifact_type: str = Field(..., min_length=1)
     directory: str = Field(..., min_length=1)
     enabled: bool = True
+    requires: list[str] = Field(default_factory=list)
+    produces: list[str] = Field(default_factory=list)
+    consumes: list[str] = Field(default_factory=list)
+    requires_parsed: list[str] = Field(default_factory=list)
+    produces_parsed: list[str] = Field(default_factory=list)
+    outcomes: list[PluginStepOutcome] = Field(default_factory=list)
     metadata: PluginMetadata
 
     @field_validator("directory")

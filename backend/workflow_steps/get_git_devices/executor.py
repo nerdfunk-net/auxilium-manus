@@ -8,9 +8,12 @@ from typing import Any
 
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
+from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from repositories.settings_repository import SettingsRepository
+from services.artifacts import ArtifactService
 from services.settings.source_keys import build_source_key
 from services.sources.git.git_source_service import GitDeviceService
+from workflow_steps.common.device_builders import device_context_from_git_detail
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +21,13 @@ logger = logging.getLogger(__name__)
 async def execute(
     *,
     config: dict[str, Any],
-    parent_outputs: dict[str, Any],
+    context: WorkflowContext,
     run: WorkflowRun,
-) -> dict[str, Any]:
+    artifact_service: ArtifactService,
+    node_id: str,
+) -> list[StepOutcome]:
+    del artifact_service  # unused for this step
+
     git_source_id = (config.get("git_source_id") or "").strip()
     filename_pattern = (config.get("filename_pattern") or "").strip()
 
@@ -37,9 +44,7 @@ async def execute(
         db.close()
 
     if setting is None:
-        raise ValueError(
-            f"get-git-devices: git source '{git_source_id}' not found in settings"
-        )
+        raise ValueError(f"get-git-devices: git source '{git_source_id}' not found in settings")
 
     source_config: dict[str, Any] = {
         **(setting.value or {}),
@@ -58,12 +63,24 @@ async def execute(
         run.id,
     )
 
-    return {
-        "general": {
-            "source_id": git_source_id,
-            "total": len(devices),
-            "files_read": files_read,
-        },
-        "device_ids": [None] * len(devices),
-        "device_details": devices,
-    }
+    new_devices: dict[str, DeviceContext] = {}
+    for index, detail in enumerate(devices):
+        device_ctx = device_context_from_git_detail(
+            detail,
+            source_id=git_source_id,
+            index=index,
+        )
+        new_devices[device_ctx.id] = device_ctx
+
+    new_context = context.model_copy(
+        update={
+            "devices": {**context.devices, **new_devices},
+            "metadata": {
+                **context.metadata,
+                f"{node_id}.source_id": git_source_id,
+                f"{node_id}.total": len(new_devices),
+                f"{node_id}.files_read": files_read,
+            },
+        }
+    )
+    return [StepOutcome(name="success", context=new_context)]

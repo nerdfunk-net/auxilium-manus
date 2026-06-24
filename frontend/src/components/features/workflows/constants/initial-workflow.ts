@@ -13,9 +13,12 @@ export const initialWorkflowNodes: WorkflowCanvasNode[] = [
       title: "Get from Nautobot",
       description: "Choose target devices from inventory.",
       artifactType: "inventory_selector",
+      requires: [],
+      produces: ["identity"],
       mandatoryInputs: [],
       outcomes: [
-        { name: "selected_devices", dataType: "device_list" },
+        { name: "success" },
+        { name: "failure" },
       ],
       status: "ready",
     },
@@ -97,6 +100,7 @@ export const initialWorkflowEdges: WorkflowCanvasEdge[] = [
     source: "get-nautobot-devices",
     sourceHandle: "success",
     target: "get-configs",
+    targetHandle: "input",
     animated: false,
   },
   {

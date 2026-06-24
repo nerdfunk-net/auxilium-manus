@@ -1,7 +1,7 @@
 # Plugin registry for Auxilium Manus.
 #
-# The backend should read this file once during application startup and expose
-# the resulting static registry through an API endpoint for the frontend.
+# Capability fields (requires, produces, consumes, outcomes) drive canvas validation
+# and runtime guards. metadata.configuration_input drives step config forms.
 schema_version: 1
 
 plugins:
@@ -11,6 +11,11 @@ plugins:
     artifact_type: inventory_selector
     directory: get_nautobot_devices
     enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+      - name: failure
     metadata:
       configuration_input:
         - name: nautobot_source_id
@@ -25,10 +30,8 @@ plugins:
           example:
             location: dc1
             role: network
-      outcomes:
-        - name: selected_devices
-          description: Devices selected for downstream workflow steps.
-          data_type: device_list
+      mandatory_input: []
+      outcomes: []
 
   - id: get-git-devices
     name: Get from Git
@@ -36,6 +39,11 @@ plugins:
     artifact_type: inventory_selector
     directory: get_git_devices
     enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+      - name: failure
     metadata:
       configuration_input:
         - name: git_source_id
@@ -54,11 +62,8 @@ plugins:
           required: false
           example:
             device_id_field: hostname
-      outcomes:
-        - name: selected_devices
-          description: Devices selected for downstream workflow steps.
-          data_type: device_list
-
+      mandatory_input: []
+      outcomes: []
 
   - id: get-nautobot-attributes
     name: Get Nautobot Attributes
@@ -66,12 +71,13 @@ plugins:
     artifact_type: inventory_selector
     directory: nautobot_attributes
     enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
     metadata:
-      mandatory_input:
-        - name: selected_devices
-          description: Devices selected for further attribute retrieval.
-          data_type: device_list
-          required: true
+      mandatory_input: []
       configuration_input:
         - name: nautobot_source_id
           description: ID of a Nautobot source configured under Settings → Sources.
@@ -84,14 +90,8 @@ plugins:
           required: true
           example:
             - location
-            - role      
-      outcomes:
-        - name: attributes_by_device
-          description: Retrieved Nautobot attributes organized by device.
-          data_type: device_attribute_map
-        - name: failure
-          description: Attribute retrieval failed.
-          data_type: device_list
+            - role
+      outcomes: []
 
   - id: get-device-configs
     name: Get Configs
@@ -99,12 +99,13 @@ plugins:
     artifact_type: configuration_retrieval
     directory: get_device_configs
     enabled: true
+    requires: [identity]
+    produces: [running_config, startup_config]
+    outcomes:
+      - name: success
+      - name: failure
     metadata:
-      mandatory_input:
-        - name: selected_devices
-          description: Devices selected for configuration retrieval.
-          data_type: device_list
-          required: true
+      mandatory_input: []
       configuration_input:
         - name: credential_reference
           description: Reference to credentials stored in the backend.
@@ -116,14 +117,7 @@ plugins:
           required: false
           default: running
           example: running
-      outcomes:
-        - name: configuration
-          description: Running and startup configuration of the selected devices.
-          data_type: text_map
-        - name: failure
-          description: Configuration retrieval failed.
-          data_type: dict
-          example: {'device1': 'timeout', 'device2': 'authentication failure'}
+      outcomes: []
 
   - id: run-command
     name: Run Command
@@ -131,12 +125,13 @@ plugins:
     artifact_type: command_execution
     directory: run_command
     enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
     metadata:
-      mandatory_input:
-        - name: selected_devices
-          description: Devices selected for command execution.
-          data_type: device_list
-          required: true
+      mandatory_input: []
       configuration_input:
         - name: credential_reference
           description: Reference to credentials stored in the backend.
@@ -149,17 +144,7 @@ plugins:
           example:
             - show version
             - show running-config
-      outcomes:
-        - name: command_results
-          description: Structured command results split by device and command.
-          data_type: command_result_list
-        - name: raw_output
-          description: Raw CLI output grouped by device.
-          data_type: text_map
-        - name: failure
-          description: Command execution failed.
-          data_type: dict
-          example: {'device1': 'timeout', 'device2': 'authentication failure'}
+      outcomes: []
 
   - id: cisco-device-os
     name: Name of Cisco Device OS
@@ -167,25 +152,16 @@ plugins:
     artifact_type: control_flow
     directory: condition
     enabled: true
+    requires: [identity]
+    produces: [identity]
+    outcomes:
+      - name: ios
+      - name: ios_xe
+      - name: ios_xr
+      - name: nxos
     metadata:
-      mandatory_input:
-        - name: devices
-          description: List of devices to evaluate.
-          data_type: device_list
-          required: true
-      outcomes:
-        - name: ios
-          description: If the device is running Cisco IOS.
-          data_type: device_list
-        - name: ios_xe
-          description: If the device is running Cisco IOS XE.
-          data_type: device_list
-        - name: ios_xr
-          description: If the device is running Cisco IOS XR.
-          data_type: device_list
-        - name: nxos
-          description: If the device is running Cisco NX-OS.
-          data_type: device_list
+      mandatory_input: []
+      outcomes: []
 
   - id: store-artifact
     name: Store Artifact
@@ -193,20 +169,17 @@ plugins:
     artifact_type: persistent_artifact
     directory: store_artifact
     enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
     metadata:
-      mandatory_input:
-        - name: content_reference
-          description: Reference to content generated by an earlier step.
-          data_type: output_ref
-          required: true
+      mandatory_input: []
       configuration_input:
         - name: retention_policy
           description: Retention policy that controls artifact lifecycle.
           data_type: string
           required: true
           example: standard-90-days
-      outcomes:
-        - name: success
-          description: Artifact was stored successfully.
-        - name: failure
-          description: Artifact storage failed.
+      outcomes: []

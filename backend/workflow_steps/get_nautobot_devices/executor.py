@@ -9,34 +9,18 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
+from models.sources_nautobot import LogicalCondition, LogicalOperation
+from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.settings_repository import SettingsRepository
+from services.artifacts import ArtifactService
 from services.settings.source_keys import build_source_key
+from workflow_steps.common.device_builders import device_context_from_nautobot
 
 logger = logging.getLogger(__name__)
 
 
-def _to_device_detail(d: DeviceInfo) -> dict[str, Any]:
-    return {
-        "id": d.id,
-        "name": d.name,
-        "primary_ip4": {"address": d.primary_ip4} if d.primary_ip4 else None,
-        "platform": {
-            "name": d.platform,
-            "manufacturer": d.manufacturer,
-            "network_driver": d.platform_network_driver,
-        }
-        if (d.platform or d.platform_network_driver)
-        else None,
-    }
-
-
 def _filter_tree_to_operations(tree: dict[str, Any]) -> list[LogicalOperation]:
-    """Convert a stored FilterTree dict to LogicalOperation list.
-
-    Python port of the frontend treeToOperations() from
-    condition-builder/tree-to-operation.ts.
-    """
+    """Convert a stored FilterTree dict to LogicalOperation list."""
     if not tree or not tree.get("items"):
         return []
 
@@ -79,9 +63,13 @@ def _filter_tree_to_operations(tree: dict[str, Any]) -> list[LogicalOperation]:
 async def execute(
     *,
     config: dict[str, Any],
-    parent_outputs: dict[str, Any],
+    context: WorkflowContext,
     run: WorkflowRun,
-) -> dict[str, Any]:
+    artifact_service: ArtifactService,
+    node_id: str,
+) -> list[StepOutcome]:
+    del artifact_service  # unused for this step
+
     source_id = config.get("nautobot_source_id", "").strip()
     device_filter = config.get("device_filter", {})
 
@@ -99,7 +87,6 @@ async def execute(
             f"get-nautobot-devices: Nautobot source '{source_id}' not found in settings"
         )
 
-    logger.debug("get-nautobot-devices setting.value keys=%s", list((setting.value or {}).keys()))
     nautobot_url = (setting.value or {}).get("url", "").strip()
     nautobot_token = (setting.value or {}).get("token", "").strip()
     if not nautobot_url or not nautobot_token:
@@ -109,7 +96,6 @@ async def execute(
 
     credentials = service_factory.credentials_from_connection(nautobot_url, nautobot_token)
     source_service = service_factory.build_nautobot_source_service(credentials, db)
-
     operations = _filter_tree_to_operations(device_filter)
 
     logger.info(
@@ -127,11 +113,17 @@ async def execute(
         run.id,
     )
 
-    return {
-        "general": {
-            "source_id": source_id,
-            "total": len(devices),
-        },
-        "device_ids": [d.id for d in devices],
-        "device_details": [_to_device_detail(d) for d in devices],
+    new_devices = {
+        device.id: device_context_from_nautobot(device, source_id=source_id) for device in devices
     }
+    new_context = context.model_copy(
+        update={
+            "devices": {**context.devices, **new_devices},
+            "metadata": {
+                **context.metadata,
+                f"{node_id}.source_id": source_id,
+                f"{node_id}.total": len(new_devices),
+            },
+        }
+    )
+    return [StepOutcome(name="success", context=new_context)]

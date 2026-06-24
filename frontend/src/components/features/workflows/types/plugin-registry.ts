@@ -1,3 +1,7 @@
+export interface PluginStepOutcome {
+  name: string;
+}
+
 export interface PluginIOField {
   name: string;
   description: string;
@@ -27,6 +31,12 @@ export interface PluginDefinition {
   artifact_type: string;
   directory: string;
   enabled: boolean;
+  requires: string[];
+  produces: string[];
+  consumes: string[];
+  requires_parsed: string[];
+  produces_parsed: string[];
+  outcomes: PluginStepOutcome[];
   metadata: PluginMetadata;
 }
 

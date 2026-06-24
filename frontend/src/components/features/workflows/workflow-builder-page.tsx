@@ -16,6 +16,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import type { Capability } from "@/lib/capability-types";
+
 import { SettingsMockCanvas } from "@/components/features/settings/components/settings-mock-canvas";
 import { SettingsTopbar } from "@/components/features/settings/components/settings-topbar";
 import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
@@ -363,6 +365,11 @@ export function WorkflowBuilderPage() {
       title: string;
       description: string;
       artifactType: string;
+      requires: Capability[];
+      requiresParsed: string[];
+      produces: Capability[];
+      producesParsed: string[];
+      consumes: Capability[];
       mandatoryInputs: WorkflowIOField[];
       outcomes: WorkflowIOField[];
     }) => {
@@ -382,8 +389,13 @@ export function WorkflowBuilderPage() {
             title: step.title,
             description: step.description,
             artifactType: step.artifactType,
+            requires: step.requires,
+            requiresParsed: step.requiresParsed,
+            produces: step.produces,
+            producesParsed: step.producesParsed,
+            consumes: step.consumes,
             mandatoryInputs: step.mandatoryInputs,
-            outcomes: step.outcomes,
+            outcomes: step.outcomes.map((outcome) => ({ name: outcome.name })),
             status: "draft",
           },
         },

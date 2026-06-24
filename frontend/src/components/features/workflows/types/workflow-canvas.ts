@@ -1,11 +1,18 @@
 import type { Edge, Node } from "@xyflow/react";
 
+import type { Capability } from "@/lib/capability-types";
+
 // Plugin ids are loaded from the backend registry at startup, so node kinds are dynamic.
 export type WorkflowNodeKind = string;
 
 export interface WorkflowIOField {
   name: string;
   dataType: string;
+}
+
+export interface WorkflowOutcomeField {
+  name: string;
+  dataType?: string;
 }
 
 export interface WorkflowNodeData extends Record<string, unknown> {
@@ -15,11 +22,16 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   description: string;
   artifactType?: string;
   mandatoryInputs?: WorkflowIOField[];
+  requires?: Capability[];
+  requiresParsed?: string[];
+  produces?: Capability[];
+  producesParsed?: string[];
+  consumes?: Capability[];
   status?: "ready" | "draft" | "running" | "success" | "warning";
   command?: string;
   condition?: string;
   artifactPath?: string;
-  outcomes?: WorkflowIOField[];
+  outcomes?: WorkflowOutcomeField[];
   pluginConfig?: Record<string, unknown>;
 }
 

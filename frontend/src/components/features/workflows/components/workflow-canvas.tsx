@@ -15,13 +15,18 @@ import {
   type OnNodesChange,
 } from "@xyflow/react";
 import type { Dispatch, MouseEvent, SetStateAction } from "react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useToast } from "@/hooks/use-toast";
+import { isCompatible, type Capability } from "@/lib/capability-types";
 
 import "@xyflow/react/dist/style.css";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+import {
+  computeOutcomeProvides,
+  getOutcomeProvides,
+} from "../utils/capability-graph";
 import type { PluginDefinition } from "../types/plugin-registry";
 import type {
   WorkflowCanvasEdge,
@@ -55,6 +60,11 @@ interface WorkflowCanvasProps {
     title: string;
     description: string;
     artifactType: string;
+    requires: Capability[];
+    requiresParsed: string[];
+    produces: Capability[];
+    producesParsed: string[];
+    consumes: Capability[];
     mandatoryInputs: WorkflowIOField[];
     outcomes: WorkflowIOField[];
   }) => void;
@@ -78,6 +88,11 @@ export function WorkflowCanvas({
   );
   const { toast } = useToast();
 
+  const outcomeProvides = useMemo(
+    () => computeOutcomeProvides(nodes, edges),
+    [nodes, edges],
+  );
+
   const handleConnect = useCallback(
     (connection: Connection) => {
       setEdges((currentEdges) => addEdge({ ...connection, type: "waypoint" }, currentEdges));
@@ -91,17 +106,30 @@ export function WorkflowCanvas({
       const targetNode = nodes.find((n) => n.id === connection.target);
       if (!sourceNode || !targetNode) return false;
 
-      const sourceOutcome = sourceNode.data.outcomes?.find(
-        (o) => o.name === connection.sourceHandle,
+      const provided = getOutcomeProvides(
+        outcomeProvides,
+        connection.source ?? "",
+        connection.sourceHandle,
       );
-      const targetInput = targetNode.data.mandatoryInputs?.find(
-        (i) => i.name === connection.targetHandle,
-      );
+      const requiredCapabilities = targetNode.data.requires ?? [];
+      const requiredParsed = targetNode.data.requiresParsed ?? [];
 
-      if (!sourceOutcome || !targetInput) return false;
-      return sourceOutcome.dataType !== "" && sourceOutcome.dataType === targetInput.dataType;
+      if (requiredCapabilities.length === 0 && requiredParsed.length === 0) {
+        return false;
+      }
+
+      return isCompatible(
+        {
+          capabilities: provided.capabilities,
+          parsedKeys: provided.parsedKeys,
+        },
+        {
+          capabilities: requiredCapabilities,
+          parsedKeys: requiredParsed,
+        },
+      );
     },
-    [nodes],
+    [nodes, outcomeProvides],
   );
   const handleConnectEnd = useCallback(
     (_: unknown, connectionState: FinalConnectionState) => {
@@ -109,7 +137,7 @@ export function WorkflowCanvas({
         toast({
           title: "Incompatible step types",
           description:
-            "The output type of the source step does not match the required input type of the target step.",
+            "The upstream step does not provide the capabilities required by the target step.",
           variant: "destructive",
         });
       }

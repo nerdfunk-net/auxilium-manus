@@ -41,8 +41,9 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
   const nodeType = data.artifactType ?? data.kind;
   const Icon = nodeIconsByType[nodeType] ?? Database;
   const inputs = data.mandatoryInputs ?? [];
+  const hasCapabilityInput = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
-  const hasTargetHandles = inputs.length > 0;
+  const hasTargetHandles = hasCapabilityInput || inputs.length > 0;
   const hasSourceHandles = outcomes.length > 0;
 
   return (

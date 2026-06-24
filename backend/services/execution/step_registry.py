@@ -2,7 +2,9 @@
 
 Each executor lives in workflow_steps/{step_dir}/executor.py and must expose:
 
-    async def execute(*, config, parent_outputs, run) -> dict[str, Any]: ...
+    async def execute(
+        *, config, context, run, artifact_service, node_id
+    ) -> list[StepOutcome]: ...
 
 To add a new step type:
   1. Create workflow_steps/{step_dir}/executor.py with an `execute` function.
@@ -12,25 +14,16 @@ To add a new step type:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any
 
+from models.workflow_context import StepOutcome
 from workflow_steps.get_git_devices.executor import execute as get_git_devices
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
 from workflow_steps.nautobot_attributes.executor import execute as get_nautobot_attributes
 
-StepExecutor = Callable[..., Awaitable[dict[str, Any]]]
+StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 
 STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-devices": get_nautobot_devices,
     "get-git-devices": get_git_devices,
     "get-nautobot-attributes": get_nautobot_attributes,
-}
-
-# Maps step type id → the data_type the executor must produce on success.
-# Used by StepRunner to validate executor output against the registered schema.
-# Add an entry here whenever a new step with a declared output type is implemented.
-STEP_OUTPUT_TYPES: dict[str, str] = {
-    "get-nautobot-devices": "device_list",
-    "get-git-devices": "device_list",
-    "get-nautobot-attributes": "device_attribute_map",
 }

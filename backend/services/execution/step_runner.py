@@ -9,24 +9,39 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.workflows import Workflow
+from models.workflow_context import StepOutcome, WorkflowContext
+from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
-from services.validation.step_output_validator import StepOutputValidator
-
-_validator = StepOutputValidator()
+from services.artifacts import InMemoryArtifactService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
+from services.workflow_context.guards import post_step_guard, pre_step_guard
+from services.workflow_context.merge import merge_workflow_contexts
+from services.workflow_context.registry import capability_spec_from_plugin
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _plugin_registry_service() -> PluginRegistryService:
+    service = PluginRegistryService(PluginRepository(plugins_file=settings.plugins_file))
+    service.load_registry()
+    return service
 
 
 class StepRunner:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.repo = RunRepository(db)
+        self.artifact_service = InMemoryArtifactService()
+        self.plugin_registry = _plugin_registry_service()
 
     async def execute_all(self, *, run: WorkflowRun, workflow: Workflow) -> bool:
         """Execute every step in dependency order. Returns True on full success."""
@@ -35,7 +50,6 @@ class StepRunner:
 
         ordered_nodes = self._topological_sort(nodes, edges)
 
-        # Pre-create step result rows (all pending)
         step_results: dict[str, WorkflowStepResult] = {}
         for node in ordered_nodes:
             node_id: str = node.get("id", "")
@@ -49,7 +63,8 @@ class StepRunner:
                 step_name=step_name,
             )
 
-        step_outputs: dict[str, Any] = {}
+        # node_id -> outcome_name -> WorkflowContext
+        step_outcomes: dict[str, dict[str, WorkflowContext]] = {}
         failed = False
 
         for node in ordered_nodes:
@@ -63,8 +78,6 @@ class StepRunner:
                 self.repo.update_step_result(step_result, status="skipped")
                 continue
 
-            parent_outputs = self._gather_parent_outputs(node_id, edges, step_outputs)
-
             self.repo.update_step_result(
                 step_result,
                 status="running",
@@ -72,17 +85,26 @@ class StepRunner:
             )
 
             try:
-                output = await self._execute_step(
+                input_context = self._assemble_input_context(
+                    run=run,
+                    workflow=workflow,
+                    node_id=node_id,
+                    edges=edges,
+                    step_outcomes=step_outcomes,
+                )
+                outcomes = await self._execute_step(
                     step_type=step_type,
                     config=step_config,
-                    parent_outputs=parent_outputs,
+                    context=input_context,
                     run=run,
+                    node_id=node_id,
                 )
-                step_outputs[node_id] = output
+                self._store_step_outcomes(step_outcomes, node_id, outcomes)
+                persisted_output = self._serialize_outcomes(outcomes)
                 self.repo.update_step_result(
                     step_result,
                     status="success",
-                    output=output,
+                    output=persisted_output,
                     finished_at=datetime.now(timezone.utc),
                 )
                 logger.info("Step succeeded node_id=%s type=%s", node_id, step_type)
@@ -106,32 +128,81 @@ class StepRunner:
 
         return not failed
 
+    def _assemble_input_context(
+        self,
+        *,
+        run: WorkflowRun,
+        workflow: Workflow,
+        node_id: str,
+        edges: list[dict[str, Any]],
+        step_outcomes: dict[str, dict[str, WorkflowContext]],
+    ) -> WorkflowContext:
+        parent_contexts: list[WorkflowContext] = []
+        for edge in edges:
+            if edge.get("target") != node_id:
+                continue
+            source_id = edge.get("source", "")
+            outcome_name = edge.get("sourceHandle") or "success"
+            parent_outcome = step_outcomes.get(source_id, {}).get(outcome_name)
+            if parent_outcome is not None:
+                parent_contexts.append(parent_outcome)
+
+        if not parent_contexts:
+            return WorkflowContext(run_id=run.uuid, workflow_id=str(workflow.id))
+
+        return merge_workflow_contexts(parent_contexts)
+
     async def _execute_step(
         self,
         *,
         step_type: str,
         config: dict[str, Any],
-        parent_outputs: dict[str, Any],
+        context: WorkflowContext,
         run: WorkflowRun,
-    ) -> dict[str, Any]:
-        from services.execution.step_registry import STEP_OUTPUT_TYPES, STEP_REGISTRY
+        node_id: str,
+    ) -> list[StepOutcome]:
+        from services.execution.step_registry import STEP_REGISTRY
 
         executor = STEP_REGISTRY.get(step_type)
         if executor is None:
             raise ValueError(f"Unknown step type: {step_type!r}")
 
-        output = await executor(config=config, parent_outputs=parent_outputs, run=run)
+        plugin = self.plugin_registry.get_plugin(step_type)
+        if plugin is None:
+            raise ValueError(f"Unknown plugin in registry: {step_type!r}")
 
-        data_type = STEP_OUTPUT_TYPES.get(step_type)
-        if data_type:
-            result = _validator.validate(data_type, output)
-            if not result.valid:
-                raise ValueError(
-                    f"Output validation failed for step '{step_type}' "
-                    f"(data_type={data_type}): {'; '.join(result.errors)}"
-                )
+        spec = capability_spec_from_plugin(plugin)
+        pre_step_guard(spec=spec, context=context)
 
-        return output
+        outcomes = await executor(
+            config=config,
+            context=context,
+            run=run,
+            artifact_service=self.artifact_service,
+            node_id=node_id,
+        )
+        if not outcomes:
+            raise RuntimeError(f"Step {step_type!r} returned no outcomes")
+
+        post_step_guard(spec=spec, input_context=context, outcomes=outcomes)
+        return outcomes
+
+    @staticmethod
+    def _store_step_outcomes(
+        step_outcomes: dict[str, dict[str, WorkflowContext]],
+        node_id: str,
+        outcomes: list[StepOutcome],
+    ) -> None:
+        step_outcomes[node_id] = {outcome.name: outcome.context for outcome in outcomes}
+
+    @staticmethod
+    def _serialize_outcomes(outcomes: list[StepOutcome]) -> dict[str, Any]:
+        return {
+            "outcomes": {
+                outcome.name: outcome.context.model_dump(mode="json")
+                for outcome in outcomes
+            }
+        }
 
     def _topological_sort(
         self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
@@ -159,17 +230,3 @@ class StepRunner:
                     queue.append(dep)
 
         return result
-
-    def _gather_parent_outputs(
-        self,
-        node_id: str,
-        edges: list[dict[str, Any]],
-        step_outputs: dict[str, Any],
-    ) -> dict[str, Any]:
-        parent_outputs: dict[str, Any] = {}
-        for edge in edges:
-            if edge.get("target") == node_id:
-                src = edge.get("source", "")
-                if src in step_outputs:
-                    parent_outputs[src] = step_outputs[src]
-        return parent_outputs
