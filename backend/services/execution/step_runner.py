@@ -21,6 +21,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
 from services.artifacts import InMemoryArtifactService
+from services.execution.step_result_status import derive_step_result_status
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow_context.guards import post_step_guard, pre_step_guard
 from services.workflow_context.merge import merge_workflow_contexts
@@ -101,13 +102,22 @@ class StepRunner:
                 )
                 self._store_step_outcomes(step_outcomes, node_id, outcomes)
                 persisted_output = self._serialize_outcomes(outcomes)
+                step_status = derive_step_result_status(
+                    outcomes=outcomes,
+                    input_context=input_context,
+                )
                 self.repo.update_step_result(
                     step_result,
-                    status="success",
+                    status=step_status,
                     output=persisted_output,
                     finished_at=datetime.now(timezone.utc),
                 )
-                logger.info("Step succeeded node_id=%s type=%s", node_id, step_type)
+                logger.info(
+                    "Step finished node_id=%s type=%s status=%s",
+                    node_id,
+                    step_type,
+                    step_status,
+                )
             except Exception:
                 logger.error(
                     "Step failed node_id=%s type=%s run_id=%s",

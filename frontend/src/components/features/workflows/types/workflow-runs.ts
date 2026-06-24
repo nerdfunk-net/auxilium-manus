@@ -1,5 +1,5 @@
 export type WorkflowRunStatus = "pending" | "running" | "success" | "failed" | "cancelled";
-export type StepStatus = "pending" | "running" | "success" | "failed" | "skipped";
+export type StepStatus = "pending" | "running" | "success" | "partial" | "failed" | "skipped";
 
 export interface WorkflowStepResult {
   id: number;

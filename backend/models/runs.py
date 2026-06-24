@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 RunStatus = Literal["pending", "running", "success", "failed", "cancelled"]
 RunListStatusFilter = Literal["pending", "running", "success", "failed", "cancelled", "skipped"]
-StepStatus = Literal["pending", "running", "success", "failed", "skipped"]
+StepStatus = Literal["pending", "running", "success", "partial", "failed", "skipped"]
 TriggerType = Literal["manual", "scheduled", "webhook"]
 
 RUN_LIST_STATUS_FILTERS: frozenset[str] = frozenset(

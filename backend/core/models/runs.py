@@ -46,7 +46,7 @@ class WorkflowStepResult(Base):
     step_node_id: Mapped[str] = mapped_column(String(255), nullable=False)
     step_type: Mapped[str] = mapped_column(String(100), nullable=False)
     step_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # pending | running | success | failed | skipped
+    # pending | running | success | partial | failed | skipped
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

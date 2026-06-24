@@ -6,6 +6,7 @@ import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 
 export function WorkflowRunControls() {
   const lastAction = useWorkflowBuilderStore((state) => state.lastAction);
+  const workflowStatus = useWorkflowBuilderStore((state) => state.workflowStatus);
 
   return (
     <footer className="flex h-12 items-center justify-between border-t bg-card px-5 text-xs text-muted-foreground">
@@ -16,11 +17,11 @@ export function WorkflowRunControls() {
       <div className="flex items-center gap-5">
         <span className="flex items-center gap-2">
           <Clock className="size-4" />
-          No real execution connected
+          Status: {workflowStatus}
         </span>
         <span className="flex items-center gap-2">
           <FileText className="size-4" />
-          Metadata and content outputs are separated
+          Step results use WorkflowContext outcomes
         </span>
       </div>
     </footer>

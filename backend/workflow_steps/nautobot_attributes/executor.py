@@ -24,6 +24,8 @@ from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.settings.source_keys import build_source_key
 
+from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
+
 logger = logging.getLogger(__name__)
 
 _ATTR_TO_VAR: dict[str, str] = {
@@ -290,7 +292,32 @@ async def execute(
         device: DeviceContext,
     ) -> tuple[str, DeviceContext, bool]:
         try:
-            detail = await _fetch_device(nautobot_service, credentials, device_id, variables)
+            nautobot_device_id = await resolve_nautobot_device_id(
+                nautobot_service=nautobot_service,
+                credentials=credentials,
+                device=device,
+            )
+            if nautobot_device_id is None:
+                err = DeviceError(
+                    node_id=node_id,
+                    step_id="get-nautobot-attributes",
+                    code="not_found",
+                    message=(
+                        f"No Nautobot device found for workflow device {device_id} "
+                        f"(name={device.name!r}, ip={device.primary_ip4!r})"
+                    ),
+                )
+                failed = device.model_copy(
+                    update={
+                        "status": DeviceStatus.FAILED,
+                        "errors": [*device.errors, err],
+                    }
+                )
+                return device_id, failed, False
+
+            detail = await _fetch_device(
+                nautobot_service, credentials, nautobot_device_id, variables
+            )
             if detail is None:
                 err = DeviceError(
                     node_id=node_id,

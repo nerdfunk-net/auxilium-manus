@@ -76,7 +76,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       lastAction: message,
     }),
   markDirty: () => set({ isDirty: true, workflowStatus: "Draft" }),
-  markRunning: (message = "Mock execution started") =>
+  markRunning: (message = "Workflow run started") =>
     set({
       workflowStatus: "Running",
       lastAction: message,

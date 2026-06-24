@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  MapPin,
   Play,
   ScrollText,
   XCircle,
@@ -27,6 +28,7 @@ import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import { useWorkflowRunsQuery } from "@/hooks/queries/use-workflow-runs-query";
 import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 import { WorkflowRunFiltersBar } from "./workflow-run-filters-bar";
+import { StepResultViewer } from "./step-result-viewer";
 import {
   EMPTY_WORKFLOW_RUN_FILTERS,
   hasActiveWorkflowRunFilters,
@@ -36,9 +38,13 @@ import type {
   WorkflowRunDetail,
   WorkflowRunStatus,
   WorkflowStepResult,
-  StepStatus,
   WorkflowRunSummary,
 } from "../types/workflow-runs";
+import {
+  countOutcomeDevices,
+  deriveStepDisplayStatus,
+  type DerivedStepStatus,
+} from "../utils/step-result-status";
 
 function formatDuration(started: string | null, finished: string | null): string {
   if (!started) return "—";
@@ -72,16 +78,17 @@ function RunStatusIcon({ status }: { status: WorkflowRunStatus }) {
   }
 }
 
-function StepStatusBadge({ status }: { status: StepStatus }) {
-  const colors: Record<StepStatus, string> = {
+function StepStatusBadge({ status }: { status: DerivedStepStatus }) {
+  const colors: Record<DerivedStepStatus, string> = {
     success: "bg-emerald-100 text-emerald-700",
+    partial: "bg-amber-100 text-amber-800",
     failed: "bg-red-100 text-red-700",
     running: "bg-teal-100 text-teal-700",
     pending: "bg-slate-100 text-slate-500",
     skipped: "bg-amber-100 text-amber-600",
   };
   return (
-    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${colors[status]}`}>
+    <span className={`rounded px-1.5 py-0.5 text-xs font-medium capitalize ${colors[status]}`}>
       {status}
     </span>
   );
@@ -96,47 +103,132 @@ function StepLogsModal({
 }) {
   return (
     <Dialog open={!!step} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{step?.step_name ?? "Step Logs"}</DialogTitle>
-          <DialogDescription className="flex items-center gap-2">
-            <span className="font-mono">{step?.step_type}</span>
-            {step && <StepStatusBadge status={step.status} />}
+          <DialogTitle>{step?.step_name ?? "Step result"}</DialogTitle>
+          <DialogDescription className="space-y-1">
+            <span className="block font-mono text-xs">{step?.step_type}</span>
+            {step?.step_node_id ? (
+              <span className="block font-mono text-xs text-muted-foreground">
+                node: {step.step_node_id}
+              </span>
+            ) : null}
+            {step ? (
+              <StepStatusBadge
+                status={deriveStepDisplayStatus(step.status, step.output)}
+              />
+            ) : null}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          {step?.error_message && (
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-red-500">
-                Error
-              </p>
-              <pre className="max-h-[30vh] overflow-auto rounded bg-red-50 p-4 text-xs font-mono text-red-700 dark:bg-red-950/30 dark:text-red-400">
-                {step.error_message}
-              </pre>
-            </div>
-          )}
-          {step?.output ? (
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Output
-              </p>
-              <pre className="max-h-[60vh] overflow-auto rounded bg-muted/30 p-4 text-xs font-mono">
-                {JSON.stringify(step.output, null, 2)}
-              </pre>
-            </div>
-          ) : !step?.error_message ? (
-            <p className="text-sm text-muted-foreground">No output recorded for this step.</p>
-          ) : null}
-        </div>
+        <StepResultViewer output={step?.output ?? null} errorMessage={step?.error_message} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function RunDetail({ runId }: { runId: number }) {
+interface StepResultRowProps {
+  step: WorkflowStepResult;
+  expanded: boolean;
+  onToggle: () => void;
+  onOpenModal: () => void;
+  onFocusCanvas?: (nodeId: string) => void;
+}
+
+function StepResultRow({
+  step,
+  expanded,
+  onToggle,
+  onOpenModal,
+  onFocusCanvas,
+}: StepResultRowProps) {
+  const displayStatus = deriveStepDisplayStatus(step.status, step.output);
+  const counts = countOutcomeDevices(step.output);
+
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className="text-sm font-medium truncate text-left hover:underline"
+              onClick={onToggle}
+            >
+              {step.step_name}
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={onOpenModal}
+              title="Open in dialog"
+            >
+              <ScrollText className="size-3.5" />
+            </Button>
+            {onFocusCanvas ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={() => onFocusCanvas(step.step_node_id)}
+                title="View on canvas"
+              >
+                <MapPin className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+          <p className="text-xs text-muted-foreground font-mono">{step.step_type}</p>
+          <p className="text-[11px] text-muted-foreground font-mono">
+            {step.step_node_id}
+          </p>
+          {counts.totalOutcomes > 0 ? (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {counts.success} succeeded
+              {counts.failure > 0 ? ` · ${counts.failure} failed` : ""}
+            </p>
+          ) : null}
+          {step.error_message && !expanded ? (
+            <p className="mt-0.5 text-xs text-red-500 line-clamp-1">{step.error_message}</p>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button type="button" onClick={onToggle} className="flex items-center gap-2">
+            <StepStatusBadge status={displayStatus} />
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {formatDuration(step.started_at, step.finished_at)}
+            </span>
+            {expanded ? (
+              <ChevronDown className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" />
+            )}
+          </button>
+        </div>
+      </div>
+      {expanded ? (
+        <div className="mt-3 border-t pt-3">
+          <StepResultViewer
+            output={step.output}
+            errorMessage={step.error_message}
+            compact
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RunDetail({
+  runId,
+  onFocusCanvas,
+}: {
+  runId: number;
+  onFocusCanvas?: (nodeId: string) => void;
+}) {
   const { apiCall } = useApi();
 
   const [logsStep, setLogsStep] = useState<WorkflowStepResult | null>(null);
+  const [expandedStepId, setExpandedStepId] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery<WorkflowRunDetail>({
     queryKey: queryKeys.workflowRuns.detail(runId),
@@ -148,6 +240,10 @@ function RunDetail({ runId }: { runId: number }) {
       return d.status === "pending" || d.status === "running" ? 2000 : false;
     },
   });
+
+  const toggleStep = useCallback((stepId: number) => {
+    setExpandedStepId((current) => (current === stepId ? null : stepId));
+  }, []);
 
   if (isLoading || !data) {
     return (
@@ -169,32 +265,14 @@ function RunDetail({ runId }: { runId: number }) {
     <>
       <div className="border-t divide-y">
         {data.step_results.map((step) => (
-          <div key={step.id} className="flex items-center justify-between px-4 py-3 gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-medium truncate">{step.step_name}</p>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => setLogsStep(step)}
-                  title="Show logs"
-                >
-                  <ScrollText className="size-3.5" />
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground font-mono">{step.step_type}</p>
-              {step.error_message && (
-                <p className="mt-0.5 text-xs text-red-500 line-clamp-1">{step.error_message}</p>
-              )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <StepStatusBadge status={step.status} />
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {formatDuration(step.started_at, step.finished_at)}
-              </span>
-            </div>
-          </div>
+          <StepResultRow
+            key={step.id}
+            step={step}
+            expanded={expandedStepId === step.id}
+            onToggle={() => toggleStep(step.id)}
+            onOpenModal={() => setLogsStep(step)}
+            onFocusCanvas={onFocusCanvas}
+          />
         ))}
       </div>
       <StepLogsModal step={logsStep} onClose={() => setLogsStep(null)} />
@@ -205,9 +283,11 @@ function RunDetail({ runId }: { runId: number }) {
 function RunRow({
   run,
   workflowId,
+  onFocusCanvas,
 }: {
   run: WorkflowRunSummary;
   workflowId: number;
+  onFocusCanvas?: (nodeId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const cancelRun = useCancelRunMutation(workflowId);
@@ -258,12 +338,18 @@ function RunRow({
         )}
       </div>
 
-      {expanded && <RunDetail runId={run.id} />}
+      {expanded ? <RunDetail runId={run.id} onFocusCanvas={onFocusCanvas} /> : null}
     </div>
   );
 }
 
-export function WorkflowExecutionsPanel() {
+interface WorkflowExecutionsPanelProps {
+  onFocusNodeOnCanvas?: (nodeId: string) => void;
+}
+
+export function WorkflowExecutionsPanel({
+  onFocusNodeOnCanvas,
+}: WorkflowExecutionsPanelProps) {
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const [filters, setFilters] = useState<WorkflowRunListFilters>(EMPTY_WORKFLOW_RUN_FILTERS);
   const handleFiltersChange = useCallback((next: WorkflowRunListFilters) => {
@@ -320,7 +406,12 @@ export function WorkflowExecutionsPanel() {
         ) : (
           <div className="space-y-3">
             {runs.map((run) => (
-              <RunRow key={run.id} run={run} workflowId={workflowId} />
+              <RunRow
+                key={run.id}
+                run={run}
+                workflowId={workflowId}
+                onFocusCanvas={onFocusNodeOnCanvas}
+              />
             ))}
           </div>
         )}

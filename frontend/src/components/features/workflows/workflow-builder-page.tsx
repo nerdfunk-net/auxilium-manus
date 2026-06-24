@@ -410,6 +410,14 @@ export function WorkflowBuilderPage() {
     [nodes.length, selectNode, setNodes, markDirty],
   );
 
+  const handleFocusStepOnCanvas = useCallback(
+    (nodeId: string) => {
+      selectNode(nodeId);
+      setMode("editor");
+    },
+    [selectNode, setMode],
+  );
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <WorkflowSidebar />
@@ -447,7 +455,7 @@ export function WorkflowBuilderPage() {
                     setEdges={setEdges}
                   />
                 ) : (
-                  <WorkflowExecutionsPanel />
+                  <WorkflowExecutionsPanel onFocusNodeOnCanvas={handleFocusStepOnCanvas} />
                 )}
               </section>
               {mode === "editor" ? (
