@@ -26,6 +26,7 @@ from workflow_steps.nautobot_attributes.executor import execute as get_nautobot_
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.store_artifact.executor import execute as store_artifact
+from workflow_steps.workflow_log.executor import execute as workflow_log
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 
@@ -40,4 +41,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "git-clone": git_clone,
     "git-pull": git_pull,
     "git-push": git_push,
+    "workflow-log": workflow_log,
 }

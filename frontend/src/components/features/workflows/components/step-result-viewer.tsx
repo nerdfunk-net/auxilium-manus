@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, FileJson, Loader2, Server, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, FileJson, Loader2, ScrollText, Server, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,122 @@ interface StepResultViewerProps {
 
 /** Lists with more than this many devices start collapsed. */
 const DEVICES_COLLAPSE_THRESHOLD = 5;
+const DEBUG_LOGS_METADATA_SUFFIX = ".debug_logs";
+
+interface DebugLogDeviceEntry {
+  device_id: string;
+  device_name: string;
+  values: Record<string, unknown>;
+}
+
+interface DebugLogsPayload {
+  message?: string;
+  logged_at?: string;
+  attribute_paths?: string[];
+  device_count?: number;
+  devices: Record<string, DebugLogDeviceEntry>;
+}
+
+function isDebugLogsPayload(value: unknown): value is DebugLogsPayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "devices" in value &&
+    typeof (value as DebugLogsPayload).devices === "object"
+  );
+}
+
+function extractDebugLogs(metadata: Record<string, unknown>): DebugLogsPayload[] {
+  return Object.entries(metadata)
+    .filter(([key]) => key.endsWith(DEBUG_LOGS_METADATA_SUFFIX))
+    .map(([, value]) => value)
+    .filter(isDebugLogsPayload);
+}
+
+function metadataWithoutDebugLogs(metadata: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([key]) => !key.endsWith(DEBUG_LOGS_METADATA_SUFFIX)),
+  );
+}
+
+function formatLogValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+function DebugLogsPanel({ logs }: { logs: DebugLogsPayload[] }) {
+  if (logs.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-3">
+      {logs.map((entry, index) => {
+        const deviceEntries = Object.values(entry.devices ?? {});
+        return (
+          <div key={`debug-log-${index}`} className="rounded-lg border bg-card p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <ScrollText className="size-3.5 shrink-0 text-muted-foreground" />
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Debug log
+              </p>
+              {entry.message ? (
+                <Badge className="text-[10px]" variant="secondary">
+                  {entry.message}
+                </Badge>
+              ) : null}
+              {entry.logged_at ? (
+                <span className="text-[11px] text-muted-foreground">{entry.logged_at}</span>
+              ) : null}
+            </div>
+
+            {entry.attribute_paths && entry.attribute_paths.length > 0 ? (
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                Paths:{" "}
+                <span className="font-mono">{entry.attribute_paths.join(", ")}</span>
+              </p>
+            ) : null}
+
+            {deviceEntries.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No devices were present in context.</p>
+            ) : (
+              <div className="space-y-2">
+                {deviceEntries.map((deviceEntry) => (
+                  <div
+                    key={deviceEntry.device_id}
+                    className="rounded border bg-background/60 p-2 text-xs"
+                  >
+                    <p className="font-medium">{deviceEntry.device_name}</p>
+                    <p className="break-all font-mono text-[11px] text-muted-foreground">
+                      {deviceEntry.device_id}
+                    </p>
+                    <div className="mt-2 space-y-1">
+                      {Object.entries(deviceEntry.values ?? {}).map(([path, value]) => (
+                        <div key={path} className="min-w-0">
+                          <span className="block break-all font-mono text-[11px] text-muted-foreground">
+                            {path}
+                          </span>
+                          <pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-1.5 font-mono text-[11px]">
+                            {formatLogValue(value)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function summarizeDeviceStatuses(devices: DeviceContext[]) {
   return devices.reduce(
@@ -460,16 +576,30 @@ function OutcomeContextView({
 }) {
   const devices = Object.values(context.devices);
   const pendingCommandNodes = Object.keys(context.pending_commands);
+  const debugLogs = useMemo(() => extractDebugLogs(context.metadata), [context.metadata]);
+  const remainingMetadata = useMemo(
+    () => metadataWithoutDebugLogs(context.metadata),
+    [context.metadata],
+  );
 
   return (
     <div className="min-w-0 space-y-4 overflow-hidden">
       <DevicesSection devices={devices} runId={runId} />
 
+      {debugLogs.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Debug logs
+          </p>
+          <DebugLogsPanel logs={debugLogs} />
+        </div>
+      ) : null}
+
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Metadata
         </p>
-        <MetadataPanel metadata={context.metadata} />
+        <MetadataPanel metadata={remainingMetadata} />
       </div>
 
       {pendingCommandNodes.length > 0 ? (

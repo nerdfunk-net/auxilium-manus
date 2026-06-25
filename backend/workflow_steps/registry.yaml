@@ -192,6 +192,35 @@ plugins:
           required: false
           default: false
 
+  - id: workflow-log
+    name: Logging
+    description: Log selected device attributes to the run result for workflow debugging.
+    artifact_type: control_flow
+    directory: workflow_log
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: message
+          description: Optional label shown with the log output in run results.
+          data_type: string
+          required: false
+          example: After Nautobot attributes
+        - name: attribute_paths
+          description: >
+            Dot paths to log for each device. Supports device.* fields,
+            attribute bags (nautobot.role.name, custom.field), capabilities,
+            and status.
+          data_type: string_list
+          required: true
+          example:
+            - device.name
+            - device.network_driver
+            - nautobot.role.name
+
   - id: store-artifact
     name: Store Artifact
     description: Persist generated content such as backups, reports, or logs.

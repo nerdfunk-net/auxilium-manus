@@ -5,7 +5,10 @@ from __future__ import annotations
 import unittest
 
 from models.workflow_context import DeviceContext
-from workflow_steps.common.attribute_path import resolve_device_attribute
+from workflow_steps.common.attribute_path import (
+    resolve_device_attribute,
+    resolve_device_value,
+)
 
 
 class AttributePathTests(unittest.TestCase):
@@ -63,6 +66,18 @@ class AttributePathTests(unittest.TestCase):
     def test_returns_none_for_missing_path(self) -> None:
         device = DeviceContext(id="device-1", name="lab", hostname="lab")
         self.assertIsNone(resolve_device_attribute(device, "nautobot.role.name"))
+
+    def test_resolve_device_value_returns_structured_data(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"nautobot": {"role": {"name": "access-switch", "id": "abc"}}},
+        )
+        self.assertEqual(
+            resolve_device_value(device, "nautobot.role"),
+            {"name": "access-switch", "id": "abc"},
+        )
 
 
 if __name__ == "__main__":
