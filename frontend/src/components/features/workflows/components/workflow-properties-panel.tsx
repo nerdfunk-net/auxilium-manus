@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { getPluginUI } from "@/lib/plugin-ui-registry";
 
+import { MultiStepLayoutPanel } from "./multi-step-layout-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type {
   PluginDefinition,
@@ -30,6 +31,7 @@ import type {
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
 } from "../types/workflow-canvas";
+import type { NodeAlignment } from "../utils/node-alignment";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
@@ -41,6 +43,7 @@ interface WorkflowPropertiesPanelProps {
   onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
+  onAlignNodes?: (nodeIds: string[], alignment: NodeAlignment) => void;
 }
 
 function formatArtifactType(artifactType: string) {
@@ -152,6 +155,7 @@ export function WorkflowPropertiesPanel({
   onEdgeStyleChange,
   onNodeConfigChange,
   onNodeTitleChange,
+  onAlignNodes,
 }: WorkflowPropertiesPanelProps) {
   const selectedNodeId = useWorkflowBuilderStore(
     (state) => state.selectedNodeId,
@@ -161,10 +165,21 @@ export function WorkflowPropertiesPanel({
   );
   const [isMinimized, setIsMinimized] = useState(false);
 
-  const selectedNode = useMemo(
-    () => nodes.find((node) => node.id === selectedNodeId),
-    [nodes, selectedNodeId],
+  const selectedCanvasNodes = useMemo(
+    () => nodes.filter((node) => node.selected),
+    [nodes],
   );
+  const isMultiSelect = selectedCanvasNodes.length > 1;
+
+  const selectedNode = useMemo(() => {
+    if (selectedCanvasNodes.length === 1) {
+      return selectedCanvasNodes[0];
+    }
+    if (selectedCanvasNodes.length === 0 && selectedNodeId) {
+      return nodes.find((node) => node.id === selectedNodeId) ?? null;
+    }
+    return null;
+  }, [nodes, selectedCanvasNodes, selectedNodeId]);
 
   const selectedEdge = useMemo(
     () => edges.find((e) => e.id === selectedEdgeId),
@@ -210,9 +225,13 @@ export function WorkflowPropertiesPanel({
     <aside className="flex w-80 shrink-0 flex-col border-l bg-card">
       <div className="flex items-center justify-between border-b p-4">
         <div>
-          <p className="text-sm font-semibold">Step properties</p>
+          <p className="text-sm font-semibold">
+            {isMultiSelect ? "Selection" : "Step properties"}
+          </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Configure the selected workflow step.
+            {isMultiSelect
+              ? `${selectedCanvasNodes.length} steps selected on the canvas.`
+              : "Configure the selected workflow step."}
           </p>
         </div>
         <Button
@@ -279,6 +298,18 @@ export function WorkflowPropertiesPanel({
                 : "Bezier curve managed automatically. Bend points are inactive in smooth mode."}
             </p>
           </div>
+        </div>
+      ) : isMultiSelect ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <MultiStepLayoutPanel
+            nodes={selectedCanvasNodes}
+            onAlign={(alignment) =>
+              onAlignNodes?.(
+                selectedCanvasNodes.map((node) => node.id),
+                alignment,
+              )
+            }
+          />
         </div>
       ) : selectedNode ? (
         <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="config">

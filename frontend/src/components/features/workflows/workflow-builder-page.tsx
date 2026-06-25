@@ -43,6 +43,7 @@ import type {
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { migrateCanvasState } from "./utils/migrate-canvas";
+import { alignCanvasNodes, type NodeAlignment } from "./utils/node-alignment";
 import { deriveRouteOutcomes } from "@/components/features/workflow-steps/route-on-attribute/route-config";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
@@ -364,6 +365,14 @@ export function WorkflowBuilderPage() {
     [setNodes, markDirty],
   );
 
+  const handleAlignNodes = useCallback(
+    (nodeIds: string[], alignment: NodeAlignment) => {
+      setNodes((current) => alignCanvasNodes(current, nodeIds, alignment));
+      markDirty();
+    },
+    [setNodes, markDirty],
+  );
+
   const handleNodeConfigChange = useCallback(
     (nodeId: string, config: Record<string, unknown>) => {
       setNodes((current) =>
@@ -483,6 +492,7 @@ export function WorkflowBuilderPage() {
                   onEdgeStyleChange={handleEdgeStyleChange}
                   onNodeConfigChange={handleNodeConfigChange}
                   onNodeTitleChange={handleNodeTitleChange}
+                  onAlignNodes={handleAlignNodes}
                   plugins={plugins}
                 />
               ) : null}
