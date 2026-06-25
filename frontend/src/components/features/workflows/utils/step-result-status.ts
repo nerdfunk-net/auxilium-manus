@@ -62,3 +62,57 @@ export function countOutcomeDevices(
     totalOutcomes: Object.keys(envelope.outcomes).length,
   };
 }
+
+function firstOutcomeMetadata(
+  output: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  const envelope = parseStepOutput(output);
+  if (!envelope) {
+    return null;
+  }
+  const firstOutcome = Object.values(envelope.outcomes)[0];
+  return firstOutcome?.metadata ?? null;
+}
+
+/** Short summary for route-on-attribute results in the run list. */
+export function summarizeRouteCounts(
+  output: Record<string, unknown> | null,
+): string | null {
+  const metadata = firstOutcomeMetadata(output);
+  if (!metadata) {
+    return null;
+  }
+
+  const routedCounts = Object.entries(metadata).find(([key]) =>
+    key.endsWith(".routed_counts"),
+  )?.[1];
+  if (!routedCounts || typeof routedCounts !== "object" || routedCounts === null) {
+    return null;
+  }
+
+  const parts = Object.entries(routedCounts as Record<string, unknown>)
+    .filter(([, count]) => typeof count === "number" && count > 0)
+    .map(([outcome, count]) => `${outcome}: ${count}`);
+
+  return parts.length > 0 ? parts.join(" · ") : "no devices routed";
+}
+
+/** Short summary for workflow-log message in the run list. */
+export function summarizeWorkflowLogMessage(
+  output: Record<string, unknown> | null,
+): string | null {
+  const metadata = firstOutcomeMetadata(output);
+  if (!metadata) {
+    return null;
+  }
+
+  const debugLogs = Object.entries(metadata).find(([key]) =>
+    key.endsWith(".debug_logs"),
+  )?.[1];
+  if (!debugLogs || typeof debugLogs !== "object" || debugLogs === null) {
+    return null;
+  }
+
+  const message = (debugLogs as Record<string, unknown>).message;
+  return typeof message === "string" && message.trim() ? message.trim() : null;
+}

@@ -13,6 +13,8 @@ import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { getPluginUI } from "@/lib/plugin-ui-registry";
@@ -38,6 +40,7 @@ interface WorkflowPropertiesPanelProps {
   plugins?: PluginDefinition[];
   onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
+  onNodeTitleChange?: (nodeId: string, title: string) => void;
 }
 
 function formatArtifactType(artifactType: string) {
@@ -148,6 +151,7 @@ export function WorkflowPropertiesPanel({
   plugins = EMPTY_PLUGINS,
   onEdgeStyleChange,
   onNodeConfigChange,
+  onNodeTitleChange,
 }: WorkflowPropertiesPanelProps) {
   const selectedNodeId = useWorkflowBuilderStore(
     (state) => state.selectedNodeId,
@@ -297,6 +301,40 @@ export function WorkflowPropertiesPanel({
             className="min-h-0 flex-1 overflow-y-auto p-4 mt-0"
             value="config"
           >
+            <div className="mb-4 space-y-1.5 border-b pb-4">
+              <Label className="text-xs font-medium" htmlFor="step-name">
+                Step name
+              </Label>
+              <Input
+                id="step-name"
+                value={selectedNode.data.title}
+                onChange={(event) =>
+                  onNodeTitleChange?.(selectedNode.id, event.target.value)
+                }
+                onBlur={(event) => {
+                  const trimmed = event.target.value.trim();
+                  const fallback = plugin?.name ?? selectedNode.data.title;
+                  if (!trimmed) {
+                    onNodeTitleChange?.(selectedNode.id, fallback);
+                  } else if (trimmed !== event.target.value) {
+                    onNodeTitleChange?.(selectedNode.id, trimmed);
+                  }
+                }}
+                placeholder={plugin?.name ?? "Step name"}
+                className="h-8 text-sm"
+              />
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Shown on the canvas and in run results.
+                {plugin ? (
+                  <>
+                    {" "}
+                    Plugin type: <span className="font-medium">{plugin.name}</span>
+                    <span className="font-mono"> ({plugin.id})</span>
+                  </>
+                ) : null}
+              </p>
+            </div>
+
             {pluginUI && selectedNode ? (
               <pluginUI.ConfigPanel
                 config={

@@ -43,6 +43,8 @@ import type {
 import {
   countOutcomeDevices,
   deriveStepDisplayStatus,
+  summarizeRouteCounts,
+  summarizeWorkflowLogMessage,
   type DerivedStepStatus,
 } from "../utils/step-result-status";
 
@@ -153,6 +155,12 @@ function StepResultRow({
 }: StepResultRowProps) {
   const displayStatus = deriveStepDisplayStatus(step.status, step.output);
   const counts = countOutcomeDevices(step.output);
+  const runHint =
+    step.step_type === "route-on-attribute"
+      ? summarizeRouteCounts(step.output)
+      : step.step_type === "workflow-log"
+        ? summarizeWorkflowLogMessage(step.output)
+        : null;
 
   return (
     <div className="px-4 py-3">
@@ -191,6 +199,9 @@ function StepResultRow({
           <p className="text-[11px] text-muted-foreground font-mono">
             {step.step_node_id}
           </p>
+          {runHint ? (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{runHint}</p>
+          ) : null}
           {counts.totalOutcomes > 0 ? (
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {counts.success} succeeded

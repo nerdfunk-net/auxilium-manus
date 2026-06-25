@@ -352,6 +352,18 @@ export function WorkflowBuilderPage() {
     [setEdges, markDirty],
   );
 
+  const handleNodeTitleChange = useCallback(
+    (nodeId: string, title: string) => {
+      setNodes((current) =>
+        current.map((n) =>
+          n.id !== nodeId ? n : { ...n, data: { ...n.data, title } },
+        ),
+      );
+      markDirty();
+    },
+    [setNodes, markDirty],
+  );
+
   const handleNodeConfigChange = useCallback(
     (nodeId: string, config: Record<string, unknown>) => {
       setNodes((current) =>
@@ -470,6 +482,7 @@ export function WorkflowBuilderPage() {
                   nodes={nodes}
                   onEdgeStyleChange={handleEdgeStyleChange}
                   onNodeConfigChange={handleNodeConfigChange}
+                  onNodeTitleChange={handleNodeTitleChange}
                   plugins={plugins}
                 />
               ) : null}
