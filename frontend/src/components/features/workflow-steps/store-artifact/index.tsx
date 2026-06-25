@@ -18,6 +18,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
+import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
 
 const CONTENT_SOURCE_OPTIONS = [
   {
@@ -33,7 +34,7 @@ const CONTENT_SOURCE_OPTIONS = [
   {
     value: "command_output",
     label: "Command output (specific step)",
-    hint: "Requires source_step_node_id of a run-command step.",
+    hint: "Choose the run-command step that produced the output.",
   },
   {
     value: "latest_command_output",
@@ -43,7 +44,7 @@ const CONTENT_SOURCE_OPTIONS = [
   {
     value: "rendered_template",
     label: "Rendered template",
-    hint: "Requires source_step_node_id of a render-jinja-template step.",
+    hint: "Choose the render-jinja-template step that produced the template.",
   },
 ] as const;
 
@@ -128,6 +129,7 @@ function StoreArtifactConfigPanel({
   config,
   onChange,
   nodeId,
+  workflowNodes = [],
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
 
@@ -151,6 +153,16 @@ function StoreArtifactConfigPanel({
   const needsStepNodeId =
     contentSource === "command_output" || contentSource === "rendered_template";
   const needsParsedOutputKey = contentSource === "rendered_template";
+  const sourceSteps = useMemo(
+    () => listUpstreamSourceSteps(workflowNodes, contentSource, nodeId),
+    [workflowNodes, contentSource, nodeId],
+  );
+  const sourceStepNodeId =
+    typeof config.source_step_node_id === "string" ? config.source_step_node_id : "";
+  const selectedSourceStep = useMemo(
+    () => sourceSteps.find((step) => step.nodeId === sourceStepNodeId) ?? null,
+    [sourceSteps, sourceStepNodeId],
+  );
 
   const selectedHint = useMemo(
     () => CONTENT_SOURCE_OPTIONS.find((option) => option.value === contentSource)?.hint,
@@ -189,6 +201,29 @@ function StoreArtifactConfigPanel({
     },
     [config, onChange],
   );
+
+  const handleSourceStepSelect = useCallback(
+    (selectedNodeId: string) => {
+      const step = sourceSteps.find((candidate) => candidate.nodeId === selectedNodeId);
+      const patch: Record<string, unknown> = { source_step_node_id: selectedNodeId };
+      if (contentSource === "rendered_template" && step?.outputKey) {
+        const currentKey =
+          typeof config.parsed_output_key === "string" ? config.parsed_output_key.trim() : "";
+        if (!currentKey) {
+          patch.parsed_output_key = step.outputKey;
+        }
+      }
+      onChange(buildStoreArtifactConfig(config, patch));
+    },
+    [config, contentSource, onChange, sourceSteps],
+  );
+
+  useEffect(() => {
+    if (!needsStepNodeId || sourceSteps.length !== 1 || sourceStepNodeId) {
+      return;
+    }
+    handleSourceStepSelect(sourceSteps[0].nodeId);
+  }, [needsStepNodeId, sourceStepNodeId, sourceSteps, handleSourceStepSelect]);
 
   const handleParsedOutputKeyChange = useCallback(
     (value: string) => {
@@ -434,30 +469,75 @@ function StoreArtifactConfigPanel({
       {needsStepNodeId ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">source_step_node_id</span>
+            <span className="font-mono text-xs font-medium">source_step</span>
             <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              string
+              step
             </Badge>
           </div>
-          <Input
-            value={
-              typeof config.source_step_node_id === "string"
-                ? config.source_step_node_id
-                : ""
-            }
-            onChange={(event) => handleSourceStepNodeIdChange(event.target.value)}
-            placeholder={
-              contentSource === "rendered_template"
-                ? "render-jinja-template-3"
-                : "run-command-3"
-            }
-            className="h-8 font-mono text-xs"
-          />
-          <p className="text-[11px] text-muted-foreground">
-            {contentSource === "rendered_template"
-              ? "Canvas node id of the render-jinja-template step whose output should be exported."
-              : "Canvas node id of the run-command step whose output should be exported."}
-          </p>
+          {sourceSteps.length > 0 ? (
+            <Select
+              value={sourceStepNodeId || undefined}
+              onValueChange={handleSourceStepSelect}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue
+                  placeholder={
+                    contentSource === "rendered_template"
+                      ? "Choose render step…"
+                      : "Choose run-command step…"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {sourceSteps.map((step) => (
+                  <SelectItem key={step.nodeId} value={step.nodeId}>
+                    {step.title} ({step.nodeId})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-[11px] text-amber-600">
+              {contentSource === "rendered_template"
+                ? "Add a Render Jinja Template step to this workflow first."
+                : "Add a Run Command step to this workflow first."}
+            </p>
+          )}
+          {selectedSourceStep ? (
+            <p className="text-[11px] text-muted-foreground">
+              Selected{" "}
+              <span className="font-mono">{selectedSourceStep.nodeId}</span>
+              {selectedSourceStep.outputKey
+                ? ` · output_key ${selectedSourceStep.outputKey}`
+                : ""}
+            </p>
+          ) : sourceStepNodeId && sourceSteps.length > 0 ? (
+            <p className="text-[11px] text-amber-600">
+              Saved node id{" "}
+              <span className="font-mono">{sourceStepNodeId}</span> is not on this
+              canvas. Pick a step above or enter an id manually.
+            </p>
+          ) : null}
+          <details className="rounded-lg border bg-muted/20 px-3 py-2">
+            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+              Advanced: enter node id manually
+            </summary>
+            <div className="mt-2 space-y-1.5">
+              <Input
+                value={sourceStepNodeId}
+                onChange={(event) => handleSourceStepNodeIdChange(event.target.value)}
+                placeholder={
+                  contentSource === "rendered_template"
+                    ? "render-jinja-template-3"
+                    : "run-command-3"
+                }
+                className="h-8 font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Only needed when reusing an id from an older workflow or run results.
+              </p>
+            </div>
+          </details>
         </div>
       ) : null}
 

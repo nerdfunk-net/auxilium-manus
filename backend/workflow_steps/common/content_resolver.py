@@ -33,7 +33,8 @@ def parse_content_source(config: dict[str, Any]) -> str:
     source = str(config.get("content_source") or "").strip().lower()
     if source not in _CONTENT_SOURCES:
         raise ValueError(
-            f"store-artifact: content_source must be one of {sorted(_CONTENT_SOURCES)}"
+            f"store-artifact: content_source {source!r} must be one of "
+            f"{sorted(_CONTENT_SOURCES)}"
         )
     return source
 
