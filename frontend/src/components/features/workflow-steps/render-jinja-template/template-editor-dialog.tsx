@@ -1,8 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Loader2, Play, ShieldCheck } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { GripHorizontal, Loader2, Play, ShieldCheck } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { AttributesDialog } from "@/components/features/workflow-steps/get-nautobot-attributes/attributes-dialog";
 import {
@@ -38,17 +39,23 @@ import {
 } from "@/hooks/queries/use-jinja-template-mutations";
 import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 import {
   buildRenderJinjaTemplateConfig,
   parseRenderJinjaTemplateConfig,
   type RenderJinjaTemplateConfig,
 } from "./template-config";
+import { constrainFloatingPosition } from "./draggable-panel-position";
 import {
   devicePreviewToPayload,
   inventoryOperationsFromNode,
   listInventorySteps,
 } from "./workflow-device-samples";
+import {
+  preventTemplateEditorDismissForSamplePanel,
+  SampleContextAttributesDialog,
+} from "./sample-context-attributes-dialog";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -58,6 +65,8 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
     </div>
   ),
 });
+
+type ForegroundWindow = "editor" | "attributes";
 
 interface TemplateEditorDialogProps {
   open: boolean;
@@ -88,9 +97,19 @@ export function TemplateEditorDialog({
     ),
   );
   const [sampleContext, setSampleContext] = useState<Record<string, unknown> | null>(null);
+  const [nautobotSampleContext, setNautobotSampleContext] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [previewOutput, setPreviewOutput] = useState("");
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [attributesOpen, setAttributesOpen] = useState(false);
+  const [attributeGroupsOpen, setAttributeGroupsOpen] = useState(false);
+  const [showAttributesOpen, setShowAttributesOpen] = useState(false);
+  const [foregroundWindow, setForegroundWindow] = useState<ForegroundWindow>("editor");
+  const [editorPosition, setEditorPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isEditorDragging, setIsEditorDragging] = useState(false);
+  const editorDialogRef = useRef<HTMLDivElement>(null);
+  const editorDragOffsetRef = useRef({ x: 0, y: 0 });
   const [selectedInventoryNodeId, setSelectedInventoryNodeId] = useState(
     () => listInventorySteps(workflowNodes)[0]?.nodeId ?? "",
   );
@@ -176,6 +195,7 @@ export function TemplateEditorDialog({
         list_of_attributes: attributes,
       });
       setSampleContext(context);
+      setNautobotSampleContext(context);
       toast({
         title: "Sample data loaded",
         description: `Loaded Nautobot context for ${deviceName.trim()}.`,
@@ -252,6 +272,18 @@ export function TemplateEditorDialog({
     [deviceSampleMutation, inventoryPreviewMutation.data?.devices, selectedInventoryStep?.sourceId, toast],
   );
 
+  const bringAttributesToFront = useCallback(() => {
+    setForegroundWindow("attributes");
+  }, []);
+
+  const closeEditor = useCallback(() => {
+    setShowAttributesOpen(false);
+    setEditorPosition(null);
+    setIsEditorDragging(false);
+    setForegroundWindow("editor");
+    onClose();
+  }, [onClose]);
+
   const handleSave = useCallback(() => {
     onSave(
       buildRenderJinjaTemplateConfig(config, {
@@ -261,8 +293,8 @@ export function TemplateEditorDialog({
         editor_list_of_attributes: attributes,
       }),
     );
-    onClose();
-  }, [attributes, config, deviceName, nautobotSourceId, onClose, onSave, template]);
+    closeEditor();
+  }, [attributes, closeEditor, config, deviceName, nautobotSourceId, onSave, template]);
 
   const workflowDevices = inventoryPreviewMutation.data?.devices ?? [];
   const isBusy =
@@ -272,12 +304,137 @@ export function TemplateEditorDialog({
     deviceSampleMutation.isPending ||
     inventoryPreviewMutation.isPending;
 
+  const handleDialogPointerDownOutside = useCallback(
+    (event: { target: EventTarget | null; preventDefault: () => void; detail?: { originalEvent?: Event } }) => {
+      preventTemplateEditorDismissForSamplePanel(event);
+    },
+    [],
+  );
+
+  const handleDialogFocusOutside = useCallback(
+    (event: { target: EventTarget | null; preventDefault: () => void; detail?: { originalEvent?: Event } }) => {
+      preventTemplateEditorDismissForSamplePanel(event);
+    },
+    [],
+  );
+
+  const bringEditorToFront = useCallback(() => {
+    setForegroundWindow("editor");
+  }, []);
+
+  const handleEditorDragPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      bringEditorToFront();
+      const dialog = editorDialogRef.current;
+      if (!dialog) {
+        return;
+      }
+      const rect = dialog.getBoundingClientRect();
+      const startPosition = editorPosition ?? { x: rect.left, y: rect.top };
+      if (!editorPosition) {
+        setEditorPosition(startPosition);
+      }
+      editorDragOffsetRef.current = {
+        x: event.clientX - startPosition.x,
+        y: event.clientY - startPosition.y,
+      };
+      setIsEditorDragging(true);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [editorPosition, bringEditorToFront],
+  );
+
+  const handleEditorDragPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!isEditorDragging) {
+        return;
+      }
+      event.preventDefault();
+      const dialog = editorDialogRef.current;
+      const width = dialog?.offsetWidth ?? 960;
+      const height = dialog?.offsetHeight ?? 640;
+      setEditorPosition(
+        constrainFloatingPosition(
+          {
+            x: event.clientX - editorDragOffsetRef.current.x,
+            y: event.clientY - editorDragOffsetRef.current.y,
+          },
+          width,
+          height,
+        ),
+      );
+    },
+    [isEditorDragging],
+  );
+
+  const handleEditorDragPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isEditorDragging) {
+      return;
+    }
+    setIsEditorDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, [isEditorDragging]);
+
+  const mounted = typeof window !== "undefined";
+
   return (
     <>
-      <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-        <DialogContent className="flex max-h-[90vh] w-[min(96vw,72rem)] max-w-none flex-col gap-0 overflow-hidden p-0">
-          <DialogHeader className="border-b px-6 py-4">
-            <DialogTitle>Template editor</DialogTitle>
+      {mounted && open
+        ? createPortal(
+            <div
+              aria-hidden
+              className="fixed inset-0 z-[80] bg-black/50 transition-opacity duration-200"
+            />,
+            document.body,
+          )
+        : null}
+
+      <Dialog
+        open={open}
+        modal={!showAttributesOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            closeEditor();
+          }
+        }}
+      >
+        <DialogContent
+          ref={editorDialogRef}
+          showOverlay={false}
+          style={
+            editorPosition
+              ? { left: editorPosition.x, top: editorPosition.y }
+              : undefined
+          }
+          className={cn(
+            "flex max-h-[90vh] w-[min(96vw,72rem)] max-w-none flex-col gap-0 overflow-hidden border p-0 shadow-lg transition-[box-shadow,border-color] duration-200 [&>button]:z-30",
+            foregroundWindow === "editor" ? "z-[110]" : "z-[90]",
+            editorPosition
+              ? "translate-x-0 translate-y-0"
+              : "left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]",
+            showAttributesOpen && "border-border/60",
+            isEditorDragging && "select-none",
+          )}
+          onPointerDownCapture={bringEditorToFront}
+          onPointerDownOutside={handleDialogPointerDownOutside}
+          onFocusOutside={handleDialogFocusOutside}
+        >
+          <DialogHeader className="border-b px-6 py-4 pr-14">
+            <div
+              className={cn(
+                "flex cursor-grab items-center gap-2 active:cursor-grabbing",
+                isEditorDragging && "cursor-grabbing",
+              )}
+              onPointerDown={handleEditorDragPointerDown}
+              onPointerMove={handleEditorDragPointerMove}
+              onPointerUp={handleEditorDragPointerUp}
+              onPointerCancel={handleEditorDragPointerUp}
+            >
+              <GripHorizontal className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <DialogTitle className="flex-1">Template editor</DialogTitle>
+            </div>
           </DialogHeader>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]">
@@ -288,6 +445,11 @@ export function TemplateEditorDialog({
                 theme="vs-dark"
                 value={template}
                 onChange={(value) => setTemplate(value ?? "")}
+                onMount={(editor) => {
+                  editor.onDidFocusEditorWidget(() => {
+                    bringEditorToFront();
+                  });
+                }}
                 options={{
                   minimap: { enabled: false },
                   fontSize: 13,
@@ -325,29 +487,44 @@ export function TemplateEditorDialog({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Attributes</Label>
+                  <Label className="text-xs text-muted-foreground">Attribute groups</Label>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     className="h-8 w-full text-xs"
-                    onClick={() => setAttributesOpen(true)}
+                    onClick={() => setAttributeGroupsOpen(true)}
                   >
                     {attributes.length} group{attributes.length === 1 ? "" : "s"} selected
                   </Button>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="w-full"
-                  disabled={isBusy}
-                  onClick={() => void handleLoadNautobotSample()}
-                >
-                  {nautobotSampleMutation.isPending ? (
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                  ) : null}
-                  Load from Nautobot
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 shrink-0 px-3 text-xs"
+                    disabled={isBusy}
+                    onClick={() => void handleLoadNautobotSample()}
+                  >
+                    {nautobotSampleMutation.isPending ? (
+                      <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    ) : null}
+                    Load from Nautobot
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 flex-1 text-xs"
+                    disabled={!nautobotSampleContext}
+                    onClick={() => {
+                      setShowAttributesOpen(true);
+                      bringAttributesToFront();
+                    }}
+                  >
+                    Show Attributes
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-3 border-t pt-4">
@@ -427,7 +604,7 @@ export function TemplateEditorDialog({
           </div>
 
           <DialogFooter className="border-t px-6 py-4">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={closeEditor}>
               Cancel
             </Button>
             <Button
@@ -466,11 +643,22 @@ export function TemplateEditorDialog({
       />
 
       <AttributesDialog
-        open={attributesOpen}
-        onClose={() => setAttributesOpen(false)}
+        open={attributeGroupsOpen}
+        onClose={() => setAttributeGroupsOpen(false)}
         value={attributes}
         onChange={setAttributes}
       />
+
+      {open && nautobotSampleContext ? (
+        <SampleContextAttributesDialog
+          open={showAttributesOpen}
+          context={nautobotSampleContext}
+          deviceName={deviceName.trim() || undefined}
+          isForeground={foregroundWindow === "attributes"}
+          onFocus={bringAttributesToFront}
+          onClose={() => setShowAttributesOpen(false)}
+        />
+      ) : null}
     </>
   );
 }

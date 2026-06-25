@@ -182,12 +182,14 @@ function DeviceStatusSummary({ devices }: { devices: DeviceContext[] }) {
 function DevicesSection({
   devices,
   runId,
+  compact = false,
 }: {
   devices: DeviceContext[];
   runId?: number | null;
+  compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(
-    () => devices.length <= DEVICES_COLLAPSE_THRESHOLD,
+    () => !compact && devices.length <= DEVICES_COLLAPSE_THRESHOLD,
   );
   const scrollDeviceList = devices.length > DEVICES_COLLAPSE_THRESHOLD;
 
@@ -570,9 +572,11 @@ function MetadataPanel({ metadata }: { metadata: Record<string, unknown> }) {
 function OutcomeContextView({
   context,
   runId,
+  compact = false,
 }: {
   context: WorkflowContext;
   runId?: number | null;
+  compact?: boolean;
 }) {
   const devices = Object.values(context.devices);
   const pendingCommandNodes = Object.keys(context.pending_commands);
@@ -583,8 +587,8 @@ function OutcomeContextView({
   );
 
   return (
-    <div className="min-w-0 space-y-4 overflow-hidden">
-      <DevicesSection devices={devices} runId={runId} />
+    <div className={cn("min-w-0 overflow-hidden", compact ? "space-y-2" : "space-y-4")}>
+      <DevicesSection devices={devices} runId={runId} compact={compact} />
 
       {debugLogs.length > 0 ? (
         <div>
@@ -595,22 +599,26 @@ function OutcomeContextView({
         </div>
       ) : null}
 
-      <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Metadata
-        </p>
-        <MetadataPanel metadata={remainingMetadata} />
-      </div>
+      {!compact ? (
+        <>
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Metadata
+            </p>
+            <MetadataPanel metadata={remainingMetadata} />
+          </div>
 
-      {pendingCommandNodes.length > 0 ? (
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Pending commands
-          </p>
-          <pre className="max-h-32 overflow-auto rounded bg-muted/40 p-2 text-[11px] font-mono">
-            {JSON.stringify(context.pending_commands, null, 2)}
-          </pre>
-        </div>
+          {pendingCommandNodes.length > 0 ? (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Pending commands
+              </p>
+              <pre className="max-h-32 overflow-auto rounded bg-muted/40 p-2 text-[11px] font-mono">
+                {JSON.stringify(context.pending_commands, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -684,7 +692,11 @@ export function StepResultViewer({
       </TabsList>
       {outcomeNames.map((name) => (
         <TabsContent key={name} value={name} className="mt-3 min-w-0 overflow-x-hidden">
-          <OutcomeContextView context={envelope.outcomes[name]} runId={runId} />
+          <OutcomeContextView
+            context={envelope.outcomes[name]}
+            runId={runId}
+            compact={compact}
+          />
         </TabsContent>
       ))}
     </Tabs>

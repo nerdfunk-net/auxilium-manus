@@ -26,7 +26,7 @@ function buildGitPushConfig(
 ): Record<string, unknown> {
   return {
     git_source_id: gitSourceIdFromConfig(config),
-    commit_before_push: config.commit_before_push !== false,
+    [COMMIT_BEFORE_PUSH_KEY]: config[COMMIT_BEFORE_PUSH_KEY] !== false,
     commit_message_template:
       typeof config.commit_message_template === "string"
         ? config.commit_message_template
@@ -47,7 +47,7 @@ function GitPushConfigPanel({
   const initializedForNode = useRef<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   const sourceId = gitSourceIdFromConfig(config);
-  const commitBeforePush = config.commit_before_push !== false;
+  const commitBeforePush = config[COMMIT_BEFORE_PUSH_KEY] !== false;
 
   useEffect(() => {
     if (initializedForNode.current === nodeId) {
@@ -75,7 +75,7 @@ function GitPushConfigPanel({
 
   const handleCommitBeforePushChange = useCallback(
     (checked: boolean) => {
-      onChange(buildGitPushConfig(config, { commit_before_push: checked }));
+      onChange(buildGitPushConfig(config, { [COMMIT_BEFORE_PUSH_KEY]: checked }));
     },
     [config, onChange],
   );
@@ -125,7 +125,7 @@ function GitPushConfigPanel({
         />
         <div className="space-y-0.5">
           <Label htmlFor="commit-before-push" className="font-mono text-xs font-medium">
-            commit_before_push
+            {COMMIT_BEFORE_PUSH_KEY}
           </Label>
           <p className="text-[11px] text-muted-foreground">
             Stage and commit exported files from upstream store-artifact steps before pushing.
