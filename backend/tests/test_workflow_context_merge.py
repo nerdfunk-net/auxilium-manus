@@ -156,6 +156,48 @@ class WorkflowContextMergeTests(unittest.TestCase):
         merged = merge_workflow_contexts([left, right])
         self.assertEqual(merged.devices["device-1"].command_results, results)
 
+    def test_attribute_bags_merge_per_namespace(self) -> None:
+        left = _context(
+            devices={
+                "device-1": _device("device-1").model_copy(
+                    update={"attribute_bags": {"nautobot": {"location": {"name": "DC1"}}}},
+                ),
+            }
+        )
+        right = _context(
+            devices={
+                "device-1": _device("device-1").model_copy(
+                    update={"attribute_bags": {"git": {"source_file": "hosts.yaml"}}},
+                ),
+            }
+        )
+        merged = merge_workflow_contexts([left, right])
+        self.assertEqual(
+            merged.devices["device-1"].attribute_bags,
+            {
+                "nautobot": {"location": {"name": "DC1"}},
+                "git": {"source_file": "hosts.yaml"},
+            },
+        )
+
+    def test_attribute_bags_conflict_raises(self) -> None:
+        left = _context(
+            devices={
+                "device-1": _device("device-1").model_copy(
+                    update={"attribute_bags": {"nautobot": {"location": {"name": "DC1"}}}},
+                ),
+            }
+        )
+        right = _context(
+            devices={
+                "device-1": _device("device-1").model_copy(
+                    update={"attribute_bags": {"nautobot": {"location": {"name": "DC2"}}}},
+                ),
+            }
+        )
+        with self.assertRaises(ValueError):
+            merge_workflow_contexts([left, right])
+
     def test_flatten_pending_commands_topological_order(self) -> None:
         pending = {
             "node-b": ["b-cmd"],

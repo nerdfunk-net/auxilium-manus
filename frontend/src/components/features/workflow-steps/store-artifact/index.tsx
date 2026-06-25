@@ -43,15 +43,16 @@ const CONTENT_SOURCE_OPTIONS = [
 type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
 
 const FILENAME_PLACEHOLDERS = [
-  "{name}",
-  "{hostname}",
-  "{primary_ip4}",
-  "{attributes.location.name}",
-  "{attributes.role.name}",
-  "{attributes.custom_fields.<slug>}",
-  "{command}",
-  "{timestamp}",
-  "{index}",
+  "{device.name}",
+  "{device.hostname}",
+  "{device.primary_ip4}",
+  "{nautobot.location.name}",
+  "{nautobot.role.name}",
+  "{nautobot.custom_fields.<slug>}",
+  "{git.source_file}",
+  "{command.name}",
+  "{run.timestamp}",
+  "{run.id}",
 ];
 
 function buildStoreArtifactConfig(
@@ -71,7 +72,8 @@ function buildStoreArtifactConfig(
     filename_template:
       typeof config.filename_template === "string"
         ? config.filename_template
-        : "{name}_{attributes.location.name}_{timestamp}.cfg",
+        : "{device.name}_{nautobot.location.name}_{run.timestamp}.cfg",
+    strict_templates: config.strict_templates !== false,
     retention_policy:
       typeof config.retention_policy === "string"
         ? config.retention_policy
@@ -129,6 +131,15 @@ function StoreArtifactConfigPanel({
   const handleOutputSubdirectoryChange = useCallback(
     (value: string) => {
       onChange(buildStoreArtifactConfig(config, { output_subdirectory: value }));
+    },
+    [config, onChange],
+  );
+
+  const strictTemplates = config.strict_templates !== false;
+
+  const handleStrictTemplatesChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildStoreArtifactConfig(config, { strict_templates: checked }));
     },
     [config, onChange],
   );
@@ -198,8 +209,27 @@ function StoreArtifactConfigPanel({
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] text-muted-foreground">
-          Placeholders: {FILENAME_PLACEHOLDERS.join(", ")}
+          Placeholders: {FILENAME_PLACEHOLDERS.join(", ")}. Supports subdirectories,
+          e.g. <span className="font-mono">./{"{nautobot.location.name}"}/{"{device.name}"}.cfg</span>.
         </p>
+      </div>
+
+      <div className="flex items-start gap-2">
+        <input
+          id="strict-templates"
+          type="checkbox"
+          checked={strictTemplates}
+          onChange={(event) => handleStrictTemplatesChange(event.target.checked)}
+          className="mt-0.5 size-4 rounded border"
+        />
+        <div className="space-y-0.5">
+          <Label htmlFor="strict-templates" className="font-mono text-xs font-medium">
+            strict_templates
+          </Label>
+          <p className="text-[11px] text-muted-foreground">
+            Fail export when nautobot.* or command.* placeholders resolve empty.
+          </p>
+        </div>
       </div>
 
       <div className="space-y-1.5">

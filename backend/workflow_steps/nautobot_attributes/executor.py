@@ -335,9 +335,11 @@ async def execute(
 
             platform_raw = detail.get("platform")
             platform = platform_raw if isinstance(platform_raw, dict) else {}
+            attribute_bags = dict(device.attribute_bags)
+            attribute_bags["nautobot"] = _attributes_from_detail(detail)
             enriched = device.model_copy(
                 update={
-                    "attributes": _attributes_from_detail(detail),
+                    "attribute_bags": attribute_bags,
                     "platform": platform.get("name") or device.platform,
                     "network_driver": platform.get("network_driver") or device.network_driver,
                     "capabilities": device.capabilities | {Capability.ATTRIBUTES},

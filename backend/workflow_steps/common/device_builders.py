@@ -69,7 +69,7 @@ def device_context_from_git_detail(
         primary_ip4=primary_ip4,
         source="git",
         source_id=source_id,
-        attributes=dict(detail),
+        attribute_bags={"git": dict(detail)},
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )

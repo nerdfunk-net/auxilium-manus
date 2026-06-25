@@ -195,11 +195,19 @@ plugins:
           required: false
         - name: filename_template
           description: >
-            Output filename template. Supports {name}, {hostname}, {primary_ip4},
-            {attributes.location.name}, {attributes.custom_fields.<slug>}, {command}, {timestamp}.
+            Output path template (filename or relative path with subdirectories).
+            Use device.* for identity, nautobot.* for Nautobot attributes
+            (requires get-nautobot-attributes), git.* for git source metadata
+            (requires get-git-devices), run.* for run metadata, command.* for
+            command exports. A leading ./ is optional.
           data_type: string
           required: true
-          example: "{name}_{attributes.location.name}_{timestamp}.cfg"
+          example: "./{nautobot.location.name}/{device.name}.cfg"
+        - name: strict_templates
+          description: Fail export when a namespaced placeholder resolves empty.
+          data_type: boolean
+          required: false
+          default: true
         - name: retention_policy
           description: Retention policy that controls artifact lifecycle (reserved for future use).
           data_type: string

@@ -4,6 +4,7 @@ def get_config() -> dict:
         "output_subdirectory": "exports",
         "content_source": "running_config",
         "source_step_node_id": "",
-        "filename_template": "{name}_{attributes.location.name}_{timestamp}.cfg",
+        "filename_template": "{device.name}_{nautobot.location.name}_{run.timestamp}.cfg",
+        "strict_templates": True,
         "retention_policy": "standard-90-days",
     }

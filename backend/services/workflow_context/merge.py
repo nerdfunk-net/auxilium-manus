@@ -109,10 +109,9 @@ def _merge_two_devices(left: DeviceContext, right: DeviceContext) -> DeviceConte
         if conflict_error is not None:
             extra_errors.append(conflict_error)
 
-    updates["attributes"] = _merge_shallow_dicts(
-        left.attributes,
-        right.attributes,
-        label="attributes",
+    updates["attribute_bags"] = _merge_attribute_bags(
+        left.attribute_bags,
+        right.attribute_bags,
     )
     updates["parsed"] = _merge_shallow_dicts(left.parsed, right.parsed, label="parsed")
     updates["running_config_ref"] = _merge_artifact_ref(
@@ -145,6 +144,23 @@ def _merge_scalar_identity(
         code="identity_conflict",
         message=f"Conflicting identity values during merge: {left!r} vs {right!r}",
     )
+
+
+def _merge_attribute_bags(
+    left: dict[str, dict[str, Any]],
+    right: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    merged = dict(left)
+    for bag_name, bag_value in right.items():
+        if bag_name in merged:
+            merged[bag_name] = _merge_shallow_dicts(
+                merged[bag_name],
+                bag_value,
+                label=f"attribute_bags[{bag_name!r}]",
+            )
+        else:
+            merged[bag_name] = dict(bag_value)
+    return merged
 
 
 def _merge_shallow_dicts(

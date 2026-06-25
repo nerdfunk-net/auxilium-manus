@@ -93,7 +93,7 @@ class DeviceContext(BaseModel):
     source: str = ""
     source_id: str = ""
 
-    attributes: dict[str, Any] = Field(default_factory=dict)
+    attribute_bags: dict[str, dict[str, Any]] = Field(default_factory=dict)
     running_config_ref: ArtifactRef | None = None
     startup_config_ref: ArtifactRef | None = None
     parsed: dict[str, Any] = Field(default_factory=dict)
@@ -129,7 +129,7 @@ class WorkflowContext(BaseModel):
 
     run_id: str
     workflow_id: str
-    schema_version: int = 1
+    schema_version: int = 2
 
     devices: dict[str, DeviceContext] = Field(default_factory=dict)
     pending_commands: dict[str, dict[str, list[str]]] = Field(default_factory=dict)

@@ -208,10 +208,13 @@ function DeviceErrorList({ errors }: { errors: DeviceError[] }) {
 }
 
 function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number | null }) {
-  const [showAttributes, setShowAttributes] = useState(false);
+  const [showAttributeBags, setShowAttributeBags] = useState(false);
   const [showConfigs, setShowConfigs] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
-  const attributeKeys = Object.keys(device.attributes);
+  const attributeBags = device.attribute_bags ?? {};
+  const attributeBagNames = Object.keys(attributeBags).filter(
+    (bagName) => Object.keys(attributeBags[bagName] ?? {}).length > 0,
+  );
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
   const configCount =
     (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
@@ -276,15 +279,16 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
             </div>
           ) : null}
           <DeviceErrorList errors={device.errors} />
-          {hasConfigs || hasCommandResults || attributeKeys.length > 0 ? (
+          {hasConfigs || hasCommandResults || attributeBagNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-              {attributeKeys.length > 0 ? (
+              {attributeBagNames.length > 0 ? (
                 <button
                   type="button"
                   className="text-xs text-primary hover:underline"
-                  onClick={() => setShowAttributes((value) => !value)}
+                  onClick={() => setShowAttributeBags((value) => !value)}
                 >
-                  {showAttributes ? "Hide" : "Show"} attributes ({attributeKeys.length})
+                  {showAttributeBags ? "Hide" : "Show"} attribute bags (
+                  {attributeBagNames.join(", ")})
                 </button>
               ) : null}
               {hasConfigs ? (
@@ -307,9 +311,9 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
               ) : null}
             </div>
           ) : null}
-          {showAttributes && attributeKeys.length > 0 ? (
+          {showAttributeBags && attributeBagNames.length > 0 ? (
             <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted/40 p-2 text-[11px] font-mono">
-              {JSON.stringify(device.attributes, null, 2)}
+              {JSON.stringify(attributeBags, null, 2)}
             </pre>
           ) : null}
           {showConfigs && hasConfigs ? (

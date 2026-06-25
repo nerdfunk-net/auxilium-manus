@@ -22,7 +22,11 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
-from workflow_steps.common.device_template import render_device_template
+from workflow_steps.common.device_template import (
+    TemplateRenderOptions,
+    parse_strict_templates,
+    render_device_template,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +59,12 @@ def _build_sink(config: dict[str, Any]) -> ArtifactSink:
 
 
 def _filename_template(config: dict[str, Any], item: ExportableContent) -> str:
-    template = str(
+    del item
+    return str(
         config.get("filename_template")
         or _default_config().get("filename_template")
-        or "{name}_{timestamp}.txt"
+        or "{device.name}_{run.timestamp}.cfg"
     ).strip()
-    return template
 
 
 def _relative_export_path(
@@ -69,11 +73,20 @@ def _relative_export_path(
     item: ExportableContent,
     config: dict[str, Any],
     index: int,
+    run_id: str,
 ) -> str:
     template = _filename_template(config, item)
     extra = dict(item.extra)
     extra["index"] = index + 1
-    return render_device_template(template, device, extra=extra)
+    return render_device_template(
+        template,
+        device,
+        extra=extra,
+        options=TemplateRenderOptions(
+            strict=parse_strict_templates(config),
+            run_id=run_id,
+        ),
+    )
 
 
 async def execute(
@@ -139,6 +152,7 @@ async def execute(
                     item=item,
                     config=config,
                     index=index,
+                    run_id=context.run_id,
                 )
                 export: StoredExport = await sink.write_text(
                     relative_path=relative_path,

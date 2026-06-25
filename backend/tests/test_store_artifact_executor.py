@@ -24,7 +24,7 @@ def _device_with_running_config() -> DeviceContext:
         id="device-1",
         name="lab",
         hostname="lab",
-        attributes={"location": {"name": "DC1"}},
+        attribute_bags={"nautobot": {"location": {"name": "DC1"}}},
         running_config_ref=ArtifactRef(
             artifact_id="artifact-running",
             kind="running_config",
@@ -36,6 +36,55 @@ def _device_with_running_config() -> DeviceContext:
 
 
 class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exports_running_config_to_nested_path(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        artifact_service = InMemoryArtifactService()
+        await artifact_service.store(
+            content="hostname lab",
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-uuid-1",
+        )
+        device = _device_with_running_config()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch(
+                "workflow_steps.store_artifact.executor.settings"
+            ) as settings_mock, patch.object(
+                artifact_service,
+                "resolve",
+                new=AsyncMock(return_value="hostname lab"),
+            ):
+                settings_mock.data_directory = Path(tmp)
+
+                outcomes = await execute(
+                    config={
+                        "content_source": "running_config",
+                        "filename_template": "./{nautobot.location.name}/{device.name}.cfg",
+                        "output_subdirectory": "exports",
+                    },
+                    context=WorkflowContext(
+                        run_id="run-uuid-1",
+                        workflow_id="wf-1",
+                        devices={"device-1": device},
+                    ),
+                    run=run,
+                    artifact_service=artifact_service,
+                    node_id="store-artifact-4",
+                )
+
+            export_file = (
+                Path(tmp) / "exports" / "wf-1" / "run-uuid-1" / "DC1" / "lab.cfg"
+            )
+            self.assertTrue(export_file.is_file())
+            self.assertEqual(export_file.read_text(encoding="utf-8"), "hostname lab")
+
+        self.assertEqual(len(outcomes), 1)
+        stored = outcomes[0].context.metadata["store-artifact-4.stored_artifacts"]
+        self.assertEqual(len(stored), 1)
+        self.assertIn("/DC1/lab.cfg", stored[0]["path"])
+
     async def test_exports_running_config_to_filesystem(self) -> None:
         run = MagicMock()
         run.id = 42
@@ -62,7 +111,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                 outcomes = await execute(
                     config={
                         "content_source": "running_config",
-                        "filename_template": "{name}_{attributes.location.name}.cfg",
+                        "filename_template": "{device.name}_{nautobot.location.name}.cfg",
                         "output_subdirectory": "exports",
                     },
                     context=WorkflowContext(
@@ -85,6 +134,44 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         stored = outcomes[0].context.metadata["store-artifact-4.stored_artifacts"]
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0]["destination"], "filesystem")
+
+    async def test_strict_template_failure_goes_to_failure_outcome(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        device = _device_with_running_config()
+        device = device.model_copy(update={"attribute_bags": {}})
+
+        artifact_service = InMemoryArtifactService()
+        with patch.object(
+            artifact_service,
+            "resolve",
+            new=AsyncMock(return_value="hostname lab"),
+        ), tempfile.TemporaryDirectory() as tmp, patch(
+            "workflow_steps.store_artifact.executor.settings"
+        ) as settings_mock:
+            settings_mock.data_directory = Path(tmp)
+            outcomes = await execute(
+                config={
+                    "content_source": "running_config",
+                    "filename_template": "{device.name}_{nautobot.location.name}.cfg",
+                    "strict_templates": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": device},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="store-artifact-4",
+            )
+
+        self.assertEqual(len(outcomes), 2)
+        self.assertEqual(outcomes[1].name, "failure")
+        self.assertIn(
+            "get-nautobot-attributes",
+            outcomes[1].context.devices["device-1"].errors[-1].message,
+        )
 
     async def test_missing_content_goes_to_failure(self) -> None:
         run = MagicMock()
