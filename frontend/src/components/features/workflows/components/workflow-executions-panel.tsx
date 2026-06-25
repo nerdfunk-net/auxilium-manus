@@ -105,13 +105,13 @@ function StepLogsModal({
 }) {
   return (
     <Dialog open={!!step} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{step?.step_name ?? "Step result"}</DialogTitle>
           <DialogDescription className="space-y-1">
             <span className="block font-mono text-xs">{step?.step_type}</span>
             {step?.step_node_id ? (
-              <span className="block font-mono text-xs text-muted-foreground">
+              <span className="block break-all font-mono text-xs text-muted-foreground">
                 node: {step.step_node_id}
               </span>
             ) : null}
@@ -122,11 +122,13 @@ function StepLogsModal({
             ) : null}
           </DialogDescription>
         </DialogHeader>
-        <StepResultViewer
-          output={step?.output ?? null}
-          errorMessage={step?.error_message}
-          runId={runId}
-        />
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto pr-1">
+          <StepResultViewer
+            output={step?.output ?? null}
+            errorMessage={step?.error_message}
+            runId={runId}
+          />
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -214,7 +216,7 @@ function StepResultRow({
         </div>
       </div>
       {expanded ? (
-        <div className="mt-3 border-t pt-3">
+        <div className="mt-3 min-w-0 overflow-x-hidden border-t pt-3">
           <StepResultViewer
             output={step.output}
             errorMessage={step.error_message}

@@ -60,5 +60,20 @@ class PluginRegistryCapabilityTests(unittest.TestCase):
         self.assertIn("bgp", spec.requires_parsed)
 
 
+    def test_git_steps_require_identity(self) -> None:
+        service = PluginRegistryService(PluginRepository(REGISTRY_PATH))
+        registry = service.load_registry()
+        for step_id in ("git-clone", "git-pull", "git-push"):
+            plugin = next(p for p in registry.plugins if p.id == step_id)
+            self.assertEqual(plugin.requires, ["identity"], step_id)
+            self.assertEqual(plugin.produces, [], step_id)
+
+    def test_get_git_devices_has_no_input_requirement(self) -> None:
+        service = PluginRegistryService(PluginRepository(REGISTRY_PATH))
+        registry = service.load_registry()
+        plugin = next(p for p in registry.plugins if p.id == "get-git-devices")
+        self.assertEqual(plugin.requires, [])
+
+
 if __name__ == "__main__":
     unittest.main()

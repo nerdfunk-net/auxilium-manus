@@ -304,6 +304,11 @@ class GitAuthenticationService:
         """
         # Resolve credentials
         username, token, ssh_key_path = self.resolve_credentials(repository)
+        if not token:
+            inline_token = repository.get("token")
+            if inline_token:
+                token = str(inline_token)
+                username = username or repository.get("username")
         auth_type = repository.get("auth_type", "token")
         original_url = repository.get("url", "")
 

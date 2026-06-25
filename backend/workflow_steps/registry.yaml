@@ -174,11 +174,44 @@ plugins:
     metadata:
       configuration_input:
         - name: destination
-          description: Where to persist exported artifacts.
+          description: Where to persist exported artifacts (filesystem or git).
           data_type: string
           required: false
           default: filesystem
-          example: filesystem
+          example: git
+        - name: git_source_id
+          description: >
+            Git source id from Settings → Sources when destination is git
+            (same identifier as get-git-devices).
+          data_type: string
+          required: false
+          example: prod-configs
+        - name: repository_subdirectory
+          description: Optional path prefix inside the git repository before filename_template.
+          data_type: string
+          required: false
+          example: network/backups
+        - name: pull_before_write
+          description: Pull latest changes once before writing (fails step on pull error).
+          data_type: boolean
+          required: false
+          default: false
+        - name: commit_after_write
+          description: Create one commit for all files written in this step.
+          data_type: boolean
+          required: false
+          default: false
+        - name: push_after_write
+          description: Push after commit. Disable when a separate push step handles sync.
+          data_type: boolean
+          required: false
+          default: false
+        - name: commit_message_template
+          description: Commit message template when commit_after_write is enabled.
+          data_type: string
+          required: false
+          default: "commit {timestamp}"
+          example: "Backup run {run.id}"
         - name: output_subdirectory
           description: Subdirectory under the data directory for filesystem exports.
           data_type: string
@@ -214,3 +247,71 @@ plugins:
           required: false
           default: standard-90-days
           example: standard-90-days
+
+  - id: git-clone
+    name: Git Clone
+    description: Clone or re-clone a configured git source into the local working tree.
+    artifact_type: persistent_artifact
+    directory: git_clone
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: git_source_id
+          description: ID of a Git source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-configs
+
+  - id: git-pull
+    name: Git Pull
+    description: Pull the latest changes for a configured git source.
+    artifact_type: persistent_artifact
+    directory: git_pull
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: git_source_id
+          description: ID of a Git source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-configs
+
+  - id: git-push
+    name: Git Push
+    description: Commit exported changes and push them to the configured git source remote.
+    artifact_type: persistent_artifact
+    directory: git_push
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: git_source_id
+          description: ID of a Git source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-configs
+        - name: commit_before_push
+          description: Stage and commit workflow exports before pushing to the remote.
+          data_type: boolean
+          required: false
+          default: true
+        - name: commit_message_template
+          description: Commit message template when commit_before_push is enabled.
+          data_type: string
+          required: false
+          default: "commit {timestamp}"
+          example: "Backup run {run.id}"

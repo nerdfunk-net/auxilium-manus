@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 from models.workflow_context import (
     ArtifactRef,
@@ -16,6 +16,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import InMemoryArtifactService
+from services.artifacts.sinks import GitArtifactSink
 from workflow_steps.store_artifact.executor import execute
 
 
@@ -202,6 +203,98 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].name, "success")
         self.assertEqual(outcomes[0].context.devices, {})
         self.assertEqual(outcomes[1].name, "failure")
+
+    async def test_git_prepare_failure_fails_all_devices(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        device = _device_with_running_config()
+        artifact_service = InMemoryArtifactService()
+
+        mock_sink = create_autospec(GitArtifactSink, instance=True)
+        mock_sink.destination = "git"
+        mock_sink.prepare = AsyncMock(side_effect=RuntimeError("pull failed"))
+        mock_sink.has_writes = False
+
+        with patch(
+            "workflow_steps.store_artifact.executor._build_sink",
+            return_value=mock_sink,
+        ):
+            outcomes = await execute(
+                config={
+                    "destination": "git",
+                    "git_source_id": "prod-configs",
+                    "content_source": "running_config",
+                    "pull_before_write": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": device},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="store-artifact-4",
+            )
+
+        self.assertEqual(len(outcomes), 2)
+        self.assertEqual(outcomes[0].context.devices, {})
+        self.assertEqual(outcomes[1].name, "failure")
+        self.assertIn("pull failed", outcomes[1].context.devices["device-1"].errors[-1].message)
+
+    async def test_git_write_only_skips_finalize(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        device = _device_with_running_config()
+        artifact_service = InMemoryArtifactService()
+        await artifact_service.store(
+            content="hostname lab",
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-uuid-1",
+        )
+
+        mock_sink = create_autospec(GitArtifactSink, instance=True)
+        mock_sink.destination = "git"
+        mock_sink.prepare = AsyncMock()
+        mock_sink.finalize = AsyncMock(return_value=None)
+        mock_sink.has_writes = True
+        mock_sink.write_text = AsyncMock(
+            return_value=MagicMock(
+                destination="git",
+                path="/tmp/repo/lab.cfg",
+                size_bytes=12,
+                sha256="abc",
+            )
+        )
+
+        with patch(
+            "workflow_steps.store_artifact.executor._build_sink",
+            return_value=mock_sink,
+        ), patch.object(
+            artifact_service,
+            "resolve",
+            new=AsyncMock(return_value="hostname lab"),
+        ):
+            outcomes = await execute(
+                config={
+                    "destination": "git",
+                    "git_source_id": "prod-configs",
+                    "content_source": "running_config",
+                    "filename_template": "{device.name}.cfg",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": device},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="store-artifact-4",
+            )
+
+        mock_sink.finalize.assert_awaited_once()
+        self.assertEqual(len(outcomes), 1)
+        self.assertNotIn("store-artifact-4.git_export", outcomes[0].context.metadata)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from workflow_steps.common.device_template import (
     TemplateRenderOptions,
     TemplateResolutionError,
     render_device_template,
+    render_step_template,
     sanitize_filename,
 )
 
@@ -123,6 +124,15 @@ class DeviceTemplateTests(unittest.TestCase):
     def test_sanitize_relative_path_rejects_parent_segments(self) -> None:
         with self.assertRaises(ValueError):
             sanitize_filename("../etc/passwd")
+
+    def test_render_step_template_supports_timestamp_alias(self) -> None:
+        rendered = render_step_template(
+            "commit {timestamp} for {run.id}",
+            run_id="run-uuid-1",
+            workflow_id="wf-1",
+        )
+        self.assertTrue(rendered.startswith("commit 20"))
+        self.assertIn("run-uuid-1", rendered)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,13 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.artifacts.sinks import ArtifactSink, FilesystemArtifactSink, StoredExport
+from services.artifacts.sinks import (
+    ArtifactSink,
+    FilesystemArtifactSink,
+    GitArtifactSink,
+    StoredExport,
+)
+from workflow_steps.common.git_source_loader import load_git_source_repository
 from workflow_steps.common.content_resolver import (
     ExportableContent,
     list_exportable_content,
@@ -26,17 +32,31 @@ from workflow_steps.common.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
     render_device_template,
+    render_step_template,
 )
 
 logger = logging.getLogger(__name__)
 
-_DESTINATIONS = frozenset({"filesystem"})
+_DESTINATIONS = frozenset({"filesystem", "git"})
 
 
 def _default_config() -> dict[str, Any]:
     from workflow_steps.store_artifact.config import get_config
 
     return get_config()
+
+
+def _parse_bool(config: dict[str, Any], key: str, *, default: bool = False) -> bool:
+    value = config.get(key, _default_config().get(key, default))
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _load_git_repository(git_source_id: str) -> dict[str, Any]:
+    return load_git_source_repository(git_source_id)
 
 
 def _build_sink(config: dict[str, Any]) -> ArtifactSink:
@@ -55,6 +75,22 @@ def _build_sink(config: dict[str, Any]) -> ArtifactSink:
             settings.data_directory,
             output_subdirectory=output_subdirectory,
         )
+    if destination == "git":
+        git_source_id = str(config.get("git_source_id") or "").strip().lower()
+        if not git_source_id:
+            raise ValueError("store-artifact: git_source_id is required when destination=git")
+        repository = _load_git_repository(git_source_id)
+        return GitArtifactSink(
+            repository,
+            repository_subdirectory=str(
+                config.get("repository_subdirectory")
+                or _default_config().get("repository_subdirectory")
+                or ""
+            ),
+            pull_before_write=_parse_bool(config, "pull_before_write"),
+            commit_after_write=_parse_bool(config, "commit_after_write"),
+            push_after_write=_parse_bool(config, "push_after_write"),
+        )
     raise ValueError(f"store-artifact: unsupported destination {destination!r}")
 
 
@@ -65,6 +101,22 @@ def _filename_template(config: dict[str, Any], item: ExportableContent) -> str:
         or _default_config().get("filename_template")
         or "{device.name}_{run.timestamp}.cfg"
     ).strip()
+
+
+def _commit_message_template(config: dict[str, Any]) -> str:
+    return str(
+        config.get("commit_message_template")
+        or _default_config().get("commit_message_template")
+        or "commit {timestamp}"
+    ).strip()
+
+
+def _render_commit_message(config: dict[str, Any], context: WorkflowContext) -> str:
+    return render_step_template(
+        _commit_message_template(config),
+        run_id=context.run_id,
+        workflow_id=context.workflow_id,
+    )
 
 
 def _relative_export_path(
@@ -89,6 +141,26 @@ def _relative_export_path(
     )
 
 
+def _device_failure(
+    *,
+    device: DeviceContext,
+    node_id: str,
+    exc: Exception,
+) -> DeviceContext:
+    err = DeviceError(
+        node_id=node_id,
+        step_id="store-artifact",
+        code=type(exc).__name__.lower(),
+        message=str(exc),
+    )
+    return device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -103,6 +175,8 @@ async def execute(
     content_source = parse_content_source(config)
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
     sink = _build_sink(config)
+    git_sink = sink if isinstance(sink, GitArtifactSink) else None
+    metadata = dict(context.metadata)
 
     logger.info(
         "store-artifact run_id=%s devices=%d source=%s destination=%s",
@@ -112,9 +186,28 @@ async def execute(
         sink.destination,
     )
 
+    if git_sink is not None:
+        try:
+            await git_sink.prepare()
+        except Exception as exc:
+            logger.error("store-artifact git prepare failed run_id=%s: %s", run.id, exc)
+            failed_devices = {
+                device_id: _device_failure(device=device, node_id=node_id, exc=exc)
+                for device_id, device in context.devices.items()
+            }
+            return [
+                StepOutcome(
+                    name="success",
+                    context=context.model_copy(update={"devices": {}}),
+                ),
+                StepOutcome(
+                    name="failure",
+                    context=context.model_copy(update={"devices": failed_devices}),
+                ),
+            ]
+
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-    metadata = dict(context.metadata)
 
     async def store_for_device(
         device_id: str,
@@ -176,18 +269,7 @@ async def execute(
             enriched = device.model_copy(update={"status": DeviceStatus.OK})
             return device_id, enriched, True, stored_records
         except Exception as exc:
-            err = DeviceError(
-                node_id=node_id,
-                step_id="store-artifact",
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
+            failed = _device_failure(device=device, node_id=node_id, exc=exc)
             return device_id, failed, False, stored_records
 
     results = await asyncio.gather(
@@ -201,6 +283,28 @@ async def execute(
             success_devices[device_id] = updated_device
         else:
             failed_devices[device_id] = updated_device
+
+    if git_sink is not None and git_sink.has_writes and success_devices:
+        try:
+            finalize_result = await git_sink.finalize(_render_commit_message(config, context))
+            if finalize_result is not None:
+                metadata[f"{node_id}.git_export"] = {
+                    "git_source_id": git_sink.repository_ref,
+                    "committed": finalize_result.committed,
+                    "pushed": finalize_result.pushed,
+                    "commit_sha": finalize_result.commit_sha,
+                    "files_changed": finalize_result.files_changed,
+                    "message": finalize_result.message,
+                }
+        except Exception as exc:
+            logger.error("store-artifact git finalize failed run_id=%s: %s", run.id, exc)
+            for device_id in list(success_devices):
+                device = success_devices.pop(device_id)
+                failed_devices[device_id] = _device_failure(
+                    device=device,
+                    node_id=node_id,
+                    exc=exc,
+                )
 
     if all_stored:
         metadata_key = f"{node_id}.stored_artifacts"

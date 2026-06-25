@@ -221,3 +221,7 @@ __marimo__/
 chat
 cockpit-ng
 cockpit
+
+# git and artifact data
+data/git/gitea
+data/artifacts

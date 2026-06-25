@@ -198,3 +198,34 @@ def parse_strict_templates(config: dict[str, Any]) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+_STEP_TEMPLATE_ALIASES = {
+    "timestamp": "run.timestamp",
+    "workflow_id": "workflow.id",
+}
+
+
+def render_step_template(
+    template: str,
+    *,
+    run_id: str,
+    workflow_id: str | None = None,
+) -> str:
+    """Render run/workflow placeholders for step-level messages (e.g. git commits)."""
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    context: dict[str, Any] = {
+        "run": {"id": run_id, "timestamp": timestamp},
+        "workflow": {"id": workflow_id or ""},
+        "timestamp": timestamp,
+    }
+
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        normalized = _STEP_TEMPLATE_ALIASES.get(key, key)
+        return _stringify(_traverse_path(context, normalized))
+
+    rendered = _PLACEHOLDER_RE.sub(replace, template).strip()
+    if not rendered:
+        raise TemplateResolutionError("step template rendered to an empty string")
+    return rendered
