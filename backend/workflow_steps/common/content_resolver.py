@@ -24,6 +24,7 @@ _CONTENT_SOURCES = frozenset(
         "startup_config",
         "command_output",
         "latest_command_output",
+        "rendered_template",
     }
 )
 
@@ -42,6 +43,7 @@ def list_exportable_content(
     *,
     content_source: str,
     source_step_node_id: str | None = None,
+    parsed_output_key: str | None = None,
 ) -> list[ExportableContent]:
     """Return artifact refs available on the device for the chosen source."""
     if content_source == "running_config":
@@ -89,6 +91,17 @@ def list_exportable_content(
             source_step_node_id=node_id,
         )
 
+    if content_source == "rendered_template":
+        if not source_step_node_id:
+            raise ValueError(
+                "store-artifact: source_step_node_id is required for rendered_template"
+            )
+        return _exportable_from_parsed_templates(
+            device,
+            source_step_node_id=source_step_node_id,
+            parsed_output_key=parsed_output_key,
+        )
+
     return []
 
 
@@ -110,6 +123,57 @@ def _exportable_from_command_results(
                     "content_source": "command_output",
                     "source_step_node_id": source_step_node_id,
                     "command": result.command,
+                },
+            )
+        )
+    return items
+
+
+def _is_rendered_template_entry(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    artifact_raw = value.get("artifact_ref")
+    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
+        return False
+    kind = value.get("kind")
+    if kind is not None and kind != "rendered_template":
+        return False
+    return bool(value.get("step_node_id"))
+
+
+def _exportable_from_parsed_templates(
+    device: DeviceContext,
+    *,
+    source_step_node_id: str,
+    parsed_output_key: str | None = None,
+) -> list[ExportableContent]:
+    if parsed_output_key:
+        raw = device.parsed.get(parsed_output_key)
+        candidates = (
+            [(parsed_output_key, raw)]
+            if raw is not None
+            else []
+        )
+    else:
+        candidates = list(device.parsed.items())
+
+    items: list[ExportableContent] = []
+    for key, raw in candidates:
+        if not _is_rendered_template_entry(raw):
+            continue
+        if str(raw.get("step_node_id") or "") != source_step_node_id:
+            continue
+        output_key = str(raw.get("output_key") or key)
+        artifact_ref = ArtifactRef.model_validate(raw["artifact_ref"])
+        items.append(
+            ExportableContent(
+                kind="rendered_template",
+                media_type=artifact_ref.media_type,
+                artifact_ref=artifact_ref,
+                extra={
+                    "content_source": "rendered_template",
+                    "source_step_node_id": source_step_node_id,
+                    "output_key": output_key,
                 },
             )
         )

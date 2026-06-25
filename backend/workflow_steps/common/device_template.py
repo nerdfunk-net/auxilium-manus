@@ -12,7 +12,7 @@ from models.workflow_context import DeviceContext
 _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
 _INVALID_SEGMENT_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _STRICT_PREFIXES = ("nautobot.", "git.", "command.")
-_KNOWN_NAMESPACES = ("device", "nautobot", "git", "run", "command")
+_KNOWN_NAMESPACES = ("device", "nautobot", "git", "run", "command", "parsed")
 
 
 class TemplateResolutionError(ValueError):
@@ -60,6 +60,7 @@ def build_template_context(
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
     command_bag: dict[str, Any] = {}
+    parsed_bag: dict[str, Any] = {}
     if extra:
         if "command" in extra:
             command_bag["name"] = extra.get("command")
@@ -67,6 +68,8 @@ def build_template_context(
             command_bag["index"] = extra.get("index")
         if "source_step_node_id" in extra:
             command_bag["source_step_node_id"] = extra.get("source_step_node_id")
+        if "output_key" in extra:
+            parsed_bag["output_key"] = extra.get("output_key")
 
     return {
         "device": {
@@ -86,6 +89,7 @@ def build_template_context(
             "timestamp": timestamp,
         },
         "command": command_bag,
+        "parsed": parsed_bag,
     }
 
 

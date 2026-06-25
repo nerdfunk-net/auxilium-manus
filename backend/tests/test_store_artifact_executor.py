@@ -36,6 +36,31 @@ def _device_with_running_config() -> DeviceContext:
     )
 
 
+def _device_with_rendered_template() -> DeviceContext:
+    artifact_ref = ArtifactRef(
+        artifact_id="artifact-rendered",
+        kind="rendered_template",
+        size_bytes=24,
+    )
+    return DeviceContext(
+        id="device-1",
+        name="lab",
+        hostname="lab",
+        attribute_bags={"nautobot": {"location": {"name": "DC1"}}},
+        parsed={
+            "device_config": {
+                "artifact_ref": artifact_ref.model_dump(mode="json"),
+                "step_node_id": "render-jinja-template-3",
+                "output_key": "device_config",
+                "size_bytes": 24,
+                "kind": "rendered_template",
+            }
+        },
+        capabilities={Capability.IDENTITY, Capability.PARSED},
+        status=DeviceStatus.OK,
+    )
+
+
 class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_exports_running_config_to_nested_path(self) -> None:
         run = MagicMock()
@@ -135,6 +160,61 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         stored = outcomes[0].context.metadata["store-artifact-4.stored_artifacts"]
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0]["destination"], "filesystem")
+
+    async def test_exports_rendered_template_to_filesystem(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        artifact_service = InMemoryArtifactService()
+        await artifact_service.store(
+            content="hostname lab\ninterface Gi0/0",
+            kind="rendered_template",
+            device_id="device-1",
+            run_id="run-uuid-1",
+        )
+        device = _device_with_rendered_template()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch(
+                "workflow_steps.store_artifact.executor.settings"
+            ) as settings_mock, patch.object(
+                artifact_service,
+                "resolve",
+                new=AsyncMock(return_value="hostname lab\ninterface Gi0/0"),
+            ):
+                settings_mock.data_directory = Path(tmp)
+
+                outcomes = await execute(
+                    config={
+                        "content_source": "rendered_template",
+                        "source_step_node_id": "render-jinja-template-3",
+                        "parsed_output_key": "device_config",
+                        "filename_template": "{device.name}_{parsed.output_key}.txt",
+                        "output_subdirectory": "exports",
+                    },
+                    context=WorkflowContext(
+                        run_id="run-uuid-1",
+                        workflow_id="wf-1",
+                        devices={"device-1": device},
+                    ),
+                    run=run,
+                    artifact_service=artifact_service,
+                    node_id="store-artifact-4",
+                )
+
+            export_root = Path(tmp) / "exports" / "wf-1" / "run-uuid-1"
+            files = list(export_root.glob("*.txt"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(
+                files[0].read_text(encoding="utf-8"),
+                "hostname lab\ninterface Gi0/0",
+            )
+            self.assertEqual(files[0].name, "lab_device_config.txt")
+
+        self.assertEqual(len(outcomes), 1)
+        stored = outcomes[0].context.metadata["store-artifact-4.stored_artifacts"]
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["content_source"], "rendered_template")
+        self.assertEqual(stored[0]["output_key"], "device_config")
 
     async def test_strict_template_failure_goes_to_failure_outcome(self) -> None:
         run = MagicMock()

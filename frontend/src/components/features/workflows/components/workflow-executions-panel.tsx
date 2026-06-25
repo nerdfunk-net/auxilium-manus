@@ -44,6 +44,7 @@ import {
   countOutcomeDevices,
   deriveStepDisplayStatus,
   summarizeRouteCounts,
+  summarizeRenderJinjaTemplate,
   summarizeWorkflowLogMessage,
   type DerivedStepStatus,
 } from "../utils/step-result-status";
@@ -158,9 +159,11 @@ function StepResultRow({
   const runHint =
     step.step_type === "route-on-attribute"
       ? summarizeRouteCounts(step.output)
-      : step.step_type === "workflow-log"
-        ? summarizeWorkflowLogMessage(step.output)
-        : null;
+      : step.step_type === "render-jinja-template"
+        ? summarizeRenderJinjaTemplate(step.output)
+        : step.step_type === "workflow-log"
+          ? summarizeWorkflowLogMessage(step.output)
+          : null;
 
   return (
     <div className="px-4 py-3">

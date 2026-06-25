@@ -116,3 +116,35 @@ export function summarizeWorkflowLogMessage(
   const message = (debugLogs as Record<string, unknown>).message;
   return typeof message === "string" && message.trim() ? message.trim() : null;
 }
+
+/** Short summary for render-jinja-template results in the run list. */
+export function summarizeRenderJinjaTemplate(
+  output: Record<string, unknown> | null,
+): string | null {
+  const metadata = firstOutcomeMetadata(output);
+  if (!metadata) {
+    return null;
+  }
+
+  const successEntry = Object.entries(metadata).find(([key]) =>
+    key.endsWith(".rendered_success_count"),
+  );
+  if (!successEntry) {
+    return null;
+  }
+
+  const nodePrefix = successEntry[0].slice(0, -".rendered_success_count".length);
+  const successCount = successEntry[1];
+  const failureCount = metadata[`${nodePrefix}.rendered_failure_count`];
+  const outputKey = metadata[`${nodePrefix}.rendered_template_key`];
+
+  if (typeof successCount !== "number") {
+    return null;
+  }
+
+  const failurePart =
+    typeof failureCount === "number" && failureCount > 0 ? ` · ${failureCount} failed` : "";
+  const keyPart = typeof outputKey === "string" && outputKey ? ` → ${outputKey}` : "";
+
+  return `${successCount} rendered${failurePart}${keyPart}`;
+}

@@ -275,6 +275,35 @@ function ArtifactRefRow({ label, artifactRef }: { label: string; artifactRef: Ar
   );
 }
 
+interface ParsedTemplateEntry {
+  artifact_ref: ArtifactRef;
+  step_node_id: string;
+  output_key: string;
+  size_bytes: number;
+  kind: string;
+}
+
+function isParsedTemplateEntry(value: unknown): value is ParsedTemplateEntry {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const entry = value as ParsedTemplateEntry;
+  return (
+    typeof entry.artifact_ref === "object" &&
+    entry.artifact_ref !== null &&
+    typeof entry.artifact_ref.artifact_id === "string" &&
+    typeof entry.output_key === "string"
+  );
+}
+
+function getParsedTemplateEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: ParsedTemplateEntry }> {
+  return Object.entries(parsed)
+    .filter(([, value]) => isParsedTemplateEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as ParsedTemplateEntry }));
+}
+
 function ConfigArtifactPanel({
   runId,
   label,
@@ -346,6 +375,39 @@ function DeviceConfigsContent({
           artifactRef={device.startup_config_ref}
         />
       ) : null}
+    </div>
+  );
+}
+
+function DeviceParsedTemplatesContent({
+  runId,
+  parsedEntries,
+}: {
+  runId: number | null;
+  parsedEntries: Array<{ key: string; entry: ParsedTemplateEntry }>;
+}) {
+  if (runId == null) {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        Rendered template content is available from a workflow run detail view.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-3">
+      {parsedEntries.map(({ key, entry }) => (
+        <div key={key} className="space-y-1">
+          <p className="font-mono text-[10px] text-muted-foreground">
+            node: {entry.step_node_id}
+          </p>
+          <ConfigArtifactPanel
+            runId={runId}
+            label={`Rendered template (${entry.output_key})`}
+            artifactRef={entry.artifact_ref}
+          />
+        </div>
+      ))}
     </div>
   );
 }
@@ -424,10 +486,16 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
   const [showAttributeBags, setShowAttributeBags] = useState(false);
   const [showConfigs, setShowConfigs] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
+  const [showParsedTemplates, setShowParsedTemplates] = useState(true);
   const attributeBags = device.attribute_bags ?? {};
   const attributeBagNames = Object.keys(attributeBags).filter(
     (bagName) => Object.keys(attributeBags[bagName] ?? {}).length > 0,
   );
+  const parsedTemplateEntries = useMemo(
+    () => getParsedTemplateEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
+  const hasParsedTemplates = parsedTemplateEntries.length > 0;
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
   const configCount =
     (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
@@ -491,8 +559,25 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
               </p>
             </div>
           ) : null}
+          {hasParsedTemplates ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Rendered templates
+              </p>
+              {parsedTemplateEntries.map(({ key, entry }) => (
+                <ArtifactRefRow
+                  key={key}
+                  label={entry.output_key}
+                  artifactRef={entry.artifact_ref}
+                />
+              ))}
+            </div>
+          ) : null}
           <DeviceErrorList errors={device.errors} />
-          {hasConfigs || hasCommandResults || attributeBagNames.length > 0 ? (
+          {hasConfigs ||
+          hasCommandResults ||
+          hasParsedTemplates ||
+          attributeBagNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {attributeBagNames.length > 0 ? (
                 <button
@@ -522,6 +607,17 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
                   {showCommands ? "Hide" : "Show"} command output ({commandResultCount})
                 </button>
               ) : null}
+              {hasParsedTemplates ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowParsedTemplates((value) => !value)}
+                >
+                  {showParsedTemplates ? "Hide" : "Show"} rendered template
+                  {parsedTemplateEntries.length !== 1 ? "s" : ""} (
+                  {parsedTemplateEntries.map(({ entry }) => entry.output_key).join(", ")})
+                </button>
+              ) : null}
             </div>
           ) : null}
           {showAttributeBags && attributeBagNames.length > 0 ? (
@@ -536,6 +632,12 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
             <DeviceCommandResultsContent
               runId={runId ?? null}
               commandResults={device.command_results}
+            />
+          ) : null}
+          {showParsedTemplates && hasParsedTemplates ? (
+            <DeviceParsedTemplatesContent
+              runId={runId ?? null}
+              parsedEntries={parsedTemplateEntries}
             />
           ) : null}
         </div>

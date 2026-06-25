@@ -174,6 +174,7 @@ async def execute(
 
     content_source = parse_content_source(config)
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
+    parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
     sink = _build_sink(config)
     git_sink = sink if isinstance(sink, GitArtifactSink) else None
     metadata = dict(context.metadata)
@@ -217,6 +218,7 @@ async def execute(
             device,
             content_source=content_source,
             source_step_node_id=source_step_node_id,
+            parsed_output_key=parsed_output_key,
         )
         if not export_items:
             err = DeviceError(

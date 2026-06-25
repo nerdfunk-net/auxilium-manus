@@ -316,21 +316,35 @@ plugins:
           required: false
           default: exports
         - name: content_source
-          description: Which device content to export from the workflow context.
+          description: >
+            Which device content to export from the workflow context
+            (running_config, startup_config, command_output, latest_command_output,
+            or rendered_template).
           data_type: string
           required: true
           example: running_config
         - name: source_step_node_id
-          description: Canvas node id of the run-command step when exporting command output.
+          description: >
+            Canvas node id of the upstream step when exporting command output
+            (run-command) or rendered templates (render-jinja-template).
           data_type: string
           required: false
+        - name: parsed_output_key
+          description: >
+            Optional output_key from render-jinja-template when content_source is
+            rendered_template. When omitted, all rendered templates from the
+            selected step are exported.
+          data_type: string
+          required: false
+          example: device_config
         - name: filename_template
           description: >
             Output path template (filename or relative path with subdirectories).
             Use device.* for identity, nautobot.* for Nautobot attributes
             (requires get-nautobot-attributes), git.* for git source metadata
             (requires get-git-devices), run.* for run metadata, command.* for
-            command exports. A leading ./ is optional.
+            command exports, parsed.* for rendered template exports. A leading ./
+            is optional.
           data_type: string
           required: true
           example: "./{nautobot.location.name}/{device.name}.cfg"

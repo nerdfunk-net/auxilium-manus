@@ -40,6 +40,11 @@ const CONTENT_SOURCE_OPTIONS = [
     label: "Latest command output",
     hint: "Uses the most recent command result on the device.",
   },
+  {
+    value: "rendered_template",
+    label: "Rendered template",
+    hint: "Requires source_step_node_id of a render-jinja-template step.",
+  },
 ] as const;
 
 type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
@@ -67,6 +72,7 @@ const FILENAME_PLACEHOLDERS = [
   "{nautobot.custom_fields.<slug>}",
   "{git.source_file}",
   "{command.name}",
+  "{parsed.output_key}",
   "{run.timestamp}",
   "{run.id}",
 ];
@@ -90,6 +96,8 @@ function buildStoreArtifactConfig(
         : "running_config",
     source_step_node_id:
       typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
+    parsed_output_key:
+      typeof config.parsed_output_key === "string" ? config.parsed_output_key : "",
     filename_template:
       typeof config.filename_template === "string"
         ? config.filename_template
@@ -140,7 +148,9 @@ function StoreArtifactConfigPanel({
     typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "";
 
   const contentSource = (config.content_source as ContentSource) || "running_config";
-  const needsStepNodeId = contentSource === "command_output";
+  const needsStepNodeId =
+    contentSource === "command_output" || contentSource === "rendered_template";
+  const needsParsedOutputKey = contentSource === "rendered_template";
 
   const selectedHint = useMemo(
     () => CONTENT_SOURCE_OPTIONS.find((option) => option.value === contentSource)?.hint,
@@ -176,6 +186,13 @@ function StoreArtifactConfigPanel({
   const handleSourceStepNodeIdChange = useCallback(
     (value: string) => {
       onChange(buildStoreArtifactConfig(config, { source_step_node_id: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleParsedOutputKeyChange = useCallback(
+    (value: string) => {
+      onChange(buildStoreArtifactConfig(config, { parsed_output_key: value }));
     },
     [config, onChange],
   );
@@ -429,11 +446,40 @@ function StoreArtifactConfigPanel({
                 : ""
             }
             onChange={(event) => handleSourceStepNodeIdChange(event.target.value)}
-            placeholder="run-command-3"
+            placeholder={
+              contentSource === "rendered_template"
+                ? "render-jinja-template-3"
+                : "run-command-3"
+            }
             className="h-8 font-mono text-xs"
           />
           <p className="text-[11px] text-muted-foreground">
-            Canvas node id of the run-command step whose output should be exported.
+            {contentSource === "rendered_template"
+              ? "Canvas node id of the render-jinja-template step whose output should be exported."
+              : "Canvas node id of the run-command step whose output should be exported."}
+          </p>
+        </div>
+      ) : null}
+
+      {needsParsedOutputKey ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">parsed_output_key</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              string
+            </Badge>
+          </div>
+          <Input
+            value={
+              typeof config.parsed_output_key === "string" ? config.parsed_output_key : ""
+            }
+            onChange={(event) => handleParsedOutputKeyChange(event.target.value)}
+            placeholder="device_config"
+            className="h-8 font-mono text-xs"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Optional output_key from the render step. Leave empty to export all templates
+            produced by the selected step.
           </p>
         </div>
       ) : null}
