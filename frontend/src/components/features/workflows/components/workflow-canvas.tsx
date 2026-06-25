@@ -5,7 +5,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
   ReactFlow,
   type Connection,
   type EdgeTypes,
@@ -35,6 +34,7 @@ import type {
   WorkflowOutcomeField,
 } from "../types/workflow-canvas";
 import { WaypointEdge } from "./edges/waypoint-edge";
+import { CollapsibleMiniMap } from "./collapsible-minimap";
 import { WorkflowNode } from "./nodes/workflow-node";
 import { NodePalette } from "./workflow-node-palette";
 
@@ -194,7 +194,7 @@ export function WorkflowCanvas({
           variant={BackgroundVariant.Dots}
         />
         <Controls />
-        <MiniMap pannable zoomable />
+        <CollapsibleMiniMap />
       </ReactFlow>
       {nodes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

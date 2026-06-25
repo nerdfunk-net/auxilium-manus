@@ -30,10 +30,10 @@ type AlignmentAction = {
 
 const ALIGNMENT_ACTIONS: AlignmentAction[] = [
   { alignment: "align-left", label: "Align left", icon: AlignStartVertical },
-  { alignment: "align-center-horizontal", label: "Center horizontally", icon: AlignCenterHorizontal },
+  { alignment: "align-center-horizontal", label: "Center horizontally", icon: AlignCenterVertical },
   { alignment: "align-right", label: "Align right", icon: AlignEndVertical },
   { alignment: "align-top", label: "Align top", icon: AlignStartHorizontal },
-  { alignment: "align-center-vertical", label: "Center vertically", icon: AlignCenterVertical },
+  { alignment: "align-center-vertical", label: "Center vertically", icon: AlignCenterHorizontal },
   { alignment: "align-bottom", label: "Align bottom", icon: AlignEndHorizontal },
   {
     alignment: "distribute-horizontal",
