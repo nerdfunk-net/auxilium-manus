@@ -146,19 +146,51 @@ plugins:
           required: false
           example: cisco_ios
 
-  - id: cisco-device-os
-    name: Name of Cisco Device OS
-    description: Identify the operating system running on each device.
+  - id: route-on-attribute
+    name: Route on Attribute
+    description: Split devices onto different paths by matching an attribute value.
     artifact_type: control_flow
-    directory: condition
+    directory: route_on_attribute
     enabled: true
     requires: [identity]
     produces: [identity]
     outcomes:
       - name: ios
-      - name: ios_xe
-      - name: ios_xr
       - name: nxos
+      - name: unmatched
+    metadata:
+      configuration_input:
+        - name: attribute_path
+          description: >
+            Dot path to the attribute to match. Use device.* for core fields
+            (device.network_driver) or bag paths for enriched attributes
+            (nautobot.role.name, git.filename, custom.field).
+          data_type: string
+          required: true
+          example: device.network_driver
+        - name: routes
+          description: >
+            Ordered route rules. The first matching route wins. Each route maps
+            attribute values to an outcome handle name.
+          data_type: object_list
+          required: true
+          example:
+            - outcome: ios
+              values: [cisco_ios, ios]
+            - outcome: nxos
+              values: [cisco_nxos, nxos]
+        - name: default_outcome
+          description: >
+            Outcome for devices with a missing or unmatched attribute value.
+            When omitted, unmatched devices fail the step.
+          data_type: string
+          required: false
+          example: unmatched
+        - name: case_sensitive
+          description: When false, route value matching ignores letter case.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: store-artifact
     name: Store Artifact

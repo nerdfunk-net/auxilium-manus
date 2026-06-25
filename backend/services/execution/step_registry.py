@@ -23,6 +23,7 @@ from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
 from workflow_steps.git_push.executor import execute as git_push
 from workflow_steps.nautobot_attributes.executor import execute as get_nautobot_attributes
+from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.store_artifact.executor import execute as store_artifact
 
@@ -34,6 +35,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-attributes": get_nautobot_attributes,
     "get-device-configs": get_device_configs,
     "run-command": run_command,
+    "route-on-attribute": route_on_attribute,
     "store-artifact": store_artifact,
     "git-clone": git_clone,
     "git-pull": git_pull,

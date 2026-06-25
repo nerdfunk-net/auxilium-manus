@@ -43,6 +43,7 @@ import type {
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { migrateCanvasState } from "./utils/migrate-canvas";
+import { deriveRouteOutcomes } from "@/components/features/workflow-steps/route-on-attribute/route-config";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: WorkflowCanvasNode[] = [];
@@ -354,11 +355,16 @@ export function WorkflowBuilderPage() {
   const handleNodeConfigChange = useCallback(
     (nodeId: string, config: Record<string, unknown>) => {
       setNodes((current) =>
-        current.map((n) =>
-          n.id !== nodeId
-            ? n
-            : { ...n, data: { ...n.data, pluginConfig: config } },
-        ),
+        current.map((n) => {
+          if (n.id !== nodeId) {
+            return n;
+          }
+          const nextData = { ...n.data, pluginConfig: config };
+          if (n.data.kind === "route-on-attribute") {
+            nextData.outcomes = deriveRouteOutcomes(config);
+          }
+          return { ...n, data: nextData };
+        }),
       );
       markDirty();
     },
