@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from core.auth import get_current_user
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
-from dependencies import get_inventory_persistence_service
+from dependencies import get_inventory_service
 from models.sources_nautobot import (
     CreateInventoryRequest,
     ImportInventoryRequest,
@@ -20,7 +20,7 @@ from models.sources_nautobot import (
     ListInventoriesResponse,
     UpdateInventoryRequest,
 )
-from services.sources.nautobot.persistence_service import InventoryPersistenceService
+from services.sources.nautobot.persistence_service import InventoryService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sources/nautobot", tags=["sources-nautobot"])
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/sources/nautobot", tags=["sources-nautobot"])
 async def create_inventory(
     request: CreateInventoryRequest,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryResponse:
     try:
         inventory_id = persistence.create_inventory(
@@ -71,7 +71,7 @@ async def list_inventories(
     active_only: bool = True,
     group_path: str | None = None,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> ListInventoriesResponse:
     try:
         inventories = persistence.list_inventories(
@@ -93,7 +93,7 @@ async def search_inventories(
     query: str,
     active_only: bool = True,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> ListInventoriesResponse:
     try:
         inventories = persistence.search_inventories(query, current_user.username, active_only)
@@ -109,7 +109,7 @@ async def search_inventories(
 async def get_inventory_by_name(
     inventory_name: str,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryResponse:
     try:
         inventory = persistence.get_inventory_by_name(inventory_name, current_user.username)
@@ -129,7 +129,7 @@ async def get_inventory_by_name(
 async def export_inventory(
     inventory_id: int,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ):
     try:
         inventory = persistence.get_inventory(inventory_id, username=current_user.username)
@@ -192,7 +192,7 @@ async def export_inventory(
 async def import_inventory(
     request: ImportInventoryRequest,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryResponse:
     try:
         import_data = request.import_data
@@ -248,7 +248,7 @@ async def import_inventory(
 async def get_inventory(
     inventory_id: int,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryResponse:
     try:
         inventory = persistence.get_inventory(inventory_id, username=current_user.username)
@@ -271,7 +271,7 @@ async def update_inventory(
     inventory_id: int,
     request: UpdateInventoryRequest,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryResponse:
     try:
         update_data = {}
@@ -310,7 +310,7 @@ async def delete_inventory(
     inventory_id: int,
     hard_delete: bool = Query(default=True),
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryDeleteResponse:
     try:
         persistence.delete_inventory(inventory_id, current_user.username, hard_delete)

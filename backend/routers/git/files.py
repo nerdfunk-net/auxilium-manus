@@ -56,18 +56,11 @@ async def get_file_complete_history(
     current_user: dict = Depends(get_current_user),
     cache_service=Depends(get_cache_service),
 ):
-    from services.settings.manager import SettingsManager
-
-    settings_manager = SettingsManager()
-
-    cache_cfg = settings_manager.get_cache_settings()
     return _git_file_service.get_file_history(
         repo_id,
         file_path,
         from_commit,
         cache_service,
-        cache_enabled=cache_cfg.get("enabled", True),
-        cache_ttl=int(cache_cfg.get("ttl_seconds", 600)),
     )
 
 

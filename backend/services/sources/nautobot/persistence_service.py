@@ -3,8 +3,8 @@ Inventory persistence service — PostgreSQL CRUD for saved inventory configurat
 
 Replaces the root-level inventory_manager.py singleton. Receives the repository
 via constructor injection so callers (routers, services, tasks) obtain an instance
-through service_factory.build_inventory_persistence_service() or
-dependencies.get_inventory_persistence_service().
+through service_factory.build_inventory_service() or
+dependencies.get_inventory_service().
 
 See: doc/refactoring/REFACTORING_INVENTORY.md — Step 3
 """
@@ -21,7 +21,7 @@ from repositories.inventory_repository import InventoryRepository
 logger = logging.getLogger(__name__)
 
 
-class InventoryPersistenceService:
+class InventoryService:
     """Manages Ansible inventory configurations in PostgreSQL database."""
 
     def __init__(self, repository: InventoryRepository):

@@ -12,7 +12,7 @@ from services.nautobot.devices.query import DeviceQueryService
 from services.sources.nautobot.evaluator import NautobotSourceEvaluator
 from services.sources.nautobot.export_service import NautobotSourceExportService
 from services.sources.nautobot.metadata_service import NautobotSourceMetadataService
-from services.sources.nautobot.persistence_service import InventoryPersistenceService
+from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.query_service import NautobotSourceQueryService
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class NautobotSourceService:
         nautobot: NautobotService,
         credentials: NautobotCredentials,
         cache_service=None,
-        persistence_service: InventoryPersistenceService | None = None,
+        persistence_service: InventoryService | None = None,
         device_ttl: int = 1800,
     ) -> None:
         self.query_service = NautobotSourceQueryService(nautobot, credentials, cache_service)

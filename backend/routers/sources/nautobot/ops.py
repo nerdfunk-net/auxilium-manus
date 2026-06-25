@@ -11,7 +11,7 @@ from core.auth import get_current_user
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import (
-    get_inventory_persistence_service,
+    get_inventory_service,
     nautobot_credentials_from_body,
     nautobot_credentials_from_query,
 )
@@ -23,7 +23,7 @@ from models.sources_nautobot import (
     RenameGroupResponse,
 )
 from services.nautobot.credentials import NautobotCredentials
-from services.sources.nautobot.persistence_service import InventoryPersistenceService
+from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
 from utils.inventory_converter import convert_saved_inventory_to_operations
 
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/sources/nautobot", tags=["sources-nautobot"])
 
 def _build_source_service(
     credentials: NautobotCredentials,
-    persistence: InventoryPersistenceService | None = None,
+    persistence: InventoryService | None = None,
 ) -> NautobotSourceService:
     return NautobotSourceService(
         nautobot=service_factory.get_nautobot_app_service(),
@@ -46,7 +46,7 @@ def _build_source_service(
 @router.get("/get-all-groups", response_model=GroupsResponse)
 async def get_all_groups(
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> GroupsResponse:
     try:
         groups = persistence.get_all_groups(current_user.username)
@@ -59,7 +59,7 @@ async def get_all_groups(
 async def rename_group(
     request: RenameGroupRequest,
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> RenameGroupResponse:
     try:
         result = persistence.rename_group(
@@ -167,7 +167,7 @@ async def resolve_inventory_to_devices(
     inventory_id: int,
     credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> dict:
     try:
         inventory = persistence.get_inventory(inventory_id, username=current_user.username)
@@ -214,7 +214,7 @@ async def resolve_inventory_to_devices_detailed(
     inventory_id: int,
     credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> dict:
     try:
         inventory = persistence.get_inventory(inventory_id, username=current_user.username)
@@ -285,7 +285,7 @@ async def analyze_inventory(
     inventory_id: int,
     credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
     current_user: User = Depends(get_current_user),
-    persistence: InventoryPersistenceService = Depends(get_inventory_persistence_service),
+    persistence: InventoryService = Depends(get_inventory_service),
 ) -> dict:
     try:
         source_service = _build_source_service(credentials, persistence)

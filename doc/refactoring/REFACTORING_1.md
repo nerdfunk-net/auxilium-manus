@@ -2,7 +2,7 @@
 
 > Based on: `doc/refactoring/ANALYSIS_1.md`
 > Date: 2026-06-25
-> Status: PLAN (not yet implemented)
+> Status: COMPLETE — HIGH-1 ✅ HIGH-3 ✅ HIGH-2 ✅ MEDIUM-6 ✅ MEDIUM-4 ✅ MEDIUM-5 ✅ MEDIUM-7 ✅
 
 ---
 
@@ -14,15 +14,15 @@ Apply in this order to minimise risk. Each step is independently deployable.
 2. **HIGH-3** — Fix 5xx exception leaks in `git/operations.py` (safe, isolated; skip if doing HIGH-2 next, as HIGH-2 removes those lines)
 3. **HIGH-2** — Replace router sync logic with service delegation in `git/operations.py` (removes the code addressed by HIGH-3 as a side effect)
 4. **MEDIUM-6** — Fix `GitRepositoryRepository` DI bypass (refactor, no behavioural change)
-5. **MEDIUM-4** — Extract `GitDebugService` from `git/debug.py` (new file + thin router)
-6. **MEDIUM-5** — Extract `GitVersionControlService` from `git/version_control.py` (new file + thin router)
-7. **MEDIUM-7** — Rename `InventoryPersistenceService` → `InventoryService` (broad rename, do last)
+5. **MEDIUM-4** — Extract `GitDebugService` from `git/debug.py` (new file + thin router) ✅
+6. **MEDIUM-5** — Extract `GitVersionControlService` from `git/version_control.py` (new file + thin router) ✅
+7. **MEDIUM-7** — Rename `InventoryPersistenceService` → `InventoryService` (broad rename, do last) ✅
 
 > **Note:** HIGH-2 and HIGH-3 touch the same two lines in `operations.py`. If you apply HIGH-2 first, HIGH-3 is already resolved. If you apply HIGH-3 first, simply replace the two `HTTPException(status_code=500, …)` lines and then do HIGH-2 on top.
 
 ---
 
-## HIGH-1: Remove Dead Import in `routers/git/files.py`
+## HIGH-1: Remove Dead Import in `routers/git/files.py` ✅ DONE
 
 **What:** Line 59 contains a lazy import `from services.settings.manager import SettingsManager` that references a module that does not exist — the endpoint crashes at runtime.
 
@@ -91,7 +91,7 @@ async def get_file_complete_history(
 
 ---
 
-## HIGH-2: Replace Router Sync Logic with Service Delegation in `routers/git/operations.py`
+## HIGH-2: Replace Router Sync Logic with Service Delegation in `routers/git/operations.py` ✅ DONE
 
 **What:** `sync_repository` (lines 81–225) and `remove_and_sync_repository` (lines 228–351) duplicate ~270 lines of git clone/pull logic that already exists in `services/git/operations.py` (`GitOperationsService.sync_repository` and `GitOperationsService.remove_and_sync`). The router must be a thin wrapper only.
 
@@ -517,7 +517,7 @@ async def remove_and_sync_repository(
 
 ---
 
-## HIGH-3: Fix 5xx Exception Leaks in `routers/git/operations.py`
+## HIGH-3: Fix 5xx Exception Leaks in `routers/git/operations.py` ✅ DONE
 
 **What:** `HTTPException(status_code=500, detail=message)` on lines 218 and 344 passes potentially exception-derived strings directly in the HTTP response body.
 
@@ -1606,7 +1606,7 @@ async def compare_commits(
 
 ---
 
-## MEDIUM-6: Fix Repository DI Bypass in `GitRepositoryRepository`
+## MEDIUM-6: Fix Repository DI Bypass in `GitRepositoryRepository` ✅ DONE
 
 **What:** The four custom methods (`get_by_name`, `get_by_category`, `get_all_active`, `name_exists`) call `get_db_session()` directly instead of using `BaseRepository._db_session(db)`, bypassing FastAPI's dependency injection.
 

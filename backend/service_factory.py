@@ -10,7 +10,7 @@ from services.cache.redis_cache_service import RedisCacheService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.metadata_service import NautobotMetadataService
-from services.sources.nautobot.persistence_service import InventoryPersistenceService
+from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
 
 _cache_service: RedisCacheService | None = None
@@ -50,15 +50,15 @@ def credentials_from_connection(
     return NautobotCredentials(url=nautobot_url.rstrip("/"), token=nautobot_token, timeout=timeout)
 
 
-def build_inventory_persistence_service(db: Session) -> InventoryPersistenceService:
-    return InventoryPersistenceService(repository=InventoryRepository(db))
+def build_inventory_service(db: Session) -> InventoryService:
+    return InventoryService(repository=InventoryRepository(db))
 
 
 def build_nautobot_source_service(
     credentials: NautobotCredentials,
     db: Session | None = None,
 ) -> NautobotSourceService:
-    persistence = build_inventory_persistence_service(db) if db is not None else None
+    persistence = build_inventory_service(db) if db is not None else None
     cache_svc = build_cache_service()
     device_ttl = 1800
 
@@ -129,3 +129,15 @@ def build_credentials_service(db: Session | None = None):
 
     session = db if db is not None else SessionLocal()
     return CredentialsService(session)
+
+
+def build_git_debug_service():
+    from services.git.debug_service import GitDebugService
+
+    return GitDebugService()
+
+
+def build_git_version_control_service():
+    from services.git.version_control_service import GitVersionControlService
+
+    return GitVersionControlService()

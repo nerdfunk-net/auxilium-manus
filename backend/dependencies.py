@@ -9,13 +9,13 @@ import service_factory
 from core.database import get_db
 from models.sources_nautobot import NautobotConnection
 from services.nautobot.credentials import NautobotCredentials
-from services.sources.nautobot.persistence_service import InventoryPersistenceService
+from services.sources.nautobot.persistence_service import InventoryService
 
 
-def get_inventory_persistence_service(
+def get_inventory_service(
     db: Session = Depends(get_db),
-) -> InventoryPersistenceService:
-    return service_factory.build_inventory_persistence_service(db)
+) -> InventoryService:
+    return service_factory.build_inventory_service(db)
 
 
 def nautobot_credentials_from_body(connection: NautobotConnection) -> NautobotCredentials:
@@ -55,3 +55,11 @@ def get_git_connection_service():
 
 def get_cache_service():
     return service_factory.build_cache_service()
+
+
+def get_git_debug_service():
+    return service_factory.build_git_debug_service()
+
+
+def get_git_version_control_service():
+    return service_factory.build_git_version_control_service()

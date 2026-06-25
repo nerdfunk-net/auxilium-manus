@@ -1,6 +1,7 @@
 # Backend Analysis — Architectural Violations & Refactoring Candidates
 
 > Generated: 2026-06-25
+> Last updated: 2026-06-25 — Items 1–7 implemented in `doc/refactoring/REFACTORING_1.md`
 
 ## Executive Summary
 
@@ -57,7 +58,7 @@ The backend is structurally sound in most domains (workflows, credentials, setti
 
 ## 3. Business Logic in Routers
 
-### CRITICAL: `routers/git/operations.py` — Git sync/clone in router (429 lines)
+### CRITICAL: `routers/git/operations.py` — Git sync/clone in router (429 lines) ✅ DONE
 
 The `sync_repository` endpoint (lines 81–225) and `remove_and_sync_repository` endpoint (lines 229–351) perform **full git clone/pull operations directly inside route handlers**, including:
 - Directory creation (`os.makedirs`)
@@ -78,13 +79,13 @@ return {"success": True, "message": result.message, "repository_path": result.re
 ```
 Similarly for `remove_and_sync_repository`.
 
-### CRITICAL: `routers/git/debug.py` — 745-line router with all operations inline
+### CRITICAL: `routers/git/debug.py` — 745-line router with all operations inline ✅ DONE
 
 Debug endpoints (`debug_read_test`, `debug_write_test`, `debug_delete_test`, `debug_push_test`, plus diagnostics at lines 420+) implement file I/O, git push, SSL certificate checking, SSH key testing, and connection diagnostics **directly in the router**. There is no `GitDebugService` — all logic is in route handlers.
 
 **Fix:** Extract a `GitDebugService` in `services/git/debug_service.py` and delegate. The router becomes a thin pass-through to the service.
 
-### MODERATE: `routers/git/version_control.py` — commit iteration in router (253 lines)
+### MODERATE: `routers/git/version_control.py` — commit iteration in router (253 lines) ✅ DONE
 
 The `get_commits` endpoint (lines 51–108) iterates commits, formats commit dicts, and manages cache key logic inline. The `compare_commits` endpoint uses `difflib` directly. This logic should live in `GitCacheService` or a new `GitVersionControlService`.
 
@@ -92,7 +93,7 @@ The `get_commits` endpoint (lines 51–108) iterates commits, formats commit dic
 
 ## 4. Layer Violations
 
-### Direct DB access pattern in `GitRepositoryRepository`
+### Direct DB access pattern in `GitRepositoryRepository` ✅ DONE
 
 `repositories/git/git_repository_repository.py` calls `get_db_session()` directly inside each method (creating and closing its own session per call) rather than accepting an injected `Session`. This deviates from the pattern used by `InventoryRepository`, `WorkflowRepository`, `RunRepository`, and `SettingsRepository`, which all accept `db: Session` in `__init__`.
 
@@ -100,7 +101,7 @@ The result: `GitRepositoryService` is constructed with no `db` argument and cann
 
 **Impact:** Git repository CRUD operations cannot be batched in atomic transactions with other domain operations.
 
-### `InventoryPersistenceService` is a thick service, not a persistence layer
+### `InventoryPersistenceService` is a thick service, not a persistence layer ✅ DONE (renamed to `InventoryService`)
 
 `services/sources/nautobot/persistence_service.py` (366 lines, 15 methods) wraps `InventoryRepository` but also contains:
 - Business access-control logic (`_assert_access`)
@@ -110,7 +111,7 @@ The result: `GitRepositoryService` is constructed with no `db` argument and cann
 
 The name (`PersistenceService`) implies it is a repository. It is actually a service class. Rename to `InventoryService` to clarify its role in the layer stack.
 
-### Stale/broken import: `services/settings/manager.py` does not exist
+### Stale/broken import: `services/settings/manager.py` does not exist ✅ DONE
 
 `routers/git/files.py` (line 59) contains:
 ```python
@@ -140,7 +141,7 @@ This is imported directly in three router files (`repositories.py`, `operations.
 
 ## 6. HTTPException 5xx Leaks
 
-### CONFIRMED 5xx violations in `routers/git/operations.py`
+### CONFIRMED 5xx violations in `routers/git/operations.py` ✅ DONE
 
 ```
 routers/git/operations.py:218  raise HTTPException(status_code=500, detail=message)
@@ -211,7 +212,7 @@ CLAUDE.md lists `audit.py` (`AuditLog`) and `rbac.py` (`Permission`, `Role`, `Ro
 | git repositories | ✅ | ✅ | ✅ | ✅ | Session injection in repository |
 | settings | ✅ | ✅ | ✅ | ✅ | None |
 | users / auth | ✅ | ✅ | ✅ | ✅ | None |
-| inventories | ✅ | ✅ | ✅ (as `InventoryPersistenceService`) | ✅ | Naming confusion |
+| inventories | ✅ | ✅ | ✅ (as `InventoryService`) | ✅ | Renamed ✅ |
 | audit | ❌ | ❌ | ❌ | ❌ | Entirely missing |
 | rbac (permissions/roles) | ❌ | ❌ | ❌ | ❌ | Entirely missing |
 | cache | N/A | N/A | ✅ | ✅ | None |
@@ -222,21 +223,21 @@ CLAUDE.md lists `audit.py` (`AuditLog`) and `rbac.py` (`Permission`, `Role`, `Ro
 
 ### HIGH — Fix immediately (correctness)
 
-1. **Fix broken import in `routers/git/files.py`** — `from services.settings.manager import SettingsManager` crashes at runtime. Replace with `CacheSettingsService` or hardcode defaults.
+1. ✅ **Fix broken import in `routers/git/files.py`** — `from services.settings.manager import SettingsManager` crashes at runtime. Replace with `CacheSettingsService` or hardcode defaults.
 
-2. **Delegate git sync to `GitOperationsService` from `routers/git/operations.py`** — `sync_repository` and `remove_and_sync_repository` reimplent logic that already exists in `services/git/operations.py`. Remove ~140 lines of duplicate code from the router; call the service instead.
+2. ✅ **Delegate git sync to `GitOperationsService` from `routers/git/operations.py`** — `sync_repository` and `remove_and_sync_repository` reimplent logic that already exists in `services/git/operations.py`. Remove ~140 lines of duplicate code from the router; call the service instead.
 
-3. **Fix 5xx HTTPException leaks in `routers/git/operations.py`** — Lines 218 and 344 raise raw exception text in 500 responses. Replace with `raise_internal_server_error(logger, "...", exc)`.
+3. ✅ **Fix 5xx HTTPException leaks in `routers/git/operations.py`** — Lines 218 and 344 raise raw exception text in 500 responses. Replace with `raise_internal_server_error(logger, "...", exc)`.
 
 ### MEDIUM — Architecture clean-up
 
-4. **Extract `GitDebugService` from `routers/git/debug.py`** — 745-line router must become thin. Extract all logic to `services/git/debug_service.py`.
+4. ✅ **Extract `GitDebugService` from `routers/git/debug.py`** — 745-line router must become thin. Extract all logic to `services/git/debug_service.py`.
 
-5. **Move commit iteration out of `routers/git/version_control.py`** — `get_commits` builds dicts and manages cache keys inline; `compare_commits` uses `difflib`. Extract to `GitCacheService` or a new `GitVersionControlService`.
+5. ✅ **Move commit iteration out of `routers/git/version_control.py`** — `get_commits` builds dicts and manages cache keys inline; `compare_commits` uses `difflib`. Extract to `GitCacheService` or a new `GitVersionControlService`.
 
-6. **Fix `GitRepositoryRepository` session injection** — Change to accept `db: Session` at `__init__` like all other repositories. Remove the module-level `git_repo_manager` singleton; register via FastAPI `Depends()`.
+6. ✅ **Fix `GitRepositoryRepository` session injection** — Change to accept `db: Session` at `__init__` like all other repositories. Remove the module-level `git_repo_manager` singleton; register via FastAPI `Depends()`.
 
-7. **Rename `InventoryPersistenceService` → `InventoryService`** — Clarifies its role as a service, not a persistence layer.
+7. ✅ **Rename `InventoryPersistenceService` → `InventoryService`** — Clarifies its role as a service, not a persistence layer.
 
 ### LOW — Code quality
 
