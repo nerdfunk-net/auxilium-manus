@@ -45,6 +45,10 @@ import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { migrateCanvasState } from "./utils/migrate-canvas";
 import { alignCanvasNodes, type NodeAlignment } from "./utils/node-alignment";
 import { deriveRouteOutcomes } from "@/components/features/workflow-steps/route-on-attribute/route-config";
+import {
+  DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG,
+  deriveProducesParsed,
+} from "@/components/features/workflow-steps/render-jinja-template/template-config";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: WorkflowCanvasNode[] = [];
@@ -384,6 +388,9 @@ export function WorkflowBuilderPage() {
           if (n.data.kind === "route-on-attribute") {
             nextData.outcomes = deriveRouteOutcomes(config);
           }
+          if (n.data.kind === "render-jinja-template") {
+            nextData.producesParsed = deriveProducesParsed(config);
+          }
           return { ...n, data: nextData };
         }),
       );
@@ -408,6 +415,11 @@ export function WorkflowBuilderPage() {
       const nextIndex = nodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const stepUuid = crypto.randomUUID();
+      const isRenderJinja = step.kind === "render-jinja-template";
+      const pluginConfig = isRenderJinja ? { ...DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG } : undefined;
+      const producesParsed = isRenderJinja
+        ? deriveProducesParsed(DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG)
+        : step.producesParsed;
 
       setNodes((currentNodes) => [
         ...currentNodes,
@@ -424,10 +436,11 @@ export function WorkflowBuilderPage() {
             requires: step.requires,
             requiresParsed: step.requiresParsed,
             produces: step.produces,
-            producesParsed: step.producesParsed,
+            producesParsed,
             consumes: step.consumes,
             outcomes: step.outcomes,
             status: "draft",
+            ...(pluginConfig ? { pluginConfig } : {}),
           },
         },
       ]);

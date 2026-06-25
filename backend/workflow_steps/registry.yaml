@@ -221,6 +221,43 @@ plugins:
             - device.network_driver
             - nautobot.role.name
 
+  - id: render-jinja-template
+    name: Render Jinja Template
+    description: Render a Jinja2 template per device and store the result for downstream steps.
+    artifact_type: template_rendering
+    directory: render_jinja_template
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: output_key
+          description: >
+            Unique key for this template output on each device (used by downstream
+            steps and canvas parsed-key validation).
+          data_type: string
+          required: true
+          example: device_config
+        - name: template
+          description: Jinja2 template rendered once per device at workflow runtime.
+          data_type: string
+          required: true
+        - name: editor_nautobot_source_id
+          description: Nautobot source used only by the template editor for sample data.
+          data_type: string
+          required: false
+        - name: editor_list_of_attributes
+          description: Nautobot attribute groups to load for editor sample data.
+          data_type: string_list
+          required: false
+        - name: editor_sample_device_name
+          description: Device name used only by the template editor for sample data.
+          data_type: string
+          required: false
+
   - id: store-artifact
     name: Store Artifact
     description: Persist generated content such as backups, reports, or logs.

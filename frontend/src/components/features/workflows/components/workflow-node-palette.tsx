@@ -7,6 +7,7 @@ import {
   ChevronUp,
   Code2,
   FileArchive,
+  FileText,
   GitBranch,
   GripVertical,
   HardDriveDownload,
@@ -82,6 +83,7 @@ const iconByArtifactType: Record<string, LucideIcon> = {
   control_flow: GitBranch,
   inventory_selector: Router,
   persistent_artifact: FileArchive,
+  template_rendering: FileText,
 };
 
 function formatArtifactType(artifactType: string) {
@@ -111,6 +113,7 @@ function toPaletteItem(plugin: PluginDefinition): PaletteItem {
 const ARTIFACT_TYPE_ORDER = [
   "inventory_selector",
   "control_flow",
+  "template_rendering",
   "command_execution",
   "configuration_retrieval",
   "persistent_artifact",

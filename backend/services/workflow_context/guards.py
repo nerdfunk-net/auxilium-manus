@@ -50,6 +50,8 @@ def effective_produces(
         if config_format == "startup":
             return frozenset({Capability.STARTUP_CONFIG})
         return frozenset({Capability.RUNNING_CONFIG, Capability.STARTUP_CONFIG})
+    if step_type == "render-jinja-template":
+        return frozenset({Capability.PARSED})
     return spec.produces
 
 

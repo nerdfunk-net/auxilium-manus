@@ -47,7 +47,7 @@ export function alignCanvasNodes(
     height: nodeHeight(node),
   }));
 
-  let nextPositions = new Map<string, { x: number; y: number }>();
+  const nextPositions = new Map<string, { x: number; y: number }>();
 
   switch (alignment) {
     case "align-left": {

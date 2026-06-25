@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Database,
   FileArchive,
+  FileText,
   GitBranch,
   HardDriveDownload,
   Router,
@@ -23,6 +24,7 @@ const nodeIconsByType: Record<string, LucideIcon> = {
   control_flow: GitBranch,
   inventory_selector: Router,
   persistent_artifact: FileArchive,
+  template_rendering: FileText,
   trigger: GitBranch,
   result: CheckCircle2,
 };
@@ -33,6 +35,7 @@ const nodeAccentClassesByType: Record<string, string> = {
   control_flow: "bg-amber-100 text-amber-700",
   inventory_selector: "bg-sky-100 text-sky-700",
   persistent_artifact: "bg-violet-100 text-violet-700",
+  template_rendering: "bg-orange-100 text-orange-700",
   trigger: "bg-slate-100 text-slate-700",
   result: "bg-teal-100 text-teal-700",
 };

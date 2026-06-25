@@ -375,6 +375,7 @@ export function WorkflowPropertiesPanel({
                   >
                 }
                 nodeId={selectedNode.id}
+                workflowNodes={nodes}
                 onChange={(config) =>
                   onNodeConfigChange?.(selectedNode.id, config)
                 }
