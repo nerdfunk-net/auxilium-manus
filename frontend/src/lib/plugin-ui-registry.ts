@@ -1,5 +1,6 @@
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
+import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
 import { GitClonePlugin } from "@/components/features/workflow-steps/git-clone";
@@ -21,6 +22,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "run-command": RunCommandPlugin,
   "route-on-attribute": RouteOnAttributePlugin,
   "fan-in": FanInPlugin,
+  "merge-content": MergeContentPlugin,
   "render-jinja-template": RenderJinjaTemplatePlugin,
   "store-artifact": StoreArtifactPlugin,
   "git-clone": GitClonePlugin,

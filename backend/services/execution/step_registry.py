@@ -23,6 +23,7 @@ from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot
 from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
 from workflow_steps.git_push.executor import execute as git_push
+from workflow_steps.merge_content.executor import execute as merge_content
 from workflow_steps.nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
@@ -41,6 +42,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "run-command": run_command,
     "route-on-attribute": route_on_attribute,
     "fan-in": fan_in,
+    "merge-content": merge_content,
     "store-artifact": store_artifact,
     "git-clone": git_clone,
     "git-pull": git_pull,

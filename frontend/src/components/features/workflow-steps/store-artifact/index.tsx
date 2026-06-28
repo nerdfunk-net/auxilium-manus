@@ -46,6 +46,11 @@ const CONTENT_SOURCE_OPTIONS = [
     label: "Rendered template",
     hint: "Choose the render-jinja-template step that produced the template.",
   },
+  {
+    value: "merged_content",
+    label: "Merged content",
+    hint: "Choose the merge-content step that combined multiple command outputs.",
+  },
 ] as const;
 
 type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
@@ -151,7 +156,9 @@ function StoreArtifactConfigPanel({
 
   const contentSource = (config.content_source as ContentSource) || "running_config";
   const needsStepNodeId =
-    contentSource === "command_output" || contentSource === "rendered_template";
+    contentSource === "command_output" ||
+    contentSource === "rendered_template" ||
+    contentSource === "merged_content";
   const needsParsedOutputKey = contentSource === "rendered_template";
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, contentSource, nodeId),
@@ -484,7 +491,9 @@ function StoreArtifactConfigPanel({
                   placeholder={
                     contentSource === "rendered_template"
                       ? "Choose render step…"
-                      : "Choose run-command step…"
+                      : contentSource === "merged_content"
+                        ? "Choose merge-content step…"
+                        : "Choose run-command step…"
                   }
                 />
               </SelectTrigger>
@@ -500,7 +509,9 @@ function StoreArtifactConfigPanel({
             <p className="text-[11px] text-amber-600">
               {contentSource === "rendered_template"
                 ? "Add a Render Jinja Template step to this workflow first."
-                : "Add a Run Command step to this workflow first."}
+                : contentSource === "merged_content"
+                  ? "Add a Merge Content step to this workflow first."
+                  : "Add a Run Command step to this workflow first."}
             </p>
           )}
           {selectedSourceStep ? (
@@ -529,7 +540,9 @@ function StoreArtifactConfigPanel({
                 placeholder={
                   contentSource === "rendered_template"
                     ? "render-jinja-template-3"
-                    : "run-command-3"
+                    : contentSource === "merged_content"
+                      ? "merge-content-3"
+                      : "run-command-3"
                 }
                 className="h-8 font-mono text-xs"
               />

@@ -25,6 +25,7 @@ _CONTENT_SOURCES = frozenset(
         "command_output",
         "latest_command_output",
         "rendered_template",
+        "merged_content",
     }
 )
 
@@ -103,6 +104,13 @@ def list_exportable_content(
             parsed_output_key=parsed_output_key,
         )
 
+    if content_source == "merged_content":
+        if not source_step_node_id:
+            raise ValueError(
+                "store-artifact: source_step_node_id is required for merged_content"
+            )
+        return _exportable_from_merged_content(device, source_step_node_id=source_step_node_id)
+
     return []
 
 
@@ -179,6 +187,34 @@ def _exportable_from_parsed_templates(
             )
         )
     return items
+
+
+def _exportable_from_merged_content(
+    device: DeviceContext,
+    *,
+    source_step_node_id: str,
+) -> list[ExportableContent]:
+    key = f"{source_step_node_id}.merged_content"
+    raw = device.parsed.get(key)
+    if not isinstance(raw, dict):
+        return []
+    artifact_raw = raw.get("artifact_ref")
+    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
+        return []
+    if raw.get("kind") != "merged_content":
+        return []
+    artifact_ref = ArtifactRef.model_validate(artifact_raw)
+    return [
+        ExportableContent(
+            kind="merged_content",
+            media_type=artifact_ref.media_type,
+            artifact_ref=artifact_ref,
+            extra={
+                "content_source": "merged_content",
+                "source_step_node_id": source_step_node_id,
+            },
+        )
+    ]
 
 
 def _latest_command_result(

@@ -262,6 +262,39 @@ plugins:
     metadata:
       configuration_input: []
 
+  - id: merge-content
+    name: Merge Content
+    description: >
+      Combines the command output from one or more upstream run-command steps
+      into a single merged artifact per device.
+    artifact_type: control_flow
+    directory: merge_content
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: source_step_node_ids
+          description: Canvas node IDs of upstream run-command steps to include (empty = all).
+          data_type: string_list
+          required: false
+        - name: merge_mode
+          description: "text_sectioned | text_plain | json_merged"
+          data_type: string
+          required: true
+        - name: section_separator
+          description: String placed between command output blocks (text modes).
+          data_type: string
+          required: false
+        - name: include_command_header
+          description: Prepend === {command} === before each block in text_sectioned mode.
+          data_type: boolean
+          required: false
+
   - id: render-jinja-template
     name: Render Jinja Template
     description: Render a Jinja2 template per device and store the result for downstream steps.
