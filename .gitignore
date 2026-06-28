@@ -14,8 +14,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to repo root so the Python packaging rule does not match
+# frontend/src/lib/ (TanStack query keys, plugin UI registry, auth store, etc.)
+/lib/
+/lib64/
 parts/
 sdist/
 var/
