@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
@@ -11,6 +11,7 @@ import {
   MapPin,
   Play,
   ScrollText,
+  Split,
   XCircle,
 } from "lucide-react";
 
@@ -43,10 +44,14 @@ import type {
 import {
   countOutcomeDevices,
   deriveStepDisplayStatus,
+  detectRunFanOut,
+  summarizeFanIn,
+  summarizeFanOutInventory,
   summarizeRouteCounts,
   summarizeRenderJinjaTemplate,
   summarizeWorkflowLogMessage,
   type DerivedStepStatus,
+  type FanOutInfo,
 } from "../utils/step-result-status";
 
 function formatDuration(started: string | null, finished: string | null): string {
@@ -137,6 +142,24 @@ function StepLogsModal({
   );
 }
 
+function FanOutBanner({ info }: { info: FanOutInfo }) {
+  const modePart =
+    info.mode === "chunked" ? `chunks of ${info.chunkSize}` : "per device";
+  const concurrencyPart =
+    info.maxConcurrency > 0 ? ` · max ${info.maxConcurrency} concurrent` : "";
+  return (
+    <div className="flex items-center gap-2 border-t bg-teal-50 px-4 py-2 text-xs text-teal-900">
+      <Split className="size-3.5 shrink-0 text-teal-600" aria-hidden />
+      <span className="font-semibold">Fan-out run</span>
+      <span className="text-teal-700">
+        {info.childCount} child{info.childCount !== 1 ? "ren" : ""} ·{" "}
+        {info.deviceCount} device{info.deviceCount !== 1 ? "s" : ""} · {modePart}
+        {concurrencyPart}
+      </span>
+    </div>
+  );
+}
+
 interface StepResultRowProps {
   step: WorkflowStepResult;
   runId: number;
@@ -144,6 +167,7 @@ interface StepResultRowProps {
   onToggle: () => void;
   onOpenModal: () => void;
   onFocusCanvas?: (nodeId: string) => void;
+  isFanOutRun?: boolean;
 }
 
 function StepResultRow({
@@ -153,17 +177,23 @@ function StepResultRow({
   onToggle,
   onOpenModal,
   onFocusCanvas,
+  isFanOutRun = false,
 }: StepResultRowProps) {
   const displayStatus = deriveStepDisplayStatus(step.status, step.output);
   const counts = countOutcomeDevices(step.output);
-  const runHint =
-    step.step_type === "route-on-attribute"
-      ? summarizeRouteCounts(step.output)
-      : step.step_type === "render-jinja-template"
-        ? summarizeRenderJinjaTemplate(step.output)
-        : step.step_type === "workflow-log"
-          ? summarizeWorkflowLogMessage(step.output)
-          : null;
+  const isInventoryStep =
+    step.step_type === "get-nautobot-devices" || step.step_type === "get-git-devices";
+  const runHint = isInventoryStep
+    ? summarizeFanOutInventory(step.output)
+    : step.step_type === "fan-in"
+      ? summarizeFanIn(step.output)
+      : step.step_type === "route-on-attribute"
+        ? summarizeRouteCounts(step.output)
+        : step.step_type === "render-jinja-template"
+          ? summarizeRenderJinjaTemplate(step.output)
+          : step.step_type === "workflow-log"
+            ? summarizeWorkflowLogMessage(step.output)
+            : null;
 
   return (
     <div className="px-4 py-3">
@@ -209,6 +239,9 @@ function StepResultRow({
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {counts.success} succeeded
               {counts.failure > 0 ? ` · ${counts.failure} failed` : ""}
+              {isFanOutRun && !isInventoryStep && step.step_type !== "fan-in"
+                ? " · via fan-out"
+                : ""}
             </p>
           ) : null}
           {step.error_message && !expanded ? (
@@ -266,6 +299,11 @@ function RunDetail({
     },
   });
 
+  const fanOutInfo = useMemo(
+    () => (data ? detectRunFanOut(data.step_results) : null),
+    [data],
+  );
+
   const toggleStep = useCallback((stepId: number) => {
     setExpandedStepId((current) => (current === stepId ? null : stepId));
   }, []);
@@ -288,6 +326,7 @@ function RunDetail({
 
   return (
     <>
+      {fanOutInfo ? <FanOutBanner info={fanOutInfo} /> : null}
       <div className="border-t divide-y">
         {data.step_results.map((step) => (
           <StepResultRow
@@ -298,6 +337,7 @@ function RunDetail({
             onToggle={() => toggleStep(step.id)}
             onOpenModal={() => setLogsStep(step)}
             onFocusCanvas={onFocusCanvas}
+            isFanOutRun={fanOutInfo !== null}
           />
         ))}
       </div>

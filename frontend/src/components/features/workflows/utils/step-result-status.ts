@@ -1,6 +1,6 @@
 import { parseStepOutput } from "@/lib/workflow-context-types";
 
-import type { StepStatus } from "../types/workflow-runs";
+import type { StepStatus, WorkflowStepResult } from "../types/workflow-runs";
 
 /** Display status derived from persisted step result + optional engine status. */
 export type DerivedStepStatus = StepStatus | "partial";
@@ -115,6 +115,78 @@ export function summarizeWorkflowLogMessage(
 
   const message = (debugLogs as Record<string, unknown>).message;
   return typeof message === "string" && message.trim() ? message.trim() : null;
+}
+
+const INVENTORY_STEP_TYPES = new Set(["get-nautobot-devices", "get-git-devices"]);
+
+export interface FanOutInfo {
+  mode: "per_device" | "chunked";
+  chunkSize: number;
+  maxConcurrency: number;
+  deviceCount: number;
+  childCount: number;
+}
+
+function extractFanOutFromOutput(
+  output: Record<string, unknown> | null,
+): FanOutInfo | null {
+  const envelope = parseStepOutput(output);
+  if (!envelope) return null;
+  const firstOutcome = Object.values(envelope.outcomes)[0];
+  if (!firstOutcome) return null;
+  const fanOut = firstOutcome.metadata._fan_out;
+  if (!fanOut || typeof fanOut !== "object" || !(fanOut as Record<string, unknown>).enabled) {
+    return null;
+  }
+  const fo = fanOut as Record<string, unknown>;
+  const mode = fo.mode === "chunked" ? "chunked" : "per_device";
+  const chunkSize = Math.max(1, typeof fo.chunk_size === "number" ? fo.chunk_size : 1);
+  const maxConcurrency = typeof fo.max_concurrency === "number" ? fo.max_concurrency : 0;
+  const deviceCount = Object.keys(firstOutcome.devices).length;
+  const childCount = mode === "chunked" ? Math.ceil(deviceCount / chunkSize) : deviceCount;
+  return { mode, chunkSize, maxConcurrency, deviceCount, childCount };
+}
+
+/** Scan step results to find whether this run used fan-out and extract its config. */
+export function detectRunFanOut(stepResults: WorkflowStepResult[]): FanOutInfo | null {
+  for (const step of stepResults) {
+    if (!INVENTORY_STEP_TYPES.has(step.step_type)) continue;
+    const info = extractFanOutFromOutput(step.output);
+    if (info) return info;
+  }
+  return null;
+}
+
+/** Short hint for inventory steps showing their fan-out config. */
+export function summarizeFanOutInventory(
+  output: Record<string, unknown> | null,
+): string | null {
+  const info = extractFanOutFromOutput(output);
+  if (!info) return null;
+  const modePart =
+    info.mode === "chunked" ? `chunked (${info.chunkSize}/child)` : "per device";
+  const concurrencyPart =
+    info.maxConcurrency > 0 ? ` · max ${info.maxConcurrency} concurrent` : "";
+  return `Fan-out: ${info.childCount} child${info.childCount !== 1 ? "ren" : ""} · ${modePart}${concurrencyPart}`;
+}
+
+/** Short hint for fan-in steps showing how many devices were merged. */
+export function summarizeFanIn(
+  output: Record<string, unknown> | null,
+): string | null {
+  const envelope = parseStepOutput(output);
+  if (!envelope) return null;
+  const firstOutcome = Object.values(envelope.outcomes)[0];
+  if (!firstOutcome) return null;
+  const fanInEntry = Object.entries(firstOutcome.metadata).find(([key]) =>
+    key.endsWith(".fan_in"),
+  );
+  if (!fanInEntry) return null;
+  const value = fanInEntry[1];
+  if (typeof value !== "object" || value === null) return null;
+  const deviceCount = (value as Record<string, unknown>).device_count;
+  if (typeof deviceCount !== "number") return null;
+  return `Merged ${deviceCount} device${deviceCount !== 1 ? "s" : ""} from fan-out children`;
 }
 
 /** Short summary for render-jinja-template results in the run list. */
