@@ -559,7 +559,12 @@ PORT=3000
 
 ### Adding a New Workflow Step
 
-> Full specification: `doc/WORKFLOW-STEPS.md`
+> **Read BOTH documents before implementing or changing any step/artifact:**
+> - `doc/WORKFLOW-STEPS.md` — full specification: contracts, registry, execution path,
+>   and **fan-out** behaviour (per-device child workflows; git/filesystem sinks are not
+>   automatically fan-out-safe).
+> - `doc/WORKFLOW-STEPS-STYLE_GUIDE.md` — frontend `ConfigPanel`/dialog styling rules
+>   (teal palette, card anatomy, fan-out config block).
 
 Each workflow step is a self-contained Python package under `backend/workflow_steps/{step_id}/`.
 The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/executor.py`.

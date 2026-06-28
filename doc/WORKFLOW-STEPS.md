@@ -250,6 +250,131 @@ export function getPluginUI(pluginId: string): PluginUIComponent | undefined {
 
 ---
 
+## Fan-out execution
+
+An **inventory step** (`get-nautobot-devices`, `get-git-devices`) may enable
+**fan-out**: instead of running the whole workflow once with every device sharing a
+single context, each device — or each chunk of devices — is processed as an independent
+Hatchet **child workflow**. This parallelises per-device work and isolates failures.
+
+### How it is configured
+
+Fan-out lives in the inventory step's `pluginConfig.fan_out`:
+
+```json
+{
+  "enabled": true,
+  "mode": "per_device",   // "per_device" (1 child per device) or "chunked"
+  "chunk_size": 1,         // devices per child when mode == "chunked"
+  "max_concurrency": 0     // 0 = unlimited, 1 = sequential, N = N children at a time
+}
+```
+
+The inventory executor copies these values into `context.metadata["_fan_out"]` when
+`enabled` is true (see `get_nautobot_devices/executor.py`).
+
+### Execution flow
+
+```
+WorkflowExecution (parent Hatchet task)   hatchet/workflows/workflow_run.py
+  └── StepRunner.execute_all()
+        ├── runs steps topologically until …
+        └── the inventory step emits _fan_out.enabled
+              → execute_all RETURNS a FanOutSignal (with join_node_id, if any)
+                and STOPS. Downstream steps DO NOT run in the parent yet.
+
+  Phase 2: _dispatch_children()
+        └── split devices into groups (per_device or chunked)
+              → one DeviceGroupExecution child per group (bounded by max_concurrency)
+
+  DeviceGroupExecution (child Hatchet task)  hatchet/workflows/device_group_execution.py
+        └── StepRunner.execute_subgraph()
+              → runs the CHILD BRANCH only — nodes downstream of the inventory step
+                MINUS the fan-in node and everything after it (StepRunner._child_node_ids)
+                — for that group's device subset, WITHOUT writing WorkflowStepResult rows.
+
+  Phase 3: _aggregate_and_persist()
+        └── merge_fan_out_contexts() folds each child's per-node outcomes together,
+            writes one WorkflowStepResult per child-branch node, and RETURNS the
+            merged per-node contexts.
+
+  Phase 4 (only when a fan-in node exists): StepRunner.resume_after_join()
+        └── seeds the merged child outcomes (+ the inventory outcome), then runs the
+            fan-in node and everything downstream of it ONCE on the fanned-in context,
+            writing those WorkflowStepResult rows on the parent run.
+```
+
+Key consequence: every step in the **child branch** runs once per child (once per device
+in `per_device` mode, once per chunk in `chunked` mode) on a single-device/single-chunk
+context. Every step **at or after the fan-in node** runs exactly **once** on the merged
+context. **Without** a fan-in node, the child branch is the entire downstream subgraph and
+the parent never re-executes anything — so `store-artifact`/git steps would run once per
+child (see the safety table below).
+
+### The fan-in (rejoin) node — `fan-in`
+
+The **Fan In** node (`store-artifact`/git-safe rejoin) marks the boundary where the
+fanned-out branches converge back into a single execution path:
+
+```
+inventory (fan_out on) → get-configs → render → [FAN IN] → store-artifact(git) → git-push
+        │                └──── runs once PER CHILD ────┘    └──── runs ONCE in parent ────┘
+        └── children stop before the fan-in node; parent resumes after the rejoin
+```
+
+- **Contract** (`registry.yaml`): `artifact_type: control_flow`, `requires: [identity]`,
+  `produces: []`, `consumes: []`, `outcomes: [success]`. It passes every device capability
+  through unchanged, so `running_config` / `parsed` / etc. remain available to post-join steps.
+- **Executor** (`workflow_steps/fan_in/executor.py`) is a near pass-through: device merging
+  is done by the orchestration layer (`merge_fan_out_contexts` in `_aggregate_and_persist`),
+  not by the step. The executor just stamps `metadata["{node}.fan_in"] = {"device_count": N}`
+  and emits one `success` outcome.
+- **Placement:** put per-device compute (`get-device-configs`, `run-command`,
+  `render-jinja-template`) **before** the fan-in node and git/store steps **after** it, so
+  exports commit and push exactly once over all devices.
+- **Scope (v1):** one fan-in node downstream of the fanned inventory step; the runtime picks
+  the first `fan-in` node it finds (`StepRunner._find_join_node_id`). No nested fan-out.
+- **Partial failure:** failed devices flow through the merge with `FAILED` status; the fan-in
+  and post-join steps still run on the device union (proceed-with-survivors). The per-step
+  result may be `partial`; the run is `failed` only when a post-join step raises.
+
+### Fan-out merge (`services/workflow_context/merge.py`)
+
+`merge_fan_out_contexts` folds disjoint child contexts back together:
+
+- **devices** — plain union (children own disjoint device sets).
+- **metadata lists** (e.g. `{node}.stored_artifacts`) — concatenated across children.
+- **metadata scalars/dicts** (e.g. `{node}.git_export`) — **first child wins** on
+  conflict, silently. A per-run aggregate value cannot be reconstructed this way.
+
+### Writing fan-out-safe steps
+
+When you author a step, assume it may run concurrently in many child workflows against
+the **same external resources**. A step is fan-out-safe when it:
+
+- writes only to **per-device-unique** destinations (e.g. a `filename_template` keyed on
+  `{device.name}`), and
+- holds **no shared mutable external state** that multiple children mutate at once.
+
+| Step kind | Fan-out safe? | Why |
+|-----------|---------------|-----|
+| `get-device-configs`, `run-command`, `get-nautobot-attributes`, `render-jinja-template`, `workflow-log`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
+| `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent children overwrite/race. |
+| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` | ❌ | All open **one shared on-disk working tree per git source** (`load_git_source_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. |
+
+**Guidance for git-backed exports under fan-out:** place a **Fan In** node between the
+per-device branch and the git/store steps. The per-device work (configs, commands,
+templates) runs in parallel children; the `store-artifact (git)` / `git-push` steps run
+once on the merged context after the rejoin — one pull, one commit, one push, no
+`index.lock` races. `max_concurrency: 1` only serialises children and still produces N
+commits, so it is not a substitute for the fan-in node.
+
+> If you add a step that mutates a shared external resource, either require it to sit after
+> a fan-in node, document its fan-out behaviour in `registry.yaml`, and/or prefer
+> per-device-unique writes.
+
+---
+
 ## Adding a new step — checklist
 
 1. **Backend package** — create `backend/workflow_steps/{step_id}/`:
@@ -265,3 +390,7 @@ export function getPluginUI(pluginId: string): PluginUIComponent | undefined {
 4. **Frontend component** — create `frontend/src/components/features/workflow-steps/{step-id}/index.tsx`
 
 5. **UI registry** — add an entry to `frontend/src/lib/plugin-ui-registry.ts`
+
+6. **Fan-out review** — confirm the step is fan-out-safe (see [Fan-out execution](#fan-out-execution)).
+   If it writes to a shared external resource, make the write per-device-unique or
+   document the constraint.

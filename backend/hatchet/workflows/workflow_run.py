@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hatchet_sdk import Context
 from pydantic import BaseModel
 
 from hatchet.client import hatchet
 from hatchet.workflows.device_group_execution import DeviceGroupInput, child_workflow
+
+if TYPE_CHECKING:
+    from models.workflow_context import WorkflowContext
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +111,7 @@ async def execute_steps(input: WorkflowRunInput, ctx: Context) -> dict:
             raise ValueError(f"WorkflowRun {input.run_id} not found (phase 3)")
         run, _ = run_result
 
-        success = _aggregate_and_persist(
+        success, child_merged = _aggregate_and_persist(
             run_repo=run_repo,
             run_id=run.id,
             signal=signal,
@@ -116,6 +119,37 @@ async def execute_steps(input: WorkflowRunInput, ctx: Context) -> dict:
             canvas_edges=canvas_edges,
             child_results=child_results,
         )
+
+        # Phase 4: when a fan-in node exists, resume execution once on the merged
+        # (fanned-in) context so git/store steps after the join run exactly once.
+        if signal.join_node_id is not None:
+            wf_result = wf_repo.get_by_id(run.workflow_id)
+            if wf_result is None:
+                raise ValueError(
+                    f"Workflow {run.workflow_id} not found (phase 4 resume)"
+                )
+            wf, _ = wf_result
+
+            # The fan-in node's parents are child-branch nodes; the inventory
+            # node is included so a join wired directly to it still resolves.
+            merged_outcomes: dict[str, dict[str, Any]] = {
+                signal.inventory_node_id: {"success": signal.inventory_outcome}
+            }
+            merged_outcomes.update(child_merged)
+
+            logger.info(
+                "Fan-in resume run_id=%s join_node_id=%s",
+                input.run_id,
+                signal.join_node_id,
+            )
+            join_success = await StepRunner(db).resume_after_join(
+                run=run,
+                workflow=wf,
+                merged_outcomes=merged_outcomes,
+                join_node_id=signal.join_node_id,
+            )
+            success = success and join_success
+
         final_status = "success" if success else "failed"
         run_repo.update_run_status(
             run,
@@ -167,6 +201,7 @@ async def _dispatch_children(
                 context_json=group_context.model_dump_json(),
                 start_node_id=signal.inventory_node_id,
                 child_index=i,
+                join_node_id=signal.join_node_id,
             )
         )
 
@@ -200,23 +235,32 @@ def _aggregate_and_persist(
     canvas_nodes: list[dict[str, Any]],
     canvas_edges: list[dict[str, Any]],
     child_results: list[dict[str, Any] | BaseException],
-) -> bool:
-    """Merge child outcomes and update the parent run's WorkflowStepResult records."""
+) -> tuple[bool, dict[str, dict[str, WorkflowContext]]]:
+    """Merge child outcomes and update the parent run's WorkflowStepResult records.
+
+    Returns ``(no_child_failure, merged_outcomes)`` where ``merged_outcomes`` maps
+    each child-branch node_id → outcome_name → merged WorkflowContext (device union
+    across children). The orchestrator feeds that map into ``resume_after_join`` so
+    the fan-in node's inputs resolve from the fanned-in device union.
+    """
     from models.workflow_context import WorkflowContext
     from services.execution.step_runner import StepRunner
     from services.workflow_context.merge import merge_fan_out_contexts
 
-    downstream_ids = StepRunner._downstream_node_ids(
-        signal.inventory_node_id, canvas_nodes, canvas_edges
+    # Children only produce the child branch (nodes before the fan-in node). The
+    # post-join nodes are run once by the parent in resume_after_join, so they must
+    # NOT be marked skipped here.
+    child_ids = StepRunner._child_node_ids(
+        signal.inventory_node_id, signal.join_node_id, canvas_nodes, canvas_edges
     )
 
     # Build a lookup from node_id → step result
     all_step_results = run_repo.get_step_results_for_run(run_id)
     step_result_by_node: dict[str, Any] = {sr.step_node_id: sr for sr in all_step_results}
 
-    # Accumulate outcomes per downstream node across all children
+    # Accumulate outcomes per child-branch node across all children
     per_node: dict[str, dict[str, list[WorkflowContext]]] = {
-        nid: {} for nid in downstream_ids
+        nid: {} for nid in child_ids
     }
     has_any_failure = False
 
@@ -237,39 +281,42 @@ def _aggregate_and_persist(
                 per_node[node_id].setdefault(outcome_name, []).append(ctx)
 
     now = datetime.now(timezone.utc)
+    merged_outcomes: dict[str, dict[str, WorkflowContext]] = {}
 
-    for node_id in downstream_ids:
-        step_result = step_result_by_node.get(node_id)
-        if step_result is None:
-            continue
-
+    for node_id in child_ids:
         node_outcomes = per_node[node_id]
+        step_result = step_result_by_node.get(node_id)
+
         if not node_outcomes:
-            run_repo.update_step_result(
-                step_result,
-                status="skipped",
-                finished_at=now,
-            )
+            if step_result is not None:
+                run_repo.update_step_result(
+                    step_result,
+                    status="skipped",
+                    finished_at=now,
+                )
             continue
 
         merged_output: dict[str, Any] = {}
+        node_merged: dict[str, WorkflowContext] = {}
         for outcome_name, ctx_list in node_outcomes.items():
             merged_ctx = (
                 merge_fan_out_contexts(ctx_list) if len(ctx_list) > 1 else ctx_list[0]
             )
+            node_merged[outcome_name] = merged_ctx
             merged_output[outcome_name] = merged_ctx.model_dump(mode="json")
+        merged_outcomes[node_id] = node_merged
 
-        if has_any_failure or "failure" in node_outcomes:
-            status = "partial" if "success" in node_outcomes else "failed"
-        else:
-            status = "success"
+        if step_result is not None:
+            if has_any_failure or "failure" in node_outcomes:
+                status = "partial" if "success" in node_outcomes else "failed"
+            else:
+                status = "success"
+            run_repo.update_step_result(
+                step_result,
+                status=status,
+                output={"outcomes": merged_output},
+                started_at=now,
+                finished_at=now,
+            )
 
-        run_repo.update_step_result(
-            step_result,
-            status=status,
-            output={"outcomes": merged_output},
-            started_at=now,
-            finished_at=now,
-        )
-
-    return not has_any_failure
+    return not has_any_failure, merged_outcomes

@@ -25,6 +25,7 @@ class DeviceGroupInput(BaseModel):
     context_json: str   # serialized WorkflowContext with this group's devices only
     start_node_id: str  # inventory step's node_id; child runs nodes downstream of this
     child_index: int    # for logging / tracing
+    join_node_id: str | None = None  # fan-in node; child stops before it (parent resumes)
 
 
 child_workflow = hatchet.workflow(
@@ -70,7 +71,11 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
         edges: list[dict[str, Any]] = wf.canvas_edges or []
 
         initial_context = WorkflowContext.model_validate_json(input.context_json)
-        downstream_ids = StepRunner._downstream_node_ids(input.start_node_id, nodes, edges)
+        # Children run up to (but not including) the fan-in node; the parent runs
+        # the fan-in node and everything downstream of it once after the rejoin.
+        allowed_ids = StepRunner._child_node_ids(
+            input.start_node_id, input.join_node_id, nodes, edges
+        )
 
         runner = StepRunner(db)
         step_outcomes = await runner.execute_subgraph(
@@ -78,7 +83,7 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
             workflow=wf,
             initial_context=initial_context,
             inventory_node_id=input.start_node_id,
-            allowed_node_ids=downstream_ids,
+            allowed_node_ids=allowed_ids,
         )
 
     # Serialize outcomes for parent aggregation; exclude the inventory step itself

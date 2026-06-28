@@ -56,6 +56,47 @@ The `ConfigPanel` component renders inside the React Flow node property panel �
 
 ---
 
+## Fan-out config (inventory steps)
+
+Inventory steps (`get-nautobot-devices`, `get-git-devices`) expose a **fan-out** block at
+the bottom of their `ConfigPanel`. Reference implementation:
+`get-nautobot-devices/index.tsx`. Keep every inventory step's fan-out UI identical:
+
+- Separate the block with `border-t pt-3` and wrap controls in `space-y-2`.
+- Header row: `flex items-center justify-between` with a `font-mono text-xs font-medium`
+  `fan_out` label on the left and a Shadcn `<Switch>` on the right.
+- One-line helper under the header: `text-[11px] text-muted-foreground`.
+- Reveal Mode / Chunk size / Max concurrency **only when enabled**, indented with `pl-1`.
+- Sub-field labels: `<Label className="text-[11px] text-muted-foreground">`.
+- Mode uses a Shadcn `<Select>` (`h-7 text-xs`); numeric fields use `<Input type="number">`
+  with `h-7 font-mono text-xs` and a `min` of `1` (chunk size) or `0` (max concurrency).
+- Hold defaults in a module-level `DEFAULT_FAN_OUT` constant and patch immutably through a
+  single `useCallback` handler (`{ ...config, fan_out: { ...fanOut, ...patch } }`).
+
+> Fan-out has real backend consequences (each device/chunk runs as an isolated child
+> workflow). Before adding it to a step, read the **Fan-out execution** section of
+> `WORKFLOW-STEPS.md` — git/filesystem sinks are not automatically fan-out-safe.
+
+### Fan-out badge on the canvas node
+
+When an inventory node has `pluginConfig.fan_out.enabled === true`, the canvas node renders
+a small "Fan out" badge next to its title so the active split is visible at a glance
+(`components/features/workflows/components/nodes/workflow-node.tsx`):
+
+- `<Badge variant="outline" className="gap-1 border-teal-300 bg-teal-50 text-teal-700">` with
+  a `<Split className="size-3" aria-hidden />` icon. Teal family only — no `sky-`/`blue-`.
+
+### Fan-in node config panel
+
+The **Fan In** node (`fan-in`) has no configuration. Its `ConfigPanel`
+(`workflow-steps/fan-in/index.tsx`) is info-only:
+
+- A single teal info banner (`rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900`)
+  explaining the rejoin, plus a `text-[11px] text-muted-foreground` hint to place git/store
+  steps after it. No inputs, no `onChange`.
+
+---
+
 ## Dialogs
 
 - Use `<Dialog>` from Shadcn.
@@ -145,3 +186,4 @@ All text/number inputs follow the same pattern:
 - [ ] `<DialogHeader className="sr-only">` present with title + description
 - [ ] `aria-hidden` on all decorative icons
 - [ ] Shadcn primitives used for all UI (no raw `<select>`, `<dialog>`, etc.)
+- [ ] Inventory steps: fan-out block matches the shared pattern (`border-t pt-3`, Switch header, fields revealed only when enabled)

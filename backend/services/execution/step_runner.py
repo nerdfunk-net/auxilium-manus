@@ -43,6 +43,11 @@ class FanOutSignal:
     fan_out_config: dict[str, Any]
     inventory_outcome: WorkflowContext  # context with all devices + _fan_out metadata
     step_outcomes: dict[str, dict[str, WorkflowContext]] = field(default_factory=dict)
+    # node_id of the fan-in (join) step downstream of the inventory step, if any.
+    # When set, children stop before it and the parent runs it (and everything
+    # downstream of it) once on the merged context. When None, children run the
+    # whole downstream subgraph (legacy behaviour).
+    join_node_id: str | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -96,93 +101,195 @@ class StepRunner:
         for node in ordered_nodes:
             node_id = node.get("id", "")
             step_result = step_results[node_id]
-            node_data = node.get("data", {})
-            step_type = node_data.get("kind", "unknown")
-            step_config: dict[str, Any] = node_data.get("pluginConfig", {})
 
             if failed:
                 self.repo.update_step_result(step_result, status="skipped")
                 continue
 
+            ok = await self._execute_and_persist_node(
+                node=node,
+                run=run,
+                workflow=workflow,
+                edges=edges,
+                step_outcomes=step_outcomes,
+                step_result=step_result,
+            )
+            if not ok:
+                failed = True
+                continue
+
+            # Check if this step requested fan-out. When it does, stop here and
+            # hand control back to the orchestrator, which dispatches children
+            # and (when a fan-in node exists) resumes execution after the join.
+            success_ctx = step_outcomes.get(node_id, {}).get("success")
+            if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
+                fan_out_config = dict(success_ctx.metadata["_fan_out"])
+                join_node_id = self._find_join_node_id(node_id, nodes, edges)
+                logger.info(
+                    "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
+                    node_id,
+                    fan_out_config.get("mode"),
+                    join_node_id,
+                    run.id,
+                )
+                return FanOutSignal(
+                    inventory_node_id=node_id,
+                    fan_out_config=fan_out_config,
+                    inventory_outcome=success_ctx,
+                    step_outcomes=dict(step_outcomes),
+                    join_node_id=join_node_id,
+                )
+
+        return not failed
+
+    async def _execute_and_persist_node(
+        self,
+        *,
+        node: dict[str, Any],
+        run: WorkflowRun,
+        workflow: Workflow,
+        edges: list[dict[str, Any]],
+        step_outcomes: dict[str, dict[str, WorkflowContext]],
+        step_result: WorkflowStepResult,
+    ) -> bool:
+        """Execute one node, store its outcomes, and persist its step result.
+
+        Returns True when the step ran (even with device-level failures, e.g. a
+        ``partial`` outcome) and False only when the executor raised. Shared by
+        ``execute_all`` and ``resume_after_join`` so the dispatch/guard/serialize
+        logic lives in exactly one place.
+        """
+        node_id = node.get("id", "")
+        node_data = node.get("data", {})
+        step_type = node_data.get("kind", "unknown")
+        step_config: dict[str, Any] = node_data.get("pluginConfig", {})
+
+        self.repo.update_step_result(
+            step_result,
+            status="running",
+            started_at=datetime.now(timezone.utc),
+        )
+
+        try:
+            input_context = self._assemble_input_context(
+                run=run,
+                workflow=workflow,
+                node_id=node_id,
+                edges=edges,
+                step_outcomes=step_outcomes,
+            )
+            outcomes = await self._execute_step(
+                step_type=step_type,
+                config=step_config,
+                context=input_context,
+                run=run,
+                node_id=node_id,
+            )
+            self._store_step_outcomes(step_outcomes, node_id, outcomes)
+
+            persisted_output = self._serialize_outcomes(outcomes)
+            step_status = derive_step_result_status(
+                outcomes=outcomes,
+                input_context=input_context,
+            )
             self.repo.update_step_result(
                 step_result,
-                status="running",
-                started_at=datetime.now(timezone.utc),
+                status=step_status,
+                output=persisted_output,
+                finished_at=datetime.now(timezone.utc),
             )
+            logger.info(
+                "Step finished node_id=%s type=%s status=%s",
+                node_id,
+                step_type,
+                step_status,
+            )
+            return True
+        except Exception:
+            logger.error(
+                "Step failed node_id=%s type=%s run_id=%s",
+                node_id,
+                step_type,
+                run.id,
+                exc_info=True,
+            )
+            import traceback
 
-            try:
-                input_context = self._assemble_input_context(
-                    run=run,
-                    workflow=workflow,
-                    node_id=node_id,
-                    edges=edges,
-                    step_outcomes=step_outcomes,
-                )
-                outcomes = await self._execute_step(
-                    step_type=step_type,
-                    config=step_config,
-                    context=input_context,
-                    run=run,
-                    node_id=node_id,
-                )
-                self._store_step_outcomes(step_outcomes, node_id, outcomes)
+            self.repo.update_step_result(
+                step_result,
+                status="failed",
+                error_message=traceback.format_exc()[:4000],
+                finished_at=datetime.now(timezone.utc),
+            )
+            return False
 
-                # Check if this step requested fan-out
-                success_ctx = step_outcomes.get(node_id, {}).get("success")
-                if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
-                    fan_out_config = dict(success_ctx.metadata["_fan_out"])
-                    self.repo.update_step_result(
-                        step_result,
-                        status="success",
-                        output=self._serialize_outcomes(outcomes),
-                        finished_at=datetime.now(timezone.utc),
-                    )
-                    logger.info(
-                        "Fan-out requested node_id=%s mode=%s run_id=%s",
-                        node_id,
-                        fan_out_config.get("mode"),
-                        run.id,
-                    )
-                    return FanOutSignal(
-                        inventory_node_id=node_id,
-                        fan_out_config=fan_out_config,
-                        inventory_outcome=success_ctx,
-                        step_outcomes=dict(step_outcomes),
-                    )
+    async def resume_after_join(
+        self,
+        *,
+        run: WorkflowRun,
+        workflow: Workflow,
+        merged_outcomes: dict[str, dict[str, WorkflowContext]],
+        join_node_id: str,
+    ) -> bool:
+        """Run the fan-in node and everything downstream of it exactly once.
 
-                persisted_output = self._serialize_outcomes(outcomes)
-                step_status = derive_step_result_status(
-                    outcomes=outcomes,
-                    input_context=input_context,
-                )
-                self.repo.update_step_result(
-                    step_result,
-                    status=step_status,
-                    output=persisted_output,
-                    finished_at=datetime.now(timezone.utc),
-                )
-                logger.info(
-                    "Step finished node_id=%s type=%s status=%s",
-                    node_id,
-                    step_type,
-                    step_status,
-                )
-            except Exception:
-                logger.error(
-                    "Step failed node_id=%s type=%s run_id=%s",
-                    node_id,
-                    step_type,
-                    run.id,
-                    exc_info=True,
-                )
-                import traceback
+        Called by the orchestrator after all fan-out children complete. The
+        ``merged_outcomes`` map (node_id -> outcome_name -> merged WorkflowContext)
+        must contain every node that is a parent of the join — typically the
+        boundary child nodes plus the inventory node — so ``_assemble_input_context``
+        can resolve the fan-in node's inputs from the fanned-in device union.
 
-                self.repo.update_step_result(
-                    step_result,
-                    status="failed",
-                    error_message=traceback.format_exc()[:4000],
-                    finished_at=datetime.now(timezone.utc),
+        Writes/updates WorkflowStepResult rows for the post-join nodes on the
+        parent run. Returns True when every post-join step ran without raising
+        (device-level ``partial`` results still count as success here, matching
+        the proceed-with-survivors policy).
+        """
+        nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
+        edges: list[dict[str, Any]] = workflow.canvas_edges or []
+        ordered_nodes = self._topological_sort(nodes, edges)
+
+        post_join_ids = {join_node_id} | self._downstream_node_ids(
+            join_node_id, nodes, edges
+        )
+
+        # Seed prior outcomes from the children so the fan-in node's parents resolve.
+        step_outcomes: dict[str, dict[str, WorkflowContext]] = {
+            node_id: dict(outcomes) for node_id, outcomes in merged_outcomes.items()
+        }
+
+        step_result_by_node: dict[str, WorkflowStepResult] = {
+            sr.step_node_id: sr for sr in self.repo.get_step_results_for_run(run.id)
+        }
+
+        failed = False
+        for node in ordered_nodes:
+            node_id = node.get("id", "")
+            if node_id not in post_join_ids:
+                continue
+
+            step_result = step_result_by_node.get(node_id)
+            if step_result is None:
+                node_data = node.get("data", {})
+                step_result = self.repo.create_step_result(
+                    run_id=run.id,
+                    step_node_id=node_id,
+                    step_type=node_data.get("kind", "unknown"),
+                    step_name=node_data.get("title", node_data.get("kind", "unknown")),
                 )
+
+            if failed:
+                self.repo.update_step_result(step_result, status="skipped")
+                continue
+
+            ok = await self._execute_and_persist_node(
+                node=node,
+                run=run,
+                workflow=workflow,
+                edges=edges,
+                step_outcomes=step_outcomes,
+                step_result=step_result,
+            )
+            if not ok:
                 failed = True
 
         return not failed
@@ -286,6 +393,46 @@ class StepRunner:
             visited.add(nid)
             queue.extend(adjacency.get(nid, []))
         return visited
+
+    @staticmethod
+    def _find_join_node_id(
+        inventory_node_id: str,
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> str | None:
+        """Return the first fan-in node downstream of the inventory step, if any.
+
+        v1 supports at most one fan-in node per fanned-out branch; the match is
+        deterministic by node list order.
+        """
+        downstream = StepRunner._downstream_node_ids(inventory_node_id, nodes, edges)
+        for node in nodes:
+            node_id = node.get("id", "")
+            if node_id in downstream and (node.get("data", {}) or {}).get("kind") == "fan-in":
+                return node_id
+        return None
+
+    @staticmethod
+    def _child_node_ids(
+        inventory_node_id: str,
+        join_node_id: str | None,
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> set[str]:
+        """Nodes a fan-out child should execute.
+
+        That is everything downstream of the inventory step, minus the fan-in
+        node and everything downstream of it (which the parent runs once after
+        the children rejoin). When no fan-in node exists, children run the whole
+        downstream subgraph (legacy behaviour).
+        """
+        downstream = StepRunner._downstream_node_ids(inventory_node_id, nodes, edges)
+        if join_node_id is None:
+            return downstream
+        post_join = {join_node_id} | StepRunner._downstream_node_ids(
+            join_node_id, nodes, edges
+        )
+        return downstream - post_join
 
     def _assemble_input_context(
         self,

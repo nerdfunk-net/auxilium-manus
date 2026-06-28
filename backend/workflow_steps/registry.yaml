@@ -245,6 +245,23 @@ plugins:
             - device.network_driver
             - nautobot.role.name
 
+  - id: fan-in
+    name: Fan In
+    description: >
+      Rejoin a fanned-out workflow into a single path. Per-device steps run in
+      parallel child workflows up to this node; steps placed after it run once
+      over all devices. Place git / store-artifact steps after Fan In for safe,
+      single-commit exports.
+    artifact_type: control_flow
+    directory: fan_in
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input: []
+
   - id: render-jinja-template
     name: Render Jinja Template
     description: Render a Jinja2 template per device and store the result for downstream steps.

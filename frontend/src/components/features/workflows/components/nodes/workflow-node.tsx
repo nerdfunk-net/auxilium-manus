@@ -7,13 +7,21 @@ import {
   FileArchive,
   FileText,
   GitBranch,
+  GitMerge,
   HardDriveDownload,
+  Info,
   Router,
+  Split,
   TerminalSquare,
   type LucideIcon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type { WorkflowCanvasNode } from "../../types/workflow-canvas";
@@ -46,6 +54,65 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
   const hasSourceHandles = outcomes.length > 0;
+  const fanOut = data.pluginConfig?.fan_out;
+  const fanOutEnabled =
+    !!fanOut &&
+    typeof fanOut === "object" &&
+    (fanOut as Record<string, unknown>).enabled === true;
+
+  if (data.kind === "fan-in") {
+    return (
+      <div
+        className={cn(
+          "relative w-80 rounded-xl border bg-card shadow-sm transition-shadow",
+          selected && "border-ring shadow-lg ring-2 ring-ring/20",
+        )}
+      >
+        <Handle
+          className="!size-3 !border-2 !bg-background"
+          id="input"
+          position={Position.Left}
+          style={{ top: "50%" }}
+          type="target"
+        />
+        <div className="flex items-start gap-3 p-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+            <GitMerge className="size-4" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1">
+              <span className="text-xs font-semibold text-foreground">Fan In</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="size-3 shrink-0 cursor-help text-muted-foreground" aria-label="About Fan In" />
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {data.description}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+              Rejoin a fanned-out workflow into a single path.
+            </p>
+          </div>
+        </div>
+        {hasSourceHandles
+          ? outcomes.map((outcome, index) => (
+              <Handle
+                key={outcome.name}
+                className="!size-3 !border-2 !bg-background"
+                id={outcome.name}
+                position={Position.Right}
+                style={{
+                  top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                }}
+                type="source"
+              />
+            ))
+          : null}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -78,6 +145,15 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
             {data.status ? (
               <Badge className="capitalize" variant="outline">
                 {data.status}
+              </Badge>
+            ) : null}
+            {fanOutEnabled ? (
+              <Badge
+                className="gap-1 border-teal-300 bg-teal-50 text-teal-700"
+                variant="outline"
+              >
+                <Split className="size-3" aria-hidden />
+                Fan out
               </Badge>
             ) : null}
           </div>
