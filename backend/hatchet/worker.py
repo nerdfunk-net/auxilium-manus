@@ -20,6 +20,9 @@ if str(_backend_root) not in sys.path:
 
 import service_factory  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
+from hatchet.workflows.device_group_execution import (  # noqa: E402
+    child_workflow as device_group_workflow,
+)
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
 from services.nautobot.client import NautobotService  # noqa: E402
 
@@ -47,7 +50,7 @@ def main() -> None:
     worker = hatchet.worker(
         "auxilium-manus-worker",
         slots=10,
-        workflows=[workflow_execution],
+        workflows=[workflow_execution, device_group_workflow],
         lifespan=lifespan,
     )
     logger.info("Starting Hatchet worker — listening for workflow:run events")

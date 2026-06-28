@@ -1,13 +1,16 @@
 """Executes all steps of a workflow run in topological order.
 
 Returns True when all steps succeed, False when any step fails (remaining steps
-are marked skipped). Never raises — the caller (Hatchet step) decides how to
-interpret the return value.
+are marked skipped). Returns FanOutSignal when an inventory step requests
+per-device fan-out via Hatchet child workflows. Never raises — the caller
+(Hatchet step) decides how to interpret the return value.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
@@ -20,7 +23,6 @@ from core.models.workflows import Workflow
 from models.workflow_context import StepOutcome, WorkflowContext
 from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
-from core.config import settings
 from services.artifacts import FilesystemArtifactService
 from services.execution.step_result_status import derive_step_result_status
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
@@ -31,6 +33,16 @@ from services.workflow_context.guards import (
 )
 from services.workflow_context.merge import merge_workflow_contexts
 from services.workflow_context.registry import capability_spec_from_plugin
+
+
+@dataclass
+class FanOutSignal:
+    """Returned by execute_all when an inventory step requests fan-out."""
+
+    inventory_node_id: str
+    fan_out_config: dict[str, Any]
+    inventory_outcome: WorkflowContext  # context with all devices + _fan_out metadata
+    step_outcomes: dict[str, dict[str, WorkflowContext]] = field(default_factory=dict)
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +61,16 @@ class StepRunner:
         self.artifact_service = FilesystemArtifactService(settings.data_directory)
         self.plugin_registry = _plugin_registry_service()
 
-    async def execute_all(self, *, run: WorkflowRun, workflow: Workflow) -> bool:
-        """Execute every step in dependency order. Returns True on full success."""
+    async def execute_all(
+        self, *, run: WorkflowRun, workflow: Workflow
+    ) -> bool | FanOutSignal:
+        """Execute every step in dependency order.
+
+        Returns True on full success, False when any step fails (remaining steps
+        are marked skipped). Returns FanOutSignal when an inventory step embeds
+        ``_fan_out.enabled`` in its outcome context — the caller must handle
+        dispatching child workflows and aggregating results.
+        """
         nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
 
@@ -106,6 +126,30 @@ class StepRunner:
                     node_id=node_id,
                 )
                 self._store_step_outcomes(step_outcomes, node_id, outcomes)
+
+                # Check if this step requested fan-out
+                success_ctx = step_outcomes.get(node_id, {}).get("success")
+                if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
+                    fan_out_config = dict(success_ctx.metadata["_fan_out"])
+                    self.repo.update_step_result(
+                        step_result,
+                        status="success",
+                        output=self._serialize_outcomes(outcomes),
+                        finished_at=datetime.now(timezone.utc),
+                    )
+                    logger.info(
+                        "Fan-out requested node_id=%s mode=%s run_id=%s",
+                        node_id,
+                        fan_out_config.get("mode"),
+                        run.id,
+                    )
+                    return FanOutSignal(
+                        inventory_node_id=node_id,
+                        fan_out_config=fan_out_config,
+                        inventory_outcome=success_ctx,
+                        step_outcomes=dict(step_outcomes),
+                    )
+
                 persisted_output = self._serialize_outcomes(outcomes)
                 step_status = derive_step_result_status(
                     outcomes=outcomes,
@@ -142,6 +186,106 @@ class StepRunner:
                 failed = True
 
         return not failed
+
+    async def execute_subgraph(
+        self,
+        *,
+        run: WorkflowRun,
+        workflow: Workflow,
+        initial_context: WorkflowContext,
+        inventory_node_id: str,
+        allowed_node_ids: set[str],
+    ) -> dict[str, dict[str, WorkflowContext]]:
+        """Run only the downstream subgraph without writing WorkflowStepResult records.
+
+        Used by child workflows during fan-out. The parent aggregates and persists
+        the returned step outcomes.
+
+        Args:
+            run: The parent WorkflowRun (read-only DB access via object_session).
+            workflow: The workflow definition containing nodes and edges.
+            initial_context: The WorkflowContext with the device subset for this child.
+            inventory_node_id: The node_id of the inventory step that triggered fan-out.
+            allowed_node_ids: Set of node IDs this child should execute.
+
+        Returns:
+            Mapping of node_id → outcome_name → WorkflowContext for all executed nodes.
+        """
+        nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
+        edges: list[dict[str, Any]] = workflow.canvas_edges or []
+        ordered_nodes = self._topological_sort(nodes, edges)
+
+        step_outcomes: dict[str, dict[str, WorkflowContext]] = {
+            inventory_node_id: {"success": initial_context}
+        }
+
+        for node in ordered_nodes:
+            node_id: str = node.get("id", "")
+            if node_id not in allowed_node_ids:
+                continue
+
+            node_data: dict[str, Any] = node.get("data", {})
+            step_type: str = node_data.get("kind", "unknown")
+            step_config: dict[str, Any] = node_data.get("pluginConfig", {})
+
+            try:
+                input_context = self._assemble_input_context(
+                    run=run,
+                    workflow=workflow,
+                    node_id=node_id,
+                    edges=edges,
+                    step_outcomes=step_outcomes,
+                )
+                outcomes = await self._execute_step(
+                    step_type=step_type,
+                    config=step_config,
+                    context=input_context,
+                    run=run,
+                    node_id=node_id,
+                )
+                self._store_step_outcomes(step_outcomes, node_id, outcomes)
+                logger.info(
+                    "Subgraph step finished node_id=%s type=%s",
+                    node_id,
+                    step_type,
+                )
+            except Exception:
+                logger.error(
+                    "Subgraph step failed node_id=%s type=%s run_id=%s",
+                    node_id,
+                    step_type,
+                    run.id,
+                    exc_info=True,
+                )
+                self._store_step_outcomes(
+                    step_outcomes, node_id, [StepOutcome(name="failure", context=initial_context)]
+                )
+
+        return step_outcomes
+
+    @staticmethod
+    def _downstream_node_ids(
+        start_node_id: str,
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> set[str]:
+        """Return all node IDs reachable downstream of start_node_id (excluding it)."""
+        adjacency: dict[str, list[str]] = {n["id"]: [] for n in nodes if "id" in n}
+        for edge in edges:
+            src = edge.get("source", "")
+            tgt = edge.get("target", "")
+            if src in adjacency and tgt in adjacency:
+                adjacency[src].append(tgt)
+
+        visited: set[str] = set()
+        queue: deque[str] = deque(adjacency.get(start_node_id, []))
+        while queue:
+            nid = queue.popleft()
+            if nid in visited:
+                continue
+            visited.add(nid)
+            queue.extend(adjacency.get(nid, []))
+        return visited
 
     def _assemble_input_context(
         self,

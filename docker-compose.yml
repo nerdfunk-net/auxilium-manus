@@ -116,6 +116,7 @@ services:
       SERVER_GRPC_BROADCAST_ADDRESS: "localhost:7077"
       SERVER_DEFAULT_ENGINE_VERSION: "V1"
       SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS: "hatchet-engine:7070"
+      SERVER_OBSERVABILITY_ENABLED: true
     volumes:
       - hatchet_config:/hatchet/config
       - hatchet_certs:/hatchet/certs
@@ -137,6 +138,7 @@ services:
       DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
       SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
       SERVER_GRPC_INSECURE: "t"
+      SERVER_OBSERVABILITY_ENABLED: true
     volumes:
       - hatchet_config:/hatchet/config
       - hatchet_certs:/hatchet/certs
@@ -158,6 +160,7 @@ services:
       - backend
     environment:
       DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
+      SERVER_OBSERVABILITY_ENABLED: true
     volumes:
       - hatchet_config:/hatchet/config
       - hatchet_certs:/hatchet/certs

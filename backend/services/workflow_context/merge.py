@@ -235,6 +235,54 @@ def _merge_pending_commands_for_device(
     return merged
 
 
+def merge_fan_out_contexts(contexts: list[WorkflowContext]) -> WorkflowContext:
+    """Merge child-workflow contexts produced by fan-out execution.
+
+    Unlike ``merge_workflow_contexts`` (branch convergence), every child ran the
+    same downstream steps with disjoint device sets.  Rules:
+    - Devices: plain union (no overlap expected).
+    - Metadata: lists are concatenated; other collisions keep the first value.
+    - Command results, errors, capabilities: union.
+    """
+    if not contexts:
+        raise ValueError("merge_fan_out_contexts requires at least one context")
+
+    base = contexts[0]
+    for other in contexts[1:]:
+        _assert_same_invariants(base, other)
+        base = _fan_in_two_contexts(base, other)
+    return base
+
+
+def _fan_in_two_contexts(left: WorkflowContext, right: WorkflowContext) -> WorkflowContext:
+    # Devices are disjoint in fan-out — plain union
+    merged_devices = {**left.devices, **right.devices}
+    return left.model_copy(
+        update={
+            "devices": merged_devices,
+            "pending_commands": _merge_pending_commands(
+                left.pending_commands,
+                right.pending_commands,
+            ),
+            "metadata": _merge_metadata_fan_out(left.metadata, right.metadata),
+        }
+    )
+
+
+def _merge_metadata_fan_out(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    """Fan-out metadata merge: concatenate lists, keep first value on scalar conflicts."""
+    merged = dict(left)
+    for key, value in right.items():
+        if key not in merged:
+            merged[key] = value
+        elif merged[key] == value:
+            pass  # identical — fine
+        elif isinstance(merged[key], list) and isinstance(value, list):
+            merged[key] = merged[key] + value
+        # Otherwise keep the existing (first child's) value silently
+    return merged
+
+
 def _merge_metadata(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
     merged = dict(left)
     for key, value in right.items():

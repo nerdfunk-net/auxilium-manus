@@ -72,15 +72,28 @@ async def execute(
         )
         new_devices[device_ctx.id] = device_ctx
 
+    fan_out_cfg: dict = config.get("fan_out") or {}
+    fan_out_enabled = bool(fan_out_cfg.get("enabled", False))
+
+    metadata_update: dict = {
+        **context.metadata,
+        f"{node_id}.source_id": git_source_id,
+        f"{node_id}.total": len(new_devices),
+        f"{node_id}.files_read": files_read,
+    }
+    if fan_out_enabled:
+        metadata_update["_fan_out"] = {
+            "enabled": True,
+            "mode": fan_out_cfg.get("mode", "per_device"),
+            "chunk_size": max(1, int(fan_out_cfg.get("chunk_size", 1))),
+            "max_concurrency": max(0, int(fan_out_cfg.get("max_concurrency", 0))),
+            "inventory_node_id": node_id,
+        }
+
     new_context = context.model_copy(
         update={
             "devices": {**context.devices, **new_devices},
-            "metadata": {
-                **context.metadata,
-                f"{node_id}.source_id": git_source_id,
-                f"{node_id}.total": len(new_devices),
-                f"{node_id}.files_read": files_read,
-            },
+            "metadata": metadata_update,
         }
     )
     return [StepOutcome(name="success", context=new_context)]
