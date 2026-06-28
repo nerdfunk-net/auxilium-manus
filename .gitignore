@@ -225,6 +225,6 @@ cockpit-ng
 cockpit
 
 # git and artifact data
-data/git/gitea
+data/git
 data/artifacts
 data/exports
