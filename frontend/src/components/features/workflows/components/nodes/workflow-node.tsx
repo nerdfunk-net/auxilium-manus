@@ -13,12 +13,14 @@ import {
   Info,
   Router,
   Scale,
+  Settings2,
   Split,
   TerminalSquare,
   type LucideIcon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -26,6 +28,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { useWorkflowBuilderStore } from "../../hooks/use-workflow-builder-store";
 import type { WorkflowCanvasNode } from "../../types/workflow-canvas";
 
 const nodeIconsByType: Record<string, LucideIcon> = {
@@ -50,7 +53,8 @@ const nodeAccentClassesByType: Record<string, string> = {
   result: "bg-teal-100 text-teal-700",
 };
 
-export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) {
+export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
+  const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
   const nodeType = data.artifactType ?? data.kind;
   const Icon = nodeIconsByType[nodeType] ?? Database;
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
@@ -66,7 +70,7 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
     return (
       <div
         className={cn(
-          "relative w-64 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
+          "group relative w-64 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
           selected && "border-ring shadow-lg ring-2 ring-ring/20",
         )}
       >
@@ -77,6 +81,15 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
           style={{ top: "50%" }}
           type="target"
         />
+        <Button
+          aria-label="Configure step"
+          className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
+          onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
+          size="icon"
+          variant="ghost"
+        >
+          <Settings2 className="size-3.5" />
+        </Button>
         <div className="flex items-start gap-2.5">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
             <Scale className="size-4" aria-hidden />
@@ -119,7 +132,7 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
     return (
       <div
         className={cn(
-          "relative w-52 rounded-xl border bg-card shadow-sm transition-shadow",
+          "group relative w-52 rounded-xl border bg-card shadow-sm transition-shadow",
           selected && "border-ring shadow-lg ring-2 ring-ring/20",
         )}
       >
@@ -130,6 +143,15 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
           style={{ top: "50%" }}
           type="target"
         />
+        <Button
+          aria-label="Configure step"
+          className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
+          onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
+          size="icon"
+          variant="ghost"
+        >
+          <Settings2 className="size-3.5" />
+        </Button>
         <div className="flex items-center gap-2 p-2.5">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
             <Combine className="size-3.5" aria-hidden />
@@ -163,7 +185,7 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
     return (
       <div
         className={cn(
-          "relative w-80 rounded-xl border bg-card shadow-sm transition-shadow",
+          "group relative w-80 rounded-xl border bg-card shadow-sm transition-shadow",
           selected && "border-ring shadow-lg ring-2 ring-ring/20",
         )}
       >
@@ -174,6 +196,15 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
           style={{ top: "50%" }}
           type="target"
         />
+        <Button
+          aria-label="Configure step"
+          className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
+          onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
+          size="icon"
+          variant="ghost"
+        >
+          <Settings2 className="size-3.5" />
+        </Button>
         <div className="flex items-start gap-3 p-3">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
             <GitMerge className="size-4" aria-hidden />
@@ -216,7 +247,7 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
   return (
     <div
       className={cn(
-        "relative min-w-56 rounded-xl border bg-card p-4 shadow-sm transition-shadow",
+        "group relative min-w-56 rounded-xl border bg-card p-4 shadow-sm transition-shadow",
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
@@ -229,6 +260,15 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
           type="target"
         />
       ) : null}
+      <Button
+        aria-label="Configure step"
+        className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
+        onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
+        size="icon"
+        variant="ghost"
+      >
+        <Settings2 className="size-3.5" />
+      </Button>
       <div className="flex items-start gap-3">
         <div
           className={cn(

@@ -22,6 +22,7 @@ import { SettingsMockCanvas } from "@/components/features/settings/components/se
 import { SettingsTopbar } from "@/components/features/settings/components/settings-topbar";
 import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
 
+import { NodeConfigModal } from "./components/node-config-modal";
 import { WorkflowCanvas } from "./components/workflow-canvas";
 import { WorkflowExecutionsPanel } from "./components/workflow-executions-panel";
 import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel";
@@ -503,10 +504,16 @@ export function WorkflowBuilderPage() {
                   edges={edges}
                   nodes={nodes}
                   onEdgeStyleChange={handleEdgeStyleChange}
+                  onAlignNodes={handleAlignNodes}
+                />
+              ) : null}
+              {mode === "editor" ? (
+                <NodeConfigModal
+                  nodes={nodes}
+                  plugins={plugins}
                   onNodeConfigChange={handleNodeConfigChange}
                   onNodeTitleChange={handleNodeTitleChange}
-                  onAlignNodes={handleAlignNodes}
-                  plugins={plugins}
+                  workflowNodes={nodes}
                 />
               ) : null}
             </>

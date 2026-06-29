@@ -20,6 +20,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   isActionsPanelVisible: boolean;
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
+  configModalNodeId: string | null;
   lastAction: string;
   setMode: (mode: WorkflowMode) => void;
   showActionsPanel: () => void;
@@ -27,6 +28,8 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   toggleActionsPanel: () => void;
   selectNode: (nodeId: string | null) => void;
   selectEdge: (edgeId: string | null) => void;
+  openConfigModal: (nodeId: string) => void;
+  closeConfigModal: () => void;
   markSaved: (message?: string) => void;
   markDirty: () => void;
   markRunning: (message?: string) => void;
@@ -58,6 +61,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   isActionsPanelVisible: false,
   selectedNodeId: null,
   selectedEdgeId: null,
+  configModalNodeId: null,
   lastAction: "Ready to design workflow",
   setMode: (mode) => set({ mode }),
   showActionsPanel: () => set({ isActionsPanelVisible: true, mode: "editor" }),
@@ -69,6 +73,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
     })),
   selectNode: (selectedNodeId) => set({ selectedNodeId, selectedEdgeId: null }),
   selectEdge: (selectedEdgeId) => set({ selectedEdgeId, selectedNodeId: null }),
+  openConfigModal: (configModalNodeId) => set({ configModalNodeId }),
+  closeConfigModal: () => set({ configModalNodeId: null }),
   markSaved: (message = "Workflow saved") =>
     set({
       workflowStatus: "Saved",
@@ -110,6 +116,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       isDirty: false,
       selectedNodeId: null,
       selectedEdgeId: null,
+      configModalNodeId: null,
       lastAction: "New workflow created",
     }),
 }));

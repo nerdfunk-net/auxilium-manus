@@ -1,9 +1,7 @@
 "use client";
 
 import {
-  ArrowDownToLine,
   ChevronsRight,
-  GitBranch,
   MoveRight,
   PanelRightOpen,
   Settings2,
@@ -11,21 +9,10 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-import { getPluginUI } from "@/lib/plugin-ui-registry";
 
 import { MultiStepLayoutPanel } from "./multi-step-layout-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
-import type {
-  PluginDefinition,
-  PluginIOField,
-  PluginStepOutcome,
-} from "../types/plugin-registry";
 import type {
   EdgeStyle,
   WorkflowCanvasEdge,
@@ -33,25 +20,13 @@ import type {
 } from "../types/workflow-canvas";
 import type { NodeAlignment } from "../utils/node-alignment";
 
-const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 interface WorkflowPropertiesPanelProps {
   nodes: WorkflowCanvasNode[];
   edges?: WorkflowCanvasEdge[];
-  plugins?: PluginDefinition[];
   onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
-  onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
-  onNodeTitleChange?: (nodeId: string, title: string) => void;
   onAlignNodes?: (nodeIds: string[], alignment: NodeAlignment) => void;
-}
-
-function formatArtifactType(artifactType: string) {
-  return artifactType
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function SectionHeader({
@@ -69,92 +44,10 @@ function SectionHeader({
   );
 }
 
-function FieldRow({ field }: { field: PluginIOField }) {
-  return (
-    <div className="rounded-lg border bg-background/60 px-3 py-2">
-      <div className="flex items-center gap-1.5">
-        <span className="font-mono text-xs font-medium">{field.name}</span>
-        <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-          {field.data_type}
-        </Badge>
-        {field.required && (
-          <span className="ml-auto text-[10px] text-destructive">required</span>
-        )}
-      </div>
-      {field.description ? (
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-          {field.description}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function OutcomeRow({ outcome }: { outcome: PluginStepOutcome }) {
-  return (
-    <div className="rounded-lg border bg-background/60 px-3 py-2">
-      <span className="font-mono text-xs font-medium">{outcome.name}</span>
-    </div>
-  );
-}
-
-function CapabilityList({
-  icon: Icon,
-  label,
-  values,
-}: {
-  icon: LucideIcon;
-  label: string;
-  values: string[];
-}) {
-  if (values.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <SectionHeader icon={Icon} label={label} />
-      <div className="flex flex-wrap gap-1.5">
-        {values.map((value) => (
-          <Badge key={value} className="font-mono text-[10px]" variant="secondary">
-            {value}
-          </Badge>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MockConfigRow({ field }: { field: PluginIOField }) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <span className="font-mono text-xs font-medium">{field.name}</span>
-        <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-          {field.data_type}
-        </Badge>
-        {field.required && (
-          <span className="ml-auto text-[10px] text-destructive">required</span>
-        )}
-      </div>
-      <div className="rounded border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
-        {field.example != null
-          ? String(field.example)
-          : field.default != null
-            ? String(field.default)
-            : "—"}
-      </div>
-    </div>
-  );
-}
-
 export function WorkflowPropertiesPanel({
   nodes,
   edges = EMPTY_EDGES,
-  plugins = EMPTY_PLUGINS,
   onEdgeStyleChange,
-  onNodeConfigChange,
-  onNodeTitleChange,
   onAlignNodes,
 }: WorkflowPropertiesPanelProps) {
   const selectedNodeId = useWorkflowBuilderStore(
@@ -171,14 +64,12 @@ export function WorkflowPropertiesPanel({
   );
   const isMultiSelect = selectedCanvasNodes.length > 1;
 
-  const selectedNode = useMemo(() => {
-    if (selectedCanvasNodes.length === 1) {
-      return selectedCanvasNodes[0];
-    }
+  const isSingleNodeSelected = useMemo(() => {
+    if (selectedCanvasNodes.length === 1) return true;
     if (selectedCanvasNodes.length === 0 && selectedNodeId) {
-      return nodes.find((node) => node.id === selectedNodeId) ?? null;
+      return nodes.some((node) => node.id === selectedNodeId);
     }
-    return null;
+    return false;
   }, [nodes, selectedCanvasNodes, selectedNodeId]);
 
   const selectedEdge = useMemo(
@@ -194,16 +85,6 @@ export function WorkflowPropertiesPanel({
   const targetNode = useMemo(
     () => nodes.find((n) => n.id === selectedEdge?.target),
     [nodes, selectedEdge],
-  );
-
-  const plugin = useMemo(
-    () => plugins.find((p) => p.id === selectedNode?.data.kind),
-    [plugins, selectedNode],
-  );
-
-  const pluginUI = useMemo(
-    () => (plugin ? getPluginUI(plugin.id) : undefined),
-    [plugin],
   );
 
   if (isMinimized) {
@@ -226,12 +107,12 @@ export function WorkflowPropertiesPanel({
       <div className="flex items-center justify-between border-b p-4">
         <div>
           <p className="text-sm font-semibold">
-            {isMultiSelect ? "Selection" : "Step properties"}
+            {isMultiSelect ? "Selection" : "Properties"}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {isMultiSelect
               ? `${selectedCanvasNodes.length} steps selected on the canvas.`
-              : "Configure the selected workflow step."}
+              : "Select an edge or multiple steps."}
           </p>
         </div>
         <Button
@@ -311,173 +192,13 @@ export function WorkflowPropertiesPanel({
             }
           />
         </div>
-      ) : selectedNode ? (
-        <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="config">
-          <TabsList className="h-7 w-full shrink-0 rounded-none border-b bg-transparent p-0">
-            <TabsTrigger
-              className="h-7 flex-1 rounded-none text-xs data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none"
-              value="config"
-            >
-              Config
-            </TabsTrigger>
-            <TabsTrigger
-              className="h-7 flex-1 rounded-none text-xs data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none"
-              value="description"
-            >
-              Description
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            className="min-h-0 flex-1 overflow-y-auto p-4 mt-0"
-            value="config"
-          >
-            <div className="mb-4 space-y-1.5 border-b pb-4">
-              <Label className="text-xs font-medium" htmlFor="step-name">
-                Step name
-              </Label>
-              <Input
-                id="step-name"
-                value={selectedNode.data.title}
-                onChange={(event) =>
-                  onNodeTitleChange?.(selectedNode.id, event.target.value)
-                }
-                onBlur={(event) => {
-                  const trimmed = event.target.value.trim();
-                  const fallback = plugin?.name ?? selectedNode.data.title;
-                  if (!trimmed) {
-                    onNodeTitleChange?.(selectedNode.id, fallback);
-                  } else if (trimmed !== event.target.value) {
-                    onNodeTitleChange?.(selectedNode.id, trimmed);
-                  }
-                }}
-                placeholder={plugin?.name ?? "Step name"}
-                className="h-8 text-sm"
-              />
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                Shown on the canvas and in run results.
-                {plugin ? (
-                  <>
-                    {" "}
-                    Plugin type: <span className="font-medium">{plugin.name}</span>
-                    <span className="font-mono"> ({plugin.id})</span>
-                  </>
-                ) : null}
-              </p>
-            </div>
-
-            {pluginUI && selectedNode ? (
-              <pluginUI.ConfigPanel
-                config={
-                  (selectedNode.data.pluginConfig ?? {}) as Record<
-                    string,
-                    unknown
-                  >
-                }
-                nodeId={selectedNode.id}
-                workflowNodes={nodes}
-                onChange={(config) =>
-                  onNodeConfigChange?.(selectedNode.id, config)
-                }
-                onPreview={() => undefined}
-              />
-            ) : plugin && plugin.metadata.configuration_input.length > 0 ? (
-              <div className="space-y-3">
-                <SectionHeader icon={Settings2} label="Configuration" />
-                <div className="space-y-2">
-                  {plugin.metadata.configuration_input.map((field) => (
-                    <MockConfigRow field={field} key={field.name} />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                No configuration fields defined for this step.
-              </p>
-            )}
-          </TabsContent>
-
-          <TabsContent
-            className="min-h-0 flex-1 overflow-y-auto p-4 mt-0"
-            value="description"
-          >
-            <div className="mb-4">
-              {selectedNode.data.artifactType ? (
-                <Badge className="mb-2" variant="secondary">
-                  {formatArtifactType(selectedNode.data.artifactType)}
-                </Badge>
-              ) : null}
-              <h2 className="text-base font-semibold">
-                {selectedNode.data.title}
-              </h2>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {selectedNode.data.description}
-              </p>
-            </div>
-
-            {plugin ? (
-              <div className="space-y-4">
-                {plugin.metadata.configuration_input.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <SectionHeader
-                      icon={Settings2}
-                      label="Configuration inputs"
-                    />
-                    {plugin.metadata.configuration_input.map((field) => (
-                      <FieldRow field={field} key={field.name} />
-                    ))}
-                  </div>
-                ) : null}
-
-                <CapabilityList
-                  icon={ArrowDownToLine}
-                  label="Requires"
-                  values={plugin.requires}
-                />
-                {plugin.requires_parsed.length > 0 ? (
-                  <CapabilityList
-                    icon={ArrowDownToLine}
-                    label="Requires parsed"
-                    values={plugin.requires_parsed}
-                  />
-                ) : null}
-                <CapabilityList
-                  icon={MoveRight}
-                  label="Produces"
-                  values={plugin.produces}
-                />
-                {plugin.produces_parsed.length > 0 ? (
-                  <CapabilityList
-                    icon={MoveRight}
-                    label="Produces parsed"
-                    values={plugin.produces_parsed}
-                  />
-                ) : null}
-                <CapabilityList
-                  icon={ChevronsRight}
-                  label="Consumes"
-                  values={plugin.consumes}
-                />
-
-                {plugin.outcomes.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <SectionHeader icon={GitBranch} label="Outcomes" />
-                    {plugin.outcomes.map((outcome) => (
-                      <OutcomeRow key={outcome.name} outcome={outcome} />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Plugin metadata not available.
-              </p>
-            )}
-          </TabsContent>
-        </Tabs>
+      ) : isSingleNodeSelected ? (
+        <div className="p-5 text-sm text-muted-foreground">
+          Click the <span className="font-medium">Config</span> button on the node to open its settings.
+        </div>
       ) : (
         <div className="p-5 text-sm text-muted-foreground">
-          Select a node or connection on the canvas to inspect its properties.
+          Select an edge or multiple nodes on the canvas to see controls here.
         </div>
       )}
     </aside>
