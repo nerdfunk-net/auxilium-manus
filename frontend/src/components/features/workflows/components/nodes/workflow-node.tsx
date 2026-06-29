@@ -42,6 +42,34 @@ const nodeIconsByType: Record<string, LucideIcon> = {
   result: CheckCircle2,
 };
 
+function outcomeClasses(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower === "success" || lower === "match" || lower === "pass") {
+    return "bg-green-50 text-green-700 border border-green-200";
+  }
+  if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
+    return "bg-red-50 text-red-700 border border-red-200";
+  }
+  if (lower === "default") {
+    return "bg-amber-50 text-amber-700 border border-amber-200";
+  }
+  return "bg-sky-50 text-sky-700 border border-sky-200";
+}
+
+function outcomeHandleClasses(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower === "success" || lower === "match" || lower === "pass") {
+    return "!bg-green-500 !border-green-600";
+  }
+  if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
+    return "!bg-red-500 !border-red-600";
+  }
+  if (lower === "default") {
+    return "!bg-amber-500 !border-amber-600";
+  }
+  return "!bg-sky-500 !border-sky-600";
+}
+
 const nodeAccentClassesByType: Record<string, string> = {
   command_execution: "bg-emerald-100 text-emerald-700",
   configuration_retrieval: "bg-indigo-100 text-indigo-700",
@@ -70,7 +98,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     return (
       <div
         className={cn(
-          "group relative w-64 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
+          "group relative w-72 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
           selected && "border-ring shadow-lg ring-2 ring-ring/20",
         )}
       >
@@ -105,7 +133,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
           ? outcomes.map((outcome, index) => (
               <div key={outcome.name}>
                 <span
-                  className="absolute right-5 -translate-y-1/2 whitespace-nowrap rounded-full bg-background px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm"
+                  className={cn("absolute right-5 -translate-y-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide", outcomeClasses(outcome.name))}
                   style={{
                     top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
                   }}
@@ -113,7 +141,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                   {outcome.name}
                 </span>
                 <Handle
-                  className="!size-3 !border-2 !bg-background"
+                  className={cn("!size-3 !border-2", outcomeHandleClasses(outcome.name))}
                   id={outcome.name}
                   position={Position.Right}
                   style={{
@@ -132,7 +160,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     return (
       <div
         className={cn(
-          "group relative w-52 rounded-xl border bg-card shadow-sm transition-shadow",
+          "group relative w-60 rounded-xl border bg-card shadow-sm transition-shadow",
           selected && "border-ring shadow-lg ring-2 ring-ring/20",
         )}
       >
@@ -247,7 +275,8 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
   return (
     <div
       className={cn(
-        "group relative min-w-56 rounded-xl border bg-card p-4 shadow-sm transition-shadow",
+        "group relative rounded-xl border bg-card shadow-sm transition-shadow",
+        outcomes.length > 1 ? "min-w-72" : "min-w-64",
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
@@ -269,7 +298,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
       >
         <Settings2 className="size-3.5" />
       </Button>
-      <div className="flex items-start gap-3">
+      <div className={cn("flex items-start gap-3 p-4", outcomes.length > 1 ? "pr-24" : "pr-10")}>
         <div
           className={cn(
             "flex size-10 shrink-0 items-center justify-center rounded-lg",
@@ -278,17 +307,12 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         >
           <Icon className="size-5" />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-semibold">{data.title}</p>
-            {data.status ? (
-              <Badge className="capitalize" variant="outline">
-                {data.status}
-              </Badge>
-            ) : null}
+            <p className="min-w-0 truncate text-sm font-semibold">{data.title}</p>
             {fanOutEnabled ? (
               <Badge
-                className="gap-1 border-teal-300 bg-teal-50 text-teal-700"
+                className="shrink-0 gap-1 border-teal-300 bg-teal-50 text-teal-700"
                 variant="outline"
               >
                 <Split className="size-3" aria-hidden />
@@ -301,12 +325,19 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
           </p>
         </div>
       </div>
+      {data.status ? (
+        <div className="border-t px-4 py-1.5">
+          <Badge className="capitalize" variant="outline">
+            {data.status}
+          </Badge>
+        </div>
+      ) : null}
       {hasSourceHandles
         ? outcomes.map((outcome, index) => (
             <div key={outcome.name}>
               {outcomes.length > 1 ? (
                 <span
-                  className="absolute right-4 -translate-y-1/2 rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm"
+                  className={cn("absolute right-4 -translate-y-1/2 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide", outcomeClasses(outcome.name))}
                   style={{
                     top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
                   }}
@@ -315,7 +346,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                 </span>
               ) : null}
               <Handle
-                className="!size-3 !border-2 !bg-background"
+                className={cn("!size-3 !border-2", outcomeHandleClasses(outcome.name))}
                 id={outcome.name}
                 position={Position.Right}
                 style={{
