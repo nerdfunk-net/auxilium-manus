@@ -295,6 +295,99 @@ plugins:
           data_type: boolean
           required: false
 
+  - id: compare-data
+    name: Compare Data
+    description: >
+      Compare device configuration or command output against a reference file on the
+      local filesystem or in a git repository.
+    artifact_type: control_flow
+    directory: compare_data
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    outcomes:
+      - name: match
+      - name: mismatch
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: content_source
+          description: >
+            Which device content to compare (running_config, startup_config,
+            command_output, latest_command_output, rendered_template, merged_content).
+          data_type: string
+          required: true
+          example: merged_content
+        - name: source_step_node_id
+          description: >
+            Canvas node id of the upstream step when comparing command output,
+            rendered templates, or merged content.
+          data_type: string
+          required: false
+        - name: parsed_output_key
+          description: >
+            Optional output_key from render-jinja-template when content_source is
+            rendered_template.
+          data_type: string
+          required: false
+        - name: reference_location
+          description: Where the reference file is stored (filesystem or git).
+          data_type: string
+          required: false
+          default: filesystem
+          example: git
+        - name: reference_subdirectory
+          description: >
+            Subdirectory under DATA_DIRECTORY for filesystem references
+            (not scoped by workflow/run id).
+          data_type: string
+          required: false
+          default: references
+        - name: git_source_id
+          description: Git source id from Settings → Sources when reference_location is git.
+          data_type: string
+          required: false
+        - name: repository_subdirectory
+          description: Optional path prefix inside the git repository before filename_template.
+          data_type: string
+          required: false
+          example: network/backups
+        - name: pull_before_read
+          description: Pull latest changes once before reading a git reference file.
+          data_type: boolean
+          required: false
+          default: false
+        - name: filename_template
+          description: >
+            Per-device path to the reference file. Supports device, nautobot, git,
+            command, and run placeholders.
+          data_type: string
+          required: true
+          example: "{device.name}.cfg"
+        - name: strict_templates
+          description: Fail when nautobot.* or command.* placeholders resolve empty.
+          data_type: boolean
+          required: false
+          default: true
+        - name: normalize_line_endings
+          description: Normalize CRLF/CR to LF before comparing.
+          data_type: boolean
+          required: false
+          default: true
+        - name: ignore_trailing_whitespace
+          description: Strip trailing whitespace on each line before comparing.
+          data_type: boolean
+          required: false
+          default: false
+        - name: comparison_diff_key
+          description: >
+            Parsed key written per device on mismatch ({node_id}.comparison_diff).
+            Contains the unified diff artifact for downstream steps and run inspection.
+          data_type: string
+          required: false
+          example: compare-data-3.comparison_diff
+
   - id: render-jinja-template
     name: Render Jinja Template
     description: Render a Jinja2 template per device and store the result for downstream steps.
@@ -393,7 +486,7 @@ plugins:
           description: >
             Which device content to export from the workflow context
             (running_config, startup_config, command_output, latest_command_output,
-            or rendered_template).
+            rendered_template, merged_content, or comparison_diff).
           data_type: string
           required: true
           example: running_config

@@ -1,4 +1,5 @@
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
+import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-data";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
@@ -23,6 +24,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "route-on-attribute": RouteOnAttributePlugin,
   "fan-in": FanInPlugin,
   "merge-content": MergeContentPlugin,
+  "compare-data": CompareDataPlugin,
   "render-jinja-template": RenderJinjaTemplatePlugin,
   "store-artifact": StoreArtifactPlugin,
   "git-clone": GitClonePlugin,

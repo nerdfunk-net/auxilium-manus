@@ -3,6 +3,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import {
   CheckCircle2,
+  Combine,
   Database,
   FileArchive,
   FileText,
@@ -11,6 +12,7 @@ import {
   HardDriveDownload,
   Info,
   Router,
+  Scale,
   Split,
   TerminalSquare,
   type LucideIcon,
@@ -59,6 +61,103 @@ export function WorkflowNode({ data, selected }: NodeProps<WorkflowCanvasNode>) 
     !!fanOut &&
     typeof fanOut === "object" &&
     (fanOut as Record<string, unknown>).enabled === true;
+
+  if (data.kind === "compare-data") {
+    return (
+      <div
+        className={cn(
+          "relative w-64 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
+          selected && "border-ring shadow-lg ring-2 ring-ring/20",
+        )}
+      >
+        <Handle
+          className="!size-3 !border-2 !bg-background"
+          id="input"
+          position={Position.Left}
+          style={{ top: "50%" }}
+          type="target"
+        />
+        <div className="flex items-start gap-2.5">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+            <Scale className="size-4" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-foreground">{data.title}</p>
+            <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+              Compare to reference file
+            </p>
+          </div>
+        </div>
+        {hasSourceHandles
+          ? outcomes.map((outcome, index) => (
+              <div key={outcome.name}>
+                <span
+                  className="absolute right-5 -translate-y-1/2 whitespace-nowrap rounded-full bg-background px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm"
+                  style={{
+                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                  }}
+                >
+                  {outcome.name}
+                </span>
+                <Handle
+                  className="!size-3 !border-2 !bg-background"
+                  id={outcome.name}
+                  position={Position.Right}
+                  style={{
+                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                  }}
+                  type="source"
+                />
+              </div>
+            ))
+          : null}
+      </div>
+    );
+  }
+
+  if (data.kind === "merge-content") {
+    return (
+      <div
+        className={cn(
+          "relative w-52 rounded-xl border bg-card shadow-sm transition-shadow",
+          selected && "border-ring shadow-lg ring-2 ring-ring/20",
+        )}
+      >
+        <Handle
+          className="!size-3 !border-2 !bg-background"
+          id="input"
+          position={Position.Left}
+          style={{ top: "50%" }}
+          type="target"
+        />
+        <div className="flex items-center gap-2 p-2.5">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+            <Combine className="size-3.5" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-foreground">{data.title}</p>
+            <p className="truncate text-[10px] leading-4 text-muted-foreground">
+              Merge command outputs
+            </p>
+          </div>
+        </div>
+        {hasSourceHandles
+          ? outcomes.map((outcome, index) => (
+              <Handle
+                key={outcome.name}
+                className="!size-3 !border-2 !bg-background"
+                id={outcome.name}
+                position={Position.Right}
+                style={{
+                  top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                }}
+                type="source"
+              />
+            ))
+          : null}
+      </div>
+    );
+  }
 
   if (data.kind === "fan-in") {
     return (

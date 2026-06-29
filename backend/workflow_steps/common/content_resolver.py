@@ -26,6 +26,7 @@ _CONTENT_SOURCES = frozenset(
         "latest_command_output",
         "rendered_template",
         "merged_content",
+        "comparison_diff",
     }
 )
 
@@ -110,6 +111,13 @@ def list_exportable_content(
                 "store-artifact: source_step_node_id is required for merged_content"
             )
         return _exportable_from_merged_content(device, source_step_node_id=source_step_node_id)
+
+    if content_source == "comparison_diff":
+        if not source_step_node_id:
+            raise ValueError(
+                "store-artifact: source_step_node_id is required for comparison_diff"
+            )
+        return _exportable_from_comparison_diff(device, source_step_node_id=source_step_node_id)
 
     return []
 
@@ -212,6 +220,35 @@ def _exportable_from_merged_content(
             extra={
                 "content_source": "merged_content",
                 "source_step_node_id": source_step_node_id,
+            },
+        )
+    ]
+
+
+def _exportable_from_comparison_diff(
+    device: DeviceContext,
+    *,
+    source_step_node_id: str,
+) -> list[ExportableContent]:
+    key = f"{source_step_node_id}.comparison_diff"
+    raw = device.parsed.get(key)
+    if not isinstance(raw, dict):
+        return []
+    artifact_raw = raw.get("artifact_ref")
+    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
+        return []
+    if raw.get("kind") != "comparison_diff":
+        return []
+    artifact_ref = ArtifactRef.model_validate(artifact_raw)
+    return [
+        ExportableContent(
+            kind="comparison_diff",
+            media_type=artifact_ref.media_type,
+            artifact_ref=artifact_ref,
+            extra={
+                "content_source": "comparison_diff",
+                "source_step_node_id": source_step_node_id,
+                "reference_path": raw.get("reference_path"),
             },
         )
     ]

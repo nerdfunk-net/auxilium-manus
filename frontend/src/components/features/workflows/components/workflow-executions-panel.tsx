@@ -49,6 +49,7 @@ import {
   summarizeFanOutInventory,
   summarizeRouteCounts,
   summarizeRenderJinjaTemplate,
+  summarizeCompareData,
   summarizeWorkflowLogMessage,
   type DerivedStepStatus,
   type FanOutInfo,
@@ -191,7 +192,9 @@ function StepResultRow({
         ? summarizeRouteCounts(step.output)
         : step.step_type === "render-jinja-template"
           ? summarizeRenderJinjaTemplate(step.output)
-          : step.step_type === "workflow-log"
+          : step.step_type === "compare-data"
+            ? summarizeCompareData(step.output)
+            : step.step_type === "workflow-log"
             ? summarizeWorkflowLogMessage(step.output)
             : null;
 

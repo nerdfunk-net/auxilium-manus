@@ -51,6 +51,11 @@ const CONTENT_SOURCE_OPTIONS = [
     label: "Merged content",
     hint: "Choose the merge-content step that combined multiple command outputs.",
   },
+  {
+    value: "comparison_diff",
+    label: "Comparison diff",
+    hint: "Choose the compare-data step that produced a unified diff on mismatch.",
+  },
 ] as const;
 
 type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
@@ -158,7 +163,8 @@ function StoreArtifactConfigPanel({
   const needsStepNodeId =
     contentSource === "command_output" ||
     contentSource === "rendered_template" ||
-    contentSource === "merged_content";
+    contentSource === "merged_content" ||
+    contentSource === "comparison_diff";
   const needsParsedOutputKey = contentSource === "rendered_template";
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, contentSource, nodeId),
@@ -493,7 +499,9 @@ function StoreArtifactConfigPanel({
                       ? "Choose render step…"
                       : contentSource === "merged_content"
                         ? "Choose merge-content step…"
-                        : "Choose run-command step…"
+                        : contentSource === "comparison_diff"
+                          ? "Choose compare-data step…"
+                          : "Choose run-command step…"
                   }
                 />
               </SelectTrigger>
@@ -511,7 +519,9 @@ function StoreArtifactConfigPanel({
                 ? "Add a Render Jinja Template step to this workflow first."
                 : contentSource === "merged_content"
                   ? "Add a Merge Content step to this workflow first."
-                  : "Add a Run Command step to this workflow first."}
+                  : contentSource === "comparison_diff"
+                    ? "Add a Compare Data step to this workflow first."
+                    : "Add a Run Command step to this workflow first."}
             </p>
           )}
           {selectedSourceStep ? (
@@ -542,7 +552,9 @@ function StoreArtifactConfigPanel({
                     ? "render-jinja-template-3"
                     : contentSource === "merged_content"
                       ? "merge-content-3"
-                      : "run-command-3"
+                      : contentSource === "comparison_diff"
+                        ? "compare-data-3"
+                        : "run-command-3"
                 }
                 className="h-8 font-mono text-xs"
               />

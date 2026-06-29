@@ -89,6 +89,39 @@ def _clone_or_pull(source_config: dict[str, Any]) -> Path:
     return repo_dir
 
 
+def _remove_and_clone(source_config: dict[str, Any]) -> Path:
+    """Remove any existing local copy and clone fresh; return the root path."""
+    source_id: str = source_config["source_id"]
+    url: str = source_config.get("url", "").strip()
+    branch: str = source_config.get("branch", "main").strip() or "main"
+    token: str = source_config.get("token", "").strip()
+    username: str = source_config.get("username", "").strip()
+
+    if not url:
+        raise ValueError(f"Git source '{source_id}' has no URL configured")
+
+    repo_dir = _GIT_BASE_DIR / source_id
+    auth_url = _build_auth_url(url, username, token)
+    repo_path = str(repo_dir)
+
+    if repo_dir.exists():
+        shutil.rmtree(repo_path, ignore_errors=True)
+        logger.info("Removed existing local copy of git source '%s'", source_id)
+
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        logger.info("Cloning git source '%s' branch '%s' into %s", source_id, branch, repo_dir)
+        Repo.clone_from(auth_url, repo_path, branch=branch)
+        logger.info("Cloned git source '%s'", source_id)
+    except GitCommandError as exc:
+        shutil.rmtree(repo_path, ignore_errors=True)
+        raise RuntimeError(
+            f"Failed to clone git source '{source_id}': {exc}"
+        ) from exc
+
+    return repo_dir
+
+
 def _find_files(repo_dir: Path, repository_path: str, pattern: str) -> list[Path]:
     """Return all files in the repo that match *pattern* (glob syntax)."""
     # Strip leading slashes — pathlib treats "/" as absolute, which would escape the repo root.

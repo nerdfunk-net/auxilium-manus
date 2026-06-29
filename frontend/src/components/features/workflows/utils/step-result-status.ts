@@ -220,3 +220,42 @@ export function summarizeRenderJinjaTemplate(
 
   return `${successCount} rendered${failurePart}${keyPart}`;
 }
+
+/** Short summary for compare-data results in the run list. */
+export function summarizeCompareData(
+  output: Record<string, unknown> | null,
+): string | null {
+  const metadata = firstOutcomeMetadata(output);
+  if (!metadata) {
+    return null;
+  }
+
+  const countsEntry = Object.entries(metadata).find(([key]) =>
+    key.endsWith(".comparison_counts"),
+  );
+  if (!countsEntry) {
+    return null;
+  }
+
+  const counts = countsEntry[1];
+  if (typeof counts !== "object" || counts === null) {
+    return null;
+  }
+
+  const match = (counts as Record<string, unknown>).match;
+  const mismatch = (counts as Record<string, unknown>).mismatch;
+  const failure = (counts as Record<string, unknown>).failure;
+
+  const parts: string[] = [];
+  if (typeof match === "number" && match > 0) {
+    parts.push(`${match} match`);
+  }
+  if (typeof mismatch === "number" && mismatch > 0) {
+    parts.push(`${mismatch} mismatch`);
+  }
+  if (typeof failure === "number" && failure > 0) {
+    parts.push(`${failure} failed`);
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : "no devices compared";
+}

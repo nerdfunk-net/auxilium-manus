@@ -77,6 +77,36 @@ class ContentResolverTests(unittest.TestCase):
         )
         self.assertEqual(items, [])
 
+    def test_comparison_diff_resolves_matching_step(self) -> None:
+        artifact_ref = ArtifactRef(
+            artifact_id="artifact-diff",
+            kind="comparison_diff",
+            size_bytes=42,
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "compare-data-2.comparison_diff": {
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": "compare-data-2",
+                    "kind": "comparison_diff",
+                    "matched": False,
+                    "reference_path": "lab.cfg",
+                }
+            },
+            status=DeviceStatus.OK,
+        )
+        items = list_exportable_content(
+            device,
+            content_source="comparison_diff",
+            source_step_node_id="compare-data-2",
+        )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].kind, "comparison_diff")
+        self.assertEqual(items[0].artifact_ref.artifact_id, "artifact-diff")
+
 
 if __name__ == "__main__":
     unittest.main()

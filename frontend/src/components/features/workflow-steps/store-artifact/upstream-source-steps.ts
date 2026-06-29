@@ -11,6 +11,7 @@ const SOURCE_STEP_KIND: Partial<Record<string, string>> = {
   command_output: "run-command",
   rendered_template: "render-jinja-template",
   merged_content: "merge-content",
+  comparison_diff: "compare-data",
 };
 
 function readRenderOutputKey(node: WorkflowCanvasNode): string {

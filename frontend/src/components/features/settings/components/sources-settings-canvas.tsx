@@ -12,6 +12,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  usePullGitSourceMutation,
+  useRemoveAndCloneGitSourceMutation,
+} from "@/hooks/queries/use-git-source-operations-mutations";
 import { useSettingsMutations } from "@/hooks/queries/use-settings-mutations";
 import { useSettingsListQuery } from "@/hooks/queries/use-settings-query";
 
@@ -37,7 +41,8 @@ type DialogState =
   | { type: "closed" }
   | { type: "nautobot"; mode: "create" | "edit"; sourceId?: string }
   | { type: "git"; mode: "create" | "edit"; sourceId?: string }
-  | { type: "delete"; sourceType: "nautobot" | "git"; sourceId: string; key: string };
+  | { type: "delete"; sourceType: "nautobot" | "git"; sourceId: string; key: string }
+  | { type: "remove-and-clone"; sourceId: string };
 
 export function SourcesSettingsCanvas() {
   const [dialog, setDialog] = useState<DialogState>({ type: "closed" });
@@ -45,6 +50,8 @@ export function SourcesSettingsCanvas() {
     keyPrefix: SOURCES_KEY_PREFIX,
   });
   const { upsertSetting, deleteSetting } = useSettingsMutations();
+  const pullGitSource = usePullGitSourceMutation();
+  const removeAndCloneGitSource = useRemoveAndCloneGitSourceMutation();
 
   const { nautobot, git } = useMemo(
     () => groupSourceSettings(data?.settings ?? []),
@@ -105,10 +112,27 @@ export function SourcesSettingsCanvas() {
     setDialog({ type: "closed" });
   }, [dialog, deleteSetting]);
 
+  const handlePullGit = useCallback(
+    async (sourceId: string) => {
+      await pullGitSource.mutateAsync(sourceId);
+    },
+    [pullGitSource],
+  );
+
+  const confirmRemoveAndClone = useCallback(async () => {
+    if (dialog.type !== "remove-and-clone") {
+      return;
+    }
+    await removeAndCloneGitSource.mutateAsync(dialog.sourceId);
+    setDialog({ type: "closed" });
+  }, [dialog, removeAndCloneGitSource]);
+
   const nautobotDialogOpen =
     dialog.type === "nautobot" ? dialog : null;
   const gitDialogOpen = dialog.type === "git" ? dialog : null;
   const deleteDialogOpen = dialog.type === "delete" ? dialog : null;
+  const removeAndCloneDialogOpen =
+    dialog.type === "remove-and-clone" ? dialog : null;
 
   const editingNautobot: NautobotSourceConfig | null =
     nautobotDialogOpen?.mode === "edit" && nautobotDialogOpen.sourceId
@@ -206,6 +230,10 @@ export function SourcesSettingsCanvas() {
                   key: buildSourceSettingKey("git", sourceId),
                 })
               }
+              onPull={handlePullGit}
+              onRemoveAndClone={(sourceId) =>
+                setDialog({ type: "remove-and-clone", sourceId })
+              }
             />
           </div>
         </div>
@@ -230,6 +258,39 @@ export function SourcesSettingsCanvas() {
         onClose={() => setDialog({ type: "closed" })}
         onSave={saveGit}
       />
+
+      <Dialog
+        open={removeAndCloneDialogOpen !== null}
+        onOpenChange={(open: boolean) => !open && setDialog({ type: "closed" })}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove and re-clone?</DialogTitle>
+            <DialogDescription>
+              {removeAndCloneDialogOpen
+                ? `This will delete the local copy of "${removeAndCloneDialogOpen.sourceId}" and clone it fresh from the remote. Any uncommitted local changes will be lost.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDialog({ type: "closed" })}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={removeAndCloneGitSource.isPending}
+              type="button"
+              variant="destructive"
+              onClick={confirmRemoveAndClone}
+            >
+              {removeAndCloneGitSource.isPending ? "Cloning…" : "Remove and Clone"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={deleteDialogOpen !== null}

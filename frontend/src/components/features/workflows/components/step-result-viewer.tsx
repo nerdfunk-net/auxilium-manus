@@ -283,6 +283,29 @@ interface ParsedTemplateEntry {
   kind: string;
 }
 
+interface ParsedComparisonResultEntry {
+  kind: "comparison_result";
+  matched: boolean;
+  step_node_id: string;
+  reference_path?: string;
+  reference_location?: string;
+  content_source?: string;
+  diff_stats?: { additions: number; deletions: number };
+  comparison_diff_key?: string;
+}
+
+interface ParsedComparisonDiffEntry {
+  kind: "comparison_diff";
+  matched: boolean;
+  artifact_ref: ArtifactRef;
+  step_node_id: string;
+  reference_path?: string;
+  reference_location?: string;
+  content_source?: string;
+  diff_stats?: { additions: number; deletions: number };
+  output_key?: string;
+}
+
 function isParsedTemplateEntry(value: unknown): value is ParsedTemplateEntry {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -302,6 +325,43 @@ function getParsedTemplateEntries(
   return Object.entries(parsed)
     .filter(([, value]) => isParsedTemplateEntry(value))
     .map(([key, entry]) => ({ key, entry: entry as ParsedTemplateEntry }));
+}
+
+function isComparisonResultEntry(value: unknown): value is ParsedComparisonResultEntry {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as ParsedComparisonResultEntry).kind === "comparison_result"
+  );
+}
+
+function isComparisonDiffEntry(value: unknown): value is ParsedComparisonDiffEntry {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const entry = value as ParsedComparisonDiffEntry;
+  return (
+    entry.kind === "comparison_diff" &&
+    typeof entry.artifact_ref === "object" &&
+    entry.artifact_ref !== null &&
+    typeof entry.artifact_ref.artifact_id === "string"
+  );
+}
+
+function getComparisonResultEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: ParsedComparisonResultEntry }> {
+  return Object.entries(parsed)
+    .filter(([, value]) => isComparisonResultEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as ParsedComparisonResultEntry }));
+}
+
+function getComparisonDiffEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: ParsedComparisonDiffEntry }> {
+  return Object.entries(parsed)
+    .filter(([, value]) => isComparisonDiffEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as ParsedComparisonDiffEntry }));
 }
 
 function ConfigArtifactPanel({
@@ -412,6 +472,85 @@ function DeviceParsedTemplatesContent({
   );
 }
 
+function DeviceComparisonDiffsContent({
+  runId,
+  comparisonResults,
+  comparisonDiffs,
+}: {
+  runId: number | null;
+  comparisonResults: Array<{ key: string; entry: ParsedComparisonResultEntry }>;
+  comparisonDiffs: Array<{ key: string; entry: ParsedComparisonDiffEntry }>;
+}) {
+  if (comparisonResults.length === 0 && comparisonDiffs.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 space-y-3">
+      {comparisonResults.map(({ key, entry }) => (
+        <div key={key} className="space-y-1 rounded border bg-background/60 p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Comparison
+            </p>
+            <Badge
+              className="text-[10px]"
+              variant={entry.matched ? "secondary" : "destructive"}
+            >
+              {entry.matched ? "match" : "mismatch"}
+            </Badge>
+            {entry.diff_stats ? (
+              <span className="text-[11px] text-muted-foreground">
+                +{entry.diff_stats.additions} / -{entry.diff_stats.deletions}
+              </span>
+            ) : null}
+          </div>
+          <p className="font-mono text-[10px] text-muted-foreground">key: {key}</p>
+          {entry.reference_path ? (
+            <p className="break-all text-[11px] text-muted-foreground">
+              reference: <span className="font-mono">{entry.reference_path}</span>
+            </p>
+          ) : null}
+          {entry.matched ? (
+            <p className="text-xs text-muted-foreground">
+              Source content matches the reference file.
+            </p>
+          ) : entry.comparison_diff_key ? (
+            <p className="text-xs text-muted-foreground">
+              Diff stored at{" "}
+              <span className="font-mono">{entry.comparison_diff_key}</span>
+            </p>
+          ) : null}
+        </div>
+      ))}
+
+      {comparisonDiffs.map(({ key, entry }) => (
+        <div key={key} className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-mono text-[10px] text-muted-foreground">key: {key}</p>
+            {entry.diff_stats ? (
+              <span className="text-[11px] text-muted-foreground">
+                +{entry.diff_stats.additions} / -{entry.diff_stats.deletions}
+              </span>
+            ) : null}
+          </div>
+          {runId == null ? (
+            <p className="text-xs text-muted-foreground">
+              Diff content is available from a workflow run detail view.
+            </p>
+          ) : (
+            <ConfigArtifactPanel
+              runId={runId}
+              label="Unified diff"
+              artifactRef={entry.artifact_ref}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DeviceCommandResultsContent({
   runId,
   commandResults,
@@ -495,7 +634,18 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
     () => getParsedTemplateEntries(device.parsed ?? {}),
     [device.parsed],
   );
+  const comparisonResultEntries = useMemo(
+    () => getComparisonResultEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
+  const comparisonDiffEntries = useMemo(
+    () => getComparisonDiffEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
   const hasParsedTemplates = parsedTemplateEntries.length > 0;
+  const hasComparisons =
+    comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0;
+  const [showComparisons, setShowComparisons] = useState(hasComparisons);
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
   const configCount =
     (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
@@ -573,10 +723,28 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
               ))}
             </div>
           ) : null}
+          {hasComparisons ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Comparisons
+              </p>
+              {comparisonResultEntries.map(({ key, entry }) => (
+                <div key={key} className="text-xs text-muted-foreground">
+                  <span className="font-mono">{key}</span>
+                  {" · "}
+                  {entry.matched ? "match" : "mismatch"}
+                  {entry.diff_stats
+                    ? ` (+${entry.diff_stats.additions}/-${entry.diff_stats.deletions})`
+                    : ""}
+                </div>
+              ))}
+            </div>
+          ) : null}
           <DeviceErrorList errors={device.errors} />
           {hasConfigs ||
           hasCommandResults ||
           hasParsedTemplates ||
+          hasComparisons ||
           attributeBagNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {attributeBagNames.length > 0 ? (
@@ -618,6 +786,16 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
                   {parsedTemplateEntries.map(({ entry }) => entry.output_key).join(", ")})
                 </button>
               ) : null}
+              {hasComparisons ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowComparisons((value) => !value)}
+                >
+                  {showComparisons ? "Hide" : "Show"} comparison diff
+                  {comparisonDiffEntries.length !== 1 ? "s" : ""}
+                </button>
+              ) : null}
             </div>
           ) : null}
           {showAttributeBags && attributeBagNames.length > 0 ? (
@@ -638,6 +816,13 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
             <DeviceParsedTemplatesContent
               runId={runId ?? null}
               parsedEntries={parsedTemplateEntries}
+            />
+          ) : null}
+          {showComparisons && hasComparisons ? (
+            <DeviceComparisonDiffsContent
+              runId={runId ?? null}
+              comparisonResults={comparisonResultEntries}
+              comparisonDiffs={comparisonDiffEntries}
             />
           ) : null}
         </div>

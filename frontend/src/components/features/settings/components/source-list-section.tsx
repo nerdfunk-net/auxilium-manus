@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Download, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -22,6 +22,8 @@ interface SourceListSectionProps {
   onAdd: () => void;
   onEdit: (sourceId: string) => void;
   onDelete: (sourceId: string) => void;
+  onPull?: (sourceId: string) => void;
+  onRemoveAndClone?: (sourceId: string) => void;
 }
 
 export function SourceListSection({
@@ -35,6 +37,8 @@ export function SourceListSection({
   onAdd,
   onEdit,
   onDelete,
+  onPull,
+  onRemoveAndClone,
 }: SourceListSectionProps) {
   return (
     <section className="space-y-3">
@@ -79,6 +83,28 @@ export function SourceListSection({
                 ) : null}
               </div>
               <div className="flex shrink-0 gap-1">
+                {onPull ? (
+                  <Button
+                    aria-label={`Pull ${item.sourceId}`}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onPull(item.sourceId)}
+                  >
+                    <Download className="size-4" />
+                  </Button>
+                ) : null}
+                {onRemoveAndClone ? (
+                  <Button
+                    aria-label={`Remove and clone ${item.sourceId}`}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onRemoveAndClone(item.sourceId)}
+                  >
+                    <RotateCcw className="size-4 text-destructive" />
+                  </Button>
+                ) : null}
                 <Button
                   aria-label={`Edit ${item.sourceId}`}
                   size="icon"

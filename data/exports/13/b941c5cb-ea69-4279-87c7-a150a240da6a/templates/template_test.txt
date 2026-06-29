@@ -1,3 +1,0 @@
-! Generated configuration for lab-2
-hostname 192.168.178.241
-lab-2
