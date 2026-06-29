@@ -179,7 +179,7 @@ export function NodeConfigModal({
 
   return (
     <Dialog open={configModalNodeId !== null} onOpenChange={(open) => { if (!open) closeConfigModal(); }}>
-      <DialogContent className="flex h-[75vh] max-w-2xl flex-col gap-0 p-0">
+      <DialogContent className="flex h-[75vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b border-sky-200 bg-accent px-6 py-4">
           <DialogTitle className="text-base text-accent-foreground">
             {activeNode?.data.title ?? "Step configuration"}
@@ -282,78 +282,100 @@ export function NodeConfigModal({
               className="mt-0 min-h-0 flex-1 overflow-y-auto p-6"
               value="description"
             >
-              <div className="mb-4">
-                {activeNode.data.artifactType ? (
-                  <Badge className="mb-2" variant="secondary">
-                    {formatArtifactType(activeNode.data.artifactType)}
-                  </Badge>
-                ) : null}
-                <h2 className="text-base font-semibold">
-                  {activeNode.data.title}
-                </h2>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {activeNode.data.description}
-                </p>
-              </div>
-
-              {plugin ? (
-                <div className="space-y-4">
-                  {plugin.metadata.configuration_input.length > 0 ? (
-                    <div className="space-y-1.5">
-                      <SectionHeader
-                        icon={Settings2}
-                        label="Configuration inputs"
-                      />
-                      {plugin.metadata.configuration_input.map((field) => (
-                        <FieldRow field={field} key={field.name} />
-                      ))}
-                    </div>
+              <div className="space-y-4">
+                {/* Group 1: Name */}
+                <div>
+                  {activeNode.data.artifactType ? (
+                    <Badge className="mb-2" variant="secondary">
+                      {formatArtifactType(activeNode.data.artifactType)}
+                    </Badge>
                   ) : null}
-
-                  <CapabilityList
-                    icon={ArrowDownToLine}
-                    label="Requires"
-                    values={plugin.requires}
-                  />
-                  {plugin.requires_parsed.length > 0 ? (
-                    <CapabilityList
-                      icon={ArrowDownToLine}
-                      label="Requires parsed"
-                      values={plugin.requires_parsed}
-                    />
-                  ) : null}
-                  <CapabilityList
-                    icon={MoveRight}
-                    label="Produces"
-                    values={plugin.produces}
-                  />
-                  {plugin.produces_parsed.length > 0 ? (
-                    <CapabilityList
-                      icon={MoveRight}
-                      label="Produces parsed"
-                      values={plugin.produces_parsed}
-                    />
-                  ) : null}
-                  <CapabilityList
-                    icon={ChevronsRight}
-                    label="Consumes"
-                    values={plugin.consumes}
-                  />
-
-                  {plugin.outcomes.length > 0 ? (
-                    <div className="space-y-1.5">
-                      <SectionHeader icon={GitBranch} label="Outcomes" />
-                      {plugin.outcomes.map((outcome) => (
-                        <OutcomeRow key={outcome.name} outcome={outcome} />
-                      ))}
-                    </div>
-                  ) : null}
+                  <h2 className="text-base font-semibold">
+                    {activeNode.data.title}
+                  </h2>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {activeNode.data.description}
+                  </p>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Plugin metadata not available.
-                </p>
-              )}
+
+                {plugin ? (
+                  <>
+                    {/* Group 2: Capabilities (Produces, Consumes) */}
+                    {(plugin.produces.length > 0 ||
+                      plugin.produces_parsed.length > 0 ||
+                      plugin.consumes.length > 0) ? (
+                      <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Capabilities
+                        </p>
+                        <CapabilityList
+                          icon={MoveRight}
+                          label="Produces"
+                          values={plugin.produces}
+                        />
+                        {plugin.produces_parsed.length > 0 ? (
+                          <CapabilityList
+                            icon={MoveRight}
+                            label="Produces parsed"
+                            values={plugin.produces_parsed}
+                          />
+                        ) : null}
+                        <CapabilityList
+                          icon={ChevronsRight}
+                          label="Consumes"
+                          values={plugin.consumes}
+                        />
+                      </div>
+                    ) : null}
+
+                    {/* Group 3: Configuration inputs, Requires, Outcomes */}
+                    {(plugin.metadata.configuration_input.length > 0 ||
+                      plugin.requires.length > 0 ||
+                      plugin.requires_parsed.length > 0 ||
+                      plugin.outcomes.length > 0) ? (
+                      <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Schema
+                        </p>
+                        {plugin.metadata.configuration_input.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <SectionHeader icon={Settings2} label="Configuration inputs" />
+                            {plugin.metadata.configuration_input.map((field) => (
+                              <FieldRow field={field} key={field.name} />
+                            ))}
+                          </div>
+                        ) : null}
+                        {plugin.requires.length > 0 ? (
+                          <CapabilityList
+                            icon={ArrowDownToLine}
+                            label="Requires"
+                            values={plugin.requires}
+                          />
+                        ) : null}
+                        {plugin.requires_parsed.length > 0 ? (
+                          <CapabilityList
+                            icon={ArrowDownToLine}
+                            label="Requires parsed"
+                            values={plugin.requires_parsed}
+                          />
+                        ) : null}
+                        {plugin.outcomes.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <SectionHeader icon={GitBranch} label="Outcomes" />
+                            {plugin.outcomes.map((outcome) => (
+                              <OutcomeRow key={outcome.name} outcome={outcome} />
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Plugin metadata not available.
+                  </p>
+                )}
+              </div>
             </TabsContent>
           </Tabs>
         ) : null}
