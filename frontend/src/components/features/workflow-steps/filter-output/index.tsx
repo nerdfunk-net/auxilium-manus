@@ -78,6 +78,8 @@ function buildConfig(
       typeof config.content_source === "string" ? config.content_source : "command_output",
     source_step_node_id:
       typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
+    source_command:
+      typeof config.source_command === "string" ? config.source_command : "",
     filter_rules: Array.isArray(config.filter_rules) ? config.filter_rules : [],
     ...patch,
   };
@@ -123,6 +125,8 @@ function FilterOutputConfigPanel({
   const contentSource = (config.content_source as ContentSource) || "command_output";
   const sourceStepNodeId =
     typeof config.source_step_node_id === "string" ? config.source_step_node_id : "";
+  const sourceCommand =
+    typeof config.source_command === "string" ? config.source_command : "";
 
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, contentSource, nodeId),
@@ -151,7 +155,7 @@ function FilterOutputConfigPanel({
         return;
       }
       setAutoDetected(null);
-      onChange(buildConfig(config, { content_source: value, source_step_node_id: "" }));
+      onChange(buildConfig(config, { content_source: value, source_step_node_id: "", source_command: "" }));
     },
     [config, onChange, upstream],
   );
@@ -166,6 +170,13 @@ function FilterOutputConfigPanel({
   const handleSourceStepNodeIdChange = useCallback(
     (value: string) => {
       onChange(buildConfig(config, { source_step_node_id: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleSourceCommandChange = useCallback(
+    (value: string) => {
+      onChange(buildConfig(config, { source_command: value }));
     },
     [config, onChange],
   );
@@ -303,6 +314,27 @@ function FilterOutputConfigPanel({
           className="h-8 font-mono text-xs"
         />
       </div>
+
+      {contentSource === "command_output" && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">source_command</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              optional
+            </Badge>
+          </div>
+          <Input
+            value={sourceCommand}
+            onChange={(e) => handleSourceCommandChange(e.target.value)}
+            placeholder="show ip route"
+            className="h-8 font-mono text-xs"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Leave empty to use the first command output. Enter the exact command string to
+            filter a specific command from a multi-command step.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2 border-t pt-3">
         <div className="flex items-center justify-between">

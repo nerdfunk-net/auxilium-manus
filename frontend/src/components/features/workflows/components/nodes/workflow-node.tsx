@@ -160,7 +160,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     return (
       <div
         className={cn(
-          "group relative w-60 rounded-xl border bg-card shadow-sm transition-shadow",
+          "group relative w-72 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
           selected && "border-ring shadow-lg ring-2 ring-ring/20",
         )}
       >
@@ -180,29 +180,38 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         >
           <Settings2 className="size-3.5" />
         </Button>
-        <div className="flex items-center gap-2 p-2.5">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-            <Combine className="size-3.5" aria-hidden />
+        <div className="flex items-start gap-2.5">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+            <Combine className="size-4" aria-hidden />
           </div>
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-foreground">{data.title}</p>
-            <p className="truncate text-[10px] leading-4 text-muted-foreground">
+            <p className="mt-0.5 truncate text-[10px] leading-4 text-muted-foreground">
               Merge command outputs
             </p>
           </div>
         </div>
         {hasSourceHandles
           ? outcomes.map((outcome, index) => (
-              <Handle
-                key={outcome.name}
-                className="!size-3 !border-2 !bg-background"
-                id={outcome.name}
-                position={Position.Right}
-                style={{
-                  top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                }}
-                type="source"
-              />
+              <div key={outcome.name}>
+                <span
+                  className={cn("absolute right-5 -translate-y-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide", outcomeClasses(outcome.name))}
+                  style={{
+                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                  }}
+                >
+                  {outcome.name}
+                </span>
+                <Handle
+                  className={cn("!size-3 !border-2", outcomeHandleClasses(outcome.name))}
+                  id={outcome.name}
+                  position={Position.Right}
+                  style={{
+                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
+                  }}
+                  type="source"
+                />
+              </div>
             ))
           : null}
       </div>
@@ -276,7 +285,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     <div
       className={cn(
         "group relative rounded-xl border bg-card shadow-sm transition-shadow",
-        outcomes.length > 1 ? "min-w-72" : "min-w-64",
+        outcomes.length > 1 ? "w-72" : "w-64",
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
@@ -320,7 +329,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+          <p className="mt-1 line-clamp-2 overflow-hidden text-xs leading-5 text-muted-foreground">
             {data.description}
           </p>
         </div>

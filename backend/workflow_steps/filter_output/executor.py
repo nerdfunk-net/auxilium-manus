@@ -126,6 +126,7 @@ async def execute(
 
     content_source = str(config.get("content_source") or "command_output").strip().lower()
     source_step_node_id = str(config.get("source_step_node_id") or "").strip()
+    source_command = str(config.get("source_command") or "").strip()
 
     if content_source not in _SUPPORTED_SOURCES:
         raise ValueError(
@@ -140,11 +141,12 @@ async def execute(
         raise ValueError("filter-output: at least one rule in filter_rules is required")
 
     logger.info(
-        "filter-output run_id=%s devices=%d source=%s source_node=%s rules=%d",
+        "filter-output run_id=%s devices=%d source=%s source_node=%s source_command=%r rules=%d",
         run.id,
         len(context.devices),
         content_source,
         source_step_node_id,
+        source_command or "(all)",
         len(rules),
     )
 
@@ -167,7 +169,19 @@ async def execute(
                     f"source_step_node_id={source_step_node_id!r}"
                 )
 
-            item = export_items[0]
+            if source_command and content_source == "command_output":
+                matched = [
+                    i for i in export_items if i.extra.get("command") == source_command
+                ]
+                if not matched:
+                    available = [i.extra.get("command", "") for i in export_items]
+                    raise ValueError(
+                        f"Command {source_command!r} not found in step "
+                        f"{source_step_node_id!r}. Available: {available}"
+                    )
+                item = matched[0]
+            else:
+                item = export_items[0]
             raw_content = await artifact_service.resolve(item.artifact_ref)
             media_type = item.media_type
 
