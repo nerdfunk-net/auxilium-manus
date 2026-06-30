@@ -563,7 +563,8 @@ PORT=3000
 > - `doc/WORKFLOW-STEPS.md` — full specification: contracts, registry, execution path,
 >   and **fan-out** behaviour (per-device child workflows; git/filesystem sinks are not
 >   automatically fan-out-safe).
-> - `doc/WORKFLOW-STEPS-STYLE_GUIDE.md` — frontend `ConfigPanel`/dialog styling rules
+> - `doc/WORKFLOW-STEPS-STYLE_GUIDE.md` — frontend styling: shared **canvas node**
+>   (`w-80` × `h-32`, full title, green/red outcome handles), `ConfigPanel`/dialog rules
 >   (teal palette, card anatomy, fan-out config block).
 
 Each workflow step is a self-contained Python package under `backend/workflow_steps/{step_id}/`.
@@ -579,12 +580,14 @@ The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/e
 4. `backend/services/execution/step_registry.py` — add one import + one dict entry
 5. `backend/workflow_steps/registry.yaml` — add registry entry
 
-**Frontend (2 files):**
-6. `frontend/src/components/features/workflow-steps/{step-id}/index.tsx` — `PluginUIComponent`
+**Frontend (2–3 files):**
+6. `frontend/src/components/features/workflow-steps/{step-id}/index.tsx` — `ConfigPanel` only (`PluginUIComponent`); canvas rendering is shared in `workflow-node.tsx`
 7. `frontend/src/lib/plugin-ui-registry.ts` — add entry to `PLUGIN_UI_REGISTRY`
+8. (Optional) `workflow-node.tsx` — one `nodeIconsByKind` entry if the default icon is wrong; never add a custom node render branch
 
 **Rules:**
 - ❌ No business logic in `step_registry.py` — dispatch table only
+- ❌ No custom canvas render branch per step in `workflow-node.tsx` — equal size, registry-driven title/description, standard outcome colours
 - ❌ External code must never import `workflow_steps` packages directly; only `StepRunner` calls executors
 - ✅ Raise `ValueError` for config/input errors, `RuntimeError` for execution failures
 

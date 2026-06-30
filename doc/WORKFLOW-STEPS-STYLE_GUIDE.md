@@ -43,6 +43,109 @@ All steps use the **teal** accent family from Tailwind. Never use `sky-`, `blue-
 
 ---
 
+## Canvas node (React Flow)
+
+Reference implementation: `components/features/workflows/components/nodes/workflow-node.tsx`
+
+Every workflow step shares **one** canvas renderer. Step authors implement the
+`ConfigPanel` only — they do **not** create a separate canvas component or a custom
+render branch for their step.
+
+When a user drags a step onto the canvas, React Flow renders it through `WorkflowNode`.
+The node's look is driven entirely by registry metadata (`name`, `description`,
+`artifact_type`, `outcomes`) plus optional icon and fan-out configuration.
+
+### Fixed size — all nodes equal
+
+All canvas nodes use the same width and height. Never override dimensions per step.
+
+| Property | Tailwind class | Value |
+|---|---|---|
+| Width | `w-80` | 320 px |
+| Height | `h-32` | 128 px |
+
+The card wrapper is `rounded-xl border bg-card shadow-sm`. Do not use `w-64`, `w-72`,
+`min-h-*`, or step-specific sizing — inconsistent nodes were a recurring bug when
+individual steps (e.g. `merge-content`, `compare-data`) had their own render paths.
+
+### Title and description
+
+| Field | Source | Canvas rule |
+|---|---|---|
+| Title | Registry `name` → `data.title` | **Must be fully visible.** Use `text-sm font-semibold leading-snug` and let the title wrap. Never use `truncate` or `line-clamp-1` on the title — long names such as "Get Nautobot Attributes" must not be cut off with an ellipsis. |
+| Description | Registry `description` → `data.description` | `line-clamp-2 text-xs leading-5 text-muted-foreground` — at most two lines; overflow is acceptable here. |
+
+Right padding depends on outcome count: `pr-10` when the step has a single source handle,
+`pr-24` when it has multiple outcomes (room for outcome labels on the right edge).
+
+### Outcome handles — success and failure colors
+
+Outcome names come from the step's `outcomes` list in `registry.yaml`. The shared
+renderer colours labels and connection handles automatically:
+
+| Outcome name (case-insensitive) | Label pill | Handle dot |
+|---|---|---|
+| `success`, `match`, `pass` | `bg-green-50 text-green-700 border border-green-200` | `!bg-green-500 !border-green-600` |
+| `failure`, `fail`, `error`, `mismatch` | `bg-red-50 text-red-700 border border-red-200` | `!bg-red-500 !border-red-600` |
+| `default` | `bg-amber-50 text-amber-700 border border-amber-200` | `!bg-amber-500 !border-amber-600` |
+| anything else | `bg-sky-50 text-sky-700 border border-sky-200` | `!bg-sky-500 !border-sky-600` |
+
+Rules:
+
+- Prefer standard outcome names (`success` / `failure`, or `match` / `mismatch` /
+  `failure` for compare steps) so green/red styling applies without extra code.
+- Outcome **labels** are shown only when `outcomes.length > 1`. A single-outcome step
+  still gets a coloured source handle; the label is omitted to save space.
+- Handles are stacked vertically on the right edge; labels sit just left of each handle.
+
+### Step icon
+
+Icons are resolved in `workflow-node.tsx`:
+
+1. **Kind override** — add an entry to `nodeIconsByKind` when the generic
+   `artifact_type` icon is not distinctive enough (e.g. `merge-content` → `Combine`,
+   `compare-data` → `Scale`, `filter-output` → `Filter`, `fan-in` → `GitMerge`).
+2. **Default** — `nodeIconsByType[artifact_type]` (e.g. `command_execution` → terminal,
+   `inventory_selector` → router, `control_flow` → branch).
+3. **Fallback** — `Database`.
+
+Icon sits in a `size-10 rounded-lg` tile coloured by `artifact_type` via
+`nodeAccentClassesByType` (e.g. `control_flow` → amber, `command_execution` → emerald).
+
+When adding a new step, only add a `nodeIconsByKind` entry if the default
+`artifact_type` icon is misleading. Do **not** fork the whole node layout.
+
+### Fan-out badge on the canvas node
+
+When an inventory node has `pluginConfig.fan_out.enabled === true`, the canvas node renders
+a small "Fan out" badge next to its title so the active split is visible at a glance:
+
+- `<Badge variant="outline" className="gap-1 border-teal-300 bg-teal-50 text-teal-700">` with
+  a `<Split className="size-3" aria-hidden />` icon. Teal family only — no `sky-`/`blue-`.
+
+### What step authors implement
+
+For a new step, frontend work is **only**:
+
+1. `frontend/src/components/features/workflow-steps/{step-id}/index.tsx` — export
+   `PluginUIComponent` with a `ConfigPanel`.
+2. `frontend/src/lib/plugin-ui-registry.ts` — register the step id.
+3. Optionally one line in `nodeIconsByKind` inside `workflow-node.tsx`.
+
+Do **not** add per-step canvas JSX, duplicate handle wiring, or hard-coded titles/descriptions
+on the canvas — those belong in `registry.yaml`.
+
+### Canvas node — do not
+
+- ❌ Custom `if (data.kind === "my-step")` render branches in `workflow-node.tsx`
+- ❌ Different width/height/padding per step kind
+- ❌ `truncate` or ellipsis on the node title
+- ❌ Per-node status badges (`Draft`, `Ready`, …) — workflow save state lives in the
+  top bar (`workflowStatus`), not on individual nodes
+- ❌ Hard-coded description text on the canvas instead of registry `description`
+
+---
+
 ## Config panel (node side-panel)
 
 The `ConfigPanel` component renders inside the React Flow node property panel — it is narrow (~220 px) and must stay compact.
@@ -76,15 +179,6 @@ the bottom of their `ConfigPanel`. Reference implementation:
 > Fan-out has real backend consequences (each device/chunk runs as an isolated child
 > workflow). Before adding it to a step, read the **Fan-out execution** section of
 > `WORKFLOW-STEPS.md` — git/filesystem sinks are not automatically fan-out-safe.
-
-### Fan-out badge on the canvas node
-
-When an inventory node has `pluginConfig.fan_out.enabled === true`, the canvas node renders
-a small "Fan out" badge next to its title so the active split is visible at a glance
-(`components/features/workflows/components/nodes/workflow-node.tsx`):
-
-- `<Badge variant="outline" className="gap-1 border-teal-300 bg-teal-50 text-teal-700">` with
-  a `<Split className="size-3" aria-hidden />` icon. Teal family only — no `sky-`/`blue-`.
 
 ### Fan-in node config panel
 
@@ -178,8 +272,20 @@ All text/number inputs follow the same pattern:
 
 ## Checklist for new steps
 
+### Canvas node (shared renderer — do not fork)
+
+- [ ] No custom canvas render branch added in `workflow-node.tsx`
+- [ ] Registry `name` is short enough to wrap cleanly at `w-80`, or intentionally concise
+- [ ] Registry `description` is the single source of truth for the subtitle on the canvas
+- [ ] Outcomes use standard names (`success` / `failure`, or `match` / `mismatch` / `failure`)
+      so green/red handle colours apply automatically
+- [ ] Optional: `nodeIconsByKind` entry only when `artifact_type` default icon is wrong
+
+### Config panel, dialogs, and forms
+
 - [ ] Header uses `bg-gradient-to-r from-teal-600 to-teal-500`
-- [ ] No `sky-` / `blue-` colors anywhere in the step
+- [ ] No `sky-` / `blue-` colors anywhere in the step **config UI** (canvas outcome
+      green/red/amber is defined centrally in `workflow-node.tsx`)
 - [ ] ConfigPanel is narrow, uses `h-7 w-full` outline buttons
 - [ ] All inputs use `focus:ring-teal-400/40`
 - [ ] Dialog footers use `border-t bg-white px-4 py-3`

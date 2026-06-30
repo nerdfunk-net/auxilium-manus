@@ -248,6 +248,34 @@ export function getPluginUI(pluginId: string): PluginUIComponent | undefined {
 }
 ```
 
+### Canvas node appearance
+
+Steps do **not** ship their own React Flow node component. Every step is rendered by the
+shared `WorkflowNode` in
+`frontend/src/components/features/workflows/components/nodes/workflow-node.tsx`.
+
+Canvas appearance is driven by the registry entry:
+
+| Registry field    | Canvas use                                      |
+|-------------------|-------------------------------------------------|
+| `name`            | Node title — must be fully visible (no truncate)|
+| `description`     | Subtitle under the title (`line-clamp-2`)       |
+| `artifact_type`   | Icon tile colour and default Lucide icon        |
+| `outcomes`        | Source handles; label + handle colours          |
+| `requires`        | Whether a target (input) handle is shown      |
+
+**Sizing:** all nodes are `w-80` × `h-32`. Never add per-step width/height overrides.
+
+**Outcome colours:** the shared renderer applies green to `success` / `match` / `pass` and
+red to `failure` / `fail` / `error` / `mismatch`. Name outcomes accordingly in
+`registry.yaml` so branching edges are visually consistent.
+
+**Optional icon override:** if the default `artifact_type` icon is not distinctive, add one
+entry to `nodeIconsByKind` in `workflow-node.tsx` — do not fork the node layout.
+
+Full rules (title wrapping, outcome palette, fan-out badge, anti-patterns): see
+`doc/WORKFLOW-STEPS-STYLE_GUIDE.md` → **Canvas node (React Flow)**.
+
 ---
 
 ## Fan-out execution
@@ -387,10 +415,14 @@ commits, so it is not a substitute for the fan-in node.
 
 3. **Registry** — add an entry to `workflow_steps/registry.yaml`
 
-4. **Frontend component** — create `frontend/src/components/features/workflow-steps/{step-id}/index.tsx`
+4. **Frontend ConfigPanel** — create `frontend/src/components/features/workflow-steps/{step-id}/index.tsx`
+   (config UI only; canvas rendering is shared — see [Canvas node appearance](#canvas-node-appearance))
 
 5. **UI registry** — add an entry to `frontend/src/lib/plugin-ui-registry.ts`
 
-6. **Fan-out review** — confirm the step is fan-out-safe (see [Fan-out execution](#fan-out-execution)).
+6. **Canvas icon (optional)** — add a `nodeIconsByKind` entry in `workflow-node.tsx` when the
+   default `artifact_type` icon is not appropriate; do not add a custom node render branch
+
+7. **Fan-out review** — confirm the step is fan-out-safe (see [Fan-out execution](#fan-out-execution)).
    If it writes to a shared external resource, make the write per-device-unique or
    document the constraint.

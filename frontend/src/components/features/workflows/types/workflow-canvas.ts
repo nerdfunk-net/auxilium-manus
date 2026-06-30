@@ -20,7 +20,6 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   produces?: Capability[];
   producesParsed?: string[];
   consumes?: Capability[];
-  status?: "ready" | "draft" | "running" | "success" | "warning";
   command?: string;
   condition?: string;
   artifactPath?: string;

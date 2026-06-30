@@ -440,7 +440,6 @@ export function WorkflowBuilderPage() {
             producesParsed,
             consumes: step.consumes,
             outcomes: step.outcomes,
-            status: "draft",
             ...(pluginConfig ? { pluginConfig } : {}),
           },
         },

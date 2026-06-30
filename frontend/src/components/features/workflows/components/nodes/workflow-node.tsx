@@ -7,6 +7,7 @@ import {
   Database,
   FileArchive,
   FileText,
+  Filter,
   GitBranch,
   GitMerge,
   HardDriveDownload,
@@ -31,6 +32,16 @@ import { cn } from "@/lib/utils";
 import { useWorkflowBuilderStore } from "../../hooks/use-workflow-builder-store";
 import type { WorkflowCanvasNode } from "../../types/workflow-canvas";
 
+const NODE_WIDTH_CLASS = "w-80";
+const NODE_HEIGHT_CLASS = "h-32";
+
+const nodeIconsByKind: Record<string, LucideIcon> = {
+  "compare-data": Scale,
+  "fan-in": GitMerge,
+  "filter-output": Filter,
+  "merge-content": Combine,
+};
+
 const nodeIconsByType: Record<string, LucideIcon> = {
   command_execution: TerminalSquare,
   configuration_retrieval: HardDriveDownload,
@@ -41,6 +52,10 @@ const nodeIconsByType: Record<string, LucideIcon> = {
   trigger: GitBranch,
   result: CheckCircle2,
 };
+
+function resolveNodeIcon(kind: string, artifactType: string): LucideIcon {
+  return nodeIconsByKind[kind] ?? nodeIconsByType[artifactType] ?? Database;
+}
 
 function outcomeClasses(name: string): string {
   const lower = name.toLowerCase();
@@ -84,7 +99,7 @@ const nodeAccentClassesByType: Record<string, string> = {
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
   const nodeType = data.artifactType ?? data.kind;
-  const Icon = nodeIconsByType[nodeType] ?? Database;
+  const Icon = resolveNodeIcon(data.kind, nodeType);
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
   const hasSourceHandles = outcomes.length > 0;
@@ -93,199 +108,14 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     !!fanOut &&
     typeof fanOut === "object" &&
     (fanOut as Record<string, unknown>).enabled === true;
-
-  if (data.kind === "compare-data") {
-    return (
-      <div
-        className={cn(
-          "group relative w-72 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
-          selected && "border-ring shadow-lg ring-2 ring-ring/20",
-        )}
-      >
-        <Handle
-          className="!size-3 !border-2 !bg-background"
-          id="input"
-          position={Position.Left}
-          style={{ top: "50%" }}
-          type="target"
-        />
-        <Button
-          aria-label="Configure step"
-          className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
-          size="icon"
-          variant="ghost"
-        >
-          <Settings2 className="size-3.5" />
-        </Button>
-        <div className="flex items-start gap-2.5">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-            <Scale className="size-4" aria-hidden />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-foreground">{data.title}</p>
-            <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-              Compare to reference file
-            </p>
-          </div>
-        </div>
-        {hasSourceHandles
-          ? outcomes.map((outcome, index) => (
-              <div key={outcome.name}>
-                <span
-                  className={cn("absolute right-5 -translate-y-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide", outcomeClasses(outcome.name))}
-                  style={{
-                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                  }}
-                >
-                  {outcome.name}
-                </span>
-                <Handle
-                  className={cn("!size-3 !border-2", outcomeHandleClasses(outcome.name))}
-                  id={outcome.name}
-                  position={Position.Right}
-                  style={{
-                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                  }}
-                  type="source"
-                />
-              </div>
-            ))
-          : null}
-      </div>
-    );
-  }
-
-  if (data.kind === "merge-content") {
-    return (
-      <div
-        className={cn(
-          "group relative w-72 min-h-28 rounded-xl border bg-card p-3 pr-16 shadow-sm transition-shadow",
-          selected && "border-ring shadow-lg ring-2 ring-ring/20",
-        )}
-      >
-        <Handle
-          className="!size-3 !border-2 !bg-background"
-          id="input"
-          position={Position.Left}
-          style={{ top: "50%" }}
-          type="target"
-        />
-        <Button
-          aria-label="Configure step"
-          className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
-          size="icon"
-          variant="ghost"
-        >
-          <Settings2 className="size-3.5" />
-        </Button>
-        <div className="flex items-start gap-2.5">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-            <Combine className="size-4" aria-hidden />
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-foreground">{data.title}</p>
-            <p className="mt-0.5 truncate text-[10px] leading-4 text-muted-foreground">
-              Merge command outputs
-            </p>
-          </div>
-        </div>
-        {hasSourceHandles
-          ? outcomes.map((outcome, index) => (
-              <div key={outcome.name}>
-                <span
-                  className={cn("absolute right-5 -translate-y-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide", outcomeClasses(outcome.name))}
-                  style={{
-                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                  }}
-                >
-                  {outcome.name}
-                </span>
-                <Handle
-                  className={cn("!size-3 !border-2", outcomeHandleClasses(outcome.name))}
-                  id={outcome.name}
-                  position={Position.Right}
-                  style={{
-                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                  }}
-                  type="source"
-                />
-              </div>
-            ))
-          : null}
-      </div>
-    );
-  }
-
-  if (data.kind === "fan-in") {
-    return (
-      <div
-        className={cn(
-          "group relative w-80 rounded-xl border bg-card shadow-sm transition-shadow",
-          selected && "border-ring shadow-lg ring-2 ring-ring/20",
-        )}
-      >
-        <Handle
-          className="!size-3 !border-2 !bg-background"
-          id="input"
-          position={Position.Left}
-          style={{ top: "50%" }}
-          type="target"
-        />
-        <Button
-          aria-label="Configure step"
-          className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
-          size="icon"
-          variant="ghost"
-        >
-          <Settings2 className="size-3.5" />
-        </Button>
-        <div className="flex items-start gap-3 p-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-            <GitMerge className="size-4" aria-hidden />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1">
-              <span className="text-xs font-semibold text-foreground">Fan In</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="size-3 shrink-0 cursor-help text-muted-foreground" aria-label="About Fan In" />
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {data.description}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-              Rejoin a fanned-out workflow into a single path.
-            </p>
-          </div>
-        </div>
-        {hasSourceHandles
-          ? outcomes.map((outcome, index) => (
-              <Handle
-                key={outcome.name}
-                className="!size-3 !border-2 !bg-background"
-                id={outcome.name}
-                position={Position.Right}
-                style={{
-                  top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                }}
-                type="source"
-              />
-            ))
-          : null}
-      </div>
-    );
-  }
+  const showOutcomeLabels = outcomes.length > 1;
 
   return (
     <div
       className={cn(
         "group relative rounded-xl border bg-card shadow-sm transition-shadow",
-        outcomes.length > 1 ? "w-72" : "w-64",
+        NODE_WIDTH_CLASS,
+        NODE_HEIGHT_CLASS,
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
@@ -307,18 +137,34 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
       >
         <Settings2 className="size-3.5" />
       </Button>
-      <div className={cn("flex items-start gap-3 p-4", outcomes.length > 1 ? "pr-24" : "pr-10")}>
+      <div
+        className={cn(
+          "flex h-full items-start gap-3 p-4",
+          showOutcomeLabels ? "pr-24" : "pr-10",
+        )}
+      >
         <div
           className={cn(
             "flex size-10 shrink-0 items-center justify-center rounded-lg",
             nodeAccentClassesByType[nodeType] ?? "bg-muted text-muted-foreground",
           )}
         >
-          <Icon className="size-5" />
+          <Icon className="size-5" aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="min-w-0 truncate text-sm font-semibold">{data.title}</p>
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 text-sm font-semibold leading-snug">{data.title}</p>
+            {data.kind === "fan-in" ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info
+                    className="mt-0.5 size-3 shrink-0 cursor-help text-muted-foreground"
+                    aria-label="About Fan In"
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top">{data.description}</TooltipContent>
+              </Tooltip>
+            ) : null}
             {fanOutEnabled ? (
               <Badge
                 className="shrink-0 gap-1 border-teal-300 bg-teal-50 text-teal-700"
@@ -334,19 +180,15 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
           </p>
         </div>
       </div>
-      {data.status ? (
-        <div className="border-t px-4 py-1.5">
-          <Badge className="capitalize" variant="outline">
-            {data.status}
-          </Badge>
-        </div>
-      ) : null}
       {hasSourceHandles
         ? outcomes.map((outcome, index) => (
             <div key={outcome.name}>
-              {outcomes.length > 1 ? (
+              {showOutcomeLabels ? (
                 <span
-                  className={cn("absolute right-4 -translate-y-1/2 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide", outcomeClasses(outcome.name))}
+                  className={cn(
+                    "absolute right-4 -translate-y-1/2 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                    outcomeClasses(outcome.name),
+                  )}
                   style={{
                     top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
                   }}
