@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable
 from models.workflow_context import StepOutcome
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.fan_in.executor import execute as fan_in
+from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_git_devices.executor import execute as get_git_devices
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
@@ -44,6 +45,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "route-on-attribute": route_on_attribute,
     "fan-in": fan_in,
     "merge-content": merge_content,
+    "filter-output": filter_output,
     "compare-data": compare_data,
     "store-artifact": store_artifact,
     "git-clone": git_clone,

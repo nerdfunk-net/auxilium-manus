@@ -17,11 +17,22 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from workflow_steps.common.content_resolver import list_exportable_content
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SEPARATOR = "\n"
 _MERGE_MODES = frozenset({"text_sectioned", "text_plain", "json_merged"})
+_CONTENT_SOURCES = frozenset({"command_output", "filtered_output", "merged_content"})
+
+
+def _parse_content_source(config: dict[str, Any]) -> str:
+    source = str(config.get("content_source") or "command_output").strip().lower()
+    if source not in _CONTENT_SOURCES:
+        raise ValueError(
+            f"merge-content: content_source {source!r} must be one of {sorted(_CONTENT_SOURCES)}"
+        )
+    return source
 
 
 def _parse_source_step_node_ids(config: dict[str, Any]) -> list[str]:
@@ -85,16 +96,23 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
+    content_source = _parse_content_source(config)
     source_node_ids = _parse_source_step_node_ids(config)
     merge_mode = _parse_merge_mode(config)
     section_separator = str(config.get("section_separator") or _DEFAULT_SEPARATOR)
     include_command_header = _parse_include_command_header(config)
 
+    if content_source != "command_output" and not source_node_ids:
+        raise ValueError(
+            f"merge-content: source_step_node_ids is required when content_source={content_source!r}"
+        )
+
     logger.info(
-        "merge-content run_id=%s devices=%d mode=%s sources=%r",
+        "merge-content run_id=%s devices=%d mode=%s content_source=%s sources=%r",
         run.id,
         len(context.devices),
         merge_mode,
+        content_source,
         source_node_ids or "all",
     )
 
@@ -106,18 +124,30 @@ async def execute(
         device: DeviceContext,
     ) -> tuple[str, DeviceContext, bool]:
         try:
-            if source_node_ids:
-                node_ids_to_use = [n for n in source_node_ids if n in device.command_results]
-            else:
-                node_ids_to_use = list(device.command_results.keys())
-
             items: list[tuple[str, str, str]] = []
-            for src_node_id in node_ids_to_use:
-                for result in device.command_results.get(src_node_id, []):
-                    if result.output_ref is None:
-                        continue
-                    text = await artifact_service.resolve(result.output_ref)
-                    items.append((result.command, text, result.output_ref.media_type))
+
+            if content_source == "command_output":
+                if source_node_ids:
+                    node_ids_to_use = [n for n in source_node_ids if n in device.command_results]
+                else:
+                    node_ids_to_use = list(device.command_results.keys())
+
+                for src_node_id in node_ids_to_use:
+                    for result in device.command_results.get(src_node_id, []):
+                        if result.output_ref is None:
+                            continue
+                        text = await artifact_service.resolve(result.output_ref)
+                        items.append((result.command, text, result.output_ref.media_type))
+            else:
+                for src_node_id in source_node_ids:
+                    export_items = list_exportable_content(
+                        device,
+                        content_source=content_source,
+                        source_step_node_id=src_node_id,
+                    )
+                    for export_item in export_items:
+                        text = await artifact_service.resolve(export_item.artifact_ref)
+                        items.append((src_node_id, text, export_item.media_type))
 
             if merge_mode == "text_sectioned":
                 blocks: list[str] = []

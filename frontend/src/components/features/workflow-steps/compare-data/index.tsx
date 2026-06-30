@@ -19,8 +19,17 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
+import {
+  findUpstreamOutput,
+  type UpstreamOutput,
+} from "@/components/features/workflows/utils/upstream-output";
 
 const CONTENT_SOURCE_OPTIONS = [
+  {
+    value: "upstream_output",
+    label: "Upstream output (auto-detected)",
+    hint: "Automatically resolved from the nearest content-producing upstream step.",
+  },
   {
     value: "running_config",
     label: "Running configuration",
@@ -51,7 +60,22 @@ const CONTENT_SOURCE_OPTIONS = [
     label: "Merged content",
     hint: "Choose the merge-content step that combined multiple command outputs.",
   },
+  {
+    value: "filtered_output",
+    label: "Filtered output",
+    hint: "Choose the filter-output step that removed volatile fields.",
+  },
 ] as const;
+
+const VALID_COMPARE_SOURCES = new Set([
+  "running_config",
+  "startup_config",
+  "command_output",
+  "latest_command_output",
+  "rendered_template",
+  "merged_content",
+  "filtered_output",
+]);
 
 type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
 type ReferenceLocation = "filesystem" | "git";
@@ -124,19 +148,40 @@ function CompareDataConfigPanel({
   onChange,
   nodeId,
   workflowNodes = [],
+  workflowEdges = [],
+  plugins = [],
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const [gitSourceOpen, setGitSourceOpen] = useState(false);
+  const [autoDetected, setAutoDetected] = useState<UpstreamOutput | null>(null);
+
+  const upstream = useMemo(
+    () =>
+      workflowEdges.length > 0 && plugins.length > 0
+        ? findUpstreamOutput(nodeId, workflowNodes, workflowEdges, plugins)
+        : null,
+    [nodeId, workflowNodes, workflowEdges, plugins],
+  );
 
   useEffect(() => {
     if (initializedForNode.current === nodeId) {
       return;
     }
     initializedForNode.current = nodeId;
-    if (!config.content_source || !config.filename_template) {
+    const needsInit = !config.content_source || !config.filename_template;
+    if (!needsInit) return;
+    if (!config.content_source && upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
+      setAutoDetected(upstream);
+      onChange(
+        buildCompareDataConfig(config, {
+          content_source: upstream.contentSource,
+          source_step_node_id: upstream.sourceNodeId,
+        }),
+      );
+    } else {
       onChange(buildCompareDataConfig(config));
     }
-  }, [nodeId, config, onChange]);
+  }, [nodeId, config, onChange, upstream]);
 
   const referenceLocation = (config.reference_location as ReferenceLocation) || "filesystem";
   const isGitReference = referenceLocation === "git";
@@ -147,7 +192,8 @@ function CompareDataConfigPanel({
   const needsStepNodeId =
     contentSource === "command_output" ||
     contentSource === "rendered_template" ||
-    contentSource === "merged_content";
+    contentSource === "merged_content" ||
+    contentSource === "filtered_output";
   const needsParsedOutputKey = contentSource === "rendered_template";
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, contentSource, nodeId),
@@ -180,9 +226,22 @@ function CompareDataConfigPanel({
 
   const handleContentSourceChange = useCallback(
     (value: string) => {
+      if (value === "upstream_output") {
+        if (upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
+          setAutoDetected(upstream);
+          onChange(
+            buildCompareDataConfig(config, {
+              content_source: upstream.contentSource,
+              source_step_node_id: upstream.sourceNodeId,
+            }),
+          );
+        }
+        return;
+      }
+      setAutoDetected(null);
       onChange(buildCompareDataConfig(config, { content_source: value }));
     },
-    [config, onChange],
+    [config, onChange, upstream],
   );
 
   const handleFilenameTemplateChange = useCallback(
@@ -307,13 +366,24 @@ function CompareDataConfigPanel({
           </SelectTrigger>
           <SelectContent>
             {CONTENT_SOURCE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
+              <SelectItem
+                key={option.value}
+                value={option.value}
+                disabled={
+                  option.value === "upstream_output" &&
+                  !(upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource))
+                }
+              >
                 {option.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {selectedHint ? (
+        {autoDetected ? (
+          <p className="text-[11px] text-teal-700">
+            ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})
+          </p>
+        ) : selectedHint ? (
           <p className="text-[11px] text-muted-foreground">{selectedHint}</p>
         ) : null}
       </div>
@@ -338,7 +408,9 @@ function CompareDataConfigPanel({
                       ? "Choose render step…"
                       : contentSource === "merged_content"
                         ? "Choose merge-content step…"
-                        : "Choose run-command step…"
+                        : contentSource === "filtered_output"
+                          ? "Choose filter-output step…"
+                          : "Choose run-command step…"
                   }
                 />
               </SelectTrigger>
@@ -356,7 +428,9 @@ function CompareDataConfigPanel({
                 ? "Add a Render Jinja Template step to this workflow first."
                 : contentSource === "merged_content"
                   ? "Add a Merge Content step to this workflow first."
-                  : "Add a Run Command step to this workflow first."}
+                  : contentSource === "filtered_output"
+                    ? "Add a Filter Output step to this workflow first."
+                    : "Add a Run Command step to this workflow first."}
             </p>
           )}
           {selectedSourceStep ? (

@@ -914,6 +914,7 @@ Quick reference for step authors.
 | `get-running-config`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].running_config_ref` + `RUNNING_CONFIG`   |
 | `get-startup-config`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].startup_config_ref` + `STARTUP_CONFIG`   |
 | `parse-bgp`                | `RUNNING_CONFIG`    | `devices[*].running_config_ref`               | `devices[*].parsed["bgp"]` + `PARSED`               |
+| `filter-output`            | `IDENTITY`          | `devices[*].command_results` or `devices[*].parsed["{src}.merged_content"]` | `devices[*].parsed["{node_id}.filtered_output"]` + `PARSED` |
 | `build-config`             | `IDENTITY`          | `devices[*]` (any fields needed by template)  | `pending_commands[*][node_id]` + `PENDING_COMMANDS`  |
 | `send-config`              | `PENDING_COMMANDS`  | `pending_commands`, `devices[*].hostname`     | `devices[*].command_results[node_id]` (list); **consumes** `PENDING_COMMANDS` (drains & clears the queue) |
 
@@ -985,6 +986,10 @@ WorkflowContext                                           schema_version: int
 │   ├── attributes: { ... }                               ← get-nautobot-attributes
 │   ├── running_config_ref, startup_config_ref            ← get-*-config  (ArtifactRef)
 │   ├── parsed: { parser_key: structured_data }           ← parse-* steps
+│   │   ├── "{node_id}.merged_content": { artifact_ref, step_node_id, output_key, kind, size_bytes }
+│   │   │                                                 ← merge-content
+│   │   └── "{node_id}.filtered_output": { artifact_ref, step_node_id, output_key, kind, size_bytes }
+│   │                                                     ← filter-output (cleaned JSON or text blob)
 │   ├── command_results: { node_id: [ CommandResult ] }   ← send-* steps  (output as ArtifactRef)
 │   ├── capabilities: set[Capability]                     ← added by each enriching step
 │   ├── status: DeviceStatus                              ← set per operation

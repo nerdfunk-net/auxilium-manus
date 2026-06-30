@@ -119,6 +119,7 @@ plugins:
     enabled: true
     requires: [identity]
     produces: [running_config, startup_config]
+    primary_output: running_config
     outcomes:
       - name: success
       - name: failure
@@ -143,6 +144,7 @@ plugins:
     enabled: true
     requires: [identity]
     produces: []
+    primary_output: command_output
     outcomes:
       - name: success
       - name: failure
@@ -273,6 +275,7 @@ plugins:
     requires: [identity]
     produces: [parsed]
     consumes: []
+    primary_output: merged_content
     outcomes:
       - name: success
       - name: failure
@@ -306,6 +309,7 @@ plugins:
     requires: [identity]
     produces: [parsed]
     consumes: []
+    primary_output: comparison_diff
     outcomes:
       - name: match
       - name: mismatch
@@ -388,6 +392,45 @@ plugins:
           required: false
           example: compare-data-3.comparison_diff
 
+  - id: filter-output
+    name: Filter Output
+    description: >
+      Remove volatile keys (JSON) or lines (plain text) from command output
+      using regex patterns or dot-path selectors before passing results to
+      downstream steps such as compare-data.
+    artifact_type: control_flow
+    directory: filter_output
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    primary_output: filtered_output
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: content_source
+          description: Which upstream output to filter (command_output or merged_content).
+          data_type: string
+          required: true
+          example: command_output
+        - name: source_step_node_id
+          description: Canvas node ID of the upstream step to read from.
+          data_type: string
+          required: true
+        - name: filter_rules
+          description: >
+            Rules applied to the content. Each rule has either pattern (regex matched
+            against JSON key names recursively, or against each text line) or path
+            (dot-notation like route.ospf to remove a specific nested JSON key).
+            For JSON arrays (textfsm output) rules apply to every element in the array.
+          data_type: object_list
+          required: true
+          example:
+            - pattern: "^uptime"
+            - path: "route.ospf"
+
   - id: render-jinja-template
     name: Render Jinja Template
     description: Render a Jinja2 template per device and store the result for downstream steps.
@@ -396,6 +439,7 @@ plugins:
     enabled: true
     requires: [identity]
     produces: [parsed]
+    primary_output: rendered_template
     outcomes:
       - name: success
       - name: failure

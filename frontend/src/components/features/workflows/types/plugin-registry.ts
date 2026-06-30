@@ -29,6 +29,7 @@ export interface PluginDefinition {
   produces_parsed: string[];
   outcomes: PluginStepOutcome[];
   metadata: PluginMetadata;
+  primary_output?: string;
 }
 
 export interface PluginListResponse {

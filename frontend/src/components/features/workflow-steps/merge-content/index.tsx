@@ -18,26 +18,52 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 type MergeMode = "text_sectioned" | "text_plain" | "json_merged";
+type ContentSource = "command_output" | "filtered_output" | "merged_content";
+
+const CONTENT_SOURCE_OPTIONS: { value: ContentSource; label: string; hint: string }[] = [
+  {
+    value: "command_output",
+    label: "Command output",
+    hint: "Merge raw output from one or more Run Command steps.",
+  },
+  {
+    value: "filtered_output",
+    label: "Filtered output",
+    hint: "Merge filtered output from one or more Filter Output steps.",
+  },
+  {
+    value: "merged_content",
+    label: "Merged content",
+    hint: "Re-merge the output of one or more Merge Content steps.",
+  },
+];
 
 const MERGE_MODE_OPTIONS: { value: MergeMode; label: string; hint: string }[] = [
   {
     value: "text_sectioned",
     label: "Sectioned text",
-    hint: "Adds === {command} === headers before each command block.",
+    hint: "Adds === {step} === headers before each block.",
   },
   {
     value: "text_plain",
     label: "Plain text",
-    hint: "Joins outputs with a separator. No command headers.",
+    hint: "Joins outputs with a separator. No headers.",
   },
   {
     value: "json_merged",
     label: "JSON structure",
-    hint: 'Produces { "show version": ..., "show interfaces": ... }. TextFSM parsed rows are used when available.',
+    hint: 'Produces { "step-node-id": ..., ... }.',
   },
 ];
 
+const SOURCE_STEP_KIND: Record<ContentSource, string> = {
+  command_output: "run-command",
+  filtered_output: "filter-output",
+  merged_content: "merge-content",
+};
+
 const DEFAULT_CONFIG = {
+  content_source: "command_output" as ContentSource,
   source_step_node_ids: [] as string[],
   merge_mode: "text_sectioned" as MergeMode,
   section_separator: "\n",
@@ -49,6 +75,11 @@ function buildMergeContentConfig(
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
+    content_source:
+      config.content_source === "filtered_output" ||
+      config.content_source === "merged_content"
+        ? config.content_source
+        : "command_output",
     source_step_node_ids: Array.isArray(config.source_step_node_ids)
       ? config.source_step_node_ids
       : [],
@@ -84,6 +115,7 @@ function MergeContentConfigPanel({
     }
   }, [nodeId, config, onChange]);
 
+  const contentSource = (config.content_source as ContentSource) || DEFAULT_CONFIG.content_source;
   const mergeMode = (config.merge_mode as MergeMode) || DEFAULT_CONFIG.merge_mode;
   const sectionSeparator =
     typeof config.section_separator === "string"
@@ -98,20 +130,33 @@ function MergeContentConfigPanel({
     [config.source_step_node_ids],
   );
 
-  const runCommandNodes = useMemo(
+  const requiredSourceKind = SOURCE_STEP_KIND[contentSource];
+  const sourceNodes = useMemo(
     () =>
       workflowNodes.filter(
-        (node) => node.id !== nodeId && node.data.kind === "run-command",
+        (node) => node.id !== nodeId && node.data.kind === requiredSourceKind,
       ),
-    [workflowNodes, nodeId],
+    [workflowNodes, nodeId, requiredSourceKind],
   );
 
-  const selectedHint = useMemo(
+  const selectedModeHint = useMemo(
     () => MERGE_MODE_OPTIONS.find((o) => o.value === mergeMode)?.hint,
     [mergeMode],
   );
 
+  const selectedSourceHint = useMemo(
+    () => CONTENT_SOURCE_OPTIONS.find((o) => o.value === contentSource)?.hint,
+    [contentSource],
+  );
+
   const isTextMode = mergeMode !== "json_merged";
+
+  const handleContentSourceChange = useCallback(
+    (value: string) => {
+      onChange(buildMergeContentConfig(config, { content_source: value, source_step_node_ids: [] }));
+    },
+    [config, onChange],
+  );
 
   const handleMergeModeChange = useCallback(
     (value: string) => {
@@ -153,8 +198,51 @@ function MergeContentConfigPanel({
     });
   }, [parsedKey]);
 
+  const sourceNodeLabel =
+    contentSource === "filtered_output"
+      ? "Filter Output"
+      : contentSource === "merged_content"
+        ? "Merge Content"
+        : "Run Command";
+
+  const emptySourceWarning =
+    contentSource === "filtered_output"
+      ? "Add one or more Filter Output steps to this workflow first."
+      : contentSource === "merged_content"
+        ? "Add one or more Merge Content steps to this workflow first."
+        : "Add one or more Run Command steps to this workflow first.";
+
+  const emptySelectionHint =
+    contentSource === "command_output"
+      ? "All upstream run-command results will be merged."
+      : `${sourceStepNodeIds.length} step${sourceStepNodeIds.length === 1 ? "" : "s"} selected.`;
+
   return (
     <div className="flex flex-col gap-4">
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">content_source</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Select value={contentSource} onValueChange={handleContentSourceChange}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CONTENT_SOURCE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {selectedSourceHint ? (
+          <p className="text-[11px] text-muted-foreground">{selectedSourceHint}</p>
+        ) : null}
+      </div>
+
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">source_steps</span>
@@ -162,13 +250,11 @@ function MergeContentConfigPanel({
             step_list
           </Badge>
         </div>
-        {runCommandNodes.length === 0 ? (
-          <p className="text-[11px] text-amber-600">
-            Add one or more Run Command steps to this workflow first.
-          </p>
+        {sourceNodes.length === 0 ? (
+          <p className="text-[11px] text-amber-600">{emptySourceWarning}</p>
         ) : (
           <div className="space-y-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
-            {runCommandNodes.map((node) => {
+            {sourceNodes.map((node) => {
               const checked = sourceStepNodeIds.includes(node.id);
               return (
                 <label
@@ -195,8 +281,8 @@ function MergeContentConfigPanel({
         )}
         <p className="text-[11px] text-muted-foreground">
           {sourceStepNodeIds.length === 0
-            ? "All upstream run-command results will be merged."
-            : `${sourceStepNodeIds.length} step${sourceStepNodeIds.length === 1 ? "" : "s"} selected.`}
+            ? emptySelectionHint
+            : `${sourceStepNodeIds.length} ${sourceNodeLabel} step${sourceStepNodeIds.length === 1 ? "" : "s"} selected.`}
         </p>
       </div>
 
@@ -219,8 +305,8 @@ function MergeContentConfigPanel({
             ))}
           </SelectContent>
         </Select>
-        {selectedHint ? (
-          <p className="text-[11px] text-muted-foreground">{selectedHint}</p>
+        {selectedModeHint ? (
+          <p className="text-[11px] text-muted-foreground">{selectedModeHint}</p>
         ) : null}
       </div>
 

@@ -49,6 +49,7 @@ class PluginDefinition(BaseModel):
     produces_parsed: list[str] = Field(default_factory=list)
     outcomes: list[PluginStepOutcome] = Field(default_factory=list)
     metadata: PluginMetadata = Field(default_factory=PluginMetadata)
+    primary_output: str | None = None
 
     @field_validator("directory")
     @classmethod

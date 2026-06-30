@@ -30,13 +30,15 @@ import type {
   PluginIOField,
   PluginStepOutcome,
 } from "../types/plugin-registry";
-import type { WorkflowCanvasNode } from "../types/workflow-canvas";
+import type { WorkflowCanvasEdge, WorkflowCanvasNode } from "../types/workflow-canvas";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: WorkflowCanvasNode[] = [];
+const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 interface NodeConfigModalProps {
   nodes: WorkflowCanvasNode[];
+  edges?: WorkflowCanvasEdge[];
   plugins?: PluginDefinition[];
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
@@ -147,6 +149,7 @@ function MockConfigRow({ field }: { field: PluginIOField }) {
 
 export function NodeConfigModal({
   nodes,
+  edges = EMPTY_EDGES,
   plugins = EMPTY_PLUGINS,
   onNodeConfigChange,
   onNodeTitleChange,
@@ -260,6 +263,8 @@ export function NodeConfigModal({
                     }
                     nodeId={activeNode.id}
                     workflowNodes={workflowNodes}
+                    workflowEdges={edges}
+                    plugins={plugins}
                     onChange={(config) =>
                       onNodeConfigChange?.(activeNode.id, config)
                     }

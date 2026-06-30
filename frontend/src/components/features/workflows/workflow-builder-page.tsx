@@ -510,6 +510,7 @@ export function WorkflowBuilderPage() {
               {mode === "editor" ? (
                 <NodeConfigModal
                   nodes={nodes}
+                  edges={edges}
                   plugins={plugins}
                   onNodeConfigChange={handleNodeConfigChange}
                   onNodeTitleChange={handleNodeTitleChange}
