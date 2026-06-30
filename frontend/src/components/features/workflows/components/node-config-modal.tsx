@@ -196,23 +196,23 @@ export function NodeConfigModal({
 
         {activeNode ? (
           <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="general">
-            <TabsList className="h-9 w-full shrink-0 rounded-none border-b border-sky-200 bg-accent/20 p-0">
+            <TabsList className="h-9 w-full shrink-0 rounded-none border-b border-border bg-muted p-0">
               <TabsTrigger
-                className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-accent-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-accent/30 data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
+                className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
                 value="general"
               >
                 General
               </TabsTrigger>
               {hasConfigTab ? (
                 <TabsTrigger
-                  className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-accent-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-accent/30 data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
+                  className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
                   value="configuration"
                 >
                   Configuration
                 </TabsTrigger>
               ) : null}
               <TabsTrigger
-                className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-accent-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-accent/30 data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
+                className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
                 value="description"
               >
                 Description
