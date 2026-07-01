@@ -1,6 +1,16 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import {
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
+  AlignHorizontalDistributeCenter,
+  AlignStartHorizontal,
+  AlignStartVertical,
+  AlignVerticalDistributeCenter,
+  Trash2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -13,18 +23,45 @@ interface MultiStepLayoutPanelProps {
   onDelete: () => void;
 }
 
-const ALIGN_ACTIONS: { alignment: NodeAlignment; label: string }[] = [
-  { alignment: "align-left", label: "Left" },
-  { alignment: "align-center-horizontal", label: "Center" },
-  { alignment: "align-right", label: "Right" },
-  { alignment: "align-top", label: "Top" },
-  { alignment: "align-center-vertical", label: "Middle" },
-  { alignment: "align-bottom", label: "Bottom" },
+type AlignmentAction = {
+  alignment: NodeAlignment;
+  label: string;
+  shortLabel: string;
+  icon: typeof AlignStartHorizontal;
+};
+
+const ALIGN_ACTIONS: AlignmentAction[] = [
+  { alignment: "align-left", label: "Align left", shortLabel: "Left", icon: AlignStartVertical },
+  {
+    alignment: "align-center-horizontal",
+    label: "Center horizontally",
+    shortLabel: "Center",
+    icon: AlignCenterVertical,
+  },
+  { alignment: "align-right", label: "Align right", shortLabel: "Right", icon: AlignEndVertical },
+  { alignment: "align-top", label: "Align top", shortLabel: "Top", icon: AlignStartHorizontal },
+  {
+    alignment: "align-center-vertical",
+    label: "Center vertically",
+    shortLabel: "Middle",
+    icon: AlignCenterHorizontal,
+  },
+  { alignment: "align-bottom", label: "Align bottom", shortLabel: "Bottom", icon: AlignEndHorizontal },
 ];
 
-const DISTRIBUTE_ACTIONS: { alignment: NodeAlignment; label: string }[] = [
-  { alignment: "distribute-horizontal", label: "Horizontal" },
-  { alignment: "distribute-vertical", label: "Vertical" },
+const DISTRIBUTE_ACTIONS: AlignmentAction[] = [
+  {
+    alignment: "distribute-horizontal",
+    label: "Distribute horizontally",
+    shortLabel: "Horizontal",
+    icon: AlignHorizontalDistributeCenter,
+  },
+  {
+    alignment: "distribute-vertical",
+    label: "Distribute vertically",
+    shortLabel: "Vertical",
+    icon: AlignVerticalDistributeCenter,
+  },
 ];
 
 export function MultiStepLayoutPanel({ nodes, onAlign, onDelete }: MultiStepLayoutPanelProps) {
@@ -41,35 +78,45 @@ export function MultiStepLayoutPanel({ nodes, onAlign, onDelete }: MultiStepLayo
         Align
       </p>
       <div className="mt-2.5 grid grid-cols-3 gap-1.5">
-        {ALIGN_ACTIONS.map((action) => (
-          <Button
-            className="text-xs"
-            key={action.alignment}
-            onClick={() => onAlign(action.alignment)}
-            size="sm"
-            variant="outline"
-          >
-            {action.label}
-          </Button>
-        ))}
+        {ALIGN_ACTIONS.map((action) => {
+          const Icon = action.icon;
+          return (
+            <Button
+              className="h-8 justify-start gap-1 px-1.5 text-[10px]"
+              key={action.alignment}
+              onClick={() => onAlign(action.alignment)}
+              size="sm"
+              title={action.label}
+              variant="outline"
+            >
+              <Icon className="size-3 shrink-0" aria-hidden />
+              <span className="truncate">{action.shortLabel}</span>
+            </Button>
+          );
+        })}
       </div>
 
       <p className="mt-4 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
         Distribute
       </p>
       <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-        {DISTRIBUTE_ACTIONS.map((action) => (
-          <Button
-            className="text-xs"
-            disabled={!canDistribute}
-            key={action.alignment}
-            onClick={() => onAlign(action.alignment)}
-            size="sm"
-            variant="outline"
-          >
-            {action.label}
-          </Button>
-        ))}
+        {DISTRIBUTE_ACTIONS.map((action) => {
+          const Icon = action.icon;
+          return (
+            <Button
+              className="h-8 justify-start gap-1 px-1.5 text-[10px]"
+              disabled={!canDistribute}
+              key={action.alignment}
+              onClick={() => onAlign(action.alignment)}
+              size="sm"
+              title={action.label}
+              variant="outline"
+            >
+              <Icon className="size-3 shrink-0" aria-hidden />
+              <span className="truncate">{action.shortLabel}</span>
+            </Button>
+          );
+        })}
       </div>
       {!canDistribute ? (
         <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">

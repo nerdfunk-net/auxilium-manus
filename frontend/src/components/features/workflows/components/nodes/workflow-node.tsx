@@ -31,7 +31,7 @@ const TARGET_HANDLE_CLASS =
   "!size-3 !border-2 !bg-slate-300 !border-slate-400";
 
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
-  const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
+  const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
   const nodeType = data.artifactType ?? data.kind;
   const Icon = resolveNodeIcon(data.kind, nodeType);
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
@@ -64,11 +64,11 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         />
       ) : null}
       <Button
-        aria-label="Select step and open properties"
+        aria-label="Open configuration"
         className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
         onClick={(event) => {
           event.stopPropagation();
-          selectNode(id);
+          openConfigModal(id);
         }}
         size="icon"
         variant="ghost"
