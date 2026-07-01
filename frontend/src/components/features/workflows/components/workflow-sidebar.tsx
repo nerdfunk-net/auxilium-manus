@@ -2,7 +2,6 @@
 
 import {
   Boxes,
-  Layers,
   Network,
   PlayCircle,
   Settings,
@@ -18,12 +17,11 @@ import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 type NavigationItem = {
   label: string;
   icon: typeof Workflow;
-  kind: "workflows" | "steps" | "runs" | "settings" | "placeholder";
+  kind: "workflows" | "runs" | "settings" | "placeholder";
 };
 
 const navigationItems = [
   { label: "Workflows", icon: Workflow, kind: "workflows" },
-  { label: "Steps", icon: Layers, kind: "steps" },
   { label: "Inventory", icon: Network, kind: "placeholder" },
   { label: "Runs", icon: PlayCircle, kind: "runs" },
   { label: "Settings", icon: Settings, kind: "settings" },
@@ -35,10 +33,6 @@ export function WorkflowSidebar() {
   const openWorkflow = useWorkspaceStore((state) => state.openWorkflow);
   const mode = useWorkflowBuilderStore((state) => state.mode);
   const setMode = useWorkflowBuilderStore((state) => state.setMode);
-  const rightPanelTab = useWorkflowBuilderStore((state) => state.rightPanelTab);
-  const setRightPanelTab = useWorkflowBuilderStore(
-    (state) => state.setRightPanelTab,
-  );
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-card">
@@ -61,41 +55,26 @@ export function WorkflowSidebar() {
               mode === "editor") ||
             (item.kind === "runs" &&
               workspace === "workflow" &&
-              mode === "executions") ||
-            (item.kind === "steps" &&
-              workspace === "workflow" &&
-              mode === "editor" &&
-              rightPanelTab === "steps");
+              mode === "executions");
           const isPlaceholder = item.kind === "placeholder";
           const handleClick =
             item.kind === "settings"
               ? () => openSettings()
-              : item.kind === "steps"
+              : item.kind === "workflows"
                 ? () => {
                     openWorkflow();
                     setMode("editor");
-                    setRightPanelTab("steps");
                   }
-                : item.kind === "workflows"
+                : item.kind === "runs"
                   ? () => {
                       openWorkflow();
-                      setMode("editor");
+                      setMode("executions");
                     }
-                  : item.kind === "runs"
-                    ? () => {
-                        openWorkflow();
-                        setMode("executions");
-                      }
-                    : undefined;
+                  : undefined;
 
           return (
             <button
-              aria-current={
-                item.kind !== "steps" && isActive ? "page" : undefined
-              }
-              aria-pressed={
-                item.kind === "steps" ? rightPanelTab === "steps" : undefined
-              }
+              aria-current={isActive ? "page" : undefined}
               disabled={isPlaceholder}
               key={item.label}
               className={cn(

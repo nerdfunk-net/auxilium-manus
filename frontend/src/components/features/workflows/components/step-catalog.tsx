@@ -17,6 +17,7 @@ import {
   type PaletteGroup,
   type PaletteItem,
 } from "../utils/step-catalog";
+import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 
 interface StepCatalogProps {
   errorMessage?: string;
@@ -111,7 +112,10 @@ function StepRow({
 
 export function StepCatalog({ errorMessage, isLoading, onAddStep, plugins }: StepCatalogProps) {
   const [search, setSearch] = useState("");
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const stepCatalogExpanded = useWorkflowBuilderStore((state) => state.stepCatalogExpanded);
+  const toggleStepCatalogCategory = useWorkflowBuilderStore(
+    (state) => state.toggleStepCatalogCategory,
+  );
 
   const groups = useMemo(() => groupPaletteItems(plugins), [plugins]);
   const query = search.trim().toLowerCase();
@@ -160,18 +164,13 @@ export function StepCatalog({ errorMessage, isLoading, onAddStep, plugins }: Ste
           </p>
         ) : (
           visibleGroups.map((group) => {
-            const isOpen = query ? true : !collapsed[group.artifactType];
+            const isOpen = query ? true : (stepCatalogExpanded[group.artifactType] ?? false);
             return (
               <div className="mb-1.5" key={group.artifactType}>
                 <CategoryHeader
                   group={group}
                   isOpen={isOpen}
-                  onToggle={() =>
-                    setCollapsed((current) => ({
-                      ...current,
-                      [group.artifactType]: !current[group.artifactType],
-                    }))
-                  }
+                  onToggle={() => toggleStepCatalogCategory(group.artifactType)}
                 />
                 {isOpen ? (
                   <div className="flex flex-col gap-1 p-[2px_2px_6px_4px]">

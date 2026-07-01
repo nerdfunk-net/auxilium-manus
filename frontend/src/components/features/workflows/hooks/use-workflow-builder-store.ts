@@ -23,12 +23,14 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   selectedEdgeId: string | null;
   configModalNodeId: string | null;
   lastAction: string;
+  stepCatalogExpanded: Record<string, boolean>;
   setMode: (mode: WorkflowMode) => void;
   setRightPanelTab: (tab: RightPanelTab) => void;
   selectNode: (nodeId: string | null) => void;
   selectEdge: (edgeId: string | null) => void;
   openConfigModal: (nodeId: string) => void;
   closeConfigModal: () => void;
+  toggleStepCatalogCategory: (artifactType: string) => void;
   markSaved: (message?: string) => void;
   markDirty: () => void;
   markRunning: (message?: string) => void;
@@ -62,6 +64,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   selectedEdgeId: null,
   configModalNodeId: null,
   lastAction: "Ready to design workflow",
+  stepCatalogExpanded: {},
   setMode: (mode) => set({ mode }),
   setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
   selectNode: (selectedNodeId) =>
@@ -78,6 +81,13 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
     }),
   openConfigModal: (configModalNodeId) => set({ configModalNodeId }),
   closeConfigModal: () => set({ configModalNodeId: null }),
+  toggleStepCatalogCategory: (artifactType) =>
+    set((state) => ({
+      stepCatalogExpanded: {
+        ...state.stepCatalogExpanded,
+        [artifactType]: !(state.stepCatalogExpanded[artifactType] ?? false),
+      },
+    })),
   markSaved: (message = "Workflow saved") =>
     set({
       workflowStatus: "Saved",
