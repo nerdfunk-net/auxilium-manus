@@ -40,6 +40,7 @@ class PluginDefinition(BaseModel):
     name: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
     artifact_type: str = Field(..., min_length=1)
+    palette_category: str | None = None
     directory: str = Field(..., min_length=1)
     enabled: bool = True
     requires: list[str] = Field(default_factory=list)

@@ -46,7 +46,7 @@ function CategoryHeader({
       <span
         className={cn(
           "flex size-[26px] shrink-0 items-center justify-center rounded-md",
-          categoryTileClasses[group.artifactType] ?? CATEGORY_TILE_FALLBACK,
+          categoryTileClasses[group.categoryKey] ?? CATEGORY_TILE_FALLBACK,
         )}
       >
         {Icon ? <Icon className="size-3.5" aria-hidden /> : null}
@@ -94,7 +94,7 @@ function StepRow({
       <span
         className={cn(
           "flex size-8 shrink-0 items-center justify-center rounded-lg",
-          categoryTileClasses[item.artifactType] ?? CATEGORY_TILE_FALLBACK,
+          categoryTileClasses[item.paletteCategory] ?? CATEGORY_TILE_FALLBACK,
         )}
       >
         <Icon className="size-4" aria-hidden />
@@ -164,13 +164,13 @@ export function StepCatalog({ errorMessage, isLoading, onAddStep, plugins }: Ste
           </p>
         ) : (
           visibleGroups.map((group) => {
-            const isOpen = query ? true : (stepCatalogExpanded[group.artifactType] ?? false);
+            const isOpen = query ? true : (stepCatalogExpanded[group.categoryKey] ?? false);
             return (
-              <div className="mb-1.5" key={group.artifactType}>
+              <div className="mb-1.5" key={group.categoryKey}>
                 <CategoryHeader
                   group={group}
                   isOpen={isOpen}
-                  onToggle={() => toggleStepCatalogCategory(group.artifactType)}
+                  onToggle={() => toggleStepCatalogCategory(group.categoryKey)}
                 />
                 {isOpen ? (
                   <div className="flex flex-col gap-1 p-[2px_2px_6px_4px]">

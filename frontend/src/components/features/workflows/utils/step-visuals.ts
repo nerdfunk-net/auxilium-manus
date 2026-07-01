@@ -13,12 +13,14 @@ import {
   Scale,
   TerminalSquare,
   type LucideIcon,
+  CloudCog,
 } from "lucide-react";
 
 // Shared with the canvas node renderer, the step catalog, and the properties
 // panel so every surface agrees on icon/colour per artifact_type or step kind.
 
 export const ARTIFACT_TYPE_ORDER = [
+  "nautobot",
   "inventory_selector",
   "control_flow",
   "template_rendering",
@@ -26,6 +28,17 @@ export const ARTIFACT_TYPE_ORDER = [
   "configuration_retrieval",
   "persistent_artifact",
 ];
+
+export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
+  nautobot: "Nautobot",
+};
+
+export function formatPaletteCategory(category: string): string {
+  return (
+    PALETTE_CATEGORY_LABELS[category] ??
+    formatArtifactType(category)
+  );
+}
 
 export function formatArtifactType(artifactType: string): string {
   return artifactType
@@ -40,6 +53,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "fan-in": GitMerge,
   "filter-output": Filter,
   "merge-content": Combine,
+  "update-nautobot-device": CloudCog,
   "workflow-log": List,
 };
 
@@ -64,6 +78,7 @@ export const categoryTileClasses: Record<string, string> = {
   configuration_retrieval: "bg-indigo-100 text-indigo-700",
   control_flow: "bg-amber-100 text-amber-700",
   inventory_selector: "bg-sky-100 text-sky-700",
+  nautobot: "bg-teal-100 text-teal-700",
   persistent_artifact: "bg-violet-100 text-violet-700",
   template_rendering: "bg-orange-100 text-orange-700",
   trigger: "bg-slate-100 text-slate-700",
@@ -78,6 +93,7 @@ export const categoryBorderAccentClasses: Record<string, string> = {
   configuration_retrieval: "border-l-indigo-700",
   control_flow: "border-l-amber-700",
   inventory_selector: "border-l-sky-700",
+  nautobot: "border-l-teal-700",
   persistent_artifact: "border-l-violet-700",
   template_rendering: "border-l-orange-700",
 };

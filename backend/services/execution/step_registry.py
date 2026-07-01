@@ -31,6 +31,7 @@ from workflow_steps.render_jinja_template.executor import execute as render_jinj
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.store_artifact.executor import execute as store_artifact
+from workflow_steps.update_nautobot_device.executor import execute as update_nautobot_device
 from workflow_steps.workflow_log.executor import execute as workflow_log
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
@@ -51,5 +52,6 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "git-clone": git_clone,
     "git-pull": git_pull,
     "git-push": git_push,
+    "update-nautobot-device": update_nautobot_device,
     "workflow-log": workflow_log,
 }

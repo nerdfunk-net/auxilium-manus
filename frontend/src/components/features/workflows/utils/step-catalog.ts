@@ -4,16 +4,25 @@ import type { Capability } from "@/lib/capability-types";
 
 import type { PluginDefinition } from "../types/plugin-registry";
 import type { StepPayload, WorkflowOutcomeField } from "../types/workflow-canvas";
-import { ARTIFACT_TYPE_ORDER, formatArtifactType, resolveStepIcon } from "./step-visuals";
+import {
+  ARTIFACT_TYPE_ORDER,
+  formatPaletteCategory,
+  resolveStepIcon,
+} from "./step-visuals";
 
 export interface PaletteItem extends StepPayload {
   icon: LucideIcon;
+  paletteCategory: string;
 }
 
 export interface PaletteGroup {
-  artifactType: string;
+  categoryKey: string;
   label: string;
   items: PaletteItem[];
+}
+
+function resolvePaletteCategory(plugin: PluginDefinition): string {
+  return plugin.palette_category?.trim() || plugin.artifact_type;
 }
 
 export function toStepPayload(plugin: PluginDefinition): StepPayload {
@@ -32,9 +41,11 @@ export function toStepPayload(plugin: PluginDefinition): StepPayload {
 }
 
 function toPaletteItem(plugin: PluginDefinition): PaletteItem {
+  const paletteCategory = resolvePaletteCategory(plugin);
   return {
     ...toStepPayload(plugin),
-    icon: resolveStepIcon(plugin.id, plugin.artifact_type),
+    paletteCategory,
+    icon: resolveStepIcon(plugin.id, paletteCategory),
   };
 }
 
@@ -42,9 +53,10 @@ export function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
   const groups = new Map<string, PaletteItem[]>();
 
   for (const plugin of plugins) {
-    const items = groups.get(plugin.artifact_type) ?? [];
+    const categoryKey = resolvePaletteCategory(plugin);
+    const items = groups.get(categoryKey) ?? [];
     items.push(toPaletteItem(plugin));
-    groups.set(plugin.artifact_type, items);
+    groups.set(categoryKey, items);
   }
 
   return Array.from(groups.entries())
@@ -55,9 +67,9 @@ export function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
       const rightOrder = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
       return leftOrder - rightOrder || left.localeCompare(right);
     })
-    .map(([artifactType, items]) => ({
-      artifactType,
-      label: formatArtifactType(artifactType),
+    .map(([categoryKey, items]) => ({
+      categoryKey,
+      label: formatPaletteCategory(categoryKey),
       items: items.sort((left, right) => left.title.localeCompare(right.title)),
     }));
 }

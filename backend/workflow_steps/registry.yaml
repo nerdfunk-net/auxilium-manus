@@ -9,6 +9,7 @@ plugins:
     name: Get from Nautobot
     description: Select one or more target devices from the inventory.
     artifact_type: inventory_selector
+    palette_category: nautobot
     directory: get_nautobot_devices
     enabled: true
     requires: []
@@ -89,6 +90,7 @@ plugins:
     name: Get Nautobot Attributes
     description: Retrieve attributes from Nautobot for selected devices.
     artifact_type: inventory_selector
+    palette_category: nautobot
     directory: nautobot_attributes
     enabled: true
     requires: [identity]
@@ -110,6 +112,66 @@ plugins:
           example:
             - location
             - role
+
+  - id: update-nautobot-device
+    name: Update Device
+    description: Update device attributes, interfaces, tags, and custom fields in Nautobot.
+    artifact_type: command_execution
+    palette_category: nautobot
+    directory: update_nautobot_device
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: device_identifier
+          description: >
+            How to identify the device. Use from_context for workflow devices, or
+            explicit with id or name when running standalone.
+          data_type: object
+          required: false
+          example:
+            mode: from_context
+        - name: update_fields
+          description: >
+            Device fields to update. Only non-empty values are sent to Nautobot.
+          data_type: object
+          required: false
+          example:
+            status: active
+            location: dc1
+        - name: interfaces
+          description: Interfaces to create or update, including IP address and description.
+          data_type: object_list
+          required: false
+          example:
+            - name: GigabitEthernet0/0
+              description: Uplink
+              ip_address: 10.0.0.1/24
+              namespace: Global
+        - name: add_prefix
+          description: Automatically create missing IP prefixes when assigning addresses.
+          data_type: boolean
+          required: false
+          default: true
+        - name: default_prefix_length
+          description: Default prefix length when creating prefixes.
+          data_type: string
+          required: false
+          default: /24
+        - name: sync_interfaces
+          description: Delete device interfaces not listed in the interfaces configuration.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: get-device-configs
     name: Get Configs

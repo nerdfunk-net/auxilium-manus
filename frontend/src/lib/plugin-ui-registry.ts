@@ -15,6 +15,7 @@ import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
 import { WorkflowLogPlugin } from "@/components/features/workflow-steps/workflow-log";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
+import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
@@ -32,6 +33,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-clone": GitClonePlugin,
   "git-pull": GitPullPlugin,
   "git-push": GitPushPlugin,
+  "update-nautobot-device": UpdateNautobotDevicePlugin,
   "workflow-log": WorkflowLogPlugin,
 };
 

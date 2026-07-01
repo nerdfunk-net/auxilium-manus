@@ -20,6 +20,7 @@ export interface PluginDefinition {
   name: string;
   description: string;
   artifact_type: string;
+  palette_category?: string | null;
   directory: string;
   enabled: boolean;
   requires: string[];
