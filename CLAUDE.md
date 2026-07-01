@@ -564,8 +564,8 @@ PORT=3000
 >   and **fan-out** behaviour (per-device child workflows; git/filesystem sinks are not
 >   automatically fan-out-safe).
 > - `doc/WORKFLOW-STEPS-STYLE_GUIDE.md` — frontend styling: shared **canvas node**
->   (`w-80` × `h-32`, full title, green/red outcome handles), `ConfigPanel`/dialog rules
->   (teal palette, card anatomy, fan-out config block).
+>   (`w-80` × `h-32`, full title, light-gray input handle, green/red output handles),
+>   `ConfigPanel`/dialog rules (teal palette, card anatomy, fan-out config block).
 
 Each workflow step is a self-contained Python package under `backend/workflow_steps/{step_id}/`.
 The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/executor.py`.

@@ -6,18 +6,21 @@ import {
   BackgroundVariant,
   Controls,
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   type Connection,
   type EdgeTypes,
   type FinalConnectionState,
   type NodeTypes,
   type OnEdgesChange,
   type OnNodesChange,
+  type OnSelectionChangeFunc,
 } from "@xyflow/react";
-import type { Dispatch, MouseEvent, SetStateAction } from "react";
+import type { Dispatch, DragEvent, MouseEvent, SetStateAction } from "react";
 import { useCallback, useMemo } from "react";
 
 import { useToast } from "@/hooks/use-toast";
-import { isCompatible, type Capability } from "@/lib/capability-types";
+import { isCompatible } from "@/lib/capability-types";
 
 import "@xyflow/react/dist/style.css";
 
@@ -26,17 +29,16 @@ import {
   computeOutcomeProvides,
   getOutcomeProvides,
 } from "../utils/capability-graph";
+import { findPluginByKind, STEP_DRAG_MIME_TYPE, toStepPayload } from "../utils/step-catalog";
 import type { PluginDefinition } from "../types/plugin-registry";
 import type {
+  StepPayload,
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
-  WorkflowNodeKind,
-  WorkflowOutcomeField,
 } from "../types/workflow-canvas";
 import { WaypointEdge } from "./edges/waypoint-edge";
 import { CollapsibleMiniMap } from "./collapsible-minimap";
 import { WorkflowNode } from "./nodes/workflow-node";
-import { NodePalette } from "./workflow-node-palette";
 
 const nodeTypes: NodeTypes = {
   workflowNode: WorkflowNode,
@@ -46,46 +48,33 @@ const edgeTypes: EdgeTypes = {
   waypoint: WaypointEdge,
 };
 
+// Half the fixed node footprint (w-80 h-32), used to center a dropped step on the pointer.
+const NODE_DROP_OFFSET = { x: 160, y: 64 };
+
 interface WorkflowCanvasProps {
   nodes: WorkflowCanvasNode[];
   edges: WorkflowCanvasEdge[];
-  isPluginsLoading: boolean;
-  pluginErrorMessage?: string;
   plugins: PluginDefinition[];
   onNodesChange: OnNodesChange<WorkflowCanvasNode>;
   onEdgesChange: OnEdgesChange<WorkflowCanvasEdge>;
   setEdges: Dispatch<SetStateAction<WorkflowCanvasEdge[]>>;
-  onAddStep: (step: {
-    kind: WorkflowNodeKind;
-    title: string;
-    description: string;
-    artifactType: string;
-    requires: Capability[];
-    requiresParsed: string[];
-    produces: Capability[];
-    producesParsed: string[];
-    consumes: Capability[];
-    outcomes: WorkflowOutcomeField[];
-  }) => void;
+  onAddStepAtPosition: (step: StepPayload, position: { x: number; y: number }) => void;
 }
 
-export function WorkflowCanvas({
+function WorkflowCanvasInner({
   nodes,
   edges,
-  isPluginsLoading,
-  pluginErrorMessage,
   plugins,
   onNodesChange,
   onEdgesChange,
   setEdges,
-  onAddStep,
+  onAddStepAtPosition,
 }: WorkflowCanvasProps) {
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
   const selectEdge = useWorkflowBuilderStore((state) => state.selectEdge);
-  const isActionsPanelVisible = useWorkflowBuilderStore(
-    (state) => state.isActionsPanelVisible,
-  );
+  const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
   const { toast } = useToast();
+  const { screenToFlowPosition } = useReactFlow();
 
   const outcomeProvides = useMemo(
     () => computeOutcomeProvides(nodes, edges),
@@ -168,8 +157,53 @@ export function WorkflowCanvas({
     selectNode(null);
   }, [selectNode]);
 
+  // Box-select (drag rubber-band) doesn't fire onNodeClick, so multi-select needs its
+  // own hook into the Steps/Properties auto-switch behaviour.
+  const handleSelectionChange = useCallback<OnSelectionChangeFunc>(
+    ({ nodes: selectedNodes, edges: selectedEdges }) => {
+      if (selectedNodes.length > 1) {
+        setRightPanelTab("properties");
+      } else if (selectedNodes.length === 0 && selectedEdges.length === 0) {
+        setRightPanelTab("steps");
+      }
+    },
+    [setRightPanelTab],
+  );
+
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (event.dataTransfer.types.includes(STEP_DRAG_MIME_TYPE)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }, []);
+
+  const handleDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      const kind = event.dataTransfer.getData(STEP_DRAG_MIME_TYPE);
+      if (!kind) return;
+      event.preventDefault();
+
+      const plugin = findPluginByKind(plugins, kind);
+      if (!plugin) return;
+
+      const flowPosition = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      onAddStepAtPosition(toStepPayload(plugin), {
+        x: flowPosition.x - NODE_DROP_OFFSET.x,
+        y: flowPosition.y - NODE_DROP_OFFSET.y,
+      });
+    },
+    [plugins, screenToFlowPosition, onAddStepAtPosition],
+  );
+
   return (
-    <div className="relative h-full overflow-hidden bg-slate-50">
+    <div
+      className="relative h-full overflow-hidden bg-slate-50"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <ReactFlow<WorkflowCanvasNode, WorkflowCanvasEdge>
         nodes={nodes}
         edges={edges}
@@ -184,6 +218,7 @@ export function WorkflowCanvas({
         onEdgeClick={handleEdgeClick}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
+        onSelectionChange={handleSelectionChange}
         fitView
         fitViewOptions={{ padding: 0.2 }}
       >
@@ -201,20 +236,20 @@ export function WorkflowCanvas({
           <div className="max-w-sm rounded-2xl border bg-card/95 p-6 text-center shadow-sm">
             <p className="text-sm font-semibold">Start your workflow</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Use the step palette to add device selection, command, condition,
-              or artifact steps to the canvas.
+              Use the Steps panel on the right to add device selection, command,
+              condition, or artifact steps to the canvas.
             </p>
           </div>
         </div>
       ) : null}
-      {isActionsPanelVisible ? (
-        <NodePalette
-          errorMessage={pluginErrorMessage}
-          isLoading={isPluginsLoading}
-          onAddStep={onAddStep}
-          plugins={plugins}
-        />
-      ) : null}
     </div>
+  );
+}
+
+export function WorkflowCanvas(props: WorkflowCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <WorkflowCanvasInner {...props} />
+    </ReactFlowProvider>
   );
 }

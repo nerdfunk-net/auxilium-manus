@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type { WorkflowVisibility } from "../types/workflow-persistence";
 
 type WorkflowMode = "editor" | "executions";
+type RightPanelTab = "steps" | "properties";
 
 interface WorkflowMetadata {
   workflowId: number | null;
@@ -17,15 +18,13 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   workflowStatus: "Draft" | "Saved" | "Running" | "Error";
   isDirty: boolean;
   mode: WorkflowMode;
-  isActionsPanelVisible: boolean;
+  rightPanelTab: RightPanelTab;
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
   configModalNodeId: string | null;
   lastAction: string;
   setMode: (mode: WorkflowMode) => void;
-  showActionsPanel: () => void;
-  hideActionsPanel: () => void;
-  toggleActionsPanel: () => void;
+  setRightPanelTab: (tab: RightPanelTab) => void;
   selectNode: (nodeId: string | null) => void;
   selectEdge: (edgeId: string | null) => void;
   openConfigModal: (nodeId: string) => void;
@@ -58,21 +57,25 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   workflowStatus: "Draft",
   isDirty: false,
   mode: "editor",
-  isActionsPanelVisible: false,
+  rightPanelTab: "steps",
   selectedNodeId: null,
   selectedEdgeId: null,
   configModalNodeId: null,
   lastAction: "Ready to design workflow",
   setMode: (mode) => set({ mode }),
-  showActionsPanel: () => set({ isActionsPanelVisible: true, mode: "editor" }),
-  hideActionsPanel: () => set({ isActionsPanelVisible: false }),
-  toggleActionsPanel: () =>
-    set((state) => ({
-      isActionsPanelVisible: !state.isActionsPanelVisible,
-      mode: "editor",
-    })),
-  selectNode: (selectedNodeId) => set({ selectedNodeId, selectedEdgeId: null }),
-  selectEdge: (selectedEdgeId) => set({ selectedEdgeId, selectedNodeId: null }),
+  setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
+  selectNode: (selectedNodeId) =>
+    set({
+      selectedNodeId,
+      selectedEdgeId: null,
+      rightPanelTab: selectedNodeId ? "properties" : "steps",
+    }),
+  selectEdge: (selectedEdgeId) =>
+    set({
+      selectedEdgeId,
+      selectedNodeId: null,
+      rightPanelTab: selectedEdgeId ? "properties" : "steps",
+    }),
   openConfigModal: (configModalNodeId) => set({ configModalNodeId }),
   closeConfigModal: () => set({ configModalNodeId: null }),
   markSaved: (message = "Workflow saved") =>
@@ -114,6 +117,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       ...NEW_WORKFLOW_DEFAULTS,
       workflowStatus: "Draft",
       isDirty: false,
+      rightPanelTab: "steps",
       selectedNodeId: null,
       selectedEdgeId: null,
       configModalNodeId: null,

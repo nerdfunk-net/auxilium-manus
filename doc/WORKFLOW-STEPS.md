@@ -262,12 +262,15 @@ Canvas appearance is driven by the registry entry:
 | `description`     | Subtitle under the title (`line-clamp-2`)       |
 | `artifact_type`   | Icon tile colour and default Lucide icon        |
 | `outcomes`        | Source handles; label + handle colours          |
-| `requires`        | Whether a target (input) handle is shown      |
+| `requires`        | Whether a target (input) handle is shown on the left |
 
 **Sizing:** all nodes are `w-80` × `h-32`. Never add per-step width/height overrides.
 
-**Outcome colours:** the shared renderer applies green to `success` / `match` / `pass` and
-red to `failure` / `fail` / `error` / `mismatch`. Name outcomes accordingly in
+**Input handle:** when `requires` is non-empty, a single light-gray target handle appears
+on the left (`!bg-slate-300 !border-slate-400`).
+
+**Output colours:** the shared renderer applies green to `success` / `match` / `pass` and
+red to `failure` / `fail` / `error` / `mismatch` on source handles. Name outcomes accordingly in
 `registry.yaml` so branching edges are visually consistent.
 
 **Optional icon override:** if the default `artifact_type` icon is not distinctive, add one

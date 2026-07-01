@@ -35,11 +35,9 @@ export function WorkflowSidebar() {
   const openWorkflow = useWorkspaceStore((state) => state.openWorkflow);
   const mode = useWorkflowBuilderStore((state) => state.mode);
   const setMode = useWorkflowBuilderStore((state) => state.setMode);
-  const isActionsPanelVisible = useWorkflowBuilderStore(
-    (state) => state.isActionsPanelVisible,
-  );
-  const toggleActionsPanel = useWorkflowBuilderStore(
-    (state) => state.toggleActionsPanel,
+  const rightPanelTab = useWorkflowBuilderStore((state) => state.rightPanelTab);
+  const setRightPanelTab = useWorkflowBuilderStore(
+    (state) => state.setRightPanelTab,
   );
 
   return (
@@ -66,7 +64,8 @@ export function WorkflowSidebar() {
               mode === "executions") ||
             (item.kind === "steps" &&
               workspace === "workflow" &&
-              isActionsPanelVisible);
+              mode === "editor" &&
+              rightPanelTab === "steps");
           const isPlaceholder = item.kind === "placeholder";
           const handleClick =
             item.kind === "settings"
@@ -74,7 +73,8 @@ export function WorkflowSidebar() {
               : item.kind === "steps"
                 ? () => {
                     openWorkflow();
-                    toggleActionsPanel();
+                    setMode("editor");
+                    setRightPanelTab("steps");
                   }
                 : item.kind === "workflows"
                   ? () => {
@@ -94,7 +94,7 @@ export function WorkflowSidebar() {
                 item.kind !== "steps" && isActive ? "page" : undefined
               }
               aria-pressed={
-                item.kind === "steps" ? isActionsPanelVisible : undefined
+                item.kind === "steps" ? rightPanelTab === "steps" : undefined
               }
               disabled={isPlaceholder}
               key={item.label}

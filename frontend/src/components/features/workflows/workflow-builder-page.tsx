@@ -16,8 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import type { Capability } from "@/lib/capability-types";
-
 import { SettingsMockCanvas } from "@/components/features/settings/components/settings-mock-canvas";
 import { SettingsTopbar } from "@/components/features/settings/components/settings-topbar";
 import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
@@ -37,10 +35,9 @@ import type { PluginDefinition } from "./types/plugin-registry";
 import type { WorkflowSummary, WorkflowVisibility } from "./types/workflow-persistence";
 import type {
   EdgeStyle,
+  StepPayload,
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
-  WorkflowNodeKind,
-  WorkflowOutcomeField,
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { migrateCanvasState } from "./utils/migrate-canvas";
@@ -400,54 +397,102 @@ export function WorkflowBuilderPage() {
     [setNodes, markDirty],
   );
 
-  const handleAddStep = useCallback(
-    (step: {
-      kind: WorkflowNodeKind;
-      title: string;
-      description: string;
-      artifactType: string;
-      requires: Capability[];
-      requiresParsed: string[];
-      produces: Capability[];
-      producesParsed: string[];
-      consumes: Capability[];
-      outcomes: WorkflowOutcomeField[];
-    }) => {
-      const nextIndex = nodes.length + 1;
-      const id = `${step.kind}-${nextIndex}`;
-      const stepUuid = crypto.randomUUID();
+  const buildStepNode = useCallback(
+    (step: StepPayload, id: string, position: { x: number; y: number }): WorkflowCanvasNode => {
       const isRenderJinja = step.kind === "render-jinja-template";
       const pluginConfig = isRenderJinja ? { ...DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG } : undefined;
       const producesParsed = isRenderJinja
         ? deriveProducesParsed(DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG)
         : step.producesParsed;
 
-      setNodes((currentNodes) => [
-        ...currentNodes,
-        {
-          id,
-          type: "workflowNode",
-          position: { x: 160 + nextIndex * 44, y: 460 },
-          data: {
-            kind: step.kind,
-            stepUuid,
-            title: step.title,
-            description: step.description,
-            artifactType: step.artifactType,
-            requires: step.requires,
-            requiresParsed: step.requiresParsed,
-            produces: step.produces,
-            producesParsed,
-            consumes: step.consumes,
-            outcomes: step.outcomes,
-            ...(pluginConfig ? { pluginConfig } : {}),
-          },
+      return {
+        id,
+        type: "workflowNode",
+        position,
+        data: {
+          kind: step.kind,
+          stepUuid: crypto.randomUUID(),
+          title: step.title,
+          description: step.description,
+          artifactType: step.artifactType,
+          requires: step.requires,
+          requiresParsed: step.requiresParsed,
+          produces: step.produces,
+          producesParsed,
+          consumes: step.consumes,
+          outcomes: step.outcomes,
+          ...(pluginConfig ? { pluginConfig } : {}),
         },
-      ]);
+      };
+    },
+    [],
+  );
+
+  const handleAddStep = useCallback(
+    (step: StepPayload) => {
+      const nextIndex = nodes.length + 1;
+      const id = `${step.kind}-${nextIndex}`;
+      const node = buildStepNode(step, id, { x: 160 + nextIndex * 44, y: 460 });
+      setNodes((currentNodes) => [...currentNodes, node]);
       selectNode(id);
       markDirty();
     },
-    [nodes.length, selectNode, setNodes, markDirty],
+    [nodes.length, buildStepNode, selectNode, setNodes, markDirty],
+  );
+
+  const handleAddStepAtPosition = useCallback(
+    (step: StepPayload, position: { x: number; y: number }) => {
+      const nextIndex = nodes.length + 1;
+      const id = `${step.kind}-${nextIndex}`;
+      const node = buildStepNode(step, id, position);
+      setNodes((currentNodes) => [...currentNodes, node]);
+      selectNode(id);
+      markDirty();
+    },
+    [nodes.length, buildStepNode, selectNode, setNodes, markDirty],
+  );
+
+  const handleDeleteNodes = useCallback(
+    (nodeIds: string[]) => {
+      const idSet = new Set(nodeIds);
+      setNodes((current) => current.filter((n) => !idSet.has(n.id)));
+      setEdges((current) =>
+        current.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)),
+      );
+      selectNode(null);
+      markDirty();
+    },
+    [setNodes, setEdges, selectNode, markDirty],
+  );
+
+  const handleDeleteEdge = useCallback(
+    (edgeId: string) => {
+      setEdges((current) => current.filter((e) => e.id !== edgeId));
+      selectNode(null);
+      markDirty();
+    },
+    [setEdges, selectNode, markDirty],
+  );
+
+  const handleDuplicateNode = useCallback(
+    (nodeId: string) => {
+      const source = nodes.find((n) => n.id === nodeId);
+      if (!source) return;
+      const newId = `${source.data.kind}-${nodes.length + 1}`;
+      setNodes((current) => [
+        ...current.map((n) => (n.id === nodeId ? { ...n, selected: false } : n)),
+        {
+          ...source,
+          id: newId,
+          position: { x: source.position.x + 32, y: source.position.y + 32 },
+          selected: true,
+          data: { ...source.data, stepUuid: crypto.randomUUID() },
+        },
+      ]);
+      selectNode(newId);
+      markDirty();
+    },
+    [nodes, setNodes, selectNode, markDirty],
   );
 
   const handleFocusStepOnCanvas = useCallback(
@@ -485,12 +530,10 @@ export function WorkflowBuilderPage() {
                 {mode === "editor" ? (
                   <WorkflowCanvas
                     edges={edges}
-                    isPluginsLoading={isPluginsLoading}
                     nodes={nodes}
                     onEdgesChange={handleEdgesChange}
                     onNodesChange={handleNodesChange}
-                    onAddStep={handleAddStep}
-                    pluginErrorMessage={pluginError?.message}
+                    onAddStepAtPosition={handleAddStepAtPosition}
                     plugins={plugins}
                     setEdges={setEdges}
                   />
@@ -501,9 +544,17 @@ export function WorkflowBuilderPage() {
               {mode === "editor" ? (
                 <WorkflowPropertiesPanel
                   edges={edges}
+                  isPluginsLoading={isPluginsLoading}
                   nodes={nodes}
-                  onEdgeStyleChange={handleEdgeStyleChange}
+                  onAddStep={handleAddStep}
                   onAlignNodes={handleAlignNodes}
+                  onDeleteEdge={handleDeleteEdge}
+                  onDeleteNodes={handleDeleteNodes}
+                  onDuplicateNode={handleDuplicateNode}
+                  onEdgeStyleChange={handleEdgeStyleChange}
+                  onNodeTitleChange={handleNodeTitleChange}
+                  pluginErrorMessage={pluginError?.message}
+                  plugins={plugins}
                 />
               ) : null}
               {mode === "editor" ? (

@@ -78,10 +78,27 @@ individual steps (e.g. `merge-content`, `compare-data`) had their own render pat
 Right padding depends on outcome count: `pr-10` when the step has a single source handle,
 `pr-24` when it has multiple outcomes (room for outcome labels on the right edge).
 
-### Outcome handles — success and failure colors
+### Connection handles
+
+All handle dots use `!size-3 !border-2`. Input and output handles use different colours
+so upstream wiring is visually distinct from branching outcomes.
+
+#### Input handle (target, left edge)
+
+Shown when the step's registry `requires` list is non-empty (the step accepts upstream
+input). One handle centred on the left edge (`id="input"`, `type="target"`).
+
+| Role | Tailwind classes |
+|---|---|
+| Input handle | `!bg-slate-300 !border-slate-400` |
+
+Defined once as `TARGET_HANDLE_CLASS` in `workflow-node.tsx`. Always light gray — never
+match outcome green/red styling.
+
+#### Output handles (source, right edge) — success and failure colors
 
 Outcome names come from the step's `outcomes` list in `registry.yaml`. The shared
-renderer colours labels and connection handles automatically:
+renderer colours labels and source handles automatically:
 
 | Outcome name (case-insensitive) | Label pill | Handle dot |
 |---|---|---|
@@ -278,7 +295,9 @@ All text/number inputs follow the same pattern:
 - [ ] Registry `name` is short enough to wrap cleanly at `w-80`, or intentionally concise
 - [ ] Registry `description` is the single source of truth for the subtitle on the canvas
 - [ ] Outcomes use standard names (`success` / `failure`, or `match` / `mismatch` / `failure`)
-      so green/red handle colours apply automatically
+      so green/red output handle colours apply automatically
+- [ ] Input handle stays light gray (`!bg-slate-300 !border-slate-400`) — do not style
+      target handles like outcomes
 - [ ] Optional: `nodeIconsByKind` entry only when `artifact_type` default icon is wrong
 
 ### Config panel, dialogs, and forms

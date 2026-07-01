@@ -1,24 +1,7 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import {
-  CheckCircle2,
-  Combine,
-  Database,
-  FileArchive,
-  FileText,
-  Filter,
-  GitBranch,
-  GitMerge,
-  HardDriveDownload,
-  Info,
-  Router,
-  Scale,
-  Settings2,
-  Split,
-  TerminalSquare,
-  type LucideIcon,
-} from "lucide-react";
+import { Info, Settings2, Split } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,73 +14,24 @@ import { cn } from "@/lib/utils";
 
 import { useWorkflowBuilderStore } from "../../hooks/use-workflow-builder-store";
 import type { WorkflowCanvasNode } from "../../types/workflow-canvas";
+import {
+  CATEGORY_BORDER_FALLBACK,
+  CATEGORY_TILE_FALLBACK,
+  categoryBorderAccentClasses,
+  categoryTileClasses as nodeAccentClassesByType,
+  outcomeClasses,
+  outcomeHandleClasses,
+  resolveStepIcon as resolveNodeIcon,
+} from "../../utils/step-visuals";
 
 const NODE_WIDTH_CLASS = "w-80";
 const NODE_HEIGHT_CLASS = "h-32";
 
-const nodeIconsByKind: Record<string, LucideIcon> = {
-  "compare-data": Scale,
-  "fan-in": GitMerge,
-  "filter-output": Filter,
-  "merge-content": Combine,
-};
-
-const nodeIconsByType: Record<string, LucideIcon> = {
-  command_execution: TerminalSquare,
-  configuration_retrieval: HardDriveDownload,
-  control_flow: GitBranch,
-  inventory_selector: Router,
-  persistent_artifact: FileArchive,
-  template_rendering: FileText,
-  trigger: GitBranch,
-  result: CheckCircle2,
-};
-
-function resolveNodeIcon(kind: string, artifactType: string): LucideIcon {
-  return nodeIconsByKind[kind] ?? nodeIconsByType[artifactType] ?? Database;
-}
-
-function outcomeClasses(name: string): string {
-  const lower = name.toLowerCase();
-  if (lower === "success" || lower === "match" || lower === "pass") {
-    return "bg-green-50 text-green-700 border border-green-200";
-  }
-  if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
-    return "bg-red-50 text-red-700 border border-red-200";
-  }
-  if (lower === "default") {
-    return "bg-amber-50 text-amber-700 border border-amber-200";
-  }
-  return "bg-sky-50 text-sky-700 border border-sky-200";
-}
-
-function outcomeHandleClasses(name: string): string {
-  const lower = name.toLowerCase();
-  if (lower === "success" || lower === "match" || lower === "pass") {
-    return "!bg-green-500 !border-green-600";
-  }
-  if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
-    return "!bg-red-500 !border-red-600";
-  }
-  if (lower === "default") {
-    return "!bg-amber-500 !border-amber-600";
-  }
-  return "!bg-sky-500 !border-sky-600";
-}
-
-const nodeAccentClassesByType: Record<string, string> = {
-  command_execution: "bg-emerald-100 text-emerald-700",
-  configuration_retrieval: "bg-indigo-100 text-indigo-700",
-  control_flow: "bg-amber-100 text-amber-700",
-  inventory_selector: "bg-sky-100 text-sky-700",
-  persistent_artifact: "bg-violet-100 text-violet-700",
-  template_rendering: "bg-orange-100 text-orange-700",
-  trigger: "bg-slate-100 text-slate-700",
-  result: "bg-teal-100 text-teal-700",
-};
+const TARGET_HANDLE_CLASS =
+  "!size-3 !border-2 !bg-slate-300 !border-slate-400";
 
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
-  const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
+  const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
   const nodeType = data.artifactType ?? data.kind;
   const Icon = resolveNodeIcon(data.kind, nodeType);
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
@@ -113,15 +47,16 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
   return (
     <div
       className={cn(
-        "group relative rounded-xl border bg-card shadow-sm transition-shadow",
+        "group relative rounded-xl border border-l-[3px] bg-card shadow-sm transition-shadow",
         NODE_WIDTH_CLASS,
         NODE_HEIGHT_CLASS,
+        categoryBorderAccentClasses[nodeType] ?? CATEGORY_BORDER_FALLBACK,
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
       )}
     >
       {hasTargetHandles ? (
         <Handle
-          className="!size-3 !border-2 !bg-background"
+          className={TARGET_HANDLE_CLASS}
           id="input"
           position={Position.Left}
           style={{ top: "50%" }}
@@ -129,9 +64,12 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         />
       ) : null}
       <Button
-        aria-label="Configure step"
+        aria-label="Select step and open properties"
         className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
-        onClick={(e) => { e.stopPropagation(); openConfigModal(id); }}
+        onClick={(event) => {
+          event.stopPropagation();
+          selectNode(id);
+        }}
         size="icon"
         variant="ghost"
       >
@@ -146,7 +84,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         <div
           className={cn(
             "flex size-10 shrink-0 items-center justify-center rounded-lg",
-            nodeAccentClassesByType[nodeType] ?? "bg-muted text-muted-foreground",
+            nodeAccentClassesByType[nodeType] ?? CATEGORY_TILE_FALLBACK,
           )}
         >
           <Icon className="size-5" aria-hidden />

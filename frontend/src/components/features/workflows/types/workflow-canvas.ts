@@ -32,6 +32,19 @@ export interface Waypoint {
   y: number;
 }
 
+export interface StepPayload {
+  kind: WorkflowNodeKind;
+  title: string;
+  description: string;
+  artifactType: string;
+  requires: Capability[];
+  requiresParsed: string[];
+  produces: Capability[];
+  producesParsed: string[];
+  consumes: Capability[];
+  outcomes: WorkflowOutcomeField[];
+}
+
 export type EdgeStyle = "straight" | "smooth";
 
 export interface WorkflowEdgeData extends Record<string, unknown> {
