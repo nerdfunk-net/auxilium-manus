@@ -1,19 +1,21 @@
-# Auxilium Manus — development infrastructure
+# Auxilium Manus — Hatchet workflow infrastructure
 #
 # Services:
-#   postgres      — app database (port 5432)
-#   redis         — cache and pub/sub (port 6379)
 #   hatchet-*     — workflow orchestration engine (dashboard: http://localhost:8888)
 #
+# Prerequisites (once):
+#   docker network create internal
+#   docker network create backend
+#
 # Hatchet first-time setup:
-#   1. docker compose up -d
+#   1. cd docker/hatchet && docker compose up -d
 #   2. Wait ~60s for hatchet-setup-config to complete and hatchet-dashboard to start
 #   3. Open http://localhost:8888, sign in (admin@example.com / Admin1234!)
 #   4. Settings → API Tokens → Create Token → copy token
-#   5. Add to backend/.env:
+#   5. Add to docker/.env (with app on backend network):
 #        HATCHET_CLIENT_TOKEN=<paste token here>
-#   6. Start the worker (separate terminal):
-#        cd backend && python -m hatchet.worker
+#        HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070
+#   6. Start the app stack — see docker/README.md
 
 services:
   # ─── App database ────────────────────────────────────────────────────────────

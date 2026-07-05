@@ -1,12 +1,13 @@
 # Auxilium Manus — application stack
 #
-# Start Hatchet infrastructure from the project root first:
+# Start Hatchet first (see docker/README.md):
 #   docker network create internal 2>/dev/null || true
 #   docker network create backend 2>/dev/null || true
-#   docker compose up -d
+#   cd docker/hatchet && docker compose up -d
 #
 # Then start the application stack from this directory:
-#   cd docker && cp .env.example .env && docker compose up -d
+#   cp .env.example .env
+#   docker compose -f docker-compose.yml -f docker-compose.hatchet-network.yml up -d
 
 services:
   postgres:

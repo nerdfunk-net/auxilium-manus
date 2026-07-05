@@ -1,0 +1,27 @@
+# Attach the application stack to the Hatchet backend network.
+#
+# Prerequisites:
+#   docker network create backend
+#   cd docker/hatchet && docker compose up -d
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.hatchet-network.yml up -d
+#
+# Set in .env:
+#   HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070
+#   HATCHET_CLIENT_TLS_STRATEGY=none
+
+services:
+  manus-web:
+    networks:
+      - manus-network
+      - backend
+
+  manus-worker:
+    networks:
+      - manus-network
+      - backend
+
+networks:
+  backend:
+    external: true
