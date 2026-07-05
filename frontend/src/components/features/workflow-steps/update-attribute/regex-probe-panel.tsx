@@ -1,6 +1,5 @@
 "use client";
 
-import { FlaskConical } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +56,7 @@ function ProbeResultView({ result }: { result: UpdateAttributeProbeResult }) {
               <ul className="mt-1 space-y-0.5 font-mono">
                 {Object.entries(result.groups).map(([key, value]) => (
                   <li key={key}>
-                    \\{key} = {value}
+                    {`\\${key}`} = {value}
                   </li>
                 ))}
               </ul>
@@ -69,7 +68,7 @@ function ProbeResultView({ result }: { result: UpdateAttributeProbeResult }) {
               <ul className="mt-1 space-y-0.5 font-mono">
                 {Object.entries(result.named_groups).map(([key, value]) => (
                   <li key={key}>
-                    \\g&lt;{key}&gt; = {value}
+                    {`\\g<${key}>`} = {value}
                   </li>
                 ))}
               </ul>
@@ -156,15 +155,11 @@ export function RegexProbePanel({
   }, [deviceJson, deviceProbeMutation, probePayload, sourcePath]);
 
   return (
-    <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-center gap-2">
-        <FlaskConical className="size-4 text-teal-500" />
-        <span className="text-sm font-semibold text-foreground">Regex probe</span>
-      </div>
+    <div className="space-y-4">
       <p className="text-[11px] leading-4 text-muted-foreground">
         Test your Python regular expression before running the workflow. Destination templates
-        support backrefs such as <span className="font-mono">\\1</span> and{" "}
-        <span className="font-mono">\\g&lt;name&gt;</span>.
+        support backrefs such as <span className="font-mono">{"\\1"}</span> and{" "}
+        <span className="font-mono">{"\\g<location>"}</span>.
       </p>
 
       <div className="space-y-2 rounded-lg border bg-background p-3">

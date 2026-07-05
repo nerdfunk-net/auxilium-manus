@@ -8,7 +8,7 @@ import {
   Settings2,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,11 @@ import type { WorkflowCanvasEdge, WorkflowCanvasNode } from "../types/workflow-c
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: WorkflowCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
+
+const MODAL_TAB_TRIGGER_CLASS =
+  "h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none";
+
+const MODAL_TAB_CONTENT_CLASS = "mt-0 min-h-0 flex-1 overflow-y-auto p-6";
 
 interface NodeConfigModalProps {
   nodes: WorkflowCanvasNode[];
@@ -177,8 +182,37 @@ export function NodeConfigModal({
     [plugin],
   );
 
+  const pluginConfig = (activeNode?.data.pluginConfig ?? {}) as Record<string, unknown>;
+
   const hasConfigTab =
     !!pluginUI || (plugin?.metadata.configuration_input.length ?? 0) > 0;
+
+  const visibleModalTabs = useMemo(
+    () =>
+      (pluginUI?.modalTabs ?? []).filter(
+        (tab) => tab.isVisible?.(pluginConfig) ?? true,
+      ),
+    [pluginUI, pluginConfig],
+  );
+
+  const [activeTab, setActiveTab] = useState("general");
+
+  useEffect(() => {
+    if (configModalNodeId) {
+      setActiveTab("general");
+    }
+  }, [configModalNodeId]);
+
+  useEffect(() => {
+    const standardTabs = new Set(["general", "configuration", "description"]);
+    const allowedTabs = new Set([
+      ...standardTabs,
+      ...visibleModalTabs.map((tab) => tab.id),
+    ]);
+    if (!allowedTabs.has(activeTab)) {
+      setActiveTab(hasConfigTab ? "configuration" : "general");
+    }
+  }, [activeTab, visibleModalTabs, hasConfigTab]);
 
   return (
     <Dialog open={configModalNodeId !== null} onOpenChange={(open) => { if (!open) closeConfigModal(); }}>
@@ -195,34 +229,31 @@ export function NodeConfigModal({
         </DialogHeader>
 
         {activeNode ? (
-          <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="general">
+          <Tabs
+            className="flex min-h-0 flex-1 flex-col"
+            value={activeTab}
+            onValueChange={setActiveTab}
+          >
             <TabsList className="h-9 w-full shrink-0 rounded-none border-b border-border bg-muted p-0">
-              <TabsTrigger
-                className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
-                value="general"
-              >
+              <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="general">
                 General
               </TabsTrigger>
               {hasConfigTab ? (
-                <TabsTrigger
-                  className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
-                  value="configuration"
-                >
+                <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="configuration">
                   Configuration
                 </TabsTrigger>
               ) : null}
-              <TabsTrigger
-                className="h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none"
-                value="description"
-              >
+              {visibleModalTabs.map((tab) => (
+                <TabsTrigger key={tab.id} className={MODAL_TAB_TRIGGER_CLASS} value={tab.id}>
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+              <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="description">
                 Description
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent
-              className="mt-0 min-h-0 flex-1 overflow-y-auto p-6"
-              value="general"
-            >
+            <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="general">
               <div className="max-w-sm space-y-1.5">
                 <Label className="text-xs font-medium" htmlFor="modal-step-name">
                   Step name
@@ -252,15 +283,10 @@ export function NodeConfigModal({
             </TabsContent>
 
             {hasConfigTab ? (
-              <TabsContent
-                className="mt-0 min-h-0 flex-1 overflow-y-auto p-6"
-                value="configuration"
-              >
+              <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="configuration">
                 {pluginUI ? (
                   <pluginUI.ConfigPanel
-                    config={
-                      (activeNode.data.pluginConfig ?? {}) as Record<string, unknown>
-                    }
+                    config={pluginConfig}
                     nodeId={activeNode.id}
                     workflowNodes={workflowNodes}
                     workflowEdges={edges}
@@ -283,10 +309,21 @@ export function NodeConfigModal({
               </TabsContent>
             ) : null}
 
-            <TabsContent
-              className="mt-0 min-h-0 flex-1 overflow-y-auto p-6"
-              value="description"
-            >
+            {visibleModalTabs.map((tab) => (
+              <TabsContent key={tab.id} className={MODAL_TAB_CONTENT_CLASS} value={tab.id}>
+                <tab.Panel
+                  config={pluginConfig}
+                  nodeId={activeNode.id}
+                  workflowNodes={workflowNodes}
+                  workflowEdges={edges}
+                  plugins={plugins}
+                  onChange={(config) => onNodeConfigChange?.(activeNode.id, config)}
+                  onPreview={() => undefined}
+                />
+              </TabsContent>
+            ))}
+
+            <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="description">
               <div className="space-y-4">
                 {/* Group 1: Name */}
                 <div>

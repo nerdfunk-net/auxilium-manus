@@ -271,8 +271,8 @@ function UpdateAttributeConfigPanel({
               className="h-8 font-mono text-xs"
             />
             <p className="text-[11px] leading-4 text-muted-foreground">
-              Use Python backrefs such as <span className="font-mono">\\1</span> or{" "}
-              <span className="font-mono">\\g&lt;city&gt;</span> with named groups.
+              Use Python backrefs such as <span className="font-mono">{"\\1"}</span> or{" "}
+              <span className="font-mono">{"\\g<location>"}</span> with named groups.
             </p>
           </div>
 
@@ -281,19 +281,33 @@ function UpdateAttributeConfigPanel({
             nodeId={nodeId}
             onChange={handleRegexFlagsChange}
           />
-
-          <RegexProbePanel
-            pattern={parsed.pattern}
-            destinationTemplate={parsed.destination_template}
-            regexFlags={parsed.regex_flags}
-            sourcePath={parsed.source_path}
-          />
         </>
       )}
     </div>
   );
 }
 
+function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
+  const parsed = useMemo(() => parseUpdateAttributeConfig(config), [config]);
+
+  return (
+    <RegexProbePanel
+      pattern={parsed.pattern}
+      destinationTemplate={parsed.destination_template}
+      regexFlags={parsed.regex_flags}
+      sourcePath={parsed.source_path}
+    />
+  );
+}
+
 export const UpdateAttributePlugin = {
   ConfigPanel: UpdateAttributeConfigPanel,
+  modalTabs: [
+    {
+      id: "probe",
+      label: "Probe",
+      Panel: UpdateAttributeProbeTabPanel,
+      isVisible: (config) => parseUpdateAttributeConfig(config).mode === "regex",
+    },
+  ],
 };

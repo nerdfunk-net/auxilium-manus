@@ -13,6 +13,16 @@ export interface PluginConfigPanelProps {
   plugins?: PluginDefinition[];
 }
 
+/** Optional extra tab rendered in the step configuration modal. */
+export interface PluginModalTab {
+  id: string;
+  label: string;
+  Panel: React.ComponentType<PluginConfigPanelProps>;
+  /** When omitted, the tab is always shown for this step. */
+  isVisible?: (config: Record<string, unknown>) => boolean;
+}
+
 export interface PluginUIComponent {
   ConfigPanel: React.ComponentType<PluginConfigPanelProps>;
+  modalTabs?: PluginModalTab[];
 }
