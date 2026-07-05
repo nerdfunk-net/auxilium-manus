@@ -117,6 +117,38 @@ export function summarizeWorkflowLogMessage(
   return typeof message === "string" && message.trim() ? message.trim() : null;
 }
 
+/** Short summary for show-attributes destination/format in the run list. */
+export function summarizeShowAttributes(
+  output: Record<string, unknown> | null,
+): string | null {
+  const metadata = firstOutcomeMetadata(output);
+  if (!metadata) {
+    return null;
+  }
+
+  const payload = Object.entries(metadata).find(([key]) =>
+    key.endsWith(".show_attributes"),
+  )?.[1];
+  if (!payload || typeof payload !== "object" || payload === null) {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const destination =
+    record.output_destination === "file" ? "file" : "STDOUT";
+  const format = record.output_format === "pretty_text" ? "pretty text" : "JSON";
+  const deviceCount =
+    typeof record.device_count === "number" ? record.device_count : null;
+  const parts = [`${destination} · ${format}`];
+  if (deviceCount != null) {
+    parts.push(`${deviceCount} device${deviceCount === 1 ? "" : "s"}`);
+  }
+  if (record.output_destination === "file" && typeof record.file_path === "string") {
+    parts.push(record.file_path);
+  }
+  return parts.join(" · ");
+}
+
 const INVENTORY_STEP_TYPES = new Set(["get-nautobot-devices", "get-git-devices"]);
 
 export interface FanOutInfo {

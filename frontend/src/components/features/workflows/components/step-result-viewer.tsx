@@ -27,6 +27,7 @@ interface StepResultViewerProps {
 /** Lists with more than this many devices start collapsed. */
 const DEVICES_COLLAPSE_THRESHOLD = 5;
 const DEBUG_LOGS_METADATA_SUFFIX = ".debug_logs";
+const SHOW_ATTRIBUTES_METADATA_SUFFIX = ".show_attributes";
 
 interface DebugLogDeviceEntry {
   device_id: string;
@@ -51,6 +52,25 @@ function isDebugLogsPayload(value: unknown): value is DebugLogsPayload {
   );
 }
 
+interface ShowAttributesPayload {
+  output_destination?: string;
+  output_format?: string;
+  filename?: string | null;
+  append?: boolean | null;
+  file_path?: string | null;
+  written_at?: string;
+  device_count?: number;
+  content?: string;
+}
+
+function isShowAttributesPayload(value: unknown): value is ShowAttributesPayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    ("content" in value || "snapshot" in value)
+  );
+}
+
 function extractDebugLogs(metadata: Record<string, unknown>): DebugLogsPayload[] {
   return Object.entries(metadata)
     .filter(([key]) => key.endsWith(DEBUG_LOGS_METADATA_SUFFIX))
@@ -58,9 +78,20 @@ function extractDebugLogs(metadata: Record<string, unknown>): DebugLogsPayload[]
     .filter(isDebugLogsPayload);
 }
 
-function metadataWithoutDebugLogs(metadata: Record<string, unknown>): Record<string, unknown> {
+function extractShowAttributes(metadata: Record<string, unknown>): ShowAttributesPayload[] {
+  return Object.entries(metadata)
+    .filter(([key]) => key.endsWith(SHOW_ATTRIBUTES_METADATA_SUFFIX))
+    .map(([, value]) => value)
+    .filter(isShowAttributesPayload);
+}
+
+function metadataWithoutDebugPanels(metadata: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(metadata).filter(([key]) => !key.endsWith(DEBUG_LOGS_METADATA_SUFFIX)),
+    Object.entries(metadata).filter(
+      ([key]) =>
+        !key.endsWith(DEBUG_LOGS_METADATA_SUFFIX) &&
+        !key.endsWith(SHOW_ATTRIBUTES_METADATA_SUFFIX),
+    ),
   );
 }
 
@@ -139,6 +170,60 @@ function DebugLogsPanel({ logs }: { logs: DebugLogsPayload[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ShowAttributesPanel({ entries }: { entries: ShowAttributesPayload[] }) {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-3">
+      {entries.map((entry, index) => (
+        <div key={`show-attributes-${index}`} className="rounded-lg border bg-card p-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <ScrollText className="size-3.5 shrink-0 text-muted-foreground" />
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Show attributes
+            </p>
+            {entry.output_destination ? (
+              <Badge className="text-[10px]" variant="secondary">
+                {entry.output_destination === "file" ? "file" : "STDOUT"}
+              </Badge>
+            ) : null}
+            {entry.output_format ? (
+              <Badge className="text-[10px]" variant="outline">
+                {entry.output_format === "pretty_text" ? "pretty text" : "JSON"}
+              </Badge>
+            ) : null}
+            {typeof entry.device_count === "number" ? (
+              <span className="text-[11px] text-muted-foreground">
+                {entry.device_count} device{entry.device_count === 1 ? "" : "s"}
+              </span>
+            ) : null}
+            {entry.written_at ? (
+              <span className="text-[11px] text-muted-foreground">{entry.written_at}</span>
+            ) : null}
+          </div>
+
+          {entry.file_path ? (
+            <p className="mb-2 break-all text-[11px] text-muted-foreground">
+              File: <span className="font-mono">{entry.file_path}</span>
+              {entry.append ? " (appended)" : ""}
+            </p>
+          ) : null}
+
+          {entry.content ? (
+            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 text-[11px] font-mono">
+              {entry.content}
+            </pre>
+          ) : (
+            <p className="text-xs text-muted-foreground">No attribute dump recorded.</p>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -868,8 +953,12 @@ function OutcomeContextView({
   const devices = Object.values(context.devices);
   const pendingCommandNodes = Object.keys(context.pending_commands);
   const debugLogs = useMemo(() => extractDebugLogs(context.metadata), [context.metadata]);
+  const showAttributes = useMemo(
+    () => extractShowAttributes(context.metadata),
+    [context.metadata],
+  );
   const remainingMetadata = useMemo(
-    () => metadataWithoutDebugLogs(context.metadata),
+    () => metadataWithoutDebugPanels(context.metadata),
     [context.metadata],
   );
 
@@ -883,6 +972,15 @@ function OutcomeContextView({
             Debug logs
           </p>
           <DebugLogsPanel logs={debugLogs} />
+        </div>
+      ) : null}
+
+      {showAttributes.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Attribute dump
+          </p>
+          <ShowAttributesPanel entries={showAttributes} />
         </div>
       ) : null}
 

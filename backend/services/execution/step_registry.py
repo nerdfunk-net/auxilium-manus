@@ -33,6 +33,7 @@ from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.update_attribute.executor import execute as update_attribute
 from workflow_steps.update_nautobot_device.executor import execute as update_nautobot_device
+from workflow_steps.show_attributes.executor import execute as show_attributes
 from workflow_steps.workflow_log.executor import execute as workflow_log
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
@@ -56,4 +57,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "update-attribute": update_attribute,
     "update-nautobot-device": update_nautobot_device,
     "workflow-log": workflow_log,
+    "show-attributes": show_attributes,
 }

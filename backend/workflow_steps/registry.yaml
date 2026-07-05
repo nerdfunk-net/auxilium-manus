@@ -372,6 +372,44 @@ plugins:
             - device.network_driver
             - nautobot.role.name
 
+  - id: show-attributes
+    name: Show Attributes
+    description: >
+      Dump the full workflow context — every device field, attribute bag,
+      parsed value, and metadata entry — to STDOUT or a file.
+    artifact_type: control_flow
+    directory: show_attributes
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: output_destination
+          description: Write the dump to STDOUT (worker logs) or to a file under DATA_DIRECTORY.
+          data_type: string
+          required: true
+          default: stdout
+          example: stdout
+        - name: output_format
+          description: Serialize the context as JSON or human-readable pretty text.
+          data_type: string
+          required: true
+          default: json
+          example: pretty_text
+        - name: filename
+          description: Relative filename when output_destination is file.
+          data_type: string
+          required: false
+          default: attributes.txt
+          example: workflow-attributes.json
+        - name: append
+          description: Append to an existing file instead of overwriting it.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: fan-in
     name: Fan In
     description: >

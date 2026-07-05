@@ -2,6 +2,7 @@ import {
   CheckCircle2,
   Combine,
   Database,
+  Eye,
   FileArchive,
   FileText,
   Filter,
@@ -56,6 +57,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "merge-content": Combine,
   "update-nautobot-device": CloudCog,
   "update-attribute": Tags,
+  "show-attributes": Eye,
   "workflow-log": List,
 };
 

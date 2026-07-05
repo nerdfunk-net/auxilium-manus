@@ -13,6 +13,7 @@ import { GetNautobotAttributesPlugin } from "@/components/features/workflow-step
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
 import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/render-jinja-template";
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
+import { ShowAttributesPlugin } from "@/components/features/workflow-steps/show-attributes";
 import { WorkflowLogPlugin } from "@/components/features/workflow-steps/workflow-log";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
@@ -37,6 +38,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "update-nautobot-device": UpdateNautobotDevicePlugin,
   "update-attribute": UpdateAttributePlugin,
   "workflow-log": WorkflowLogPlugin,
+  "show-attributes": ShowAttributesPlugin,
 };
 
 export function getPluginUI(pluginId: string): PluginUIComponent | undefined {

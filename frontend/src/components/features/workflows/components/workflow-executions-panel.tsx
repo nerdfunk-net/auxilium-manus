@@ -50,6 +50,7 @@ import {
   summarizeRouteCounts,
   summarizeRenderJinjaTemplate,
   summarizeCompareData,
+  summarizeShowAttributes,
   summarizeWorkflowLogMessage,
   type DerivedStepStatus,
   type FanOutInfo,
@@ -196,6 +197,8 @@ function StepResultRow({
             ? summarizeCompareData(step.output)
             : step.step_type === "workflow-log"
             ? summarizeWorkflowLogMessage(step.output)
+            : step.step_type === "show-attributes"
+              ? summarizeShowAttributes(step.output)
             : null;
 
   return (
