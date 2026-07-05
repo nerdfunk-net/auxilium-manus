@@ -16,6 +16,7 @@ import { RunCommandPlugin } from "@/components/features/workflow-steps/run-comma
 import { WorkflowLogPlugin } from "@/components/features/workflow-steps/workflow-log";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
+import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
@@ -34,6 +35,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-pull": GitPullPlugin,
   "git-push": GitPushPlugin,
   "update-nautobot-device": UpdateNautobotDevicePlugin,
+  "update-attribute": UpdateAttributePlugin,
   "workflow-log": WorkflowLogPlugin,
 };
 

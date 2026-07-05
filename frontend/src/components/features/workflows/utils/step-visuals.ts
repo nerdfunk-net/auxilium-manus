@@ -11,6 +11,7 @@ import {
   List,
   Router,
   Scale,
+  Tags,
   TerminalSquare,
   type LucideIcon,
   CloudCog,
@@ -54,6 +55,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "filter-output": Filter,
   "merge-content": Combine,
   "update-nautobot-device": CloudCog,
+  "update-attribute": Tags,
   "workflow-log": List,
 };
 

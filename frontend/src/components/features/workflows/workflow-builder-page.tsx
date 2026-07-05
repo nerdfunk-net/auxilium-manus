@@ -47,6 +47,7 @@ import {
   DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG,
   deriveProducesParsed,
 } from "@/components/features/workflow-steps/render-jinja-template/template-config";
+import { DEFAULT_UPDATE_ATTRIBUTE_CONFIG } from "@/components/features/workflow-steps/update-attribute/update-attribute-config";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: WorkflowCanvasNode[] = [];
@@ -400,7 +401,12 @@ export function WorkflowBuilderPage() {
   const buildStepNode = useCallback(
     (step: StepPayload, id: string, position: { x: number; y: number }): WorkflowCanvasNode => {
       const isRenderJinja = step.kind === "render-jinja-template";
-      const pluginConfig = isRenderJinja ? { ...DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG } : undefined;
+      const isUpdateAttribute = step.kind === "update-attribute";
+      const pluginConfig = isRenderJinja
+        ? { ...DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG }
+        : isUpdateAttribute
+          ? { ...DEFAULT_UPDATE_ATTRIBUTE_CONFIG }
+          : undefined;
       const producesParsed = isRenderJinja
         ? deriveProducesParsed(DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG)
         : step.producesParsed;

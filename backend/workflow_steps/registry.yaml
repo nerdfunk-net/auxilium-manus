@@ -280,6 +280,69 @@ plugins:
           required: false
           default: false
 
+  - id: update-attribute
+    name: Update Attribute
+    description: >
+      Set or transform in-workflow device attributes using a fixed value or a
+      regular expression with capture groups.
+    artifact_type: control_flow
+    directory: update_attribute
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: mode
+          description: >
+            Update mode. Use fixed to write a literal value, or regex to read a
+            source attribute, match a pattern, and write an expanded destination
+            value.
+          data_type: string
+          required: true
+          example: fixed
+        - name: destination_path
+          description: >
+            Dot path where the updated value is written. Use bag paths such as
+            nautobot.location.name or custom.location. Existing values are
+            overwritten.
+          data_type: string
+          required: true
+          example: custom.location
+        - name: fixed_value
+          description: Literal value written in fixed mode.
+          data_type: string
+          required: false
+          example: office-a
+        - name: source_path
+          description: >
+            Dot path read in regex mode before pattern matching. Use device.name
+            or enriched bag paths such as nautobot.role.name.
+          data_type: string
+          required: false
+          example: device.name
+        - name: pattern
+          description: Python regular expression applied to the source value in regex mode.
+          data_type: string
+          required: false
+          example: ^([^-]+)-
+        - name: destination_template
+          description: >
+            Destination value template in regex mode. Supports Python backrefs
+            such as \\1 and \\g<name>.
+          data_type: string
+          required: false
+          example: DC-\\1
+        - name: regex_flags
+          description: Optional Python regex flags for regex mode.
+          data_type: object
+          required: false
+          example:
+            case_insensitive: false
+            multiline: false
+            dotall: false
+
   - id: workflow-log
     name: Logging
     description: Log selected device attributes to the run result for workflow debugging.
