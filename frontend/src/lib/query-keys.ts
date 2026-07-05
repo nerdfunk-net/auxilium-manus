@@ -52,6 +52,8 @@ export const queryKeys = {
     groups: () => [...queryKeys.sourcesNautobot.all, "groups"] as const,
     inventoryDetail: (id: number) =>
       [...queryKeys.sourcesNautobot.all, "inventory", id] as const,
+    customFields: (nautobotUrl: string) =>
+      [...queryKeys.sourcesNautobot.all, "custom-fields", nautobotUrl] as const,
   },
   credentials: {
     all: ["credentials"] as const,

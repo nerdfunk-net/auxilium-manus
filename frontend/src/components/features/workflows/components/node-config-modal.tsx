@@ -8,7 +8,7 @@ import {
   Settings2,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useEffect, useState } from "react";
+import { useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -182,7 +182,10 @@ export function NodeConfigModal({
     [plugin],
   );
 
-  const pluginConfig = (activeNode?.data.pluginConfig ?? {}) as Record<string, unknown>;
+  const pluginConfig = useMemo(
+    () => (activeNode?.data.pluginConfig ?? {}) as Record<string, unknown>,
+    [activeNode?.data.pluginConfig],
+  );
 
   const hasConfigTab =
     !!pluginUI || (plugin?.metadata.configuration_input.length ?? 0) > 0;
@@ -195,24 +198,11 @@ export function NodeConfigModal({
     [pluginUI, pluginConfig],
   );
 
-  const [activeTab, setActiveTab] = useState("general");
-
-  useEffect(() => {
-    if (configModalNodeId) {
-      setActiveTab("general");
-    }
-  }, [configModalNodeId]);
-
-  useEffect(() => {
-    const standardTabs = new Set(["general", "configuration", "description"]);
-    const allowedTabs = new Set([
-      ...standardTabs,
-      ...visibleModalTabs.map((tab) => tab.id),
-    ]);
-    if (!allowedTabs.has(activeTab)) {
-      setActiveTab(hasConfigTab ? "configuration" : "general");
-    }
-  }, [activeTab, visibleModalTabs, hasConfigTab]);
+  const tabsKey = useMemo(
+    () =>
+      `${configModalNodeId ?? "none"}:${visibleModalTabs.map((tab) => tab.id).join(",")}:${hasConfigTab}`,
+    [configModalNodeId, visibleModalTabs, hasConfigTab],
+  );
 
   return (
     <Dialog open={configModalNodeId !== null} onOpenChange={(open) => { if (!open) closeConfigModal(); }}>
@@ -230,9 +220,9 @@ export function NodeConfigModal({
 
         {activeNode ? (
           <Tabs
+            key={tabsKey}
             className="flex min-h-0 flex-1 flex-col"
-            value={activeTab}
-            onValueChange={setActiveTab}
+            defaultValue="general"
           >
             <TabsList className="h-9 w-full shrink-0 rounded-none border-b border-border bg-muted p-0">
               <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="general">

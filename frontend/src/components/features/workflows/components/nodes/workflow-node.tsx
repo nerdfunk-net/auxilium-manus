@@ -1,5 +1,6 @@
 "use client";
 
+import { createElement } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Info, Settings2, Split } from "lucide-react";
 
@@ -33,7 +34,6 @@ const TARGET_HANDLE_CLASS =
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
   const nodeType = data.artifactType ?? data.kind;
-  const Icon = resolveNodeIcon(data.kind, nodeType);
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
   const hasSourceHandles = outcomes.length > 0;
@@ -87,7 +87,10 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
             nodeAccentClassesByType[nodeType] ?? CATEGORY_TILE_FALLBACK,
           )}
         >
-          <Icon className="size-5" aria-hidden />
+          {createElement(resolveNodeIcon(data.kind, nodeType), {
+            className: "size-5",
+            "aria-hidden": true,
+          })}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">

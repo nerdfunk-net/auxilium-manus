@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ interface UpdateDeviceDialogProps {
 
 const EMPTY_INTERFACES: InterfaceUpdateConfig[] = [];
 const EMPTY_FIELD_SPEC: UpdateFieldSpec = { enabled: false, value: "" };
+const EMPTY_UPDATE_FIELDS: NonNullable<UpdateNautobotDeviceConfig["update_fields"]> = {};
 
 function newInterfaceRow(): InterfaceUpdateConfig {
   return {
@@ -115,40 +116,35 @@ function FieldRow({
   );
 }
 
-export function UpdateDeviceDialog({
-  open,
-  value,
-  onClose,
-  onChange,
-}: UpdateDeviceDialogProps) {
-  const [draft, setDraft] = useState<UpdateNautobotDeviceConfig>(value);
-  const [customFieldRows, setCustomFieldRows] = useState<CustomFieldRow[]>([]);
+function interfaceForSave({ id, ...rest }: InterfaceUpdateConfig) {
+  void id;
+  return rest;
+}
 
-  const deviceIdentifier = draft.device_identifier ?? { mode: "from_context" };
-  const updateFields = draft.update_fields ?? {};
-  const interfaces = draft.interfaces ?? EMPTY_INTERFACES;
-
-  const resetDraft = useCallback(() => {
-    const parsedFields = parseUpdateFieldsConfig(value.update_fields);
-    setDraft({
+function buildInitialDraft(value: UpdateNautobotDeviceConfig) {
+  const parsedFields = parseUpdateFieldsConfig(value.update_fields);
+  return {
+    draft: {
       ...value,
       update_fields: parsedFields,
       interfaces: withInterfaceIds(value.interfaces as Array<Partial<InterfaceUpdateConfig>>),
-    });
-    setCustomFieldRows(customFieldRowsFromConfig(parsedFields));
-  }, [value]);
-
-  useEffect(() => {
-    if (open) {
-      resetDraft();
-    }
-  }, [open, resetDraft]);
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      onClose();
-    }
+    },
+    customFieldRows: customFieldRowsFromConfig(parsedFields),
   };
+}
+
+function UpdateDeviceDialogForm({
+  value,
+  onClose,
+  onChange,
+}: Omit<UpdateDeviceDialogProps, "open">) {
+  const initial = useMemo(() => buildInitialDraft(value), [value]);
+  const [draft, setDraft] = useState(initial.draft);
+  const [customFieldRows, setCustomFieldRows] = useState(initial.customFieldRows);
+
+  const deviceIdentifier = draft.device_identifier ?? { mode: "from_context" };
+  const updateFields = draft.update_fields ?? EMPTY_UPDATE_FIELDS;
+  const interfaces = draft.interfaces ?? EMPTY_INTERFACES;
 
   const handleSave = () => {
     onChange({
@@ -158,7 +154,7 @@ export function UpdateDeviceDialog({
         ...updateFields,
         custom_fields: customFieldsToConfig(customFieldRows),
       },
-      interfaces: interfaces.map(({ id: _id, ...rest }) => rest),
+      interfaces: interfaces.map(interfaceForSave),
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
       sync_interfaces: draft.sync_interfaces ?? false,
@@ -226,8 +222,7 @@ export function UpdateDeviceDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+    <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b bg-gradient-to-r from-teal-600 to-teal-500 px-4 py-3 text-white">
           <DialogTitle className="text-base text-white">Update Device Configuration</DialogTitle>
         </DialogHeader>
@@ -540,6 +535,27 @@ export function UpdateDeviceDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+  );
+}
+
+export function UpdateDeviceDialog({
+  open,
+  value,
+  onClose,
+  onChange,
+}: UpdateDeviceDialogProps) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          onClose();
+        }
+      }}
+    >
+      {open ? (
+        <UpdateDeviceDialogForm value={value} onClose={onClose} onChange={onChange} />
+      ) : null}
     </Dialog>
   );
 }

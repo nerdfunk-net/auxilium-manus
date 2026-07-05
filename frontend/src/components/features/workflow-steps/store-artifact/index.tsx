@@ -21,7 +21,6 @@ import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
 import {
   findUpstreamOutput,
-  type UpstreamOutput,
 } from "@/components/features/workflows/utils/upstream-output";
 
 const CONTENT_SOURCE_OPTIONS = [
@@ -158,7 +157,7 @@ function StoreArtifactConfigPanel({
   plugins = [],
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
-  const [autoDetected, setAutoDetected] = useState<UpstreamOutput | null>(null);
+  const [gitSourceOpen, setGitSourceOpen] = useState(false);
 
   const upstream = useMemo(
     () =>
@@ -176,7 +175,6 @@ function StoreArtifactConfigPanel({
     const needsInit = !config.content_source || !config.filename_template;
     if (!needsInit) return;
     if (!config.content_source && upstream) {
-      setAutoDetected(upstream);
       onChange(
         buildStoreArtifactConfig(config, {
           content_source: upstream.contentSource,
@@ -190,7 +188,6 @@ function StoreArtifactConfigPanel({
 
   const destination = (config.destination as Destination) || "filesystem";
   const isGitDestination = destination === "git";
-  const [gitSourceOpen, setGitSourceOpen] = useState(false);
   const gitSourceId =
     typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "";
 
@@ -218,6 +215,19 @@ function StoreArtifactConfigPanel({
     [contentSource],
   );
 
+  const autoDetected = useMemo(() => {
+    if (!upstream) {
+      return null;
+    }
+    if (
+      contentSource === upstream.contentSource &&
+      sourceStepNodeId === upstream.sourceNodeId
+    ) {
+      return upstream;
+    }
+    return null;
+  }, [upstream, contentSource, sourceStepNodeId]);
+
   const destinationHint = useMemo(
     () => DESTINATION_OPTIONS.find((option) => option.value === destination)?.hint,
     [destination],
@@ -234,7 +244,6 @@ function StoreArtifactConfigPanel({
     (value: string) => {
       if (value === "upstream_output") {
         if (upstream) {
-          setAutoDetected(upstream);
           onChange(
             buildStoreArtifactConfig(config, {
               content_source: upstream.contentSource,
@@ -244,7 +253,6 @@ function StoreArtifactConfigPanel({
         }
         return;
       }
-      setAutoDetected(null);
       onChange(buildStoreArtifactConfig(config, { content_source: value }));
     },
     [config, onChange, upstream],

@@ -1,4 +1,5 @@
 import type { FilterTree } from "../condition-builder/types";
+import type { ConditionTree } from "@/components/features/inventory/types/device-selector";
 
 export interface SavedInventory {
   id: number;
@@ -17,7 +18,7 @@ export interface SavedInventory {
 
 export interface SavedConditionPayload {
   version?: number;
-  tree?: FilterTree;
+  tree?: FilterTree | ConditionTree;
   field?: string;
   operator?: string;
   value?: string;

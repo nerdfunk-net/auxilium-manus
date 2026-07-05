@@ -21,7 +21,6 @@ import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
 import {
   findUpstreamOutput,
-  type UpstreamOutput,
 } from "@/components/features/workflows/utils/upstream-output";
 
 const CONTENT_SOURCE_OPTIONS = [
@@ -153,7 +152,6 @@ function CompareDataConfigPanel({
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const [gitSourceOpen, setGitSourceOpen] = useState(false);
-  const [autoDetected, setAutoDetected] = useState<UpstreamOutput | null>(null);
 
   const upstream = useMemo(
     () =>
@@ -171,7 +169,6 @@ function CompareDataConfigPanel({
     const needsInit = !config.content_source || !config.filename_template;
     if (!needsInit) return;
     if (!config.content_source && upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
-      setAutoDetected(upstream);
       onChange(
         buildCompareDataConfig(config, {
           content_source: upstream.contentSource,
@@ -211,6 +208,19 @@ function CompareDataConfigPanel({
     [contentSource],
   );
 
+  const autoDetected = useMemo(() => {
+    if (!upstream || !VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
+      return null;
+    }
+    if (
+      contentSource === upstream.contentSource &&
+      sourceStepNodeId === upstream.sourceNodeId
+    ) {
+      return upstream;
+    }
+    return null;
+  }, [upstream, contentSource, sourceStepNodeId]);
+
   const referenceHint = useMemo(
     () =>
       REFERENCE_LOCATION_OPTIONS.find((option) => option.value === referenceLocation)?.hint,
@@ -228,7 +238,6 @@ function CompareDataConfigPanel({
     (value: string) => {
       if (value === "upstream_output") {
         if (upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
-          setAutoDetected(upstream);
           onChange(
             buildCompareDataConfig(config, {
               content_source: upstream.contentSource,
@@ -238,7 +247,6 @@ function CompareDataConfigPanel({
         }
         return;
       }
-      setAutoDetected(null);
       onChange(buildCompareDataConfig(config, { content_source: value }));
     },
     [config, onChange, upstream],

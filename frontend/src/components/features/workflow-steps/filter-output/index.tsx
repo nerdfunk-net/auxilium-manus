@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Plus, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,6 @@ import type {
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
 import {
   findUpstreamOutput,
-  type UpstreamOutput,
 } from "@/components/features/workflows/utils/upstream-output";
 
 type RuleType = "pattern" | "path";
@@ -94,7 +93,6 @@ function FilterOutputConfigPanel({
   plugins = [],
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
-  const [autoDetected, setAutoDetected] = useState<UpstreamOutput | null>(null);
 
   const upstream = useMemo(
     () =>
@@ -109,7 +107,6 @@ function FilterOutputConfigPanel({
     initializedForNode.current = nodeId;
     if (!config.content_source) {
       if (upstream && VALID_FILTER_SOURCES.has(upstream.contentSource)) {
-        setAutoDetected(upstream);
         onChange(
           buildConfig(config, {
             content_source: upstream.contentSource,
@@ -140,11 +137,23 @@ function FilterOutputConfigPanel({
 
   const rules = useMemo(() => rawToRules(config.filter_rules), [config.filter_rules]);
 
+  const autoDetected = useMemo(() => {
+    if (!upstream || !VALID_FILTER_SOURCES.has(upstream.contentSource)) {
+      return null;
+    }
+    if (
+      contentSource === upstream.contentSource &&
+      sourceStepNodeId === upstream.sourceNodeId
+    ) {
+      return upstream;
+    }
+    return null;
+  }, [upstream, contentSource, sourceStepNodeId]);
+
   const handleContentSourceChange = useCallback(
     (value: string) => {
       if (value === "upstream_output") {
         if (upstream && VALID_FILTER_SOURCES.has(upstream.contentSource)) {
-          setAutoDetected(upstream);
           onChange(
             buildConfig(config, {
               content_source: upstream.contentSource,
@@ -154,7 +163,6 @@ function FilterOutputConfigPanel({
         }
         return;
       }
-      setAutoDetected(null);
       onChange(buildConfig(config, { content_source: value, source_step_node_id: "", source_command: "" }));
     },
     [config, onChange, upstream],

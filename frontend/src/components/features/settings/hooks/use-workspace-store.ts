@@ -9,6 +9,7 @@ interface WorkspaceState {
   setSettingsSection: (section: SettingsSection) => void;
   openSettings: (section?: SettingsSection) => void;
   openWorkflow: () => void;
+  openInventory: () => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -19,4 +20,5 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   openSettings: (section = "general") =>
     set({ workspace: "settings", settingsSection: section }),
   openWorkflow: () => set({ workspace: "workflow" }),
+  openInventory: () => set({ workspace: "inventory" }),
 }));

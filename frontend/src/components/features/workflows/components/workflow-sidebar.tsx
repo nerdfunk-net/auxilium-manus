@@ -17,12 +17,12 @@ import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 type NavigationItem = {
   label: string;
   icon: typeof Workflow;
-  kind: "workflows" | "runs" | "settings" | "placeholder";
+  kind: "workflows" | "runs" | "settings" | "inventory";
 };
 
 const navigationItems = [
   { label: "Workflows", icon: Workflow, kind: "workflows" },
-  { label: "Inventory", icon: Network, kind: "placeholder" },
+  { label: "Inventory", icon: Network, kind: "inventory" },
   { label: "Runs", icon: PlayCircle, kind: "runs" },
   { label: "Settings", icon: Settings, kind: "settings" },
 ] satisfies NavigationItem[];
@@ -31,6 +31,7 @@ export function WorkflowSidebar() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const openSettings = useWorkspaceStore((state) => state.openSettings);
   const openWorkflow = useWorkspaceStore((state) => state.openWorkflow);
+  const openInventory = useWorkspaceStore((state) => state.openInventory);
   const mode = useWorkflowBuilderStore((state) => state.mode);
   const setMode = useWorkflowBuilderStore((state) => state.setMode);
 
@@ -50,38 +51,37 @@ export function WorkflowSidebar() {
         {navigationItems.map((item) => {
           const isActive =
             (item.kind === "settings" && workspace === "settings") ||
+            (item.kind === "inventory" && workspace === "inventory") ||
             (item.kind === "workflows" &&
               workspace === "workflow" &&
               mode === "editor") ||
             (item.kind === "runs" &&
               workspace === "workflow" &&
               mode === "executions");
-          const isPlaceholder = item.kind === "placeholder";
           const handleClick =
             item.kind === "settings"
               ? () => openSettings()
-              : item.kind === "workflows"
-                ? () => {
-                    openWorkflow();
-                    setMode("editor");
-                  }
-                : item.kind === "runs"
+              : item.kind === "inventory"
+                ? () => openInventory()
+                : item.kind === "workflows"
                   ? () => {
                       openWorkflow();
-                      setMode("executions");
+                      setMode("editor");
                     }
-                  : undefined;
+                  : item.kind === "runs"
+                    ? () => {
+                        openWorkflow();
+                        setMode("executions");
+                      }
+                    : undefined;
 
           return (
             <button
               aria-current={isActive ? "page" : undefined}
-              disabled={isPlaceholder}
               key={item.label}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
                 isActive && "bg-accent text-accent-foreground",
-                isPlaceholder &&
-                  "cursor-not-allowed opacity-60 hover:bg-transparent hover:text-muted-foreground",
               )}
               onClick={handleClick}
               type="button"

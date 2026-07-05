@@ -19,6 +19,7 @@ import {
 import { SettingsMockCanvas } from "@/components/features/settings/components/settings-mock-canvas";
 import { SettingsTopbar } from "@/components/features/settings/components/settings-topbar";
 import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
+import { InventoryPage } from "@/components/features/inventory/inventory-page";
 
 import { NodeConfigModal } from "./components/node-config-modal";
 import { WorkflowCanvas } from "./components/workflow-canvas";
@@ -581,7 +582,7 @@ export function WorkflowBuilderPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         {workspace === "settings" ? (
           <SettingsTopbar />
-        ) : (
+        ) : workspace === "inventory" ? null : (
           <WorkflowTopbar
             onNew={handleNew}
             onOpen={handleOpen}
@@ -595,6 +596,10 @@ export function WorkflowBuilderPage() {
           {workspace === "settings" ? (
             <section className="min-w-0 flex-1">
               <SettingsMockCanvas />
+            </section>
+          ) : workspace === "inventory" ? (
+            <section className="min-w-0 flex-1">
+              <InventoryPage />
             </section>
           ) : (
             <>
