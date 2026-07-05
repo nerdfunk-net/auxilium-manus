@@ -82,9 +82,12 @@ export function WorkflowBuilderPage() {
   const [isOpenConfirmOpen, setIsOpenConfirmOpen] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [isNewConfirmOpen, setIsNewConfirmOpen] = useState(false);
+  const [isRunConfirmOpen, setIsRunConfirmOpen] = useState(false);
   // When the user chooses "Save & Open" but has no workflowId, Save As runs first.
   // This flag tells handleSaveAs to open the Open dialog once saving completes.
   const [openAfterSave, setOpenAfterSave] = useState(false);
+  // When the user chooses "Save & Run" but has no workflowId, Save As runs first.
+  const [runAfterSave, setRunAfterSave] = useState(false);
 
   const { createWorkflow, updateWorkflow } = useWorkflowMutations();
   const triggerRun = useTriggerRunMutation(workflowId);
@@ -130,6 +133,38 @@ export function WorkflowBuilderPage() {
     }
   }, [isDirty, confirmNew]);
 
+  const executeRun = useCallback(
+    async (
+      overrideWorkflowId?: number,
+      options?: { skipValidation?: boolean },
+    ) => {
+      const targetId = overrideWorkflowId ?? workflowId;
+      if (!targetId) {
+        markError("Save the workflow before running");
+        return;
+      }
+      if (!options?.skipValidation) {
+        const validation = validateCanvasWorkflow(nodes, edges);
+        if (!validation.isValid) {
+          markError(`Cannot run: ${validation.issues[0]}`);
+          return;
+        }
+      }
+      try {
+        await triggerRun.mutateAsync({
+          device_ids: [],
+          trigger_type: "manual",
+          workflowId: targetId,
+        });
+        markRunning("Run queued");
+        setMode("executions");
+      } catch {
+        markError("Failed to trigger run");
+      }
+    },
+    [workflowId, nodes, edges, triggerRun, markRunning, markError, setMode],
+  );
+
   const handleSaveAs = useCallback(
     async (values: {
       name: string;
@@ -165,11 +200,15 @@ export function WorkflowBuilderPage() {
           setOpenAfterSave(false);
           setIsOpenDialogOpen(true);
         }
+        if (runAfterSave) {
+          setRunAfterSave(false);
+          void executeRun(saved.id);
+        }
       } catch {
         markError("Failed to save workflow");
       }
     },
-    [nodes, edges, createWorkflow, loadWorkflow, markSaved, markError, openAfterSave],
+    [nodes, edges, createWorkflow, loadWorkflow, markSaved, markError, openAfterSave, runAfterSave, executeRun],
   );
 
   const handleOverwrite = useCallback(
@@ -321,28 +360,54 @@ export function WorkflowBuilderPage() {
     [setNodes, setEdges, loadWorkflow, markError, markDirty, plugins],
   );
 
-  const handleRun = useCallback(async () => {
-    if (!workflowId) {
-      markError("Save the workflow before running");
+  const handleRun = useCallback(() => {
+    if (!workflowId || isDirty) {
+      setIsRunConfirmOpen(true);
       return;
     }
-    if (isDirty) {
-      markError("Save the workflow before running");
+    void executeRun();
+  }, [workflowId, isDirty, executeRun]);
+
+  const handleSaveAndRun = useCallback(async () => {
+    setIsRunConfirmOpen(false);
+    if (!workflowId) {
+      setRunAfterSave(true);
+      setIsSaveAsOpen(true);
       return;
     }
     const validation = validateCanvasWorkflow(nodes, edges);
     if (!validation.isValid) {
-      markError(`Cannot run: ${validation.issues[0]}`);
+      markError(`Cannot save: ${validation.issues[0]}`);
       return;
     }
     try {
-      await triggerRun.mutateAsync({ device_ids: [], trigger_type: "manual" });
-      markRunning("Run queued");
-      setMode("executions");
+      await updateWorkflow.mutateAsync({
+        id: workflowId,
+        data: {
+          canvas_nodes: nodes as unknown as Record<string, unknown>[],
+          canvas_edges: edges as unknown as Record<string, unknown>[],
+        },
+      });
+      markSaved(`Saved "${workflowName}"`);
+      await executeRun();
     } catch {
-      markError("Failed to trigger run");
+      markError("Failed to save workflow");
     }
-  }, [workflowId, isDirty, nodes, edges, triggerRun, markRunning, markError, setMode]);
+  }, [
+    workflowId,
+    nodes,
+    edges,
+    updateWorkflow,
+    markSaved,
+    markError,
+    workflowName,
+    executeRun,
+  ]);
+
+  const handleRunSavedVersion = useCallback(() => {
+    setIsRunConfirmOpen(false);
+    void executeRun(workflowId ?? undefined, { skipValidation: true });
+  }, [executeRun, workflowId]);
 
   const handleEdgeStyleChange = useCallback(
     (edgeId: string, style: EdgeStyle) => {
@@ -589,7 +654,11 @@ export function WorkflowBuilderPage() {
         isSaving={createWorkflow.isPending || updateWorkflow.isPending}
         onSave={handleSaveAs}
         onOverwrite={handleOverwrite}
-        onClose={() => { setIsSaveAsOpen(false); setOpenAfterSave(false); }}
+        onClose={() => {
+          setIsSaveAsOpen(false);
+          setOpenAfterSave(false);
+          setRunAfterSave(false);
+        }}
       />
 
       <WorkflowOpenDialog
@@ -653,6 +722,43 @@ export function WorkflowBuilderPage() {
             </Button>
             <Button onClick={handleSaveAndOpen} disabled={updateWorkflow.isPending}>
               {updateWorkflow.isPending ? "Saving…" : "Save & open"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isRunConfirmOpen}
+        onOpenChange={(open) => !open && setIsRunConfirmOpen(false)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Unsaved changes</DialogTitle>
+            <DialogDescription>
+              {workflowId
+                ? "The current workflow has unsaved changes. Save before running?"
+                : "This workflow has not been saved yet. Save before running?"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => setIsRunConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            {workflowId ? (
+              <Button variant="outline" onClick={handleRunSavedVersion}>
+                Run saved version
+              </Button>
+            ) : null}
+            <Button
+              onClick={handleSaveAndRun}
+              disabled={updateWorkflow.isPending || createWorkflow.isPending}
+            >
+              {updateWorkflow.isPending || createWorkflow.isPending
+                ? "Saving…"
+                : "Save & run"}
             </Button>
           </DialogFooter>
         </DialogContent>

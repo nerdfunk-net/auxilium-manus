@@ -8,22 +8,30 @@ import type {
   WorkflowRunDetail,
 } from "@/components/features/workflows/types/workflow-runs";
 
+type TriggerRunVariables = TriggerRunRequest & { workflowId?: number };
+
 export function useTriggerRunMutation(workflowId: number | null) {
   const { apiCall } = useApi();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  return useMutation<WorkflowRunDetail, Error, TriggerRunRequest>({
-    mutationFn: (body) =>
-      apiCall(`workflows/${workflowId}/runs`, {
+  return useMutation<WorkflowRunDetail, Error, TriggerRunVariables>({
+    mutationFn: ({ workflowId: overrideId, ...body }) => {
+      const targetId = overrideId ?? workflowId;
+      if (!targetId) {
+        throw new Error("Workflow must be saved before running");
+      }
+      return apiCall(`workflows/${targetId}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      if (workflowId) {
+      });
+    },
+    onSuccess: (_data, variables) => {
+      const targetId = variables.workflowId ?? workflowId;
+      if (targetId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: [...queryKeys.workflowRuns.all, "list", targetId],
         });
       }
       toast({ title: "Run queued", description: "Workflow execution has been started." });
