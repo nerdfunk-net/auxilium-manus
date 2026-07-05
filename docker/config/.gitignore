@@ -1,0 +1,11 @@
+# Ignore config files that may contain secrets
+*.yaml
+*.yml
+*.json
+
+# Allow example files
+!*.yaml.example
+!*.yml.example
+!*.json.example
+
+!README.md

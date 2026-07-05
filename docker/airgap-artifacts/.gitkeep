@@ -1,0 +1,5 @@
+# Air-gap image artifacts are written here by prepare-all-in-one.sh
+# Do not commit large .tar or .tar.gz files
+
+*
+!.gitkeep

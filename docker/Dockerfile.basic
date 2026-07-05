@@ -1,0 +1,56 @@
+# Multi-stage Docker build for Auxilium Manus (development / online builds)
+FROM node:24-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN DOCKER_BUILD=true npm run build
+
+FROM python:3.14.5-slim
+
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    nodejs \
+    npm \
+    supervisor \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY docker/certs/ /tmp/certs/
+RUN if ls /tmp/certs/*.crt >/dev/null 2>&1; then \
+      cp /tmp/certs/*.crt /usr/local/share/ca-certificates/ && update-ca-certificates; \
+    fi
+
+COPY backend/requirements.txt ./backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+COPY backend/ ./backend/
+
+COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
+COPY --from=frontend-builder /app/frontend/public ./frontend/public
+COPY --from=frontend-builder /app/frontend/package*.json ./frontend/
+COPY --from=frontend-builder /app/frontend/next.config.ts ./frontend/
+COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
+COPY frontend/postcss.config.mjs ./frontend/
+COPY frontend/tsconfig.json ./frontend/
+
+ENV BACKEND_HOST=0.0.0.0
+ENV BACKEND_PORT=8000
+ENV FRONTEND_PORT=3000
+ENV BACKEND_URL=http://127.0.0.1:8000
+
+RUN mkdir -p /app/data /var/log/supervisor
+
+COPY docker/supervisord-web.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+EXPOSE 3000 8000
+
+CMD ["/app/start.sh"]

@@ -1,0 +1,70 @@
+# Git
+.git
+.gitignore
+README.md
+
+# Reference copy (not part of the build context)
+cockpit/
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend specific
+frontend/node_modules/
+frontend/.next/
+frontend/.cache/
+frontend/.turbo/
+frontend/out/
+
+# Backend specific
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/*.pyd
+backend/.Python
+backend/env/
+backend/.env
+backend/venv/
+backend/.venv/
+
+# Data directories (mounted as volumes at runtime)
+data/
+backend/data/
+docker/airgap-artifacts/
+
+# Test coverage
+coverage/
+*.cover
+.nyc_output
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/

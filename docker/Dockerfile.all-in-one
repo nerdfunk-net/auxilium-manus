@@ -1,0 +1,122 @@
+# Dockerfile.all-in-one - Complete self-contained image for air-gap deployment
+# Creates a single image with frontend, backend API, and Hatchet worker support.
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+FROM python:3.14.5-slim AS base
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
+      echo "Acquire::http::Proxy \"${HTTP_PROXY}\";" > /etc/apt/apt.conf.d/01proxy || true; \
+      echo "Acquire::https::Proxy \"${HTTPS_PROXY}\";" >> /etc/apt/apt.conf.d/01proxy || true; \
+    fi \
+    && apt-get update && apt-get install -y \
+       git \
+       curl \
+       wget \
+       nodejs \
+       npm \
+       supervisor \
+       build-essential \
+       python3-dev \
+       libffi-dev \
+       libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -f /etc/apt/apt.conf.d/01proxy || true
+
+RUN npm install -g npm@latest || true
+
+FROM node:24-alpine AS frontend-builder
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+WORKDIR /app/frontend
+
+RUN if [ -n "${HTTP_PROXY}" ]; then npm config set proxy "${HTTP_PROXY}" && npm config set https-proxy "${HTTPS_PROXY}" || true; fi
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+
+ENV NEXT_PUBLIC_AIR_GAPPED=true
+ENV NEXT_PUBLIC_ANALYTICS_DISABLED=true
+ENV NEXT_PUBLIC_CDN_DISABLED=true
+ENV DOCKER_BUILD=true
+
+RUN npm run build
+
+FROM base AS python-builder
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+COPY backend/requirements.txt /tmp/
+RUN pip install --upgrade pip wheel \
+ && pip wheel -r /tmp/requirements.txt -w /tmp/wheelhouse \
+ && pip wheel supervisor -w /tmp/wheelhouse
+
+FROM base AS runtime
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+ENV LOG_LEVEL=INFO
+ENV PYTHONUNBUFFERED=1
+ENV BACKEND_HOST=0.0.0.0
+ENV BACKEND_PORT=8000
+ENV FRONTEND_PORT=3000
+ENV NODE_ENV=production
+ENV BACKEND_URL=http://127.0.0.1:8000
+
+WORKDIR /app
+
+COPY --from=python-builder /tmp/wheelhouse /tmp/wheelhouse
+COPY backend/requirements.txt ./backend/
+RUN pip install --no-index --find-links /tmp/wheelhouse -r backend/requirements.txt \
+    && pip install --no-index --find-links /tmp/wheelhouse supervisor \
+    && rm -rf /tmp/wheelhouse
+
+COPY backend/ ./backend/
+
+COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
+COPY --from=frontend-builder /app/frontend/public ./frontend/public
+COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
+COPY --from=frontend-builder /app/frontend/package*.json ./frontend/
+COPY --from=frontend-builder /app/frontend/next.config.ts ./frontend/
+COPY --from=frontend-builder /app/frontend/postcss.config.mjs ./frontend/
+COPY --from=frontend-builder /app/frontend/tsconfig.json ./frontend/
+
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/supervisord-web.conf /etc/supervisor/conf.d/supervisord-web.conf
+COPY docker/supervisord-worker.conf /etc/supervisor/conf.d/supervisord-worker.conf
+COPY docker/start.sh ./start.sh
+RUN chmod +x start.sh
+
+RUN mkdir -p /app/data/settings \
+    /app/data/git \
+    /app/data/cache \
+    /var/log/supervisor \
+    && chown -R root:root /app/data \
+    && chmod -R 755 /app/data
+
+EXPOSE 3000 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD sh -c "curl -f http://localhost:${FRONTEND_PORT} && curl -f http://localhost:8000/health || exit 1"
+
+CMD ["./start.sh"]
+
+LABEL org.opencontainers.image.title="Auxilium Manus All-in-One"
+LABEL org.opencontainers.image.description="Self-contained Auxilium Manus application for air-gapped environments"
+LABEL org.opencontainers.image.version="1.0"

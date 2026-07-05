@@ -1,0 +1,145 @@
+# Auxilium Manus — application stack
+#
+# Start Hatchet infrastructure from the project root first:
+#   docker network create internal 2>/dev/null || true
+#   docker network create backend 2>/dev/null || true
+#   docker compose up -d
+#
+# Then start the application stack from this directory:
+#   cd docker && cp .env.example .env && docker compose up -d
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: manus-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-manus}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - manus-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: manus-redis
+    command: redis-server --appendonly yes --requirepass ${MANUS_REDIS_PASSWORD:-changeme}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${MANUS_REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - manus-network
+
+  manus-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.all-in-one
+    container_name: manus-web
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+      - "8000:8000"
+    environment:
+      - ENV=${ENV:-development}
+      - SECRET_KEY=${SECRET_KEY:-change-in-production-use-at-least-32-characters}
+      - INITIAL_USERNAME=${INITIAL_USERNAME:-admin}
+      - INITIAL_PASSWORD=${INITIAL_PASSWORD:-admin}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DOCS_ENABLED=${DOCS_ENABLED:-true}
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=${POSTGRES_DB:-manus}
+      - DATABASE_USERNAME=${POSTGRES_USER:-postgres}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - MANUS_REDIS_HOST=redis
+      - MANUS_REDIS_PORT=6379
+      - MANUS_REDIS_PASSWORD=${MANUS_REDIS_PASSWORD:-changeme}
+      - HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN:-}
+      - HATCHET_CLIENT_HOST_PORT=${HATCHET_CLIENT_HOST_PORT:-host.docker.internal:7077}
+      - HATCHET_CLIENT_TLS_STRATEGY=${HATCHET_CLIENT_TLS_STRATEGY:-none}
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - BACKEND_URL=http://127.0.0.1:8000
+      - FRONTEND_PORT=${FRONTEND_PORT:-3000}
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - SUPERVISORD_CONF=/etc/supervisor/conf.d/supervisord-web.conf
+    volumes:
+      - manus_data:/app/data
+      - ./config:/app/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:3000 && curl -f http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - manus-network
+    command: ["/app/start.sh"]
+
+  manus-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.all-in-one
+    container_name: manus-worker
+    environment:
+      - ENV=${ENV:-development}
+      - SECRET_KEY=${SECRET_KEY:-change-in-production-use-at-least-32-characters}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=${POSTGRES_DB:-manus}
+      - DATABASE_USERNAME=${POSTGRES_USER:-postgres}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - MANUS_REDIS_HOST=redis
+      - MANUS_REDIS_PORT=6379
+      - MANUS_REDIS_PASSWORD=${MANUS_REDIS_PASSWORD:-changeme}
+      - HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN:-}
+      - HATCHET_CLIENT_HOST_PORT=${HATCHET_CLIENT_HOST_PORT:-host.docker.internal:7077}
+      - HATCHET_CLIENT_TLS_STRATEGY=${HATCHET_CLIENT_TLS_STRATEGY:-none}
+      - SUPERVISORD_CONF=/etc/supervisor/conf.d/supervisord-worker.conf
+    volumes:
+      - manus_data:/app/data
+      - ./config:/app/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      manus-web:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - manus-network
+    command: ["/app/start.sh"]
+
+volumes:
+  manus_data:
+  postgres_data:
+  redis_data:
+
+networks:
+  manus-network:
+    driver: bridge

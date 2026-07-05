@@ -307,7 +307,8 @@ export const UpdateAttributePlugin = {
       id: "probe",
       label: "Probe",
       Panel: UpdateAttributeProbeTabPanel,
-      isVisible: (config) => parseUpdateAttributeConfig(config).mode === "regex",
+      isVisible: (config: Record<string, unknown>) =>
+        parseUpdateAttributeConfig(config).mode === "regex",
     },
   ],
 };

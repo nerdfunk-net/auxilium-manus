@@ -1,5 +1,6 @@
 import logging
 import logging.config
+import os
 import sys
 from pathlib import Path
 
@@ -82,10 +83,13 @@ if __name__ == "__main__":
 
     is_development = settings.environment == "development"
 
+    host = os.environ.get("BACKEND_HOST", "127.0.0.1")
+    port = int(os.environ.get("BACKEND_PORT", "8001"))
+
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
-        port=8001,
+        host=host,
+        port=port,
         reload=is_development,
         log_config=log_config,
         log_level=settings.log_level.lower(),

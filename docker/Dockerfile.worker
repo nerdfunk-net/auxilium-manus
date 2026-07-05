@@ -1,0 +1,20 @@
+# Standalone Hatchet worker image (optional — compose normally reuses the all-in-one image)
+FROM python:3.14.5-slim
+
+WORKDIR /app/backend
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/ .
+
+ENV PYTHONPATH=/app/backend
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "-m", "hatchet.worker"]
