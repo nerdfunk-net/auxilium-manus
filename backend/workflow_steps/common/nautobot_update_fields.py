@@ -139,15 +139,3 @@ def merge_update_data(
     merged = dict(config_fields)
     merged.update(bag_fields)
     return merged
-
-
-def context_has_nautobot_update_fields(devices: dict[str, Any]) -> bool:
-    """Return True when any device carries nautobot bag fields to push."""
-    for device in devices.values():
-        attribute_bags = getattr(device, "attribute_bags", None) or {}
-        nautobot_bag = attribute_bags.get("nautobot")
-        if not isinstance(nautobot_bag, dict):
-            continue
-        if extract_update_fields_from_nautobot_bag(nautobot_bag):
-            return True
-    return False

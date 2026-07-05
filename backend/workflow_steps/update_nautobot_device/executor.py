@@ -23,33 +23,15 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.update import DeviceUpdateService
 from services.settings.source_keys import build_source_key
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
-from workflow_steps.common.nautobot_update_fields import (
-    context_has_nautobot_update_fields,
-    extract_update_fields_from_nautobot_bag,
-    merge_update_data,
+from workflow_steps.common.update_field_expression import (
+    build_resolved_update_data,
+    config_has_enabled_update_fields,
+    normalize_field_spec,
 )
 
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "update-nautobot-device"
-
-_DEVICE_FIELD_KEYS = (
-    "name",
-    "location",
-    "serial",
-    "role",
-    "status",
-    "device_type",
-    "platform",
-    "software_version",
-    "asset_tag",
-    "tags",
-    "custom_fields",
-    "primary_ip4",
-    "rack",
-    "position",
-    "face",
-)
 
 
 def _strip_empty(value: Any) -> Any:
@@ -57,40 +39,6 @@ def _strip_empty(value: Any) -> Any:
         stripped = value.strip()
         return stripped if stripped else None
     return value
-
-
-def _build_update_data(config: dict[str, Any]) -> dict[str, Any]:
-    raw_fields = config.get("update_fields") or {}
-    if not isinstance(raw_fields, dict):
-        raise ValueError(f"{_STEP_ID}: update_fields must be an object")
-
-    update_data: dict[str, Any] = {}
-    for key in _DEVICE_FIELD_KEYS:
-        if key not in raw_fields:
-            continue
-        value = raw_fields[key]
-        if key == "tags":
-            if isinstance(value, list):
-                cleaned = [str(item).strip() for item in value if str(item).strip()]
-                if cleaned:
-                    update_data[key] = cleaned
-            elif isinstance(value, str) and value.strip():
-                update_data[key] = value
-            continue
-        if key == "custom_fields":
-            if isinstance(value, dict) and value:
-                cleaned_cf = {
-                    str(k): str(v)
-                    for k, v in value.items()
-                    if str(k).strip() and str(v).strip()
-                }
-                if cleaned_cf:
-                    update_data[key] = cleaned_cf
-            continue
-        cleaned = _strip_empty(value)
-        if cleaned is not None:
-            update_data[key] = cleaned
-    return update_data
 
 
 def _normalize_interfaces(
@@ -200,15 +148,17 @@ async def execute(
     if not source_id:
         raise ValueError(f"{_STEP_ID}: nautobot_source_id is not configured")
 
-    config_update_data = _build_update_data(config)
+    raw_update_fields = config.get("update_fields") or {}
+    if not isinstance(raw_update_fields, dict):
+        raise ValueError(f"{_STEP_ID}: update_fields must be an object")
+
     interfaces = _normalize_interfaces(
         _build_interfaces(config),
         str(config.get("default_prefix_length") or "/24"),
     )
-    has_context_updates = context_has_nautobot_update_fields(context.devices)
-    if not config_update_data and not interfaces and not has_context_updates:
+    if not config_has_enabled_update_fields(raw_update_fields) and not interfaces:
         raise ValueError(
-            f"{_STEP_ID}: configure at least one device field or interface to update"
+            f"{_STEP_ID}: configure at least one enabled device field or interface to update"
         )
 
     add_prefix = bool(config.get("add_prefix", True))
@@ -247,18 +197,29 @@ async def execute(
         ]
     elif not context.devices:
         raise ValueError(
-            f"{_STEP_ID}: no devices in workflow context; connect an inventory step or use explicit device identifier"
+            f"{_STEP_ID}: no devices in workflow context; "
+            "connect an inventory step or use explicit device identifier"
         )
     else:
         device_items = list(context.devices.items())
 
+    enabled_field_count = 0
+    for key, raw in raw_update_fields.items():
+        if key == "custom_fields" and isinstance(raw, dict):
+            enabled_field_count += sum(
+                1 for item in raw.values() if normalize_field_spec(item)[0]
+            )
+            continue
+        if normalize_field_spec(raw)[0]:
+            enabled_field_count += 1
+
     logger.info(
-        "%s run_id=%s source_id=%s devices=%d fields=%d interfaces=%d",
+        "%s run_id=%s source_id=%s devices=%d enabled_fields=%d interfaces=%d",
         _STEP_ID,
         run.id,
         source_id,
         len(device_items),
-        len(config_update_data),
+        enabled_field_count,
         len(interfaces),
     )
 
@@ -303,12 +264,16 @@ async def execute(
             if not any(device_identifier.get(k) for k in ("id", "name", "ip_address")):
                 raise ValueError("device identifier must include id, name, or ip_address")
 
-            bag_update_data: dict[str, Any] = {}
-            if device is not None:
-                nautobot_bag = device.attribute_bags.get("nautobot")
-                if isinstance(nautobot_bag, dict):
-                    bag_update_data = extract_update_fields_from_nautobot_bag(nautobot_bag)
-            update_data = merge_update_data(config_update_data, bag_update_data)
+            resolved_device = device or DeviceContext(
+                id=device_key,
+                name=device_key,
+                hostname=device_key,
+            )
+            update_data = build_resolved_update_data(
+                device=resolved_device,
+                raw_fields=raw_update_fields,
+                run_id=str(context.run_id) if context.run_id else None,
+            )
 
             result = await update_service.update_device(
                 device_identifier=device_identifier,

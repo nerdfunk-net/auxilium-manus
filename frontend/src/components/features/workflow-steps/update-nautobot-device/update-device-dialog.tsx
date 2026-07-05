@@ -22,15 +22,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 
 import type {
+  CustomFieldRow,
+  DeviceFieldKey,
   DeviceIdentifierConfig,
-  DeviceUpdateFields,
   InterfaceUpdateConfig,
+  UpdateFieldSpec,
   UpdateNautobotDeviceConfig,
 } from "./types";
-import { DEVICE_FIELD_DEFINITIONS } from "./types";
+import { DEVICE_FIELD_DEFINITIONS, UPDATE_FIELD_VALUE_HELP } from "./types";
+import {
+  customFieldRowsFromConfig,
+  customFieldsToConfig,
+  parseUpdateFieldsConfig,
+  patchDeviceFieldSpec,
+} from "./update-device-config";
 
 interface UpdateDeviceDialogProps {
   open: boolean;
@@ -39,46 +46,23 @@ interface UpdateDeviceDialogProps {
   onChange: (value: UpdateNautobotDeviceConfig) => void;
 }
 
-const EMPTY_FIELDS: DeviceUpdateFields = {};
 const EMPTY_INTERFACES: InterfaceUpdateConfig[] = [];
-
-function parseTagsInput(raw: string): string[] {
-  return raw
-    .split(/[,;\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function formatTagsInput(tags: string[] | undefined): string {
-  return (tags ?? []).join(", ");
-}
-
-function parseCustomFields(raw: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || !trimmed.includes("=")) continue;
-    const [key, ...rest] = trimmed.split("=");
-    const value = rest.join("=").trim();
-    if (key.trim() && value) {
-      result[key.trim()] = value;
-    }
-  }
-  return result;
-}
-
-function formatCustomFields(fields: Record<string, string> | undefined): string {
-  if (!fields) return "";
-  return Object.entries(fields)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n");
-}
+const EMPTY_FIELD_SPEC: UpdateFieldSpec = { enabled: false, value: "" };
 
 function newInterfaceRow(): InterfaceUpdateConfig {
   return {
     id: crypto.randomUUID(),
     name: "",
     namespace: "Global",
+  };
+}
+
+function newCustomFieldRow(): CustomFieldRow {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    enabled: true,
+    value: "",
   };
 }
 
@@ -97,6 +81,40 @@ function withInterfaceIds(
   }));
 }
 
+function FieldRow({
+  label,
+  placeholder,
+  spec,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  spec: UpdateFieldSpec;
+  onChange: (patch: Partial<UpdateFieldSpec>) => void;
+}) {
+  return (
+    <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={spec.enabled}
+          onChange={(event) => onChange({ enabled: event.target.checked })}
+          className="size-4 rounded border accent-teal-500"
+          aria-label={`Enable ${label}`}
+        />
+        <Label className="text-[11px] font-medium text-muted-foreground">{label}</Label>
+      </div>
+      <Input
+        className="h-8 text-xs focus-visible:ring-teal-400/40 disabled:opacity-50"
+        disabled={!spec.enabled}
+        placeholder={placeholder}
+        value={spec.value}
+        onChange={(event) => onChange({ value: event.target.value })}
+      />
+    </div>
+  );
+}
+
 export function UpdateDeviceDialog({
   open,
   value,
@@ -104,16 +122,20 @@ export function UpdateDeviceDialog({
   onChange,
 }: UpdateDeviceDialogProps) {
   const [draft, setDraft] = useState<UpdateNautobotDeviceConfig>(value);
+  const [customFieldRows, setCustomFieldRows] = useState<CustomFieldRow[]>([]);
 
   const deviceIdentifier = draft.device_identifier ?? { mode: "from_context" };
-  const updateFields = draft.update_fields ?? EMPTY_FIELDS;
+  const updateFields = draft.update_fields ?? {};
   const interfaces = draft.interfaces ?? EMPTY_INTERFACES;
 
   const resetDraft = useCallback(() => {
+    const parsedFields = parseUpdateFieldsConfig(value.update_fields);
     setDraft({
       ...value,
+      update_fields: parsedFields,
       interfaces: withInterfaceIds(value.interfaces as Array<Partial<InterfaceUpdateConfig>>),
     });
+    setCustomFieldRows(customFieldRowsFromConfig(parsedFields));
   }, [value]);
 
   useEffect(() => {
@@ -132,7 +154,10 @@ export function UpdateDeviceDialog({
     onChange({
       ...draft,
       device_identifier: deviceIdentifier,
-      update_fields: updateFields,
+      update_fields: {
+        ...updateFields,
+        custom_fields: customFieldsToConfig(customFieldRows),
+      },
       interfaces: interfaces.map(({ id: _id, ...rest }) => rest),
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
@@ -141,14 +166,11 @@ export function UpdateDeviceDialog({
     onClose();
   };
 
-  const configuredFieldCount = useMemo(
-    () =>
-      DEVICE_FIELD_DEFINITIONS.filter(({ key }) => {
-        const fieldValue = updateFields[key as keyof DeviceUpdateFields];
-        return typeof fieldValue === "string" ? fieldValue.trim().length > 0 : Boolean(fieldValue);
-      }).length,
-    [updateFields],
-  );
+  const enabledFieldCount = useMemo(() => {
+    const baseCount = DEVICE_FIELD_DEFINITIONS.filter(({ key }) => updateFields[key]?.enabled).length;
+    const customCount = customFieldRows.filter((row) => row.enabled && row.name.trim()).length;
+    return baseCount + customCount;
+  }, [updateFields, customFieldRows]);
 
   const patchIdentifier = (patch: Partial<DeviceIdentifierConfig>) => {
     setDraft((current) => ({
@@ -157,13 +179,10 @@ export function UpdateDeviceDialog({
     }));
   };
 
-  const patchField = (key: keyof DeviceUpdateFields, fieldValue: string) => {
+  const patchField = (key: DeviceFieldKey, patch: Partial<UpdateFieldSpec>) => {
     setDraft((current) => ({
       ...current,
-      update_fields: {
-        ...(current.update_fields ?? EMPTY_FIELDS),
-        [key]: fieldValue,
-      },
+      update_fields: patchDeviceFieldSpec(current.update_fields, key, patch),
     }));
   };
 
@@ -171,7 +190,7 @@ export function UpdateDeviceDialog({
     setDraft((current) => ({
       ...current,
       interfaces: (current.interfaces ?? EMPTY_INTERFACES).map((item) =>
-        item.id === id ? { ...item, ...patch } : item,
+        (item.id ?? item.name) === id ? { ...item, ...patch } : item,
       ),
     }));
   };
@@ -186,8 +205,24 @@ export function UpdateDeviceDialog({
   const removeInterface = (id: string) => {
     setDraft((current) => ({
       ...current,
-      interfaces: (current.interfaces ?? EMPTY_INTERFACES).filter((item) => item.id !== id),
+      interfaces: (current.interfaces ?? EMPTY_INTERFACES).filter(
+        (item) => (item.id ?? item.name) !== id,
+      ),
     }));
+  };
+
+  const patchCustomFieldRow = (id: string, patch: Partial<CustomFieldRow>) => {
+    setCustomFieldRows((rows) =>
+      rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  };
+
+  const addCustomFieldRow = () => {
+    setCustomFieldRows((rows) => [...rows, newCustomFieldRow()]);
+  };
+
+  const removeCustomFieldRow = (id: string) => {
+    setCustomFieldRows((rows) => rows.filter((row) => row.id !== id));
   };
 
   return (
@@ -254,58 +289,93 @@ export function UpdateDeviceDialog({
                 object
               </Badge>
             </div>
+            <p className="text-[11px] leading-4 text-muted-foreground">{UPDATE_FIELD_VALUE_HELP}</p>
             <div className="grid gap-2 sm:grid-cols-2">
-              {DEVICE_FIELD_DEFINITIONS.map(({ key, label }) => (
-                <div className="space-y-1" key={key}>
-                  <Label className="text-[11px] text-muted-foreground">{label}</Label>
-                  <Input
-                    className="h-8 text-xs focus-visible:ring-teal-400/40"
-                    placeholder={`${label} (optional)`}
-                    value={(updateFields[key as keyof DeviceUpdateFields] as string | undefined) ?? ""}
-                    onChange={(event) =>
-                      patchField(key as keyof DeviceUpdateFields, event.target.value)
-                    }
-                  />
-                </div>
+              {DEVICE_FIELD_DEFINITIONS.map(({ key, label, placeholder }) => (
+                <FieldRow
+                  key={key}
+                  label={label}
+                  placeholder={placeholder}
+                  spec={updateFields[key] ?? EMPTY_FIELD_SPEC}
+                  onChange={(patch) => patchField(key, patch)}
+                />
               ))}
             </div>
-            <div className="space-y-1">
-              <Label className="text-[11px] text-muted-foreground">Tags</Label>
-              <Input
-                className="h-8 text-xs focus-visible:ring-teal-400/40"
-                placeholder="tag1, tag2"
-                value={formatTagsInput(updateFields.tags)}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    update_fields: {
-                      ...(current.update_fields ?? EMPTY_FIELDS),
-                      tags: parseTagsInput(event.target.value),
-                    },
-                  }))
-                }
-              />
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-medium">custom_fields</span>
+                <Button
+                  className="h-7 bg-teal-500 text-white hover:bg-teal-600"
+                  size="sm"
+                  type="button"
+                  onClick={addCustomFieldRow}
+                >
+                  <Plus className="mr-1 size-3.5" />
+                  Add
+                </Button>
+              </div>
+              {customFieldRows.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">No custom fields configured.</p>
+              ) : (
+                <div className="space-y-2">
+                  {customFieldRows.map((row) => (
+                    <div
+                      className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5"
+                      key={row.id}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={row.enabled}
+                            onChange={(event) =>
+                              patchCustomFieldRow(row.id, { enabled: event.target.checked })
+                            }
+                            className="size-4 rounded border accent-teal-500"
+                            aria-label={`Enable custom field ${row.name || "row"}`}
+                          />
+                          <span className="text-xs font-medium text-teal-700">Custom field</span>
+                        </div>
+                        <Button
+                          className="h-7 px-2 text-destructive hover:text-destructive"
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                          onClick={() => removeCustomFieldRow(row.id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input
+                          className="h-8 text-xs disabled:opacity-50"
+                          disabled={!row.enabled}
+                          placeholder="field_name"
+                          value={row.name}
+                          onChange={(event) =>
+                            patchCustomFieldRow(row.id, { name: event.target.value })
+                          }
+                        />
+                        <Input
+                          className="h-8 text-xs disabled:opacity-50"
+                          disabled={!row.enabled}
+                          placeholder="{custom.site | default('N/A')}"
+                          value={row.value}
+                          onChange={(event) =>
+                            patchCustomFieldRow(row.id, { value: event.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="space-y-1">
-              <Label className="text-[11px] text-muted-foreground">Custom fields</Label>
-              <Textarea
-                className="min-h-[72px] font-mono text-xs focus-visible:ring-teal-400/40"
-                placeholder={"field_a=value\nfield_b=value"}
-                value={formatCustomFields(updateFields.custom_fields)}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    update_fields: {
-                      ...(current.update_fields ?? EMPTY_FIELDS),
-                      custom_fields: parseCustomFields(event.target.value),
-                    },
-                  }))
-                }
-              />
-            </div>
+
             <p className="text-[11px] text-muted-foreground">
-              {configuredFieldCount} device field{configuredFieldCount === 1 ? "" : "s"} configured.
-              Empty fields are not sent to Nautobot.
+              {enabledFieldCount} enabled field{enabledFieldCount === 1 ? "" : "s"}. Disabled
+              fields are not sent to Nautobot.
             </p>
           </section>
 
@@ -332,10 +402,12 @@ export function UpdateDeviceDialog({
               <p className="text-[11px] text-muted-foreground">No interfaces configured.</p>
             ) : (
               <div className="space-y-3">
-                {interfaces.map((iface) => (
+                {interfaces.map((iface) => {
+                  const rowId = iface.id ?? iface.name;
+                  return (
                   <div
                     className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
-                    key={iface.id}
+                    key={rowId}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-medium text-teal-700">Interface</span>
@@ -344,7 +416,7 @@ export function UpdateDeviceDialog({
                         size="sm"
                         type="button"
                         variant="ghost"
-                        onClick={() => removeInterface(iface.id)}
+                        onClick={() => removeInterface(rowId)}
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
@@ -356,7 +428,7 @@ export function UpdateDeviceDialog({
                           className="h-8 text-xs"
                           value={iface.name}
                           onChange={(event) =>
-                            patchInterface(iface.id, { name: event.target.value })
+                            patchInterface(rowId, { name: event.target.value })
                           }
                         />
                       </div>
@@ -367,7 +439,7 @@ export function UpdateDeviceDialog({
                           placeholder="1000base-t"
                           value={iface.type ?? ""}
                           onChange={(event) =>
-                            patchInterface(iface.id, { type: event.target.value })
+                            patchInterface(rowId, { type: event.target.value })
                           }
                         />
                       </div>
@@ -378,7 +450,7 @@ export function UpdateDeviceDialog({
                           placeholder="active"
                           value={iface.status ?? ""}
                           onChange={(event) =>
-                            patchInterface(iface.id, { status: event.target.value })
+                            patchInterface(rowId, { status: event.target.value })
                           }
                         />
                       </div>
@@ -389,7 +461,7 @@ export function UpdateDeviceDialog({
                           placeholder="10.0.0.1/24"
                           value={iface.ip_address ?? ""}
                           onChange={(event) =>
-                            patchInterface(iface.id, { ip_address: event.target.value })
+                            patchInterface(rowId, { ip_address: event.target.value })
                           }
                         />
                       </div>
@@ -399,7 +471,7 @@ export function UpdateDeviceDialog({
                           className="h-8 text-xs"
                           value={iface.description ?? ""}
                           onChange={(event) =>
-                            patchInterface(iface.id, { description: event.target.value })
+                            patchInterface(rowId, { description: event.target.value })
                           }
                         />
                       </div>
@@ -409,12 +481,13 @@ export function UpdateDeviceDialog({
                       <Switch
                         checked={iface.is_primary_ipv4 ?? false}
                         onCheckedChange={(checked) =>
-                          patchInterface(iface.id, { is_primary_ipv4: checked })
+                          patchInterface(rowId, { is_primary_ipv4: checked })
                         }
                       />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>

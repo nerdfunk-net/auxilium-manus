@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
+from models.workflow_context import DeviceContext
 from workflow_steps.common.nautobot_update_fields import (
-    context_has_nautobot_update_fields,
     extract_update_fields_from_nautobot_bag,
     merge_update_data,
 )
@@ -48,22 +47,6 @@ class NautobotUpdateFieldsTests(unittest.TestCase):
             {"location": "office-a"},
         )
         self.assertEqual(merged, {"location": "office-a", "serial": "OLD"})
-
-    def test_context_has_nautobot_update_fields(self) -> None:
-        context = WorkflowContext(
-            run_id="run-1",
-            workflow_id="wf-1",
-            devices={
-                "dev-1": DeviceContext(
-                    id="dev-1",
-                    name="dev-1",
-                    hostname="dev-1",
-                    attribute_bags={"nautobot": {"location": {"name": "office-a"}}},
-                    status=DeviceStatus.OK,
-                )
-            },
-        )
-        self.assertTrue(context_has_nautobot_update_fields(context.devices))
 
 
 if __name__ == "__main__":

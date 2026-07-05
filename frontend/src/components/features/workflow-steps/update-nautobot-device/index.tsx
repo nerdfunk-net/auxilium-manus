@@ -18,25 +18,7 @@ import {
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { UpdateDeviceDialog } from "./update-device-dialog";
 import type { UpdateNautobotDeviceConfig } from "./types";
-import { DEVICE_FIELD_DEFINITIONS } from "./types";
-
-function countConfiguredFields(config: Record<string, unknown>): number {
-  const fields = (config.update_fields ?? {}) as Record<string, unknown>;
-  let count = 0;
-  for (const { key } of DEVICE_FIELD_DEFINITIONS) {
-    const value = fields[key];
-    if (typeof value === "string" && value.trim()) count += 1;
-  }
-  if (Array.isArray(fields.tags) && fields.tags.length > 0) count += 1;
-  if (
-    fields.custom_fields &&
-    typeof fields.custom_fields === "object" &&
-    Object.keys(fields.custom_fields as object).length > 0
-  ) {
-    count += 1;
-  }
-  return count;
-}
+import { countEnabledUpdateFields } from "./update-device-config";
 
 function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
@@ -46,7 +28,7 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
   const [sourceOpen, setSourceOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const configuredFieldCount = useMemo(() => countConfiguredFields(config), [config]);
+  const enabledFieldCount = useMemo(() => countEnabledUpdateFields(config), [config]);
   const interfaceCount = Array.isArray(config.interfaces) ? config.interfaces.length : 0;
   const identifierMode =
     (updateConfig.device_identifier?.mode as string | undefined) ?? "from_context";
@@ -72,7 +54,7 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
   );
 
   const isSourceConfigured = isNautobotSourceConfigured(config);
-  const hasUpdatePayload = configuredFieldCount > 0 || interfaceCount > 0;
+  const hasUpdatePayload = enabledFieldCount > 0 || interfaceCount > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -124,12 +106,12 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
 
         {hasUpdatePayload ? (
           <p className="text-[11px] text-muted-foreground">
-            {configuredFieldCount} field{configuredFieldCount === 1 ? "" : "s"},{" "}
+            {enabledFieldCount} enabled field{enabledFieldCount === 1 ? "" : "s"},{" "}
             {interfaceCount} interface{interfaceCount === 1 ? "" : "s"},{" "}
             {identifierMode === "explicit" ? "explicit device" : "from context"}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">No update fields configured</p>
+          <p className="text-[11px] text-amber-600">No enabled update fields configured</p>
         )}
 
         <Button
