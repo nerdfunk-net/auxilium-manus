@@ -21,6 +21,7 @@ interface PreviewConfig {
 interface PreviewDialogProps {
   open: boolean;
   config: PreviewConfig;
+  inventoryName?: string | null;
   onClose: () => void;
 }
 
@@ -49,6 +50,7 @@ async function fetchDevicePreview(
 export function DeviceSelectionPreviewDialog({
   open,
   config,
+  inventoryName,
   onClose,
 }: PreviewDialogProps) {
   const { apiCall } = useApi();
@@ -81,9 +83,19 @@ export function DeviceSelectionPreviewDialog({
           <div>
             <p className="text-sm font-semibold">Device Preview</p>
             <p className="text-xs text-muted-foreground">
-              Devices from{" "}
-              <span className="font-medium">{config.nautobot_url || "—"}</span> matching
-              current filter
+              {inventoryName ? (
+                <>
+                  Devices from{" "}
+                  <span className="font-medium">&ldquo;{inventoryName}&rdquo;</span> via{" "}
+                  <span className="font-medium">{config.nautobot_url || "—"}</span>
+                </>
+              ) : (
+                <>
+                  Devices from{" "}
+                  <span className="font-medium">{config.nautobot_url || "—"}</span> matching
+                  selected inventory
+                </>
+              )}
             </p>
           </div>
           <Button
@@ -122,7 +134,7 @@ export function DeviceSelectionPreviewDialog({
 
           {data && data.total === 0 && (
             <p className="py-4 text-center text-xs text-muted-foreground">
-              No devices matched the current filter.
+              No devices matched the selected inventory.
             </p>
           )}
 

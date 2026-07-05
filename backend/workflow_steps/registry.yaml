@@ -25,13 +25,22 @@ plugins:
           data_type: string
           required: true
           example: prod-lab
+        - name: inventory_id
+          description: ID of the saved inventory selected in the workflow builder.
+          data_type: integer
+          required: false
+          example: 42
+        - name: inventory_name
+          description: Display name of the selected saved inventory.
+          data_type: string
+          required: false
+          example: Core routers
         - name: device_filter
-          description: Filter expression that selects devices for this workflow.
+          description: >
+            Filter tree snapshot derived from the selected inventory at configuration time.
+            Used at runtime to resolve devices from Nautobot.
           data_type: object
           required: true
-          example:
-            location: dc1
-            role: network
         - name: fan_out
           description: >
             Fan-out configuration. When enabled, each device (or chunk) is processed

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { Eye, FileText } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,12 +27,15 @@ import {
   nautobotSourceIdFromConfig,
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
-import { InventoryBuilderDialog } from "./inventory-builder-dialog";
+import { savedConditionsToFilterTree } from "./condition-builder/saved-conditions";
 import {
-  emptyTree,
   countConditions,
+  emptyTree,
   type FilterTree,
 } from "./condition-builder/types";
+import { LoadInventoryDialog } from "./load-inventory-dialog";
+import { DeviceSelectionPreviewDialog } from "./preview-dialog";
+import type { SavedInventory } from "./types/saved-inventory";
 
 interface FanOutConfig {
   enabled: boolean;
@@ -73,6 +77,15 @@ function filterFromConfig(config: Record<string, unknown>): FilterTree {
   return emptyTree();
 }
 
+function inventoryMetaFromConfig(config: Record<string, unknown>) {
+  const id = typeof config.inventory_id === "number" ? config.inventory_id : null;
+  const name =
+    typeof config.inventory_name === "string" && config.inventory_name.trim()
+      ? config.inventory_name.trim()
+      : null;
+  return { id, name };
+}
+
 function DeviceSelectionConfigPanel({
   config,
   onChange,
@@ -80,10 +93,12 @@ function DeviceSelectionConfigPanel({
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const filterTree = useMemo(() => filterFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
+  const inventoryMeta = useMemo(() => inventoryMetaFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
 
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [builderOpen, setBuilderOpen] = useState(false);
+  const [selectOpen, setSelectOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const handleSourceIdChange = useCallback(
     (newSourceId: string) => {
@@ -94,12 +109,26 @@ function DeviceSelectionConfigPanel({
     [config, onChange],
   );
 
-  const handleFilterApply = useCallback(
-    (tree: FilterTree) => {
-      onChange({ ...config, device_filter: tree });
+  const handleInventorySelect = useCallback(
+    (inventory: SavedInventory) => {
+      onChange({
+        ...config,
+        inventory_id: inventory.id,
+        inventory_name: inventory.name,
+        device_filter: savedConditionsToFilterTree(inventory.conditions),
+      });
     },
     [config, onChange],
   );
+
+  const handleClearInventory = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { inventory_id, inventory_name, ...rest } = config;
+    onChange({
+      ...rest,
+      device_filter: emptyTree(),
+    });
+  }, [config, onChange]);
 
   const handleFanOutChange = useCallback(
     (patch: Partial<FanOutConfig>) => {
@@ -110,6 +139,15 @@ function DeviceSelectionConfigPanel({
 
   const conditionCount = useMemo(() => countConditions(filterTree), [filterTree]);
   const isSourceConfigured = isNautobotSourceConfigured(config);
+  const hasInventory = inventoryMeta.id !== null || conditionCount > 0;
+  const canPreview =
+    hasInventory && credentials.isReady && Boolean(credentials.url && credentials.token);
+
+  const inventoryLabel = inventoryMeta.name
+    ? inventoryMeta.name
+    : conditionCount > 0
+      ? `${conditionCount} condition${conditionCount !== 1 ? "s" : ""} (legacy filter)`
+      : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -155,34 +193,65 @@ function DeviceSelectionConfigPanel({
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">device_filter</span>
+          <span className="font-mono text-xs font-medium">inventory</span>
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            filter tree
+            saved
           </Badge>
         </div>
 
-        {conditionCount > 0 ? (
-          <p className="text-[11px] text-muted-foreground">
-            {conditionCount} condition{conditionCount !== 1 ? "s" : ""} configured
-          </p>
+        {inventoryLabel ? (
+          <div className="flex items-start gap-2 rounded-md border border-teal-200 bg-teal-50/50 px-2.5 py-2">
+            <FileText className="mt-0.5 size-3.5 shrink-0 text-teal-600" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-teal-900">{inventoryLabel}</p>
+              {inventoryMeta.id !== null ? (
+                <p className="text-[10px] text-teal-700/80">ID {inventoryMeta.id}</p>
+              ) : null}
+            </div>
+          </div>
         ) : (
-          <p className="text-[11px] text-muted-foreground">
-            No filter configured — all devices
-          </p>
+          <p className="text-[11px] text-muted-foreground">No inventory selected</p>
         )}
+
+        <div className="flex gap-2">
+          <Button
+            className="h-7 flex-1 text-xs"
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => setSelectOpen(true)}
+          >
+            {inventoryLabel ? "Change inventory" : "Select inventory"}
+          </Button>
+          {inventoryLabel ? (
+            <Button
+              className="h-7 text-xs"
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={handleClearInventory}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
 
         <Button
           className="h-7 w-full text-xs"
+          disabled={!canPreview}
           size="sm"
           type="button"
-          variant="outline"
-          onClick={() => setBuilderOpen(true)}
+          variant="secondary"
+          onClick={() => setPreviewOpen(true)}
         >
-          {conditionCount > 0 ? "Edit Filter" : "+ Add Filter"}
+          <Eye className="mr-1.5 size-3.5" aria-hidden />
+          Preview devices
         </Button>
+        {!canPreview && hasInventory && !credentials.isReady ? (
+          <p className="text-[11px] text-amber-600">Configure a Nautobot source to preview.</p>
+        ) : null}
       </div>
 
-      {/* fan_out */}
       <div className="space-y-2 border-t pt-3">
         <div className="flex items-center justify-between">
           <span className="font-mono text-xs font-medium">fan_out</span>
@@ -257,13 +326,21 @@ function DeviceSelectionConfigPanel({
         onSave={handleSourceIdChange}
       />
 
-      <InventoryBuilderDialog
-        open={builderOpen}
-        onClose={() => setBuilderOpen(false)}
-        nautobot_url={credentials.url}
-        nautobot_token={credentials.token}
-        initialTree={filterTree}
-        onApply={handleFilterApply}
+      <LoadInventoryDialog
+        open={selectOpen}
+        onClose={() => setSelectOpen(false)}
+        onLoad={handleInventorySelect}
+      />
+
+      <DeviceSelectionPreviewDialog
+        open={previewOpen}
+        config={{
+          nautobot_url: credentials.url,
+          nautobot_token: credentials.token,
+          device_filter: filterTree,
+        }}
+        inventoryName={inventoryMeta.name}
+        onClose={() => setPreviewOpen(false)}
       />
     </div>
   );

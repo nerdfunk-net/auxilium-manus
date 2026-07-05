@@ -85,9 +85,9 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
     >
       <DialogContent className="flex h-[min(85vh,720px)] max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="shrink-0 border-b px-6 py-4">
-          <DialogTitle>Load Saved Inventory</DialogTitle>
+          <DialogTitle>Select inventory</DialogTitle>
           <DialogDescription>
-            Select a saved filter to replace the current device filter conditions.
+            Choose a saved inventory to use as the device selection for this step.
           </DialogDescription>
         </DialogHeader>
 
@@ -118,7 +118,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
                 </div>
               ) : groupInventories.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                  No saved filters in this group.
+                  No saved inventories in this group.
                 </p>
               ) : (
                 <ul className="space-y-1">
@@ -214,7 +214,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
             Cancel
           </Button>
           <Button type="button" disabled={!selectedInventory} onClick={handleLoad}>
-            Load
+            Select
           </Button>
         </DialogFooter>
       </DialogContent>

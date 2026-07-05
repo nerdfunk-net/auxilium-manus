@@ -1,5 +1,9 @@
 import { emptyTree, type FilterTree } from "./types";
 import type { SavedConditionPayload } from "../types/saved-inventory";
+import {
+  conditionTreeToFilterTree,
+  savedTreeToConditionTree,
+} from "@/components/features/inventory/utils/tree-format-converters";
 
 export function filterTreeToSavedConditions(tree: FilterTree): SavedConditionPayload[] {
   return [{ version: 2, tree }];
@@ -21,9 +25,9 @@ export function savedConditionsToFilterTree(
     "tree" in first &&
     (first as SavedConditionPayload).tree
   ) {
-    const tree = (first as SavedConditionPayload).tree as FilterTree;
-    if (tree && typeof tree === "object" && Array.isArray(tree.items)) {
-      return tree;
+    const conditionTree = savedTreeToConditionTree((first as SavedConditionPayload).tree);
+    if (conditionTree) {
+      return conditionTreeToFilterTree(conditionTree);
     }
   }
 
