@@ -2,12 +2,16 @@
 
 import { MiniMap, Panel } from "@xyflow/react";
 import { ChevronDown, Map } from "lucide-react";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
+import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+
 export function CollapsibleMiniMap() {
-  const [isOpen, setIsOpen] = useState(true);
+  const isOpen = useWorkflowBuilderStore((state) => state.overviewPanelOpen);
+  const setOverviewPanelOpen = useWorkflowBuilderStore(
+    (state) => state.setOverviewPanelOpen,
+  );
 
   return (
     <Panel className="!m-3 !p-0" position="bottom-right">
@@ -23,7 +27,7 @@ export function CollapsibleMiniMap() {
               variant="ghost"
               size="icon"
               className="size-6"
-              onClick={() => setIsOpen(false)}
+              onClick={() => setOverviewPanelOpen(false)}
             >
               <ChevronDown className="size-3.5" />
             </Button>
@@ -41,7 +45,7 @@ export function CollapsibleMiniMap() {
           variant="secondary"
           size="sm"
           className="h-8 gap-1.5 px-2.5 text-xs shadow-md"
-          onClick={() => setIsOpen(true)}
+          onClick={() => setOverviewPanelOpen(true)}
         >
           <Map className="size-3.5" />
           Overview

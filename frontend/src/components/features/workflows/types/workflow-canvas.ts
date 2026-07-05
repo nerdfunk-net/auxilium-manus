@@ -13,6 +13,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
   stepUuid?: string;
   title: string;
+  overview?: string;
   description: string;
   artifactType?: string;
   requires?: Capability[];
@@ -35,6 +36,7 @@ export interface Waypoint {
 export interface StepPayload {
   kind: WorkflowNodeKind;
   title: string;
+  overview: string;
   description: string;
   artifactType: string;
   requires: Capability[];

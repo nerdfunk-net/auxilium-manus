@@ -24,6 +24,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   configModalNodeId: string | null;
   lastAction: string;
   stepCatalogExpanded: Record<string, boolean>;
+  overviewPanelOpen: boolean;
   setMode: (mode: WorkflowMode) => void;
   setRightPanelTab: (tab: RightPanelTab) => void;
   selectNode: (nodeId: string | null) => void;
@@ -31,6 +32,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   openConfigModal: (nodeId: string) => void;
   closeConfigModal: () => void;
   toggleStepCatalogCategory: (artifactType: string) => void;
+  setOverviewPanelOpen: (open: boolean) => void;
   markSaved: (message?: string) => void;
   markDirty: () => void;
   markRunning: (message?: string) => void;
@@ -65,6 +67,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   configModalNodeId: null,
   lastAction: "Ready to design workflow",
   stepCatalogExpanded: {},
+  overviewPanelOpen: true,
   setMode: (mode) => set({ mode }),
   setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
   selectNode: (selectedNodeId) =>
@@ -88,6 +91,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
         [artifactType]: !(state.stepCatalogExpanded[artifactType] ?? false),
       },
     })),
+  setOverviewPanelOpen: (overviewPanelOpen) => set({ overviewPanelOpen }),
   markSaved: (message = "Workflow saved") =>
     set({
       workflowStatus: "Saved",

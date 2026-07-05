@@ -114,7 +114,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
             ) : null}
           </div>
           <p className="mt-1 line-clamp-2 overflow-hidden text-xs leading-5 text-muted-foreground">
-            {data.description}
+            {data.overview ?? data.description}
           </p>
         </div>
       </div>

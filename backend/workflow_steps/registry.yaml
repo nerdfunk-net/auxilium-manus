@@ -7,6 +7,7 @@ schema_version: 1
 plugins:
   - id: get-nautobot-devices
     name: Get from Nautobot
+    overview: Select devices from the Nautobot inventory.
     description: Select one or more target devices from the inventory.
     artifact_type: inventory_selector
     palette_category: nautobot
@@ -46,6 +47,7 @@ plugins:
 
   - id: get-git-devices
     name: Get from Git
+    overview: Select devices from Git inventory files.
     description: Select one or more target devices from the inventory.
     artifact_type: inventory_selector
     directory: get_git_devices
@@ -88,6 +90,7 @@ plugins:
 
   - id: get-nautobot-attributes
     name: Get Nautobot Attributes
+    overview: Retrieve Nautobot attributes for selected devices.
     description: Retrieve attributes from Nautobot for selected devices.
     artifact_type: inventory_selector
     palette_category: nautobot
@@ -115,6 +118,7 @@ plugins:
 
   - id: update-nautobot-device
     name: Update Device
+    overview: Update Nautobot device fields, interfaces, and tags.
     description: Update device attributes, interfaces, tags, and custom fields in Nautobot.
     artifact_type: command_execution
     palette_category: nautobot
@@ -175,6 +179,7 @@ plugins:
 
   - id: get-device-configs
     name: Get Configs
+    overview: Get device configuration in the chosen format.
     description: Get device configuration in the specified format.
     artifact_type: configuration_retrieval
     directory: get_device_configs
@@ -200,6 +205,7 @@ plugins:
 
   - id: run-command
     name: Run Command
+    overview: Execute CLI commands on connected devices.
     description: Execute one or more CLI commands on connected devices.
     artifact_type: command_execution
     directory: run_command
@@ -236,6 +242,7 @@ plugins:
 
   - id: route-on-attribute
     name: Route on Attribute
+    overview: Branch workflow paths by attribute value.
     description: Split devices onto different paths by matching an attribute value.
     artifact_type: control_flow
     directory: route_on_attribute
@@ -282,6 +289,7 @@ plugins:
 
   - id: update-attribute
     name: Update Attribute
+    overview: Set or transform device attributes in the workflow.
     description: >
       Set or transform in-workflow device attributes using a fixed value or a
       regular expression with capture groups.
@@ -345,6 +353,7 @@ plugins:
 
   - id: workflow-log
     name: Logging
+    overview: Log device attributes for workflow debugging.
     description: Log selected device attributes to the run result for workflow debugging.
     artifact_type: control_flow
     directory: workflow_log
@@ -374,6 +383,7 @@ plugins:
 
   - id: show-attributes
     name: Show Attributes
+    overview: Dump workflow context to STDOUT or a file.
     description: >
       Dump the full workflow context — every device field, attribute bag,
       parsed value, and metadata entry — to STDOUT or a file.
@@ -412,6 +422,7 @@ plugins:
 
   - id: fan-in
     name: Fan In
+    overview: Rejoin fan-out branches into one execution path.
     description: >
       Rejoin a fanned-out workflow into a single path. Per-device steps run in
       parallel child workflows up to this node; steps placed after it run once
@@ -429,6 +440,7 @@ plugins:
 
   - id: merge-content
     name: Merge Content
+    overview: Merge upstream command output per device.
     description: >
       Combines the command output from one or more upstream run-command steps
       into a single merged artifact per device.
@@ -463,6 +475,7 @@ plugins:
 
   - id: compare-data
     name: Compare Data
+    overview: Compare device output to a reference file.
     description: >
       Compare device configuration or command output against a reference file on the
       local filesystem or in a git repository.
@@ -557,10 +570,12 @@ plugins:
 
   - id: filter-output
     name: Filter Output
+    overview: Strip volatile keys or lines from command output.
     description: >
       Remove volatile keys (JSON) or lines (plain text) from command output
-      using regex patterns or dot-path selectors before passing results to
-      downstream steps such as compare-data.
+      using regex patterns or dot-path selectors. Use before compare-data or
+      store-artifact when output contains timestamps, uptime, or other
+      non-deterministic fields.
     artifact_type: control_flow
     directory: filter_output
     enabled: true
@@ -596,6 +611,7 @@ plugins:
 
   - id: render-jinja-template
     name: Render Jinja Template
+    overview: Render a Jinja2 template per device.
     description: Render a Jinja2 template per device and store the result for downstream steps.
     artifact_type: template_rendering
     directory: render_jinja_template
@@ -634,6 +650,7 @@ plugins:
 
   - id: store-artifact
     name: Store Artifact
+    overview: Persist backups, reports, or logs.
     description: Persist generated content such as backups, reports, or logs.
     artifact_type: persistent_artifact
     directory: store_artifact
@@ -736,6 +753,7 @@ plugins:
 
   - id: git-clone
     name: Git Clone
+    overview: Clone a git source to the local working tree.
     description: Clone or re-clone a configured git source into the local working tree.
     artifact_type: persistent_artifact
     directory: git_clone
@@ -755,6 +773,7 @@ plugins:
 
   - id: git-pull
     name: Git Pull
+    overview: Pull latest changes for a git source.
     description: Pull the latest changes for a configured git source.
     artifact_type: persistent_artifact
     directory: git_pull
@@ -774,6 +793,7 @@ plugins:
 
   - id: git-push
     name: Git Push
+    overview: Commit and push changes to git remote.
     description: Commit exported changes and push them to the configured git source remote.
     artifact_type: persistent_artifact
     directory: git_push

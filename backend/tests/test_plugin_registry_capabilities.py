@@ -41,6 +41,7 @@ class PluginRegistryCapabilityTests(unittest.TestCase):
             {
                 "id": "parse-bgp",
                 "name": "Parse BGP",
+                "overview": "Parse BGP routes.",
                 "description": "x",
                 "artifact_type": "configuration_retrieval",
                 "directory": "parse_bgp",

@@ -102,7 +102,7 @@ function StepRow({
       <span className="min-w-0 flex-1">
         <span className="block text-[12.5px] font-semibold leading-tight">{item.title}</span>
         <span className="mt-0.5 line-clamp-2 block text-[11px] leading-[1.35] text-muted-foreground">
-          {item.description}
+          {item.overview}
         </span>
       </span>
       <Plus className="mt-0.5 size-3.5 shrink-0 text-border" aria-hidden />
@@ -128,6 +128,7 @@ export function StepCatalog({ errorMessage, isLoading, onAddStep, plugins }: Ste
         items: group.items.filter(
           (item) =>
             item.title.toLowerCase().includes(query) ||
+            item.overview.toLowerCase().includes(query) ||
             item.description.toLowerCase().includes(query) ||
             item.kind.toLowerCase().includes(query),
         ),

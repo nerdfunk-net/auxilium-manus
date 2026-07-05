@@ -419,6 +419,7 @@ export function WorkflowBuilderPage() {
           kind: step.kind,
           stepUuid: crypto.randomUUID(),
           title: step.title,
+          overview: step.overview,
           description: step.description,
           artifactType: step.artifactType,
           requires: step.requires,

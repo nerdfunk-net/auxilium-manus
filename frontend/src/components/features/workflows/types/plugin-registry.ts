@@ -18,6 +18,7 @@ export interface PluginMetadata {
 export interface PluginDefinition {
   id: string;
   name: string;
+  overview: string;
   description: string;
   artifact_type: string;
   palette_category?: string | null;

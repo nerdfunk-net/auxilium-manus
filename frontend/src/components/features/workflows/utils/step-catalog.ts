@@ -29,6 +29,7 @@ export function toStepPayload(plugin: PluginDefinition): StepPayload {
   return {
     kind: plugin.id,
     title: plugin.name,
+    overview: plugin.overview,
     description: plugin.description,
     artifactType: plugin.artifact_type,
     requires: (plugin.requires ?? []) as Capability[],

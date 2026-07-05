@@ -45,6 +45,10 @@ function applyPluginDefaults(
     next.artifactType = plugin.artifact_type;
     changed = true;
   }
+  if (!next.overview) {
+    next.overview = plugin.overview;
+    changed = true;
+  }
 
   return { data: next, changed };
 }

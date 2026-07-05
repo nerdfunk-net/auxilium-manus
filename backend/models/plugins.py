@@ -38,6 +38,7 @@ class PluginDefinition(BaseModel):
 
     id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9-]*$")
     name: str = Field(..., min_length=1)
+    overview: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
     artifact_type: str = Field(..., min_length=1)
     palette_category: str | None = None
