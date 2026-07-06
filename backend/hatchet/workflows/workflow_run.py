@@ -21,6 +21,16 @@ class WorkflowRunInput(BaseModel):
     run_id: int
 
 
+# A "Next Step"/"Run to completion" click can race the durable wait's own
+# registration with the Hatchet engine: we mark the run "paused" in our DB
+# (which is what makes the frontend button clickable) slightly before
+# ctx.aio_wait_for_event actually finishes subscribing. Without scope +
+# lookback_window, an event pushed in that gap is silently dropped (the SDK
+# only matches events arriving after registration), requiring a second click.
+# Scoping to the event key itself and looking back generously covers it.
+DEBUG_STEP_EVENT_LOOKBACK = timedelta(minutes=15)
+
+
 workflow = hatchet.workflow(
     name="WorkflowExecution",
     on_events=["workflow:run"],
@@ -103,7 +113,11 @@ async def _run_steps_until_fan_out_or_done(
             )
             event_key = f"workflow-run.{run.uuid}.step.{node_id}"
             logger.info("Debug pause run_id=%s node_id=%s", run.id, node_id)
-            await ctx.aio_wait_for_event(event_key)
+            await ctx.aio_wait_for_event(
+                event_key,
+                scope=event_key,
+                lookback_window=DEBUG_STEP_EVENT_LOOKBACK,
+            )
 
             # Force a refresh — a "Run to completion" click (a separate DB
             # session/request) may have flipped run_mode while we waited.
@@ -224,7 +238,11 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
             )
             event_key = f"workflow-run.{run.uuid}.step.{fan_out_label}"
             logger.info("Debug pause (fan-out) run_id=%s node_id=%s", run.id, fan_out_label)
-            await ctx.aio_wait_for_event(event_key)
+            await ctx.aio_wait_for_event(
+                event_key,
+                scope=event_key,
+                lookback_window=DEBUG_STEP_EVENT_LOOKBACK,
+            )
 
             run_repo.db.refresh(run)
             run_repo.update_run_status(run, status="running")

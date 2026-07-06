@@ -266,7 +266,10 @@ class RunService:
 
         event_key = f"workflow-run.{run.uuid}.step.{run.current_node_id}"
         try:
-            hatchet.event.push(event_key, {})
+            # scope must match the scope passed to aio_wait_for_event on the
+            # worker side (hatchet/workflows/workflow_run.py) — see the
+            # DEBUG_STEP_EVENT_LOOKBACK comment there for why this is needed.
+            hatchet.event.push(event_key, {}, scope=event_key)
         except Exception:
             logger.error(
                 "Failed to push continue event run_id=%s event_key=%s",

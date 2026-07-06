@@ -143,7 +143,7 @@ class DebugSteppingTests(unittest.IsolatedAsyncioTestCase):
         ctx = AsyncMock()
         pause_count = 0
 
-        async def _wait_for_event(_event_key: str) -> dict[str, Any]:
+        async def _wait_for_event(_event_key: str, **_kwargs: Any) -> dict[str, Any]:
             nonlocal pause_count
             pause_count += 1
             if pause_count == 1:

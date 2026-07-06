@@ -95,7 +95,11 @@ export function useStepRunMutation(workflowId: number | null) {
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
     },
-    onError: (error) => {
+    onError: (error, runId) => {
+      // A stray click can 409 if the run already advanced past this step
+      // (e.g. it just finished) — refresh so the UI reflects reality instead
+      // of leaving the stale "paused" snapshot on screen.
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
       toast({
         title: "Failed to advance run",
         description: error.message,
@@ -125,7 +129,8 @@ export function useContinueRunMutation(workflowId: number | null) {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
       toast({ title: "Resuming", description: "Running the rest of the workflow without pausing." });
     },
-    onError: (error) => {
+    onError: (error, runId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
       toast({
         title: "Failed to resume run",
         description: error.message,
