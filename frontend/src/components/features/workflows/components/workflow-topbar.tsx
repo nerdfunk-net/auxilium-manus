@@ -6,14 +6,11 @@ import {
   FilePlus,
   FolderOpen,
   FolderCog,
-  LogOut,
   Play,
   Save,
   SaveAll,
   StepForward,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,9 +54,7 @@ export function WorkflowTopbar({
   onSaveAs,
   onRun,
 }: WorkflowTopbarProps) {
-  const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
   const workflowStatus = useWorkflowBuilderStore(
@@ -74,12 +69,6 @@ export function WorkflowTopbar({
   const stepRun = useStepRunMutation(workflowId);
   const continueRun = useContinueRunMutation(workflowId);
   const isAwaitingStep = runMode === "debug" && activeRun?.status === "paused";
-
-  const handleLogout = useCallback(async () => {
-    await logout();
-    router.replace("/login");
-    router.refresh();
-  }, [logout, router]);
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-5">
@@ -182,14 +171,6 @@ export function WorkflowTopbar({
         <Button onClick={onRun}>
           <Play className="size-4" />
           Run
-        </Button>
-        <Button
-          aria-label="Sign out"
-          onClick={handleLogout}
-          size="icon"
-          variant="ghost"
-        >
-          <LogOut className="size-4" />
         </Button>
       </div>
     </header>

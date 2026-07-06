@@ -80,6 +80,19 @@ cd frontend && npm run dev
 
 App available at [http://localhost:3000](http://localhost:3000) · Default credentials: `admin / admin`
 
+### Dashboard routes
+
+Authenticated pages share a sidebar layout (`DashboardShell` + `AppSidebar`):
+
+| Route | Feature |
+|---|---|
+| `/workflows` | Workflow editor (React Flow canvas) |
+| `/workflows/runs` | Workflow execution history and step results |
+| `/inventory` | Inventory builder |
+| `/settings/[section]` | Settings (`general`, `sources`, `credentials`, `users`, `hatchet`, `redis`) |
+
+`/settings` redirects to `/settings/general`. `/` redirects to `/workflows`.
+
 ## Services overview
 
 | Service | URL | Purpose |

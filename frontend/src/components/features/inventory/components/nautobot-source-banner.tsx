@@ -4,7 +4,6 @@ import Link from "next/link";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
 
 interface NautobotSourceBannerProps {
   isLoading: boolean;
@@ -19,8 +18,6 @@ export function NautobotSourceBanner({
   isReady,
   sourceId,
 }: NautobotSourceBannerProps) {
-  const openSettings = useWorkspaceStore((state) => state.openSettings);
-
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
@@ -40,8 +37,8 @@ export function NautobotSourceBanner({
             field autocomplete.
           </span>
         </div>
-        <Button onClick={() => openSettings("sources")} size="sm" type="button" variant="outline">
-          Open Settings
+        <Button asChild size="sm" type="button" variant="outline">
+          <Link href="/settings/sources">Open Settings</Link>
         </Button>
       </div>
     );
@@ -57,8 +54,8 @@ export function NautobotSourceBanner({
             Settings.
           </span>
         </div>
-        <Button onClick={() => openSettings("sources")} size="sm" type="button" variant="outline">
-          Open Settings
+        <Button asChild size="sm" type="button" variant="outline">
+          <Link href="/settings/sources">Open Settings</Link>
         </Button>
       </div>
     );
@@ -70,11 +67,7 @@ export function NautobotSourceBanner({
       {" · "}
       <Link
         className="text-primary underline-offset-4 hover:underline"
-        href="#"
-        onClick={(e) => {
-          e.preventDefault();
-          openSettings("sources");
-        }}
+        href="/settings/sources"
       >
         Change in Settings
       </Link>

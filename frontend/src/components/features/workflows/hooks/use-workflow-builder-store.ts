@@ -2,7 +2,6 @@ import { create } from "zustand";
 
 import type { WorkflowVisibility } from "../types/workflow-persistence";
 
-type WorkflowMode = "editor" | "executions";
 type RightPanelTab = "steps" | "properties";
 type RunMode = "normal" | "debug";
 
@@ -18,7 +17,6 @@ interface WorkflowMetadata {
 interface WorkflowBuilderState extends WorkflowMetadata {
   workflowStatus: "Draft" | "Saved" | "Running" | "Error";
   isDirty: boolean;
-  mode: WorkflowMode;
   runMode: RunMode;
   activeRunId: number | null;
   rightPanelTab: RightPanelTab;
@@ -28,7 +26,6 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   lastAction: string;
   stepCatalogExpanded: Record<string, boolean>;
   overviewPanelOpen: boolean;
-  setMode: (mode: WorkflowMode) => void;
   setRunMode: (runMode: RunMode) => void;
   setActiveRunId: (activeRunId: number | null) => void;
   setRightPanelTab: (tab: RightPanelTab) => void;
@@ -65,7 +62,6 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   ...NEW_WORKFLOW_DEFAULTS,
   workflowStatus: "Draft",
   isDirty: false,
-  mode: "editor",
   runMode: "normal",
   activeRunId: null,
   rightPanelTab: "steps",
@@ -75,7 +71,6 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   lastAction: "Ready to design workflow",
   stepCatalogExpanded: {},
   overviewPanelOpen: true,
-  setMode: (mode) => set({ mode }),
   setRunMode: (runMode) => set({ runMode }),
   setActiveRunId: (activeRunId) => set({ activeRunId }),
   setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),

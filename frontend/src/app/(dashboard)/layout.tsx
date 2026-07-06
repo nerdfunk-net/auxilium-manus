@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import { proxyRequest } from "@/lib/api-proxy";
 
@@ -27,5 +28,5 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  return children;
+  return <DashboardShell>{children}</DashboardShell>;
 }

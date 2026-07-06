@@ -1,6 +1,7 @@
 "use client";
 
 import { useEdgesState, useNodesState } from "@xyflow/react";
+import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
@@ -16,17 +17,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { SettingsMockCanvas } from "@/components/features/settings/components/settings-mock-canvas";
-import { SettingsTopbar } from "@/components/features/settings/components/settings-topbar";
-import { useWorkspaceStore } from "@/components/features/settings/hooks/use-workspace-store";
-import { InventoryPage } from "@/components/features/inventory/inventory-page";
-
 import { NodeConfigModal } from "./components/node-config-modal";
 import { WorkflowCanvas } from "./components/workflow-canvas";
-import { WorkflowExecutionsPanel } from "./components/workflow-executions-panel";
 import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel";
 import { WorkflowRunControls } from "./components/workflow-run-controls";
-import { WorkflowSidebar } from "./components/workflow-sidebar";
 import { WorkflowTopbar } from "./components/workflow-topbar";
 import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
 import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
@@ -55,8 +49,7 @@ const EMPTY_NODES: WorkflowCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 export function WorkflowBuilderPage() {
-  const workspace = useWorkspaceStore((state) => state.workspace);
-  const mode = useWorkflowBuilderStore((state) => state.mode);
+  const router = useRouter();
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
   const workflowDescription = useWorkflowBuilderStore(
@@ -73,7 +66,6 @@ export function WorkflowBuilderPage() {
   const markDirty = useWorkflowBuilderStore((state) => state.markDirty);
   const markRunning = useWorkflowBuilderStore((state) => state.markRunning);
   const markError = useWorkflowBuilderStore((state) => state.markError);
-  const setMode = useWorkflowBuilderStore((state) => state.setMode);
   const runMode = useWorkflowBuilderStore((state) => state.runMode);
   const setActiveRunId = useWorkflowBuilderStore((state) => state.setActiveRunId);
   const loadWorkflow = useWorkflowBuilderStore((state) => state.loadWorkflow);
@@ -165,7 +157,7 @@ export function WorkflowBuilderPage() {
         // Debug mode keeps the canvas visible so the paused-node highlight is
         // visible; normal runs jump straight to the executions list as before.
         if (runMode !== "debug") {
-          setMode("executions");
+          router.push("/workflows/runs");
         }
       } catch {
         markError("Failed to trigger run");
@@ -180,7 +172,7 @@ export function WorkflowBuilderPage() {
       setActiveRunId,
       markRunning,
       markError,
-      setMode,
+      router,
     ],
   );
 
@@ -586,87 +578,52 @@ export function WorkflowBuilderPage() {
     [nodes, setNodes, selectNode, markDirty],
   );
 
-  const handleFocusStepOnCanvas = useCallback(
-    (nodeId: string) => {
-      selectNode(nodeId);
-      setMode("editor");
-    },
-    [selectNode, setMode],
-  );
-
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
-      <WorkflowSidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        {workspace === "settings" ? (
-          <SettingsTopbar />
-        ) : workspace === "inventory" ? null : (
-          <WorkflowTopbar
-            onNew={handleNew}
-            onOpen={handleOpen}
-            onManage={() => setIsManageOpen(true)}
-            onRun={handleRun}
-            onSave={handleSave}
-            onSaveAs={() => setIsSaveAsOpen(true)}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <WorkflowTopbar
+        onNew={handleNew}
+        onOpen={handleOpen}
+        onManage={() => setIsManageOpen(true)}
+        onRun={handleRun}
+        onSave={handleSave}
+        onSaveAs={() => setIsSaveAsOpen(true)}
+      />
+      <main className="flex min-h-0 flex-1">
+        <section className="min-w-0 flex-1">
+          <WorkflowCanvas
+            edges={edges}
+            nodes={nodes}
+            onEdgesChange={handleEdgesChange}
+            onNodesChange={handleNodesChange}
+            onAddStepAtPosition={handleAddStepAtPosition}
+            plugins={plugins}
+            setEdges={setEdges}
           />
-        )}
-        <main className="flex min-h-0 flex-1">
-          {workspace === "settings" ? (
-            <section className="min-w-0 flex-1">
-              <SettingsMockCanvas />
-            </section>
-          ) : workspace === "inventory" ? (
-            <section className="min-w-0 flex-1">
-              <InventoryPage />
-            </section>
-          ) : (
-            <>
-              <section className="min-w-0 flex-1">
-                {mode === "editor" ? (
-                  <WorkflowCanvas
-                    edges={edges}
-                    nodes={nodes}
-                    onEdgesChange={handleEdgesChange}
-                    onNodesChange={handleNodesChange}
-                    onAddStepAtPosition={handleAddStepAtPosition}
-                    plugins={plugins}
-                    setEdges={setEdges}
-                  />
-                ) : (
-                  <WorkflowExecutionsPanel onFocusNodeOnCanvas={handleFocusStepOnCanvas} />
-                )}
-              </section>
-              {mode === "editor" ? (
-                <WorkflowPropertiesPanel
-                  edges={edges}
-                  isPluginsLoading={isPluginsLoading}
-                  nodes={nodes}
-                  onAddStep={handleAddStep}
-                  onAlignNodes={handleAlignNodes}
-                  onDeleteEdge={handleDeleteEdge}
-                  onDeleteNodes={handleDeleteNodes}
-                  onDuplicateNode={handleDuplicateNode}
-                  onEdgeStyleChange={handleEdgeStyleChange}
-                  onNodeTitleChange={handleNodeTitleChange}
-                  pluginErrorMessage={pluginError?.message}
-                  plugins={plugins}
-                />
-              ) : null}
-              {mode === "editor" ? (
-                <NodeConfigModal
-                  nodes={nodes}
-                  edges={edges}
-                  plugins={plugins}
-                  onNodeConfigChange={handleNodeConfigChange}
-                  onNodeTitleChange={handleNodeTitleChange}
-                  workflowNodes={nodes}
-                />
-              ) : null}
-            </>
-          )}
-        </main>
-        {workspace === "workflow" ? <WorkflowRunControls /> : null}
-      </div>
+        </section>
+        <WorkflowPropertiesPanel
+          edges={edges}
+          isPluginsLoading={isPluginsLoading}
+          nodes={nodes}
+          onAddStep={handleAddStep}
+          onAlignNodes={handleAlignNodes}
+          onDeleteEdge={handleDeleteEdge}
+          onDeleteNodes={handleDeleteNodes}
+          onDuplicateNode={handleDuplicateNode}
+          onEdgeStyleChange={handleEdgeStyleChange}
+          onNodeTitleChange={handleNodeTitleChange}
+          pluginErrorMessage={pluginError?.message}
+          plugins={plugins}
+        />
+        <NodeConfigModal
+          nodes={nodes}
+          edges={edges}
+          plugins={plugins}
+          onNodeConfigChange={handleNodeConfigChange}
+          onNodeTitleChange={handleNodeTitleChange}
+          workflowNodes={nodes}
+        />
+      </main>
+      <WorkflowRunControls />
 
       <WorkflowSaveAsDialog
         open={isSaveAsOpen}

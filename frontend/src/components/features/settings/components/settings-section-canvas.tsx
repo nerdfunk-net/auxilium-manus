@@ -1,7 +1,6 @@
 "use client";
 
 import { SETTINGS_SECTIONS } from "../constants/settings-sections";
-import { useWorkspaceStore } from "../hooks/use-workspace-store";
 import type { SettingsSection } from "../types/settings-section";
 import { CredentialsSettingsCanvas } from "./credentials-settings-canvas";
 import { HatchetSettingsCanvas } from "./hatchet-settings-canvas";
@@ -35,28 +34,29 @@ const MOCK_PLACEHOLDERS: Record<
   },
 };
 
-export function SettingsMockCanvas() {
-  const settingsSection = useWorkspaceStore((state) => state.settingsSection);
+interface SettingsSectionCanvasProps {
+  section: SettingsSection;
+}
 
-  if (settingsSection === "sources") {
+export function SettingsSectionCanvas({ section }: SettingsSectionCanvasProps) {
+  if (section === "sources") {
     return <SourcesSettingsCanvas />;
   }
 
-  if (settingsSection === "hatchet") {
+  if (section === "hatchet") {
     return <HatchetSettingsCanvas />;
   }
 
-  if (settingsSection === "redis") {
+  if (section === "redis") {
     return <RedisSettingsCanvas />;
   }
 
-  if (settingsSection === "credentials") {
+  if (section === "credentials") {
     return <CredentialsSettingsCanvas />;
   }
 
-  const sectionMeta = SETTINGS_SECTIONS.find((s) => s.id === settingsSection);
-  const placeholder =
-    MOCK_PLACEHOLDERS[settingsSection as MockPlaceholderSection];
+  const sectionMeta = SETTINGS_SECTIONS.find((s) => s.id === section);
+  const placeholder = MOCK_PLACEHOLDERS[section as MockPlaceholderSection];
 
   if (!sectionMeta || !placeholder) {
     return null;

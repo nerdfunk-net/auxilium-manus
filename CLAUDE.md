@@ -546,12 +546,14 @@ PORT=3000
 6. Register router in `/backend/main.py`
 
 ### Adding New Frontend Page
-1. Create page in `/app/(dashboard)/{path}/page.tsx`
-2. Create feature components in `/components/features/{domain}/`
+1. Create route stub in `/app/(dashboard)/{path}/page.tsx` (no logic, no `'use client'`)
+2. Create feature page component in `/components/features/{domain}/`
 3. Add query keys to `/lib/query-keys.ts`
 4. Create TanStack Query hooks in `/hooks/queries/use-{domain}-query.ts`
 5. Add sidebar link in `/components/layout/app-sidebar.tsx`
 6. Use query hooks in components (NOT manual `useState + useEffect`)
+
+Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`.
 
 ### Adding New Permission
 1. UI: `/settings/permissions` → Add Permission → Assign to roles
