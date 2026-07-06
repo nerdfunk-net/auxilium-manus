@@ -54,6 +54,40 @@ plugins:
             chunk_size: 1
             max_concurrency: 0
 
+  - id: get-from-list
+    name: Get from List
+    overview: Configure a static list of devices.
+    description: Enter one or more device names to use as workflow targets.
+    artifact_type: inventory_selector
+    directory: get_from_list
+    enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: devices
+          description: Device names (hostnames) to include in the workflow.
+          data_type: string_list
+          required: true
+          example:
+            - router1.example.com
+            - switch2.example.com
+        - name: fan_out
+          description: >
+            Fan-out configuration. When enabled, each device (or chunk) is processed
+            as an independent Hatchet child workflow instead of all devices sharing
+            one workflow run.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            mode: per_device
+            chunk_size: 1
+            max_concurrency: 0
+
   - id: get-git-devices
     name: Get from Git
     overview: Select devices from Git inventory files.

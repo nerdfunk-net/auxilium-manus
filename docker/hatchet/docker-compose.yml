@@ -20,7 +20,7 @@
 services:
   # ─── App database ────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:15
+    image: postgres:17-alpine
     restart: unless-stopped
     ports:
       - "5432:5432"
@@ -40,7 +40,7 @@ services:
 
   # ─── Cache / pub-sub ─────────────────────────────────────────────────────────
   redis:
-    image: redis:7
+    image: redis:alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -51,7 +51,7 @@ services:
 
   # ─── Hatchet infrastructure ──────────────────────────────────────────────────
   hatchet-postgres:
-    image: postgres:15
+    image: postgres:17-alpine
     restart: unless-stopped
     networks:
       - internal

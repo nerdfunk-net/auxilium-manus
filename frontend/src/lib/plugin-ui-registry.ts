@@ -4,6 +4,7 @@ import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
+import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
 import { GitClonePlugin } from "@/components/features/workflow-steps/git-clone";
 import { GitPullPlugin } from "@/components/features/workflow-steps/git-pull";
@@ -21,6 +22,7 @@ import { UpdateAttributePlugin } from "@/components/features/workflow-steps/upda
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
+  "get-from-list": GetFromListPlugin,
   "get-git-devices": GetGitDevicesPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,

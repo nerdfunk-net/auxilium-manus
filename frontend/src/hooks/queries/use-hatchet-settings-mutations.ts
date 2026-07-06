@@ -33,6 +33,7 @@ export function useHatchetSettingsMutations() {
     mutationFn: (data: HatchetSettingsUpdateInput) =>
       apiCall("hatchet/settings", {
         method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
     onSuccess: () => {

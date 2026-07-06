@@ -20,6 +20,7 @@ from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
+from workflow_steps.get_from_list.executor import execute as get_from_list
 from workflow_steps.get_git_devices.executor import execute as get_git_devices
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
 from workflow_steps.git_clone.executor import execute as git_clone
@@ -40,6 +41,7 @@ StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 
 STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-devices": get_nautobot_devices,
+    "get-from-list": get_from_list,
     "get-git-devices": get_git_devices,
     "get-nautobot-attributes": get_nautobot_attributes,
     "get-device-configs": get_device_configs,
