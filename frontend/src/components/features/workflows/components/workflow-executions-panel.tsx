@@ -427,12 +427,14 @@ export function WorkflowExecutionsPanel({
   const filtersActive = hasActiveWorkflowRunFilters(filters);
 
   return (
-    <div className="flex h-full flex-col bg-slate-50">
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
       <div className="flex items-center justify-between border-b bg-background px-6 py-4">
         <div>
           <p className="text-sm font-semibold">Executions</p>
           <p className="text-xs text-muted-foreground">
-            {data ? `${data.total} run${data.total !== 1 ? "s" : ""}` : "Loading…"}
+            {isLoading
+              ? "Loading…"
+              : `${data?.total ?? 0} run${data?.total === 1 ? "" : "s"}`}
             {filtersActive ? " (filtered)" : ""}
           </p>
         </div>
@@ -445,20 +447,13 @@ export function WorkflowExecutionsPanel({
         <WorkflowRunFiltersBar filters={filters} onChange={handleFiltersChange} />
       ) : null}
 
-      <div className="flex-1 overflow-y-auto p-6">
-        {!workflowId ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center text-muted-foreground">
-              <Play className="mx-auto mb-2 size-8 opacity-30" />
-              <p className="text-sm">Save the workflow first, then click Run.</p>
-            </div>
-          </div>
-        ) : isLoading ? (
-          <div className="flex h-32 items-center justify-center">
+      <div className="flex min-h-0 flex-1 overflow-y-auto p-6">
+        {isLoading ? (
+          <div className="flex flex-1 items-center justify-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
         ) : runs.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
+          <div className="flex flex-1 items-center justify-center">
             <div className="text-center text-muted-foreground">
               <Play className="mx-auto mb-2 size-8 opacity-30" />
               <p className="text-sm">
