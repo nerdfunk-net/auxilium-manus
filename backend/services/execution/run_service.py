@@ -49,6 +49,9 @@ def _run_to_summary(run: WorkflowRun, username: str | None) -> WorkflowRunSummar
         triggered_by_username=username,
         status=run.status,
         trigger_type=run.trigger_type,
+        run_mode=run.run_mode,
+        current_node_id=run.current_node_id,
+        debug_message=run.debug_message,
         device_ids=run.device_ids,
         started_at=run.started_at,
         finished_at=run.finished_at,
@@ -70,6 +73,9 @@ def _run_to_response(
         triggered_by_username=username,
         status=run.status,
         trigger_type=run.trigger_type,
+        run_mode=run.run_mode,
+        current_node_id=run.current_node_id,
+        debug_message=run.debug_message,
         device_ids=run.device_ids,
         hatchet_run_id=run.hatchet_run_id,
         error_message=run.error_message,
@@ -108,6 +114,7 @@ class RunService:
             triggered_by_id=user_id,
             trigger_type=data.trigger_type,
             device_ids=data.device_ids,
+            run_mode=data.run_mode,
         )
         logger.info("Created run id=%s workflow_id=%s user_id=%s", run.id, workflow_id, user_id)
 
@@ -199,7 +206,7 @@ class RunService:
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
-        if run.status not in ("pending", "running"):
+        if run.status not in ("pending", "running", "paused"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel a run with status {run.status!r}",
@@ -216,3 +223,55 @@ class RunService:
         self.run_repo.update_run_status(run, status="cancelled")
         step_results = self.run_repo.get_step_results_for_run(run_id)
         return _run_to_response(run, username, step_results)
+
+    def step_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
+        """Advance a paused debug-mode run by exactly one node."""
+        result = self.run_repo.get_run_by_id(run_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+        run, username = result
+        self._assert_workflow_access(run.workflow_id, user_id)
+
+        if run.status != "paused" or not run.current_node_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Run is not paused and awaiting a step (status={run.status!r})",
+            )
+
+        self._push_continue_event(run)
+        step_results = self.run_repo.get_step_results_for_run(run_id)
+        return _run_to_response(run, username, step_results)
+
+    def continue_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
+        """Resume a paused debug-mode run to completion without further pauses."""
+        result = self.run_repo.get_run_by_id(run_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+        run, username = result
+        self._assert_workflow_access(run.workflow_id, user_id)
+
+        if run.status != "paused" or not run.current_node_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Run is not paused and awaiting a step (status={run.status!r})",
+            )
+
+        run = self.run_repo.update_run_status(run, status="paused", run_mode="normal")
+        self._push_continue_event(run)
+        step_results = self.run_repo.get_step_results_for_run(run_id)
+        return _run_to_response(run, username, step_results)
+
+    def _push_continue_event(self, run: WorkflowRun) -> None:
+        from hatchet.client import hatchet
+
+        event_key = f"workflow-run.{run.uuid}.step.{run.current_node_id}"
+        try:
+            hatchet.event.push(event_key, {})
+        except Exception:
+            logger.error(
+                "Failed to push continue event run_id=%s event_key=%s",
+                run.id,
+                event_key,
+                exc_info=True,
+            )
+            raise_internal_server_error("Workflow execution engine unavailable")

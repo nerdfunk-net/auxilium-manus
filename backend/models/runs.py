@@ -5,24 +5,28 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-RunStatus = Literal["pending", "running", "success", "failed", "cancelled"]
-RunListStatusFilter = Literal["pending", "running", "success", "failed", "cancelled", "skipped"]
+RunStatus = Literal["pending", "running", "paused", "success", "failed", "cancelled"]
+RunListStatusFilter = Literal[
+    "pending", "running", "paused", "success", "failed", "cancelled", "skipped"
+]
 StepStatus = Literal["pending", "running", "success", "partial", "failed", "skipped"]
 TriggerType = Literal["manual", "scheduled", "webhook"]
+RunMode = Literal["normal", "debug"]
 
 RUN_LIST_STATUS_FILTERS: frozenset[str] = frozenset(
-    ["pending", "running", "success", "failed", "cancelled", "skipped"]
+    ["pending", "running", "paused", "success", "failed", "cancelled", "skipped"]
 )
 RUN_STATUS_FILTERS: frozenset[str] = frozenset(
-    ["pending", "running", "success", "failed", "cancelled"]
+    ["pending", "running", "paused", "success", "failed", "cancelled"]
 )
-# Safe to purge via retention — never delete pending/running runs.
+# Safe to purge via retention — never delete pending/running/paused runs.
 TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(["success", "failed", "cancelled"])
 
 
 class WorkflowRunCreate(BaseModel):
     device_ids: list[str] = []
     trigger_type: TriggerType = "manual"
+    run_mode: RunMode = "normal"
 
 
 class WorkflowStepResultResponse(BaseModel):
@@ -50,6 +54,9 @@ class WorkflowRunSummary(BaseModel):
     triggered_by_username: str | None
     status: str
     trigger_type: str
+    run_mode: str
+    current_node_id: str | None
+    debug_message: str | None
     device_ids: list[str] | None
     started_at: datetime | None
     finished_at: datetime | None

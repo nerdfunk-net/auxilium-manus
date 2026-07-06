@@ -99,3 +99,21 @@ async def cancel_run(
     service: RunService = Depends(_service),
 ) -> WorkflowRunResponse:
     return service.cancel_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.post("/runs/{run_id}/step", response_model=WorkflowRunResponse)
+async def step_run(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.step_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.post("/runs/{run_id}/continue", response_model=WorkflowRunResponse)
+async def continue_run(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.continue_run(run_id=run_id, user_id=current_user.id)

@@ -25,6 +25,7 @@ class RunRepository:
         triggered_by_id: int,
         trigger_type: str,
         device_ids: list[str],
+        run_mode: str = "normal",
     ) -> WorkflowRun:
         run = WorkflowRun(
             uuid=str(uuid_mod.uuid4()),
@@ -33,6 +34,7 @@ class RunRepository:
             trigger_type=trigger_type,
             device_ids=device_ids,
             status="pending",
+            run_mode=run_mode,
         )
         self.db.add(run)
         self.db.commit()
@@ -112,6 +114,9 @@ class RunRepository:
         error_message: str | None = None,
         started_at: datetime | None = None,
         finished_at: datetime | None = None,
+        run_mode: str | None = None,
+        current_node_id: str | None = None,
+        debug_message: str | None = None,
     ) -> WorkflowRun:
         run.status = status
         if hatchet_run_id is not None:
@@ -122,6 +127,14 @@ class RunRepository:
             run.started_at = started_at
         if finished_at is not None:
             run.finished_at = finished_at
+        if run_mode is not None:
+            run.run_mode = run_mode
+        if current_node_id is not None:
+            run.current_node_id = current_node_id
+        if debug_message is not None:
+            run.debug_message = debug_message
+        if status in TERMINAL_RUN_STATUSES:
+            run.current_node_id = None
         self.db.commit()
         self.db.refresh(run)
         return run

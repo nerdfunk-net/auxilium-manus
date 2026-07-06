@@ -19,10 +19,16 @@ class WorkflowRun(Base):
     triggered_by_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    # pending | running | success | failed | cancelled
+    # pending | running | paused | success | failed | cancelled
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     # manual | scheduled | webhook
     trigger_type: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    # normal | debug
+    run_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="normal")
+    # node_id awaiting the next step/continue action while status == "paused"
+    current_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # latest engine-authored narration for debug-mode pauses/resumes
+    debug_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     device_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     hatchet_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

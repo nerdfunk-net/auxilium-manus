@@ -1,5 +1,12 @@
-export type WorkflowRunStatus = "pending" | "running" | "success" | "failed" | "cancelled";
+export type WorkflowRunStatus =
+  | "pending"
+  | "running"
+  | "paused"
+  | "success"
+  | "failed"
+  | "cancelled";
 export type StepStatus = "pending" | "running" | "success" | "partial" | "failed" | "skipped";
+export type WorkflowRunMode = "normal" | "debug";
 
 export interface WorkflowStepResult {
   id: number;
@@ -24,6 +31,9 @@ export interface WorkflowRunSummary {
   triggered_by_username: string | null;
   status: WorkflowRunStatus;
   trigger_type: string;
+  run_mode: WorkflowRunMode;
+  current_node_id: string | null;
+  debug_message: string | null;
   device_ids: string[] | null;
   started_at: string | null;
   finished_at: string | null;
@@ -45,4 +55,5 @@ export interface WorkflowRunListResponse {
 export interface TriggerRunRequest {
   device_ids: string[];
   trigger_type: "manual";
+  run_mode: WorkflowRunMode;
 }

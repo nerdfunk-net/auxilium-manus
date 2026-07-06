@@ -4,6 +4,7 @@ import type { WorkflowVisibility } from "../types/workflow-persistence";
 
 type WorkflowMode = "editor" | "executions";
 type RightPanelTab = "steps" | "properties";
+type RunMode = "normal" | "debug";
 
 interface WorkflowMetadata {
   workflowId: number | null;
@@ -18,6 +19,8 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   workflowStatus: "Draft" | "Saved" | "Running" | "Error";
   isDirty: boolean;
   mode: WorkflowMode;
+  runMode: RunMode;
+  activeRunId: number | null;
   rightPanelTab: RightPanelTab;
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
@@ -26,6 +29,8 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   stepCatalogExpanded: Record<string, boolean>;
   overviewPanelOpen: boolean;
   setMode: (mode: WorkflowMode) => void;
+  setRunMode: (runMode: RunMode) => void;
+  setActiveRunId: (activeRunId: number | null) => void;
   setRightPanelTab: (tab: RightPanelTab) => void;
   selectNode: (nodeId: string | null) => void;
   selectEdge: (edgeId: string | null) => void;
@@ -61,6 +66,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   workflowStatus: "Draft",
   isDirty: false,
   mode: "editor",
+  runMode: "normal",
+  activeRunId: null,
   rightPanelTab: "steps",
   selectedNodeId: null,
   selectedEdgeId: null,
@@ -69,6 +76,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   stepCatalogExpanded: {},
   overviewPanelOpen: true,
   setMode: (mode) => set({ mode }),
+  setRunMode: (runMode) => set({ runMode }),
+  setActiveRunId: (activeRunId) => set({ activeRunId }),
   setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
   selectNode: (selectedNodeId) =>
     set({
@@ -124,6 +133,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       workflowVisibility: meta.workflowVisibility,
       workflowStatus: "Saved",
       isDirty: false,
+      activeRunId: null,
       lastAction: `Loaded "${meta.workflowName}"`,
     }),
   resetToNew: () =>
@@ -131,6 +141,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       ...NEW_WORKFLOW_DEFAULTS,
       workflowStatus: "Draft",
       isDirty: false,
+      activeRunId: null,
       rightPanelTab: "steps",
       selectedNodeId: null,
       selectedEdgeId: null,

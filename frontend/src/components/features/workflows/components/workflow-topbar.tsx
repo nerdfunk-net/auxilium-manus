@@ -1,6 +1,17 @@
 "use client";
 
-import { ChevronDown, FilePlus, FolderOpen, FolderCog, LogOut, Play, Save, SaveAll } from "lucide-react";
+import {
+  ChevronDown,
+  FastForward,
+  FilePlus,
+  FolderOpen,
+  FolderCog,
+  LogOut,
+  Play,
+  Save,
+  SaveAll,
+  StepForward,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
@@ -13,8 +24,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuthStore } from "@/lib/auth-store";
+import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
+import {
+  useContinueRunMutation,
+  useStepRunMutation,
+} from "@/hooks/queries/use-workflow-run-mutations";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 
@@ -38,13 +60,20 @@ export function WorkflowTopbar({
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
   const workflowStatus = useWorkflowBuilderStore(
     (state) => state.workflowStatus,
   );
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
-  const mode = useWorkflowBuilderStore((state) => state.mode);
-  const setMode = useWorkflowBuilderStore((state) => state.setMode);
+  const runMode = useWorkflowBuilderStore((state) => state.runMode);
+  const setRunMode = useWorkflowBuilderStore((state) => state.setRunMode);
+  const activeRunId = useWorkflowBuilderStore((state) => state.activeRunId);
+
+  const { data: activeRun } = useWorkflowRunQuery(activeRunId);
+  const stepRun = useStepRunMutation(workflowId);
+  const continueRun = useContinueRunMutation(workflowId);
+  const isAwaitingStep = runMode === "debug" && activeRun?.status === "paused";
 
   const handleLogout = useCallback(async () => {
     await logout();
@@ -81,12 +110,42 @@ export function WorkflowTopbar({
         {user ? (
           <span className="text-xs text-muted-foreground">{user.username}</span>
         ) : null}
-        <Tabs value={mode} onValueChange={(value) => setMode(value as typeof mode)}>
-          <TabsList>
-            <TabsTrigger value="editor">Editor</TabsTrigger>
-            <TabsTrigger value="executions">Executions</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Run as</span>
+          <Select
+            value={runMode}
+            onValueChange={(value) => setRunMode(value as typeof runMode)}
+          >
+            <SelectTrigger className="h-8 w-[110px]" aria-label="Run as">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="normal">Normal</SelectItem>
+              <SelectItem value="debug">Debug</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {isAwaitingStep ? (
+          <>
+            <Button
+              variant="outline"
+              disabled={stepRun.isPending || !activeRunId}
+              onClick={() => activeRunId && stepRun.mutate(activeRunId)}
+            >
+              <StepForward className="size-4" />
+              Next Step
+            </Button>
+            <Button
+              variant="outline"
+              disabled={continueRun.isPending || !activeRunId}
+              onClick={() => activeRunId && continueRun.mutate(activeRunId)}
+            >
+              <FastForward className="size-4" />
+              Run to completion
+            </Button>
+          </>
+        ) : null}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

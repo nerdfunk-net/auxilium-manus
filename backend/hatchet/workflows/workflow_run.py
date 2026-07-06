@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from hatchet_sdk import Context
+from hatchet_sdk import Context, DurableContext
 from pydantic import BaseModel
 
 from hatchet.client import hatchet
@@ -50,14 +50,128 @@ async def prepare(input: WorkflowRunInput, ctx: Context) -> dict:
     return {"run_id": input.run_id}
 
 
-@workflow.task(name="execute_steps", parents=[prepare], execution_timeout=timedelta(hours=1))
-async def execute_steps(input: WorkflowRunInput, ctx: Context) -> dict:
+async def _run_steps_until_fan_out_or_done(
+    *,
+    run_repo: Any,
+    runner: Any,
+    run: Any,
+    wf: Any,
+    ctx: DurableContext,
+) -> tuple[Any, dict[str, Any] | None, Any]:
+    """Walk nodes in topological order, executing one at a time.
+
+    In debug mode (``run.run_mode == "debug"``), durably waits for a
+    ``workflow-run.{uuid}.step.{node_id}`` event before executing each node —
+    this is the "Next Step" gate. In normal mode this behaves exactly like the
+    previous ``StepRunner.execute_all`` in-one-shot walk.
+
+    Returns ``(final_status_or_none, fan_out_context, run)`` where the first
+    element is a terminal status string when the walk completes without
+    fan-out, or None when a fan-out signal was hit (fan_out_context then holds
+    the signal plus captured canvas nodes/edges for phase 2/3/4); ``run`` is
+    the (possibly reloaded, e.g. after a debug resume) WorkflowRun to keep
+    using in the caller.
+    """
+    from services.execution.step_runner import FanOutSignal, StepRunner
+
+    canvas_nodes: list[dict[str, Any]] = wf.canvas_nodes or []
+    canvas_edges: list[dict[str, Any]] = wf.canvas_edges or []
+    ordered_nodes = runner.build_execution_plan(canvas_nodes, canvas_edges)
+    step_results = runner.create_pending_step_results(run_id=run.id, ordered_nodes=ordered_nodes)
+
+    step_outcomes: dict[str, dict[str, Any]] = {}
+    failed = False
+
+    for node in ordered_nodes:
+        node_id: str = node.get("id", "")
+        step_result = step_results[node_id]
+
+        if failed:
+            run_repo.update_step_result(step_result, status="skipped")
+            continue
+
+        if run.run_mode == "debug":
+            node_title = (node.get("data", {}) or {}).get("title", node_id)
+            run_repo.update_run_status(
+                run,
+                status="paused",
+                current_node_id=node_id,
+                debug_message=(
+                    f"Paused before '{node_title}' (node {node_id}). "
+                    "Click Next Step to continue."
+                ),
+            )
+            event_key = f"workflow-run.{run.uuid}.step.{node_id}"
+            logger.info("Debug pause run_id=%s node_id=%s", run.id, node_id)
+            await ctx.aio_wait_for_event(event_key)
+
+            # Force a refresh — a "Run to completion" click (a separate DB
+            # session/request) may have flipped run_mode while we waited.
+            # A plain re-select would return this same identity-mapped object
+            # without re-reading already-loaded columns from the DB.
+            run_repo.db.refresh(run)
+            if run.run_mode == "debug":
+                run_repo.update_run_status(
+                    run,
+                    status="running",
+                    debug_message=f"Resumed. Executing '{node_title}'.",
+                )
+            else:
+                run_repo.update_run_status(run, status="running")
+
+        ok = await runner.execute_one(
+            node=node,
+            run=run,
+            workflow=wf,
+            edges=canvas_edges,
+            step_outcomes=step_outcomes,
+            step_result=step_result,
+        )
+        if not ok:
+            failed = True
+            continue
+
+        success_ctx = step_outcomes.get(node_id, {}).get("success")
+        if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
+            fan_out_config = dict(success_ctx.metadata["_fan_out"])
+            join_node_id = StepRunner._find_join_node_id(node_id, canvas_nodes, canvas_edges)
+            logger.info(
+                "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
+                node_id,
+                fan_out_config.get("mode"),
+                join_node_id,
+                run.id,
+            )
+            signal = FanOutSignal(
+                inventory_node_id=node_id,
+                fan_out_config=fan_out_config,
+                inventory_outcome=success_ctx,
+                step_outcomes=dict(step_outcomes),
+                join_node_id=join_node_id,
+            )
+            return (
+                None,
+                {
+                    "signal": signal,
+                    "canvas_nodes": canvas_nodes,
+                    "canvas_edges": canvas_edges,
+                },
+                run,
+            )
+
+    return ("success" if not failed else "failed"), None, run
+
+
+@workflow.durable_task(
+    name="execute_steps", parents=[prepare], execution_timeout=timedelta(hours=24)
+)
+async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
     logger.info("Executing steps for run_id=%s", input.run_id)
 
     from core.database import SessionLocal
     from repositories.run_repository import RunRepository
     from repositories.workflow_repository import WorkflowRepository
-    from services.execution.step_runner import FanOutSignal, StepRunner
+    from services.execution.step_runner import StepRunner
 
     # Phase 1: run in topological order until completion or a fan-out signal
     with SessionLocal() as db:
@@ -75,10 +189,11 @@ async def execute_steps(input: WorkflowRunInput, ctx: Context) -> dict:
         wf, _ = wf_result
 
         runner = StepRunner(db)
-        result = await runner.execute_all(run=run, workflow=wf)
+        final_status, fan_out, run = await _run_steps_until_fan_out_or_done(
+            run_repo=run_repo, runner=runner, run=run, wf=wf, ctx=ctx
+        )
 
-        if not isinstance(result, FanOutSignal):
-            final_status = "success" if result else "failed"
+        if fan_out is None:
             run_repo.update_run_status(
                 run,
                 status=final_status,
@@ -87,10 +202,32 @@ async def execute_steps(input: WorkflowRunInput, ctx: Context) -> dict:
             logger.info("Run finished run_id=%s status=%s", input.run_id, final_status)
             return {"run_id": input.run_id, "status": final_status}
 
-        signal = result
-        # Capture workflow graph before session closes
-        canvas_nodes: list[dict[str, Any]] = wf.canvas_nodes or []
-        canvas_edges: list[dict[str, Any]] = wf.canvas_edges or []
+        signal = fan_out["signal"]
+        canvas_nodes: list[dict[str, Any]] = fan_out["canvas_nodes"]
+        canvas_edges: list[dict[str, Any]] = fan_out["canvas_edges"]
+
+        # Fan-out runs as one atomic step in debug mode: pause once before
+        # dispatching children; the join and everything downstream of it then
+        # run in a single block on the next step/continue click (no per-device
+        # or per-post-join-node pausing — see doc/WORKFLOW-STEPS.md fan-out
+        # notes on why children can't be stepped individually).
+        if run.run_mode == "debug":
+            fan_out_label = signal.join_node_id or signal.inventory_node_id
+            run_repo.update_run_status(
+                run,
+                status="paused",
+                current_node_id=fan_out_label,
+                debug_message=(
+                    "Paused before fan-out dispatch. Click Next Step to run all "
+                    "device groups and the fan-in join as one block."
+                ),
+            )
+            event_key = f"workflow-run.{run.uuid}.step.{fan_out_label}"
+            logger.info("Debug pause (fan-out) run_id=%s node_id=%s", run.id, fan_out_label)
+            await ctx.aio_wait_for_event(event_key)
+
+            run_repo.db.refresh(run)
+            run_repo.update_run_status(run, status="running")
 
     # Phase 2: dispatch child workflows (DB session intentionally closed)
     logger.info(

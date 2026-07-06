@@ -9,7 +9,7 @@ import type { WorkflowRunListResponse } from "@/components/features/workflows/ty
 import { useApi } from "@/hooks/use-api";
 import { queryKeys } from "@/lib/query-keys";
 
-const ACTIVE_STATUSES = new Set(["pending", "running"]);
+const ACTIVE_STATUSES = new Set(["pending", "running", "paused"]);
 
 function filtersCacheKey(filters: WorkflowRunListFilters): string {
   return JSON.stringify({

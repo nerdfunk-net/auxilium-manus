@@ -75,3 +75,62 @@ export function useCancelRunMutation(workflowId: number | null) {
     },
   });
 }
+
+export function useStepRunMutation(workflowId: number | null) {
+  const { apiCall } = useApi();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<WorkflowRunDetail, Error, number>({
+    mutationFn: (runId) =>
+      apiCall(`runs/${runId}/step`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: (_data, runId) => {
+      if (workflowId) {
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to advance run",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useContinueRunMutation(workflowId: number | null) {
+  const { apiCall } = useApi();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<WorkflowRunDetail, Error, number>({
+    mutationFn: (runId) =>
+      apiCall(`runs/${runId}/continue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: (_data, runId) => {
+      if (workflowId) {
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
+      toast({ title: "Resuming", description: "Running the rest of the workflow without pausing." });
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to resume run",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}

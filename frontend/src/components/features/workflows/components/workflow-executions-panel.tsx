@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
   CheckCircle2,
@@ -9,6 +8,7 @@ import {
   ChevronRight,
   Loader2,
   MapPin,
+  Pause,
   Play,
   ScrollText,
   Split,
@@ -23,10 +23,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useApi } from "@/hooks/use-api";
-import { queryKeys } from "@/lib/query-keys";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import { useWorkflowRunsQuery } from "@/hooks/queries/use-workflow-runs-query";
+import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 import { WorkflowRunFiltersBar } from "./workflow-run-filters-bar";
 import { StepResultViewer } from "./step-result-viewer";
@@ -36,7 +35,6 @@ import {
 } from "../types/workflow-run-filters";
 import type { WorkflowRunListFilters } from "../types/workflow-run-filters";
 import type {
-  WorkflowRunDetail,
   WorkflowRunStatus,
   WorkflowStepResult,
   WorkflowRunSummary,
@@ -82,6 +80,8 @@ function RunStatusIcon({ status }: { status: WorkflowRunStatus }) {
       return <XCircle className="size-4 shrink-0 text-red-500" />;
     case "cancelled":
       return <Ban className="size-4 shrink-0 text-slate-400" />;
+    case "paused":
+      return <Pause className="size-4 shrink-0 text-amber-600" />;
     case "running":
     case "pending":
       return <Loader2 className="size-4 shrink-0 animate-spin text-teal-500" />;
@@ -289,21 +289,10 @@ function RunDetail({
   runId: number;
   onFocusCanvas?: (nodeId: string) => void;
 }) {
-  const { apiCall } = useApi();
-
   const [logsStep, setLogsStep] = useState<WorkflowStepResult | null>(null);
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null);
 
-  const { data, isLoading } = useQuery<WorkflowRunDetail>({
-    queryKey: queryKeys.workflowRuns.detail(runId),
-    queryFn: () => apiCall(`runs/${runId}`, { method: "GET" }),
-    staleTime: 0,
-    refetchInterval: (query) => {
-      const d = query.state.data as WorkflowRunDetail | undefined;
-      if (!d) return 2000;
-      return d.status === "pending" || d.status === "running" ? 2000 : false;
-    },
-  });
+  const { data, isLoading } = useWorkflowRunQuery(runId);
 
   const fanOutInfo = useMemo(
     () => (data ? detectRunFanOut(data.step_results) : null),
@@ -363,7 +352,8 @@ function RunRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const cancelRun = useCancelRunMutation(workflowId);
-  const canCancel = run.status === "pending" || run.status === "running";
+  const canCancel =
+    run.status === "pending" || run.status === "running" || run.status === "paused";
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -384,6 +374,9 @@ function RunRow({
             <p className="text-xs text-muted-foreground">
               {run.triggered_by_username ?? "unknown"} · {formatTime(run.created_at)}
             </p>
+            {run.status === "paused" && run.debug_message ? (
+              <p className="mt-0.5 truncate text-xs text-amber-700">{run.debug_message}</p>
+            ) : null}
           </div>
           <span className="text-xs text-muted-foreground tabular-nums mr-1">
             {formatDuration(run.started_at, run.finished_at)}

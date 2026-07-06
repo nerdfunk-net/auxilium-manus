@@ -79,20 +79,8 @@ class StepRunner:
         nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
 
-        ordered_nodes = self._topological_sort(nodes, edges)
-
-        step_results: dict[str, WorkflowStepResult] = {}
-        for node in ordered_nodes:
-            node_id: str = node.get("id", "")
-            node_data: dict[str, Any] = node.get("data", {})
-            step_type: str = node_data.get("kind", "unknown")
-            step_name: str = node_data.get("title", step_type)
-            step_results[node_id] = self.repo.create_step_result(
-                run_id=run.id,
-                step_node_id=node_id,
-                step_type=step_type,
-                step_name=step_name,
-            )
+        ordered_nodes = self.build_execution_plan(nodes, edges)
+        step_results = self.create_pending_step_results(run_id=run.id, ordered_nodes=ordered_nodes)
 
         # node_id -> outcome_name -> WorkflowContext
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {}
@@ -141,6 +129,60 @@ class StepRunner:
                 )
 
         return not failed
+
+    def build_execution_plan(
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Return canvas nodes in dependency (topological) order.
+
+        Public entry point for callers that drive the walk themselves, e.g. the
+        Hatchet task's debug-mode per-node loop (`hatchet/workflows/workflow_run.py`).
+        """
+        return self._topological_sort(nodes, edges)
+
+    def create_pending_step_results(
+        self, *, run_id: int, ordered_nodes: list[dict[str, Any]]
+    ) -> dict[str, WorkflowStepResult]:
+        """Pre-create a pending WorkflowStepResult row for every node in the plan."""
+        step_results: dict[str, WorkflowStepResult] = {}
+        for node in ordered_nodes:
+            node_id: str = node.get("id", "")
+            node_data: dict[str, Any] = node.get("data", {})
+            step_type: str = node_data.get("kind", "unknown")
+            step_name: str = node_data.get("title", step_type)
+            step_results[node_id] = self.repo.create_step_result(
+                run_id=run_id,
+                step_node_id=node_id,
+                step_type=step_type,
+                step_name=step_name,
+            )
+        return step_results
+
+    async def execute_one(
+        self,
+        *,
+        node: dict[str, Any],
+        run: WorkflowRun,
+        workflow: Workflow,
+        edges: list[dict[str, Any]],
+        step_outcomes: dict[str, dict[str, WorkflowContext]],
+        step_result: WorkflowStepResult,
+    ) -> bool:
+        """Execute exactly one node and persist its result.
+
+        Public entry point for callers that drive the topological walk
+        themselves (debug-mode stepping in the Hatchet task) instead of using
+        `execute_all`. Thin wrapper around `_execute_and_persist_node` so the
+        dispatch/guard/serialize logic lives in exactly one place.
+        """
+        return await self._execute_and_persist_node(
+            node=node,
+            run=run,
+            workflow=workflow,
+            edges=edges,
+            step_outcomes=step_outcomes,
+            step_result=step_result,
+        )
 
     async def _execute_and_persist_node(
         self,

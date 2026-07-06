@@ -12,6 +12,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 
 import { useWorkflowBuilderStore } from "../../hooks/use-workflow-builder-store";
 import type { WorkflowCanvasNode } from "../../types/workflow-canvas";
@@ -33,6 +34,10 @@ const TARGET_HANDLE_CLASS =
 
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
+  const activeRunId = useWorkflowBuilderStore((state) => state.activeRunId);
+  const { data: activeRun } = useWorkflowRunQuery(activeRunId);
+  const isAwaitingThisStep =
+    activeRun?.status === "paused" && activeRun.current_node_id === id;
   const nodeType = data.artifactType ?? data.kind;
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
@@ -52,6 +57,8 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         NODE_HEIGHT_CLASS,
         categoryBorderAccentClasses[nodeType] ?? CATEGORY_BORDER_FALLBACK,
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
+        isAwaitingThisStep &&
+          "animate-pulse border-teal-500 shadow-lg ring-2 ring-teal-500/50",
       )}
     >
       {hasTargetHandles ? (
@@ -113,6 +120,14 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
               >
                 <Split className="size-3" aria-hidden />
                 Fan out
+              </Badge>
+            ) : null}
+            {isAwaitingThisStep ? (
+              <Badge
+                className="shrink-0 animate-pulse border-teal-400 bg-teal-100 text-teal-800"
+                variant="outline"
+              >
+                Next Step
               </Badge>
             ) : null}
           </div>

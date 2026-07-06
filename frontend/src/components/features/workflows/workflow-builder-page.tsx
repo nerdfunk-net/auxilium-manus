@@ -74,6 +74,8 @@ export function WorkflowBuilderPage() {
   const markRunning = useWorkflowBuilderStore((state) => state.markRunning);
   const markError = useWorkflowBuilderStore((state) => state.markError);
   const setMode = useWorkflowBuilderStore((state) => state.setMode);
+  const runMode = useWorkflowBuilderStore((state) => state.runMode);
+  const setActiveRunId = useWorkflowBuilderStore((state) => state.setActiveRunId);
   const loadWorkflow = useWorkflowBuilderStore((state) => state.loadWorkflow);
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
@@ -152,18 +154,34 @@ export function WorkflowBuilderPage() {
         }
       }
       try {
-        await triggerRun.mutateAsync({
+        const run = await triggerRun.mutateAsync({
           device_ids: [],
           trigger_type: "manual",
+          run_mode: runMode,
           workflowId: targetId,
         });
-        markRunning("Run queued");
-        setMode("executions");
+        setActiveRunId(run.id);
+        markRunning(runMode === "debug" ? "Debug run queued" : "Run queued");
+        // Debug mode keeps the canvas visible so the paused-node highlight is
+        // visible; normal runs jump straight to the executions list as before.
+        if (runMode !== "debug") {
+          setMode("executions");
+        }
       } catch {
         markError("Failed to trigger run");
       }
     },
-    [workflowId, nodes, edges, triggerRun, markRunning, markError, setMode],
+    [
+      workflowId,
+      nodes,
+      edges,
+      triggerRun,
+      runMode,
+      setActiveRunId,
+      markRunning,
+      markError,
+      setMode,
+    ],
   );
 
   const handleSaveAs = useCallback(
