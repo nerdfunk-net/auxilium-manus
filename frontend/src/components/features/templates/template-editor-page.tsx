@@ -215,7 +215,7 @@ function TemplateEditorContent() {
       setPreRunOutput(response.raw_output ?? "", parsed);
       toast({
         title: "Command executed",
-        description: "pre_run.raw and pre_run.parsed were populated",
+        description: "command.raw and command.parsed were populated",
       });
     } catch (error) {
       setPreRunExecuting(false);

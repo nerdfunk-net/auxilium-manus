@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -10,6 +11,7 @@ from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
+    CommandResult,
     DeviceContext,
     DeviceError,
     DeviceStatus,
@@ -79,6 +81,53 @@ def _resolve_template(config: dict[str, Any]) -> str:
     raise ValueError("render-jinja-template: a stored template must be selected")
 
 
+async def _resolve_command_result(
+    result: CommandResult,
+    artifact_service: ArtifactService,
+) -> dict[str, Any]:
+    raw = ""
+    parsed: Any = None
+    if result.output_ref is not None:
+        raw = await artifact_service.resolve(result.output_ref)
+        if result.output_ref.media_type == "application/json":
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = None
+    return {
+        "node_id": result.node_id,
+        "name": result.command,
+        "success": result.success,
+        "raw": raw,
+        "parsed": parsed,
+    }
+
+
+async def _build_command_context(
+    device: DeviceContext,
+    artifact_service: ArtifactService,
+) -> dict[str, Any]:
+    """Resolve upstream run-command output into the Jinja namespace.
+
+    Exposes every command executed by any upstream run-command step as
+    ``commands`` (in execution order), plus a ``command`` alias for the
+    most recently executed one, covering the common single-command case.
+    """
+    all_results = [
+        result for results in device.command_results.values() for result in results
+    ]
+    if not all_results:
+        return {}
+
+    entries = await asyncio.gather(
+        *(_resolve_command_result(result, artifact_service) for result in all_results)
+    )
+    latest_index = max(
+        range(len(all_results)), key=lambda i: all_results[i].executed_at
+    )
+    return {"commands": list(entries), "command": entries[latest_index]}
+
+
 def _parsed_template_entry(
     *,
     artifact_ref: Any,
@@ -129,6 +178,9 @@ async def execute(
                 run_id=context.run_id,
                 workflow_id=context.workflow_id,
             )
+            jinja_context.update(
+                await _build_command_context(device, artifact_service)
+            )
             rendered = render_jinja_template(template, jinja_context)
             artifact_ref = await artifact_service.store(
                 content=rendered,
@@ -152,6 +204,13 @@ async def execute(
             )
             return device_id, enriched, True
         except (JinjaTemplateError, ValueError) as exc:
+            logger.warning(
+                "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
+                run.id,
+                node_id,
+                device_id,
+                exc,
+            )
             err = DeviceError(
                 node_id=node_id,
                 step_id="render-jinja-template",
@@ -166,6 +225,13 @@ async def execute(
             )
             return device_id, failed, False
         except Exception as exc:
+            logger.warning(
+                "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
+                run.id,
+                node_id,
+                device_id,
+                exc,
+            )
             err = DeviceError(
                 node_id=node_id,
                 step_id="render-jinja-template",

@@ -5,7 +5,14 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-from models.workflow_context import ArtifactRef, Capability, DeviceContext, DeviceStatus, WorkflowContext
+from models.workflow_context import (
+    ArtifactRef,
+    Capability,
+    CommandResult,
+    DeviceContext,
+    DeviceStatus,
+    WorkflowContext,
+)
 from services.artifacts import InMemoryArtifactService
 from workflow_steps.render_jinja_template.executor import execute
 
@@ -81,6 +88,61 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = outcomes[1].context.devices["device-1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
         self.assertEqual(failed.errors[-1].code, "template_error")
+
+    async def test_exposes_upstream_command_output_to_template(self) -> None:
+        run = MagicMock()
+        run.id = 7
+        artifact_service = InMemoryArtifactService()
+        textfsm_rows = '[{"interface": "Ethernet0/0", "status": "up"}]'
+        output_ref = await artifact_service.store(
+            content=textfsm_rows,
+            kind="command_output",
+            device_id="device-1",
+            run_id="run-1",
+            media_type="application/json",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+            command_results={
+                "run-command-2": [
+                    CommandResult(
+                        node_id="run-command-2",
+                        command="show ip int brief",
+                        success=True,
+                        output_ref=output_ref,
+                        summary="1 row(s) parsed",
+                    )
+                ]
+            },
+        )
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"device-1": device},
+        )
+
+        outcomes = await execute(
+            config={
+                "output_key": "device_config",
+                "template": (
+                    "{{ command.parsed[0].interface }} is {{ command.parsed[0].status }}"
+                ),
+            },
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="render-jinja-template-3",
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        success = outcomes[0].context.devices["device-1"]
+        entry = success.parsed["device_config"]
+        content = await artifact_service.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
+        self.assertEqual(content, "Ethernet0/0 is up")
 
 
 if __name__ == "__main__":

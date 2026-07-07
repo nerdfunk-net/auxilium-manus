@@ -15,6 +15,6 @@ export const NETMIKO_AUTO_VARIABLES: { name: string; description: string }[] = [
 ];
 
 export const PRE_RUN_VARIABLES: { name: string; description: string }[] = [
-  { name: "pre_run.raw", description: "Raw output of the pre-run command" },
-  { name: "pre_run.parsed", description: "TextFSM-parsed output of the pre-run command" },
+  { name: "command.raw", description: "Raw output of the pre-run command" },
+  { name: "command.parsed", description: "TextFSM-parsed output of the pre-run command" },
 ];

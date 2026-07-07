@@ -30,7 +30,7 @@ export function VariablesPanel({
   onExecutePreRun,
 }: VariablesPanelProps) {
   const selected = variables.find((variable) => variable.id === selectedId) ?? null;
-  const isPreRun = selected?.name.startsWith("pre_run.") ?? false;
+  const isPreRun = selected?.name.startsWith("command.") ?? false;
 
   return (
     <div className="flex h-full flex-col">

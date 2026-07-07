@@ -76,12 +76,12 @@ export function useTemplateVariables() {
 
   const togglePreRunVariables = useCallback((enabled: boolean) => {
     setVariables((current) => {
-      const hasPreRun = current.some((variable) => variable.name === "pre_run.raw");
+      const hasPreRun = current.some((variable) => variable.name === "command.raw");
       if (enabled && !hasPreRun) {
         return [...current, ...createPreRunVariables()];
       }
       if (!enabled && hasPreRun) {
-        return current.filter((variable) => !variable.name.startsWith("pre_run."));
+        return current.filter((variable) => !variable.name.startsWith("command."));
       }
       return current;
     });
@@ -90,7 +90,7 @@ export function useTemplateVariables() {
   const setPreRunExecuting = useCallback((executing: boolean) => {
     setVariables((current) =>
       current.map((variable) =>
-        variable.name.startsWith("pre_run.")
+        variable.name.startsWith("command.")
           ? { ...variable, isExecuting: executing }
           : variable,
       ),
@@ -100,10 +100,10 @@ export function useTemplateVariables() {
   const setPreRunOutput = useCallback((raw: string, parsed: string) => {
     setVariables((current) =>
       current.map((variable) => {
-        if (variable.name === "pre_run.raw") {
+        if (variable.name === "command.raw") {
           return { ...variable, value: raw, isExecuting: false };
         }
-        if (variable.name === "pre_run.parsed") {
+        if (variable.name === "command.parsed") {
           return { ...variable, value: parsed, isExecuting: false };
         }
         return variable;
