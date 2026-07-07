@@ -133,3 +133,28 @@ class NautobotCredentialsQuery(BaseModel):
 
     nautobot_url: str = Field(..., min_length=1)
     nautobot_token: str = Field(..., min_length=1)
+
+
+class DeviceSearchRequest(NautobotConnection):
+    """Search Nautobot devices by (partial) name."""
+
+    search: str = Field(..., min_length=1)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class DeviceSummary(BaseModel):
+    id: str
+    name: str | None = None
+    primary_ip4: str | None = None
+    platform: str | None = None
+    network_driver: str | None = None
+
+
+class DeviceSearchResponse(BaseModel):
+    devices: list[DeviceSummary]
+
+
+class DeviceDetailsRequest(NautobotConnection):
+    """Fetch full Nautobot device details by ID."""
+
+    device_id: str = Field(..., min_length=1)

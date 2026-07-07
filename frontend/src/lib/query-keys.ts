@@ -69,4 +69,13 @@ export const queryKeys = {
         ? ([...queryKeys.gitRepositories.all, "list", "active"] as const)
         : ([...queryKeys.gitRepositories.all, "list"] as const),
   },
+  templates: {
+    all: ["templates"] as const,
+    list: (filtersKey?: string) =>
+      filtersKey
+        ? ([...queryKeys.templates.all, "list", filtersKey] as const)
+        : ([...queryKeys.templates.all, "list"] as const),
+    detail: (id: number) => [...queryKeys.templates.all, "detail", id] as const,
+    categories: () => [...queryKeys.templates.all, "categories"] as const,
+  },
 };

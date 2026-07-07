@@ -1,17 +1,22 @@
 "use client";
 
-import { FileCode2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useTemplatesQuery } from "@/components/features/templates/hooks/use-templates-query";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-import { TemplateEditorDialog } from "./template-editor-dialog";
 import {
   buildRenderJinjaTemplateConfig,
   DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG,
@@ -22,19 +27,23 @@ function RenderJinjaTemplateConfigPanel({
   config,
   onChange,
   nodeId,
-  workflowNodes = [],
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editorSession, setEditorSession] = useState(0);
   const parsed = useMemo(() => parseRenderJinjaTemplateConfig(config), [config]);
+
+  const { data, isLoading, isError } = useTemplatesQuery();
+
+  const templates = useMemo(
+    () => (data?.templates ?? []).filter((template) => template.template_type === "jinja2"),
+    [data],
+  );
 
   useEffect(() => {
     if (initializedForNode.current === nodeId) {
       return;
     }
     initializedForNode.current = nodeId;
-    if (!config.output_key && !config.template) {
+    if (config.output_key === undefined) {
       onChange(buildRenderJinjaTemplateConfig(config, DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG));
     }
   }, [nodeId, config, onChange]);
@@ -46,14 +55,19 @@ function RenderJinjaTemplateConfigPanel({
     [config, onChange],
   );
 
-  const handleEditorSave = useCallback(
-    (patch: Partial<typeof parsed>) => {
-      onChange(buildRenderJinjaTemplateConfig(config, patch));
+  const handleTemplateChange = useCallback(
+    (value: string) => {
+      onChange(buildRenderJinjaTemplateConfig(config, { template_id: Number(value) }));
     },
     [config, onChange],
   );
 
-  const templateLines = parsed.template.trim().split("\n").length;
+  const selectedValue = parsed.template_id !== null ? String(parsed.template_id) : "";
+  const selectedMissing =
+    parsed.template_id !== null &&
+    !isLoading &&
+    !isError &&
+    !templates.some((template) => template.id === parsed.template_id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -83,31 +97,43 @@ function RenderJinjaTemplateConfigPanel({
             jinja2
           </Badge>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          {templateLines} line{templateLines === 1 ? "" : "s"} configured
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-8 w-full justify-start text-xs"
-          onClick={() => {
-            setEditorSession((current) => current + 1);
-            setEditorOpen(true);
-          }}
+        <Select
+          value={selectedValue}
+          onValueChange={handleTemplateChange}
+          disabled={isLoading || templates.length === 0}
         >
-          <FileCode2 className="mr-2 size-3.5" />
-          Open template editor
-        </Button>
+          <SelectTrigger className="h-8 w-full text-xs">
+            <SelectValue
+              placeholder={isLoading ? "Loading templates…" : "Select a stored template"}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {templates.map((template) => (
+              <SelectItem key={template.id} value={String(template.id)} className="text-xs">
+                {template.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {isError ? (
+          <p className="text-[11px] leading-4 text-destructive">
+            Failed to load stored templates.
+          </p>
+        ) : null}
+        {!isLoading && !isError && templates.length === 0 ? (
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            No stored Jinja2 templates yet. Create one in the Templates section first.
+          </p>
+        ) : null}
+        {selectedMissing ? (
+          <p className="text-[11px] leading-4 text-destructive">
+            The previously selected template no longer exists. Pick another one.
+          </p>
+        ) : null}
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          The selected template is rendered once per device at workflow runtime.
+        </p>
       </div>
-
-      <TemplateEditorDialog
-        key={editorSession}
-        open={editorOpen}
-        config={config}
-        workflowNodes={workflowNodes}
-        onClose={() => setEditorOpen(false)}
-        onSave={handleEditorSave}
-      />
     </div>
   );
 }

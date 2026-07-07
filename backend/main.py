@@ -21,14 +21,15 @@ from routers.credentials import router as credentials_router
 from routers.cache_settings import router as cache_settings_router
 from routers.hatchet_settings import router as hatchet_settings_router
 from routers.nautobot.custom_fields import router as nautobot_custom_fields_router
+from routers.netmiko import router as netmiko_router
 from routers.settings import router as settings_router
+from routers.templates import router as templates_router
 from routers.git import router as git_router
 from routers.sources.git.ops import router as git_source_ops_router
 from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
 )
-from routers.workflow_jinja_template import router as workflow_jinja_template_router
 from routers.workflow_update_attribute import router as workflow_update_attribute_router
 from routers.workflow_runs import router as workflow_runs_router
 from routers.workflow_steps import router as workflow_steps_router
@@ -77,12 +78,13 @@ app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)
 app.include_router(workflow_steps_router, prefix=settings.api_prefix)
-app.include_router(workflow_jinja_template_router, prefix=settings.api_prefix)
 app.include_router(workflow_update_attribute_router, prefix=settings.api_prefix)
 app.include_router(workflows_router, prefix=settings.api_prefix)
 app.include_router(workflow_runs_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)
 app.include_router(credentials_router, prefix=settings.api_prefix)
+app.include_router(templates_router, prefix=settings.api_prefix)
+app.include_router(netmiko_router, prefix=settings.api_prefix)
 app.include_router(hatchet_settings_router, prefix=settings.api_prefix)
 app.include_router(cache_settings_router, prefix=settings.api_prefix)
 

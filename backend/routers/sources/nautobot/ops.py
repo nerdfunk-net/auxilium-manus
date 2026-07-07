@@ -16,6 +16,10 @@ from dependencies import (
     nautobot_credentials_from_query,
 )
 from models.sources_nautobot import (
+    DeviceDetailsRequest,
+    DeviceSearchRequest,
+    DeviceSearchResponse,
+    DeviceSummary,
     GroupsResponse,
     InventoryPreviewRequest,
     InventoryPreviewResponse,
@@ -99,6 +103,46 @@ async def preview_inventory(
         )
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to preview Nautobot source: ", exc)
+
+
+@router.post("/devices/search", response_model=DeviceSearchResponse)
+async def search_devices(
+    request: DeviceSearchRequest,
+    _: User = Depends(get_current_user),
+) -> DeviceSearchResponse:
+    credentials = nautobot_credentials_from_body(request)
+    source_service = _build_source_service(credentials)
+    try:
+        devices = await source_service.search_devices_by_name(request.search, request.limit)
+        return DeviceSearchResponse(
+            devices=[
+                DeviceSummary(
+                    id=device.id,
+                    name=device.name,
+                    primary_ip4=device.primary_ip4,
+                    platform=device.platform,
+                    network_driver=device.platform_network_driver,
+                )
+                for device in devices
+            ]
+        )
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to search Nautobot devices: ", exc)
+
+
+@router.post("/devices/details")
+async def get_device_details(
+    request: DeviceDetailsRequest,
+    _: User = Depends(get_current_user),
+) -> dict:
+    credentials = nautobot_credentials_from_body(request)
+    source_service = _build_source_service(credentials)
+    try:
+        return await source_service.get_device_details(request.device_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to fetch device details: ", exc)
 
 
 @router.get("/field-options")

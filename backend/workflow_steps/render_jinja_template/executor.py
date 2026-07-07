@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
+from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
@@ -16,6 +17,8 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.templates.exceptions import TemplateNotFoundError
+from services.templates.templates_service import TemplatesService
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
@@ -32,12 +35,48 @@ def _default_config() -> dict[str, Any]:
     return get_config()
 
 
-def _parse_template(config: dict[str, Any]) -> str:
-    template = str(config.get("template") or _default_config()["template"]).strip()
-    if not template:
-        raise ValueError("render-jinja-template: template is required")
-    validate_jinja_template(template)
-    return template
+def _load_stored_template(template_id: int) -> str:
+    db = get_db_session()
+    try:
+        record = TemplatesService(db).get_template(template_id)
+    except TemplateNotFoundError as exc:
+        raise ValueError(
+            f"render-jinja-template: stored template {template_id} was not found"
+        ) from exc
+    finally:
+        db.close()
+    return str(record.get("content") or "")
+
+
+def _resolve_template(config: dict[str, Any]) -> str:
+    """Resolve the Jinja2 template body for this step.
+
+    A stored template (referenced by ``template_id``) is the source of truth.
+    An inline ``template`` string is only accepted as a fallback for legacy
+    nodes created before the template library existed.
+    """
+    raw_id = config.get("template_id")
+    if raw_id not in (None, ""):
+        try:
+            template_id = int(raw_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "render-jinja-template: template_id must be an integer"
+            ) from exc
+        template = _load_stored_template(template_id).strip()
+        if not template:
+            raise ValueError(
+                f"render-jinja-template: stored template {template_id} has no content"
+            )
+        validate_jinja_template(template)
+        return template
+
+    legacy_inline = str(config.get("template") or "").strip()
+    if legacy_inline:
+        validate_jinja_template(legacy_inline)
+        return legacy_inline
+
+    raise ValueError("render-jinja-template: a stored template must be selected")
 
 
 def _parsed_template_entry(
@@ -68,7 +107,7 @@ async def execute(
         return [StepOutcome(name="success", context=context)]
 
     output_key = parse_output_key(config.get("output_key") or _default_config()["output_key"])
-    template = _parse_template(config)
+    template = _resolve_template(config)
 
     logger.info(
         "render-jinja-template run_id=%s devices=%d output_key=%s",

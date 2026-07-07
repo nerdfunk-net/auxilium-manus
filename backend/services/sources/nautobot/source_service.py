@@ -94,6 +94,19 @@ class NautobotSourceService:
         devices, _ = await self.preview_inventory(operations)
         return await self.export_service.analyze_devices(devices)
 
+    async def search_devices_by_name(
+        self, name_filter: str, limit: int = 20
+    ) -> list[DeviceInfo]:
+        """Return devices whose name contains ``name_filter`` (case-insensitive)."""
+        devices = await self.query_service._query_devices_by_name(
+            name_filter, use_contains=True
+        )
+        return devices[:limit]
+
+    async def get_device_details(self, device_id: str) -> dict[str, Any]:
+        """Return full Nautobot device details for a single device."""
+        return await self.device_query_service.get_device_details(device_id, use_cache=True)
+
     async def get_custom_fields(self) -> list[dict[str, Any]]:
         return await self.metadata_service.get_custom_fields()
 

@@ -674,22 +674,12 @@ plugins:
           data_type: string
           required: true
           example: device_config
-        - name: template
-          description: Jinja2 template rendered once per device at workflow runtime.
-          data_type: string
+        - name: template_id
+          description: >
+            ID of a stored Jinja2 template from the template library, rendered
+            once per device at workflow runtime.
+          data_type: integer
           required: true
-        - name: editor_nautobot_source_id
-          description: Nautobot source used only by the template editor for sample data.
-          data_type: string
-          required: false
-        - name: editor_list_of_attributes
-          description: Nautobot attribute groups to load for editor sample data.
-          data_type: string_list
-          required: false
-        - name: editor_sample_device_name
-          description: Device name used only by the template editor for sample data.
-          data_type: string
-          required: false
 
   - id: store-artifact
     name: Store Artifact

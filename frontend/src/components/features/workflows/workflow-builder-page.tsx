@@ -2,7 +2,7 @@
 
 import { useEdgesState, useNodesState } from "@xyflow/react";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
@@ -94,6 +94,36 @@ export function WorkflowBuilderPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState(EMPTY_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState(EMPTY_EDGES);
   const plugins = pluginResponse?.plugins ?? EMPTY_PLUGINS;
+
+  // The canvas (nodes/edges) is local React state scoped to this component,
+  // while workflowId survives in the Zustand store across route changes
+  // (e.g. navigating to /workflows/runs and back). On a fresh mount with a
+  // workflow already recorded in the store, re-fetch its canvas so it isn't
+  // shown blank. Captured once at mount so it never re-fires for loads that
+  // happen via handleLoadWorkflow within the same mount.
+  const [mountWorkflowId] = useState(() => workflowId);
+  const hasRehydratedCanvasRef = useRef(false);
+
+  useEffect(() => {
+    if (hasRehydratedCanvasRef.current) return;
+    if (!mountWorkflowId || isPluginsLoading) return;
+    hasRehydratedCanvasRef.current = true;
+    fetch(`/api/proxy/workflows/${mountWorkflowId}`, { credentials: "include" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((full) => {
+        const loadedNodes = (full.canvas_nodes ?? []) as WorkflowCanvasNode[];
+        const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
+        const { nodes: migratedNodes, edges: migratedEdges, migrated } =
+          migrateCanvasState(loadedNodes, loadedEdges, plugins);
+        setNodes(migratedNodes);
+        setEdges(migratedEdges);
+        if (migrated) markDirty();
+      })
+      .catch(() => markError("Failed to restore workflow canvas"));
+  }, [mountWorkflowId, isPluginsLoading, plugins, setNodes, setEdges, markDirty, markError]);
 
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChange>[0]) => {

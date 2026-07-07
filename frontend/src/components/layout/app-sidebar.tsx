@@ -2,6 +2,7 @@
 
 import {
   Boxes,
+  FileCode,
   LogOut,
   Network,
   PlayCircle,
@@ -35,6 +36,12 @@ const navigationItems: NavigationItem[] = [
     icon: Network,
     href: "/inventory",
     isActive: (pathname) => pathname === "/inventory",
+  },
+  {
+    label: "Templates",
+    icon: FileCode,
+    href: "/templates",
+    isActive: (pathname) => pathname.startsWith("/templates"),
   },
   {
     label: "Runs",
