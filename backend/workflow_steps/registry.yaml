@@ -462,6 +462,14 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: show_parsed_templates
+          description: >
+            Resolve and print the rendered output of any upstream "Render Jinja
+            Template" step (device.parsed entries of kind "rendered_template")
+            instead of just its artifact reference.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: fan-in
     name: Fan In

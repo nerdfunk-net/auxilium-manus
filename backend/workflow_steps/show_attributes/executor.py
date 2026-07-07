@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -10,7 +11,7 @@ from typing import Any
 
 from core.config import settings
 from core.models.runs import WorkflowRun
-from models.workflow_context import StepOutcome, WorkflowContext
+from models.workflow_context import ArtifactRef, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.device_template import sanitize_relative_path
 from workflow_steps.show_attributes.config import get_config
@@ -64,12 +65,50 @@ def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
         "output_format": output_format,
         "filename": filename,
         "append": _parse_bool(config, "append", default=bool(defaults["append"])),
+        "show_parsed_templates": _parse_bool(
+            config, "show_parsed_templates", default=bool(defaults["show_parsed_templates"])
+        ),
     }
 
 
 def build_context_snapshot(context: WorkflowContext) -> dict[str, Any]:
     """Serialize the full workflow context envelope for inspection."""
     return context.model_dump(mode="json")
+
+
+async def _attach_rendered_template_content(
+    snapshot: dict[str, Any],
+    context: WorkflowContext,
+    artifact_service: ArtifactService,
+) -> None:
+    """Resolve rendered-template artifacts in place so their content is visible in the dump.
+
+    Only entries produced by a "Render Jinja Template" step (``kind ==
+    "rendered_template"``) are resolved — other ``device.parsed`` entries
+    (e.g. from filter-output/merge-content) are left untouched.
+    """
+    devices_snapshot = snapshot.get("devices") or {}
+
+    async def resolve_entry(device_snapshot: dict[str, Any], key: str, entry: dict[str, Any]) -> None:
+        ref = ArtifactRef.model_validate(entry["artifact_ref"])
+        content = await artifact_service.resolve(ref)
+        device_snapshot["parsed"][key]["rendered_content"] = content
+
+    tasks = []
+    for device_id, device in context.devices.items():
+        device_snapshot = devices_snapshot.get(device_id)
+        if not isinstance(device_snapshot, dict):
+            continue
+        for key, entry in device.parsed.items():
+            if (
+                isinstance(entry, dict)
+                and entry.get("kind") == "rendered_template"
+                and entry.get("artifact_ref")
+            ):
+                tasks.append(resolve_entry(device_snapshot, key, entry))
+
+    if tasks:
+        await asyncio.gather(*tasks)
 
 
 def _format_scalar(value: Any) -> str:
@@ -225,12 +264,12 @@ async def execute(
     artifact_service: ArtifactService,
     node_id: str,
 ) -> list[StepOutcome]:
-    del artifact_service
-
     logger.info("show-attributes started run_id=%s node_id=%s", run.id, node_id)
 
     parsed = _parse_config(config)
     snapshot = build_context_snapshot(context)
+    if parsed["show_parsed_templates"]:
+        await _attach_rendered_template_content(snapshot, context, artifact_service)
     rendered = render_snapshot_text(snapshot, parsed["output_format"])
     written_at = datetime.now(timezone.utc).isoformat()
 
@@ -264,6 +303,7 @@ async def execute(
         "output_format": parsed["output_format"],
         "filename": parsed["filename"] if parsed["output_destination"] == "file" else None,
         "append": parsed["append"] if parsed["output_destination"] == "file" else None,
+        "show_parsed_templates": parsed["show_parsed_templates"],
         "file_path": file_path,
         "written_at": written_at,
         "device_count": len(snapshot.get("devices") or {}),

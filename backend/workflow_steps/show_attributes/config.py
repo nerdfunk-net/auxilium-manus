@@ -4,4 +4,5 @@ def get_config() -> dict:
         "filename": "attributes.txt",
         "append": False,
         "output_format": "json",
+        "show_parsed_templates": False,
     }

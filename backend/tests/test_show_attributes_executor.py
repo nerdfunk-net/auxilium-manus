@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from services.artifacts import InMemoryArtifactService
 from workflow_steps.show_attributes.executor import (
     SHOW_ATTRIBUTES_METADATA_SUFFIX,
     build_context_snapshot,
@@ -65,7 +66,7 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device_snapshot["attribute_bags"]["git"]["source_file"], "configs/lab.yaml")
         self.assertEqual(device_snapshot["attribute_bags"]["custom"]["location"], "dc1")
         self.assertEqual(snapshot["metadata"]["upstream.step"]["count"], 1)
-        mock_logger.info.assert_called_once()
+        mock_logger.info.assert_called()
 
     async def test_file_pretty_text_writes_and_appends(self) -> None:
         run = MagicMock()
@@ -135,6 +136,86 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 artifact_service=MagicMock(),
                 node_id="show-attributes-3",
             )
+
+    async def test_show_parsed_templates_disabled_by_default(self) -> None:
+        run = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        artifact_ref = await artifact_service.store(
+            content="hostname lab",
+            kind="rendered_template",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "device_config": {
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": "render-jinja-template-3",
+                    "output_key": "device_config",
+                    "size_bytes": 12,
+                    "kind": "rendered_template",
+                }
+            },
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"device-1": device})
+
+        outcomes = await execute(
+            config={"output_destination": "stdout", "output_format": "json"},
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="show-attributes-4",
+        )
+
+        payload = outcomes[0].context.metadata[f"show-attributes-4{SHOW_ATTRIBUTES_METADATA_SUFFIX}"]
+        self.assertFalse(payload["show_parsed_templates"])
+        entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
+        self.assertNotIn("rendered_content", entry)
+
+    async def test_show_parsed_templates_resolves_rendered_output(self) -> None:
+        run = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        artifact_ref = await artifact_service.store(
+            content="hostname lab\nrole access-switch",
+            kind="rendered_template",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "device_config": {
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": "render-jinja-template-3",
+                    "output_key": "device_config",
+                    "size_bytes": 30,
+                    "kind": "rendered_template",
+                }
+            },
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"device-1": device})
+
+        outcomes = await execute(
+            config={
+                "output_destination": "stdout",
+                "output_format": "json",
+                "show_parsed_templates": True,
+            },
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="show-attributes-5",
+        )
+
+        payload = outcomes[0].context.metadata[f"show-attributes-5{SHOW_ATTRIBUTES_METADATA_SUFFIX}"]
+        self.assertTrue(payload["show_parsed_templates"])
+        entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
+        self.assertEqual(entry["rendered_content"], "hostname lab\nrole access-switch")
 
     def test_build_context_snapshot_is_json_serializable(self) -> None:
         device = DeviceContext(

@@ -62,6 +62,7 @@ function buildShowAttributesConfig(
     output_format: outputFormat,
     filename: typeof config.filename === "string" ? config.filename : "attributes.txt",
     append: config.append === true,
+    show_parsed_templates: config.show_parsed_templates === true,
     ...patch,
   };
 }
@@ -74,6 +75,7 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
     config.output_format === "pretty_text" ? "pretty_text" : ("json" as OutputFormat);
   const filename = typeof config.filename === "string" ? config.filename : "attributes.txt";
   const append = config.append === true;
+  const showParsedTemplates = config.show_parsed_templates === true;
 
   useEffect(() => {
     if (initializedForNode.current === nodeId) {
@@ -115,6 +117,13 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
   const handleAppendChange = useCallback(
     (checked: boolean) => {
       onChange(buildShowAttributesConfig(config, { append: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleShowParsedTemplatesChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildShowAttributesConfig(config, { show_parsed_templates: checked }));
     },
     [config, onChange],
   );
@@ -174,6 +183,24 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
           </SelectContent>
         </Select>
         <p className="text-[11px] leading-4 text-muted-foreground">{formatHint}</p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <Label className="text-xs font-medium">Show parsed Templates</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Also print the rendered output of any upstream Render Jinja
+            Template step (device.parsed entries of kind
+            &quot;rendered_template&quot;), instead of just its artifact
+            reference. Backed by the{" "}
+            <span className="font-mono">show_parsed_templates</span> field.
+          </p>
+        </div>
+        <Switch
+          checked={showParsedTemplates}
+          onCheckedChange={handleShowParsedTemplatesChange}
+          className="data-[state=checked]:bg-teal-500"
+        />
       </div>
 
       {outputDestination === "file" ? (
