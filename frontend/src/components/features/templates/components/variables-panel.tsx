@@ -124,7 +124,7 @@ export function VariablesPanel({
                 ) : (
                   <Play className="size-4" />
                 )}
-                Execute pre-run command
+                Execute command
               </Button>
             ) : null}
           </>

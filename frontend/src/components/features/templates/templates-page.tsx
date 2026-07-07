@@ -1,13 +1,19 @@
 "use client";
 
-import { FileCode, Plus, Search } from "lucide-react";
+import { FileCode, HelpCircle, Plus, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { DeleteTemplateDialog } from "./components/delete-template-dialog";
+import { JinjaHelpDialog } from "./components/jinja-help-dialog";
 import { TemplateViewDialog } from "./components/template-view-dialog";
 import { TemplatesTable } from "./components/templates-table";
 import { useTemplateMutations } from "./hooks/use-template-mutations";
@@ -22,6 +28,7 @@ export function TemplatesPage() {
 
   const [viewTarget, setViewTarget] = useState<TemplateListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TemplateListItem | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   const templates = data?.templates ?? [];
 
@@ -60,10 +67,26 @@ export function TemplatesPage() {
               </p>
             </div>
           </div>
-          <Button type="button" onClick={handleCreate}>
-            <Plus className="size-4" />
-            Create New Template
-          </Button>
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label="How to write a Jinja2 template"
+                  onClick={() => setShowHelp(true)}
+                >
+                  <HelpCircle className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>How to write a Jinja2 template</TooltipContent>
+            </Tooltip>
+            <Button type="button" onClick={handleCreate}>
+              <Plus className="size-4" />
+              Create New Template
+            </Button>
+          </div>
         </div>
 
         <div className="relative max-w-sm">
@@ -104,6 +127,8 @@ export function TemplatesPage() {
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleConfirmDelete}
       />
+
+      <JinjaHelpDialog open={showHelp} onClose={() => setShowHelp(false)} />
     </div>
   );
 }

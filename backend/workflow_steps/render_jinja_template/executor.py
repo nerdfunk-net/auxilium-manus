@@ -109,9 +109,13 @@ async def _build_command_context(
 ) -> dict[str, Any]:
     """Resolve upstream run-command output into the Jinja namespace.
 
-    Exposes every command executed by any upstream run-command step as
-    ``commands`` (in execution order), plus a ``command`` alias for the
-    most recently executed one, covering the common single-command case.
+    Exposes every command executed by any upstream run-command step as:
+    - ``commands``: a list, in execution order (for iterating all of them).
+    - ``commands_by_name``: a dict keyed by the exact command string, so a
+      template can pick one directly, e.g. ``commands_by_name["show version"]``.
+      If the same command string ran more than once, the most recent run wins.
+    - ``command``: an alias for the most recently executed command, covering
+      the common single-command case.
     """
     all_results = [
         result for results in device.command_results.values() for result in results
@@ -125,7 +129,12 @@ async def _build_command_context(
     latest_index = max(
         range(len(all_results)), key=lambda i: all_results[i].executed_at
     )
-    return {"commands": list(entries), "command": entries[latest_index]}
+    commands_by_name = {entry["name"]: entry for entry in entries}
+    return {
+        "commands": list(entries),
+        "commands_by_name": commands_by_name,
+        "command": entries[latest_index],
+    }
 
 
 def _parsed_template_entry(
