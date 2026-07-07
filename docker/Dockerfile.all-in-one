@@ -106,6 +106,7 @@ RUN chmod +x start.sh
 RUN mkdir -p /app/data/settings \
     /app/data/git \
     /app/data/cache \
+    /app/data/logs \
     /var/log/supervisor \
     && chown -R root:root /app/data \
     && chmod -R 755 /app/data

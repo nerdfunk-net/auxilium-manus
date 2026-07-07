@@ -139,4 +139,10 @@ async def execute(
             "metadata": metadata_update,
         }
     )
-    return [StepOutcome(name="success", context=new_context)]
+    return [
+        StepOutcome(
+            name="success",
+            context=new_context,
+            summary=f"found {len(new_devices)} device(s)",
+        )
+    ]

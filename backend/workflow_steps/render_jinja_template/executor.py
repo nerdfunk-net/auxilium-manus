@@ -158,6 +158,13 @@ async def execute(
         f"{node_id}.rendered_failure_count": len(failed_devices),
     }
 
+    logger.info(
+        "render-jinja-template finished success=%d failure=%d run_id=%s",
+        len(success_devices),
+        len(failed_devices),
+        run.id,
+    )
+
     outcomes = [
         StepOutcome(
             name="success",

@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import logging
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from core.config import settings
+from core.logging_config import configure_logging
 
 # Fallback for direct uvicorn imports. start.py passes an explicit uvicorn log_config.
 if not logging.root.handlers:
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format=settings.log_format,
-        stream=sys.stdout,
-    )
+    configure_logging("app")
 
 import service_factory
 from core.database import SessionLocal, init_db

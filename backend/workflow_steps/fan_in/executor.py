@@ -34,9 +34,11 @@ async def execute(
 ) -> list[StepOutcome]:
     del config, artifact_service  # unused — fan-in is a pass-through boundary
 
+    logger.info("fan-in started run_id=%s node_id=%s", run.id, node_id)
+
     device_count = len(context.devices)
     logger.info(
-        "fan-in run_id=%s node_id=%s merged_devices=%d",
+        "fan-in finished run_id=%s node_id=%s merged_devices=%d",
         run.id,
         node_id,
         device_count,

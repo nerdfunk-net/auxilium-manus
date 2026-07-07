@@ -312,3 +312,12 @@ All text/number inputs follow the same pattern:
 - [ ] `aria-hidden` on all decorative icons
 - [ ] Shadcn primitives used for all UI (no raw `<select>`, `<dialog>`, etc.)
 - [ ] Inventory steps: fan-out block matches the shared pattern (`border-t pt-3`, Switch header, fields revealed only when enabled)
+
+### Backend executor logging
+
+- [ ] `execute()` logs at least one line when the step starts and one when it finishes
+      (`logger = logging.getLogger(__name__)`, `logger.info(...)`) — see **Logging** in
+      `WORKFLOW-STEPS.md`
+- [ ] Steps that share one implementation helper (e.g. `git-clone` / `git-pull` /
+      `git-push` via `run_git_workflow_step`) log once in the shared helper, not once per
+      thin `execute()` wrapper

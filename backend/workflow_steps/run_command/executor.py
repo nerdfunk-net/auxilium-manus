@@ -231,6 +231,7 @@ async def execute(
         StepOutcome(
             name="success",
             context=context.model_copy(update={"devices": success_devices}),
+            summary=f"ran {len(commands)} command(s) on {len(success_devices)} device(s)",
         )
     ]
     if failed_devices:
@@ -238,6 +239,7 @@ async def execute(
             StepOutcome(
                 name="failure",
                 context=context.model_copy(update={"devices": failed_devices}),
+                summary=f"{len(failed_devices)} device(s) failed",
             )
         )
     return outcomes

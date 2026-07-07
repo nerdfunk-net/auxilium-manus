@@ -156,6 +156,72 @@ Raise a `ValueError` for configuration errors (bad input, missing field). Raise 
 `RuntimeError` for unexpected execution failures. The `StepRunner` catches all
 exceptions, marks the step failed, and skips remaining steps.
 
+### Logging — start and finish log lines are required
+
+Every `execute()` must emit **at least two `logger.info()` calls**: one when the step
+begins its work, one when it finishes. This makes a step's progress traceable in
+`worker.log` even when devices, commands, or fan-out children are involved — the generic
+`StepRunner` "Step started" / "Step finished" lines (see below) don't carry step-specific
+detail.
+
+```python
+# backend/workflow_steps/my_new_step/executor.py
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+async def execute(*, config, context, run, artifact_service, node_id) -> list[StepOutcome]:
+    ...  # validate config, raise ValueError on bad input
+
+    logger.info("my-new-step started run_id=%s node_id=%s", run.id, node_id)
+
+    ...  # do the work
+
+    logger.info(
+        "my-new-step finished success=%d failure=%d run_id=%s",
+        len(success_devices),
+        len(failed_devices),
+        run.id,
+    )
+    return outcomes
+```
+
+Rules:
+
+- Prefix the message with the step's kebab-case `id` (matching `registry.yaml`), not the
+  Python module name.
+- Log the start line **after** config validation (so a `ValueError` for bad config doesn't
+  emit a misleading "started" line) but **before** any I/O or per-device work begins.
+- Log the finish line **after** all work completes, before building/returning
+  `StepOutcome`s. Include whatever counts are cheaply available (success/failure counts,
+  items processed) by reusing values you already computed — don't add bookkeeping solely
+  for the log line.
+- If several steps share one implementation helper (e.g. `git-clone` / `git-pull` /
+  `git-push` all call `run_git_workflow_step` in
+  `workflow_steps/common/git_workflow_step.py`), put the start/finish log lines once in the
+  shared helper instead of duplicating them in every thin `execute()` wrapper.
+- Some steps `del run` early because they don't need the ORM row beyond validation — use
+  `context.run_id` instead of `run.id` in that case.
+- Use `logger.info` for both lines. Reserve `logger.warning` / `logger.error` for actual
+  problems; `StepRunner` already logs and persists exceptions, so don't duplicate a full
+  traceback inside the executor.
+
+**Where these logs go:** `backend/core/logging_config.py` configures the root logger for
+both the API process and the Hatchet worker with two handlers — stdout (unchanged) and a
+`RotatingFileHandler` writing to `LOG_DIRECTORY` (default `<data_directory>/logs`):
+`app.log` for the API process, `worker.log` for the Hatchet worker (workflow steps always
+execute there). Rotation size/retention are controlled by `LOG_MAX_BYTES` /
+`LOG_BACKUP_COUNT` (see `backend/.env.example`). Because `logger =
+logging.getLogger(__name__)` loggers propagate to root by default, no per-step setup is
+needed beyond the two calls above.
+
+`StepRunner` (`services/execution/step_runner.py`) already logs a generic `"Step started
+node_id=... type=... run_id=..."` / `"Step finished node_id=... type=... status=...
+summary=..."` pair for every step — the latter includes any `StepOutcome.summary` an
+executor sets. The per-executor start/finish logs above are additional, step-specific
+detail; they are not a replacement for setting `StepOutcome.summary`, and vice versa.
+
 ### Registering a new step
 
 After creating `executor.py`, add one import and one dict entry to the dispatch table:
@@ -414,18 +480,21 @@ commits, so it is not a substitute for the fan-in node.
    - `config.py` with `def get_config() -> dict` (if the step has configuration)
    - `models.py` with step-specific Pydantic models (if needed)
 
-2. **Dispatch table** — add one import and one entry to `services/execution/step_registry.py`
+2. **Logging** — add a `logger.info(...)` line when the step starts and another when it
+   finishes (see [Logging](#logging--start-and-finish-log-lines-are-required) above)
 
-3. **Registry** — add an entry to `workflow_steps/registry.yaml`
+3. **Dispatch table** — add one import and one entry to `services/execution/step_registry.py`
 
-4. **Frontend ConfigPanel** — create `frontend/src/components/features/workflow-steps/{step-id}/index.tsx`
+4. **Registry** — add an entry to `workflow_steps/registry.yaml`
+
+5. **Frontend ConfigPanel** — create `frontend/src/components/features/workflow-steps/{step-id}/index.tsx`
    (config UI only; canvas rendering is shared — see [Canvas node appearance](#canvas-node-appearance))
 
-5. **UI registry** — add an entry to `frontend/src/lib/plugin-ui-registry.ts`
+6. **UI registry** — add an entry to `frontend/src/lib/plugin-ui-registry.ts`
 
-6. **Canvas icon (optional)** — add a `nodeIconsByKind` entry in `workflow-node.tsx` when the
+7. **Canvas icon (optional)** — add a `nodeIconsByKind` entry in `workflow-node.tsx` when the
    default `artifact_type` icon is not appropriate; do not add a custom node render branch
 
-7. **Fan-out review** — confirm the step is fan-out-safe (see [Fan-out execution](#fan-out-execution)).
+8. **Fan-out review** — confirm the step is fan-out-safe (see [Fan-out execution](#fan-out-execution)).
    If it writes to a shared external resource, make the write per-device-unique or
    document the constraint.

@@ -143,6 +143,8 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
+    logger.info("route-on-attribute started run_id=%s node_id=%s", context.run_id, node_id)
+
     attribute_path = str(
         config.get("attribute_path") or _default_config()["attribute_path"]
     ).strip()
@@ -185,7 +187,7 @@ async def execute(
     }
 
     logger.info(
-        "route-on-attribute node_id=%s attribute_path=%s routed_counts=%s",
+        "route-on-attribute finished node_id=%s attribute_path=%s routed_counts=%s",
         node_id,
         attribute_path,
         routed_counts,

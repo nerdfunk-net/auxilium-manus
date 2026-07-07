@@ -227,6 +227,8 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service
 
+    logger.info("show-attributes started run_id=%s node_id=%s", run.id, node_id)
+
     parsed = _parse_config(config)
     snapshot = build_context_snapshot(context)
     rendered = render_snapshot_text(snapshot, parsed["output_format"])

@@ -66,6 +66,8 @@ async def execute(
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
 
+    logger.info("get-from-list started run_id=%s", run.id)
+
     device_names = _normalize_device_names(config.get("devices"))
     if not device_names:
         raise ValueError("get-from-list: at least one device name is required")

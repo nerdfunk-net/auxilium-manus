@@ -127,6 +127,8 @@ async def run_git_workflow_step(
             message=message,
         )
 
+    logger.info("%s started run_id=%s source=%s", step_id, context.run_id, source_id)
+
     try:
         repository = load_git_source_repository(source_id)
     except ValueError as exc:

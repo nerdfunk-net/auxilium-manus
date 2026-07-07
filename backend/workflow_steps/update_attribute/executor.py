@@ -105,6 +105,8 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
+    logger.info("%s started run_id=%s node_id=%s", _STEP_ID, context.run_id, node_id)
+
     mode = _parse_mode(config)
     destination_path = _parse_destination_path(config)
     regex_flags = _parse_regex_flags(config)
@@ -163,7 +165,7 @@ async def execute(
         ).strip()
 
     logger.info(
-        "%s node_id=%s mode=%s destination_path=%s updated=%d skipped=%d devices=%d",
+        "%s finished node_id=%s mode=%s destination_path=%s updated=%d skipped=%d devices=%d",
         _STEP_ID,
         node_id,
         mode,

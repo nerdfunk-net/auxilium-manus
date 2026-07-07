@@ -80,6 +80,7 @@ services:
     volumes:
       - manus_data:/app/data
       - ./config:/app/config
+      - ./logs:/app/data/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -122,6 +123,7 @@ services:
     volumes:
       - manus_data:/app/data
       - ./config:/app/config
+      - ./logs:/app/data/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

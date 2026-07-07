@@ -214,7 +214,7 @@ async def execute(
             enabled_field_count += 1
 
     logger.info(
-        "%s run_id=%s source_id=%s devices=%d enabled_fields=%d interfaces=%d",
+        "%s started run_id=%s source_id=%s devices=%d enabled_fields=%d interfaces=%d",
         _STEP_ID,
         run.id,
         source_id,
@@ -356,6 +356,14 @@ async def execute(
             success_devices[device_key] = updated_device
         else:
             failed_devices[device_key] = updated_device
+
+    logger.info(
+        "%s finished success=%d failure=%d run_id=%s",
+        _STEP_ID,
+        len(success_devices),
+        len(failed_devices),
+        run.id,
+    )
 
     outcomes = [
         StepOutcome(

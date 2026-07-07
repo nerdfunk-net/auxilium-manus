@@ -130,5 +130,6 @@ async def execute(
         StepOutcome(
             name="success",
             context=context.model_copy(update={"metadata": metadata}),
+            summary=f"logged {len(device_logs)} device(s): {message!r}",
         )
     ]

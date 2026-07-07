@@ -157,6 +157,7 @@ class StepOutcome(BaseModel):
 
     name: str
     context: WorkflowContext
+    summary: str | None = None
 
 
 def bare_hostname(primary_ip4: str | None, fallback: str) -> str:

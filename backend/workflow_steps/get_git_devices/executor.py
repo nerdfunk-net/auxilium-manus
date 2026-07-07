@@ -36,6 +36,13 @@ async def execute(
     if not filename_pattern:
         raise ValueError("get-git-devices: filename_pattern is not configured")
 
+    logger.info(
+        "get-git-devices started run_id=%s git_source_id=%s filename_pattern=%s",
+        run.id,
+        git_source_id,
+        filename_pattern,
+    )
+
     setting_key = build_source_key("git", git_source_id)
     db = get_db_session()
     try:

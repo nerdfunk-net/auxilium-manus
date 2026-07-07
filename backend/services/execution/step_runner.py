@@ -211,6 +211,12 @@ class StepRunner:
             status="running",
             started_at=datetime.now(timezone.utc),
         )
+        logger.info(
+            "Step started node_id=%s type=%s run_id=%s",
+            node_id,
+            step_type,
+            run.id,
+        )
 
         try:
             input_context = self._assemble_input_context(
@@ -240,11 +246,13 @@ class StepRunner:
                 output=persisted_output,
                 finished_at=datetime.now(timezone.utc),
             )
+            summaries = "; ".join(f"{o.name}: {o.summary}" for o in outcomes if o.summary)
             logger.info(
-                "Step finished node_id=%s type=%s status=%s",
+                "Step finished node_id=%s type=%s status=%s%s",
                 node_id,
                 step_type,
                 step_status,
+                f" summary={summaries}" if summaries else "",
             )
             return True
         except Exception:
@@ -377,6 +385,12 @@ class StepRunner:
             step_type: str = node_data.get("kind", "unknown")
             step_config: dict[str, Any] = node_data.get("pluginConfig", {})
 
+            logger.info(
+                "Subgraph step started node_id=%s type=%s run_id=%s",
+                node_id,
+                step_type,
+                run.id,
+            )
             try:
                 input_context = self._assemble_input_context(
                     run=run,
@@ -393,10 +407,12 @@ class StepRunner:
                     node_id=node_id,
                 )
                 self._store_step_outcomes(step_outcomes, node_id, outcomes)
+                summaries = "; ".join(f"{o.name}: {o.summary}" for o in outcomes if o.summary)
                 logger.info(
-                    "Subgraph step finished node_id=%s type=%s",
+                    "Subgraph step finished node_id=%s type=%s%s",
                     node_id,
                     step_type,
+                    f" summary={summaries}" if summaries else "",
                 )
             except Exception:
                 logger.error(
