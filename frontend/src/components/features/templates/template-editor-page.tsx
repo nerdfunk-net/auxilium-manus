@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { AddVariableDialog } from "./components/add-variable-dialog";
 import { CodeEditorPanel } from "./components/code-editor-panel";
+import { AttributesDialog } from "./components/attributes-dialog";
 import { ConfigureCommandsDialog } from "./components/configure-commands-dialog";
 import { GeneralPanel } from "./components/general-panel";
 import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
@@ -55,9 +56,11 @@ function TemplateEditorContent() {
   const [commands, setCommands] = useState<string[]>([]);
   const [useTextfsm, setUseTextfsm] = useState(false);
   const [credentialId, setCredentialId] = useState("none");
+  const [attributes, setAttributes] = useState<string[]>([]);
   const [selectedVariableId, setSelectedVariableId] = useState<string | null>(null);
   const [addVariableOpen, setAddVariableOpen] = useState(false);
   const [commandsDialogOpen, setCommandsDialogOpen] = useState(false);
+  const [attributesDialogOpen, setAttributesDialogOpen] = useState(false);
   const [isExecutingCommands, setIsExecutingCommands] = useState(false);
 
   const variableManager = useTemplateVariables();
@@ -74,9 +77,10 @@ function TemplateEditorContent() {
   const templateQuery = useTemplateQuery({ templateId, enabled: isEditMode });
 
   const loadedRef = useRef(false);
-  const lastDeviceIdRef = useRef<string | null>(null);
+  const lastAttributesKeyRef = useRef<string | null>(null);
   const {
-    updateDeviceData,
+    setDeviceInfo,
+    setNautobotAttributes,
     toggleCommandVariables,
     setCommandResults,
     loadCustomVariables,
@@ -86,6 +90,8 @@ function TemplateEditorContent() {
     () => commands.map((command) => command.trim()).filter(Boolean),
     [commands],
   );
+
+  const attributesKey = useMemo(() => [...attributes].sort().join(","), [attributes]);
 
   // Populate the editor once when an existing template loads.
   useEffect(() => {
@@ -100,6 +106,7 @@ function TemplateEditorContent() {
     setContent(template.content ?? "");
     setCommands(template.pre_run_commands ?? []);
     setUseTextfsm(Boolean(template.pre_run_use_textfsm));
+    setAttributes(template.nautobot_attributes ?? []);
     setCredentialId(
       template.credential_id != null ? String(template.credential_id) : "none",
     );
@@ -111,56 +118,78 @@ function TemplateEditorContent() {
     toggleCommandVariables(cleanedCommands.length > 0);
   }, [cleanedCommands.length, toggleCommandVariables]);
 
-  // Fetch device context when the selected test device changes.
+  // Build the `device` variable from the selected test device (matches the
+  // workflow step's device.* namespace).
   useEffect(() => {
     if (!selectedDevice) {
-      lastDeviceIdRef.current = null;
-      updateDeviceData(null);
+      setDeviceInfo(null);
       return;
     }
-    if (lastDeviceIdRef.current === selectedDevice.id) {
+    setDeviceInfo({
+      name: selectedDevice.name,
+      hostname: selectedDevice.name,
+      id: selectedDevice.id,
+      primary_ip4: selectedDevice.primary_ip4?.split("/")[0] ?? "",
+      platform: selectedDevice.platform ?? "",
+      network_driver: selectedDevice.network_driver ?? "",
+      source: effectiveSourceId,
+      source_id: selectedDevice.id,
+    });
+  }, [selectedDevice, effectiveSourceId, setDeviceInfo]);
+
+  // Fetch the `nautobot` attribute bag whenever the device or the selected
+  // attribute groups change, using the same query as the workflow step.
+  useEffect(() => {
+    if (!selectedDevice) {
+      lastAttributesKeyRef.current = null;
+      setNautobotAttributes(null);
       return;
     }
     if (!sourceCredentials.isReady) {
       return;
     }
 
-    lastDeviceIdRef.current = selectedDevice.id;
-    const devices = [
-      {
-        id: selectedDevice.id,
-        name: selectedDevice.name,
-        primary_ip4: selectedDevice.primary_ip4,
-        platform: selectedDevice.platform,
-        network_driver: selectedDevice.network_driver,
-      },
-    ];
+    const fetchKey = `${selectedDevice.id}|${attributesKey}`;
+    if (lastAttributesKeyRef.current === fetchKey) {
+      return;
+    }
+    lastAttributesKeyRef.current = fetchKey;
 
     let active = true;
-    apiCall<Record<string, unknown>>("sources/nautobot/devices/details", {
+    apiCall<Record<string, unknown>>("sources/nautobot/devices/attributes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         nautobot_url: sourceCredentials.url,
         nautobot_token: sourceCredentials.token,
         device_id: selectedDevice.id,
+        list_of_attributes: attributes,
       }),
     })
-      .then((details) => {
+      .then((bag) => {
         if (active) {
-          updateDeviceData({ devices, device_details: details });
+          setNautobotAttributes(bag);
         }
       })
       .catch(() => {
         if (active) {
-          updateDeviceData({ devices, device_details: {} });
+          setNautobotAttributes({});
         }
       });
 
     return () => {
       active = false;
     };
-  }, [selectedDevice, sourceCredentials.isReady, sourceCredentials.url, sourceCredentials.token, apiCall, updateDeviceData]);
+  }, [
+    selectedDevice,
+    attributes,
+    attributesKey,
+    sourceCredentials.isReady,
+    sourceCredentials.url,
+    sourceCredentials.token,
+    apiCall,
+    setNautobotAttributes,
+  ]);
 
   const existingVariableNames = useMemo(
     () => variableManager.variables.map((variable) => variable.name),
@@ -284,6 +313,7 @@ function TemplateEditorContent() {
       variables,
       pre_run_commands: cleanedCommands,
       pre_run_use_textfsm: useTextfsm,
+      nautobot_attributes: attributes,
       credential_id: credentialId !== "none" ? Number(credentialId) : null,
     };
 
@@ -304,6 +334,7 @@ function TemplateEditorContent() {
     content,
     cleanedCommands,
     useTextfsm,
+    attributes,
     credentialId,
     variableManager.variables,
     isEditMode,
@@ -364,10 +395,12 @@ function TemplateEditorContent() {
           nautobotToken={sourceCredentials.token}
           sourceReady={sourceCredentials.isReady}
           commandCount={cleanedCommands.length}
+          attributeCount={attributes.length}
           credentialId={credentialId}
           onSourceChange={setSourceId}
           onSelectDevice={setSelectedDevice}
           onConfigureCommands={() => setCommandsDialogOpen(true)}
+          onConfigureAttributes={() => setAttributesDialogOpen(true)}
           onCredentialChange={setCredentialId}
         />
 
@@ -434,6 +467,13 @@ function TemplateEditorContent() {
         onCommandsChange={setCommands}
         onUseTextfsmChange={setUseTextfsm}
         onExecute={handleExecuteCommands}
+      />
+
+      <AttributesDialog
+        open={attributesDialogOpen}
+        value={attributes}
+        onOpenChange={setAttributesDialogOpen}
+        onChange={setAttributes}
       />
     </div>
   );

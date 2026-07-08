@@ -158,3 +158,10 @@ class DeviceDetailsRequest(NautobotConnection):
     """Fetch full Nautobot device details by ID."""
 
     device_id: str = Field(..., min_length=1)
+
+
+class DeviceAttributesRequest(NautobotConnection):
+    """Fetch the Nautobot attribute bag for a device (template editor preview)."""
+
+    device_id: str = Field(..., min_length=1)
+    list_of_attributes: list[str] = Field(default_factory=list)

@@ -107,6 +107,14 @@ class NautobotSourceService:
         """Return full Nautobot device details for a single device."""
         return await self.device_query_service.get_device_details(device_id, use_cache=True)
 
+    async def get_device_attributes(
+        self, device_id: str, list_of_attributes: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Return the ``nautobot`` attribute bag for a single device."""
+        return await self.device_query_service.get_device_attributes(
+            device_id, list_of_attributes, use_cache=True
+        )
+
     async def get_custom_fields(self) -> list[dict[str, Any]]:
         return await self.metadata_service.get_custom_fields()
 

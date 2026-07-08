@@ -23,6 +23,7 @@ class TemplateCreate(BaseModel):
     variables: dict[str, TemplateVariable] = Field(default_factory=dict)
     pre_run_commands: list[str] = Field(default_factory=list)
     pre_run_use_textfsm: bool = False
+    nautobot_attributes: list[str] = Field(default_factory=list)
     credential_id: int | None = None
 
 
@@ -35,6 +36,7 @@ class TemplateUpdate(BaseModel):
     variables: dict[str, TemplateVariable] | None = None
     pre_run_commands: list[str] | None = None
     pre_run_use_textfsm: bool | None = None
+    nautobot_attributes: list[str] | None = None
     credential_id: int | None = None
 
 
@@ -51,6 +53,7 @@ class TemplateResponse(BaseModel):
     variables: dict[str, Any]
     pre_run_commands: list[str] = Field(default_factory=list)
     pre_run_use_textfsm: bool = False
+    nautobot_attributes: list[str] = Field(default_factory=list)
     credential_id: int | None
     created_by: str | None
     is_active: bool

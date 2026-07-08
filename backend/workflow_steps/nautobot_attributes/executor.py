@@ -22,184 +22,15 @@ from repositories.settings_repository import SettingsRepository
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.devices.attribute_bag import (
+    DEVICE_ATTRIBUTES_QUERY,
+    attributes_from_detail,
+    build_attribute_variables,
+)
 from services.settings.source_keys import build_source_key
-
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 
 logger = logging.getLogger(__name__)
-
-_ATTR_TO_VAR: dict[str, str] = {
-    "interfaces": "get_interfaces",
-    "custom_fields": "get_custom_fields",
-    "tags": "get_tags",
-    "config_context": "get_config_context",
-    "secret_groups": "get_secret_groups",
-    "console_ports": "get_console_port",
-    "power_ports": "get_power_port",
-}
-
-_DEVICE_FIELDS = """
-    id
-    name
-    hostname: name
-    asset_tag
-    serial
-    position
-    face
-    config_context @include(if: $get_config_context)
-    local_config_context_data @include(if: $get_config_context)
-    _custom_field_data @include(if: $get_custom_fields)
-    primary_ip4 @include(if: $get_primary_ipv4) {
-      id
-      address
-      description
-      ip_version
-      host
-      mask_length
-      dns_name
-      status {
-        id
-        name
-      }
-      parent {
-        id
-        prefix
-      }
-    }
-    role {
-      id
-      name
-    }
-    device_type {
-      id
-      model
-      manufacturer {
-        id
-        name
-      }
-    }
-    platform {
-      id
-      name
-      network_driver
-      manufacturer {
-        id
-        name
-      }
-    }
-    location {
-      id
-      name
-      description
-      parent {
-        id
-        name
-      }
-    }
-    status {
-      id
-      name
-    }
-    interfaces @include(if: $get_interfaces) {
-      id
-      name
-      type
-      enabled
-      mtu
-      mac_address
-      description
-      status {
-        id
-        name
-      }
-      ip_addresses {
-        id
-        address
-        ip_version
-        status {
-          id
-          name
-        }
-      }
-      connected_interface {
-        id
-        name
-        device {
-          id
-          name
-        }
-      }
-      cable {
-        id
-        status {
-          id
-          name
-        }
-      }
-      tagged_vlans {
-        id
-        name
-        vid
-      }
-      untagged_vlan {
-        id
-        name
-        vid
-      }
-    }
-    console_ports @include(if: $get_console_port) {
-      id
-      name
-      type
-      description
-    }
-    console_server_ports @include(if: $get_console_port) {
-      id
-      name
-      type
-      description
-    }
-    power_ports @include(if: $get_power_port) {
-      id
-      name
-      type
-      description
-    }
-    power_outlets @include(if: $get_power_port) {
-      id
-      name
-      type
-      description
-    }
-    secrets_group @include(if: $get_secret_groups) {
-      id
-      name
-    }
-    tags @include(if: $get_tags) {
-      id
-      name
-      color
-    }
-"""
-
-_QUERY_VARIABLES = """
-  $get_primary_ipv4: Boolean = false,
-  $get_interfaces: Boolean = false,
-  $get_config_context: Boolean = false,
-  $get_custom_fields: Boolean = false,
-  $get_tags: Boolean = false,
-  $get_secret_groups: Boolean = false,
-  $get_console_port: Boolean = false,
-  $get_power_port: Boolean = false
-"""
-
-_DEVICE_DETAILS_QUERY = (
-    "query DeviceDetails(\n  $deviceId: ID!,\n"
-    + _QUERY_VARIABLES
-    + ") {\n  device(id: $deviceId) {"
-    + _DEVICE_FIELDS
-    + "  }\n}"
-)
 
 
 async def _fetch_device(
@@ -210,7 +41,7 @@ async def _fetch_device(
 ) -> dict[str, Any] | None:
     vars_with_id = {"deviceId": device_id, **variables}
     response = await nautobot_service.graphql_query(
-        _DEVICE_DETAILS_QUERY, vars_with_id, credentials
+        DEVICE_ATTRIBUTES_QUERY, vars_with_id, credentials
     )
     device = (response.get("data") or {}).get("device")
     if device is None:
@@ -220,14 +51,6 @@ async def _fetch_device(
             response.get("errors"),
         )
     return device
-
-
-def _attributes_from_detail(detail: dict[str, Any]) -> dict[str, Any]:
-    attributes = dict(detail)
-    custom_fields = attributes.pop("_custom_field_data", None)
-    if custom_fields is not None:
-        attributes["custom_fields"] = custom_fields
-    return attributes
 
 
 async def execute(
@@ -270,11 +93,7 @@ async def execute(
     credentials = service_factory.credentials_from_connection(nautobot_url, nautobot_token)
     nautobot_service = service_factory.get_nautobot_app_service()
 
-    variables: dict[str, Any] = {"get_primary_ipv4": True}
-    for attr_key in list_of_attributes:
-        var_name = _ATTR_TO_VAR.get(attr_key)
-        if var_name:
-            variables[var_name] = True
+    variables = build_attribute_variables(list_of_attributes)
 
     logger.info(
         "get-nautobot-attributes run_id=%s source_id=%s devices=%d attributes=%s",
@@ -336,7 +155,7 @@ async def execute(
             platform_raw = detail.get("platform")
             platform = platform_raw if isinstance(platform_raw, dict) else {}
             attribute_bags = dict(device.attribute_bags)
-            attribute_bags["nautobot"] = _attributes_from_detail(detail)
+            attribute_bags["nautobot"] = attributes_from_detail(detail)
             enriched = device.model_copy(
                 update={
                     "attribute_bags": attribute_bags,

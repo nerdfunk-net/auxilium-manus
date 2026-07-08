@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Settings2, Terminal } from "lucide-react";
+import { Database, Search, Settings2, Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
@@ -27,10 +27,12 @@ interface NetmikoOptionsPanelProps {
   nautobotToken: string;
   sourceReady: boolean;
   commandCount: number;
+  attributeCount: number;
   credentialId: string;
   onSourceChange: (sourceId: string) => void;
   onSelectDevice: (device: DeviceSummary | null) => void;
   onConfigureCommands: () => void;
+  onConfigureAttributes: () => void;
   onCredentialChange: (value: string) => void;
 }
 
@@ -43,10 +45,12 @@ export function NetmikoOptionsPanel({
   nautobotToken,
   sourceReady,
   commandCount,
+  attributeCount,
   credentialId,
   onSourceChange,
   onSelectDevice,
   onConfigureCommands,
+  onConfigureAttributes,
   onCredentialChange,
 }: NetmikoOptionsPanelProps) {
   const { apiCall } = useApi();
@@ -178,7 +182,7 @@ export function NetmikoOptionsPanel({
             </Select>
           </div>
 
-          <div className="relative space-y-1.5 md:col-span-4">
+          <div className="relative space-y-1.5 md:col-span-3">
             <Label htmlFor="test-device">Test Device (Optional)</Label>
             <div className="relative" ref={dropdownRef}>
               <Input
@@ -227,19 +231,37 @@ export function NetmikoOptionsPanel({
             </div>
           </div>
 
-          <div className="space-y-1.5 md:col-span-3">
+          <div className="space-y-1.5 md:col-span-2">
             <Label>Commands (Optional)</Label>
             <Button
               type="button"
               variant="outline"
-              className="w-full justify-start font-normal"
+              className="w-full justify-start px-3 font-normal"
               onClick={onConfigureCommands}
             >
               <Settings2 className="size-4" />
-              Configure commands
+              Commands
               {commandCount > 0 ? (
                 <Badge variant="secondary" className="ml-auto">
                   {commandCount}
+                </Badge>
+              ) : null}
+            </Button>
+          </div>
+
+          <div className="space-y-1.5 md:col-span-2">
+            <Label>Attributes (Optional)</Label>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-start px-3 font-normal"
+              onClick={onConfigureAttributes}
+            >
+              <Database className="size-4" />
+              Nautobot
+              {attributeCount > 0 ? (
+                <Badge variant="secondary" className="ml-auto">
+                  {attributeCount}
                 </Badge>
               ) : null}
             </Button>

@@ -6,6 +6,12 @@ import logging
 
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.devices.attribute_bag import (
+    DEVICE_ATTRIBUTES_QUERY,
+    attributes_from_detail,
+    build_attribute_variables,
+    normalize_attribute_groups,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +57,46 @@ class DeviceQueryService:
 
     def _details_cache_key(self, device_id: str) -> str:
         return f"nautobot:device_details:{self._cache_scope}:{device_id}"
+
+    def _attributes_cache_key(self, device_id: str, groups: list[str]) -> str:
+        suffix = ",".join(sorted(groups)) or "base"
+        return f"nautobot:device_attributes:{self._cache_scope}:{device_id}:{suffix}"
+
+    async def get_device_attributes(
+        self,
+        device_id: str,
+        list_of_attributes: list[str] | None = None,
+        use_cache: bool = True,
+    ) -> dict:
+        """Return the ``nautobot`` attribute bag for a device.
+
+        Uses the same GraphQL query and post-processing as the
+        ``get-nautobot-attributes`` workflow step so the ``nautobot.*`` fields
+        are identical in the template editor preview and at workflow runtime.
+        """
+        groups = normalize_attribute_groups(list_of_attributes)
+        cache_key = self._attributes_cache_key(device_id, groups)
+        if use_cache and self._cache is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        result = await self._nautobot.graphql_query(
+            DEVICE_ATTRIBUTES_QUERY,
+            {"deviceId": device_id, **build_attribute_variables(groups)},
+            self._credentials,
+        )
+        if "errors" in result:
+            raise ValueError(f"GraphQL errors: {result['errors']}")
+
+        device = (result.get("data") or {}).get("device")
+        if not device:
+            raise ValueError(f"Device {device_id} not found in Nautobot")
+
+        attributes = attributes_from_detail(device)
+        if self._cache is not None:
+            self._cache.set(cache_key, attributes, self._device_ttl)
+        return attributes
 
     async def get_device_details(self, device_id: str, use_cache: bool = True) -> dict:
         cache_key = self._details_cache_key(device_id)

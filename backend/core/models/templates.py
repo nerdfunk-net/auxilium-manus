@@ -40,6 +40,9 @@ class Template(Base):
     pre_run_use_textfsm: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # JSON array of Nautobot attribute groups to fetch for the preview `nautobot`
+    # variable (mirrors the get-nautobot-attributes step's list_of_attributes).
+    nautobot_attributes: Mapped[str | None] = mapped_column(Text, nullable=True)
     credential_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)

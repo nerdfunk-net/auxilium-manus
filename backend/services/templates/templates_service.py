@@ -65,6 +65,7 @@ class TemplatesService:
         variables: dict[str, Any],
         pre_run_commands: list[str] | None,
         pre_run_use_textfsm: bool,
+        nautobot_attributes: list[str] | None,
         credential_id: int | None,
         created_by: str | None,
     ) -> dict[str, Any]:
@@ -83,6 +84,7 @@ class TemplatesService:
             pre_run_command=commands[0] if commands else None,
             pre_run_commands=json.dumps(commands),
             pre_run_use_textfsm=pre_run_use_textfsm,
+            nautobot_attributes=json.dumps(_clean_attributes(nautobot_attributes)),
             credential_id=credential_id,
             created_by=created_by,
             is_active=True,
@@ -102,6 +104,7 @@ class TemplatesService:
         variables: dict[str, Any] | None = None,
         pre_run_commands: list[str] | None = None,
         pre_run_use_textfsm: bool | None = None,
+        nautobot_attributes: list[str] | None = None,
         credential_id: int | None = None,
     ) -> dict[str, Any]:
         template = self._repo.get_by_id(template_id)
@@ -132,6 +135,10 @@ class TemplatesService:
             updates["pre_run_command"] = commands[0] if commands else None
         if pre_run_use_textfsm is not None:
             updates["pre_run_use_textfsm"] = pre_run_use_textfsm
+        if nautobot_attributes is not None:
+            updates["nautobot_attributes"] = json.dumps(
+                _clean_attributes(nautobot_attributes)
+            )
         if credential_id is not None:
             updates["credential_id"] = credential_id
 
@@ -195,6 +202,7 @@ class TemplatesService:
             "variables": variables,
             "pre_run_commands": _load_commands(template),
             "pre_run_use_textfsm": bool(template.pre_run_use_textfsm),
+            "nautobot_attributes": _load_attributes(template),
             "credential_id": template.credential_id,
             "created_by": template.created_by,
             "is_active": template.is_active,
@@ -208,6 +216,27 @@ def _clean_commands(commands: list[str] | None) -> list[str]:
     if not commands:
         return []
     return [command.strip() for command in commands if command and command.strip()]
+
+
+def _clean_attributes(attributes: list[str] | None) -> list[str]:
+    """Keep only recognised Nautobot attribute group keys, preserving order."""
+    from services.nautobot.devices.attribute_bag import normalize_attribute_groups
+
+    return normalize_attribute_groups(attributes)
+
+
+def _load_attributes(template: Template) -> list[str]:
+    """Resolve the stored Nautobot attribute-group selection."""
+    raw = template.nautobot_attributes
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(parsed, list):
+        return _clean_attributes([str(item) for item in parsed])
+    return []
 
 
 def _load_commands(template: Template) -> list[str]:

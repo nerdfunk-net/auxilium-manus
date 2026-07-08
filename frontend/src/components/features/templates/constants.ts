@@ -10,8 +10,31 @@ export const TEMPLATE_TYPES: { value: TemplateType; label: string }[] = [
 
 /** Auto-filled variables available to Netmiko templates. */
 export const NETMIKO_AUTO_VARIABLES: { name: string; description: string }[] = [
-  { name: "devices", description: "Selected test device (id, name, primary_ip4)" },
-  { name: "device_details", description: "Full Nautobot details for the test device" },
+  {
+    name: "device",
+    description:
+      "Device identity: name, hostname, id, primary_ip4, platform, network_driver",
+  },
+  {
+    name: "nautobot",
+    description:
+      "Nautobot attributes (role, platform, location, config_context, custom_fields, …) — matches the Get Nautobot Attributes step",
+  },
+];
+
+/**
+ * Optional Nautobot attribute groups, matching the "Get Nautobot Attributes"
+ * workflow step. Base fields (role, platform, location, status, primary_ip4)
+ * are always fetched; these add the heavier / optional data.
+ */
+export const NAUTOBOT_ATTRIBUTE_GROUPS: { key: string; label: string }[] = [
+  { key: "interfaces", label: "Poll all Interfaces" },
+  { key: "custom_fields", label: "Poll Custom Fields" },
+  { key: "tags", label: "Poll Tags" },
+  { key: "config_context", label: "Poll Config Context" },
+  { key: "secret_groups", label: "Poll Secret Groups" },
+  { key: "console_ports", label: "Poll Console Ports and Console Server Ports" },
+  { key: "power_ports", label: "Poll Power Ports and Power Outlets" },
 ];
 
 /**

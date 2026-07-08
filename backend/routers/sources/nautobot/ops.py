@@ -16,6 +16,7 @@ from dependencies import (
     nautobot_credentials_from_query,
 )
 from models.sources_nautobot import (
+    DeviceAttributesRequest,
     DeviceDetailsRequest,
     DeviceSearchRequest,
     DeviceSearchResponse,
@@ -143,6 +144,23 @@ async def get_device_details(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to fetch device details: ", exc)
+
+
+@router.post("/devices/attributes")
+async def get_device_attributes(
+    request: DeviceAttributesRequest,
+    _: User = Depends(get_current_user),
+) -> dict:
+    credentials = nautobot_credentials_from_body(request)
+    source_service = _build_source_service(credentials)
+    try:
+        return await source_service.get_device_attributes(
+            request.device_id, request.list_of_attributes
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to fetch device attributes: ", exc)
 
 
 @router.get("/field-options")

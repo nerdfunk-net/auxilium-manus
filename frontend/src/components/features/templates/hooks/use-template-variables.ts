@@ -60,23 +60,26 @@ export function useTemplateVariables() {
     );
   }, []);
 
-  const updateDeviceData = useCallback((data: { devices: unknown; device_details: unknown } | null) => {
+  const setDeviceInfo = useCallback((device: Record<string, unknown> | null) => {
     setVariables((current) =>
-      current.map((variable) => {
-        if (variable.id === "auto:devices") {
-          return {
-            ...variable,
-            value: data ? JSON.stringify(data.devices, null, 2) : "",
-          };
-        }
-        if (variable.id === "auto:device_details") {
-          return {
-            ...variable,
-            value: data ? JSON.stringify(data.device_details, null, 2) : "",
-          };
-        }
-        return variable;
-      }),
+      current.map((variable) =>
+        variable.id === "auto:device"
+          ? { ...variable, value: device ? JSON.stringify(device, null, 2) : "" }
+          : variable,
+      ),
+    );
+  }, []);
+
+  const setNautobotAttributes = useCallback((bag: unknown) => {
+    setVariables((current) =>
+      current.map((variable) =>
+        variable.id === "auto:nautobot"
+          ? {
+              ...variable,
+              value: bag ? JSON.stringify(bag, null, 2) : "",
+            }
+          : variable,
+      ),
     );
   }, []);
 
@@ -140,7 +143,8 @@ export function useTemplateVariables() {
       addVariable,
       removeVariable,
       updateVariableValue,
-      updateDeviceData,
+      setDeviceInfo,
+      setNautobotAttributes,
       toggleCommandVariables,
       setCommandResults,
       loadCustomVariables,
@@ -150,7 +154,8 @@ export function useTemplateVariables() {
       addVariable,
       removeVariable,
       updateVariableValue,
-      updateDeviceData,
+      setDeviceInfo,
+      setNautobotAttributes,
       toggleCommandVariables,
       setCommandResults,
       loadCustomVariables,

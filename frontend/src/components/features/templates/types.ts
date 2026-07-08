@@ -32,6 +32,7 @@ export interface Template {
   variables: Record<string, TemplateVariableRecord>;
   pre_run_commands: string[];
   pre_run_use_textfsm: boolean;
+  nautobot_attributes: string[];
   credential_id: number | null;
   created_by: string | null;
   is_active: boolean;
@@ -48,6 +49,7 @@ export interface TemplateCreatePayload {
   variables: Record<string, TemplateVariableRecord>;
   pre_run_commands: string[];
   pre_run_use_textfsm: boolean;
+  nautobot_attributes: string[];
   credential_id?: number | null;
 }
 

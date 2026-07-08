@@ -45,8 +45,8 @@ export function JinjaHelpDialog({ open, onClose }: JinjaHelpDialogProps) {
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>Writing a Jinja2 template</DialogTitle>
           <DialogDescription>
-            Reference for the variables available when a template is rendered
-            by the &quot;Render Jinja Template&quot; workflow step.
+            Reference for variables available when a template is rendered in a
+            workflow or previewed in the template editor.
           </DialogDescription>
         </DialogHeader>
 
@@ -72,8 +72,52 @@ run.timestamp`}</CodeBlock>
               Populated only if the matching step ran earlier in the
               workflow:
             </p>
-            <CodeBlock>{`nautobot.*   — from "Get Nautobot Attributes"
+            <CodeBlock>{`nautobot.*   — from "Get Nautobot Attributes" (or the editor preview)
 git.*        — from "Get Git Devices"`}</CodeBlock>
+          </Section>
+
+          <Section title="Nautobot attributes">
+            <p>
+              After <strong>Get Nautobot Attributes</strong> (or when you select
+              a test device in the template editor), the full Nautobot record
+              for that device is available as <code>nautobot</code>. Base fields
+              are always present; optional groups (config context, custom
+              fields, interfaces, tags, …) appear only when you select them.
+            </p>
+            <p>
+              For a device named <strong>lab</strong>, the bag might look like
+              this (abbreviated):
+            </p>
+            <CodeBlock>{`{
+  "name": "lab",
+  "hostname": "lab",
+  "serial": "12345",
+  "primary_ip4": { "host": "192.168.178.240", "address": "192.168.178.240/24", ... },
+  "role": { "name": "Network" },
+  "status": { "name": "Active" },
+  "platform": { "name": "cisco_ios", "network_driver": "cisco_ios", ... },
+  "location": { "name": "City A", "parent": { "name": "State A" }, ... },
+  "device_type": { "model": "virtual", "manufacturer": { "name": "Cisco" }, ... }
+}`}</CodeBlock>
+            <p>Common paths in templates:</p>
+            <CodeBlock>{`nautobot.name                 nautobot.hostname
+nautobot.role.name            nautobot.status.name
+nautobot.platform.name        nautobot.platform.network_driver
+nautobot.location.name        nautobot.location.parent.name
+nautobot.primary_ip4.host     nautobot.device_type.model
+nautobot.device_type.manufacturer.name`}</CodeBlock>
+            <p>Example — branch on role and status for device <strong>lab</strong>:</p>
+            <CodeBlock>{`Device: {{ device.name }}
+Role: {{ nautobot.role.name }}
+Status: {{ nautobot.status.name }}
+
+{% if nautobot.role.name == 'Network' and nautobot.status.name == 'Active' %}
+!
+hostname {{ device.name }}
+!
+{% else %}
+! Skipping {{ device.name }}: role={{ nautobot.role.name }}, status={{ nautobot.status.name }}
+{% endif %}`}</CodeBlock>
           </Section>
 
           <Section title="Accessing command output (one command)">
@@ -153,6 +197,17 @@ Version: {{ version.parsed[0].version if version.parsed else version.raw }}`}</C
               runtime — so a template you write and preview here behaves the
               same once it runs after real Run Command steps.
             </p>
+            <p>
+              Selecting a test device also populates <code>device</code> (name,
+              hostname, id, primary_ip4, platform, network_driver). Use{" "}
+              <strong>Attributes</strong> to choose which Nautobot attribute
+              groups to fetch into <code>nautobot</code> (config context, custom
+              fields, interfaces, tags, …). These use the same query and field
+              names as the <strong>Get Nautobot Attributes</strong> step, so{" "}
+              <code>nautobot.config_context</code>,{" "}
+              <code>nautobot.custom_fields</code> and the rest resolve
+              identically in the editor and at runtime.
+            </p>
           </Section>
 
           <Section title="Undefined variables">
@@ -167,17 +222,28 @@ Version: {{ version.parsed[0].version if version.parsed else version.raw }}`}</C
           </Section>
 
           <Section title="Full example">
-            <CodeBlock>{`Hostname: {{ device.name }} ({{ device.primary_ip4 }})
+            <p>
+              Combines device identity, Nautobot role/status, and command output
+              for device <strong>lab</strong>:
+            </p>
+            <CodeBlock>{`Device: {{ device.name }} ({{ device.primary_ip4 }})
+Role: {{ nautobot.role.name }}
+Status: {{ nautobot.status.name }}
 Platform: {{ device.platform }}
 
+{% if nautobot.status.name != 'Active' %}
+! Device {{ device.name }} is not active — no config applied.
+{% else %}
+!
+hostname {{ device.name }}
+!
 {% set interfaces = commands_by_name['show ip int brief'] %}
 {% if interfaces and interfaces.parsed %}
-Interfaces:
+! Interfaces on {{ nautobot.role.name }} device {{ device.name }}:
 {% for row in interfaces.parsed %}
-  {{ row.interface }}: {{ row.status }}/{{ row.proto }}
+!   {{ row.interface }}: {{ row.status }}/{{ row.proto }}
 {% endfor %}
-{% else %}
-No interface data available.
+{% endif %}
 {% endif %}`}</CodeBlock>
           </Section>
         </div>
