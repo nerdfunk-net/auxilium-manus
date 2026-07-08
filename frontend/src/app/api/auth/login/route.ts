@@ -115,8 +115,9 @@ async function parseUserResponse(response: Response): Promise<AuthUser | null> {
   if (
     typeof payload.id !== "number" ||
     typeof payload.username !== "string" ||
-    typeof payload.permissions !== "number" ||
-    typeof payload.is_active !== "boolean"
+    typeof payload.is_active !== "boolean" ||
+    !Array.isArray(payload.roles) ||
+    !Array.isArray(payload.permissions)
   ) {
     return null;
   }
@@ -124,6 +125,7 @@ async function parseUserResponse(response: Response): Promise<AuthUser | null> {
   return {
     id: payload.id,
     is_active: payload.is_active,
+    roles: payload.roles,
     permissions: payload.permissions,
     username: payload.username,
   };

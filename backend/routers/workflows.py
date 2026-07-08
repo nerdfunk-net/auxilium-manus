@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from models.workflows import (
@@ -30,7 +30,11 @@ def _service(db: Session = Depends(get_db)) -> WorkflowService:
     return WorkflowService(db)
 
 
-@router.get("", response_model=WorkflowListResponse)
+@router.get(
+    "",
+    response_model=WorkflowListResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
 async def list_workflows(
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
@@ -38,7 +42,11 @@ async def list_workflows(
     return service.list_workflows(user_id=current_user.id)
 
 
-@router.get("/check-name", response_model=WorkflowNameCheckResponse)
+@router.get(
+    "/check-name",
+    response_model=WorkflowNameCheckResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
 async def check_workflow_name(
     name: str = Query(..., min_length=1, max_length=255),
     folder: str = Query("/", max_length=500),
@@ -56,7 +64,11 @@ async def check_workflow_name(
     )
 
 
-@router.get("/{workflow_id}", response_model=WorkflowResponse)
+@router.get(
+    "/{workflow_id}",
+    response_model=WorkflowResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
 async def get_workflow(
     workflow_id: int,
     current_user: User = Depends(get_current_user),
@@ -65,7 +77,12 @@ async def get_workflow(
     return service.get_workflow(workflow_id=workflow_id, user_id=current_user.id)
 
 
-@router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=WorkflowResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("workflows", "write"))],
+)
 async def create_workflow(
     body: WorkflowCreate,
     current_user: User = Depends(get_current_user),
@@ -74,7 +91,11 @@ async def create_workflow(
     return service.create_workflow(data=body, user_id=current_user.id)
 
 
-@router.put("/{workflow_id}", response_model=WorkflowResponse)
+@router.put(
+    "/{workflow_id}",
+    response_model=WorkflowResponse,
+    dependencies=[Depends(require_permission("workflows", "write"))],
+)
 async def update_workflow(
     workflow_id: int,
     body: WorkflowUpdate,
@@ -84,7 +105,11 @@ async def update_workflow(
     return service.update_workflow(workflow_id=workflow_id, data=body, user_id=current_user.id)
 
 
-@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{workflow_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("workflows", "delete"))],
+)
 async def delete_workflow(
     workflow_id: int,
     current_user: User = Depends(get_current_user),

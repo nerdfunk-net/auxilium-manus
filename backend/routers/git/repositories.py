@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_git_connection_service
 from models.git_repositories import (
@@ -27,7 +27,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/git-repositories", tags=["git-repositories"])
 
 
-@router.get("/", response_model=GitRepositoryListResponse)
+@router.get(
+    "/",
+    response_model=GitRepositoryListResponse,
+    dependencies=[Depends(require_permission("git.repositories", "read"))],
+)
 async def get_repositories(
     category: Optional[str] = None,
     active_only: bool = False,
@@ -51,7 +55,11 @@ async def get_repositories(
         raise_internal_server_error(logger, "Internal error", e)
 
 
-@router.get("/{repo_id}", response_model=GitRepositoryResponse)
+@router.get(
+    "/{repo_id}",
+    response_model=GitRepositoryResponse,
+    dependencies=[Depends(require_permission("git.repositories", "read"))],
+)
 async def get_repository(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -72,7 +80,10 @@ async def get_repository(
         raise_internal_server_error(logger, "Internal error", e)
 
 
-@router.get("/{repo_id}/edit")
+@router.get(
+    "/{repo_id}/edit",
+    dependencies=[Depends(require_permission("git.repositories", "read"))],
+)
 async def get_repository_for_edit(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -91,7 +102,11 @@ async def get_repository_for_edit(
         raise_internal_server_error(logger, "Internal error", e)
 
 
-@router.post("/", response_model=GitRepositoryResponse)
+@router.post(
+    "/",
+    response_model=GitRepositoryResponse,
+    dependencies=[Depends(require_permission("git.repositories", "write"))],
+)
 async def create_repository(
     repository: GitRepositoryRequest,
     current_user: dict = Depends(get_current_user),
@@ -121,7 +136,11 @@ async def create_repository(
         raise_internal_server_error(logger, "Internal error", e)
 
 
-@router.put("/{repo_id}", response_model=GitRepositoryResponse)
+@router.put(
+    "/{repo_id}",
+    response_model=GitRepositoryResponse,
+    dependencies=[Depends(require_permission("git.repositories", "write"))],
+)
 async def update_repository(
     repo_id: int,
     repository: GitRepositoryUpdateRequest,
@@ -166,7 +185,10 @@ async def update_repository(
         raise_internal_server_error(logger, "Internal error", e)
 
 
-@router.delete("/{repo_id}")
+@router.delete(
+    "/{repo_id}",
+    dependencies=[Depends(require_permission("git.repositories", "delete"))],
+)
 async def delete_repository(
     repo_id: int,
     hard_delete: bool = True,
@@ -191,7 +213,11 @@ async def delete_repository(
         raise_internal_server_error(logger, "Internal error", e)
 
 
-@router.post("/test-connection", response_model=GitConnectionTestResponse)
+@router.post(
+    "/test-connection",
+    response_model=GitConnectionTestResponse,
+    dependencies=[Depends(require_permission("git.repositories", "read"))],
+)
 async def test_git_connection(
     test_request: GitConnectionTestRequest,
     current_user: dict = Depends(get_current_user),
@@ -227,7 +253,10 @@ async def test_git_connection(
         raise
 
 
-@router.get("/health")
+@router.get(
+    "/health",
+    dependencies=[Depends(require_permission("git.repositories", "read"))],
+)
 async def health_check(
     current_user: dict = Depends(get_current_user),
 ):

@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from models.settings import (
@@ -29,7 +29,11 @@ def _service(db: Session = Depends(get_db)) -> SettingsService:
     return SettingsService(db)
 
 
-@router.get("", response_model=SettingListResponse)
+@router.get(
+    "",
+    response_model=SettingListResponse,
+    dependencies=[Depends(require_permission("settings", "read"))],
+)
 async def list_settings(
     key_prefix: str | None = Query(None, max_length=255),
     _current_user: User = Depends(get_current_user),
@@ -38,7 +42,11 @@ async def list_settings(
     return service.list_settings(key_prefix=key_prefix)
 
 
-@router.get("/{key}", response_model=SettingResponse)
+@router.get(
+    "/{key}",
+    response_model=SettingResponse,
+    dependencies=[Depends(require_permission("settings", "read"))],
+)
 async def get_setting(
     key: str,
     _current_user: User = Depends(get_current_user),
@@ -47,7 +55,12 @@ async def get_setting(
     return service.get_setting(key)
 
 
-@router.post("", response_model=SettingResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=SettingResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("settings", "write"))],
+)
 async def create_setting(
     body: SettingCreate,
     _current_user: User = Depends(get_current_user),
@@ -56,7 +69,11 @@ async def create_setting(
     return service.create_setting(body)
 
 
-@router.put("/{key}", response_model=SettingResponse)
+@router.put(
+    "/{key}",
+    response_model=SettingResponse,
+    dependencies=[Depends(require_permission("settings", "write"))],
+)
 async def update_setting(
     key: str,
     body: SettingUpdate,
@@ -66,7 +83,11 @@ async def update_setting(
     return service.update_setting(key, body)
 
 
-@router.delete("/{key}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{key}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("settings", "write"))],
+)
 async def delete_setting(
     key: str,
     _current_user: User = Depends(get_current_user),

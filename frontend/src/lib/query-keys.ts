@@ -78,4 +78,19 @@ export const queryKeys = {
     detail: (id: number) => [...queryKeys.templates.all, "detail", id] as const,
     categories: () => [...queryKeys.templates.all, "categories"] as const,
   },
+  rbac: {
+    all: ["rbac"] as const,
+    permissions: () => [...queryKeys.rbac.all, "permissions"] as const,
+    roles: () => [...queryKeys.rbac.all, "roles"] as const,
+    role: (id: number) => [...queryKeys.rbac.all, "role", id] as const,
+    userRoles: (userId: number) => [...queryKeys.rbac.all, "user-roles", userId] as const,
+    userPermissions: (userId: number) =>
+      [...queryKeys.rbac.all, "user-permissions", userId] as const,
+    myPermissions: () => [...queryKeys.rbac.all, "my-permissions"] as const,
+  },
+  users: {
+    all: ["users"] as const,
+    list: () => [...queryKeys.users.all, "list"] as const,
+    detail: (id: number) => [...queryKeys.users.all, "detail", id] as const,
+  },
 };

@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
@@ -32,7 +32,10 @@ EDITOR_NODE_ID = "template-editor"
 router = APIRouter(
     prefix="/netmiko",
     tags=["netmiko"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[
+        Depends(get_current_user),
+        Depends(require_permission("netmiko", "execute")),
+    ],
 )
 
 

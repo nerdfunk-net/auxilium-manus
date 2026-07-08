@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.update_attribute import (
@@ -23,7 +23,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/workflow-steps/update-attribute",
     tags=["workflow-steps"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[
+        Depends(get_current_user),
+        Depends(require_permission("workflow_steps", "read")),
+    ],
 )
 
 

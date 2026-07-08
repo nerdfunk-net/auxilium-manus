@@ -13,6 +13,7 @@ from core.database import get_db
 from core.models.users import User
 from models.auth import LoginRequest, TokenResponse, UserResponse
 from services.auth.auth_service import AuthenticationError, AuthService
+from services.auth.rbac_service import RBACService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 LOGIN_RATE_LIMIT_ATTEMPTS = 5
@@ -46,8 +47,19 @@ async def login(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
-    return UserResponse.model_validate(current_user)
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    rbac = RBACService(db)
+
+    return UserResponse(
+        id=current_user.id,
+        username=current_user.username,
+        is_active=current_user.is_active,
+        roles=rbac.get_user_roles(current_user.id),
+        permissions=rbac.get_user_permission_strings(current_user.id),
+    )
 
 
 def _get_rate_limit_key(request: Request, username: str) -> str:

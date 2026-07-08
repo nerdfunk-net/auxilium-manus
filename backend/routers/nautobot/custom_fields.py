@@ -7,14 +7,18 @@ import logging
 from fastapi import APIRouter, Depends
 
 import service_factory
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import nautobot_credentials_from_query
 from services.nautobot.credentials import NautobotCredentials
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/nautobot", tags=["nautobot"])
+router = APIRouter(
+    prefix="/nautobot",
+    tags=["nautobot"],
+    dependencies=[Depends(require_permission("nautobot.custom_fields", "read"))],
+)
 
 
 @router.get("/custom-fields/devices")

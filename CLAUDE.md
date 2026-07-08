@@ -8,15 +8,15 @@ Workflows consist of ordered and dependency-aware steps. The output of one step 
 ## Tech Stack
 
 **Frontend:** Next.js 16.2.6 (App Router), React 19, React Flow, TypeScript 5, Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
-**Backend:** FastAPI, Python 3.9+, PostgreSQL, SQLAlchemy, Alembic, Redis, JWT auth, Celery/Beat, Hatchet, Netmiko, Ansible, GitPython
-**Integrations:** Nautobot API, CheckMK, OIDC multi-provider
+**Backend:** FastAPI, Python 3.9+, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko, GitPython
+**Integrations:** Nautobot API
 
 ## Architecture
 
 ### Core Principles
 - **Complete separation**: Frontend (port 3000) ↔ Backend (port 8000)
 - **API proxy pattern**: Frontend → Next.js `/api/proxy/*` → Backend (NEVER direct backend calls)
-- **PostgreSQL single database** with 40+ tables (defined in `/backend/core/models/`)
+- **PostgreSQL single database** with 14 tables (9 domain tables + 5 RBAC tables, defined in `/backend/core/models/`)
 - **Layered backend**: Model → Repository → Service → Router
 - **Feature-based organization**: Group by domain, not by technical role
 - **Server Components default**: Use `'use client'` only when necessary
@@ -129,15 +129,19 @@ export default function MyFeatureRoute() {
 
 **Backend Core:**
 - `/backend/core/models/` - SQLAlchemy table definitions (one file per domain)
-  - `audit.py` - `AuditLog`
-  - `credentials.py` - `Credential`, `LoginCredential`, `SNMPMapping`
+  - `base.py` - `Base` (declarative base)
+  - `credentials.py` - `Credential`
   - `git.py` - `GitRepository`
+  - `inventories.py` - `Inventory`
   - `rbac.py` - `Permission`, `Role`, `RolePermission`, `UserPermission`, `UserRole`
-  - `settings.py` - `AgentsSetting`, `CacheSetting`, `CelerySetting`, `CheckMKSetting`, `GitSetting`, `NautobotDefault`, `NautobotSetting`, `Setting`, `SettingsMetadata`
-  - `users.py` - `User`, `UserProfile`
+  - `runs.py` - `WorkflowRun`, `WorkflowStepResult`
+  - `settings.py` - `Setting`
+  - `templates.py` - `Template`
+  - `users.py` - `User`
+  - `workflows.py` - `Workflow`
   - `__init__.py` - Re-exports all models
 - `/backend/core/database.py` - DB session, get_db() dependency
-- `/backend/core/auth.py` - verify_token, require_permission, verify_admin_token
+- `/backend/core/auth.py` - verify_token, get_current_user, require_permission, require_any_permission, require_all_permissions, require_role
 - `/backend/main.py` - FastAPI app, router registration
 
 **Frontend Core:**
@@ -156,17 +160,27 @@ export default function MyFeatureRoute() {
 {
   "sub": "username",
   "user_id": 123,
-  "permissions": 15,  # Bitmask
   "exp": 1234567890
 }
 ```
+Permissions are **not** embedded in the JWT. Authorization is evaluated per-request
+against the database via `RBACService.has_permission(user_id, resource, action)` — there
+is no caching and no JWT permission claim to keep in sync.
+
+### RBAC Data Model
+Five tables in `/backend/core/models/rbac.py`: `roles`, `permissions`, `role_permissions`,
+`user_roles`, `user_permissions`. `user_permissions` holds per-user overrides (an explicit
+allow or deny for one `resource:action`) that sit above role-derived grants.
+
+Precedence: **user-level override (allow or deny) > role-derived grant > default-deny.**
+See `backend/services/auth/rbac_service.py::RBACService.has_permission`.
 
 ### Permission Pattern
-Format: `{resource}:{action}` (e.g., `users:read`, `settings:write`, `devices:delete`)
+Format: `{resource}:{action}` (e.g., `users:read`, `settings:write`, `credentials:delete`)
 
 ### Backend Auth Dependencies
 ```python
-from core.auth import verify_token, require_permission, verify_admin_token
+from core.auth import verify_token, require_permission, require_role
 
 # Basic auth
 @router.get("/data")
@@ -178,13 +192,13 @@ async def get_data(user: dict = Depends(verify_token)):
 async def create_user():
     pass
 
-@router.get("/devices", dependencies=[Depends(require_permission("nautobot.devices", "read"))])
-async def get_devices():
+@router.get("/workflows", dependencies=[Depends(require_permission("workflows", "read"))])
+async def get_workflows():
     pass
 
-# Admin only
+# Role required
 @router.delete("/critical")
-async def delete_critical(user: dict = Depends(verify_admin_token)):
+async def delete_critical(user: dict = Depends(require_role("admin"))):
     pass
 ```
 
@@ -204,9 +218,8 @@ the HTTP-only auth cookie as a backend `Authorization` header.
 
 ## Database Schema (Key Tables)
 
-**Users & RBAC:** `users`, `user_profiles`, `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
-**Settings:** `settings`, `settings_metadata`, `nautobot_settings`, `nautobot_defaults`, `checkmk_settings`, `git_settings`, `celery_settings`, `agents_settings`, `cache_settings`
-**Credentials:** `credentials`, `login_credentials`, `snmp_mapping`
+**Domain tables:** `users`, `credentials`, `git_repositories`, `inventories`, `settings`, `templates`, `workflows`, `workflow_runs`, `workflow_step_results`
+**RBAC tables:** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 
 ## UI/UX Standards
 
@@ -541,8 +554,10 @@ PORT=3000
 1. Define SQLAlchemy model in `/backend/core/models/{domain}.py` and export it from `/backend/core/models/__init__.py`
 2. Create Pydantic models in `/backend/models/{domain}.py`
 3. Create repository in `/backend/repositories/{domain}_repository.py`
-4. Create service in `/backend/services/{domain}/{domain}/{domain}_service.py`
-5. Create router in `/backend/routers/{domain}/{domain}.py` with auth dependencies
+4. Create service in `/backend/services/{domain}/{domain}_service.py`
+5. Create router in `/backend/routers/{domain}.py` (flat, for simple domains) or as a
+   `/backend/routers/{domain}/` package (for domains with multiple route groups, e.g.
+   `routers/git/`, `routers/rbac/`), with auth dependencies
 6. Register router in `/backend/main.py`
 
 ### Adding New Frontend Page
@@ -556,7 +571,9 @@ PORT=3000
 Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`.
 
 ### Adding New Permission
-1. UI: `/settings/permissions` → Add Permission → Assign to roles
+1. UI: `/settings/users` → Permissions tab lists the catalog; create a permission from
+   the Roles tab's "Manage permissions" dialog (or `POST /api/rbac/permissions`), then
+   grant it to a role
 2. Code: Use `require_permission("resource", "action")` in routers
 
 ### Adding a New Workflow Step
@@ -620,16 +637,14 @@ cd frontend && npm run dev
 # Frontend: http://localhost:3000
 # Backend: http://localhost:8000
 
-# Router regression guards (from backend/)
-python scripts/check_asyncio_run.py
-python scripts/check_http_500_leaks.py
-python scripts/check_router_repositories.py
-python scripts/check_text_sql.py
-
 # Ruff (Python lint/format rules in backend/pyproject.toml) — run from time to time
 # or before larger backend changes; from backend/: `ruff check .` (optionally `--fix`)
 ruff check .
 ```
+
+Router/repository-boundary and raw-SQL/asyncio-leak regression guard scripts are not yet
+ported into this repo's `backend/scripts/` (only `purge_retention.py` exists there); see
+`doc/BACKEND-ANALYSIS.md` §3.3 if reintroducing them.
 
 When implementing configuration changes, include verification steps that confirm the change works (e.g., run a quick test, check logs, or validate config loads)
 
@@ -792,7 +807,7 @@ ip_id = await ip_manager.ensure_ip_address_exists(...)
 - JWT tokens in cookies
 - Permission format: `resource:action`
 - Backend: `Depends(require_permission("resource", "action"))`
-- Frontend: Check `useAuthStore()` user role
+- Frontend: Check `hasPermission(user, "resource", "action")` from `lib/permissions.ts`
 
 ## INCORRECT Practices (NEVER DO)
 

@@ -10,12 +10,16 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from git import GitCommandError, InvalidGitRepositoryError
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_cache_service, get_git_version_control_service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/git/{repo_id}", tags=["git-version-control"])
+router = APIRouter(
+    prefix="/git/{repo_id}",
+    tags=["git-version-control"],
+    dependencies=[Depends(require_permission("git.version_control", "read"))],
+)
 
 
 @router.get("/branches")

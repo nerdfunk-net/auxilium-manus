@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
@@ -36,7 +36,11 @@ def _service(db: Session = Depends(get_db)) -> TemplatesService:
     return TemplatesService(db)
 
 
-@router.get("", response_model=TemplateListResponse)
+@router.get(
+    "",
+    response_model=TemplateListResponse,
+    dependencies=[Depends(require_permission("templates", "read"))],
+)
 async def list_templates(
     category: str | None = Query(None),
     search: str | None = Query(None),
@@ -47,7 +51,11 @@ async def list_templates(
     return TemplateListResponse(templates=templates, total=len(templates))
 
 
-@router.get("/categories", response_model=list[str])
+@router.get(
+    "/categories",
+    response_model=list[str],
+    dependencies=[Depends(require_permission("templates", "read"))],
+)
 async def list_categories(
     _current_user: User = Depends(get_current_user),
     service: TemplatesService = Depends(_service),
@@ -55,7 +63,11 @@ async def list_categories(
     return service.list_categories()
 
 
-@router.post("/render", response_model=TemplateRenderResponse)
+@router.post(
+    "/render",
+    response_model=TemplateRenderResponse,
+    dependencies=[Depends(require_permission("templates", "read"))],
+)
 async def render_template(
     payload: TemplateRenderRequest,
     _current_user: User = Depends(get_current_user),
@@ -73,7 +85,11 @@ async def render_template(
         raise_internal_server_error(logger, "Failed to render template", exc)
 
 
-@router.get("/{template_id}", response_model=TemplateResponse)
+@router.get(
+    "/{template_id}",
+    response_model=TemplateResponse,
+    dependencies=[Depends(require_permission("templates", "read"))],
+)
 async def get_template(
     template_id: int,
     _current_user: User = Depends(get_current_user),
@@ -87,7 +103,12 @@ async def get_template(
         raise_internal_server_error(logger, "Failed to fetch template", exc)
 
 
-@router.post("", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=TemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("templates", "write"))],
+)
 async def create_template(
     payload: TemplateCreate,
     current_user: User = Depends(get_current_user),
@@ -114,7 +135,11 @@ async def create_template(
         raise_internal_server_error(logger, "Failed to create template", exc)
 
 
-@router.put("/{template_id}", response_model=TemplateResponse)
+@router.put(
+    "/{template_id}",
+    response_model=TemplateResponse,
+    dependencies=[Depends(require_permission("templates", "write"))],
+)
 async def update_template(
     template_id: int,
     payload: TemplateUpdate,
@@ -149,7 +174,11 @@ async def update_template(
         raise_internal_server_error(logger, "Failed to update template", exc)
 
 
-@router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("templates", "delete"))],
+)
 async def delete_template(
     template_id: int,
     hard_delete: bool = Query(True),

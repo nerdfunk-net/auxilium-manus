@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_inventory_service
@@ -26,7 +26,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sources/nautobot", tags=["sources-nautobot"])
 
 
-@router.post("", response_model=InventoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=InventoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("sources.nautobot", "write"))],
+)
 async def create_inventory(
     request: CreateInventoryRequest,
     current_user: User = Depends(get_current_user),
@@ -65,7 +70,11 @@ async def create_inventory(
         raise_internal_server_error(logger, "Failed to create inventory: ", exc)
 
 
-@router.get("", response_model=ListInventoriesResponse)
+@router.get(
+    "",
+    response_model=ListInventoriesResponse,
+    dependencies=[Depends(require_permission("sources.nautobot", "read"))],
+)
 async def list_inventories(
     scope: str | None = None,
     active_only: bool = True,
@@ -88,7 +97,11 @@ async def list_inventories(
         raise_internal_server_error(logger, "Failed to list inventories: ", exc)
 
 
-@router.get("/search/{query}", response_model=ListInventoriesResponse)
+@router.get(
+    "/search/{query}",
+    response_model=ListInventoriesResponse,
+    dependencies=[Depends(require_permission("sources.nautobot", "read"))],
+)
 async def search_inventories(
     query: str,
     active_only: bool = True,
@@ -105,7 +118,11 @@ async def search_inventories(
         raise_internal_server_error(logger, "Failed to search inventories: ", exc)
 
 
-@router.get("/by-name/{inventory_name}", response_model=InventoryResponse)
+@router.get(
+    "/by-name/{inventory_name}",
+    response_model=InventoryResponse,
+    dependencies=[Depends(require_permission("sources.nautobot", "read"))],
+)
 async def get_inventory_by_name(
     inventory_name: str,
     current_user: User = Depends(get_current_user),
@@ -125,7 +142,10 @@ async def get_inventory_by_name(
         raise_internal_server_error(logger, "Failed to get inventory: ", exc)
 
 
-@router.get("/export/{inventory_id}")
+@router.get(
+    "/export/{inventory_id}",
+    dependencies=[Depends(require_permission("sources.nautobot", "read"))],
+)
 async def export_inventory(
     inventory_id: int,
     current_user: User = Depends(get_current_user),
@@ -188,7 +208,12 @@ async def export_inventory(
         raise_internal_server_error(logger, "Failed to export inventory: ", exc)
 
 
-@router.post("/import", response_model=InventoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/import",
+    response_model=InventoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("sources.nautobot", "write"))],
+)
 async def import_inventory(
     request: ImportInventoryRequest,
     current_user: User = Depends(get_current_user),
@@ -244,7 +269,11 @@ async def import_inventory(
         raise_internal_server_error(logger, "Failed to import inventory: ", exc)
 
 
-@router.get("/{inventory_id}", response_model=InventoryResponse)
+@router.get(
+    "/{inventory_id}",
+    response_model=InventoryResponse,
+    dependencies=[Depends(require_permission("sources.nautobot", "read"))],
+)
 async def get_inventory(
     inventory_id: int,
     current_user: User = Depends(get_current_user),
@@ -266,7 +295,11 @@ async def get_inventory(
         raise_internal_server_error(logger, "Failed to get inventory: ", exc)
 
 
-@router.put("/{inventory_id}", response_model=InventoryResponse)
+@router.put(
+    "/{inventory_id}",
+    response_model=InventoryResponse,
+    dependencies=[Depends(require_permission("sources.nautobot", "write"))],
+)
 async def update_inventory(
     inventory_id: int,
     request: UpdateInventoryRequest,
@@ -305,7 +338,11 @@ async def update_inventory(
         raise_internal_server_error(logger, "Failed to update inventory: ", exc)
 
 
-@router.delete("/{inventory_id}", response_model=InventoryDeleteResponse)
+@router.delete(
+    "/{inventory_id}",
+    response_model=InventoryDeleteResponse,
+    dependencies=[Depends(require_permission("sources.nautobot", "delete"))],
+)
 async def delete_inventory(
     inventory_id: int,
     hard_delete: bool = Query(default=True),

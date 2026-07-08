@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from models.plugins import (
     PluginDefinition,
     PluginListResponse,
@@ -23,7 +23,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/workflow-steps",
     tags=["workflow-steps"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[
+        Depends(get_current_user),
+        Depends(require_permission("workflow_steps", "read")),
+    ],
 )
 
 

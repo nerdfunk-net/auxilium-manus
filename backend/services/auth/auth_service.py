@@ -41,7 +41,6 @@ class AuthService:
         payload = {
             "sub": user.username,
             "user_id": user.id,
-            "permissions": user.permissions,
             "exp": expires_at,
         }
 
@@ -65,7 +64,6 @@ class AuthService:
             return self.users.create_user(
                 username=settings.initial_username,
                 password_hash=password_hash.hash(settings.initial_password),
-                permissions=settings.initial_permissions,
                 is_active=True,
             )
         except IntegrityError:

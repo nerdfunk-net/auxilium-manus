@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
@@ -36,7 +36,11 @@ def _service(db: Session = Depends(get_db)) -> CredentialsService:
     return CredentialsService(db)
 
 
-@router.get("", response_model=CredentialListResponse)
+@router.get(
+    "",
+    response_model=CredentialListResponse,
+    dependencies=[Depends(require_permission("credentials", "read"))],
+)
 async def list_credentials(
     include_expired: bool = Query(False),
     source: str = Query("general"),
@@ -47,7 +51,12 @@ async def list_credentials(
     return CredentialListResponse(credentials=credentials)
 
 
-@router.post("", response_model=CredentialResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CredentialResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("credentials", "write"))],
+)
 async def create_credential(
     payload: CredentialCreate,
     _current_user: User = Depends(get_current_user),
@@ -70,7 +79,11 @@ async def create_credential(
         raise_internal_server_error(logger, "Failed to create credential", exc)
 
 
-@router.put("/{cred_id}", response_model=CredentialResponse)
+@router.put(
+    "/{cred_id}",
+    response_model=CredentialResponse,
+    dependencies=[Depends(require_permission("credentials", "write"))],
+)
 async def update_credential(
     cred_id: int,
     payload: CredentialUpdate,
@@ -97,7 +110,11 @@ async def update_credential(
         raise_internal_server_error(logger, "Failed to update credential", exc)
 
 
-@router.delete("/{cred_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{cred_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("credentials", "delete"))],
+)
 async def delete_credential(
     cred_id: int,
     _current_user: User = Depends(get_current_user),
@@ -111,7 +128,11 @@ async def delete_credential(
         raise_internal_server_error(logger, "Failed to delete credential", exc)
 
 
-@router.get("/{cred_id}/password", response_model=CredentialPasswordResponse)
+@router.get(
+    "/{cred_id}/password",
+    response_model=CredentialPasswordResponse,
+    dependencies=[Depends(require_permission("credentials", "reveal"))],
+)
 async def get_credential_password(
     cred_id: int,
     _current_user: User = Depends(get_current_user),

@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 
 import service_factory
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import (
@@ -33,7 +33,11 @@ from services.sources.nautobot.source_service import NautobotSourceService
 from utils.inventory_converter import convert_saved_inventory_to_operations
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/sources/nautobot", tags=["sources-nautobot"])
+router = APIRouter(
+    prefix="/sources/nautobot",
+    tags=["sources-nautobot"],
+    dependencies=[Depends(require_permission("sources.nautobot", "read"))],
+)
 
 
 def _build_source_service(
@@ -60,7 +64,11 @@ async def get_all_groups(
         raise_internal_server_error(logger, "Failed to fetch inventory groups: ", exc)
 
 
-@router.post("/rename-group", response_model=RenameGroupResponse)
+@router.post(
+    "/rename-group",
+    response_model=RenameGroupResponse,
+    dependencies=[Depends(require_permission("sources.nautobot", "write"))],
+)
 async def rename_group(
     request: RenameGroupRequest,
     current_user: User = Depends(get_current_user),

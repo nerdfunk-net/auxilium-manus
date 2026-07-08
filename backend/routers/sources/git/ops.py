@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
@@ -59,7 +59,11 @@ def _load_source_config(source_id: str, db: Session) -> dict[str, Any]:
     return {**(setting.value or {}), "source_id": source_id}
 
 
-@router.post("/preview", response_model=GitPreviewResponse)
+@router.post(
+    "/preview",
+    response_model=GitPreviewResponse,
+    dependencies=[Depends(require_permission("sources.git", "read"))],
+)
 async def preview_git_devices(
     request: GitPreviewRequest,
     _: User = Depends(get_current_user),
@@ -98,7 +102,10 @@ async def preview_git_devices(
         raise_internal_server_error(logger, "Failed to preview git source: ", exc)
 
 
-@router.post("/pull")
+@router.post(
+    "/pull",
+    dependencies=[Depends(require_permission("sources.git", "execute"))],
+)
 async def pull_git_source(
     request: GitSourceActionRequest,
     _: User = Depends(get_current_user),
@@ -117,7 +124,10 @@ async def pull_git_source(
         raise_internal_server_error(logger, "Failed to pull git source", exc)
 
 
-@router.post("/remove-and-clone")
+@router.post(
+    "/remove-and-clone",
+    dependencies=[Depends(require_permission("sources.git", "execute"))],
+)
 async def remove_and_clone_git_source(
     request: GitSourceActionRequest,
     _: User = Depends(get_current_user),

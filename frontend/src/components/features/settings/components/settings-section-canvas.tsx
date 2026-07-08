@@ -4,12 +4,13 @@ import { SETTINGS_SECTIONS } from "../constants/settings-sections";
 import type { SettingsSection } from "../types/settings-section";
 import { CredentialsSettingsCanvas } from "./credentials-settings-canvas";
 import { HatchetSettingsCanvas } from "./hatchet-settings-canvas";
+import { PermissionsSettingsCanvas } from "./permissions-settings-canvas";
 import { RedisSettingsCanvas } from "./redis-settings-canvas";
 import { SourcesSettingsCanvas } from "./sources-settings-canvas";
 
 type MockPlaceholderSection = Exclude<
   SettingsSection,
-  "sources" | "hatchet" | "redis" | "credentials"
+  "sources" | "hatchet" | "redis" | "credentials" | "users"
 >;
 
 const MOCK_PLACEHOLDERS: Record<
@@ -22,14 +23,6 @@ const MOCK_PLACEHOLDERS: Record<
       "Application name and branding",
       "Default workflow folder",
       "Timezone and locale",
-    ],
-  },
-  users: {
-    title: "User management",
-    items: [
-      "Local accounts",
-      "Role assignments",
-      "Permission overrides",
     ],
   },
 };
@@ -53,6 +46,10 @@ export function SettingsSectionCanvas({ section }: SettingsSectionCanvasProps) {
 
   if (section === "credentials") {
     return <CredentialsSettingsCanvas />;
+  }
+
+  if (section === "users") {
+    return <PermissionsSettingsCanvas />;
   }
 
   const sectionMeta = SETTINGS_SECTIONS.find((s) => s.id === section);

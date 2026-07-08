@@ -17,24 +17,28 @@ import service_factory
 from core.database import SessionLocal, init_db
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
-from routers.credentials import router as credentials_router
 from routers.cache_settings import router as cache_settings_router
+from routers.credentials import router as credentials_router
+from routers.git import router as git_router
 from routers.hatchet_settings import router as hatchet_settings_router
 from routers.nautobot.custom_fields import router as nautobot_custom_fields_router
 from routers.netmiko import router as netmiko_router
+from routers.rbac import router as rbac_router
 from routers.settings import router as settings_router
-from routers.templates import router as templates_router
-from routers.git import router as git_router
 from routers.sources.git.ops import router as git_source_ops_router
 from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
 )
-from routers.workflow_update_attribute import router as workflow_update_attribute_router
+from routers.templates import router as templates_router
+from routers.users import router as users_router
 from routers.workflow_runs import router as workflow_runs_router
 from routers.workflow_steps import router as workflow_steps_router
+from routers.workflow_update_attribute import router as workflow_update_attribute_router
 from routers.workflows import router as workflows_router
 from services.auth.auth_service import AuthService
+from services.auth.rbac_seed import seed_rbac
+from services.auth.rbac_service import RBACService
 from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
@@ -44,7 +48,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_db()
 
     with SessionLocal() as db:
-        AuthService(db).ensure_initial_admin()
+        admin_user = AuthService(db).ensure_initial_admin()
+        seed_rbac(db)
+        RBACService(db).assign_role_to_user_by_name(admin_user.id, "admin")
 
     plugin_service = PluginRegistryService(
         PluginRepository(plugins_file=settings.plugins_file),
@@ -87,6 +93,8 @@ app.include_router(templates_router, prefix=settings.api_prefix)
 app.include_router(netmiko_router, prefix=settings.api_prefix)
 app.include_router(hatchet_settings_router, prefix=settings.api_prefix)
 app.include_router(cache_settings_router, prefix=settings.api_prefix)
+app.include_router(rbac_router, prefix=settings.api_prefix)
+app.include_router(users_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["health"])

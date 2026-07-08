@@ -19,5 +19,6 @@ class UserResponse(BaseModel):
 
     id: int
     username: str
-    permissions: int
     is_active: bool
+    roles: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)

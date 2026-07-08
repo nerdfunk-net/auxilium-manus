@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from models.artifacts import ArtifactContentResponse
@@ -29,6 +29,7 @@ def _service(db: Session = Depends(get_db)) -> RunService:
     "/workflows/{workflow_id}/runs",
     response_model=WorkflowRunResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
 )
 async def trigger_run(
     workflow_id: int,
@@ -39,7 +40,11 @@ async def trigger_run(
     return service.trigger_run(workflow_id=workflow_id, data=body, user_id=current_user.id)
 
 
-@router.get("/workflows/{workflow_id}/runs", response_model=WorkflowRunListResponse)
+@router.get(
+    "/workflows/{workflow_id}/runs",
+    response_model=WorkflowRunListResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
 async def list_runs(
     workflow_id: int,
     status: list[str] | None = Query(
@@ -69,7 +74,11 @@ async def list_runs(
     )
 
 
-@router.get("/runs/{run_id}", response_model=WorkflowRunResponse)
+@router.get(
+    "/runs/{run_id}",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
 async def get_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
@@ -78,7 +87,11 @@ async def get_run(
     return service.get_run(run_id=run_id, user_id=current_user.id)
 
 
-@router.get("/runs/{run_id}/artifacts/{artifact_id}", response_model=ArtifactContentResponse)
+@router.get(
+    "/runs/{run_id}/artifacts/{artifact_id}",
+    response_model=ArtifactContentResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
 async def get_run_artifact(
     run_id: int,
     artifact_id: str,
@@ -92,7 +105,11 @@ async def get_run_artifact(
     )
 
 
-@router.post("/runs/{run_id}/cancel", response_model=WorkflowRunResponse)
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
 async def cancel_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
@@ -101,7 +118,11 @@ async def cancel_run(
     return service.cancel_run(run_id=run_id, user_id=current_user.id)
 
 
-@router.post("/runs/{run_id}/step", response_model=WorkflowRunResponse)
+@router.post(
+    "/runs/{run_id}/step",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
 async def step_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
@@ -110,7 +131,11 @@ async def step_run(
     return service.step_run(run_id=run_id, user_id=current_user.id)
 
 
-@router.post("/runs/{run_id}/continue", response_model=WorkflowRunResponse)
+@router.post(
+    "/runs/{run_id}/continue",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
 async def continue_run(
     run_id: int,
     current_user: User = Depends(get_current_user),

@@ -9,7 +9,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from dependencies import get_git_auth_service, get_git_debug_service
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,10 @@ def _debug_error(e: Exception, repo_id: int, stage: str = "repository_access") -
     }
 
 
-@router.post("/{repo_id}/debug/read")
+@router.post(
+    "/{repo_id}/debug/read",
+    dependencies=[Depends(require_permission("git.debug", "execute"))],
+)
 async def debug_read_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -44,7 +47,10 @@ async def debug_read_test(
         return _debug_error(e, repo_id)
 
 
-@router.post("/{repo_id}/debug/write")
+@router.post(
+    "/{repo_id}/debug/write",
+    dependencies=[Depends(require_permission("git.debug", "execute"))],
+)
 async def debug_write_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -60,7 +66,10 @@ async def debug_write_test(
         return _debug_error(e, repo_id)
 
 
-@router.post("/{repo_id}/debug/delete")
+@router.post(
+    "/{repo_id}/debug/delete",
+    dependencies=[Depends(require_permission("git.debug", "execute"))],
+)
 async def debug_delete_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -76,7 +85,10 @@ async def debug_delete_test(
         return _debug_error(e, repo_id)
 
 
-@router.post("/{repo_id}/debug/push")
+@router.post(
+    "/{repo_id}/debug/push",
+    dependencies=[Depends(require_permission("git.debug", "execute"))],
+)
 async def debug_push_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -93,7 +105,10 @@ async def debug_push_test(
         return _debug_error(e, repo_id)
 
 
-@router.get("/{repo_id}/debug/diagnostics")
+@router.get(
+    "/{repo_id}/debug/diagnostics",
+    dependencies=[Depends(require_permission("git.debug", "read"))],
+)
 async def debug_diagnostics(
     repo_id: int,
     current_user: dict = Depends(get_current_user),

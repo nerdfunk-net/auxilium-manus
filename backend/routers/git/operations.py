@@ -9,7 +9,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import (
     get_git_cache_service,
@@ -38,7 +38,7 @@ def get_cached_commits(
     )
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_permission("git.operations", "read"))])
 async def get_repository_status(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -70,7 +70,7 @@ async def get_repository_status(
         }
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(require_permission("git.operations", "execute"))])
 async def sync_repository(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -106,7 +106,10 @@ async def sync_repository(
         raise_internal_server_error(logger, "Internal error syncing repository", e)
 
 
-@router.post("/remove-and-sync")
+@router.post(
+    "/remove-and-sync",
+    dependencies=[Depends(require_permission("git.operations", "execute"))],
+)
 async def remove_and_sync_repository(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -142,7 +145,7 @@ async def remove_and_sync_repository(
         raise_internal_server_error(logger, "Internal error removing and syncing repository", e)
 
 
-@router.get("/info")
+@router.get("/info", dependencies=[Depends(require_permission("git.operations", "read"))])
 async def get_repository_info(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
@@ -203,7 +206,7 @@ async def get_repository_info(
         raise_internal_server_error(logger, "Failed to get repository info: ", e)
 
 
-@router.get("/debug")
+@router.get("/debug", dependencies=[Depends(require_permission("git.operations", "read"))])
 async def debug_git(
     repo_id: int,
     current_user: dict = Depends(get_current_user),

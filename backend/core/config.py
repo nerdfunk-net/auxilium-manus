@@ -33,7 +33,6 @@ class Settings:
     maintenance_database_url: str
     initial_username: str
     initial_password: str
-    initial_permissions: int
     log_level: str
     log_format: str
     redis_host: str
@@ -71,7 +70,6 @@ class Settings:
         self.initial_username = environ.get("INITIAL_USERNAME", "admin")
         self.initial_password = environ.get("INITIAL_PASSWORD", DEFAULT_INITIAL_PASSWORD)
         self._validate_initial_password()
-        self.initial_permissions = self._get_int("INITIAL_PERMISSIONS", 15)
         self.log_level = environ.get("LOG_LEVEL", "INFO")
         self.log_format = environ.get(
             "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

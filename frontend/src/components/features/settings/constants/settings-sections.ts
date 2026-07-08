@@ -28,7 +28,7 @@ export const SETTINGS_SECTIONS: {
   },
   {
     id: "users",
-    label: "Users",
+    label: "Users & Permissions",
     description: "Accounts, roles, and permission assignments.",
     icon: Users,
   },

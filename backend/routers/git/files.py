@@ -9,12 +9,16 @@ import logging
 from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from dependencies import get_cache_service
 from services.git.file_service import GitFileService
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/git/{repo_id}", tags=["git-files"])
+router = APIRouter(
+    prefix="/git/{repo_id}",
+    tags=["git-files"],
+    dependencies=[Depends(require_permission("git.files", "read"))],
+)
 
 _git_file_service = GitFileService()
 
