@@ -33,7 +33,13 @@ class Template(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # JSON string: {name: {"value": str, "type": str}}
     variables: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # Legacy single-command field, kept for backward compatibility.
     pre_run_command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON array of command strings run, in order, to populate preview variables.
+    pre_run_commands: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pre_run_use_textfsm: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     credential_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)

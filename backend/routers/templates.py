@@ -101,7 +101,8 @@ async def create_template(
             category=payload.category,
             content=payload.content,
             variables={key: value.model_dump() for key, value in payload.variables.items()},
-            pre_run_command=payload.pre_run_command,
+            pre_run_commands=payload.pre_run_commands,
+            pre_run_use_textfsm=payload.pre_run_use_textfsm,
             credential_id=payload.credential_id,
             created_by=current_user.username,
         )
@@ -133,7 +134,8 @@ async def update_template(
             category=payload.category,
             content=payload.content,
             variables=variables,
-            pre_run_command=payload.pre_run_command,
+            pre_run_commands=payload.pre_run_commands,
+            pre_run_use_textfsm=payload.pre_run_use_textfsm,
             credential_id=payload.credential_id,
         )
         return TemplateResponse.model_validate(result)

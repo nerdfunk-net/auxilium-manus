@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from typing import Any
 
 from services.network.netmiko.connection import (
     CommandResult,
@@ -17,16 +15,6 @@ from services.network.netmiko.connection import (
 from services.network.netmiko.platform import resolve_netmiko_device_type
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class DualCommandResult:
-    """Result of running a command for both raw text and TextFSM-parsed output."""
-
-    success: bool
-    raw_output: str = ""
-    parsed_output: Any = None
-    error: str | None = None
 
 
 class NetmikoService:
@@ -84,36 +72,6 @@ class NetmikoService:
             commands,
             privileged,
             use_textfsm,
-        )
-
-    async def run_command_dual(
-        self,
-        *,
-        host: str,
-        network_driver: str | None,
-        platform: str | None,
-        username: str,
-        password: str,
-        command: str,
-        device_type: str | None = None,
-    ) -> DualCommandResult:
-        """Run a single command once for raw text and once with TextFSM parsing.
-
-        Uses a single SSH session so the device is only connected to once.
-        """
-        loop = asyncio.get_running_loop()
-        resolved_device_type = device_type or resolve_netmiko_device_type(
-            network_driver=network_driver,
-            platform=platform,
-        )
-        return await loop.run_in_executor(
-            self._executor,
-            _sync_run_command_dual,
-            host,
-            resolved_device_type,
-            username,
-            password,
-            command,
         )
 
     async def get_running_config(
@@ -216,25 +174,6 @@ def _sync_send_commands(
     with _session(host, device_type, username, password) as session:
         session.connect(privileged=privileged)
         return session.send_commands(commands, use_textfsm=use_textfsm)
-
-
-def _sync_run_command_dual(
-    host: str,
-    device_type: str,
-    username: str,
-    password: str,
-    command: str,
-) -> DualCommandResult:
-    with _session(host, device_type, username, password) as session:
-        session.connect(privileged=True)
-        try:
-            raw = session.send_command(command, use_textfsm=False)
-            parsed = session.send_command(command, use_textfsm=True)
-        except NetmikoConnectionError as exc:
-            return DualCommandResult(success=False, error=str(exc))
-        except Exception as exc:  # noqa: BLE001 - surfaced to caller as error text
-            return DualCommandResult(success=False, error=str(exc))
-        return DualCommandResult(success=True, raw_output=raw, parsed_output=parsed)
 
 
 def _sync_get_running_config(

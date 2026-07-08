@@ -14,7 +14,21 @@ export const NETMIKO_AUTO_VARIABLES: { name: string; description: string }[] = [
   { name: "device_details", description: "Full Nautobot details for the test device" },
 ];
 
-export const PRE_RUN_VARIABLES: { name: string; description: string }[] = [
-  { name: "command.raw", description: "Raw output of the command" },
-  { name: "command.parsed", description: "TextFSM-parsed output of the command" },
+/**
+ * Command variables, matching the "Render Jinja Template" workflow step.
+ * Each entry exposes name / raw / parsed / success / node_id.
+ */
+export const COMMAND_VARIABLES: { name: string; description: string }[] = [
+  {
+    name: "command",
+    description: "The most recently executed command (name, raw, parsed, success)",
+  },
+  {
+    name: "commands",
+    description: "List of every executed command, in configured order",
+  },
+  {
+    name: "commands_by_name",
+    description: "Executed commands keyed by their exact command string",
+  },
 ];

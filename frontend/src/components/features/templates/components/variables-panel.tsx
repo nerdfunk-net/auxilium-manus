@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock, Play, Plus, RefreshCw, X } from "lucide-react";
+import { Lock, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,26 +11,21 @@ import type { EditorVariable } from "../types";
 interface VariablesPanelProps {
   variables: EditorVariable[];
   selectedId: string | null;
-  canExecutePreRun: boolean;
   onSelect: (id: string) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
   onUpdateValue: (id: string, value: string) => void;
-  onExecutePreRun: () => void;
 }
 
 export function VariablesPanel({
   variables,
   selectedId,
-  canExecutePreRun,
   onSelect,
   onAdd,
   onRemove,
   onUpdateValue,
-  onExecutePreRun,
 }: VariablesPanelProps) {
   const selected = variables.find((variable) => variable.id === selectedId) ?? null;
-  const isPreRun = selected?.name.startsWith("command.") ?? false;
 
   return (
     <div className="flex h-full flex-col">
@@ -111,22 +106,6 @@ export function VariablesPanel({
               }
               onChange={(event) => onUpdateValue(selected.id, event.target.value)}
             />
-            {isPreRun ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canExecutePreRun || Boolean(selected.isExecuting)}
-                onClick={onExecutePreRun}
-              >
-                {selected.isExecuting ? (
-                  <RefreshCw className="size-4 animate-spin" />
-                ) : (
-                  <Play className="size-4" />
-                )}
-                Execute command
-              </Button>
-            ) : null}
           </>
         ) : (
           <p className="text-xs text-muted-foreground">

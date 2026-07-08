@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { AddVariableDialog } from "./components/add-variable-dialog";
 import { CodeEditorPanel } from "./components/code-editor-panel";
+import { ConfigureCommandsDialog } from "./components/configure-commands-dialog";
 import { GeneralPanel } from "./components/general-panel";
 import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
@@ -21,7 +22,12 @@ import { useTemplateMutations } from "./hooks/use-template-mutations";
 import { useTemplateQuery } from "./hooks/use-template-query";
 import { useTemplateRender } from "./hooks/use-template-render";
 import { useTemplateVariables } from "./hooks/use-template-variables";
-import type { DeviceSummary, TemplateType, TemplateVariableRecord } from "./types";
+import type {
+  CommandEntry,
+  DeviceSummary,
+  TemplateType,
+  TemplateVariableRecord,
+} from "./types";
 
 function bareIp(value: string | null): string | null {
   if (!value) {
@@ -46,10 +52,13 @@ function TemplateEditorContent() {
   const [content, setContent] = useState("");
   const [sourceId, setSourceId] = useState("");
   const [selectedDevice, setSelectedDevice] = useState<DeviceSummary | null>(null);
-  const [preRunCommand, setPreRunCommand] = useState("");
+  const [commands, setCommands] = useState<string[]>([]);
+  const [useTextfsm, setUseTextfsm] = useState(false);
   const [credentialId, setCredentialId] = useState("none");
   const [selectedVariableId, setSelectedVariableId] = useState<string | null>(null);
   const [addVariableOpen, setAddVariableOpen] = useState(false);
+  const [commandsDialogOpen, setCommandsDialogOpen] = useState(false);
+  const [isExecutingCommands, setIsExecutingCommands] = useState(false);
 
   const variableManager = useTemplateVariables();
   const renderer = useTemplateRender();
@@ -68,11 +77,15 @@ function TemplateEditorContent() {
   const lastDeviceIdRef = useRef<string | null>(null);
   const {
     updateDeviceData,
-    togglePreRunVariables,
-    setPreRunExecuting,
-    setPreRunOutput,
+    toggleCommandVariables,
+    setCommandResults,
     loadCustomVariables,
   } = variableManager;
+
+  const cleanedCommands = useMemo(
+    () => commands.map((command) => command.trim()).filter(Boolean),
+    [commands],
+  );
 
   // Populate the editor once when an existing template loads.
   useEffect(() => {
@@ -85,17 +98,18 @@ function TemplateEditorContent() {
     setDescription(template.description ?? "");
     setTemplateType((template.template_type as TemplateType) ?? "jinja2");
     setContent(template.content ?? "");
-    setPreRunCommand(template.pre_run_command ?? "");
+    setCommands(template.pre_run_commands ?? []);
+    setUseTextfsm(Boolean(template.pre_run_use_textfsm));
     setCredentialId(
       template.credential_id != null ? String(template.credential_id) : "none",
     );
     loadCustomVariables(template.variables ?? {});
   }, [isEditMode, templateQuery.data, loadCustomVariables]);
 
-  // Show/hide the pre-run variables based on whether a command is set.
+  // Show/hide the command variables based on whether any command is configured.
   useEffect(() => {
-    togglePreRunVariables(preRunCommand.trim().length > 0);
-  }, [preRunCommand, togglePreRunVariables]);
+    toggleCommandVariables(cleanedCommands.length > 0);
+  }, [cleanedCommands.length, toggleCommandVariables]);
 
   // Fetch device context when the selected test device changes.
   useEffect(() => {
@@ -153,25 +167,20 @@ function TemplateEditorContent() {
     [variableManager.variables],
   );
 
-  const canExecutePreRun = Boolean(
-    selectedDevice && credentialId !== "none" && preRunCommand.trim(),
+  const canExecuteCommands = Boolean(
+    selectedDevice && credentialId !== "none" && cleanedCommands.length > 0,
   );
 
-  const handleExecutePreRun = useCallback(async () => {
-    if (!selectedDevice) {
-      toast({
-        title: "Missing device",
-        description: "Select a test device first",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (credentialId === "none") {
-      toast({
-        title: "Missing credentials",
-        description: "Select SSH credentials to run the command",
-        variant: "destructive",
-      });
+  const executeHint = !selectedDevice
+    ? "Select a test device to execute commands."
+    : credentialId === "none"
+      ? "Select SSH credentials to execute commands."
+      : cleanedCommands.length === 0
+        ? "Add at least one command to execute."
+        : undefined;
+
+  const handleExecuteCommands = useCallback(async () => {
+    if (!selectedDevice || credentialId === "none" || cleanedCommands.length === 0) {
       return;
     }
 
@@ -185,14 +194,13 @@ function TemplateEditorContent() {
       return;
     }
 
-    setPreRunExecuting(true);
+    setIsExecutingCommands(true);
     try {
       const response = await apiCall<{
         success: boolean;
-        raw_output: string;
-        parsed_output: unknown;
+        commands: CommandEntry[];
         error: string | null;
-      }>("netmiko/run-command", {
+      }>("netmiko/run-commands", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -200,32 +208,40 @@ function TemplateEditorContent() {
           platform: selectedDevice.platform,
           network_driver: selectedDevice.network_driver,
           credential_id: Number(credentialId),
-          command: preRunCommand.trim(),
+          commands: cleanedCommands,
+          use_textfsm: useTextfsm,
         }),
       });
 
+      setCommandResults(response.commands ?? []);
       if (!response.success) {
         throw new Error(response.error ?? "Command execution failed");
       }
 
-      const parsed =
-        typeof response.parsed_output === "string"
-          ? response.parsed_output
-          : JSON.stringify(response.parsed_output ?? "", null, 2);
-      setPreRunOutput(response.raw_output ?? "", parsed);
       toast({
-        title: "Command executed",
-        description: "command.raw and command.parsed were populated",
+        title: "Commands executed",
+        description: `Populated command, commands and commands_by_name from ${
+          response.commands?.length ?? 0
+        } command(s)`,
       });
     } catch (error) {
-      setPreRunExecuting(false);
       toast({
         title: "Execution failed",
         description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive",
       });
+    } finally {
+      setIsExecutingCommands(false);
     }
-  }, [selectedDevice, credentialId, preRunCommand, apiCall, toast, setPreRunExecuting, setPreRunOutput]);
+  }, [
+    selectedDevice,
+    credentialId,
+    cleanedCommands,
+    useTextfsm,
+    apiCall,
+    toast,
+    setCommandResults,
+  ]);
 
   const handleRender = useCallback(() => {
     renderer.render(content, variableManager.variables);
@@ -266,7 +282,8 @@ function TemplateEditorContent() {
       category: TEMPLATE_CATEGORY,
       content,
       variables,
-      pre_run_command: preRunCommand.trim() || null,
+      pre_run_commands: cleanedCommands,
+      pre_run_use_textfsm: useTextfsm,
       credential_id: credentialId !== "none" ? Number(credentialId) : null,
     };
 
@@ -285,7 +302,8 @@ function TemplateEditorContent() {
     description,
     templateType,
     content,
-    preRunCommand,
+    cleanedCommands,
+    useTextfsm,
     credentialId,
     variableManager.variables,
     isEditMode,
@@ -345,11 +363,11 @@ function TemplateEditorContent() {
           nautobotUrl={sourceCredentials.url}
           nautobotToken={sourceCredentials.token}
           sourceReady={sourceCredentials.isReady}
-          preRunCommand={preRunCommand}
+          commandCount={cleanedCommands.length}
           credentialId={credentialId}
           onSourceChange={setSourceId}
           onSelectDevice={setSelectedDevice}
-          onPreRunCommandChange={setPreRunCommand}
+          onConfigureCommands={() => setCommandsDialogOpen(true)}
           onCredentialChange={setCredentialId}
         />
 
@@ -358,12 +376,10 @@ function TemplateEditorContent() {
             <VariablesPanel
               variables={variableManager.variables}
               selectedId={selectedVariableId}
-              canExecutePreRun={canExecutePreRun}
               onSelect={setSelectedVariableId}
               onAdd={() => setAddVariableOpen(true)}
               onRemove={variableManager.removeVariable}
               onUpdateValue={variableManager.updateVariableValue}
-              onExecutePreRun={handleExecutePreRun}
             />
           </div>
 
@@ -405,6 +421,19 @@ function TemplateEditorContent() {
         existingNames={existingVariableNames}
         onClose={() => setAddVariableOpen(false)}
         onAdd={handleAddVariable}
+      />
+
+      <ConfigureCommandsDialog
+        open={commandsDialogOpen}
+        commands={commands}
+        useTextfsm={useTextfsm}
+        canExecute={canExecuteCommands}
+        isExecuting={isExecutingCommands}
+        executeHint={executeHint}
+        onOpenChange={setCommandsDialogOpen}
+        onCommandsChange={setCommands}
+        onUseTextfsmChange={setUseTextfsm}
+        onExecute={handleExecuteCommands}
       />
     </div>
   );

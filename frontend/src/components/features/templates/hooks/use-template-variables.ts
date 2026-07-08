@@ -2,10 +2,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { NETMIKO_AUTO_VARIABLES, PRE_RUN_VARIABLES } from "../constants";
-import type { EditorVariable, TemplateVariableRecord } from "../types";
+import { COMMAND_VARIABLES, NETMIKO_AUTO_VARIABLES } from "../constants";
+import type { CommandEntry, EditorVariable, TemplateVariableRecord } from "../types";
 
 let customVariableCounter = 0;
+
+const COMMAND_VARIABLE_IDS = COMMAND_VARIABLES.map((variable) => `auto:${variable.name}`);
 
 function createAutoVariables(): EditorVariable[] {
   return NETMIKO_AUTO_VARIABLES.map((variable) => ({
@@ -18,8 +20,8 @@ function createAutoVariables(): EditorVariable[] {
   }));
 }
 
-function createPreRunVariables(): EditorVariable[] {
-  return PRE_RUN_VARIABLES.map((variable) => ({
+function createCommandVariables(): EditorVariable[] {
+  return COMMAND_VARIABLES.map((variable) => ({
     id: `auto:${variable.name}`,
     name: variable.name,
     value: "",
@@ -27,6 +29,10 @@ function createPreRunVariables(): EditorVariable[] {
     isAutoFilled: true,
     description: variable.description,
   }));
+}
+
+function isCommandVariable(variable: EditorVariable): boolean {
+  return COMMAND_VARIABLE_IDS.includes(variable.id);
 }
 
 export function useTemplateVariables() {
@@ -74,40 +80,40 @@ export function useTemplateVariables() {
     );
   }, []);
 
-  const togglePreRunVariables = useCallback((enabled: boolean) => {
+  const toggleCommandVariables = useCallback((enabled: boolean) => {
     setVariables((current) => {
-      const hasPreRun = current.some((variable) => variable.name === "command.raw");
-      if (enabled && !hasPreRun) {
-        return [...current, ...createPreRunVariables()];
+      const hasCommandVars = current.some(isCommandVariable);
+      if (enabled && !hasCommandVars) {
+        return [...current, ...createCommandVariables()];
       }
-      if (!enabled && hasPreRun) {
-        return current.filter((variable) => !variable.name.startsWith("command."));
+      if (!enabled && hasCommandVars) {
+        return current.filter((variable) => !isCommandVariable(variable));
       }
       return current;
     });
   }, []);
 
-  const setPreRunExecuting = useCallback((executing: boolean) => {
+  const setCommandResults = useCallback((entries: CommandEntry[]) => {
+    const commandsByName: Record<string, CommandEntry> = {};
+    for (const entry of entries) {
+      commandsByName[entry.name] = entry;
+    }
+    // The last configured command is the most recently executed one, matching
+    // the workflow step's "command" alias.
+    const latest = entries.length > 0 ? entries[entries.length - 1] : null;
+
+    const valueById: Record<string, string> = {
+      "auto:commands": JSON.stringify(entries, null, 2),
+      "auto:commands_by_name": JSON.stringify(commandsByName, null, 2),
+      "auto:command": latest ? JSON.stringify(latest, null, 2) : "",
+    };
+
     setVariables((current) =>
       current.map((variable) =>
-        variable.name.startsWith("command.")
-          ? { ...variable, isExecuting: executing }
+        variable.id in valueById
+          ? { ...variable, value: valueById[variable.id] }
           : variable,
       ),
-    );
-  }, []);
-
-  const setPreRunOutput = useCallback((raw: string, parsed: string) => {
-    setVariables((current) =>
-      current.map((variable) => {
-        if (variable.name === "command.raw") {
-          return { ...variable, value: raw, isExecuting: false };
-        }
-        if (variable.name === "command.parsed") {
-          return { ...variable, value: parsed, isExecuting: false };
-        }
-        return variable;
-      }),
     );
   }, []);
 
@@ -135,9 +141,8 @@ export function useTemplateVariables() {
       removeVariable,
       updateVariableValue,
       updateDeviceData,
-      togglePreRunVariables,
-      setPreRunExecuting,
-      setPreRunOutput,
+      toggleCommandVariables,
+      setCommandResults,
       loadCustomVariables,
     }),
     [
@@ -146,9 +151,8 @@ export function useTemplateVariables() {
       removeVariable,
       updateVariableValue,
       updateDeviceData,
-      togglePreRunVariables,
-      setPreRunExecuting,
-      setPreRunOutput,
+      toggleCommandVariables,
+      setCommandResults,
       loadCustomVariables,
     ],
   );

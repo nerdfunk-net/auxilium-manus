@@ -30,7 +30,8 @@ export interface Template {
   description: string | null;
   content: string;
   variables: Record<string, TemplateVariableRecord>;
-  pre_run_command: string | null;
+  pre_run_commands: string[];
+  pre_run_use_textfsm: boolean;
   credential_id: number | null;
   created_by: string | null;
   is_active: boolean;
@@ -45,7 +46,8 @@ export interface TemplateCreatePayload {
   category: string;
   content: string;
   variables: Record<string, TemplateVariableRecord>;
-  pre_run_command?: string | null;
+  pre_run_commands: string[];
+  pre_run_use_textfsm: boolean;
   credential_id?: number | null;
 }
 
@@ -64,8 +66,16 @@ export interface EditorVariable {
   value: string;
   type: string;
   isAutoFilled: boolean;
-  isExecuting?: boolean;
   description?: string;
+}
+
+/** One executed command, mirroring the workflow step's command namespace. */
+export interface CommandEntry {
+  node_id: string;
+  name: string;
+  success: boolean;
+  raw: string;
+  parsed: unknown;
 }
 
 export interface DeviceSummary {

@@ -21,7 +21,8 @@ class TemplateCreate(BaseModel):
     category: str = Field(default="netmiko", max_length=100)
     content: str = ""
     variables: dict[str, TemplateVariable] = Field(default_factory=dict)
-    pre_run_command: str | None = None
+    pre_run_commands: list[str] = Field(default_factory=list)
+    pre_run_use_textfsm: bool = False
     credential_id: int | None = None
 
 
@@ -32,7 +33,8 @@ class TemplateUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=100)
     content: str | None = None
     variables: dict[str, TemplateVariable] | None = None
-    pre_run_command: str | None = None
+    pre_run_commands: list[str] | None = None
+    pre_run_use_textfsm: bool | None = None
     credential_id: int | None = None
 
 
@@ -47,7 +49,8 @@ class TemplateResponse(BaseModel):
     description: str | None
     content: str
     variables: dict[str, Any]
-    pre_run_command: str | None
+    pre_run_commands: list[str] = Field(default_factory=list)
+    pre_run_use_textfsm: bool = False
     credential_id: int | None
     created_by: str | None
     is_active: bool

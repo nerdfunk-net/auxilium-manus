@@ -1,9 +1,11 @@
 "use client";
 
-import { Search, Terminal } from "lucide-react";
+import { Search, Settings2, Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,11 +26,11 @@ interface NetmikoOptionsPanelProps {
   nautobotUrl: string;
   nautobotToken: string;
   sourceReady: boolean;
-  preRunCommand: string;
+  commandCount: number;
   credentialId: string;
   onSourceChange: (sourceId: string) => void;
   onSelectDevice: (device: DeviceSummary | null) => void;
-  onPreRunCommandChange: (value: string) => void;
+  onConfigureCommands: () => void;
   onCredentialChange: (value: string) => void;
 }
 
@@ -40,11 +42,11 @@ export function NetmikoOptionsPanel({
   nautobotUrl,
   nautobotToken,
   sourceReady,
-  preRunCommand,
+  commandCount,
   credentialId,
   onSourceChange,
   onSelectDevice,
-  onPreRunCommandChange,
+  onConfigureCommands,
   onCredentialChange,
 }: NetmikoOptionsPanelProps) {
   const { apiCall } = useApi();
@@ -226,13 +228,21 @@ export function NetmikoOptionsPanel({
           </div>
 
           <div className="space-y-1.5 md:col-span-3">
-            <Label htmlFor="pre-run-command">Command (Optional)</Label>
-            <Input
-              id="pre-run-command"
-              placeholder="e.g. show version"
-              value={preRunCommand}
-              onChange={(event) => onPreRunCommandChange(event.target.value)}
-            />
+            <Label>Commands (Optional)</Label>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-start font-normal"
+              onClick={onConfigureCommands}
+            >
+              <Settings2 className="size-4" />
+              Configure commands
+              {commandCount > 0 ? (
+                <Badge variant="secondary" className="ml-auto">
+                  {commandCount}
+                </Badge>
+              ) : null}
+            </Button>
           </div>
 
           <div className="space-y-1.5 md:col-span-2">

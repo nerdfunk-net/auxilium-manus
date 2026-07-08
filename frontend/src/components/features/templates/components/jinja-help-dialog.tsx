@@ -143,13 +143,15 @@ Version: {{ version.parsed[0].version if version.parsed else version.raw }}`}</C
 
           <Section title="A note on the template editor's preview">
             <p>
-              The &quot;Execute command&quot; button in the template editor
-              only runs a single ad-hoc command for testing, and populates
-              just <code>command.raw</code>/<code>command.parsed</code> in
-              that preview. It does not simulate <code>commands</code> or{" "}
-              <code>commands_by_name</code> — those only appear once this
-              template actually runs inside a workflow, after one or more
-              real Run Command steps.
+              The template editor mirrors the workflow step: open{" "}
+              <strong>Configure commands</strong>, add the commands you want,
+              toggle <code>use_textfsm</code>, and click{" "}
+              <strong>Execute commands</strong>. The editor runs them against
+              your selected test device, in order, and populates{" "}
+              <code>command</code>, <code>commands</code> and{" "}
+              <code>commands_by_name</code> exactly as they appear at workflow
+              runtime — so a template you write and preview here behaves the
+              same once it runs after real Run Command steps.
             </p>
           </Section>
 
@@ -158,7 +160,7 @@ Version: {{ version.parsed[0].version if version.parsed else version.raw }}`}</C
               Referencing a variable that doesn&apos;t exist (for example,{" "}
               <code>command.parsed</code> when no Run Command step ran
               upstream) fails that device with{" "}
-              <code>Undefined template variable: '…' is undefined</code>. That
+              <code>Undefined template variable: {"'…'"} is undefined</code>. That
               device is routed to the step&apos;s &quot;failure&quot; outcome
               instead of &quot;success&quot;.
             </p>

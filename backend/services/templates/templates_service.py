@@ -63,13 +63,15 @@ class TemplatesService:
         category: str,
         content: str,
         variables: dict[str, Any],
-        pre_run_command: str | None,
+        pre_run_commands: list[str] | None,
+        pre_run_use_textfsm: bool,
         credential_id: int | None,
         created_by: str | None,
     ) -> dict[str, Any]:
         if self._repo.get_active_by_name(name) is not None:
             raise TemplateNameConflictError(name)
 
+        commands = _clean_commands(pre_run_commands)
         template = self._repo.create(
             name=name,
             source="webeditor",
@@ -78,7 +80,9 @@ class TemplatesService:
             description=description,
             content=content,
             variables=json.dumps(variables),
-            pre_run_command=pre_run_command,
+            pre_run_command=commands[0] if commands else None,
+            pre_run_commands=json.dumps(commands),
+            pre_run_use_textfsm=pre_run_use_textfsm,
             credential_id=credential_id,
             created_by=created_by,
             is_active=True,
@@ -96,7 +100,8 @@ class TemplatesService:
         category: str | None = None,
         content: str | None = None,
         variables: dict[str, Any] | None = None,
-        pre_run_command: str | None = None,
+        pre_run_commands: list[str] | None = None,
+        pre_run_use_textfsm: bool | None = None,
         credential_id: int | None = None,
     ) -> dict[str, Any]:
         template = self._repo.get_by_id(template_id)
@@ -121,8 +126,12 @@ class TemplatesService:
             updates["content"] = content
         if variables is not None:
             updates["variables"] = json.dumps(variables)
-        if pre_run_command is not None:
-            updates["pre_run_command"] = pre_run_command
+        if pre_run_commands is not None:
+            commands = _clean_commands(pre_run_commands)
+            updates["pre_run_commands"] = json.dumps(commands)
+            updates["pre_run_command"] = commands[0] if commands else None
+        if pre_run_use_textfsm is not None:
+            updates["pre_run_use_textfsm"] = pre_run_use_textfsm
         if credential_id is not None:
             updates["credential_id"] = credential_id
 
@@ -184,10 +193,33 @@ class TemplatesService:
             "description": template.description,
             "content": template.content,
             "variables": variables,
-            "pre_run_command": template.pre_run_command,
+            "pre_run_commands": _load_commands(template),
+            "pre_run_use_textfsm": bool(template.pre_run_use_textfsm),
             "credential_id": template.credential_id,
             "created_by": template.created_by,
             "is_active": template.is_active,
             "created_at": template.created_at.isoformat() if template.created_at else None,
             "updated_at": template.updated_at.isoformat() if template.updated_at else None,
         }
+
+
+def _clean_commands(commands: list[str] | None) -> list[str]:
+    """Drop blank entries and surrounding whitespace, preserving order."""
+    if not commands:
+        return []
+    return [command.strip() for command in commands if command and command.strip()]
+
+
+def _load_commands(template: Template) -> list[str]:
+    """Resolve the stored command list, falling back to the legacy field."""
+    raw = template.pre_run_commands
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return _clean_commands([str(item) for item in parsed])
+    if template.pre_run_command:
+        return _clean_commands([template.pre_run_command])
+    return []

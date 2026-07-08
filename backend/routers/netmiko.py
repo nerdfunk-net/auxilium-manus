@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -9,15 +11,23 @@ from core.auth import get_current_user
 from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
-from models.netmiko import NetmikoRunCommandRequest, NetmikoRunCommandResponse
+from models.netmiko import (
+    NetmikoCommandEntry,
+    NetmikoRunCommandsRequest,
+    NetmikoRunCommandsResponse,
+)
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.exceptions import (
     CredentialMissingFieldError,
     CredentialNotFoundError,
 )
+from services.network.netmiko.connection import NetmikoConnectionError
 from services.network.netmiko.service import NetmikoService
 
 logger = logging.getLogger(__name__)
+
+# Synthetic node id for editor preview entries, mirroring a workflow step node.
+EDITOR_NODE_ID = "template-editor"
 
 router = APIRouter(
     prefix="/netmiko",
@@ -30,12 +40,29 @@ def _credentials_service(db: Session = Depends(get_db)) -> CredentialsService:
     return CredentialsService(db)
 
 
-@router.post("/run-command", response_model=NetmikoRunCommandResponse)
-async def run_command(
-    payload: NetmikoRunCommandRequest,
+def _parse_output(raw: str, *, use_textfsm: bool) -> Any:
+    """Mirror the render-jinja-template step: parsed is only set with TextFSM."""
+    if not use_textfsm:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+@router.post("/run-commands", response_model=NetmikoRunCommandsResponse)
+async def run_commands(
+    payload: NetmikoRunCommandsRequest,
     _current_user: User = Depends(get_current_user),
     credentials_service: CredentialsService = Depends(_credentials_service),
-) -> NetmikoRunCommandResponse:
+) -> NetmikoRunCommandsResponse:
+    commands = [command.strip() for command in payload.commands if command.strip()]
+    if not commands:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one non-empty command is required",
+        )
+
     credential = credentials_service.get_credential_by_id(payload.credential_id)
     if credential is None:
         raise HTTPException(
@@ -55,19 +82,39 @@ async def run_command(
 
     try:
         netmiko = NetmikoService()
-        result = await netmiko.run_command_dual(
+        result = await netmiko.send_commands(
             host=payload.host,
             network_driver=payload.network_driver,
             platform=payload.platform,
             username=credential["username"],
             password=password,
-            command=payload.command,
+            commands=commands,
+            use_textfsm=payload.use_textfsm,
         )
-        return NetmikoRunCommandResponse(
+    except NetmikoConnectionError as exc:
+        # Device-side connect/auth/timeout failure: report gracefully so the
+        # editor can surface it, rather than emitting a generic 500.
+        logger.info("Netmiko preview connection failed host=%s", payload.host)
+        return NetmikoRunCommandsResponse(success=False, commands=[], error=str(exc))
+
+    try:
+        entries = [
+            NetmikoCommandEntry(
+                node_id=EDITOR_NODE_ID,
+                name=command,
+                success=result.success,
+                raw=result.command_outputs.get(command, ""),
+                parsed=_parse_output(
+                    result.command_outputs.get(command, ""),
+                    use_textfsm=payload.use_textfsm,
+                ),
+            )
+            for command in commands
+        ]
+        return NetmikoRunCommandsResponse(
             success=result.success,
-            raw_output=result.raw_output,
-            parsed_output=result.parsed_output,
+            commands=entries,
             error=result.error,
         )
     except Exception as exc:
-        raise_internal_server_error(logger, "Failed to execute Netmiko command", exc)
+        raise_internal_server_error(logger, "Failed to execute Netmiko commands", exc)
