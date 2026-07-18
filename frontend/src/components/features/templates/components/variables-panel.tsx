@@ -1,9 +1,14 @@
 "use client";
 
-import { Lock, Plus, X } from "lucide-react";
+import { HelpCircle, Lock, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type { EditorVariable } from "../types";
@@ -13,6 +18,7 @@ interface VariablesPanelProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onAdd: () => void;
+  onHelp: () => void;
   onRemove: (id: string) => void;
   onUpdateValue: (id: string, value: string) => void;
 }
@@ -22,6 +28,7 @@ export function VariablesPanel({
   selectedId,
   onSelect,
   onAdd,
+  onHelp,
   onRemove,
   onUpdateValue,
 }: VariablesPanelProps) {
@@ -30,9 +37,26 @@ export function VariablesPanel({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-4 py-3">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Variables
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Variables
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                type="button"
+                variant="ghost"
+                className="size-5"
+                aria-label="How to use template variables"
+                onClick={onHelp}
+              >
+                <HelpCircle className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>How to use template variables</TooltipContent>
+          </Tooltip>
+        </div>
         <Button size="sm" type="button" variant="ghost" onClick={onAdd}>
           <Plus className="size-4" />
           Add

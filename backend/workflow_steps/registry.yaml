@@ -130,6 +130,60 @@ plugins:
             chunk_size: 1
             max_concurrency: 0
 
+  - id: get-ise-tacacs-key
+    name: Get TACACS+ Key from ISE
+    overview: Look up a device's TACACS+ shared secret in Cisco ISE.
+    description: >
+      Resolve each device's TACACS+ key from Cisco ISE using a configurable priority
+      of name, location-group, and IP-based lookups.
+    artifact_type: configuration_retrieval
+    palette_category: cisco
+    directory: get_ise_tacacs_key
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: ise_source_id
+          description: ID of a Cisco ISE source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: lab-ise
+        - name: priority
+          description: >
+            Ordered list of lookup strategies, each individually enabled/disabled,
+            tried in order until one finds a key: name_exact_32 (device name, ISE
+            entry netmask must be /32), name_any (device name, any netmask),
+            location_group (Nautobot device location as an ISE Location network
+            device group), ip_prefix_scan (device's primary IPv4, narrowing from
+            /32 down to /8 via ISE's exact-match filter — cheap, but only finds
+            entries stored as a clean CIDR network address), ip_range_scan
+            (full-inventory fallback for ISE entries stored as a range, e.g.
+            "192.168.178.1-254", or a wildcard, e.g. "192.168.178.*" — these
+            can't be found via ISE's server-side filter at all).
+          data_type: object
+          required: true
+          example:
+            - type: name_exact_32
+              enabled: true
+            - type: name_any
+              enabled: true
+            - type: location_group
+              enabled: true
+            - type: ip_prefix_scan
+              enabled: true
+            - type: ip_range_scan
+              enabled: true
+        - name: location_group_prefix
+          description: >
+            Prefix used to build the ISE Location group name for the
+            location_group tier, as Location#{prefix}#{nautobot location name}.
+          data_type: string
+          required: false
+          example: All Locations
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.

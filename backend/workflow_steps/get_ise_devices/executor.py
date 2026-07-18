@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.orm import Session, object_session
@@ -24,6 +23,7 @@ from workflow_steps.common.device_builders import (
     device_context_from_ise,
     device_context_from_nautobot,
 )
+from workflow_steps.common.ise_lookup import fetch_ise_device_details, paginate_ise_summaries
 
 logger = logging.getLogger(__name__)
 
@@ -31,49 +31,6 @@ _QUERY_MODES = {"name", "cidr", "group"}
 _LIST_PAGE_SIZE = 100
 
 IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
-
-
-async def _paginate_summaries(
-    fetch_page: Callable[[int], Awaitable[dict[str, Any]]],
-) -> list[dict[str, Any]]:
-    """Collect every ``resources`` entry from a paginated ISE SearchResult."""
-    summaries: list[dict[str, Any]] = []
-    page = 1
-    while True:
-        result = await fetch_page(page)
-        search_result = result.get("SearchResult", {})
-        summaries.extend(search_result.get("resources", []))
-        if not search_result.get("nextPage"):
-            break
-        page += 1
-    return summaries
-
-
-async def _fetch_details(
-    device_service: ISENetworkDeviceService, summaries: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """Resolve list summaries (id/name only) into full device detail dicts.
-
-    ISE's list endpoints only return id/name/description — NetworkDeviceIPList
-    (the IP address we need) is only present on the per-device detail fetch.
-    """
-    details: list[dict[str, Any]] = []
-    for summary in summaries:
-        device_id = summary.get("id")
-        if not device_id:
-            continue
-        try:
-            result = await device_service.get_device(device_id)
-        except ISENotFoundError:
-            logger.warning(
-                "get-ise-devices: device id '%s' disappeared before detail fetch, skipping",
-                device_id,
-            )
-            continue
-        detail = result.get("NetworkDevice")
-        if detail:
-            details.append(detail)
-    return details
 
 
 def _ip_in_network(detail: dict[str, Any], network: IPNetwork) -> bool:
@@ -111,12 +68,12 @@ async def _fetch_by_name(
 async def _fetch_by_group(
     device_service: ISENetworkDeviceService, group_name: str
 ) -> list[dict[str, Any]]:
-    summaries = await _paginate_summaries(
+    summaries = await paginate_ise_summaries(
         lambda page: device_service.list_devices_by_group(
             group_name, page=page, size=_LIST_PAGE_SIZE
         )
     )
-    return await _fetch_details(device_service, summaries)
+    return await fetch_ise_device_details(device_service, summaries)
 
 
 async def _fetch_by_cidr(
@@ -128,15 +85,15 @@ async def _fetch_by_cidr(
         host = str(network.network_address)
         result = await device_service.list_devices(filter_=f"ipaddress.EQ.{host}")
         summaries = result.get("SearchResult", {}).get("resources", [])
-        return await _fetch_details(device_service, summaries)
+        return await fetch_ise_device_details(device_service, summaries)
 
     # ISE's ERS filter only supports exact-IP matching, not CIDR ranges — scan
     # the full device inventory and filter client-side. Reuses the existing
     # list/get endpoints rather than adding a new ISE-side filter.
-    summaries = await _paginate_summaries(
+    summaries = await paginate_ise_summaries(
         lambda page: device_service.list_devices(page=page, size=_LIST_PAGE_SIZE)
     )
-    details = await _fetch_details(device_service, summaries)
+    details = await fetch_ise_device_details(device_service, summaries)
     return [detail for detail in details if _ip_in_network(detail, network)]
 
 

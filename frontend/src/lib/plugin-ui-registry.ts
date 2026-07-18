@@ -7,6 +7,7 @@ import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
 import { GetIseDevicesPlugin } from "@/components/features/workflow-steps/get-ise-devices";
+import { GetIseTacacsKeyPlugin } from "@/components/features/workflow-steps/get-ise-tacacs-key";
 import { GitClonePlugin } from "@/components/features/workflow-steps/git-clone";
 import { GitPullPlugin } from "@/components/features/workflow-steps/git-pull";
 import { GitPushPlugin } from "@/components/features/workflow-steps/git-push";
@@ -26,6 +27,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-from-list": GetFromListPlugin,
   "get-git-devices": GetGitDevicesPlugin,
   "get-ise-devices": GetIseDevicesPlugin,
+  "get-ise-tacacs-key": GetIseTacacsKeyPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,
   "run-command": RunCommandPlugin,

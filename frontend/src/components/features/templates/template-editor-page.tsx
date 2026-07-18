@@ -14,6 +14,7 @@ import { CodeEditorPanel } from "./components/code-editor-panel";
 import { AttributesDialog } from "./components/attributes-dialog";
 import { ConfigureCommandsDialog } from "./components/configure-commands-dialog";
 import { GeneralPanel } from "./components/general-panel";
+import { JinjaHelpDialog } from "./components/jinja-help-dialog";
 import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
 import { VariablesPanel } from "./components/variables-panel";
@@ -59,6 +60,7 @@ function TemplateEditorContent() {
   const [attributes, setAttributes] = useState<string[]>([]);
   const [selectedVariableId, setSelectedVariableId] = useState<string | null>(null);
   const [addVariableOpen, setAddVariableOpen] = useState(false);
+  const [variablesHelpOpen, setVariablesHelpOpen] = useState(false);
   const [commandsDialogOpen, setCommandsDialogOpen] = useState(false);
   const [attributesDialogOpen, setAttributesDialogOpen] = useState(false);
   const [isExecutingCommands, setIsExecutingCommands] = useState(false);
@@ -411,6 +413,7 @@ function TemplateEditorContent() {
               selectedId={selectedVariableId}
               onSelect={setSelectedVariableId}
               onAdd={() => setAddVariableOpen(true)}
+              onHelp={() => setVariablesHelpOpen(true)}
               onRemove={variableManager.removeVariable}
               onUpdateValue={variableManager.updateVariableValue}
             />
@@ -454,6 +457,11 @@ function TemplateEditorContent() {
         existingNames={existingVariableNames}
         onClose={() => setAddVariableOpen(false)}
         onAdd={handleAddVariable}
+      />
+
+      <JinjaHelpDialog
+        open={variablesHelpOpen}
+        onClose={() => setVariablesHelpOpen(false)}
       />
 
       <ConfigureCommandsDialog

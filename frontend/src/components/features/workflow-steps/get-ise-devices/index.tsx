@@ -28,9 +28,9 @@ import {
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { nautobotSourceIdFromConfig, NAUTOBOT_SOURCE_ID_KEY } from "../shared/nautobot-source-config";
 import { IseDevicesHelpDialog } from "./help-dialog";
-import { ISESourceSelectDialog } from "./ise-source-select-dialog";
-import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "./ise-source-config";
 import { IseDevicesPreviewDialog } from "./preview-dialog";
+import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
+import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
 
 type QueryMode = "name" | "cidr" | "group";
 

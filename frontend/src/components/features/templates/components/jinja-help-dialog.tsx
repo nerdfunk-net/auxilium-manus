@@ -73,7 +73,10 @@ run.timestamp`}</CodeBlock>
               workflow:
             </p>
             <CodeBlock>{`nautobot.*   — from "Get Nautobot Attributes" (or the editor preview)
-git.*        — from "Get Git Devices"`}</CodeBlock>
+git.*        — from "Get Git Devices"
+ise.*        — from "Get from ISE"
+tacacs.*     — from "Get from ISE" (only when that device has a
+               TACACS shared secret configured in ISE)`}</CodeBlock>
           </Section>
 
           <Section title="Nautobot attributes">
@@ -118,6 +121,41 @@ hostname {{ device.name }}
 {% else %}
 ! Skipping {{ device.name }}: role={{ nautobot.role.name }}, status={{ nautobot.status.name }}
 {% endif %}`}</CodeBlock>
+          </Section>
+
+          <Section title="ISE and TACACS variables">
+            <p>
+              After <strong>Get from ISE</strong>, the raw ISE record for
+              that device is available as <code>ise</code> — the exact same
+              JSON ISE&apos;s API returns, including its IP list, group
+              memberships, and (if configured) TACACS/RADIUS settings:
+            </p>
+            <CodeBlock>{`ise.name                         ise.id
+ise.description                  ise.profileName
+ise.NetworkDeviceIPList          ise.NetworkDeviceGroupList
+ise.is_group_or_prefix           ise.tacacsSettings.sharedSecret`}</CodeBlock>
+            <p>
+              Because drilling into{" "}
+              <code>ise.tacacsSettings.sharedSecret</code> is easy to get
+              wrong, the TACACS shared secret is also surfaced directly as
+              its own variable:
+            </p>
+            <CodeBlock>{`tacacs.shared_secret`}</CodeBlock>
+            <p>Example — a TACACS server stanza using the device&apos;s own key:</p>
+            <CodeBlock>{`{% if tacacs is defined %}
+tacacs-server host 10.10.10.5 key {{ tacacs.shared_secret }}
+{% else %}
+! No TACACS shared secret configured for {{ device.name }} in ISE
+{% endif %}`}</CodeBlock>
+            <p>
+              <code>tacacs</code> only exists when the ISE device actually has
+              a shared secret set (a RADIUS-only device won&apos;t have one)
+              — always guard with{" "}
+              <code>{"{% if tacacs is defined %}"}</code> rather than
+              assuming it&apos;s there. Note the rendered output contains the
+              real secret in plain text, so treat wherever you store or view
+              it (run logs, saved artifacts) accordingly.
+            </p>
           </Section>
 
           <Section title="Accessing command output (one command)">

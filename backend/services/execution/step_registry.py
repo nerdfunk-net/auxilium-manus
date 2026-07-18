@@ -23,6 +23,7 @@ from workflow_steps.get_device_configs.executor import execute as get_device_con
 from workflow_steps.get_from_list.executor import execute as get_from_list
 from workflow_steps.get_git_devices.executor import execute as get_git_devices
 from workflow_steps.get_ise_devices.executor import execute as get_ise_devices
+from workflow_steps.get_ise_tacacs_key.executor import execute as get_ise_tacacs_key
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
 from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
@@ -45,6 +46,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-from-list": get_from_list,
     "get-git-devices": get_git_devices,
     "get-ise-devices": get_ise_devices,
+    "get-ise-tacacs-key": get_ise_tacacs_key,
     "get-nautobot-attributes": get_nautobot_attributes,
     "get-device-configs": get_device_configs,
     "render-jinja-template": render_jinja_template,

@@ -9,6 +9,7 @@ import {
   GitBranch,
   GitMerge,
   HardDriveDownload,
+  Key,
   List,
   Router,
   Scale,
@@ -63,6 +64,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "show-attributes": Eye,
   "workflow-log": List,
   "get-ise-devices": ShieldCheck,
+  "get-ise-tacacs-key": Key,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {
