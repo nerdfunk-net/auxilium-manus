@@ -35,6 +35,7 @@ from workflow_steps.route_on_attribute.executor import execute as route_on_attri
 from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.update_attribute.executor import execute as update_attribute
+from workflow_steps.update_ise_tacacs_key.executor import execute as update_ise_tacacs_key
 from workflow_steps.update_nautobot_device.executor import execute as update_nautobot_device
 from workflow_steps.show_attributes.executor import execute as show_attributes
 from workflow_steps.workflow_log.executor import execute as workflow_log
@@ -61,6 +62,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "git-pull": git_pull,
     "git-push": git_push,
     "update-attribute": update_attribute,
+    "update-ise-tacacs-key": update_ise_tacacs_key,
     "update-nautobot-device": update_nautobot_device,
     "workflow-log": workflow_log,
     "show-attributes": show_attributes,

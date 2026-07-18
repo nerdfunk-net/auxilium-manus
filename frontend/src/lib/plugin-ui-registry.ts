@@ -21,6 +21,7 @@ import { WorkflowLogPlugin } from "@/components/features/workflow-steps/workflow
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
+import { UpdateIseTacacsKeyPlugin } from "@/components/features/workflow-steps/update-ise-tacacs-key";
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
@@ -43,6 +44,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-push": GitPushPlugin,
   "update-nautobot-device": UpdateNautobotDevicePlugin,
   "update-attribute": UpdateAttributePlugin,
+  "update-ise-tacacs-key": UpdateIseTacacsKeyPlugin,
   "workflow-log": WorkflowLogPlugin,
   "show-attributes": ShowAttributesPlugin,
 };
