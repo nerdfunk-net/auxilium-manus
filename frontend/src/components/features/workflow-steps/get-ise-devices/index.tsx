@@ -1,5 +1,6 @@
 "use client";
 
+import { HelpCircle } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +27,7 @@ import {
 
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { nautobotSourceIdFromConfig, NAUTOBOT_SOURCE_ID_KEY } from "../shared/nautobot-source-config";
+import { IseDevicesHelpDialog } from "./help-dialog";
 import { ISESourceSelectDialog } from "./ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "./ise-source-config";
 import { IseDevicesPreviewDialog } from "./preview-dialog";
@@ -102,6 +104,7 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const [nautobotSourceOpen, setNautobotSourceOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevices, setPreviewDevices] = useState<IseDevicePreview[]>([]);
   const [previewTruncated, setPreviewTruncated] = useState(false);
@@ -199,6 +202,20 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <Button
+          className="size-7"
+          size="icon"
+          type="button"
+          variant="ghost"
+          title="Help"
+          aria-label="Help"
+          onClick={() => setHelpOpen(true)}
+        >
+          <HelpCircle className="size-4 text-muted-foreground" aria-hidden />
+        </Button>
+      </div>
+
       {/* ise_source_id */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
@@ -428,6 +445,8 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
         onClose={() => setNautobotSourceOpen(false)}
         onSave={handleNautobotSourceIdChange}
       />
+
+      <IseDevicesHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   );
 }

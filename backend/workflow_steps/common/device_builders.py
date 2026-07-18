@@ -106,6 +106,19 @@ def device_context_from_ise(
         digest = hashlib.sha256(f"{source_id}:{name}".encode()).hexdigest()[:32]
         device_id = f"ise-{digest}"
 
+    attribute_bags: dict[str, dict[str, Any]] = {
+        "ise": {**device, "is_group_or_prefix": is_group_or_prefix},
+    }
+
+    # Surfaced as its own top-level Jinja variable (build_jinja_context flattens
+    # attribute_bags by name), so a template can use {{ tacacs.shared_secret }}
+    # directly instead of drilling into ise.tacacsSettings.sharedSecret.
+    tacacs_settings = device.get("tacacsSettings")
+    if isinstance(tacacs_settings, dict):
+        shared_secret = tacacs_settings.get("sharedSecret")
+        if shared_secret:
+            attribute_bags["tacacs"] = {"shared_secret": shared_secret}
+
     return DeviceContext(
         id=device_id,
         name=name,
@@ -113,7 +126,7 @@ def device_context_from_ise(
         primary_ip4=primary_ip4,
         source="ise",
         source_id=source_id,
-        attribute_bags={"ise": {**device, "is_group_or_prefix": is_group_or_prefix}},
+        attribute_bags=attribute_bags,
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )

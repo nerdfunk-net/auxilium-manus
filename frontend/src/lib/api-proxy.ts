@@ -62,7 +62,13 @@ export function buildBackendUrl(path: string[], requestUrl: string) {
 }
 
 function normalizeProxyPath(path: string[]) {
-  const requestedPath = path.join("/");
+  // Next.js decodes each catch-all segment before handing it to us, so a
+  // literal "#" (or other reserved char) in a segment — e.g. an ISE group
+  // name like "myGroup#myGroup#my-test-001" — must be re-encoded before
+  // going into a plain string URL. Left decoded, fetch() treats a bare "#"
+  // as the start of a URL fragment and silently drops everything after it,
+  // including the query string.
+  const requestedPath = path.map((segment) => encodeURIComponent(segment)).join("/");
 
   if (requestedPath.startsWith("api/")) {
     return `/${requestedPath}`;
