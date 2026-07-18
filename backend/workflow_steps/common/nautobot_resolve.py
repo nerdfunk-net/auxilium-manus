@@ -58,12 +58,13 @@ async def resolve_nautobot_device_id(
 ) -> str | None:
     """Map a workflow device to a Nautobot UUID.
 
-    Git-sourced devices use synthetic ids (``git-…``). Resolve by name, then by
-  primary IPv4 address. Nautobot-native devices pass through when already a UUID.
+    Only a device whose `source` is already "nautobot" gets its id trusted
+    as-is (and only when it's UUID-shaped). Every other source — including
+    ones whose own id happens to be UUID-shaped, like ISE's device GUIDs —
+    falls through to resolution by name, then by primary IPv4 address, since
+    a foreign UUID has no meaning in Nautobot's id space.
     """
     if device.source == "nautobot" and _is_nautobot_uuid(device.id):
-        return device.id
-    if device.id and not device.id.startswith("git-") and _is_nautobot_uuid(device.id):
         return device.id
 
     if device.name:

@@ -24,6 +24,8 @@ import {
   type IseDevicePreview,
 } from "@/hooks/queries/use-get-ise-devices-preview-mutation";
 
+import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
+import { nautobotSourceIdFromConfig, NAUTOBOT_SOURCE_ID_KEY } from "../shared/nautobot-source-config";
 import { ISESourceSelectDialog } from "./ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "./ise-source-config";
 import { IseDevicesPreviewDialog } from "./preview-dialog";
@@ -95,9 +97,11 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
   const cidr = useMemo(() => stringFromConfig(config, CIDR_KEY), [config]);
   const groupName = useMemo(() => stringFromConfig(config, GROUP_NAME_KEY), [config]);
   const resolveToDevices = Boolean(config[RESOLVE_TO_DEVICES_KEY]);
+  const nautobotSourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
 
   const [sourceOpen, setSourceOpen] = useState(false);
+  const [nautobotSourceOpen, setNautobotSourceOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevices, setPreviewDevices] = useState<IseDevicePreview[]>([]);
   const [previewTruncated, setPreviewTruncated] = useState(false);
@@ -147,6 +151,13 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
   const handleResolveToDevicesChange = useCallback(
     (checked: boolean) => {
       onChange({ ...config, [RESOLVE_TO_DEVICES_KEY]: checked });
+    },
+    [config, onChange],
+  );
+
+  const handleNautobotSourceIdChange = useCallback(
+    (newSourceId: string) => {
+      onChange({ ...config, [NAUTOBOT_SOURCE_ID_KEY]: newSourceId });
     },
     [config, onChange],
   );
@@ -282,13 +293,31 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
           <Switch checked={resolveToDevices} onCheckedChange={handleResolveToDevicesChange} />
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Expand entries with a netmask other than /32 (possible groups/subnets)
-          into individual devices via Nautobot.
+          Expand entries with a netmask other than /32 (possible groups/subnets) into
+          individual devices by matching Nautobot&apos;s Primary Prefix against the CIDR.
         </p>
+
         {resolveToDevices && (
-          <p className="text-[11px] text-amber-600">
-            Not yet implemented — matching entries currently pass through unchanged.
-          </p>
+          <div className="space-y-1.5 pl-1">
+            {nautobotSourceId ? (
+              <p className="font-mono text-[11px] text-muted-foreground">
+                {nautobotSourceId}
+              </p>
+            ) : (
+              <p className="text-[11px] text-amber-600">
+                Nautobot source required for resolve_to_devices
+              </p>
+            )}
+            <Button
+              className="h-7 w-full text-xs"
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => setNautobotSourceOpen(true)}
+            >
+              {nautobotSourceId ? "Edit Nautobot Source" : "Configure Nautobot Source"}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -391,6 +420,13 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
         devices={previewDevices}
         truncated={previewTruncated}
         sourceId={sourceId}
+      />
+
+      <NautobotSourceSelectDialog
+        open={nautobotSourceOpen}
+        selectedSourceId={nautobotSourceId}
+        onClose={() => setNautobotSourceOpen(false)}
+        onSave={handleNautobotSourceIdChange}
       />
     </div>
   );

@@ -102,12 +102,21 @@ plugins:
         - name: resolve_to_devices
           description: >
             When enabled, entries with a netmask other than /32 (possible
-            groups or subnets) are expanded into individual devices via
-            Nautobot. Not yet implemented — currently a logged no-op
-            placeholder that passes the raw ISE entry through unchanged.
+            groups or subnets) are expanded into individual devices by
+            querying Nautobot's Primary Prefix filter (within_include) for
+            the CIDR derived from the entry's IP/mask. Requires
+            nautobot_source_id. If no matching Nautobot devices are found,
+            the raw ISE entry is kept unchanged.
           data_type: boolean
           required: false
           example: false
+        - name: nautobot_source_id
+          description: >
+            ID of a Nautobot source configured under Settings → Sources.
+            Required when resolve_to_devices is enabled.
+          data_type: string
+          required: false
+          example: prod-lab
         - name: fan_out
           description: >
             Fan-out configuration. When enabled, each device (or chunk) is processed

@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from models.sources_nautobot import DeviceInfo
 from models.workflow_context import Capability, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.ise.common.exceptions import ISENotFoundError
@@ -245,26 +246,15 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("id-1", devices)
         self.assertTrue(devices["id-1"].attribute_bags["ise"]["is_group_or_prefix"])
 
-    async def test_resolve_to_devices_stub_logs_and_passes_through(self) -> None:
+    async def test_resolve_to_devices_requires_nautobot_source_id(self) -> None:
         device_service = MagicMock()
-        device_service.get_device_by_name = AsyncMock(
-            return_value={
-                "NetworkDevice": {
-                    "id": "id-1",
-                    "name": "subnet-group",
-                    "NetworkDeviceIPList": [{"ipaddress": "10.0.0.0", "mask": 24}],
-                }
-            }
-        )
         p1, p2, p3 = _patches(device_service)
-        with p1, p2, p3, self.assertLogs(
-            "workflow_steps.get_ise_devices.executor", level="WARNING"
-        ) as logs:
-            outcomes = await execute(
+        with p1, p2, p3, self.assertRaises(ValueError):
+            await execute(
                 config={
                     "ise_source_id": "lab-ise",
                     "query_mode": "name",
-                    "device_names": ["subnet-group"],
+                    "device_names": ["router1"],
                     "resolve_to_devices": True,
                 },
                 context=_context(),
@@ -273,10 +263,97 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="node-1",
             )
 
-        self.assertTrue(any("not implemented" in message for message in logs.output))
+    async def test_resolve_to_devices_expands_group_or_prefix_via_nautobot(self) -> None:
+        device_service = MagicMock()
+        device_service.get_device_by_name = AsyncMock(
+            return_value={
+                "NetworkDevice": {
+                    "id": "id-1",
+                    "name": "subnet-group",
+                    "NetworkDeviceIPList": [{"ipaddress": "10.0.0.5", "mask": 24}],
+                }
+            }
+        )
+        nautobot_service = MagicMock()
+        nautobot_service.preview_inventory = AsyncMock(
+            return_value=(
+                [
+                    DeviceInfo(id="nb-1", name="router-a", primary_ip4="10.0.0.5/24"),
+                    DeviceInfo(id="nb-2", name="router-b", primary_ip4="10.0.0.6/24"),
+                ],
+                1,
+            )
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3, patch(
+            "workflow_steps.get_ise_devices.executor._build_nautobot_source_service",
+            return_value=nautobot_service,
+        ):
+            outcomes = await execute(
+                config={
+                    "ise_source_id": "lab-ise",
+                    "query_mode": "name",
+                    "device_names": ["subnet-group"],
+                    "resolve_to_devices": True,
+                    "nautobot_source_id": "prod-lab",
+                },
+                context=_context(),
+                run=_run(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+            )
+
+        devices = outcomes[0].context.devices
+        self.assertEqual(len(devices), 2)
+        self.assertEqual(devices["nb-1"].source, "nautobot")
+        self.assertEqual(devices["nb-2"].source, "nautobot")
+        self.assertNotIn("id-1", devices)  # raw ISE group/prefix entry replaced
+
+        nautobot_service.preview_inventory.assert_called_once()
+        (operations,), _ = nautobot_service.preview_inventory.call_args
+        condition = operations[0].conditions[0]
+        self.assertEqual(condition.field, "primary_prefix")
+        self.assertEqual(condition.operator, "within_include")
+        self.assertEqual(condition.value, "10.0.0.0/24")
+
+    async def test_resolve_to_devices_falls_back_when_no_nautobot_match(self) -> None:
+        device_service = MagicMock()
+        device_service.get_device_by_name = AsyncMock(
+            return_value={
+                "NetworkDevice": {
+                    "id": "id-1",
+                    "name": "subnet-group",
+                    "NetworkDeviceIPList": [{"ipaddress": "10.0.0.5", "mask": 24}],
+                }
+            }
+        )
+        nautobot_service = MagicMock()
+        nautobot_service.preview_inventory = AsyncMock(return_value=([], 1))
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3, patch(
+            "workflow_steps.get_ise_devices.executor._build_nautobot_source_service",
+            return_value=nautobot_service,
+        ), self.assertLogs(
+            "workflow_steps.get_ise_devices.executor", level="WARNING"
+        ) as logs:
+            outcomes = await execute(
+                config={
+                    "ise_source_id": "lab-ise",
+                    "query_mode": "name",
+                    "device_names": ["subnet-group"],
+                    "resolve_to_devices": True,
+                    "nautobot_source_id": "prod-lab",
+                },
+                context=_context(),
+                run=_run(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+            )
+
+        self.assertTrue(any("keeping the raw ISE entry" in message for message in logs.output))
         devices = outcomes[0].context.devices
         self.assertEqual(len(devices), 1)
-        self.assertTrue(devices["id-1"].attribute_bags["ise"]["is_group_or_prefix"])
+        self.assertEqual(devices["id-1"].source, "ise")
 
     async def test_unknown_source_raises_value_error(self) -> None:
         device_service = MagicMock()

@@ -39,7 +39,7 @@ export function IseDevicesPreviewDialog({
             <code className="rounded bg-muted px-1 font-mono text-xs">
               {sourceId}
             </code>
-            {truncated && " — preview limited to the first page of results"}
+            {truncated && " — preview scanned a subset of ISE's devices; the actual run may find more"}
           </DialogDescription>
         </DialogHeader>
 

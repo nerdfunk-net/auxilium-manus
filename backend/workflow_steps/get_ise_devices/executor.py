@@ -7,16 +7,23 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy.orm import object_session
+from sqlalchemy.orm import Session, object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.workflow_context import StepOutcome, WorkflowContext
+from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
+from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
+from repositories.settings_repository import SettingsRepository
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.ise.source_config_service import ISESourceNotFoundError
-from workflow_steps.common.device_builders import device_context_from_ise
+from services.settings.source_keys import build_source_key
+from services.sources.nautobot.source_service import NautobotSourceService
+from workflow_steps.common.device_builders import (
+    device_context_from_ise,
+    device_context_from_nautobot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,19 +169,47 @@ async def _fetch_devices(
     raise ValueError(f"get-ise-devices: unsupported query_mode '{query_mode}'")
 
 
-def _resolve_group_or_prefix_via_nautobot(device: dict[str, Any]) -> dict[str, Any]:
-    """Placeholder for future Nautobot-based expansion of groups/wide prefixes.
+def _cidr_for_group_or_prefix(device: dict[str, Any]) -> str | None:
+    """Canonical CIDR (network address/prefix) for an ISE entry's first IP/mask."""
+    ip_list = device.get("NetworkDeviceIPList") or []
+    if not ip_list:
+        return None
+    ip = ip_list[0].get("ipaddress")
+    mask = ip_list[0].get("mask")
+    if not ip or mask is None:
+        return None
+    try:
+        return str(ipaddress.ip_network(f"{ip}/{mask}", strict=False))
+    except ValueError:
+        return None
 
-    Not yet implemented — currently a no-op that passes the raw ISE entry
-    through unchanged. Real expansion (resolving a subnet/group entry into
-    its individual member devices via Nautobot) is a follow-up.
+
+def _build_nautobot_source_service(db: Session, nautobot_source_id: str) -> NautobotSourceService:
+    setting = SettingsRepository(db).get_by_key(build_source_key("nautobot", nautobot_source_id))
+    if setting is None:
+        raise ValueError(
+            f"get-ise-devices: Nautobot source '{nautobot_source_id}' not found in settings"
+        )
+    nautobot_url = (setting.value or {}).get("url", "").strip()
+    nautobot_token = (setting.value or {}).get("token", "").strip()
+    if not nautobot_url or not nautobot_token:
+        raise ValueError(
+            f"get-ise-devices: Nautobot source '{nautobot_source_id}' is missing url or token"
+        )
+    credentials = service_factory.credentials_from_connection(nautobot_url, nautobot_token)
+    return service_factory.build_nautobot_source_service(credentials, db)
+
+
+async def _resolve_devices_via_nautobot(
+    nautobot_source_service: NautobotSourceService, cidr: str
+) -> list[DeviceInfo]:
+    """Resolve a subnet/group entry into its member devices via Nautobot's
+    "Primary Prefix" filter — devices whose primary_ip4 falls within `cidr`.
     """
-    logger.warning(
-        "get-ise-devices: resolve_to_devices requested for '%s' but Nautobot-based "
-        "expansion is not implemented yet; passing the raw ISE entry through unchanged",
-        device.get("name"),
-    )
-    return device
+    condition = LogicalCondition(field="primary_prefix", operator="within_include", value=cidr)
+    operation = LogicalOperation(operation_type="AND", conditions=[condition])
+    devices, _ = await nautobot_source_service.preview_inventory([operation])
+    return devices
 
 
 async def execute(
@@ -196,6 +231,11 @@ async def execute(
         raise ValueError(f"get-ise-devices: unsupported query_mode '{query_mode}'")
 
     resolve_to_devices = bool(config.get("resolve_to_devices", False))
+    nautobot_source_id = (config.get("nautobot_source_id") or "").strip()
+    if resolve_to_devices and not nautobot_source_id:
+        raise ValueError(
+            "get-ise-devices: nautobot_source_id is required when resolve_to_devices is enabled"
+        )
 
     db = object_session(run)
     if db is None:
@@ -211,11 +251,16 @@ async def execute(
 
     device_service = service_factory.build_ise_network_device_service(credentials)
 
+    nautobot_source_service: NautobotSourceService | None = None
+    if resolve_to_devices:
+        nautobot_source_service = _build_nautobot_source_service(db, nautobot_source_id)
+
     logger.info(
-        "get-ise-devices started run_id=%s node_id=%s query_mode=%s",
+        "get-ise-devices started run_id=%s node_id=%s query_mode=%s resolve_to_devices=%s",
         context.run_id,
         node_id,
         query_mode,
+        resolve_to_devices,
     )
 
     try:
@@ -223,13 +268,40 @@ async def execute(
     except (ISEValidationError, ISEAPIError) as exc:
         raise RuntimeError(f"get-ise-devices: ISE request failed: {exc}") from exc
 
-    new_devices = {}
+    new_devices: dict[str, DeviceContext] = {}
+    cidr_cache: dict[str, list[DeviceInfo]] = {}
+
     for raw_device in raw_devices:
         device_context = device_context_from_ise(raw_device, source_id=source_id)
-        if resolve_to_devices and device_context.attribute_bags.get("ise", {}).get(
-            "is_group_or_prefix"
-        ):
-            _resolve_group_or_prefix_via_nautobot(raw_device)
+        is_group_or_prefix = bool(
+            device_context.attribute_bags.get("ise", {}).get("is_group_or_prefix")
+        )
+
+        if resolve_to_devices and is_group_or_prefix and nautobot_source_service is not None:
+            cidr = _cidr_for_group_or_prefix(raw_device)
+            resolved_devices: list[DeviceInfo] = []
+            if cidr is not None:
+                if cidr not in cidr_cache:
+                    cidr_cache[cidr] = await _resolve_devices_via_nautobot(
+                        nautobot_source_service, cidr
+                    )
+                resolved_devices = cidr_cache[cidr]
+
+            if resolved_devices:
+                for nautobot_device in resolved_devices:
+                    resolved_context = device_context_from_nautobot(
+                        nautobot_device, source_id=nautobot_source_id
+                    )
+                    new_devices[resolved_context.id] = resolved_context
+                continue
+
+            logger.warning(
+                "get-ise-devices: resolve_to_devices found no Nautobot devices for '%s' "
+                "(cidr=%s); keeping the raw ISE entry",
+                raw_device.get("name"),
+                cidr,
+            )
+
         new_devices[device_context.id] = device_context
 
     fan_out_cfg: dict = config.get("fan_out") or {}

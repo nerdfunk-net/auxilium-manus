@@ -185,6 +185,7 @@ async def get_field_options(_: User = Depends(get_current_user)) -> dict:
             {"value": "platform", "label": "Platform"},
             {"value": "has_primary", "label": "Has Primary"},
             {"value": "ip_prefix", "label": "IP Prefix"},
+            {"value": "primary_prefix", "label": "Primary Prefix"},
             {"value": "custom_fields", "label": "Custom Fields..."},
         ],
         "operators": [

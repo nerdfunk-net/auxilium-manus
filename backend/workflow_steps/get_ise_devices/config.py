@@ -9,6 +9,7 @@ def get_config() -> dict:
         "cidr": "",
         "group_name": "",
         "resolve_to_devices": False,
+        "nautobot_source_id": "",
         "fan_out": {
             "enabled": False,
             "mode": "per_device",

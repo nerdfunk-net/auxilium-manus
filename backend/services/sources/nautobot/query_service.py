@@ -12,9 +12,11 @@ Cache strategy (Option A — cache-first):
   the same inventory preview only pay the Redis round-trip once.
 
   Exceptions that still go directly to Nautobot GraphQL:
-    • location  — Nautobot resolves child-location hierarchy server-side
-    • ip_prefix — requires server-side CIDR containment logic
-    • custom_field — fields are dynamic and not stored in the cache
+    • location       — Nautobot resolves child-location hierarchy server-side
+    • ip_prefix      — requires server-side CIDR containment logic
+    • primary_prefix — requires server-side CIDR containment logic, restricted
+                        to each device's primary_ip4
+    • custom_field   — fields are dynamic and not stored in the cache
 """
 
 from __future__ import annotations

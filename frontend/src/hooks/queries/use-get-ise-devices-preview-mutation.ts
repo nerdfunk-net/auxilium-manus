@@ -5,6 +5,12 @@ import { useMutation } from "@tanstack/react-query";
 import { useApi } from "@/hooks/use-api";
 
 const PREVIEW_LIMIT = 25;
+/** Safety ceiling on how many ISE devices a wide-CIDR preview will scan.
+ * ISE has no server-side CIDR filter, so every device must be detail-fetched
+ * and checked individually — this bounds worst-case preview latency on a
+ * very large ISE instance. The real workflow run has no such cap. */
+const CIDR_SCAN_LIMIT = 500;
+const DETAIL_FETCH_CONCURRENCY = 10;
 
 export interface IseDevicePreview {
   id: string;
@@ -51,6 +57,8 @@ interface IseListResponse {
   next_page: string | null;
 }
 
+type ApiCall = ReturnType<typeof useApi>["apiCall"];
+
 function toPreview(device: IseNetworkDevice): IseDevicePreview | null {
   if (!device.id || !device.name) return null;
   const ip = device.NetworkDeviceIPList?.[0];
@@ -83,36 +91,67 @@ function ipv4InCidr(ip: string, cidr: string): boolean {
   }
 }
 
-export function useGetIseDevicesPreviewMutation() {
-  const { apiCall } = useApi();
+async function fetchDetail(
+  apiCall: ApiCall,
+  sourceId: string,
+  deviceId: string,
+): Promise<IseNetworkDevice | null> {
+  try {
+    const result = await apiCall<{ NetworkDevice: IseNetworkDevice }>(
+      `sources/ise/${sourceId}/devices/${deviceId}`,
+      { method: "GET" },
+    );
+    return result.NetworkDevice;
+  } catch {
+    return null;
+  }
+}
 
-  const fetchDetail = async (
-    sourceId: string,
-    deviceId: string,
-  ): Promise<IseNetworkDevice | null> => {
-    try {
-      const result = await apiCall<{ NetworkDevice: IseNetworkDevice }>(
-        `sources/ise/${sourceId}/devices/${deviceId}`,
-        { method: "GET" },
-      );
-      return result.NetworkDevice;
-    } catch {
-      return null;
-    }
-  };
-
-  const fetchDetails = async (
-    sourceId: string,
-    summaries: IseListSummary[],
-  ): Promise<IseNetworkDevice[]> => {
-    const details: IseNetworkDevice[] = [];
-    for (const summary of summaries.slice(0, PREVIEW_LIMIT)) {
-      if (!summary.id) continue;
-      const detail = await fetchDetail(sourceId, summary.id);
+/** Detail-fetches every summary, `DETAIL_FETCH_CONCURRENCY` at a time. */
+async function fetchDetails(
+  apiCall: ApiCall,
+  sourceId: string,
+  summaries: IseListSummary[],
+): Promise<IseNetworkDevice[]> {
+  const ids = summaries
+    .map((summary) => summary.id)
+    .filter((id): id is string => Boolean(id));
+  const details: IseNetworkDevice[] = [];
+  for (let i = 0; i < ids.length; i += DETAIL_FETCH_CONCURRENCY) {
+    const batch = ids.slice(i, i + DETAIL_FETCH_CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map((id) => fetchDetail(apiCall, sourceId, id)),
+    );
+    for (const detail of batchResults) {
       if (detail) details.push(detail);
     }
-    return details;
-  };
+  }
+  return details;
+}
+
+/** Paginates `GET .../devices` (no filter) up to `CIDR_SCAN_LIMIT` summaries. */
+async function fetchAllSummaries(
+  apiCall: ApiCall,
+  sourceId: string,
+): Promise<{ summaries: IseListSummary[]; truncated: boolean }> {
+  const summaries: IseListSummary[] = [];
+  let page = 1;
+  let total = 0;
+  while (summaries.length < CIDR_SCAN_LIMIT) {
+    const result = await apiCall<IseListResponse>(
+      `sources/ise/${sourceId}/devices?page=${page}&size=100`,
+      { method: "GET" },
+    );
+    total = result.total;
+    summaries.push(...result.resources);
+    if (!result.next_page || result.resources.length === 0) break;
+    page += 1;
+  }
+  return { summaries, truncated: total > summaries.length };
+}
+
+export function useGetIseDevicesPreviewMutation() {
+  const { apiCall } = useApi();
 
   return useMutation({
     mutationFn: async (request: IsePreviewRequest): Promise<IsePreviewResponse> => {
@@ -140,7 +179,7 @@ export function useGetIseDevicesPreviewMutation() {
           { method: "GET" },
         );
         truncated = result.total > result.resources.length;
-        rawDevices = await fetchDetails(sourceId, result.resources);
+        rawDevices = await fetchDetails(apiCall, sourceId, result.resources);
       } else if (queryMode === "cidr") {
         const cidr = (request.cidr ?? "").trim();
         const isHost = !cidr.includes("/") || cidr.endsWith("/32");
@@ -151,14 +190,17 @@ export function useGetIseDevicesPreviewMutation() {
             `sources/ise/${sourceId}/devices?filter=${encodeURIComponent(`ipaddress.EQ.${host}`)}`,
             { method: "GET" },
           );
-          rawDevices = await fetchDetails(sourceId, result.resources);
+          rawDevices = await fetchDetails(apiCall, sourceId, result.resources);
         } else {
-          const result = await apiCall<IseListResponse>(
-            `sources/ise/${sourceId}/devices?page=1&size=${PREVIEW_LIMIT}`,
-            { method: "GET" },
+          // ISE has no server-side CIDR filter — the full device set must be
+          // scanned and detail-fetched before the CIDR check can run, or
+          // matches outside an arbitrary first page would be silently missed.
+          const { summaries, truncated: scanTruncated } = await fetchAllSummaries(
+            apiCall,
+            sourceId,
           );
-          truncated = result.total > result.resources.length;
-          const details = await fetchDetails(sourceId, result.resources);
+          truncated = scanTruncated;
+          const details = await fetchDetails(apiCall, sourceId, summaries);
           rawDevices = details.filter((detail) =>
             (detail.NetworkDeviceIPList ?? []).some(
               (entry) => entry.ipaddress && ipv4InCidr(entry.ipaddress, cidr),

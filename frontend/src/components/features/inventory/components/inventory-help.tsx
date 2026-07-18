@@ -36,7 +36,7 @@ export function InventoryHelpContent() {
               <h4 className="mb-2 font-semibold">Logical Conditions</h4>
               <p className="text-sm text-muted-foreground">
                 Filter by role, location, status, tags, device type, manufacturer, platform,
-                IP prefix, or custom fields.
+                IP prefix, primary prefix, or custom fields.
               </p>
             </div>
             <div className="rounded-lg border bg-muted/50 p-4">

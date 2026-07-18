@@ -120,6 +120,7 @@ class NautobotSourceMetadataService:
             "tag": "extras/tags/?content_types=dcim.device&limit=0",
             "has_primary": None,
             "ip_prefix": None,
+            "primary_prefix": None,
         }
 
         if field_name == "has_primary":
