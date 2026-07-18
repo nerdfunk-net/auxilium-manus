@@ -98,7 +98,7 @@ class VirtualMachineManager:
             )
             raise NautobotAPIError(
                 f"Failed to assign IP to virtual interface: {str(e)}"
-            )
+            ) from e
 
     async def assign_primary_ip_to_vm(self, vm_id: str, ip_address_id: str) -> bool:
         """
@@ -131,7 +131,7 @@ class VirtualMachineManager:
 
         except NautobotAPIError as e:
             logger.error("Failed to assign primary IPv4 to VM %s: %s", vm_id, str(e))
-            raise NautobotAPIError(f"Failed to assign primary IP to VM: {str(e)}")
+            raise NautobotAPIError(f"Failed to assign primary IP to VM: {str(e)}") from e
 
     async def update_virtual_machine(
         self,
@@ -195,7 +195,7 @@ class VirtualMachineManager:
             return result
         except NautobotAPIError as e:
             logger.error("Failed to update VM %s: %s", vm_id, e, exc_info=True)
-            raise NautobotAPIError(f"Failed to update virtual machine: {str(e)}")
+            raise NautobotAPIError(f"Failed to update virtual machine: {str(e)}") from e
 
     async def list_virtual_interfaces(self, vm_id: str) -> list[Dict[str, Any]]:
         """List virtual interfaces for a VM."""
@@ -257,7 +257,7 @@ class VirtualMachineManager:
             )
         except NautobotAPIError as e:
             logger.error("Failed to update virtual interface %s: %s", interface_id, e)
-            raise NautobotAPIError(f"Failed to update virtual interface: {str(e)}")
+            raise NautobotAPIError(f"Failed to update virtual interface: {str(e)}") from e
 
     async def clean_virtual_interface_ips(self, interface_id: str) -> None:
         """Remove all IP assignments from a virtual interface."""
@@ -394,7 +394,7 @@ class VirtualMachineManager:
 
         except NautobotAPIError as e:
             logger.error("Failed to create VM '%s': %s", name, e, exc_info=True)
-            raise NautobotAPIError(f"Failed to create virtual machine: {str(e)}")
+            raise NautobotAPIError(f"Failed to create virtual machine: {str(e)}") from e
 
     async def create_virtual_interface(
         self,
@@ -486,4 +486,4 @@ class VirtualMachineManager:
                 e,
                 exc_info=True,
             )
-            raise NautobotAPIError(f"Failed to create virtual interface: {str(e)}")
+            raise NautobotAPIError(f"Failed to create virtual interface: {str(e)}") from e

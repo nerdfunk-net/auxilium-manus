@@ -15,8 +15,8 @@ from models.rbac import (
     UserPermissions,
     UserRoleAssignment,
 )
-from repositories.user_repository import UserRepository
 from services.auth.rbac_service import RBACService
+from services.users.user_service import UserService
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ async def assign_user_role(
     db: Session = Depends(get_db),
     service: RBACService = Depends(_service),
 ) -> None:
-    if UserRepository(db).get_by_id(user_id) is None:
+    if UserService(db).get_user(user_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if service.get_role(payload.role_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
@@ -134,7 +134,7 @@ async def set_user_permission_override(
     db: Session = Depends(get_db),
     service: RBACService = Depends(_service),
 ) -> None:
-    if UserRepository(db).get_by_id(user_id) is None:
+    if UserService(db).get_user(user_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if service.get_permission_by_id(payload.permission_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")

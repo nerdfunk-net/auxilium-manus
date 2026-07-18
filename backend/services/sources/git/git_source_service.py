@@ -38,7 +38,7 @@ def _build_auth_url(url: str, username: str, token: str) -> str:
         return url
 
 
-def _clone_or_pull(source_config: dict[str, Any]) -> Path:
+def clone_or_pull(source_config: dict[str, Any]) -> Path:
     """Ensure the repository is available locally; return the root path."""
     source_id: str = source_config["source_id"]
     url: str = source_config.get("url", "").strip()
@@ -89,7 +89,7 @@ def _clone_or_pull(source_config: dict[str, Any]) -> Path:
     return repo_dir
 
 
-def _remove_and_clone(source_config: dict[str, Any]) -> Path:
+def remove_and_clone(source_config: dict[str, Any]) -> Path:
     """Remove any existing local copy and clone fresh; return the root path."""
     source_id: str = source_config["source_id"]
     url: str = source_config.get("url", "").strip()
@@ -196,8 +196,8 @@ class GitDeviceService:
         source_id = source_config.get("source_id")
         logger.info("[DEBUG] fetch_devices START — source=%s pattern=%s", source_id, filename_pattern)
 
-        repo_dir = _clone_or_pull(source_config)
-        logger.info("[DEBUG] fetch_devices — _clone_or_pull returned repo_dir=%s", repo_dir)
+        repo_dir = clone_or_pull(source_config)
+        logger.info("[DEBUG] fetch_devices — clone_or_pull returned repo_dir=%s", repo_dir)
 
         repository_path = source_config.get("repository_path", "").strip()
         logger.info("[DEBUG] fetch_devices — calling _find_files with root=%s path=%r pattern=%s", repo_dir, repository_path, filename_pattern)

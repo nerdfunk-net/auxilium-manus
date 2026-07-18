@@ -27,7 +27,7 @@ from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
 from workflow_steps.git_push.executor import execute as git_push
 from workflow_steps.merge_content.executor import execute as merge_content
-from workflow_steps.nautobot_attributes.executor import execute as get_nautobot_attributes
+from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.run_command.executor import execute as run_command

@@ -10,22 +10,11 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import get_current_user, require_permission
+from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_git_auth_service, get_git_debug_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/git-repositories", tags=["git-debug"])
-
-
-def _debug_error(e: Exception, repo_id: int, stage: str = "repository_access") -> dict:
-    return {
-        "success": False,
-        "message": f"Debug test failed: {str(e)}",
-        "details": {
-            "error": str(e),
-            "error_type": type(e).__name__,
-            "stage": stage,
-        },
-    }
 
 
 @router.post(
@@ -43,8 +32,7 @@ async def debug_read_test(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        logger.error("Debug read test failed for repo %s: %s", repo_id, e)
-        return _debug_error(e, repo_id)
+        raise_internal_server_error(logger, f"Debug read test failed for repo {repo_id}", e)
 
 
 @router.post(
@@ -62,8 +50,7 @@ async def debug_write_test(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        logger.error("Debug write test failed for repo %s: %s", repo_id, e)
-        return _debug_error(e, repo_id)
+        raise_internal_server_error(logger, f"Debug write test failed for repo {repo_id}", e)
 
 
 @router.post(
@@ -81,8 +68,7 @@ async def debug_delete_test(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        logger.error("Debug delete test failed for repo %s: %s", repo_id, e)
-        return _debug_error(e, repo_id)
+        raise_internal_server_error(logger, f"Debug delete test failed for repo {repo_id}", e)
 
 
 @router.post(
@@ -101,8 +87,7 @@ async def debug_push_test(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        logger.error("Debug push test failed for repo %s: %s", repo_id, e)
-        return _debug_error(e, repo_id)
+        raise_internal_server_error(logger, f"Debug push test failed for repo {repo_id}", e)
 
 
 @router.get(
@@ -121,5 +106,4 @@ async def debug_diagnostics(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        logger.error("Debug diagnostics failed for repo %s: %s", repo_id, e)
-        return {"success": False, "error": str(e), "error_type": type(e).__name__}
+        raise_internal_server_error(logger, f"Debug diagnostics failed for repo {repo_id}", e)

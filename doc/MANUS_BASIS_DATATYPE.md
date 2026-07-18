@@ -639,7 +639,7 @@ plugins:
     name: Get Nautobot Attributes
     description: Enriches devices with full attribute data from Nautobot.
     artifact_type: configuration_retrieval
-    directory: nautobot_attributes
+    directory: get_nautobot_attributes
     enabled: true
     requires: [identity]
     produces: [attributes]

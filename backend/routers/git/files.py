@@ -11,6 +11,7 @@ from fastapi.responses import PlainTextResponse
 
 from core.auth import get_current_user, require_permission
 from dependencies import get_cache_service
+from services.git.csv_service import GitCsvService
 from services.git.file_service import GitFileService
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ router = APIRouter(
 )
 
 _git_file_service = GitFileService()
+_git_csv_service = GitCsvService()
 
 
 @router.get("/files/search")
@@ -116,7 +118,7 @@ async def list_csv_files(
     limit: int = 200,
     current_user: dict = Depends(get_current_user),
 ):
-    return _git_file_service.list_csv_files(repo_id, query, limit)
+    return _git_csv_service.list_csv_files(repo_id, query, limit)
 
 
 @router.get("/csv-headers")
@@ -127,4 +129,4 @@ async def get_csv_headers(
     quote_char: str = '"',
     current_user: dict = Depends(get_current_user),
 ):
-    return _git_file_service.get_csv_headers(repo_id, path, delimiter, quote_char)
+    return _git_csv_service.get_csv_headers(repo_id, path, delimiter, quote_char)

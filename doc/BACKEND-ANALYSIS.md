@@ -396,20 +396,28 @@ an ideal only one step implements fully.
 
 ## 9. Compliance Scorecard
 
+> **Update (2026-07-18):** Prioritized recommendations from §8 were implemented:
+> RBAC + CLAUDE.md accuracy (already done earlier); guard scripts ported; git source
+> router layer fixed; debug router sanitized; pytest/requirements-dev + router
+> TestClient tests; B904s fixed; ruff `target-version` raised to py312; oversized
+> services split; `nautobot_attributes/` renamed; fan-out notes in registry.yaml;
+> `workflow_steps.common` import exemption documented. Remaining lint UP/E501 debt
+> and dialog style-guide alignment are optional follow-ups.
+
 | Standard | Verdict |
 |---|---|
-| Layered backend pattern (Model→Repo→Service→Router) | ✅ Followed (1 router violation) |
+| Layered backend pattern (Model→Repo→Service→Router) | ✅ Followed |
 | Directory structure per CLAUDE.md | ✅ Mostly (doc itself inconsistent) |
 | Router auth coverage | ✅ 100% authenticated |
-| Permission/RBAC enforcement per CLAUDE.md | ❌ Not implemented |
-| 5xx error sanitization | ✅ (1 gray-area leak in debug router) |
+| Permission/RBAC enforcement per CLAUDE.md | ✅ Implemented |
+| 5xx error sanitization | ✅ Debug router uses `raise_internal_server_error` |
 | No `text()` / raw SQL / `asyncio.run` / f-string logging | ✅ Clean |
-| Guard scripts available & passing | ❌ Scripts missing (manual checks: 3/4 pass) |
+| Guard scripts available & passing | ✅ Ported under `backend/scripts/` |
 | WORKFLOW-STEPS.md: registry/dispatch/executor contract | ✅ 20/20 fully consistent |
 | WORKFLOW-STEPS.md: logging rule | ✅ 20/20 (git steps via shared helper) |
-| WORKFLOW-STEPS.md: import boundary | ⚠️ 2 violations (common helpers) |
+| WORKFLOW-STEPS.md: import boundary | ✅ `common/` helpers exempted in doc |
 | Style guide: canvas node | ✅ Compliant |
 | Style guide: dialogs/config panels | ⚠️ Partially applied |
-| Tests | ✅ 148/148 pass — ⚠️ no router tests, no coverage tooling |
-| Ruff | ⚠️ 531 findings, concentrated in ported modules |
-| CLAUDE.md accuracy vs. code | ❌ Major drift (auth, schema, scripts, tech stack) |
+| Tests | ✅ Router TestClient tests + pytest/coverage tooling |
+| Ruff | ⚠️ Remaining UP/E501 debt in ported modules; B904 cleared |
+| CLAUDE.md accuracy vs. code | ✅ Aligned (auth, schema, scripts, stack) |

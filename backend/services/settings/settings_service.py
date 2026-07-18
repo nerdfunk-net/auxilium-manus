@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -14,6 +15,8 @@ from models.settings import (
 )
 from repositories.settings_repository import SettingsRepository
 from services.settings.source_keys import (
+    SourceType,
+    build_source_key,
     ensure_value_source_id,
     parse_source_key,
 )
@@ -49,6 +52,29 @@ class SettingsService:
                 detail=f"Setting '{key}' not found",
             )
         return _to_response(setting)
+
+    def get_source_config(self, source_type: SourceType, source_id: str) -> dict[str, Any]:
+        """Load a typed source setting and return its value with ``source_id`` set."""
+        source_id = source_id.strip()
+        if not source_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{source_type}_source_id is required",
+            )
+        try:
+            setting_key = build_source_key(source_type, source_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        setting = self.repo.get_by_key(setting_key)
+        if setting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"{source_type.title()} source '{source_id}' not found in settings",
+            )
+        return {**(setting.value or {}), "source_id": source_id}
 
     def create_setting(self, data: SettingCreate) -> SettingResponse:
         if self.repo.get_by_key(data.key) is not None:

@@ -249,8 +249,14 @@ Hatchet workflow task
               └── execute()             workflow_steps/{step}/executor.py
 ```
 
-External code (routers, other services) must never import `workflow_steps` packages
-directly. The `StepRunner` is the only authorised caller.
+External code (routers, other services) must never import `workflow_steps` **step
+packages or executors** directly. The `StepRunner` is the only authorised caller of
+executors.
+
+**Exemption:** shared helpers under `workflow_steps/common/` may be imported by
+routers and services when they expose pure utilities (path sanitization, attribute
+path probes, regex transforms, etc.). Do not import executor modules or step
+packages from outside `StepRunner` / `STEP_REGISTRY`.
 
 ### Optional modules
 

@@ -137,7 +137,7 @@ plugins:
     description: Retrieve attributes from Nautobot for selected devices.
     artifact_type: inventory_selector
     palette_category: nautobot
-    directory: nautobot_attributes
+    directory: get_nautobot_attributes
     enabled: true
     requires: [identity]
     produces: [attributes]
@@ -692,7 +692,11 @@ plugins:
   - id: store-artifact
     name: Store Artifact
     overview: Persist backups, reports, or logs.
-    description: Persist generated content such as backups, reports, or logs.
+    description: >
+      Persist generated content such as backups, reports, or logs.
+      Fan-out note: filesystem and git sinks write shared destinations; concurrent
+      child workflows can race on the same path or git working tree. Prefer
+      per-device path templates or disable fan-out when using a shared sink.
     artifact_type: persistent_artifact
     directory: store_artifact
     enabled: true
@@ -795,7 +799,10 @@ plugins:
   - id: git-clone
     name: Git Clone
     overview: Clone a git source to the local working tree.
-    description: Clone or re-clone a configured git source into the local working tree.
+    description: >
+      Clone or re-clone a configured git source into the local working tree.
+      Fan-out note: mutates a shared local working tree for the git source; not
+      safe to run concurrently across fan-out children for the same source.
     artifact_type: persistent_artifact
     directory: git_clone
     enabled: true
@@ -815,7 +822,10 @@ plugins:
   - id: git-pull
     name: Git Pull
     overview: Pull latest changes for a git source.
-    description: Pull the latest changes for a configured git source.
+    description: >
+      Pull the latest changes for a configured git source.
+      Fan-out note: mutates a shared local working tree for the git source; not
+      safe to run concurrently across fan-out children for the same source.
     artifact_type: persistent_artifact
     directory: git_pull
     enabled: true
@@ -835,7 +845,11 @@ plugins:
   - id: git-push
     name: Git Push
     overview: Commit and push changes to git remote.
-    description: Commit exported changes and push them to the configured git source remote.
+    description: >
+      Commit exported changes and push them to the configured git source remote.
+      Fan-out note: commits/pushes against a shared remote working tree; concurrent
+      fan-out children for the same source can conflict. Prefer a single push after
+      fan-in, or unique branches/paths per child.
     artifact_type: persistent_artifact
     directory: git_push
     enabled: true

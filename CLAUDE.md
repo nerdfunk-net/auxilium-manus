@@ -640,11 +640,18 @@ cd frontend && npm run dev
 # Ruff (Python lint/format rules in backend/pyproject.toml) — run from time to time
 # or before larger backend changes; from backend/: `ruff check .` (optionally `--fix`)
 ruff check .
-```
 
-Router/repository-boundary and raw-SQL/asyncio-leak regression guard scripts are not yet
-ported into this repo's `backend/scripts/` (only `purge_retention.py` exists there); see
-`doc/BACKEND-ANALYSIS.md` §3.3 if reintroducing them.
+# Dev test deps (once): pip install -r requirements-dev.txt
+# Tests (unittest or pytest):
+python -m pytest
+# or: python -m unittest discover -s tests
+
+# Regression guards (AST/heuristic checkers; run from backend/):
+python scripts/check_asyncio_run.py
+python scripts/check_http_500_leaks.py
+python scripts/check_router_repositories.py
+python scripts/check_text_sql.py
+```
 
 When implementing configuration changes, include verification steps that confirm the change works (e.g., run a quick test, check logs, or validate config loads)
 

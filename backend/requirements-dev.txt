@@ -1,0 +1,5 @@
+# Dev / test tooling (install into the project venv):
+#   ../.venv/bin/pip install -r requirements-dev.txt
+-r requirements.txt
+pytest==8.4.1
+pytest-cov==6.2.1
