@@ -11,7 +11,7 @@ from workflow_steps.workflow_log.executor import execute
 
 
 class WorkflowLogExecutorTests(unittest.IsolatedAsyncioTestCase):
-    async def test_logs_configured_attributes_per_device(self) -> None:
+    async def test_interpolates_placeholders_per_device(self) -> None:
         run = MagicMock()
         device = DeviceContext(
             id="device-1",
@@ -28,16 +28,9 @@ class WorkflowLogExecutorTests(unittest.IsolatedAsyncioTestCase):
             devices={"device-1": device},
         )
 
+        message = "{device.name} is {device.network_driver} ({nautobot.role.name})"
         outcomes = await execute(
-            config={
-                "message": "Check role",
-                "attribute_paths": [
-                    "device.name",
-                    "device.network_driver",
-                    "nautobot.role.name",
-                    "status",
-                ],
-            },
+            config={"message": message},
             context=context,
             run=run,
             artifact_service=MagicMock(),
@@ -49,20 +42,39 @@ class WorkflowLogExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].context.devices, context.devices)
 
         debug_logs = outcomes[0].context.metadata[f"workflow-log-1{DEBUG_LOGS_METADATA_SUFFIX}"]
-        self.assertEqual(debug_logs["message"], "Check role")
+        self.assertEqual(debug_logs["message"], message)
         self.assertEqual(debug_logs["device_count"], 1)
-        values = debug_logs["devices"]["device-1"]["values"]
-        self.assertEqual(values["device.name"], "lab")
-        self.assertEqual(values["device.network_driver"], "cisco_ios")
-        self.assertEqual(values["nautobot.role.name"], "access-switch")
-        self.assertEqual(values["status"], "ok")
+        self.assertEqual(
+            debug_logs["devices"]["device-1"]["message"],
+            "lab is cisco_ios (access-switch)",
+        )
+
+    async def test_unresolved_placeholder_renders_empty(self) -> None:
+        run = MagicMock()
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"device-1": device},
+        )
+
+        outcomes = await execute(
+            config={"message": "key={tacacs.shared_secret}"},
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="workflow-log-1",
+        )
+
+        debug_logs = outcomes[0].context.metadata[f"workflow-log-1{DEBUG_LOGS_METADATA_SUFFIX}"]
+        self.assertEqual(debug_logs["devices"]["device-1"]["message"], "key=")
 
     async def test_passes_through_when_no_devices(self) -> None:
         run = MagicMock()
         context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={})
 
         outcomes = await execute(
-            config={"attribute_paths": ["device.name"]},
+            config={"message": "{device.name}"},
             context=context,
             run=run,
             artifact_service=MagicMock(),
@@ -74,24 +86,27 @@ class WorkflowLogExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(debug_logs["device_count"], 0)
         self.assertEqual(debug_logs["devices"], {})
 
-    async def test_requires_attribute_paths(self) -> None:
+    async def test_falls_back_to_default_message_when_omitted(self) -> None:
         run = MagicMock()
+        device = DeviceContext(
+            id="device-1", name="lab", hostname="lab", network_driver="cisco_ios"
+        )
         context = WorkflowContext(
             run_id="run-1",
             workflow_id="wf-1",
-            devices={
-                "device-1": DeviceContext(id="device-1", name="lab", hostname="lab"),
-            },
+            devices={"device-1": device},
         )
 
-        with self.assertRaises(ValueError):
-            await execute(
-                config={"attribute_paths": []},
-                context=context,
-                run=run,
-                artifact_service=MagicMock(),
-                node_id="workflow-log-3",
-            )
+        outcomes = await execute(
+            config={},
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="workflow-log-3",
+        )
+
+        debug_logs = outcomes[0].context.metadata[f"workflow-log-3{DEBUG_LOGS_METADATA_SUFFIX}"]
+        self.assertEqual(debug_logs["devices"]["device-1"]["message"], "Device lab: cisco_ios")
 
 
 if __name__ == "__main__":

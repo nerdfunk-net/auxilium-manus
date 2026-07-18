@@ -142,6 +142,128 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="route-4",
             )
 
+    async def test_routes_on_absent_vs_present_tacacs_key(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "has-key": _device(
+                    "has-key", attribute_bags={"tacacs": {"shared_secret": "s3cr3t"}}
+                ),
+                "no-key": _device("no-key"),
+            },
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "tacacs.shared_secret",
+                "routes": [
+                    {"outcome": "has-key", "values": ["{exists}"]},
+                    {"outcome": "no-key", "values": ["{absent}", "{null}", "{empty}"]},
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-6",
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(list(by_name["has-key"].context.devices), ["has-key"])
+        self.assertEqual(list(by_name["no-key"].context.devices), ["no-key"])
+
+    async def test_null_special_value_matches_explicit_none(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "null-1": _device(
+                    "null-1", attribute_bags={"tacacs": {"shared_secret": None}}
+                ),
+            },
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "tacacs.shared_secret",
+                "routes": [
+                    {"outcome": "null-route", "values": ["{null}"]},
+                    {"outcome": "absent-route", "values": ["{absent}"]},
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-7",
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(list(by_name["null-route"].context.devices), ["null-1"])
+        self.assertEqual(by_name["absent-route"].context.devices, {})
+
+    async def test_empty_special_value_matches_blank_string(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "empty-1": _device(
+                    "empty-1", attribute_bags={"tacacs": {"shared_secret": "   "}}
+                ),
+            },
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "tacacs.shared_secret",
+                "routes": [
+                    {"outcome": "empty-route", "values": ["{empty}"]},
+                    {"outcome": "exists-route", "values": ["{exists}"]},
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-8",
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(list(by_name["empty-route"].context.devices), ["empty-1"])
+        self.assertEqual(by_name["exists-route"].context.devices, {})
+
+    async def test_special_values_combine_with_literal_values(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "ios-1": _device("ios-1", network_driver="cisco_ios"),
+                "missing-1": _device("missing-1"),
+            },
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "device.network_driver",
+                "routes": [
+                    {"outcome": "matched", "values": ["cisco_ios", "{null}"]},
+                ],
+                "default_outcome": "other",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-9",
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(
+            set(by_name["matched"].context.devices), {"ios-1", "missing-1"}
+        )
+        self.assertEqual(by_name["other"].context.devices, {})
+
     async def test_first_matching_route_wins(self) -> None:
         run = MagicMock()
         context = WorkflowContext(

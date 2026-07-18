@@ -13,6 +13,7 @@ import {
   buildRouteOnAttributeConfig,
   DEFAULT_ROUTE_ON_ATTRIBUTE_CONFIG,
   parseRouteOnAttributeConfig,
+  SPECIAL_ROUTE_VALUES,
   type RouteRule,
 } from "./route-config";
 
@@ -82,6 +83,19 @@ function RouteOnAttributeConfigPanel({
             }
           : route,
       );
+      onChange(buildRouteOnAttributeConfig(config, { routes: nextRoutes }));
+    },
+    [config, onChange, parsed.routes],
+  );
+
+  const handleInsertSpecialValue = useCallback(
+    (index: number, token: string) => {
+      const nextRoutes = parsed.routes.map((route, routeIndex) => {
+        if (routeIndex !== index || route.values.includes(token)) {
+          return route;
+        }
+        return { ...route, values: [...route.values, token] };
+      });
       onChange(buildRouteOnAttributeConfig(config, { routes: nextRoutes }));
     },
     [config, onChange, parsed.routes],
@@ -186,13 +200,36 @@ function RouteOnAttributeConfigPanel({
                   placeholder="cisco_ios, ios"
                   className="h-8 font-mono text-xs"
                 />
+                <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                  {SPECIAL_ROUTE_VALUES.map((special) => (
+                    <Button
+                      key={special.value}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-5 rounded px-1.5 font-mono text-[10px]"
+                      title={special.hint}
+                      disabled={route.values.includes(special.value)}
+                      onClick={() => handleInsertSpecialValue(index, special.value)}
+                    >
+                      {special.value}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
           ))}
         </div>
         <p className="text-[11px] leading-4 text-muted-foreground">
           Routes are evaluated in order. The first matching value sends the device down that
-          outcome handle.
+          outcome handle. Besides literal values, the special tokens{" "}
+          <span className="font-mono">{"{absent}"}</span>,{" "}
+          <span className="font-mono">{"{null}"}</span>,{" "}
+          <span className="font-mono">{"{empty}"}</span>, and{" "}
+          <span className="font-mono">{"{exists}"}</span> match on the attribute&apos;s
+          existence state instead of its literal text — use{" "}
+          <span className="font-mono">{"{exists}"}</span> for "has a non-empty value" (for
+          example, checking whether a TACACS+ key was found).
         </p>
       </div>
 

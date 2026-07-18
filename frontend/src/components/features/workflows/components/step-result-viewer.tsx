@@ -32,13 +32,12 @@ const SHOW_ATTRIBUTES_METADATA_SUFFIX = ".show_attributes";
 interface DebugLogDeviceEntry {
   device_id: string;
   device_name: string;
-  values: Record<string, unknown>;
+  message: string;
 }
 
 interface DebugLogsPayload {
   message?: string;
   logged_at?: string;
-  attribute_paths?: string[];
   device_count?: number;
   devices: Record<string, DebugLogDeviceEntry>;
 }
@@ -121,20 +120,14 @@ function DebugLogsPanel({ logs }: { logs: DebugLogsPayload[] }) {
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Debug log
               </p>
-              {entry.message ? (
-                <Badge className="text-[10px]" variant="secondary">
-                  {entry.message}
-                </Badge>
-              ) : null}
               {entry.logged_at ? (
                 <span className="text-[11px] text-muted-foreground">{entry.logged_at}</span>
               ) : null}
             </div>
 
-            {entry.attribute_paths && entry.attribute_paths.length > 0 ? (
+            {entry.message ? (
               <p className="mb-2 text-[11px] text-muted-foreground">
-                Paths:{" "}
-                <span className="font-mono">{entry.attribute_paths.join(", ")}</span>
+                Template: <span className="font-mono">{entry.message}</span>
               </p>
             ) : null}
 
@@ -151,18 +144,9 @@ function DebugLogsPanel({ logs }: { logs: DebugLogsPayload[] }) {
                     <p className="break-all font-mono text-[11px] text-muted-foreground">
                       {deviceEntry.device_id}
                     </p>
-                    <div className="mt-2 space-y-1">
-                      {Object.entries(deviceEntry.values ?? {}).map(([path, value]) => (
-                        <div key={path} className="min-w-0">
-                          <span className="block break-all font-mono text-[11px] text-muted-foreground">
-                            {path}
-                          </span>
-                          <pre className="mt-0.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-1.5 font-mono text-[11px]">
-                            {formatLogValue(value)}
-                          </pre>
-                        </div>
-                      ))}
-                    </div>
+                    <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-1.5 font-mono text-[11px]">
+                      {formatLogValue(deviceEntry.message)}
+                    </pre>
                   </div>
                 ))}
               </div>

@@ -8,10 +8,25 @@ from typing import Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from workflow_steps.common.attribute_path import resolve_device_attribute
+from workflow_steps.common.attribute_path import (
+    AttributeState,
+    resolve_device_attribute_state,
+)
 from workflow_steps.route_on_attribute.config import get_config
 
 logger = logging.getLogger(__name__)
+
+SPECIAL_NULL = "{null}"
+SPECIAL_ABSENT = "{absent}"
+SPECIAL_EMPTY = "{empty}"
+SPECIAL_EXISTS = "{exists}"
+
+_SPECIAL_VALUE_STATES = {
+    SPECIAL_NULL: AttributeState.NULL,
+    SPECIAL_ABSENT: AttributeState.ABSENT,
+    SPECIAL_EMPTY: AttributeState.EMPTY,
+}
+SPECIAL_VALUES = frozenset({SPECIAL_NULL, SPECIAL_ABSENT, SPECIAL_EMPTY, SPECIAL_EXISTS})
 
 
 def _default_config() -> dict[str, Any]:
@@ -68,15 +83,33 @@ def _parse_case_sensitive(config: dict[str, Any]) -> bool:
 
 def _match_route(
     *,
-    device_value: str,
+    state: AttributeState,
+    device_value: str | None,
     route_values: list[str],
     case_sensitive: bool,
 ) -> bool:
     if not route_values:
         return False
+
+    literal_values: list[str] = []
+    for value in route_values:
+        if value == SPECIAL_EXISTS:
+            if state == AttributeState.PRESENT:
+                return True
+            continue
+        special_state = _SPECIAL_VALUE_STATES.get(value)
+        if special_state is not None:
+            if state == special_state:
+                return True
+            continue
+        literal_values.append(value)
+
+    if device_value is None or not literal_values:
+        return False
+
     normalized_device_value = _normalize_value(device_value, case_sensitive=case_sensitive)
     normalized_route_values = {
-        _normalize_value(value, case_sensitive=case_sensitive) for value in route_values
+        _normalize_value(value, case_sensitive=case_sensitive) for value in literal_values
     }
     return normalized_device_value in normalized_route_values
 
@@ -99,18 +132,14 @@ def _route_devices(
     missing_attribute_device_ids: list[str] = []
 
     for device_id, device in devices.items():
-        resolved = resolve_device_attribute(device, attribute_path)
-        if resolved is None:
+        state, resolved = resolve_device_attribute_state(device, attribute_path)
+        if state == AttributeState.ABSENT:
             missing_attribute_device_ids.append(device_id)
-            if default_outcome:
-                buckets[default_outcome][device_id] = device
-            else:
-                unmatched_device_ids.append(device_id)
-            continue
 
         matched_outcome: str | None = None
         for route in routes:
             if _match_route(
+                state=state,
                 device_value=resolved,
                 route_values=route["values"],
                 case_sensitive=case_sensitive,

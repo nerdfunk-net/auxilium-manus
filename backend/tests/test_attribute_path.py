@@ -6,7 +6,9 @@ import unittest
 
 from models.workflow_context import DeviceContext
 from workflow_steps.common.attribute_path import (
+    AttributeState,
     resolve_device_attribute,
+    resolve_device_attribute_state,
     resolve_device_value,
 )
 
@@ -78,6 +80,64 @@ class AttributePathTests(unittest.TestCase):
             resolve_device_value(device, "nautobot.role"),
             {"name": "access-switch", "id": "abc"},
         )
+
+
+class AttributeStateTests(unittest.TestCase):
+    def test_absent_when_bag_missing(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        state, value = resolve_device_attribute_state(device, "tacacs.shared_secret")
+        self.assertEqual(state, AttributeState.ABSENT)
+        self.assertIsNone(value)
+
+    def test_absent_when_key_missing_from_existing_bag(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"tacacs": {}},
+        )
+        state, value = resolve_device_attribute_state(device, "tacacs.shared_secret")
+        self.assertEqual(state, AttributeState.ABSENT)
+        self.assertIsNone(value)
+
+    def test_null_when_key_explicitly_none(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"tacacs": {"shared_secret": None}},
+        )
+        state, value = resolve_device_attribute_state(device, "tacacs.shared_secret")
+        self.assertEqual(state, AttributeState.NULL)
+        self.assertIsNone(value)
+
+    def test_empty_when_key_is_empty_string(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"tacacs": {"shared_secret": "  "}},
+        )
+        state, value = resolve_device_attribute_state(device, "tacacs.shared_secret")
+        self.assertEqual(state, AttributeState.EMPTY)
+        self.assertIsNone(value)
+
+    def test_present_when_key_has_value(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"tacacs": {"shared_secret": "s3cr3t"}},
+        )
+        state, value = resolve_device_attribute_state(device, "tacacs.shared_secret")
+        self.assertEqual(state, AttributeState.PRESENT)
+        self.assertEqual(value, "s3cr3t")
+
+    def test_null_for_device_scalar_field(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab", platform=None)
+        state, value = resolve_device_attribute_state(device, "device.platform")
+        self.assertEqual(state, AttributeState.NULL)
+        self.assertIsNone(value)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
+from services.ise.common.exceptions import ISEAPIError, ISENotFoundError
 from workflow_steps.common.attribute_path import resolve_device_attribute
 from workflow_steps.get_ise_tacacs_key.executor import execute
 
@@ -56,6 +57,14 @@ def _priority(*, enabled: dict[str, bool] | None = None) -> list[dict]:
     return [{"type": t, "enabled": enabled.get(t, True)} for t in types]
 
 
+def _device_service() -> MagicMock:
+    """A MagicMock ISENetworkDeviceService with test_connection pre-mocked to
+    succeed, since execute() now does a pre-flight connectivity check."""
+    device_service = MagicMock()
+    device_service.test_connection = AsyncMock(return_value={"total": 0})
+    return device_service
+
+
 def _patches(device_service: MagicMock):
     source_config_service = MagicMock()
     source_config_service.resolve_credentials.return_value = MagicMock()
@@ -97,7 +106,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_all_tiers_disabled_raises(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         p1, p2, p3 = _patches(device_service)
         with p1, p2, p3, self.assertRaises(ValueError):
             await execute(
@@ -119,8 +128,82 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="node-1",
             )
 
+    async def test_unreachable_ise_returns_failure_outcome(self) -> None:
+        device_service = _device_service()
+        device_service.test_connection = AsyncMock(
+            side_effect=ISEAPIError("ISE request timed out after 30 seconds")
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config={"ise_source_id": "lab-ise", "priority": _priority()},
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].name, "failure")
+        self.assertIn("lab-ise", outcomes[0].summary)
+        # unchanged — no device processing was attempted
+        self.assertIs(outcomes[0].context.devices["dev-1"].status, DeviceStatus.OK)
+
+    async def test_login_failure_mid_run_returns_failure_outcome(self) -> None:
+        device_service = _device_service()
+        device_service.get_device_by_name = AsyncMock(
+            side_effect=ISEAPIError("ISE ERS request failed with status 401")
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config={
+                    "ise_source_id": "lab-ise",
+                    "priority": _priority(
+                        enabled={"location_group": False, "ip_range_scan": False}
+                    ),
+                },
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].name, "failure")
+        self.assertIn("lab-ise", outcomes[0].summary)
+
+    async def test_name_not_found_is_a_tier_miss_not_a_failure(self) -> None:
+        """ISENotFoundError (device genuinely not configured in ISE under
+        that name) must stay a per-tier miss — only a bare ISEAPIError
+        (connectivity/auth) should escalate to the failure outcome."""
+        device_service = _device_service()
+        device_service.get_device_by_name = AsyncMock(
+            side_effect=ISENotFoundError("ISE resource not found")
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config={
+                    "ise_source_id": "lab-ise",
+                    "priority": _priority(
+                        enabled={"location_group": False, "ip_range_scan": False}
+                    ),
+                },
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].name, "success")
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(updated.status, DeviceStatus.FAILED)
+        self.assertEqual(updated.errors[-1].code, "tacacs_key_not_found")
+
     async def test_tier1_name_exact_32_hit(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.get_device_by_name = AsyncMock(
             return_value={"NetworkDevice": _detail("router1", 32)}
         )
@@ -141,7 +224,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].context.metadata["node-1.found_count"], 1)
 
     async def test_tier1_miss_falls_through_to_tier2_single_fetch(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         # mask=24, not /32 -> tier1 misses, tier2 (same cached fetch) accepts it.
         device_service.get_device_by_name = AsyncMock(
             return_value={"NetworkDevice": _detail("router1", 24)}
@@ -162,7 +245,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
 
     async def test_location_group_tier_skipped_without_nautobot_location(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.get_device_by_name = AsyncMock(side_effect=Exception("should not be called"))
         device_service.list_devices_by_group = AsyncMock()
         p1, p2, p3 = _patches(device_service)
@@ -191,7 +274,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].context.metadata["node-1.not_found_count"], 1)
 
     async def test_location_group_tier_hit(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.list_devices_by_group = AsyncMock(
             return_value={
                 "SearchResult": {
@@ -239,7 +322,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
 
     async def test_ip_prefix_scan_matches_wide_prefix(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
 
         async def list_devices_side_effect(*, filter_: str | None = None, **_kwargs):
             if filter_ == "ipaddress.EQ.192.168.178.0":
@@ -284,7 +367,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         """Regression test: a device from Get from List has no top-level
         primary_ip4 — it only appears in attribute_bags["nautobot"]["primary_ip4"]
         after a Get Nautobot Attributes step. ip_prefix_scan must still find it."""
-        device_service = MagicMock()
+        device_service = _device_service()
 
         async def list_devices_side_effect(*, filter_: str | None = None, **_kwargs):
             if filter_ == "ipaddress.EQ.192.168.178.0":
@@ -335,7 +418,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
 
     async def test_ip_prefix_scan_exhausts_with_no_match(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.list_devices = AsyncMock(
             return_value={"SearchResult": {"total": 0, "resources": [], "nextPage": None}}
         )
@@ -373,7 +456,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         stored as a literal range string (e.g. "192.168.178.1-254") — there is
         no clean CIDR network address to query. This is why ip_range_scan
         exists as its own, lower-priority tier."""
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.list_devices = AsyncMock(
             return_value={"SearchResult": {"total": 0, "resources": [], "nextPage": None}}
         )
@@ -403,7 +486,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.status, DeviceStatus.FAILED)
 
     async def test_ip_range_scan_matches_hyphen_range(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.list_devices = AsyncMock(
             return_value={
                 "SearchResult": {"total": 1, "resources": [{"id": "grp-1"}], "nextPage": None}
@@ -444,7 +527,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
 
     async def test_ip_range_scan_matches_wildcard(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.list_devices = AsyncMock(
             return_value={
                 "SearchResult": {"total": 1, "resources": [{"id": "grp-1"}], "nextPage": None}
@@ -485,7 +568,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
 
     async def test_device_with_existing_key_is_skipped(self) -> None:
-        device_service = MagicMock()
+        device_service = _device_service()
         device_service.get_device_by_name = AsyncMock(side_effect=Exception("should not be called"))
         p1, p2, p3 = _patches(device_service)
         with p1, p2, p3:

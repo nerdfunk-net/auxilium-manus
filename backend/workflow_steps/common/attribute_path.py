@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from models.workflow_context import DeviceContext
@@ -24,6 +25,25 @@ DEVICE_SCALAR_FIELDS = _DEVICE_SCALAR_FIELDS
 DEBUG_LOGS_METADATA_SUFFIX = ".debug_logs"
 
 
+class AttributeState(str, Enum):
+    """Existence/emptiness classification for an attribute path resolution.
+
+    Distinguishes "the key isn't there at all" (ABSENT) from "the key is
+    there but holds null" (NULL) from "the key holds an empty string/list/
+    dict" (EMPTY) from "the key holds real content" (PRESENT) — needed so
+    steps like route-on-attribute can route on `{absent}` / `{null}` /
+    `{empty}` / `{exists}` instead of only matching literal string values.
+    """
+
+    ABSENT = "absent"
+    NULL = "null"
+    EMPTY = "empty"
+    PRESENT = "present"
+
+
+_MISSING = object()
+
+
 def _traverse_path(root: Any, path: str) -> Any:
     current = root
     for part in path.split("."):
@@ -34,6 +54,28 @@ def _traverse_path(root: Any, path: str) -> Any:
             continue
         return None
     return current
+
+
+def _traverse_path_raw(root: Any, path: str) -> Any:
+    """Like ``_traverse_path`` but returns ``_MISSING`` when a key along the
+    path doesn't exist, instead of collapsing that case into ``None``."""
+    current = root
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
+
+
+def _classify_value(value: Any) -> tuple[AttributeState, str | None]:
+    if value is None:
+        return AttributeState.NULL, None
+    if isinstance(value, (dict, list)):
+        return (AttributeState.PRESENT, None) if len(value) > 0 else (AttributeState.EMPTY, None)
+    text = str(value).strip()
+    if not text:
+        return AttributeState.EMPTY, None
+    return AttributeState.PRESENT, text
 
 
 def _stringify(value: Any) -> str | None:
@@ -127,3 +169,49 @@ def resolve_device_attribute(device: DeviceContext, attribute_path: str) -> str 
         only_value = next(iter(bag.values()))
         return _stringify(only_value)
     return None
+
+
+def resolve_device_attribute_state(
+    device: DeviceContext, attribute_path: str
+) -> tuple[AttributeState, str | None]:
+    """Resolve a dot path and classify it as absent/null/empty/present.
+
+    Unlike ``resolve_device_attribute``, this distinguishes a path whose key
+    doesn't exist at all (``ABSENT``) from one whose value is explicitly
+    ``None`` (``NULL``) from one whose value is an empty string/list/dict
+    (``EMPTY``) — needed for steps that route on those states rather than on
+    a literal string value (for example: "was a TACACS+ key ever set?").
+    """
+    path = attribute_path.strip()
+    if not path:
+        return AttributeState.ABSENT, None
+
+    if path.startswith("device."):
+        field_name = path[len("device.") :].split(".", 1)[0]
+        if field_name not in _DEVICE_SCALAR_FIELDS or "." in path[len("device.") :]:
+            return AttributeState.ABSENT, None
+        return _classify_value(getattr(device, field_name))
+
+    if "." not in path and path in _DEVICE_SCALAR_FIELDS:
+        return _classify_value(getattr(device, path))
+
+    if "." in path:
+        bag_name, remainder = path.split(".", 1)
+        bag = device.attribute_bags.get(bag_name)
+        if bag is None:
+            return AttributeState.ABSENT, None
+        raw = _traverse_path_raw(bag, remainder)
+        if raw is _MISSING:
+            return AttributeState.ABSENT, None
+        return _classify_value(raw)
+
+    bag = device.attribute_bags.get(path)
+    if bag is None:
+        return AttributeState.ABSENT, None
+    if isinstance(bag, dict):
+        if len(bag) == 0:
+            return AttributeState.EMPTY, None
+        if len(bag) == 1:
+            return _classify_value(next(iter(bag.values())))
+        return AttributeState.PRESENT, None
+    return _classify_value(bag)

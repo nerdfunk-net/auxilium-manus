@@ -5,6 +5,18 @@ export interface RouteRule {
   values: string[];
 }
 
+/**
+ * Special match values that route on the resolved attribute's existence
+ * state instead of a literal string. Must stay in sync with
+ * `backend/workflow_steps/route_on_attribute/executor.py`.
+ */
+export const SPECIAL_ROUTE_VALUES = [
+  { value: "{absent}", label: "absent", hint: "attribute_path does not exist" },
+  { value: "{null}", label: "null", hint: "value is null" },
+  { value: "{empty}", label: "empty", hint: "value is an empty string/list/object" },
+  { value: "{exists}", label: "exists", hint: "value is present and non-empty" },
+] as const;
+
 export interface RouteOnAttributeConfig {
   attribute_path: string;
   routes: RouteRule[];

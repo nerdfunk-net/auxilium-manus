@@ -144,10 +144,15 @@ plugins:
     produces: [attributes]
     outcomes:
       - name: success
+      - name: failure
     metadata:
       configuration_input:
         - name: ise_source_id
-          description: ID of a Cisco ISE source configured under Settings → Sources.
+          description: >
+            ID of a Cisco ISE source configured under Settings → Sources. If ISE
+            cannot be reached or authentication fails, the step routes to the
+            failure outcome instead of raising (a per-device "key not found" still
+            routes to success — see the failure outcome description).
           data_type: string
           required: true
           example: lab-ise
@@ -526,8 +531,13 @@ plugins:
 
   - id: workflow-log
     name: Logging
-    overview: Log device attributes for workflow debugging.
-    description: Log selected device attributes to the run result for workflow debugging.
+    overview: Log a per-device message for workflow debugging.
+    description: >
+      Log a message to the run result for each device in the workflow context.
+      The message can interpolate {path.to.value} placeholders — dot paths
+      resolved per device, supporting device.* fields, attribute bags
+      (nautobot.role.name, custom.field), capabilities, and status. A path
+      that doesn't resolve renders as an empty string.
     artifact_type: control_flow
     directory: workflow_log
     enabled: true
@@ -538,21 +548,12 @@ plugins:
     metadata:
       configuration_input:
         - name: message
-          description: Optional label shown with the log output in run results.
-          data_type: string
-          required: false
-          example: After Nautobot attributes
-        - name: attribute_paths
           description: >
-            Dot paths to log for each device. Supports device.* fields,
-            attribute bags (nautobot.role.name, custom.field), capabilities,
-            and status.
-          data_type: string_list
+            Message logged for every device. Supports {path.to.value}
+            placeholders resolved per device.
+          data_type: string
           required: true
-          example:
-            - device.name
-            - device.network_driver
-            - nautobot.role.name
+          example: "Tacacs key {tacacs.shared_secret} successfully read from ISE"
 
   - id: show-attributes
     name: Show Attributes

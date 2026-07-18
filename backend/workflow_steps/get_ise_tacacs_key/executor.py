@@ -5,6 +5,14 @@ already have it (e.g. selected via Get from Nautobot / Get from Git), by
 looking the key up in Cisco ISE. Devices already carrying the key (e.g.
 selected via Get from ISE) are left untouched.
 
+Outcomes: a per-device miss (no enabled tier found a key) marks that device
+``DeviceStatus.FAILED`` but the step itself still emits ``"success"`` — this
+is a "proceed with survivors" step. The step emits ``"failure"`` instead only
+when ISE itself couldn't be reached or authentication failed (a pre-flight
+``test_connection()`` check, and any ``ISEAPIError`` raised mid-run) — a
+condition that affects every device equally, so downstream steps can be
+routed to a distinct failure handle rather than the run just halting.
+
 Five lookup tiers, independently enabled and user-ordered:
 
 1. ``name_exact_32``  — device name, only accept a /32 ISE entry.
@@ -252,9 +260,14 @@ async def _find_tacacs_key(
                 secret = await _tier_ip_prefix_scan(device, device_service)
             else:
                 secret = await _tier_ip_range_scan(device, device_service)
-        except (ISEValidationError, ISEAPIError) as exc:
+        except (ISENotFoundError, ISEValidationError) as exc:
+            # Not found / bad request for this specific tier's query — a tier
+            # miss, not a reason to stop. A bare ISEAPIError (unreachable ISE,
+            # timeout, auth failure) is NOT caught here — it propagates so the
+            # caller can route the whole step to the "failure" outcome instead
+            # of silently treating every device as "key not found".
             logger.warning(
-                "%s: tier=%s failed for device=%s: %s", _STEP_ID, tier_type, device.name, exc
+                "%s: tier=%s found nothing for device=%s: %s", _STEP_ID, tier_type, device.name, exc
             )
             continue
 
@@ -321,6 +334,18 @@ async def execute(
         len(context.devices),
     )
 
+    try:
+        await device_service.test_connection()
+    except ISEAPIError as exc:
+        logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, source_id, exc)
+        return [
+            StepOutcome(
+                name="failure",
+                context=context,
+                summary=f"could not reach ISE source '{source_id}': {exc}",
+            )
+        ]
+
     updated_devices: dict[str, DeviceContext] = {}
     found_count = 0
     already_present_count = 0
@@ -340,6 +365,26 @@ async def execute(
                 priority=priority,
                 location_group_prefix=location_group_prefix,
             )
+        except ISEAPIError as exc:
+            # Connectivity/auth failure discovered mid-run (ISE was reachable
+            # for the pre-flight check but has since dropped, or a login
+            # eventually got rejected). Every remaining device would fail the
+            # same way, so abort the whole step as a "failure" outcome rather
+            # than mislabeling every device "key not found".
+            logger.warning(
+                "%s: lost connection to ISE source '%s' while processing device '%s': %s",
+                _STEP_ID,
+                source_id,
+                device.name,
+                exc,
+            )
+            return [
+                StepOutcome(
+                    name="failure",
+                    context=context,
+                    summary=f"lost connection to ISE source '{source_id}': {exc}",
+                )
+            ]
         except ValueError:
             raise
         except Exception as exc:
