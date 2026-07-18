@@ -25,6 +25,7 @@ from hatchet.workflows.device_group_execution import (  # noqa: E402
     child_workflow as device_group_workflow,
 )
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
+from services.ise.client import ISEService  # noqa: E402
 from services.nautobot.client import NautobotService  # noqa: E402
 
 configure_logging("worker")
@@ -35,12 +36,18 @@ async def lifespan() -> AsyncGenerator[None, None]:
     nautobot_service = NautobotService()
     await nautobot_service.startup()
     service_factory.set_nautobot_app_service(nautobot_service)
+
+    ise_service = ISEService()
+    await ise_service.startup()
+    service_factory.set_ise_app_service(ise_service)
+
     service_factory.build_cache_service()
     logger.info("Worker services initialized")
     try:
         yield
     finally:
         await nautobot_service.shutdown()
+        await ise_service.shutdown()
         logger.info("Worker services shut down")
 
 

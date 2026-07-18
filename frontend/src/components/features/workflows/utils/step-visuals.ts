@@ -12,6 +12,7 @@ import {
   List,
   Router,
   Scale,
+  ShieldCheck,
   Tags,
   TerminalSquare,
   type LucideIcon,
@@ -23,6 +24,7 @@ import {
 
 export const ARTIFACT_TYPE_ORDER = [
   "nautobot",
+  "cisco",
   "inventory_selector",
   "control_flow",
   "template_rendering",
@@ -33,6 +35,7 @@ export const ARTIFACT_TYPE_ORDER = [
 
 export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   nautobot: "Nautobot",
+  cisco: "Cisco",
 };
 
 export function formatPaletteCategory(category: string): string {
@@ -59,6 +62,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "update-attribute": Tags,
   "show-attributes": Eye,
   "workflow-log": List,
+  "get-ise-devices": ShieldCheck,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {
@@ -83,6 +87,7 @@ export const categoryTileClasses: Record<string, string> = {
   control_flow: "bg-amber-100 text-amber-700",
   inventory_selector: "bg-sky-100 text-sky-700",
   nautobot: "bg-teal-100 text-teal-700",
+  cisco: "bg-cyan-100 text-cyan-700",
   persistent_artifact: "bg-violet-100 text-violet-700",
   template_rendering: "bg-orange-100 text-orange-700",
   trigger: "bg-slate-100 text-slate-700",
@@ -98,6 +103,7 @@ export const categoryBorderAccentClasses: Record<string, string> = {
   control_flow: "border-l-amber-700",
   inventory_selector: "border-l-sky-700",
   nautobot: "border-l-teal-700",
+  cisco: "border-l-cyan-700",
   persistent_artifact: "border-l-violet-700",
   template_rendering: "border-l-orange-700",
 };

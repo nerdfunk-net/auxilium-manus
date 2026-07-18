@@ -6,6 +6,7 @@ import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-c
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
+import { GetIseDevicesPlugin } from "@/components/features/workflow-steps/get-ise-devices";
 import { GitClonePlugin } from "@/components/features/workflow-steps/git-clone";
 import { GitPullPlugin } from "@/components/features/workflow-steps/git-pull";
 import { GitPushPlugin } from "@/components/features/workflow-steps/git-push";
@@ -24,6 +25,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
   "get-from-list": GetFromListPlugin,
   "get-git-devices": GetGitDevicesPlugin,
+  "get-ise-devices": GetIseDevicesPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,
   "run-command": RunCommandPlugin,

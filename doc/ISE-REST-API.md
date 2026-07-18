@@ -399,9 +399,18 @@ Key points:
   and close it before the (potentially slow) ISE call, same pattern as
   other DB-then-external-API steps.
 - `service_factory.get_ise_app_service()` (the shared pooled `httpx`
-  client) is only initialized during the FastAPI app lifespan
-  (`main.py`), which is active for the whole worker process — safe to call
-  from workflow steps running in the same process.
+  client) is a per-process singleton set up in a `lifespan()` function —
+  **the FastAPI API process and the Hatchet worker process
+  (`python -m hatchet.worker`) are separate processes**, each with their
+  own `service_factory` module state, so it must be initialized in
+  *both* places. `main.py`'s `lifespan()` and `hatchet/worker.py`'s
+  `lifespan()` each construct their own `ISEService()`, call
+  `await ise_service.startup()`, and register it via
+  `service_factory.set_ise_app_service(ise_service)` (mirroring how
+  `NautobotService` is initialized in both places). If a new app-scoped
+  service is added to one `lifespan()`, add it to the other too, or any
+  workflow step calling it from inside the worker will fail with
+  `RuntimeError: ... is not initialized`.
 - Use `ISENetworkDeviceGroupService` the same way via
   `service_factory.build_ise_network_device_group_service(credentials)`
   for group operations.

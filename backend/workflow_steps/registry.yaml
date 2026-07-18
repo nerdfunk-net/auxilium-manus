@@ -54,6 +54,73 @@ plugins:
             chunk_size: 1
             max_concurrency: 0
 
+  - id: get-ise-devices
+    name: Get from ISE
+    overview: Select devices from Cisco ISE.
+    description: >
+      Look up network devices in Cisco ISE by name, IP/CIDR, or network device group.
+    artifact_type: inventory_selector
+    palette_category: cisco
+    directory: get_ise_devices
+    enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: ise_source_id
+          description: ID of a Cisco ISE source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: lab-ise
+        - name: query_mode
+          description: >
+            How to look up devices in ISE — "name", "cidr", or "group".
+          data_type: string
+          required: true
+          example: name
+        - name: device_names
+          description: Device names to look up. Used when query_mode is "name".
+          data_type: array
+          required: false
+        - name: cidr
+          description: >
+            IP address or CIDR prefix to match against ISE device IPs.
+            Used when query_mode is "cidr".
+          data_type: string
+          required: false
+          example: 10.10.10.0/24
+        - name: group_name
+          description: >
+            Full hierarchical ISE network device group (NDG) name.
+            Used when query_mode is "group".
+          data_type: string
+          required: false
+          example: "Location#All Locations#Building1"
+        - name: resolve_to_devices
+          description: >
+            When enabled, entries with a netmask other than /32 (possible
+            groups or subnets) are expanded into individual devices via
+            Nautobot. Not yet implemented — currently a logged no-op
+            placeholder that passes the raw ISE entry through unchanged.
+          data_type: boolean
+          required: false
+          example: false
+        - name: fan_out
+          description: >
+            Fan-out configuration. When enabled, each device (or chunk) is processed
+            as an independent Hatchet child workflow instead of all devices sharing
+            one workflow run.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            mode: per_device
+            chunk_size: 1
+            max_concurrency: 0
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.
