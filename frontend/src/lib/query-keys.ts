@@ -55,6 +55,10 @@ export const queryKeys = {
     customFields: (nautobotUrl: string) =>
       [...queryKeys.sourcesNautobot.all, "custom-fields", nautobotUrl] as const,
   },
+  sourcesIse: {
+    all: ["sources-ise"] as const,
+    list: () => [...queryKeys.sourcesIse.all, "list"] as const,
+  },
   credentials: {
     all: ["credentials"] as const,
     list: (includeExpired?: boolean) =>

@@ -26,6 +26,7 @@ from routers.netmiko import router as netmiko_router
 from routers.rbac import router as rbac_router
 from routers.settings import router as settings_router
 from routers.sources.git.ops import router as git_source_ops_router
+from routers.sources.ise import ise_source_crud_router, ise_source_ops_router
 from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
@@ -39,6 +40,7 @@ from routers.workflows import router as workflows_router
 from services.auth.auth_service import AuthService
 from services.auth.rbac_seed import seed_rbac
 from services.auth.rbac_service import RBACService
+from services.ise.client import ISEService
 from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
@@ -61,11 +63,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     nautobot_service = NautobotService()
     await nautobot_service.startup()
     service_factory.set_nautobot_app_service(nautobot_service)
+
+    ise_service = ISEService()
+    await ise_service.startup()
+    service_factory.set_ise_app_service(ise_service)
+
     service_factory.build_cache_service()
 
     yield
 
     await nautobot_service.shutdown()
+    await ise_service.shutdown()
 
 
 app = FastAPI(
@@ -82,6 +90,8 @@ app.include_router(git_router, prefix=settings.api_prefix)
 app.include_router(git_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
+app.include_router(ise_source_crud_router, prefix=settings.api_prefix)
+app.include_router(ise_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)
 app.include_router(workflow_steps_router, prefix=settings.api_prefix)
 app.include_router(workflow_update_attribute_router, prefix=settings.api_prefix)

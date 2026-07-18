@@ -7,6 +7,11 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from repositories.inventory_repository import InventoryRepository
 from services.cache.redis_cache_service import RedisCacheService
+from services.ise.client import ISEService
+from services.ise.credentials import ISECredentials
+from services.ise.network_device_group_service import ISENetworkDeviceGroupService
+from services.ise.network_device_service import ISENetworkDeviceService
+from services.ise.source_config_service import ISESourceConfigService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.metadata_service import NautobotMetadataService
@@ -15,6 +20,7 @@ from services.sources.nautobot.source_service import NautobotSourceService
 
 _cache_service: RedisCacheService | None = None
 _nautobot_service: NautobotService | None = None
+_ise_service: ISEService | None = None
 
 
 def get_nautobot_app_service() -> NautobotService:
@@ -26,6 +32,33 @@ def get_nautobot_app_service() -> NautobotService:
 def set_nautobot_app_service(service: NautobotService) -> None:
     global _nautobot_service
     _nautobot_service = service
+
+
+def get_ise_app_service() -> ISEService:
+    if _ise_service is None:
+        raise RuntimeError("ISEService is not initialized")
+    return _ise_service
+
+
+def set_ise_app_service(service: ISEService) -> None:
+    global _ise_service
+    _ise_service = service
+
+
+def build_ise_source_config_service(db: Session) -> ISESourceConfigService:
+    return ISESourceConfigService(db)
+
+
+def build_ise_network_device_service(
+    credentials: ISECredentials,
+) -> ISENetworkDeviceService:
+    return ISENetworkDeviceService(get_ise_app_service(), credentials)
+
+
+def build_ise_network_device_group_service(
+    credentials: ISECredentials,
+) -> ISENetworkDeviceGroupService:
+    return ISENetworkDeviceGroupService(get_ise_app_service(), credentials)
 
 
 def build_cache_service() -> RedisCacheService | None:

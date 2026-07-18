@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.database import get_db
 from models.sources_nautobot import NautobotConnection
+from services.ise.source_config_service import ISESourceConfigService
 from services.nautobot.credentials import NautobotCredentials
 from services.sources.nautobot.persistence_service import InventoryService
 
@@ -16,6 +17,12 @@ def get_inventory_service(
     db: Session = Depends(get_db),
 ) -> InventoryService:
     return service_factory.build_inventory_service(db)
+
+
+def get_ise_source_config_service(
+    db: Session = Depends(get_db),
+) -> ISESourceConfigService:
+    return service_factory.build_ise_source_config_service(db)
 
 
 def nautobot_credentials_from_body(connection: NautobotConnection) -> NautobotCredentials:

@@ -49,3 +49,37 @@ export interface SettingUpdatePayload {
   value?: Record<string, unknown>;
   description?: string;
 }
+
+export interface ISESourceResponse {
+  source_id: string;
+  url: string;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface ISESourceListResponse {
+  sources: ISESourceResponse[];
+  total: number;
+}
+
+export interface ISESourceCreatePayload {
+  source_id: string;
+  url: string;
+  username: string;
+  password: string;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface ISESourceUpdatePayload {
+  url?: string;
+  username?: string;
+  password?: string;
+  verify_ssl?: boolean;
+  timeout?: number;
+}
+
+export interface ISETestConnectionResponse {
+  success: boolean;
+  message: string;
+}
