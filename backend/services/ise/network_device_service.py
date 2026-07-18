@@ -30,6 +30,27 @@ class ISENetworkDeviceService:
             _ENDPOINT, self._credentials, method="GET", params=params
         )
 
+    async def list_devices_by_group(
+        self,
+        group_name: str,
+        *,
+        page: int = 1,
+        size: int = 20,
+    ) -> dict[str, Any]:
+        """List devices whose ``NetworkDeviceGroupList`` contains ``group_name``.
+
+        ISE's ERS ``location`` filter field is documented (and named) as a
+        Location-category filter, but confirmed live it actually matches
+        against ANY entry in a device's ``NetworkDeviceGroupList`` regardless
+        of category — filtering by a custom group (e.g.
+        ``myGroup#myGroup#my-test-001``) or a non-Location built-in group
+        (``Device Type#All Device Types``, ``IPSEC#Is IPSEC Device#No``)
+        returns the same devices as filtering by an actual
+        ``Location#...`` group. ``group_name`` must be the full
+        hierarchical NDG name.
+        """
+        return await self.list_devices(page=page, size=size, filter_=f"location.EQ.{group_name}")
+
     async def get_device(self, device_id: str) -> dict[str, Any]:
         return await self._ise.ers_request(
             f"{_ENDPOINT}/{device_id}", self._credentials, method="GET"

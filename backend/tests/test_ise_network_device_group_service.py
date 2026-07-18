@@ -19,6 +19,26 @@ class ISENetworkDeviceGroupServiceTests(unittest.IsolatedAsyncioTestCase):
         self.ise = AsyncMock()
         self.service = ISENetworkDeviceGroupService(self.ise, _credentials())
 
+    async def test_list_groups_passes_pagination_and_filter(self) -> None:
+        self.ise.ers_request.return_value = {"SearchResult": {"total": 0, "resources": []}}
+        await self.service.list_groups(page=2, size=50, filter_="name.CONTAINS.Building")
+        self.ise.ers_request.assert_called_once_with(
+            "networkdevicegroup",
+            _credentials(),
+            method="GET",
+            params={"page": 2, "size": 50, "filter": "name.CONTAINS.Building"},
+        )
+
+    async def test_list_groups_without_filter_omits_param(self) -> None:
+        self.ise.ers_request.return_value = {"SearchResult": {"total": 0, "resources": []}}
+        await self.service.list_groups()
+        self.ise.ers_request.assert_called_once_with(
+            "networkdevicegroup",
+            _credentials(),
+            method="GET",
+            params={"page": 1, "size": 20},
+        )
+
     async def test_get_group_by_name_returns_none_on_404(self) -> None:
         self.ise.ers_request.side_effect = ISENotFoundError("not found")
         result = await self.service.get_group_by_name("Location#Missing")

@@ -171,3 +171,9 @@ class ISEDeviceGroupResponse(BaseModel):
     name: str
     description: str | None = None
     othername: str | None = None
+
+
+class ISEDeviceGroupListResponse(BaseModel):
+    total: int
+    resources: list[dict[str, Any]]
+    next_page: str | None = None

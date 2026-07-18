@@ -30,6 +30,20 @@ class ISENetworkDeviceGroupService:
         self._ise = ise
         self._credentials = credentials
 
+    async def list_groups(
+        self,
+        *,
+        page: int = 1,
+        size: int = 20,
+        filter_: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"page": page, "size": size}
+        if filter_:
+            params["filter"] = filter_
+        return await self._ise.ers_request(
+            _ENDPOINT, self._credentials, method="GET", params=params
+        )
+
     async def get_group_by_name(self, name: str) -> dict[str, Any] | None:
         try:
             return await self._ise.ers_request(

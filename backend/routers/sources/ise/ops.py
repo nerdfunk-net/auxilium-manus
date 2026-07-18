@@ -13,6 +13,7 @@ from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_ise_source_config_service
 from models.ise import (
     ISEDeviceGroupChildCreateRequest,
+    ISEDeviceGroupListResponse,
     ISEDeviceGroupResponse,
     ISEDeviceGroupRootCreateRequest,
     ISEDeviceGroupUpdateRequest,
@@ -114,6 +115,39 @@ async def get_device_by_name(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to get ISE device: ", exc)
+
+
+@router.get("/devices/ndg/{group_name}", response_model=ISENetworkDeviceListResponse)
+async def list_devices_by_group(
+    source_id: str,
+    group_name: str,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISENetworkDeviceListResponse:
+    device_service = _resolve_device_service(source_id, config)
+    try:
+        result = await device_service.list_devices_by_group(group_name, page=page, size=size)
+        search_result = result.get("SearchResult", {})
+        return ISENetworkDeviceListResponse(
+            total=search_result.get("total", 0),
+            resources=search_result.get("resources", []),
+            next_page=(search_result.get("nextPage") or {}).get("href"),
+        )
+    except ISEValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ISEAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "ISE list devices by group failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to list ISE devices by group: ", exc)
 
 
 @router.get("/devices/{device_id}")
@@ -282,6 +316,39 @@ async def create_location_group(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to create ISE location group: ", exc)
+
+
+@router.get("/network-device-groups/", response_model=ISEDeviceGroupListResponse)
+async def list_network_device_groups(
+    source_id: str,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    filter: str | None = Query(default=None, max_length=255),  # noqa: A002
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISEDeviceGroupListResponse:
+    group_service = _resolve_group_service(source_id, config)
+    try:
+        result = await group_service.list_groups(page=page, size=size, filter_=filter)
+        search_result = result.get("SearchResult", {})
+        return ISEDeviceGroupListResponse(
+            total=search_result.get("total", 0),
+            resources=search_result.get("resources", []),
+            next_page=(search_result.get("nextPage") or {}).get("href"),
+        )
+    except ISEValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ISEAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "ISE list device groups failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to list ISE device groups: ", exc)
 
 
 @router.post(

@@ -111,6 +111,45 @@ def test_list_devices_requires_auth(app: FastAPI) -> None:
     assert response.status_code == 401
 
 
+def test_list_devices_by_group_requires_auth(app: FastAPI) -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/sources/ise/lab/devices/ndg/myGroup%23myGroup%23my-test-001")
+    assert response.status_code == 401
+
+
+def test_list_devices_by_group_allowed_with_permission(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+
+    mock_service = MagicMock()
+    mock_service.resolve_credentials.return_value = MagicMock()
+    app.dependency_overrides[get_ise_source_config_service] = lambda: mock_service
+    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[get_current_user] = _make_user
+    app.dependency_overrides[get_db] = _override_db
+
+    import service_factory
+
+    mock_device_service = MagicMock()
+
+    async def _list_devices_by_group(*_a, **_k):
+        return {"SearchResult": {"total": 0, "resources": []}}
+
+    mock_device_service.list_devices_by_group = _list_devices_by_group
+    monkeypatch.setattr(
+        service_factory,
+        "build_ise_network_device_service",
+        lambda credentials: mock_device_service,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/sources/ise/lab/devices/ndg/myGroup%23myGroup%23my-test-001")
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 0, "resources": [], "next_page": None}
+
+
 def test_delete_device_requires_delete_permission(
     app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -127,6 +166,45 @@ def test_delete_device_requires_delete_permission(
 
     assert response.status_code == 403
     assert "sources.ise:delete" in response.json()["detail"]
+
+
+def test_list_network_device_groups_requires_auth(app: FastAPI) -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/sources/ise/lab/network-device-groups/")
+    assert response.status_code == 401
+
+
+def test_list_network_device_groups_allowed_with_permission(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+
+    mock_service = MagicMock()
+    mock_service.resolve_credentials.return_value = MagicMock()
+    app.dependency_overrides[get_ise_source_config_service] = lambda: mock_service
+    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[get_current_user] = _make_user
+    app.dependency_overrides[get_db] = _override_db
+
+    import service_factory
+
+    mock_group_service = MagicMock()
+
+    async def _list_groups(*_a, **_k):
+        return {"SearchResult": {"total": 0, "resources": []}}
+
+    mock_group_service.list_groups = _list_groups
+    monkeypatch.setattr(
+        service_factory,
+        "build_ise_network_device_group_service",
+        lambda credentials: mock_group_service,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/sources/ise/lab/network-device-groups/")
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 0, "resources": [], "next_page": None}
 
 
 def test_create_location_group_requires_write_permission(

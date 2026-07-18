@@ -114,6 +114,7 @@ All under `/api/sources/ise/{source_id}/...`:
 ```
 GET    /devices                    list, with pagination + ISE-native filter
 GET    /devices/name/{name}        get by device name
+GET    /devices/ndg/{group_name}   list devices belonging to a network device group
 GET    /devices/{device_id}        get by ISE-assigned UUID
 POST   /devices                    create
 PUT    /devices/{device_id}        update (merge-safe, see below)
@@ -144,6 +145,23 @@ Operators observed: `EQ`, `CONTAINS`. Remember to percent-encode `#` and
 spaces in the raw ISE filter value if constructing the query string by
 hand (`httpx`'s `params=` dict does this automatically; a browser/`curl -G
 --data-urlencode` does too).
+
+### List devices by network device group
+
+```
+GET /devices/ndg/{group_name}?page=1&size=20
+```
+
+`{group_name}` is the full hierarchical NDG name, percent-encoded (e.g.
+`/devices/ndg/myGroup%23myGroup%23my-test-001`). Internally this calls
+`ISENetworkDeviceService.list_devices_by_group`, which reuses the list
+endpoint with `filter=location.EQ.{group_name}` — see quirk 8 below for why
+the `location` field name is misleading here. Response shape is identical
+to `GET /devices`. Confirmed live: a device with
+`NetworkDeviceGroupList` containing `myGroup#myGroup#my-test-001` (a
+custom, non-Location category) was correctly returned by this endpoint; an
+unrelated/nonexistent group name returns `{"total": 0, "resources": []}`,
+not an error.
 
 ### Create
 
@@ -238,6 +256,7 @@ the category: `name = f"{category}#{category}"`.
 Endpoints, all under `/api/sources/ise/{source_id}/...`:
 
 ```
+GET    /network-device-groups/                   list, with pagination + ISE-native filter
 POST   /location-groups                         create a child of an existing Location group (convenience)
 POST   /network-device-groups/roots              create a brand-new category (root group)
 POST   /network-device-groups/children            create a child under ANY existing group
@@ -245,6 +264,19 @@ GET    /network-device-groups/name/{name}         get by full hierarchical name
 PUT    /network-device-groups/{group_id}          update description (merge-safe)
 DELETE /network-device-groups/{group_id}          delete
 ```
+
+### `GET /network-device-groups/` — list
+
+```
+GET /network-device-groups/?page=1&size=20&filter=name.CONTAINS.Location
+```
+
+Same shape and semantics as [`GET /devices`](#list--filter): `page`/`size`
+pagination and a verbatim ISE `filter` query param, response is
+`{total, resources, next_page}` built from ISE's `SearchResult`. Confirmed
+live against the DevNet sandbox (returned the 5 built-in groups: `Device
+Type#All Device Types`, `IPSEC#Is IPSEC Device`, `IPSEC#Is IPSEC
+Device#No`, `IPSEC#Is IPSEC Device#Yes`, `Location#All Locations`).
 
 ### `POST /location-groups` — Location-specific convenience
 
@@ -415,6 +447,20 @@ verified by direct HTTP probing of the sandbox before it was decommissioned.
 7. Basic auth over HTTPS with `Accept`/`Content-Type: application/json`
    headers is the only auth ERS supports (no OAuth/token flow) — see
    `services/ise/client.py::ers_request`.
+8. **The `networkdevice` list filter field `location` is not actually
+   scoped to the `Location` category** — confirmed live, filtering by
+   `location.EQ.<full NDG name>` matches against *any* entry in a
+   device's `NetworkDeviceGroupList`, regardless of category. A custom
+   group (`myGroup#myGroup#my-test-001`) and non-Location built-ins
+   (`Device Type#All Device Types`, `IPSEC#Is IPSEC Device#No`) all
+   correctly filtered the device set exactly like a real
+   `Location#...` group would, while an unrelated/nonexistent group
+   name returned zero results (no error). `filter=NDG.EQ....` itself is
+   rejected as an unsupported field (see the filter table above) — this
+   `location` behavior is the only working way to filter devices by
+   arbitrary group membership, and is what
+   `GET /devices/ndg/{group_name}` (`ISENetworkDeviceService.list_devices_by_group`)
+   relies on.
 
 ## Manual test scripts
 
@@ -429,9 +475,11 @@ defaults) to run again.
 | Script                          | Demonstrates |
 |----------------------------------|--------------|
 | `ise_test.py`                    | Source create/update, `test-connection`, device create-or-update with TACACS key |
+| `ise_test_devices_by_ndg.py`     | List devices by network device group (`GET /devices/ndg/{group_name}`), including a non-Location custom group |
 | `ise_test_update_tacacs.py`      | Device `PUT` merge-safety (TACACS-only update, other fields untouched) |
 | `ise_test_delete_device.py`      | Device delete + verify-gone |
 | `ise_test_ndg_add.py`            | Location child, new root category, child of new root |
+| `ise_test_ndg_list.py`           | Group list, pagination (`--all`), ISE-native `filter` passthrough |
 | `ise_test_ndg_update.py`         | Group `PUT` merge-safety (description-only update) |
 | `ise_test_ndg_delete.py`         | Group delete, children-before-parents, verify-gone |
 

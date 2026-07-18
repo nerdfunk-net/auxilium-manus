@@ -35,6 +35,20 @@ class ISENetworkDeviceServiceTests(unittest.IsolatedAsyncioTestCase):
         _, kwargs = self.ise.ers_request.call_args
         self.assertNotIn("filter", kwargs["params"])
 
+    async def test_list_devices_by_group_uses_location_filter(self) -> None:
+        self.ise.ers_request.return_value = {"SearchResult": {"total": 0, "resources": []}}
+        await self.service.list_devices_by_group("myGroup#myGroup#my-test-001", page=1, size=20)
+        self.ise.ers_request.assert_called_once_with(
+            "networkdevice",
+            _credentials(),
+            method="GET",
+            params={
+                "page": 1,
+                "size": 20,
+                "filter": "location.EQ.myGroup#myGroup#my-test-001",
+            },
+        )
+
     async def test_create_device_wraps_payload(self) -> None:
         self.ise.ers_request.return_value = {"id": "new-id"}
         await self.service.create_device({"name": "router1"})
