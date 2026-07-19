@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from models.workflow_context import StepOutcome
+from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
@@ -48,6 +49,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-git-devices": get_git_devices,
     "get-ise-devices": get_ise_devices,
     "get-ise-tacacs-key": get_ise_tacacs_key,
+    "add-to-ise": add_to_ise,
     "get-nautobot-attributes": get_nautobot_attributes,
     "get-device-configs": get_device_configs,
     "render-jinja-template": render_jinja_template,

@@ -228,6 +228,80 @@ plugins:
           required: true
           example: "{custom.new_tacacs_key}"
 
+  - id: add-to-ise
+    name: Add to ISE
+    overview: Create a new network device in Cisco ISE.
+    description: >
+      Register each device as a new network device in Cisco ISE, with an IP address,
+      optional device group memberships, and a TACACS+ shared secret.
+    artifact_type: command_execution
+    palette_category: cisco
+    directory: add_to_ise
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: ise_source_id
+          description: >
+            ID of a Cisco ISE source configured under Settings → Sources. If ISE
+            cannot be reached or authentication fails, the step routes to the
+            failure outcome instead of raising (a per-device create failure still
+            routes to success — see the failure outcome description).
+          data_type: string
+          required: true
+          example: lab-ise
+        - name: device_name
+          description: >
+            The device name to register in ISE. Use a fixed value, or wrap a dot path
+            in braces to resolve it per device from the device's attribute bags, e.g.
+            {name} or {nautobot.custom_fields.device_name}, optionally with a
+            fallback: {name | default('fallback-name')}. A device whose expression
+            resolves to nothing is marked failed but does not stop the step.
+          data_type: string
+          required: true
+          example: "{name}"
+        - name: description
+          description: Fixed description text set on the created ISE device. Optional.
+          data_type: string
+          required: false
+        - name: ip_address
+          description: >
+            The device's IP address to register in ISE. Use a fixed value, or a
+            {path.to.value} expression with the same convention as device_name, e.g.
+            {primary_ip4}. Nautobot's primary_ip4 is commonly stored with a netmask
+            suffix (e.g. 10.0.0.1/24) — any /nn suffix is stripped automatically and
+            the device is registered as a single host (mask 32); there is no separate
+            netmask field. If {primary_ip4} doesn't resolve (the device's own
+            primary_ip4 field is only set by inventory steps that fetch full device
+            records, e.g. Get from Nautobot), it automatically falls back to the
+            nautobot.primary_ip4.address attribute bag path, which is where the IP
+            lives for devices sourced via Get from List/Get from ISE and enriched by
+            Get Nautobot Attributes.
+          data_type: string
+          required: true
+          example: "{primary_ip4}"
+        - name: new_key
+          description: >
+            The TACACS+ shared secret to set on the created device. Use a fixed value,
+            or a {path.to.value} expression with the same convention as device_name.
+          data_type: string
+          required: true
+          example: "{custom.new_tacacs_key}"
+        - name: device_groups
+          description: >
+            Full hierarchical ISE network device group (NDG) names the new device
+            should belong to, e.g. "Location#All Locations" or
+            "Device Type#All Device Types". Leave empty for no group memberships.
+          data_type: array
+          required: false
+          example:
+            - "Location#All Locations"
+            - "Device Type#All Device Types"
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.

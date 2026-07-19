@@ -1,4 +1,5 @@
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
+import { AddToIsePlugin } from "@/components/features/workflow-steps/add-to-ise";
 import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-data";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
@@ -45,6 +46,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "update-nautobot-device": UpdateNautobotDevicePlugin,
   "update-attribute": UpdateAttributePlugin,
   "update-ise-tacacs-key": UpdateIseTacacsKeyPlugin,
+  "add-to-ise": AddToIsePlugin,
   "workflow-log": WorkflowLogPlugin,
   "show-attributes": ShowAttributesPlugin,
 };
