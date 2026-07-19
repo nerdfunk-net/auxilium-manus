@@ -42,6 +42,15 @@ export interface ProjectedCanvas {
   groupNodeIds: Map<string, string>;
 }
 
+// Matches GroupNode's fixed `w-80 h-32` footprint. The synthetic group node is
+// rebuilt from scratch on every projection (it isn't a persisted node React
+// Flow can keep re-measuring across renders), so without an explicit size it
+// briefly looks "unmeasured" and disappears until the next measurement pass —
+// visible as a flicker whenever allNodes/groups changes (e.g. while dragging).
+// Declaring the size up front skips that measure-then-reveal cycle entirely.
+const GROUP_NODE_WIDTH = 320;
+const GROUP_NODE_HEIGHT = 128;
+
 function synthesizeGroupNode(
   group: CanvasGroup,
   allNodes: WorkflowCanvasNode[],
@@ -57,6 +66,9 @@ function synthesizeGroupNode(
     id: groupNodeId(group.id),
     type: "groupNode",
     position: group.position,
+    width: GROUP_NODE_WIDTH,
+    height: GROUP_NODE_HEIGHT,
+    measured: { width: GROUP_NODE_WIDTH, height: GROUP_NODE_HEIGHT },
     data: {
       kind: "__canvas-group__",
       title: group.title,
@@ -89,7 +101,32 @@ export function projectCanvasView(
       return { nodes: [], edges: [], groupNodeIds: new Map() };
     }
     const memberIds = new Set(group.nodeIds);
-    const nodes = allNodes.filter((n) => memberIds.has(n.id));
+
+    // Presentation-only: the exit step's handle that actually leaves the
+    // group, so its color can mark it as the group's output. Stale cached
+    // exitNodeId (Hard Part 1 addendum) simply yields no highlight.
+    const exitEdge = allEdges.find(
+      (e) => e.source === group.exitNodeId && !memberIds.has(e.target),
+    );
+
+    const nodes = allNodes
+      .filter((n) => memberIds.has(n.id))
+      .map((n) => {
+        if (n.id === group.entryNodeId) {
+          return { ...n, data: { ...n.data, isGroupEntryPoint: true } };
+        }
+        if (n.id === group.exitNodeId) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              isGroupExitPoint: true,
+              groupExitHandle: exitEdge?.sourceHandle ?? "success",
+            },
+          };
+        }
+        return n;
+      });
     const edges = allEdges.filter(
       (e) => memberIds.has(e.source) && memberIds.has(e.target),
     );

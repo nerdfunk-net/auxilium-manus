@@ -26,6 +26,15 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   artifactPath?: string;
   outcomes?: WorkflowOutcomeField[];
   pluginConfig?: Record<string, unknown>;
+  /**
+   * View-only annotations set by projectCanvasView's inner-group projection —
+   * never present on allNodes/persisted canvas_nodes, only on the projected
+   * copy, so they mark the entry/exit step of the group currently being viewed.
+   */
+  isGroupEntryPoint?: boolean;
+  isGroupExitPoint?: boolean;
+  /** The outcome handle name of the exit step's edge that leaves the group. */
+  groupExitHandle?: string;
 }
 
 export interface Waypoint {

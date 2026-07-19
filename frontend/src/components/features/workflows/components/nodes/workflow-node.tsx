@@ -31,6 +31,9 @@ const NODE_HEIGHT_CLASS = "h-32";
 
 const TARGET_HANDLE_CLASS =
   "!size-3 !border-2 !bg-slate-300 !border-slate-400";
+const GROUP_ENTRY_HANDLE_CLASS =
+  "!size-3 !border-2 !bg-teal-400 !border-teal-500";
+const GROUP_EXIT_HANDLE_RING_CLASS = "!ring-2 !ring-teal-400 !ring-offset-1";
 
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
@@ -63,7 +66,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     >
       {hasTargetHandles ? (
         <Handle
-          className={TARGET_HANDLE_CLASS}
+          className={data.isGroupEntryPoint ? GROUP_ENTRY_HANDLE_CLASS : TARGET_HANDLE_CLASS}
           id="input"
           position={Position.Left}
           style={{ top: "50%" }}
@@ -130,6 +133,22 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                 Next Step
               </Badge>
             ) : null}
+            {data.isGroupEntryPoint ? (
+              <Badge
+                className="shrink-0 border-teal-300 bg-teal-50 text-teal-700"
+                variant="outline"
+              >
+                Group input
+              </Badge>
+            ) : null}
+            {data.isGroupExitPoint ? (
+              <Badge
+                className="shrink-0 border-teal-300 bg-teal-50 text-teal-700"
+                variant="outline"
+              >
+                Group output
+              </Badge>
+            ) : null}
           </div>
           <p className="mt-1 line-clamp-2 overflow-hidden text-xs leading-5 text-muted-foreground">
             {data.overview ?? data.description}
@@ -153,7 +172,11 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                 </span>
               ) : null}
               <Handle
-                className={cn("!size-3 !border-2", outcomeHandleClasses(outcome.name))}
+                className={cn(
+                  "!size-3 !border-2",
+                  outcomeHandleClasses(outcome.name),
+                  data.groupExitHandle === outcome.name && GROUP_EXIT_HANDLE_RING_CLASS,
+                )}
                 id={outcome.name}
                 position={Position.Right}
                 style={{
