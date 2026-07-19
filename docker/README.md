@@ -116,7 +116,7 @@ The Hatchet compose file attaches `hatchet-engine` and `hatchet-dashboard` to `b
 
 ### Host-bridge fallback (not recommended)
 
-The default `.env.example` uses `host.docker.internal:7077`, which routes gRPC through the host port mapping instead of the Docker network. This works when Hatchet publishes `7077:7070` but does **not** put the app and Hatchet on the same network. Prefer the shared-network setup above.
+`.env.example` defaults to the shared-network value (`hatchet-engine:7070`). If `HATCHET_CLIENT_HOST_PORT` is unset, `docker-compose.yml` falls back to `host.docker.internal:7077`, which routes gRPC through the host port mapping instead of the Docker network. That works when Hatchet publishes `7077:7070` but does **not** put the app and Hatchet on the same network. Prefer the shared-network setup above.
 
 ### Accessing the Hatchet dashboard from outside Docker
 
@@ -165,6 +165,7 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 | `Dockerfile.worker` | Standalone Hatchet worker (optional) |
 | `docker-compose.yml` | App stack: postgres, redis, web, worker |
 | `docker-compose.hatchet-network.yml` | Override: attach app to Hatchet `backend` network |
+| `.env.example` | Template for compose env (copy to `.env`) |
 | `hatchet/docker-compose.yml` | Hatchet stack (engine, dashboard, dependencies) |
 | `prepare-all-in-one.sh` | Build and export air-gap image |
 | `deploy-all-in-one.sh` | Load and run image in air-gap environment |
@@ -175,15 +176,24 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 
 ## Environment variables
 
-Copy `.env.example` to `.env`. Key Hatchet-related values:
+Copy `.env.example` to `.env`. Key values:
 
 ```bash
 HATCHET_CLIENT_TOKEN=          # API token from Hatchet dashboard
 HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070   # when on shared backend network
 HATCHET_CLIENT_TLS_STRATEGY=none
+
+POSTGRES_DB=manus              # mapped to DATABASE_* inside the app containers
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+MANUS_REDIS_PASSWORD=changeme  # Redis host/port are fixed to the redis service
+
+# CREDENTIAL_ENCRYPTION_KEY=   # recommended in production; falls back to SECRET_KEY
 ```
 
-See `.env.example` for database, Redis, and application settings.
+Compose hardcodes in-container hostnames (`postgres`, `redis`) and maps `POSTGRES_*` into `DATABASE_*` for the app. Bind address, backend port, `BACKEND_URL`, and `NODE_ENV` for processes inside `manus-web` are set by `supervisord-web.conf`, not by `.env`.
+
+See `.env.example` for the full template.
 
 ## Proxy support
 
