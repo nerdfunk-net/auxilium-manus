@@ -321,3 +321,15 @@ All text/number inputs follow the same pattern:
 - [ ] Steps that share one implementation helper (e.g. `git-clone` / `git-pull` /
       `git-push` via `run_git_workflow_step`) log once in the shared helper, not once per
       thin `execute()` wrapper
+
+### Backend secret handling
+
+- [ ] Any credential/secret-like value the step writes into `attribute_bags` is sealed
+      with `seal_secret()`, never written as a raw string — see **Secret-valued
+      attributes** in `WORKFLOW-STEPS.md`
+- [ ] Any resolved attribute value the step copies into a new bag, log line, or step
+      summary (rather than consuming it in-memory for one call) is resolved with
+      `reveal_secrets=False`, unless the step is a documented trusted consumer
+- [ ] If the ConfigPanel has a field that holds a secret the user types in directly
+      (e.g. a fixed TACACS+ key value, not a `{path.to.value}` expression), mask it with
+      `type="password"` the way any other credential input would be

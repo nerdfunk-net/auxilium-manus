@@ -361,10 +361,16 @@ secrets) that must never appear as cleartext outside the live run. The
 contract lives in `backend/services/workflow_context/secret_fields.py`:
 
 - **`seal_secret(plaintext)`** — encrypt a value into a sealed envelope
-  (reuses the same Fernet key material as credential-table encryption) before
-  writing it into `DeviceContext.attribute_bags`. Every write site that
-  produces one of `SECRET_BAG_PATHS` must seal it — never `set_device_attribute`
-  a raw string at a known secret path.
+  (reuses the same Fernet key material as credential-table encryption —
+  `CREDENTIAL_ENCRYPTION_KEY`, falling back to `SECRET_KEY`; see
+  `backend/.env.example`) before writing it into `DeviceContext.attribute_bags`.
+  Every write site that produces one of `SECRET_BAG_PATHS` must seal it —
+  never `set_device_attribute` a raw string at a known secret path. No new
+  key is provisioned for this — rotating `CREDENTIAL_ENCRYPTION_KEY` also
+  invalidates any secret already sealed under the old value, the same way it
+  would invalidate a stored credential; `unwrap_secret` raises `ValueError`
+  in that case, which the calling step must let propagate as a failure
+  rather than treating the secret as absent.
 - **`unwrap_secret(value)`** / **`is_sealed_secret(value)`** / **`secret_is_present(value)`**
   — decrypt, detect, and presence-check a sealed envelope respectively.
   `secret_is_present` never decrypts — use it for "does this device already
@@ -562,3 +568,11 @@ commits, so it is not a substitute for the fan-in node.
 8. **Fan-out review** — confirm the step is fan-out-safe (see [Fan-out execution](#fan-out-execution)).
    If it writes to a shared external resource, make the write per-device-unique or
    document the constraint.
+
+9. **Secret handling** — if the step writes a credential/secret-like value into
+   `DeviceContext.attribute_bags` (a TACACS+ key, an API token, etc.), seal it with
+   `seal_secret()` before writing — never `set_device_attribute` a raw string at a
+   known secret path. If the step reads an attribute value and copies the resolved
+   result elsewhere (not just consumes it in-memory for one call), resolve with
+   `reveal_secrets=False` and fail closed on a redacted read, unless the step is one
+   of the documented trusted consumers (see [Secret-valued attributes](#secret-valued-attributes)).
