@@ -1,7 +1,5 @@
 "use client";
 
-import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
-
 import {
   FanOutHelpSection,
   HelpCode,
@@ -14,7 +12,7 @@ import {
  * Built-in Help tab content for Get from ISE.
  * Covers every Configuration control with practical examples.
  */
-export function GetIseDevicesHelpPanel(_props: PluginConfigPanelProps) {
+export function GetIseDevicesHelpPanel() {
   return (
     <div className="space-y-6">
       <HelpSection title="What this step does">

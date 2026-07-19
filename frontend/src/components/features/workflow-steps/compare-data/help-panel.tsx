@@ -1,7 +1,5 @@
 "use client";
 
-import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
-
 import {
   HelpCode,
   HelpExample,
@@ -13,7 +11,7 @@ import {
  * Built-in Help tab content for Compare Data.
  * Covers every Configuration control with practical examples.
  */
-export function CompareDataHelpPanel(_props: PluginConfigPanelProps) {
+export function CompareDataHelpPanel() {
   return (
     <div className="space-y-6">
       <HelpSection title="What this step does">

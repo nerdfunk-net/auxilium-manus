@@ -1,7 +1,5 @@
 "use client";
 
-import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
-
 import {
   HelpCode,
   HelpExample,
@@ -13,7 +11,7 @@ import {
  * Built-in Help tab content for Render Jinja Template.
  * Covers every Configuration control with practical examples.
  */
-export function RenderJinjaTemplateHelpPanel(_props: PluginConfigPanelProps) {
+export function RenderJinjaTemplateHelpPanel() {
   return (
     <div className="space-y-6">
       <HelpSection title="What this step does">
