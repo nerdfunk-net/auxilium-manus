@@ -48,6 +48,30 @@ class AuthService:
 
         return token, int(expires_delta.total_seconds())
 
+    def refresh_access_token(self, token: str) -> tuple[User, str, int]:
+        """Re-issue an access token from a signed JWT, allowing expired tokens."""
+        try:
+            payload = jwt.decode(
+                token,
+                settings.secret_key,
+                algorithms=["HS256"],
+                options={"verify_exp": False},
+            )
+        except jwt.InvalidTokenError as exc:
+            raise AuthenticationError("Invalid authentication token") from exc
+
+        user_id = payload.get("user_id")
+        username = payload.get("sub")
+        if not isinstance(user_id, int) or not isinstance(username, str) or not username:
+            raise AuthenticationError("Invalid authentication token")
+
+        user = self.users.get_by_id(user_id)
+        if user is None or not user.is_active or user.username != username:
+            raise AuthenticationError("Invalid authentication token")
+
+        access_token, expires_in = self.create_access_token(user)
+        return user, access_token, expires_in
+
     def ensure_initial_admin(self) -> User:
         existing_user = self.users.get_by_username(settings.initial_username)
 

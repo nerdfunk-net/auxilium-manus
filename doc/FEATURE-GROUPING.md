@@ -76,7 +76,9 @@ export interface CanvasGroup {
   /** Member step node ids (must all exist in canvas_nodes). */
   nodeIds: string[];
   /**
-   * Cached boundary ids — recomputed on group create/ungroup/member change.
+   * Cached boundary ids, validated strictly at group creation. NOT re-validated
+   * synchronously on every member change (see Hard Part 1 addendum below) — kept as
+   * a best-effort cache and re-checked strictly at save/run time.
    * v1 requires exactly one entry and one exit.
    */
   entryNodeId: string;
@@ -127,6 +129,92 @@ Navigation actions:
 - `exitToParent()` — pop stack; set `activeGroupId` to new top (or `null`).
 - `exitToRoot()` — clear stack, set `activeGroupId = null`.
 - Reset navigation on `loadWorkflow` / `resetToNew`.
+
+Note: `activeGroupId`/`groupNavigationStack` are pure UI navigation and belong in
+Zustand as today. `groups: CanvasGroup[]` itself does **not** — it is authoritative
+canvas data (same tier as nodes/edges) and lives in `workflow-builder-page.tsx` next to
+`allNodes`/`allEdges`, per the state architecture below.
+
+---
+
+## Canvas state architecture — decision: single authoritative array (Option A)
+
+**This section is binding for implementation.** It replaces the informal "React Flow
+receives projected nodes/edges; mutations write back via inverse projection helpers"
+note from the original draft with the concrete mechanism.
+
+### The problem
+
+Today `workflow-builder-page.tsx` holds canvas state via React Flow's own hooks:
+
+```typescript
+const [nodes, setNodes, onNodesChange] = useNodesState(EMPTY_NODES);
+const [edges, setEdges, onEdgesChange] = useEdgesState(EMPTY_EDGES);
+```
+
+These hooks bind their internal reducer **directly** to the array that gets rendered.
+That's fine today because rendered === saved graph. It breaks the moment rendered
+(`visible`, i.e. projected) and saved (`allNodes`, the full flat graph) diverge, which
+is exactly what grouping introduces.
+
+Two ways to reconcile that divergence were considered:
+
+- **Option B (rejected):** keep `useNodesState`/`useEdgesState` bound to the *projected*
+  array, and separately hold `allNodes`/`groups`, syncing between them. This creates two
+  independently-stateful copies that must be reconciled in both directions — visible
+  edits written back to `allNodes`, *and* external changes to `allNodes` (config modal
+  edits, group create/ungroup, workflow load) pushed back into React Flow's internal
+  reducer via `setNodes`. The second direction can clobber in-flight interaction state
+  (e.g. an in-progress drag) if a projection recompute fires from an unrelated change
+  mid-gesture. It also does not reduce implementation work — the inverse-projection
+  logic below is still required — it just adds a race on top.
+- **Option A (chosen):** `allNodes`/`allEdges`/`groups` are the only stateful arrays.
+  `visibleNodes`/`visibleEdges` are a **pure derived value**, recomputed every render.
+  Divergence is structurally impossible because there is exactly one place a write can
+  land.
+
+### The mechanism
+
+```typescript
+// workflow-builder-page.tsx
+const [allNodes, setAllNodes] = useState<WorkflowCanvasNode[]>(EMPTY_NODES);
+const [allEdges, setAllEdges] = useState<WorkflowCanvasEdge[]>(EMPTY_EDGES);
+const [groups, setGroups] = useState<CanvasGroup[]>(EMPTY_GROUPS);
+
+const activeGroupId = useWorkflowBuilderStore((s) => s.activeGroupId);
+
+const projected = useMemo(
+  () => projectCanvasView(allNodes, allEdges, groups, activeGroupId),
+  [allNodes, allEdges, groups, activeGroupId],
+);
+```
+
+`projected.nodes` / `projected.edges` are what `<WorkflowCanvas>` → `<ReactFlow>`
+receives. They are never stored in their own `useState`/`useNodesState` call.
+
+`onNodesChange` / `onEdgesChange` passed down to `<ReactFlow>` are no longer the raw
+setters `useNodesState` gives you. They become handlers built directly on
+`applyNodeChanges` / `applyEdgeChanges` (still `@xyflow/react` library functions, just
+invoked explicitly instead of wrapped) that:
+
+1. Apply the incoming `NodeChange[]`/`EdgeChange[]` to `projected.nodes`/`.edges` to get
+   the correct next-visible array — this reuses React Flow's own change-merging logic,
+   so drag/select/dimension behaviour is unchanged.
+2. Reverse-project each change onto `allNodes`/`allEdges`/`groups` — the **only** place
+   this logic lives. See the dispatch table in Hard Part 2.
+
+This is the same amount of inverse-projection work Hard Part 2 already required; Option
+A just avoids also having to reconcile a second, independently stateful copy.
+
+### Consequence for existing handlers
+
+Every existing mutation handler in `workflow-builder-page.tsx` that currently does
+`setNodes(current => ...)` / `setEdges(current => ...)` (title change, align, node
+config change, add step, delete nodes, delete edge, duplicate node, edge style change)
+must be repointed at `setAllNodes`/`setAllEdges`. None of them need projection-awareness
+themselves — they already operate on real node/edge ids — **except** `handleAddStep` /
+`handleAddStepAtPosition` and node-id generation, which need one specific fix (see Hard
+Part 2 watch-outs: id generation and "add while inside a group").
 
 ---
 
@@ -203,7 +291,9 @@ function projectCanvasView(
    | Both inside same group G | Omit (internal) |
    | `A → B` where A in G1, B in G2 | Omit in v1 (reject at group creation) |
 
-5. Assign stable synthetic edge ids, e.g. `__group-edge__${originalEdgeId}`.
+5. Assign stable synthetic edge ids, e.g. `__group-edge__${originalEdgeId}`, and carry
+   `data: { realEdgeId: originalEdgeId }` on the synthesized edge so removal/reconnect
+   can resolve the real edge directly without a parallel lookup map (see Hard Part 2).
 
 ### Inner view (`activeGroupId === G`)
 
@@ -272,34 +362,121 @@ input and one output."
 **Files**: new `utils/canvas-group-boundary.ts`, called from
 `workflow-builder-page.tsx` or a `useCanvasGroups` hook.
 
+**Addendum — when boundary validation runs (resolves an inconsistency in the original
+draft):** The original data-model comment said `entryNodeId`/`exitNodeId` are
+"recomputed on group create/ungroup/member change." Applying the *strict* linear-chain
+check synchronously on every member change is unworkable: adding a step while inside a
+group (Hard Part 2) necessarily produces a disconnected node for a moment — the user
+hasn't wired it into the chain yet — so an immediate re-check would reject the add
+outright, every time, making "add step inside a group" unusable.
+
+**Resolved v1 behaviour:**
+- Boundary validation (this section's algorithm) runs synchronously and blocks the
+  action only at **group creation** (Hard Part 1) and **ungroup** is trivially always
+  valid (no check needed).
+- Adding/removing a member node does **not** re-run strict validation and does **not**
+  block the edit. `entryNodeId`/`exitNodeId` are left pointing at their last-known-good
+  values.
+- `projectCanvasView` must tolerate a group whose cached entry/exit are stale (e.g. the
+  cached exit node got deleted) — fall back gracefully (see Hard Part 4 addendum) rather
+  than throwing, since this is presentation-layer derived data, not the execution graph.
+- `validateCanvasWorkflow` (already gates Save/Run in `workflow-builder-page.tsx`) gains
+  one new check: for every `CanvasGroup`, re-run the same linear-chain check against its
+  **current** `nodeIds`/`allEdges`. If it no longer holds, block save/run with a specific
+  message, e.g. `Group "Attribute updates" no longer has a single entry and exit — fix
+  connections or ungroup before saving.` This is the single checkpoint where group
+  integrity is enforced, matching how the rest of the app already gates correctness at
+  save/run rather than on every keystroke.
+
 ---
 
 ### Hard Part 2 — Mutations must round-trip through projection
 
-React Flow emits changes against **visible** nodes/edges. The page must translate these
-to **authoritative** state.
+React Flow emits `NodeChange[]` / `EdgeChange[]` against **visible** (projected)
+nodes/edges. Per the state architecture above, `handleNodesChange`/`handleEdgesChange`
+must translate every change back onto `allNodes`/`allEdges`/`groups` — this is the only
+place that logic lives, so get the dispatch table below right rather than scattering
+if/else across other handlers.
+
+**Step 1 — let the library compute the correct next-visible array:**
+
+```typescript
+const nextVisible = applyNodeChanges(changes, projected.nodes);
+```
+
+**Step 2 — reverse-project.** Do not try to hand-interpret every `NodeChange` variant
+(`position`, `select`, `dimensions`, `replace`) individually. Instead diff `nextVisible`
+against `projected.nodes` by id and write the resulting node object back to its source:
+
+| Changed visible id | Route to |
+|---------------------|----------|
+| Real node id (not `remove`) | Overwrite the matching entry in `allNodes` with the new node object (position/selected/measured all carried over in one write) |
+| Synthetic `__group__G` id (not `remove`), only `position` differs | `groups[G].position = newPosition` |
+| Synthetic `__group__G` id, `selected` differs | Track selected-group state the same way `selectedNodeId` works today (Zustand `selectNode`/properties panel already keys off `node.selected`, so the synthetic group node can carry `selected` transiently in the projected array — no authoritative write needed since `groups` doesn't have a `selected` field and doesn't need one) |
+
+**`remove` changes need explicit handling** (they don't show up as a "changed" entry in
+`nextVisible` — the id is simply absent), and must be pulled directly from the incoming
+`changes` array:
+
+| Removed id | Effect |
+|------------|--------|
+| Real node id | Delete from `allNodes`; delete edges touching it from `allEdges`; if it belonged to a group, remove it from `group.nodeIds` and dissolve the group if `< 2` members remain |
+| Synthetic `__group__G` id | **Ungroup**, not delete: remove the `CanvasGroup` entry from `groups`, keep all its member nodes/edges in `allNodes`/`allEdges` untouched |
+
+**Critical — unify all deletion paths.** React Flow's default keyboard shortcut
+(Backspace/Delete) fires a `remove` `NodeChange`/`EdgeChange` through the exact same
+`onNodesChange`/`onEdgesChange` callback as the trash-button-driven
+`handleDeleteNodes`/`handleDeleteEdge` in the Properties panel. If the two paths run
+different code, keyboard-deleting a grouped step will silently skip the `group.nodeIds`
+cleanup that the button path performs (the node vanishes from `allNodes` but lingers in
+`group.nodeIds`, i.e. an orphan reference is created immediately, not just as a defensive
+edge case on load). **Implement one internal `removeRealNodes(ids)` /
+`ungroupNode(groupId)` function and call it from both the reverse-projection dispatch in
+`onNodesChange` and from the Properties panel's explicit delete/ungroup buttons.**
+
+**Edge-boundary resolution.** A synthetic proxy edge (root view, boundary-crossing) must
+carry the real edge it stands in for so removal/reconnect can resolve it without a
+side-channel lookup table. Store it directly on the synthesized edge:
+
+```typescript
+{
+  id: `__group-edge__${realEdge.id}`,
+  data: { realEdgeId: realEdge.id },
+  // ...
+}
+```
+
+- Disconnecting a proxy edge on the root view → read `edge.data.realEdgeId`, remove that
+  entry from `allEdges`.
+- Connecting `A → Group` or `Group → B` on the root view (`onConnect`/`handleConnect`) →
+  translate the `Connection.source`/`.target` from the synthetic `__group__G` id to
+  `group.entryNodeId`/`group.exitNodeId` **before** writing the new edge into `allEdges`.
+  `exitNodeId`'s connection always uses handle `success` regardless of which visible
+  handle the user dragged from (the group node only exposes one source handle in v1).
+
+**Node id generation.** `buildStepNode`/`handleAddStep`/`handleAddStepAtPosition`
+currently derive ids from `${step.kind}-${nodes.length + 1}`. This must key off
+`allNodes.length`, never `projected.nodes.length` — inside a group view the visible
+count is much smaller than the total, and using it would produce colliding ids the
+moment a group is open.
+
+**Add step while inside a group.** Per the table below, appending a node while
+`activeGroupId` is set must also append its id to `groups[activeGroupId].nodeIds` in the
+same state update — and, per the addendum above, must **not** trigger a strict boundary
+re-check (the new node is expected to be transiently disconnected until the user wires
+it in).
 
 | User action | View context | Authoritative mutation |
 |-------------|--------------|------------------------|
 | Drag step node | Inside group | Update `allNodes[id].position` |
 | Drag Group node | Root | Update `groups[groupId].position` |
 | Connect `A → Group` | Root | Connect `A → entryNodeId` (real edge) |
-| Connect `Group → B` | Root | Connect `exitNodeId → B` (real edge) |
+| Connect `Group → B` | Root | Connect `exitNodeId → B` (real edge, handle `success`) |
 | Connect inside group | Inner | Normal `addEdge` on `allEdges` |
-| Delete Group node | Root | **Ungroup** (remove group metadata, keep steps) — do not delete member steps |
-| Delete step inside group | Inner | Remove from `allNodes`, `allEdges`, and `group.nodeIds`; recompute or dissolve group if `< 2` members |
-| Add step from catalog | Root | Normal add (ungrouped) |
-| Add step from catalog | Inner | Normal add + append id to `group.nodeIds` |
-
-Implement `resolveProjectionMutation` helpers rather than scattering if/else across
-handlers.
-
-**Edge case — reconnect at group boundary**: When the user disconnects a proxy edge on
-the root view, remove the corresponding real edge touching `entryNodeId` or `exitNodeId`.
-When they create a new proxy edge, create the real edge on the boundary node.
-
-**Edge case — duplicate synthetic ids**: Synthetic node id prefix `__group__` must never
-be used as a real node id. Document in code; enforce in `buildStepNode` id generation.
+| Delete Group node (button or keyboard) | Root | **Ungroup** via `ungroupNode` — do not delete member steps |
+| Delete step inside group (button or keyboard) | Inner | `removeRealNodes` — removes from `allNodes`, `allEdges`, and `group.nodeIds`; dissolve group if `< 2` members remain; no boundary re-check |
+| Add step from catalog | Root | Normal add (ungrouped); id from `allNodes.length` |
+| Add step from catalog | Inner | Normal add + append id to `group.nodeIds`; id from `allNodes.length`; no boundary re-check |
 
 ---
 
@@ -326,6 +503,16 @@ projection.
 **Stale derived data**: When a member step's capabilities change (config modal), re-derive
 Group node data on next projection — do not cache on the group record.
 
+**Typing gap**: `WorkflowCanvasNode = Node<WorkflowNodeData, "workflowNode">` is a
+single-type generic today. Once `projectCanvasView` can emit a synthetic `groupNode`,
+the array flowing through `workflow-canvas.tsx`/`workflow-builder-page.tsx` becomes a
+discriminated union (`WorkflowCanvasNode | GroupCanvasNode`, the latter typed as
+`Node<GroupNodeData, "groupNode">`). Introduce this union type in
+`types/workflow-canvas.ts` alongside `CanvasGroup` — it touches the `nodes` prop type on
+`WorkflowCanvas`, `nodeTypes`, and every `NodeProps<...>` signature in `GroupNode`. Not
+difficult, but do it explicitly rather than reaching for `any`/type-casting when the
+compiler complains.
+
 ---
 
 ### Hard Part 4 — `computeOutcomeProvides` and inner views
@@ -345,13 +532,29 @@ on root view).
 
 Document the v1 decision in code comments to avoid confusion during implementation.
 
+**Stale-boundary fallback (follows from the Hard Part 1 addendum)**: because
+`entryNodeId`/`exitNodeId` are not re-validated on every member change,
+`projectCanvasView` must handle the case where the cached boundary id no longer exists
+in `group.nodeIds`/`allNodes` (e.g. it was deleted, or the chain was broken by a new
+disconnected member) without throwing. Recommended fallback: if `entryNode`/`exitNode`
+can't be resolved, synthesize the Group node with empty `requires`/`produces` (so it
+simply fails downstream connection validation gracefully, the same UX as any
+misconfigured step) rather than crashing the projection. The authoritative
+`validateCanvasWorkflow` check (Hard Part 5) is what surfaces the real error to the user
+before they can save/run.
+
 ---
 
 ### Hard Part 5 — Save, load, and dirty state
 
 - `canvas_groups` is part of saved workflow JSON; changes mark workflow dirty.
 - `validateCanvasWorkflow` continues to validate the **full** flat graph (all real nodes,
-  all real edges). Groups do not affect validity.
+  all real edges) — groups do not change execution validity. It gains one additional,
+  group-specific check (see Hard Part 1 addendum): for each `CanvasGroup`, re-run the
+  linear-chain boundary check against its current `nodeIds` and `allEdges`; block
+  save/run with a specific message if it no longer holds. This is the single point
+  where group integrity is enforced — interactive edits (add/remove members) do not
+  block on it.
 - On load: reset `activeGroupId` and `groupNavigationStack` to root.
 - **Orphan repair** on load (defensive): remove group entries whose `nodeIds` reference
   missing nodes; dissolve groups with fewer than 2 members.
@@ -414,35 +617,54 @@ Workflow root  ›  Attribute updates
 
 ### Phase 0 — Backend persistence scaffold
 
-- [ ] Alembic migration: `workflows.canvas_groups JSONB NOT NULL DEFAULT '[]'`
+- [ ] Alembic migration `014_add_canvas_groups.py` (next sequential number after
+      `013_drop_users_permissions_column.py`): `workflows.canvas_groups JSONB NOT NULL
+      DEFAULT '[]'`
 - [ ] SQLAlchemy model + Pydantic models + repository pass-through
 - [ ] Frontend types + save/load wiring (can save empty `[]` before UI exists)
 
-### Phase 1 — Data + projection (no UI)
+### Phase 1 — State architecture + projection (no UI)
 
-- [ ] `CanvasGroup` type, `canvas-group-boundary.ts`, `canvas-group-projection.ts`
+- [ ] **Refactor `workflow-builder-page.tsx` off `useNodesState`/`useEdgesState`** onto
+      plain `allNodes`/`allEdges` state per the "Canvas state architecture — Option A"
+      section — do this before any group-specific code lands, since every existing
+      handler (title change, align, config change, add/delete/duplicate) needs
+      repointing at the new setters regardless of grouping
+- [ ] `CanvasGroup` type (+ `WorkflowCanvasNode | GroupCanvasNode` union, see Hard Part 3
+      typing gap), `canvas-group-boundary.ts`, `canvas-group-projection.ts`
+- [ ] Implement the reverse-projection dispatch (`removeRealNodes`, `ungroupNode`, the
+      diff-based write-back in `handleNodesChange`/`handleEdgesChange`) — Hard Part 2
+- [ ] Fix node id generation to use `allNodes.length` (not the projected/visible count)
 - [ ] Unit tests for projection and boundary detection (see Testing)
 - [ ] `useCanvasGroups` hook holding `groups` state in builder page
 
 ### Phase 2 — Root view rendering
 
 - [ ] `GroupNode` component
-- [ ] Wire `projectCanvasView` into canvas props
+- [ ] Wire `projectCanvasView` into canvas props (`WorkflowCanvas` receives
+      `projected.nodes`/`projected.edges`, never `allNodes`/`allEdges` directly)
 - [ ] Breadcrumb + `enterGroup` / `exitToParent`
 - [ ] Manual test: hand-edit `canvas_groups` JSON to verify collapsed view
 
 ### Phase 3 — Mutations
 
-- [ ] Round-trip connect/disconnect on group boundaries
+- [ ] Round-trip connect/disconnect on group boundaries (via `data.realEdgeId`
+      resolution, Hard Part 2)
 - [ ] Drag Group node (updates `group.position`)
 - [ ] Drag inner steps (updates real node positions)
-- [ ] Delete / ungroup
+- [ ] Delete / ungroup — verify **both** the trash-button path and the keyboard
+      Backspace/Delete path go through the same `removeRealNodes`/`ungroupNode`
+      functions (this is the easiest place for the two paths to silently diverge)
+- [ ] Add step while inside a group appends to `group.nodeIds` without triggering
+      boundary re-validation
 
 ### Phase 4 — Create group UX
 
-- [ ] "Group selected steps" from multi-select panel
+- [ ] "Group selected steps" from multi-select panel (boundary check runs **only**
+      here and at nowhere else — see Hard Part 1 addendum)
 - [ ] Group properties (rename, ungroup, open)
 - [ ] Toast errors for invalid selections
+- [ ] `validateCanvasWorkflow` group-boundary check wired into Save/Run (Hard Part 5)
 
 ### Phase 5 — Polish
 

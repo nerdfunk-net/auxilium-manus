@@ -11,12 +11,16 @@ interface AuthState {
   loadCurrentUser: () => Promise<void>;
   login: (credentials: { username: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
+  setUser: (user: AuthUser) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: false,
   error: null,
+  setUser: (user) => {
+    set({ user });
+  },
   loadCurrentUser: async () => {
     set({ isLoading: true, error: null });
 
