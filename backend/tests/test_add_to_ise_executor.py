@@ -185,6 +185,15 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
         self.assertEqual(outcomes[0].context.metadata["node-1.created_count"], 1)
         self.assertEqual(outcomes[0].context.metadata["node-1.failed_count"], 0)
+        # Both copies (tacacs bag and nested ise.tacacsSettings) are stored
+        # sealed, not as raw cleartext strings — even though the ISE API call
+        # above correctly received cleartext.
+        from services.workflow_context.secret_fields import is_sealed_secret
+
+        self.assertTrue(is_sealed_secret(updated.attribute_bags["tacacs"]["shared_secret"]))
+        self.assertTrue(
+            is_sealed_secret(updated.attribute_bags["ise"]["tacacsSettings"]["sharedSecret"])
+        )
 
     async def test_description_and_groups_included_when_set(self) -> None:
         device_service = _device_service()

@@ -223,6 +223,10 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
         self.assertEqual(outcomes[0].context.metadata["node-1.found_count"], 1)
 
+        from services.workflow_context.secret_fields import is_sealed_secret
+
+        self.assertTrue(is_sealed_secret(updated.attribute_bags["tacacs"]["shared_secret"]))
+
     async def test_tier1_miss_falls_through_to_tier2_single_fetch(self) -> None:
         device_service = _device_service()
         # mask=24, not /32 -> tier1 misses, tier2 (same cached fetch) accepts it.

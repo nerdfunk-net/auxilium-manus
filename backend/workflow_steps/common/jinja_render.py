@@ -8,6 +8,7 @@ from jinja2 import TemplateSyntaxError, UndefinedError
 from jinja2.sandbox import SandboxedEnvironment
 
 from models.workflow_context import DeviceContext
+from services.workflow_context.secret_fields import is_sealed_secret, unwrap_secret
 
 _jinja_env = SandboxedEnvironment(
     autoescape=False,
@@ -18,6 +19,21 @@ _jinja_env = SandboxedEnvironment(
 
 class JinjaTemplateError(ValueError):
     """Raised when a template is invalid or cannot be rendered."""
+
+
+def _unwrap_bag(bag: dict[str, Any]) -> dict[str, Any]:
+    """Recursively unwrap sealed secret envelopes so templates can still use
+    e.g. ``{{ tacacs.shared_secret }}`` directly — bags stay sealed at rest,
+    only the in-memory Jinja namespace built for this render sees cleartext."""
+    out: dict[str, Any] = {}
+    for key, value in bag.items():
+        if is_sealed_secret(value):
+            out[key] = unwrap_secret(value)
+        elif isinstance(value, dict):
+            out[key] = _unwrap_bag(value)
+        else:
+            out[key] = value
+    return out
 
 
 def build_jinja_context(
@@ -33,7 +49,7 @@ def build_jinja_context(
     context["workflow"] = {"id": workflow_id or ""}
     for bag_name, bag_value in device.attribute_bags.items():
         if bag_name not in context:
-            context[bag_name] = dict(bag_value)
+            context[bag_name] = _unwrap_bag(dict(bag_value))
     if device.parsed:
         context["parsed"] = dict(device.parsed)
     return context

@@ -33,6 +33,7 @@ from services.workflow_context.guards import (
 )
 from services.workflow_context.merge import merge_workflow_contexts
 from services.workflow_context.registry import capability_spec_from_plugin
+from services.workflow_context.secret_fields import redact_secrets_in_data
 
 
 @dataclass
@@ -572,7 +573,7 @@ class StepRunner:
     def _serialize_outcomes(outcomes: list[StepOutcome]) -> dict[str, Any]:
         return {
             "outcomes": {
-                outcome.name: outcome.context.model_dump(mode="json")
+                outcome.name: redact_secrets_in_data(outcome.context.model_dump(mode="json"))
                 for outcome in outcomes
             }
         }

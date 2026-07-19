@@ -48,6 +48,7 @@ from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.ise.source_config_service import ISESourceNotFoundError
+from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
@@ -212,7 +213,7 @@ async def execute(
             ]
 
         updated_devices[device_id] = set_device_attribute(
-            device, "tacacs.shared_secret", new_key_value
+            device, "tacacs.shared_secret", seal_secret(new_key_value)
         )
         updated_count += 1
         logger.info("%s: updated tacacs key for device=%s", _STEP_ID, device.name)

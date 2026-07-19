@@ -5,9 +5,13 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+from core.crypto import EncryptionService
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
 from workflow_steps.common.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.workflow_log.executor import execute
+
+_ENC = EncryptionService("test-secret-key-for-workflow-log")
 
 
 class WorkflowLogExecutorTests(unittest.IsolatedAsyncioTestCase):
@@ -68,6 +72,39 @@ class WorkflowLogExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         debug_logs = outcomes[0].context.metadata[f"workflow-log-1{DEBUG_LOGS_METADATA_SUFFIX}"]
         self.assertEqual(debug_logs["devices"]["device-1"]["message"], "key=")
+
+    async def test_sealed_secret_placeholder_is_redacted_not_cleartext(self) -> None:
+        """workflow-log writes into INFO logs and persisted step metadata, so a
+        sealed secret must never be rehydrated here — it should render as the
+        redacted placeholder, not the cleartext value."""
+        run = MagicMock()
+        sealed = seal_secret("s3cr3t", encryption=_ENC)
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"tacacs": {"shared_secret": sealed}},
+        )
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"device-1": device},
+        )
+
+        # reveal_secrets=False short-circuits before any decrypt attempt, so
+        # this assertion holds even without a usable encryption key configured.
+        outcomes = await execute(
+            config={"message": "key={tacacs.shared_secret}"},
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="workflow-log-1",
+        )
+
+        debug_logs = outcomes[0].context.metadata[f"workflow-log-1{DEBUG_LOGS_METADATA_SUFFIX}"]
+        message = debug_logs["devices"]["device-1"]["message"]
+        self.assertEqual(message, f"key={REDACTED_PLACEHOLDER}")
+        self.assertNotIn("s3cr3t", message)
 
     async def test_passes_through_when_no_devices(self) -> None:
         run = MagicMock()

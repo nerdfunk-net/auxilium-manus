@@ -31,7 +31,10 @@ def render_message_template(template: str, device: DeviceContext) -> str:
     string rather than failing the step."""
 
     def _replace(match: re.Match[str]) -> str:
-        value = resolve_device_attribute(device, match.group(1))
+        # workflow-log writes into INFO logs and persisted step metadata, so
+        # secret-valued paths must never be rehydrated here — reveal_secrets=False
+        # returns REDACTED_PLACEHOLDER instead of the cleartext.
+        value = resolve_device_attribute(device, match.group(1), reveal_secrets=False)
         return value if value is not None else ""
 
     return _PLACEHOLDER_PATTERN.sub(_replace, template)

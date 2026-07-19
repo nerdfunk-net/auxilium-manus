@@ -13,6 +13,7 @@ from core.config import settings
 from core.models.runs import WorkflowRun
 from models.workflow_context import ArtifactRef, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.workflow_context.secret_fields import redact_secrets_in_data
 from workflow_steps.common.device_template import sanitize_relative_path
 from workflow_steps.show_attributes.config import get_config
 
@@ -72,8 +73,8 @@ def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_context_snapshot(context: WorkflowContext) -> dict[str, Any]:
-    """Serialize the full workflow context envelope for inspection."""
-    return context.model_dump(mode="json")
+    """Serialize the workflow context envelope for inspection, with secrets redacted."""
+    return redact_secrets_in_data(context.model_dump(mode="json"))
 
 
 async def _attach_rendered_template_content(

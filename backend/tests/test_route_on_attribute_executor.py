@@ -5,8 +5,12 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+from core.crypto import EncryptionService
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.route_on_attribute.executor import execute
+
+_ENC = EncryptionService("test-secret-key-for-route-on-attribute")
 
 
 def _device(
@@ -167,6 +171,42 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-6",
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(list(by_name["has-key"].context.devices), ["has-key"])
+        self.assertEqual(list(by_name["no-key"].context.devices), ["no-key"])
+
+    async def test_routes_on_sealed_secret_without_decrypting(self) -> None:
+        """A sealed TACACS+ key must still classify as {exists} — route-on-attribute
+        must never need to decrypt the secret just to check presence."""
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "has-key": _device(
+                    "has-key",
+                    attribute_bags={
+                        "tacacs": {"shared_secret": seal_secret("s3cr3t", encryption=_ENC)}
+                    },
+                ),
+                "no-key": _device("no-key"),
+            },
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "tacacs.shared_secret",
+                "routes": [
+                    {"outcome": "has-key", "values": ["{exists}"]},
+                    {"outcome": "no-key", "values": ["{absent}", "{null}", "{empty}"]},
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-6b",
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}

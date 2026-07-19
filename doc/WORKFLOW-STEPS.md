@@ -353,6 +353,64 @@ Full rules (title wrapping, outcome palette, fan-out badge, anti-patterns): see
 
 ---
 
+## Secret-valued attributes
+
+Some attribute bag leaves — currently `tacacs.shared_secret` and the nested
+`ise.tacacsSettings.sharedSecret` — hold sensitive values (TACACS+ shared
+secrets) that must never appear as cleartext outside the live run. The
+contract lives in `backend/services/workflow_context/secret_fields.py`:
+
+- **`seal_secret(plaintext)`** — encrypt a value into a sealed envelope
+  (reuses the same Fernet key material as credential-table encryption) before
+  writing it into `DeviceContext.attribute_bags`. Every write site that
+  produces one of `SECRET_BAG_PATHS` must seal it — never `set_device_attribute`
+  a raw string at a known secret path.
+- **`unwrap_secret(value)`** / **`is_sealed_secret(value)`** / **`secret_is_present(value)`**
+  — decrypt, detect, and presence-check a sealed envelope respectively.
+  `secret_is_present` never decrypts — use it for "does this device already
+  have a key" checks.
+- **`redact_secrets_in_data(data)`** — deep-copies a serialized context dict
+  and replaces `SECRET_BAG_PATHS` leaves / any sealed envelope with the
+  literal `***REDACTED***`. Applied at every boundary that persists or
+  displays a run: `StepRunner._serialize_outcomes`, the Hatchet fan-out merge
+  path (`hatchet/workflows/workflow_run.py::_aggregate_and_persist`), and
+  `show-attributes`'s `build_context_snapshot`.
+
+**`resolve_device_attribute(device, path, *, reveal_secrets=True)`**
+(`workflow_steps/common/attribute_path.py`) is the shared read path and
+decides whether a sealed leaf gets decrypted for the caller:
+
+- **Trusted, intentional consumers** (Jinja rendering via `build_jinja_context`;
+  `update-ise-tacacs-key`/`add-to-ise`'s field-expression resolution) keep the
+  default `reveal_secrets=True` — they need the cleartext to do their job
+  (build a TACACS+ config line, send an ISE API payload).
+- **Generic / bulk steps** that write a *resolved* value into a *new* bag
+  location — `update-attribute`, `workflow-log` — must pass
+  `reveal_secrets=False`. A `False` call returns `REDACTED_PLACEHOLDER`
+  instead of cleartext; `update-attribute` treats that as a hard `ValueError`
+  (it must not create a second, unsealed copy of a secret at an arbitrary
+  path). Any new step added later that resolves an attribute and copies the
+  result elsewhere must default to `reveal_secrets=False` unless it is one of
+  the documented trusted consumers above.
+
+**Known limitation — redaction is shape-based, not content-based.**
+`redact_secrets_in_data` only recognizes secrets by the sealed-envelope
+marker or by the fixed `SECRET_BAG_PATHS` dotted paths under
+`attribute_bags`. If a step resolves a secret to cleartext (`reveal_secrets=True`)
+and then writes that cleartext into a *differently shaped* output — a diff
+entry, a filtered list, a free-text outcome message — it becomes a bare
+string neither mechanism recognizes, and it will **not** be redacted at
+persist time. Do not do this. If a new step legitimately needs to consume a
+secret, keep the consumption in-memory for that call only (as
+`render-jinja-template` and the ISE-update steps do); never copy the
+unwrapped value into a plain attribute bag, log line, or step summary.
+
+Rendering a secret into a stored artifact via `render-jinja-template` →
+`store-artifact` remains an explicit, documented operator choice, not a bug —
+it is outside the scope of the in-run context/DB protection above.
+
+---
+
 ## Fan-out execution
 
 An **inventory step** (`get-nautobot-devices`, `get-git-devices`) may enable

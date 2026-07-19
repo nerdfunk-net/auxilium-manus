@@ -7,9 +7,9 @@ import logging
 import re
 from typing import Any
 
-from jinja2 import Template as JinjaTemplate
-from jinja2 import TemplateError
-from jinja2.exceptions import UndefinedError
+from jinja2 import TemplateError, TemplateSyntaxError
+from jinja2.exceptions import SecurityError, UndefinedError
+from jinja2.sandbox import SandboxedEnvironment
 from sqlalchemy.orm import Session
 
 from core.models.templates import Template
@@ -22,6 +22,15 @@ from services.templates.exceptions import (
 logger = logging.getLogger(__name__)
 
 _VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)")
+
+# Same knobs as workflow_steps/common/jinja_render.py, so template-library
+# preview cannot exercise unsafe attribute/method access that unrestricted
+# jinja2.Template would allow.
+_jinja_env = SandboxedEnvironment(
+    autoescape=False,
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
 
 
 class TemplatesService:
@@ -163,17 +172,26 @@ class TemplatesService:
     # ------------------------------------------------------------------
 
     def render(self, *, template_content: str, variables: dict[str, Any]) -> dict[str, Any]:
-        """Render Jinja2 ``template_content`` with the provided ``variables``."""
+        """Render Jinja2 ``template_content`` with the provided ``variables``.
+
+        Uses ``SandboxedEnvironment`` so template-library preview cannot call
+        unsafe attributes/methods the way unrestricted ``jinja2.Template`` allows.
+        """
         variables_used = sorted(set(_VARIABLE_PATTERN.findall(template_content)))
         try:
-            rendered = JinjaTemplate(template_content).render(**variables)
+            compiled = _jinja_env.from_string(template_content)
+            rendered = compiled.render(**variables)
         except UndefinedError as exc:
             available = ", ".join(sorted(variables.keys())) or "none"
             raise ValueError(
                 f"Undefined variable in template: {exc}. Available variables: {available}"
             ) from exc
-        except TemplateError as exc:
+        except SecurityError as exc:
+            raise ValueError(f"Template uses a disallowed construct: {exc}") from exc
+        except TemplateSyntaxError as exc:
             raise ValueError(f"Template syntax error: {exc}") from exc
+        except TemplateError as exc:
+            raise ValueError(f"Template render failed: {exc}") from exc
 
         return {
             "rendered_content": rendered,

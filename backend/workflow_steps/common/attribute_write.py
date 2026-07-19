@@ -22,8 +22,13 @@ def _set_nested(root: dict[str, Any], path: str, value: Any) -> None:
     current[parts[-1]] = value
 
 
-def set_device_attribute(device: DeviceContext, attribute_path: str, value: str) -> DeviceContext:
-    """Set *value* at *attribute_path*, creating nested bags as needed."""
+def set_device_attribute(device: DeviceContext, attribute_path: str, value: Any) -> DeviceContext:
+    """Set *value* at *attribute_path*, creating nested bags as needed.
+
+    *value* is normally a string, but may be a sealed-secret envelope dict
+    (see ``services.workflow_context.secret_fields.seal_secret``) for known
+    secret paths.
+    """
     path = attribute_path.strip()
     if not path:
         raise ValueError("attribute path is required")

@@ -666,7 +666,7 @@ plugins:
             placeholders resolved per device.
           data_type: string
           required: true
-          example: "Tacacs key {tacacs.shared_secret} successfully read from ISE"
+          example: "Device {device.name} processed from ISE"
 
   - id: show-attributes
     name: Show Attributes

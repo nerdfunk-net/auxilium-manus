@@ -51,7 +51,7 @@ function WorkflowLogConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
         <Input
           value={message}
           onChange={(event) => handleMessageChange(event.target.value)}
-          placeholder="Tacacs key {tacacs.shared_secret} successfully read from ISE"
+          placeholder="Device {device.name} processed from ISE"
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] leading-4 text-muted-foreground">

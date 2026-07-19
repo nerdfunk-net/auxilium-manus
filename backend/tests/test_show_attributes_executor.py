@@ -237,6 +237,35 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Attribute bags:", pretty)
         self.assertIn("site", pretty)
 
+    def test_build_context_snapshot_redacts_sealed_tacacs_secret(self) -> None:
+        from core.crypto import EncryptionService
+        from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
+
+        sealed = seal_secret(
+            "s3cr3t", encryption=EncryptionService("test-secret-key-for-show-attributes")
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"tacacs": {"shared_secret": sealed}},
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+        )
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"device-1": device},
+        )
+
+        snapshot = build_context_snapshot(context)
+
+        leaf = snapshot["devices"]["device-1"]["attribute_bags"]["tacacs"]["shared_secret"]
+        self.assertEqual(leaf, REDACTED_PLACEHOLDER)
+        pretty = format_pretty_text(snapshot)
+        self.assertIn(REDACTED_PLACEHOLDER, pretty)
+        self.assertNotIn("s3cr3t", pretty)
+
 
 if __name__ == "__main__":
     unittest.main()

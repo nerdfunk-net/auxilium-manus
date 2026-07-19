@@ -401,6 +401,7 @@ def _aggregate_and_persist(
     from models.workflow_context import WorkflowContext
     from services.execution.step_runner import StepRunner
     from services.workflow_context.merge import merge_fan_out_contexts
+    from services.workflow_context.secret_fields import redact_secrets_in_data
 
     # Children only produce the child branch (nodes before the fan-in node). The
     # post-join nodes are run once by the parent in resume_after_join, so they must
@@ -458,7 +459,9 @@ def _aggregate_and_persist(
                 merge_fan_out_contexts(ctx_list) if len(ctx_list) > 1 else ctx_list[0]
             )
             node_merged[outcome_name] = merged_ctx
-            merged_output[outcome_name] = merged_ctx.model_dump(mode="json")
+            merged_output[outcome_name] = redact_secrets_in_data(
+                merged_ctx.model_dump(mode="json")
+            )
         merged_outcomes[node_id] = node_merged
 
         if step_result is not None:

@@ -6,6 +6,11 @@ from enum import Enum
 from typing import Any
 
 from models.workflow_context import DeviceContext
+from services.workflow_context.secret_fields import (
+    REDACTED_PLACEHOLDER,
+    is_sealed_secret,
+    unwrap_secret,
+)
 
 _DEVICE_SCALAR_FIELDS = frozenset(
     {
@@ -138,8 +143,28 @@ def resolve_device_value(
     return None
 
 
-def resolve_device_attribute(device: DeviceContext, attribute_path: str) -> str | None:
-    """Resolve a dot path against device scalars and namespaced attribute bags."""
+def _resolve_leaf(value: Any, *, reveal_secrets: bool) -> str | None:
+    """Stringify a resolved bag leaf, unwrapping (or redacting) a sealed secret."""
+    if is_sealed_secret(value):
+        if not reveal_secrets:
+            return REDACTED_PLACEHOLDER
+        return unwrap_secret(value)
+    return _stringify(value)
+
+
+def resolve_device_attribute(
+    device: DeviceContext, attribute_path: str, *, reveal_secrets: bool = True
+) -> str | None:
+    """Resolve a dot path against device scalars and namespaced attribute bags.
+
+    ``reveal_secrets`` controls what happens when the resolved leaf is a
+    sealed secret envelope (see ``services.workflow_context.secret_fields``):
+    ``True`` (the default — for trusted consumers like Jinja rendering and
+    ISE-update expressions) decrypts it in-memory for this call; ``False``
+    (for generic/bulk callers such as ``update-attribute`` and
+    ``workflow-log``, which must never rehydrate or re-expose a secret)
+    returns ``REDACTED_PLACEHOLDER`` instead.
+    """
     path = attribute_path.strip()
     if not path:
         return None
@@ -160,14 +185,15 @@ def resolve_device_attribute(device: DeviceContext, attribute_path: str) -> str 
         bag = device.attribute_bags.get(bag_name)
         if bag is None:
             return None
-        return _stringify(_traverse_path(bag, remainder))
+        raw = _traverse_path(bag, remainder)
+        return _resolve_leaf(raw, reveal_secrets=reveal_secrets)
 
     bag = device.attribute_bags.get(path)
     if bag is None:
         return None
     if isinstance(bag, dict) and len(bag) == 1:
         only_value = next(iter(bag.values()))
-        return _stringify(only_value)
+        return _resolve_leaf(only_value, reveal_secrets=reveal_secrets)
     return None
 
 

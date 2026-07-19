@@ -7,6 +7,7 @@ from typing import Any
 
 from models.sources_nautobot import DeviceInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, bare_hostname
+from services.workflow_context.secret_fields import seal_secret
 
 
 def device_context_from_nautobot(
@@ -106,18 +107,22 @@ def device_context_from_ise(
         digest = hashlib.sha256(f"{source_id}:{name}".encode()).hexdigest()[:32]
         device_id = f"ise-{digest}"
 
-    attribute_bags: dict[str, dict[str, Any]] = {
-        "ise": {**device, "is_group_or_prefix": is_group_or_prefix},
-    }
+    ise_bag: dict[str, Any] = {**device, "is_group_or_prefix": is_group_or_prefix}
 
     # Surfaced as its own top-level Jinja variable (build_jinja_context flattens
     # attribute_bags by name), so a template can use {{ tacacs.shared_secret }}
-    # directly instead of drilling into ise.tacacsSettings.sharedSecret.
+    # directly instead of drilling into ise.tacacsSettings.sharedSecret. Both
+    # copies are sealed — this bag is not a second cleartext channel.
+    attribute_bags: dict[str, dict[str, Any]] = {"ise": ise_bag}
     tacacs_settings = device.get("tacacsSettings")
     if isinstance(tacacs_settings, dict):
         shared_secret = tacacs_settings.get("sharedSecret")
         if shared_secret:
-            attribute_bags["tacacs"] = {"shared_secret": shared_secret}
+            attribute_bags["tacacs"] = {"shared_secret": seal_secret(str(shared_secret))}
+            ise_bag["tacacsSettings"] = {
+                **tacacs_settings,
+                "sharedSecret": seal_secret(str(shared_secret)),
+            }
 
     return DeviceContext(
         id=device_id,

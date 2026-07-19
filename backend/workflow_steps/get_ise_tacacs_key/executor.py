@@ -51,6 +51,7 @@ from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.ise.source_config_service import ISESourceNotFoundError
+from services.workflow_context.secret_fields import seal_secret, secret_is_present
 from workflow_steps.common.attribute_path import resolve_device_value
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.ise_lookup import (
@@ -353,7 +354,7 @@ async def execute(
 
     for device_id, device in context.devices.items():
         existing_secret = (device.attribute_bags.get("tacacs") or {}).get("shared_secret")
-        if existing_secret:
+        if secret_is_present(existing_secret):
             updated_devices[device_id] = device
             already_present_count += 1
             continue
@@ -394,7 +395,7 @@ async def execute(
 
         if secret:
             updated_devices[device_id] = set_device_attribute(
-                device, "tacacs.shared_secret", secret
+                device, "tacacs.shared_secret", seal_secret(secret)
             )
             found_count += 1
             logger.info(

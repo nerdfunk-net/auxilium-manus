@@ -175,6 +175,11 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
         self.assertEqual(outcomes[0].context.metadata["node-1.updated_count"], 1)
         self.assertEqual(outcomes[0].context.metadata["node-1.failed_count"], 0)
+        # Stored at rest as a sealed envelope, not a raw cleartext string.
+        from services.workflow_context.secret_fields import is_sealed_secret
+
+        raw_stored = updated.attribute_bags["tacacs"]["shared_secret"]
+        self.assertTrue(is_sealed_secret(raw_stored))
 
     async def test_path_expression_resolves_per_device(self) -> None:
         device_service = _device_service()

@@ -59,6 +59,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
 from services.ise.source_config_service import ISESourceNotFoundError
+from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_path import resolve_device_value
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
@@ -298,10 +299,17 @@ async def execute(
                 )
             ]
 
+        sealed_ise_payload = {
+            **device_payload,
+            "tacacsSettings": {
+                **device_payload["tacacsSettings"],
+                "sharedSecret": seal_secret(resolved_key),
+            },
+        }
         attribute_bags = {
             **device.attribute_bags,
-            "ise": {**device_payload, "id": created.get("id"), "is_group_or_prefix": False},
-            "tacacs": {"shared_secret": resolved_key},
+            "ise": {**sealed_ise_payload, "id": created.get("id"), "is_group_or_prefix": False},
+            "tacacs": {"shared_secret": seal_secret(resolved_key)},
         }
         updated_devices[device_id] = device.model_copy(
             update={

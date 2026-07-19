@@ -8,6 +8,11 @@ from typing import Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.workflow_context.secret_fields import (
+    REDACTED_PLACEHOLDER,
+    path_is_known_secret,
+    seal_secret,
+)
 from workflow_steps.common.attribute_path import resolve_device_attribute
 from workflow_steps.common.attribute_regex import RegexFlagsConfig, apply_regex_transform
 from workflow_steps.common.attribute_write import set_device_attribute
@@ -54,7 +59,8 @@ def _apply_fixed_update(
     value = str(fixed_value)
     if not value.strip():
         raise ValueError(f"{_STEP_ID}: fixed_value is required in fixed mode")
-    return set_device_attribute(device, destination_path, value)
+    stored_value: Any = seal_secret(value) if path_is_known_secret(destination_path) else value
+    return set_device_attribute(device, destination_path, stored_value)
 
 
 def _apply_regex_update(
@@ -76,7 +82,17 @@ def _apply_regex_update(
     if not destination_template.strip():
         raise ValueError(f"{_STEP_ID}: destination_template is required in regex mode")
 
-    source_value = resolve_device_attribute(device, source_path)
+    # update-attribute is a generic power-user step, not a trusted secret
+    # consumer (unlike render-jinja-template / update-ise-tacacs-key) — never
+    # rehydrate a sealed value here, so it can't be regex-copied into a new
+    # plaintext bag path that the redaction boundary doesn't know about.
+    source_value = resolve_device_attribute(device, source_path, reveal_secrets=False)
+    if source_value == REDACTED_PLACEHOLDER:
+        raise ValueError(
+            f"{_STEP_ID}: source_path '{source_path}' resolves to a sealed secret; "
+            "update-attribute cannot read or copy secret values. Use "
+            "render-jinja-template or the ISE-specific steps instead."
+        )
     if source_value is None:
         return None
 
@@ -89,7 +105,10 @@ def _apply_regex_update(
     if transformed is None:
         return None
 
-    return set_device_attribute(device, destination_path, transformed)
+    stored_value: Any = (
+        seal_secret(transformed) if path_is_known_secret(destination_path) else transformed
+    )
+    return set_device_attribute(device, destination_path, stored_value)
 
 
 async def execute(
