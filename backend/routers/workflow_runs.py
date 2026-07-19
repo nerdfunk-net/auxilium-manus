@@ -142,3 +142,29 @@ async def continue_run(
     service: RunService = Depends(_service),
 ) -> WorkflowRunResponse:
     return service.continue_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.post(
+    "/runs/{run_id}/approve-batch",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
+async def approve_batch(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.approve_batch(run_id=run_id, user_id=current_user.id)
+
+
+@router.post(
+    "/runs/{run_id}/approve-all",
+    response_model=WorkflowRunResponse,
+    dependencies=[Depends(require_permission("workflows", "execute"))],
+)
+async def approve_all(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunResponse:
+    return service.approve_all(run_id=run_id, user_id=current_user.id)

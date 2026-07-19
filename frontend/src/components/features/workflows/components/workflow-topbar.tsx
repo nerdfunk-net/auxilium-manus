@@ -31,6 +31,8 @@ import {
 import { useAuthStore } from "@/lib/auth-store";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 import {
+  useApproveAllMutation,
+  useApproveBatchMutation,
   useContinueRunMutation,
   useStepRunMutation,
 } from "@/hooks/queries/use-workflow-run-mutations";
@@ -68,7 +70,12 @@ export function WorkflowTopbar({
   const { data: activeRun } = useWorkflowRunQuery(activeRunId);
   const stepRun = useStepRunMutation(workflowId);
   const continueRun = useContinueRunMutation(workflowId);
-  const isAwaitingStep = runMode === "debug" && activeRun?.status === "paused";
+  const approveBatch = useApproveBatchMutation(workflowId);
+  const approveAll = useApproveAllMutation(workflowId);
+  const approvalState = activeRun?.approval_state;
+  const isAwaitingBatch = activeRun?.status === "paused" && approvalState?.awaiting === true;
+  const isAwaitingStep =
+    !isAwaitingBatch && runMode === "debug" && activeRun?.status === "paused";
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-5">
@@ -114,6 +121,28 @@ export function WorkflowTopbar({
             </SelectContent>
           </Select>
         </div>
+
+        {isAwaitingBatch && approvalState ? (
+          <>
+            <Button
+              variant="outline"
+              disabled={approveBatch.isPending || !activeRunId}
+              onClick={() => activeRunId && approveBatch.mutate(activeRunId)}
+            >
+              <StepForward className="size-4" />
+              Run next batch ({approvalState.next_batch_index + 1}/
+              {approvalState.total_batches})
+            </Button>
+            <Button
+              variant="outline"
+              disabled={approveAll.isPending || !activeRunId}
+              onClick={() => activeRunId && approveAll.mutate(activeRunId)}
+            >
+              <FastForward className="size-4" />
+              Run all remaining
+            </Button>
+          </>
+        ) : null}
 
         {isAwaitingStep ? (
           <>

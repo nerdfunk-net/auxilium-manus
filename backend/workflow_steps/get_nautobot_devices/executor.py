@@ -15,6 +15,7 @@ from repositories.settings_repository import SettingsRepository
 from services.artifacts import ArtifactService
 from services.settings.source_keys import build_source_key
 from workflow_steps.common.device_builders import device_context_from_nautobot
+from workflow_steps.common.fan_out import build_fan_out_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -116,22 +117,15 @@ async def execute(
     new_devices = {
         device.id: device_context_from_nautobot(device, source_id=source_id) for device in devices
     }
-    fan_out_cfg: dict = config.get("fan_out") or {}
-    fan_out_enabled = bool(fan_out_cfg.get("enabled", False))
+    fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
 
     metadata_update: dict = {
         **context.metadata,
         f"{node_id}.source_id": source_id,
         f"{node_id}.total": len(new_devices),
     }
-    if fan_out_enabled:
-        metadata_update["_fan_out"] = {
-            "enabled": True,
-            "mode": fan_out_cfg.get("mode", "per_device"),
-            "chunk_size": max(1, int(fan_out_cfg.get("chunk_size", 1))),
-            "max_concurrency": max(0, int(fan_out_cfg.get("max_concurrency", 0))),
-            "inventory_node_id": node_id,
-        }
+    if fan_out_metadata is not None:
+        metadata_update["_fan_out"] = fan_out_metadata
 
     new_context = context.model_copy(
         update={

@@ -106,6 +106,17 @@ export function FanOutHelpSection() {
           git-push once.
         </p>
       </HelpWarning>
+      <p className="font-medium text-foreground">Wait for approval between batches</p>
+      <p>
+        Batches devices (or chunks) into groups of <HelpCode>batch_size</HelpCode> and
+        pauses the run after each batch until you click{" "}
+        <span className="font-medium text-foreground">Run next batch</span> or{" "}
+        <span className="font-medium text-foreground">Run all remaining</span> — the
+        canary-rollout pattern for risky changes across many devices.{" "}
+        <span className="font-medium text-foreground">Run first batch immediately</span>{" "}
+        (on by default) skips the gate before the very first batch. Runs waiting for
+        approval expire after 24h, same as any other run.
+      </p>
     </HelpSection>
   );
 }

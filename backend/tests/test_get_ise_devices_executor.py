@@ -416,6 +416,10 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         metadata = outcomes[0].context.metadata
         self.assertIn("_fan_out", metadata)
         self.assertEqual(metadata["_fan_out"]["inventory_node_id"], "node-1")
+        self.assertEqual(
+            metadata["_fan_out"]["approval"],
+            {"enabled": False, "batch_size": 1, "first_batch_auto": True},
+        )
 
 
 if __name__ == "__main__":

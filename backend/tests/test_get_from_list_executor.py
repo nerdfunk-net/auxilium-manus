@@ -88,6 +88,41 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fan_out["chunk_size"], 2)
         self.assertEqual(fan_out["max_concurrency"], 4)
         self.assertEqual(fan_out["inventory_node_id"], "get-from-list-1")
+        self.assertEqual(
+            fan_out["approval"],
+            {"enabled": False, "batch_size": 1, "first_batch_auto": True},
+        )
+
+    async def test_execute_sets_fan_out_approval_metadata(self) -> None:
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
+        run = MagicMock()
+        run.id = "run-1"
+
+        outcomes = await execute(
+            config={
+                "devices": ["router1"],
+                "fan_out": {
+                    "enabled": True,
+                    "mode": "chunked",
+                    "chunk_size": 10,
+                    "approval": {
+                        "enabled": True,
+                        "batch_size": 2,
+                        "first_batch_auto": False,
+                    },
+                },
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="get-from-list-1",
+        )
+
+        approval = outcomes[0].context.metadata["_fan_out"]["approval"]
+        self.assertEqual(
+            approval,
+            {"enabled": True, "batch_size": 2, "first_batch_auto": False},
+        )
 
 
 if __name__ == "__main__":

@@ -26,7 +26,11 @@ import {
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import { useWorkflowRunsQuery } from "@/hooks/queries/use-workflow-runs-query";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
-import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
+import {
+  useApproveAllMutation,
+  useApproveBatchMutation,
+  useCancelRunMutation,
+} from "@/hooks/queries/use-workflow-run-mutations";
 import { WorkflowRunFiltersBar } from "./workflow-run-filters-bar";
 import { StepResultViewer } from "./step-result-viewer";
 import {
@@ -35,6 +39,7 @@ import {
 } from "../types/workflow-run-filters";
 import type { WorkflowRunListFilters } from "../types/workflow-run-filters";
 import type {
+  ApprovalState,
   WorkflowRunStatus,
   WorkflowStepResult,
   WorkflowRunSummary,
@@ -162,6 +167,56 @@ function FanOutBanner({ info }: { info: FanOutInfo }) {
   );
 }
 
+function ApprovalBanner({
+  approvalState,
+  runId,
+  workflowId,
+}: {
+  approvalState: ApprovalState;
+  runId: number;
+  workflowId: number | null;
+}) {
+  const approveBatch = useApproveBatchMutation(workflowId);
+  const approveAll = useApproveAllMutation(workflowId);
+  const names = approvalState.next_batch_device_names;
+  const preview = names.slice(0, 10).join(", ") + (names.length > 10 ? ", …" : "");
+
+  return (
+    <div className="space-y-2 border-t bg-amber-50 px-4 py-2 text-xs text-amber-900">
+      <div className="flex items-center gap-2">
+        <Pause className="size-3.5 shrink-0 text-amber-600" aria-hidden />
+        <span className="font-semibold">
+          Waiting for approval — batch {approvalState.next_batch_index + 1}/
+          {approvalState.total_batches}
+        </span>
+      </div>
+      <p className="text-amber-700">
+        {names.length} device{names.length !== 1 ? "s" : ""} next: {preview || "—"}
+      </p>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={approveBatch.isPending}
+          onClick={() => approveBatch.mutate(runId)}
+        >
+          Run next batch
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={approveAll.isPending}
+          onClick={() => approveAll.mutate(runId)}
+        >
+          Run all remaining
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface StepResultRowProps {
   step: WorkflowStepResult;
   runId: number;
@@ -284,9 +339,11 @@ function StepResultRow({
 
 function RunDetail({
   runId,
+  workflowId,
   onFocusCanvas,
 }: {
   runId: number;
+  workflowId: number | null;
   onFocusCanvas?: (nodeId: string) => void;
 }) {
   const [logsStep, setLogsStep] = useState<WorkflowStepResult | null>(null);
@@ -313,14 +370,30 @@ function RunDetail({
 
   if (data.step_results.length === 0) {
     return (
-      <div className="border-t px-4 py-3 text-xs text-muted-foreground">
-        No step results yet.
-      </div>
+      <>
+        {data.approval_state?.awaiting ? (
+          <ApprovalBanner
+            approvalState={data.approval_state}
+            runId={runId}
+            workflowId={workflowId}
+          />
+        ) : null}
+        <div className="border-t px-4 py-3 text-xs text-muted-foreground">
+          No step results yet.
+        </div>
+      </>
     );
   }
 
   return (
     <>
+      {data.approval_state?.awaiting ? (
+        <ApprovalBanner
+          approvalState={data.approval_state}
+          runId={runId}
+          workflowId={workflowId}
+        />
+      ) : null}
       {fanOutInfo ? <FanOutBanner info={fanOutInfo} /> : null}
       <div className="border-t divide-y">
         {data.step_results.map((step) => (
@@ -352,8 +425,11 @@ function RunRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const cancelRun = useCancelRunMutation(workflowId);
+  const approveBatch = useApproveBatchMutation(workflowId);
+  const approveAll = useApproveAllMutation(workflowId);
   const canCancel =
     run.status === "pending" || run.status === "running" || run.status === "paused";
+  const isAwaitingBatch = run.status === "paused" && run.approval_state?.awaiting === true;
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -387,6 +463,28 @@ function RunRow({
             <ChevronRight className="size-4 text-muted-foreground shrink-0" />
           )}
         </button>
+        {isAwaitingBatch && (
+          <div className="flex items-center gap-1.5 pr-3">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={approveBatch.isPending}
+              onClick={() => approveBatch.mutate(run.id)}
+            >
+              Run next batch
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={approveAll.isPending}
+              onClick={() => approveAll.mutate(run.id)}
+            >
+              Run all remaining
+            </Button>
+          </div>
+        )}
         {canCancel && (
           <div className="pr-3">
             <Button
@@ -403,7 +501,9 @@ function RunRow({
         )}
       </div>
 
-      {expanded ? <RunDetail runId={run.id} onFocusCanvas={onFocusCanvas} /> : null}
+      {expanded ? (
+        <RunDetail runId={run.id} workflowId={workflowId} onFocusCanvas={onFocusCanvas} />
+      ) : null}
     </div>
   );
 }

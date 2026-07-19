@@ -29,6 +29,9 @@ class WorkflowRun(Base):
     current_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # latest engine-authored narration for debug-mode pauses/resumes
     debug_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Wait & Run: populated while a fan-out run is between approval batches.
+    # None on non-approval runs and cleared when the run reaches a terminal status.
+    approval_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     device_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     hatchet_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

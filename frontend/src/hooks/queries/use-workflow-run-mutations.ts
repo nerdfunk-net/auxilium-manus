@@ -139,3 +139,71 @@ export function useContinueRunMutation(workflowId: number | null) {
     },
   });
 }
+
+export function useApproveBatchMutation(workflowId: number | null) {
+  const { apiCall } = useApi();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<WorkflowRunDetail, Error, number>({
+    mutationFn: (runId) =>
+      apiCall(`runs/${runId}/approve-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: (_data, runId) => {
+      if (workflowId) {
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
+      toast({ title: "Batch released", description: "Running the next device batch." });
+    },
+    onError: (error, runId) => {
+      // A stray click can 409 if the run already advanced past this batch
+      // (e.g. it was just approved from elsewhere) — refresh so the UI
+      // reflects reality instead of leaving the stale "paused" snapshot.
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
+      toast({
+        title: "Failed to release batch",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useApproveAllMutation(workflowId: number | null) {
+  const { apiCall } = useApi();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<WorkflowRunDetail, Error, number>({
+    mutationFn: (runId) =>
+      apiCall(`runs/${runId}/approve-all`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: (_data, runId) => {
+      if (workflowId) {
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
+      toast({
+        title: "Running all remaining batches",
+        description: "No further approval pauses for this run.",
+      });
+    },
+    onError: (error, runId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
+      toast({
+        title: "Failed to run remaining batches",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}

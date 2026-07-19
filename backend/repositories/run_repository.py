@@ -117,6 +117,8 @@ class RunRepository:
         run_mode: str | None = None,
         current_node_id: str | None = None,
         debug_message: str | None = None,
+        approval_state: dict[str, Any] | None = None,
+        clear_approval_state: bool = False,
     ) -> WorkflowRun:
         run.status = status
         if hatchet_run_id is not None:
@@ -133,8 +135,13 @@ class RunRepository:
             run.current_node_id = current_node_id
         if debug_message is not None:
             run.debug_message = debug_message
+        if approval_state is not None:
+            run.approval_state = approval_state
+        elif clear_approval_state:
+            run.approval_state = None
         if status in TERMINAL_RUN_STATUSES:
             run.current_node_id = None
+            run.approval_state = None
         self.db.commit()
         self.db.refresh(run)
         return run

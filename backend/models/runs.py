@@ -57,6 +57,7 @@ class WorkflowRunSummary(BaseModel):
     run_mode: str
     current_node_id: str | None
     debug_message: str | None
+    approval_state: dict[str, Any] | None = None
     device_ids: list[str] | None
     started_at: datetime | None
     finished_at: datetime | None

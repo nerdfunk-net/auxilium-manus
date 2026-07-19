@@ -444,12 +444,51 @@ Fan-out lives in the inventory step's `pluginConfig.fan_out`:
   "enabled": true,
   "mode": "per_device",   // "per_device" (1 child per device) or "chunked"
   "chunk_size": 1,         // devices per child when mode == "chunked"
-  "max_concurrency": 0     // 0 = unlimited, 1 = sequential, N = N children at a time
+  "max_concurrency": 0,    // 0 = unlimited, 1 = sequential, N = N children at a time
+  "approval": {            // optional — see "Wait & Run" below
+    "enabled": false,
+    "batch_size": 1,
+    "first_batch_auto": true
+  }
 }
 ```
 
-The inventory executor copies these values into `context.metadata["_fan_out"]` when
-`enabled` is true (see `get_nautobot_devices/executor.py`).
+The inventory executor copies these values into `context.metadata["_fan_out"]` via the
+shared `workflow_steps/common/fan_out.py::build_fan_out_metadata` helper when `enabled`
+is true (all four inventory steps — `get-nautobot-devices`, `get-git-devices`,
+`get-ise-devices`, `get-from-list` — call this one helper; do not duplicate the
+sanitisation inline in a new inventory step).
+
+### Wait & Run — user-approved batching
+
+Setting `fan_out.approval.enabled: true` turns the automatic chunking above into a
+**canary rollout gate**: dispatch groups (devices in `per_device` mode, chunks in
+`chunked` mode) are batched into sets of `approval.batch_size` groups, and the run
+**pauses** after each batch until an operator clicks **Run next batch** or **Run all
+remaining** in the UI (`POST /runs/{id}/approve-batch` / `/approve-all`). This is how a
+config change (e.g. a TACACS+ key rollout) gets applied to 10 devices, reviewed, then
+released to the next 10, instead of all devices at once.
+
+- Implemented entirely in the parent orchestration
+  (`hatchet/workflows/workflow_run.py::_dispatch_children`) — **not** a canvas step.
+  A step executor only ever sees one child's device subset and cannot gate the
+  parent's batch-dispatch loop; see the design rationale in doc/WAIT-AND-RUN.md §2.
+- `approval.first_batch_auto` (default `true`) skips the gate before the very first
+  batch — the initial **Run** click implicitly approves it.
+- The gate reuses the same durable-wait mechanism as the debug-mode "Next Step" gate
+  (`ctx.aio_wait_for_event` + `hatchet.event.push`, keyed via
+  `services/execution/run_events.py`), just on a `workflow-run.{uuid}.batch.{n}` event
+  namespace instead of `.step.{node_id}`.
+- `WorkflowRun.approval_state` (JSON column) carries batch progress, device counts, and
+  the next batch's device names while `status == "paused"`; it is cleared once the run
+  reaches a terminal status.
+- Finished batches are aggregated into `WorkflowStepResult` immediately
+  (`_aggregate_and_persist(..., final=False)`), so an operator can inspect a batch's
+  per-device outcomes while later batches are still gated.
+- The fan-in node still runs exactly once after the *last* batch, preserving the
+  one-pull/one-commit/one-push guarantee described below.
+
+Full design, data model, and edge cases: **doc/WAIT-AND-RUN.md**.
 
 ### Execution flow
 

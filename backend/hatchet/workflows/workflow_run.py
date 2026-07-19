@@ -10,25 +10,25 @@ from pydantic import BaseModel
 
 from hatchet.client import hatchet
 from hatchet.workflows.device_group_execution import DeviceGroupInput, child_workflow
+from services.execution.run_events import (
+    STEP_EVENT_LOOKBACK,
+    batch_approval_event_key,
+    debug_step_event_key,
+)
 
 if TYPE_CHECKING:
     from models.workflow_context import WorkflowContext
 
 logger = logging.getLogger(__name__)
 
+# Cap on how many device names are stamped into WorkflowRun.approval_state —
+# it's a UI display hint, not a source of truth (the real device set lives in
+# the child WorkflowContext), so an unbounded list would just bloat the row.
+MAX_APPROVAL_STATE_DEVICE_NAMES = 25
+
 
 class WorkflowRunInput(BaseModel):
     run_id: int
-
-
-# A "Next Step"/"Run to completion" click can race the durable wait's own
-# registration with the Hatchet engine: we mark the run "paused" in our DB
-# (which is what makes the frontend button clickable) slightly before
-# ctx.aio_wait_for_event actually finishes subscribing. Without scope +
-# lookback_window, an event pushed in that gap is silently dropped (the SDK
-# only matches events arriving after registration), requiring a second click.
-# Scoping to the event key itself and looking back generously covers it.
-DEBUG_STEP_EVENT_LOOKBACK = timedelta(minutes=15)
 
 
 workflow = hatchet.workflow(
@@ -111,12 +111,12 @@ async def _run_steps_until_fan_out_or_done(
                     "Click Next Step to continue."
                 ),
             )
-            event_key = f"workflow-run.{run.uuid}.step.{node_id}"
+            event_key = debug_step_event_key(run.uuid, node_id)
             logger.info("Debug pause run_id=%s node_id=%s", run.id, node_id)
             await ctx.aio_wait_for_event(
                 event_key,
                 scope=event_key,
-                lookback_window=DEBUG_STEP_EVENT_LOOKBACK,
+                lookback_window=STEP_EVENT_LOOKBACK,
             )
 
             # Force a refresh — a "Run to completion" click (a separate DB
@@ -196,6 +196,8 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
         if run_result is None:
             raise ValueError(f"WorkflowRun {input.run_id} not found")
         run, _ = run_result
+        # Captured now — the phase-1 DB session closes before phase 2 dispatch.
+        run_uuid = run.uuid
 
         wf_result = wf_repo.get_by_id(run.workflow_id)
         if wf_result is None:
@@ -236,12 +238,12 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
                     "device groups and the fan-in join as one block."
                 ),
             )
-            event_key = f"workflow-run.{run.uuid}.step.{fan_out_label}"
+            event_key = debug_step_event_key(run.uuid, fan_out_label)
             logger.info("Debug pause (fan-out) run_id=%s node_id=%s", run.id, fan_out_label)
             await ctx.aio_wait_for_event(
                 event_key,
                 scope=event_key,
-                lookback_window=DEBUG_STEP_EVENT_LOOKBACK,
+                lookback_window=STEP_EVENT_LOOKBACK,
             )
 
             run_repo.db.refresh(run)
@@ -254,7 +256,14 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
         signal.fan_out_config.get("mode"),
         signal.fan_out_config.get("max_concurrency"),
     )
-    child_results = await _dispatch_children(signal, input.run_id)
+    child_results = await _dispatch_children(
+        signal,
+        input.run_id,
+        ctx=ctx,
+        run_uuid=run_uuid,
+        canvas_nodes=canvas_nodes,
+        canvas_edges=canvas_edges,
+    )
 
     # Phase 3: aggregate child outcomes and persist to parent run step results
     with SessionLocal() as db:
@@ -316,11 +325,81 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
     return {"run_id": input.run_id, "status": final_status}
 
 
+def _build_approval_state(
+    *,
+    awaiting: bool,
+    next_batch_index: int,
+    total_batches: int,
+    batches_completed: int,
+    devices_total: int,
+    devices_completed: int,
+    devices_failed: int,
+    next_batch_device_names: list[str],
+    auto_approve_remaining: bool = False,
+) -> dict[str, Any]:
+    """Build the WorkflowRun.approval_state shape documented in doc/WAIT-AND-RUN.md §5.2."""
+    return {
+        "awaiting": awaiting,
+        "next_batch_index": next_batch_index,
+        "total_batches": total_batches,
+        "batches_completed": batches_completed,
+        "devices_total": devices_total,
+        "devices_completed": devices_completed,
+        "devices_failed": devices_failed,
+        "next_batch_device_names": next_batch_device_names[:MAX_APPROVAL_STATE_DEVICE_NAMES],
+        "auto_approve_remaining": auto_approve_remaining,
+    }
+
+
+def _format_approval_pause_message(
+    *,
+    batches_completed: int,
+    total_batches: int,
+    devices_completed: int,
+    devices_failed: int,
+    next_batch_index: int,
+    next_batch_device_names: list[str],
+) -> str:
+    if batches_completed == 0:
+        prefix = f"Ready to run batch {next_batch_index + 1}/{total_batches}."
+    else:
+        devices_ok = devices_completed - devices_failed
+        prefix = (
+            f"Batch {batches_completed}/{total_batches} finished "
+            f"({devices_ok} device(s) ok, {devices_failed} failed)."
+        )
+
+    preview_names = next_batch_device_names[:10]
+    names_preview = ", ".join(preview_names)
+    if len(next_batch_device_names) > len(preview_names):
+        names_preview += ", …"
+
+    return (
+        f"{prefix} Waiting for approval to run batch {next_batch_index + 1} "
+        f"({len(next_batch_device_names)} device(s): {names_preview}). "
+        'Click "Run next batch" to continue or Cancel to stop.'
+    )
+
+
 async def _dispatch_children(
     signal: Any,
     parent_run_id: int,
+    *,
+    ctx: DurableContext,
+    run_uuid: str,
+    canvas_nodes: list[dict[str, Any]],
+    canvas_edges: list[dict[str, Any]],
 ) -> list[dict[str, Any] | BaseException]:
-    """Split devices into groups and dispatch Hatchet child workflows."""
+    """Split devices into groups and dispatch Hatchet child workflows.
+
+    When the inventory step's fan-out config has ``approval.enabled``, groups
+    are dispatched in sequential batches of ``approval.batch_size`` groups,
+    durably pausing the run between batches until a
+    ``POST /runs/{id}/approve-batch`` (or ``approve-all``) call pushes the
+    batch's event — this is the Wait & Run gate. See doc/WAIT-AND-RUN.md.
+    """
+    from core.database import SessionLocal
+    from repositories.run_repository import RunRepository
     from services.execution.step_runner import FanOutSignal
 
     assert isinstance(signal, FanOutSignal)
@@ -329,6 +408,8 @@ async def _dispatch_children(
     mode = fan_out_config.get("mode", "per_device")
     chunk_size = max(1, int(fan_out_config.get("chunk_size", 1)))
     max_concurrency = max(0, int(fan_out_config.get("max_concurrency", 0)))
+    approval_cfg: dict[str, Any] = fan_out_config.get("approval") or {}
+    approval_enabled = bool(approval_cfg.get("enabled"))
 
     all_devices = signal.inventory_outcome.devices
     device_ids = list(all_devices.keys())
@@ -344,42 +425,166 @@ async def _dispatch_children(
     if not groups:
         return []
 
-    child_inputs: list[DeviceGroupInput] = []
-    for i, group_ids in enumerate(groups):
-        group_devices = {did: all_devices[did] for did in group_ids}
-        group_context = signal.inventory_outcome.model_copy(
-            update={"devices": group_devices}
-        )
-        child_inputs.append(
-            DeviceGroupInput(
-                parent_run_id=parent_run_id,
-                context_json=group_context.model_dump_json(),
-                start_node_id=signal.inventory_node_id,
-                child_index=i,
-                join_node_id=signal.join_node_id,
+    def _build_child_inputs(
+        group_list: list[list[str]], *, index_offset: int
+    ) -> list[DeviceGroupInput]:
+        inputs: list[DeviceGroupInput] = []
+        for offset, group_ids in enumerate(group_list):
+            group_devices = {did: all_devices[did] for did in group_ids}
+            group_context = signal.inventory_outcome.model_copy(
+                update={"devices": group_devices}
             )
-        )
+            inputs.append(
+                DeviceGroupInput(
+                    parent_run_id=parent_run_id,
+                    context_json=group_context.model_dump_json(),
+                    start_node_id=signal.inventory_node_id,
+                    child_index=index_offset + offset,
+                    join_node_id=signal.join_node_id,
+                )
+            )
+        return inputs
 
-    logger.info(
-        "Dispatching %d child workflows parent_run_id=%s max_concurrency=%s",
-        len(child_inputs),
-        parent_run_id,
-        max_concurrency,
-    )
+    async def _run_groups(
+        group_list: list[list[str]], *, index_offset: int
+    ) -> list[dict[str, Any] | BaseException]:
+        child_inputs = _build_child_inputs(group_list, index_offset=index_offset)
 
-    if max_concurrency <= 0:
-        tasks = [child_workflow.aio_run(inp) for inp in child_inputs]
+        if max_concurrency <= 0:
+            tasks = [child_workflow.aio_run(inp) for inp in child_inputs]
+            return list(await asyncio.gather(*tasks, return_exceptions=True))
+
+        # Batched execution: max_concurrency child workflows at a time
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def _run_one(inp: DeviceGroupInput) -> dict[str, Any]:
+            async with semaphore:
+                return await child_workflow.aio_run(inp)
+
+        tasks = [_run_one(inp) for inp in child_inputs]
         return list(await asyncio.gather(*tasks, return_exceptions=True))
 
-    # Batched execution: max_concurrency child workflows at a time
-    semaphore = asyncio.Semaphore(max_concurrency)
+    logger.info(
+        "Dispatching %d child workflow group(s) parent_run_id=%s max_concurrency=%s "
+        "approval_enabled=%s",
+        len(groups),
+        parent_run_id,
+        max_concurrency,
+        approval_enabled,
+    )
 
-    async def _run_one(inp: DeviceGroupInput) -> dict[str, Any]:
-        async with semaphore:
-            return await child_workflow.aio_run(inp)
+    if not approval_enabled:
+        return await _run_groups(groups, index_offset=0)
 
-    tasks = [_run_one(inp) for inp in child_inputs]
-    return list(await asyncio.gather(*tasks, return_exceptions=True))
+    batch_size = max(1, int(approval_cfg.get("batch_size", 1)))
+    first_batch_auto = bool(approval_cfg.get("first_batch_auto", True))
+    batches = [groups[i : i + batch_size] for i in range(0, len(groups), batch_size)]
+    total_batches = len(batches)
+
+    all_results: list[dict[str, Any] | BaseException] = []
+    auto_approve_remaining = False
+    devices_completed = 0
+    devices_failed = 0
+    group_index_offset = 0
+
+    for batch_index, batch_groups in enumerate(batches):
+        gate_needed = not auto_approve_remaining and not (
+            batch_index == 0 and first_batch_auto
+        )
+
+        if gate_needed:
+            batch_device_names = [
+                all_devices[did].name for group in batch_groups for did in group
+            ]
+            state = _build_approval_state(
+                awaiting=True,
+                next_batch_index=batch_index,
+                total_batches=total_batches,
+                batches_completed=batch_index,
+                devices_total=len(device_ids),
+                devices_completed=devices_completed,
+                devices_failed=devices_failed,
+                next_batch_device_names=batch_device_names,
+            )
+            message = _format_approval_pause_message(
+                batches_completed=batch_index,
+                total_batches=total_batches,
+                devices_completed=devices_completed,
+                devices_failed=devices_failed,
+                next_batch_index=batch_index,
+                next_batch_device_names=batch_device_names,
+            )
+
+            with SessionLocal() as db:
+                run_repo = RunRepository(db)
+                run_result = run_repo.get_run_by_id(parent_run_id)
+                if run_result is None:
+                    raise ValueError(
+                        f"WorkflowRun {parent_run_id} not found (approval gate)"
+                    )
+                run, _ = run_result
+                run_repo.update_run_status(
+                    run,
+                    status="paused",
+                    current_node_id=signal.inventory_node_id,
+                    debug_message=message,
+                    approval_state=state,
+                )
+
+            event_key = batch_approval_event_key(run_uuid, batch_index)
+            logger.info(
+                "Approval pause run_id=%s batch=%d/%d",
+                parent_run_id,
+                batch_index + 1,
+                total_batches,
+            )
+            await ctx.aio_wait_for_event(
+                event_key, scope=event_key, lookback_window=STEP_EVENT_LOOKBACK
+            )
+
+            with SessionLocal() as db:
+                run_repo = RunRepository(db)
+                run_result = run_repo.get_run_by_id(parent_run_id)
+                if run_result is None:
+                    raise ValueError(
+                        f"WorkflowRun {parent_run_id} not found (approval resume)"
+                    )
+                run, _ = run_result
+                auto_approve_remaining = bool(
+                    (run.approval_state or {}).get("auto_approve_remaining")
+                )
+                run_repo.update_run_status(
+                    run,
+                    status="running",
+                    approval_state={**(run.approval_state or {}), "awaiting": False},
+                )
+
+        batch_results = await _run_groups(batch_groups, index_offset=group_index_offset)
+        group_index_offset += len(batch_groups)
+        all_results.extend(batch_results)
+
+        batch_device_count = sum(len(group) for group in batch_groups)
+        batch_failed_count = sum(
+            len(group)
+            for group, result in zip(batch_groups, batch_results, strict=True)
+            if isinstance(result, BaseException)
+        )
+        devices_completed += batch_device_count
+        devices_failed += batch_failed_count
+
+        # Make finished batches inspectable while the next gate is up.
+        with SessionLocal() as db:
+            _aggregate_and_persist(
+                run_repo=RunRepository(db),
+                run_id=parent_run_id,
+                signal=signal,
+                canvas_nodes=canvas_nodes,
+                canvas_edges=canvas_edges,
+                child_results=all_results,
+                final=False,
+            )
+
+    return all_results
 
 
 def _aggregate_and_persist(
@@ -390,6 +595,7 @@ def _aggregate_and_persist(
     canvas_nodes: list[dict[str, Any]],
     canvas_edges: list[dict[str, Any]],
     child_results: list[dict[str, Any] | BaseException],
+    final: bool = True,
 ) -> tuple[bool, dict[str, dict[str, WorkflowContext]]]:
     """Merge child outcomes and update the parent run's WorkflowStepResult records.
 
@@ -397,6 +603,11 @@ def _aggregate_and_persist(
     each child-branch node_id → outcome_name → merged WorkflowContext (device union
     across children). The orchestrator feeds that map into ``resume_after_join`` so
     the fan-in node's inputs resolve from the fanned-in device union.
+
+    ``final=False`` is used by Wait & Run to make finished batches inspectable
+    while later batches are still gated on approval: nodes with no outcomes yet
+    are left ``pending`` (they simply haven't run yet) instead of being marked
+    ``skipped``, since more child_results may still arrive in a later call.
     """
     from models.workflow_context import WorkflowContext
     from services.execution.step_runner import StepRunner
@@ -444,7 +655,7 @@ def _aggregate_and_persist(
         step_result = step_result_by_node.get(node_id)
 
         if not node_outcomes:
-            if step_result is not None:
+            if final and step_result is not None:
                 run_repo.update_step_result(
                     step_result,
                     status="skipped",

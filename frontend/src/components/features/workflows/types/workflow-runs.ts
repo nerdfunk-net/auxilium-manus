@@ -8,6 +8,20 @@ export type WorkflowRunStatus =
 export type StepStatus = "pending" | "running" | "success" | "partial" | "failed" | "skipped";
 export type WorkflowRunMode = "normal" | "debug";
 
+/** WorkflowRun.approval_state — see doc/WAIT-AND-RUN.md §5.2. Authored only by
+ * the backend orchestrator; the frontend treats it read-only. */
+export interface ApprovalState {
+  awaiting: boolean;
+  next_batch_index: number;
+  total_batches: number;
+  batches_completed: number;
+  devices_total: number;
+  devices_completed: number;
+  devices_failed: number;
+  next_batch_device_names: string[];
+  auto_approve_remaining: boolean;
+}
+
 export interface WorkflowStepResult {
   id: number;
   run_id: number;
@@ -34,6 +48,7 @@ export interface WorkflowRunSummary {
   run_mode: WorkflowRunMode;
   current_node_id: string | null;
   debug_message: string | null;
+  approval_state: ApprovalState | null;
   device_ids: string[] | null;
   started_at: string | null;
   finished_at: string | null;
