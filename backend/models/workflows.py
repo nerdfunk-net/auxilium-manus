@@ -15,6 +15,7 @@ class WorkflowCreate(BaseModel):
     visibility: WorkflowVisibility = "private"
     canvas_nodes: list[dict[str, Any]] = Field(default_factory=list)
     canvas_edges: list[dict[str, Any]] = Field(default_factory=list)
+    canvas_groups: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkflowUpdate(BaseModel):
@@ -24,6 +25,7 @@ class WorkflowUpdate(BaseModel):
     visibility: WorkflowVisibility | None = None
     canvas_nodes: list[dict[str, Any]] | None = None
     canvas_edges: list[dict[str, Any]] | None = None
+    canvas_groups: list[dict[str, Any]] | None = None
 
 
 class WorkflowSummary(BaseModel):
@@ -42,6 +44,7 @@ class WorkflowSummary(BaseModel):
 class WorkflowResponse(WorkflowSummary):
     canvas_nodes: list[dict[str, Any]] | None
     canvas_edges: list[dict[str, Any]] | None
+    canvas_groups: list[dict[str, Any]] | None
 
 
 class WorkflowListResponse(BaseModel):

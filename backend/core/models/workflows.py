@@ -22,6 +22,7 @@ class Workflow(Base):
     visibility: Mapped[str] = mapped_column(String(10), nullable=False, default="private")
     canvas_nodes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     canvas_edges: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    canvas_groups: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

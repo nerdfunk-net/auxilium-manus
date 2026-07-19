@@ -1,8 +1,9 @@
 "use client";
 
-import { useEdgesState, useNodesState } from "@xyflow/react";
+import { addEdge, applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
+import type { Connection, EdgeChange, NodeChange } from "@xyflow/react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
@@ -17,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { CanvasGroupBreadcrumb } from "./components/canvas-group-breadcrumb";
 import { NodeConfigModal } from "./components/node-config-modal";
 import { WorkflowCanvas } from "./components/workflow-canvas";
 import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel";
@@ -29,12 +31,24 @@ import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "./types/plugin-registry";
 import type { WorkflowSummary, WorkflowVisibility } from "./types/workflow-persistence";
 import type {
+  CanvasGroup,
   EdgeStyle,
+  ProjectedCanvasNode,
   StepPayload,
   WorkflowCanvasEdge,
   WorkflowCanvasNode,
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
+import { validateGroupBoundary } from "./utils/canvas-group-boundary";
+import {
+  findGroupContainingNode,
+  groupIdFromNodeId,
+  groupNodeId,
+  projectCanvasView,
+  removeRealNodes,
+  repairOrphanGroups,
+  ungroupNode,
+} from "./utils/canvas-group-projection";
 import { migrateCanvasState } from "./utils/migrate-canvas";
 import { alignCanvasNodes, type NodeAlignment } from "./utils/node-alignment";
 import { deriveRouteOutcomes } from "@/components/features/workflow-steps/route-on-attribute/route-config";
@@ -47,6 +61,7 @@ import { DEFAULT_UPDATE_ATTRIBUTE_CONFIG } from "@/components/features/workflow-
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: WorkflowCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
+const EMPTY_GROUPS: CanvasGroup[] = [];
 
 export function WorkflowBuilderPage() {
   const router = useRouter();
@@ -71,6 +86,9 @@ export function WorkflowBuilderPage() {
   const loadWorkflow = useWorkflowBuilderStore((state) => state.loadWorkflow);
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
+  const selectedNodeId = useWorkflowBuilderStore((state) => state.selectedNodeId);
+  const activeGroupId = useWorkflowBuilderStore((state) => state.activeGroupId);
+  const enterGroup = useWorkflowBuilderStore((state) => state.enterGroup);
 
   const [isSaveAsOpen, setIsSaveAsOpen] = useState(false);
   const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);
@@ -91,9 +109,20 @@ export function WorkflowBuilderPage() {
     error: pluginError,
     isLoading: isPluginsLoading,
   } = useWorkflowStepsQuery();
-  const [nodes, setNodes, onNodesChange] = useNodesState(EMPTY_NODES);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(EMPTY_EDGES);
   const plugins = pluginResponse?.plugins ?? EMPTY_PLUGINS;
+
+  // Canvas state architecture (see doc/FEATURE-GROUPING.md "Canvas state
+  // architecture — decision: single authoritative array"). allNodes/allEdges/
+  // groups are the only stateful arrays; everything React Flow renders is a
+  // pure projection recomputed below and never stored in its own state.
+  const [allNodes, setAllNodes] = useState<WorkflowCanvasNode[]>(EMPTY_NODES);
+  const [allEdges, setAllEdges] = useState<WorkflowCanvasEdge[]>(EMPTY_EDGES);
+  const [groups, setGroups] = useState<CanvasGroup[]>(EMPTY_GROUPS);
+
+  const projected = useMemo(
+    () => projectCanvasView(allNodes, allEdges, groups, activeGroupId),
+    [allNodes, allEdges, groups, activeGroupId],
+  );
 
   // The canvas (nodes/edges) is local React state scoped to this component,
   // while workflowId survives in the Zustand store across route changes
@@ -116,39 +145,160 @@ export function WorkflowBuilderPage() {
       .then((full) => {
         const loadedNodes = (full.canvas_nodes ?? []) as WorkflowCanvasNode[];
         const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
+        const loadedGroups = (full.canvas_groups ?? []) as CanvasGroup[];
         const { nodes: migratedNodes, edges: migratedEdges, migrated } =
           migrateCanvasState(loadedNodes, loadedEdges, plugins);
-        setNodes(migratedNodes);
-        setEdges(migratedEdges);
-        if (migrated) markDirty();
+        const repairedGroups = repairOrphanGroups(migratedNodes, loadedGroups);
+        setAllNodes(migratedNodes);
+        setAllEdges(migratedEdges);
+        setGroups(repairedGroups);
+        if (migrated || repairedGroups.length !== loadedGroups.length) markDirty();
       })
       .catch(() => markError("Failed to restore workflow canvas"));
-  }, [mountWorkflowId, isPluginsLoading, plugins, setNodes, setEdges, markDirty, markError]);
+  }, [mountWorkflowId, isPluginsLoading, plugins, markDirty, markError]);
+
+  // Auto-enter a step's group when it is focused (e.g. from the executions
+  // panel) so the selected node is actually visible on the current view.
+  useEffect(() => {
+    if (!selectedNodeId) return;
+    const group = findGroupContainingNode(groups, selectedNodeId);
+    if (group && activeGroupId !== group.id) {
+      enterGroup(group.id);
+    }
+  }, [selectedNodeId, groups, activeGroupId, enterGroup]);
 
   const handleNodesChange = useCallback(
-    (changes: Parameters<typeof onNodesChange>[0]) => {
-      onNodesChange(changes);
+    (changes: NodeChange<ProjectedCanvasNode>[]) => {
+      const previousVisible = projected.nodes;
+      const nextVisible = applyNodeChanges(changes, previousVisible);
+
+      const removedIds = changes
+        .filter((change) => change.type === "remove")
+        .map((change) => change.id);
+      const removedRealIds = removedIds.filter((id) => !groupIdFromNodeId(id));
+      const removedGroupIds = removedIds
+        .map((id) => groupIdFromNodeId(id))
+        .filter((id): id is string => id !== null);
+
+      let nextAllNodes = allNodes;
+      let nextAllEdges = allEdges;
+      let nextGroups = groups;
+
+      if (removedRealIds.length > 0) {
+        const result = removeRealNodes(nextAllNodes, nextAllEdges, nextGroups, removedRealIds);
+        nextAllNodes = result.nodes;
+        nextAllEdges = result.edges;
+        nextGroups = result.groups;
+      }
+      for (const groupId of removedGroupIds) {
+        nextGroups = ungroupNode(nextGroups, groupId);
+      }
+
+      const previousById = new Map(previousVisible.map((node) => [node.id, node]));
+      for (const node of nextVisible) {
+        if (previousById.get(node.id) === node) continue;
+
+        const groupId = groupIdFromNodeId(node.id);
+        if (groupId) {
+          const currentGroup = nextGroups.find((g) => g.id === groupId);
+          if (
+            currentGroup &&
+            (currentGroup.position.x !== node.position.x ||
+              currentGroup.position.y !== node.position.y)
+          ) {
+            nextGroups = nextGroups.map((g) =>
+              g.id === groupId ? { ...g, position: node.position } : g,
+            );
+          }
+          continue;
+        }
+
+        nextAllNodes = nextAllNodes.map((n) =>
+          n.id === node.id ? (node as WorkflowCanvasNode) : n,
+        );
+      }
+
+      if (nextAllNodes !== allNodes) setAllNodes(nextAllNodes);
+      if (nextAllEdges !== allEdges) setAllEdges(nextAllEdges);
+      if (nextGroups !== groups) setGroups(nextGroups);
+
       const hasContentChange = changes.some((c) => c.type !== "select");
       if (hasContentChange) markDirty();
     },
-    [onNodesChange, markDirty],
+    [projected.nodes, allNodes, allEdges, groups, markDirty],
   );
 
   const handleEdgesChange = useCallback(
-    (changes: Parameters<typeof onEdgesChange>[0]) => {
-      onEdgesChange(changes);
+    (changes: EdgeChange<WorkflowCanvasEdge>[]) => {
+      const previousVisible = projected.edges;
+      const nextVisible = applyEdgeChanges(changes, previousVisible);
+
+      const removedIds = changes
+        .filter((change) => change.type === "remove")
+        .map((change) => change.id);
+
+      let nextAllEdges = allEdges;
+
+      for (const id of removedIds) {
+        const proxy = previousVisible.find((e) => e.id === id);
+        const realId = proxy?.data?.realEdgeId ?? id;
+        nextAllEdges = nextAllEdges.filter((e) => e.id !== realId);
+      }
+
+      const previousById = new Map(previousVisible.map((edge) => [edge.id, edge]));
+      for (const edge of nextVisible) {
+        if (previousById.get(edge.id) === edge) continue;
+
+        const realEdgeId = edge.data?.realEdgeId;
+        if (realEdgeId) {
+          const restData = { ...edge.data };
+          delete restData.realEdgeId;
+          nextAllEdges = nextAllEdges.map((e) =>
+            e.id === realEdgeId ? { ...e, data: { ...e.data, ...restData } } : e,
+          );
+          continue;
+        }
+
+        nextAllEdges = nextAllEdges.map((e) => (e.id === edge.id ? edge : e));
+      }
+
+      if (nextAllEdges !== allEdges) setAllEdges(nextAllEdges);
+
       const hasContentChange = changes.some((c) => c.type !== "select");
       if (hasContentChange) markDirty();
     },
-    [onEdgesChange, markDirty],
+    [projected.edges, allEdges, markDirty],
+  );
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      const sourceGroupId = groupIdFromNodeId(connection.source ?? "");
+      const targetGroupId = groupIdFromNodeId(connection.target ?? "");
+
+      const sourceGroup = sourceGroupId ? groups.find((g) => g.id === sourceGroupId) : undefined;
+      const targetGroup = targetGroupId ? groups.find((g) => g.id === targetGroupId) : undefined;
+
+      const resolvedConnection: Connection = {
+        ...connection,
+        source: sourceGroup?.exitNodeId ?? connection.source,
+        sourceHandle: sourceGroup ? "success" : connection.sourceHandle,
+        target: targetGroup?.entryNodeId ?? connection.target,
+        targetHandle: targetGroup ? "input" : connection.targetHandle,
+      };
+
+      setAllEdges((current) => addEdge({ ...resolvedConnection, type: "waypoint" }, current));
+      markDirty();
+    },
+    [groups, markDirty],
   );
 
   const confirmNew = useCallback(() => {
     resetToNew();
-    setNodes(EMPTY_NODES);
-    setEdges(EMPTY_EDGES);
+    setAllNodes(EMPTY_NODES);
+    setAllEdges(EMPTY_EDGES);
+    setGroups(EMPTY_GROUPS);
     setIsNewConfirmOpen(false);
-  }, [resetToNew, setNodes, setEdges]);
+  }, [resetToNew]);
 
   const handleNew = useCallback(() => {
     if (isDirty) {
@@ -169,7 +319,7 @@ export function WorkflowBuilderPage() {
         return;
       }
       if (!options?.skipValidation) {
-        const validation = validateCanvasWorkflow(nodes, edges);
+        const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
         if (!validation.isValid) {
           markError(`Cannot run: ${validation.issues[0]}`);
           return;
@@ -195,8 +345,9 @@ export function WorkflowBuilderPage() {
     },
     [
       workflowId,
-      nodes,
-      edges,
+      allNodes,
+      allEdges,
+      groups,
       triggerRun,
       runMode,
       setActiveRunId,
@@ -213,7 +364,7 @@ export function WorkflowBuilderPage() {
       folder?: string;
       visibility: WorkflowVisibility;
     }) => {
-      const validation = validateCanvasWorkflow(nodes, edges);
+      const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
       if (!validation.isValid) {
         markError(`Cannot save: ${validation.issues[0]}`);
         return;
@@ -224,8 +375,9 @@ export function WorkflowBuilderPage() {
           description: values.description,
           folder: values.folder,
           visibility: values.visibility,
-          canvas_nodes: nodes as unknown as Record<string, unknown>[],
-          canvas_edges: edges as unknown as Record<string, unknown>[],
+          canvas_nodes: allNodes as unknown as Record<string, unknown>[],
+          canvas_edges: allEdges as unknown as Record<string, unknown>[],
+          canvas_groups: groups as unknown as Record<string, unknown>[],
         });
         loadWorkflow({
           workflowId: saved.id,
@@ -249,7 +401,18 @@ export function WorkflowBuilderPage() {
         markError("Failed to save workflow");
       }
     },
-    [nodes, edges, createWorkflow, loadWorkflow, markSaved, markError, openAfterSave, runAfterSave, executeRun],
+    [
+      allNodes,
+      allEdges,
+      groups,
+      createWorkflow,
+      loadWorkflow,
+      markSaved,
+      markError,
+      openAfterSave,
+      runAfterSave,
+      executeRun,
+    ],
   );
 
   const handleOverwrite = useCallback(
@@ -262,7 +425,7 @@ export function WorkflowBuilderPage() {
       },
       existingId: number,
     ) => {
-      const validation = validateCanvasWorkflow(nodes, edges);
+      const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
       if (!validation.isValid) {
         markError(`Cannot save: ${validation.issues[0]}`);
         return;
@@ -275,8 +438,9 @@ export function WorkflowBuilderPage() {
             description: values.description,
             folder: values.folder,
             visibility: values.visibility,
-            canvas_nodes: nodes as unknown as Record<string, unknown>[],
-            canvas_edges: edges as unknown as Record<string, unknown>[],
+            canvas_nodes: allNodes as unknown as Record<string, unknown>[],
+            canvas_edges: allEdges as unknown as Record<string, unknown>[],
+            canvas_groups: groups as unknown as Record<string, unknown>[],
           },
         });
         loadWorkflow({
@@ -293,7 +457,7 @@ export function WorkflowBuilderPage() {
         markError("Failed to overwrite workflow");
       }
     },
-    [nodes, edges, updateWorkflow, loadWorkflow, markSaved, markError],
+    [allNodes, allEdges, groups, updateWorkflow, loadWorkflow, markSaved, markError],
   );
 
   const handleSave = useCallback(() => {
@@ -301,7 +465,7 @@ export function WorkflowBuilderPage() {
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(nodes, edges);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;
@@ -310,8 +474,9 @@ export function WorkflowBuilderPage() {
       {
         id: workflowId,
         data: {
-          canvas_nodes: nodes as unknown as Record<string, unknown>[],
-          canvas_edges: edges as unknown as Record<string, unknown>[],
+          canvas_nodes: allNodes as unknown as Record<string, unknown>[],
+          canvas_edges: allEdges as unknown as Record<string, unknown>[],
+          canvas_groups: groups as unknown as Record<string, unknown>[],
         },
       },
       {
@@ -321,8 +486,9 @@ export function WorkflowBuilderPage() {
     );
   }, [
     workflowId,
-    nodes,
-    edges,
+    allNodes,
+    allEdges,
+    groups,
     updateWorkflow,
     markSaved,
     markError,
@@ -345,7 +511,7 @@ export function WorkflowBuilderPage() {
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(nodes, edges);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;
@@ -354,8 +520,9 @@ export function WorkflowBuilderPage() {
       await updateWorkflow.mutateAsync({
         id: workflowId,
         data: {
-          canvas_nodes: nodes as unknown as Record<string, unknown>[],
-          canvas_edges: edges as unknown as Record<string, unknown>[],
+          canvas_nodes: allNodes as unknown as Record<string, unknown>[],
+          canvas_edges: allEdges as unknown as Record<string, unknown>[],
+          canvas_groups: groups as unknown as Record<string, unknown>[],
         },
       });
       markSaved(`Saved "${workflowName}"`);
@@ -363,7 +530,7 @@ export function WorkflowBuilderPage() {
     } catch {
       markError("Failed to save workflow");
     }
-  }, [workflowId, nodes, edges, updateWorkflow, markSaved, markError, workflowName]);
+  }, [workflowId, allNodes, allEdges, groups, updateWorkflow, markSaved, markError, workflowName]);
 
   const handleDiscardAndOpen = useCallback(() => {
     setIsOpenConfirmOpen(false);
@@ -380,10 +547,13 @@ export function WorkflowBuilderPage() {
         .then((full) => {
           const loadedNodes = (full.canvas_nodes ?? []) as WorkflowCanvasNode[];
           const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
+          const loadedGroups = (full.canvas_groups ?? []) as CanvasGroup[];
           const { nodes: migratedNodes, edges: migratedEdges, migrated } =
             migrateCanvasState(loadedNodes, loadedEdges, plugins);
-          setNodes(migratedNodes);
-          setEdges(migratedEdges);
+          const repairedGroups = repairOrphanGroups(migratedNodes, loadedGroups);
+          setAllNodes(migratedNodes);
+          setAllEdges(migratedEdges);
+          setGroups(repairedGroups);
           loadWorkflow({
             workflowId: full.id,
             workflowUuid: full.uuid ?? null,
@@ -392,13 +562,13 @@ export function WorkflowBuilderPage() {
             workflowFolder: full.folder ?? "/",
             workflowVisibility: full.visibility as WorkflowVisibility,
           });
-          if (migrated) {
+          if (migrated || repairedGroups.length !== loadedGroups.length) {
             markDirty();
           }
         })
         .catch(() => markError("Failed to load workflow"));
     },
-    [setNodes, setEdges, loadWorkflow, markError, markDirty, plugins],
+    [loadWorkflow, markError, markDirty, plugins],
   );
 
   const handleRun = useCallback(() => {
@@ -416,7 +586,7 @@ export function WorkflowBuilderPage() {
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(nodes, edges);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;
@@ -425,8 +595,9 @@ export function WorkflowBuilderPage() {
       await updateWorkflow.mutateAsync({
         id: workflowId,
         data: {
-          canvas_nodes: nodes as unknown as Record<string, unknown>[],
-          canvas_edges: edges as unknown as Record<string, unknown>[],
+          canvas_nodes: allNodes as unknown as Record<string, unknown>[],
+          canvas_edges: allEdges as unknown as Record<string, unknown>[],
+          canvas_groups: groups as unknown as Record<string, unknown>[],
         },
       });
       markSaved(`Saved "${workflowName}"`);
@@ -436,8 +607,9 @@ export function WorkflowBuilderPage() {
     }
   }, [
     workflowId,
-    nodes,
-    edges,
+    allNodes,
+    allEdges,
+    groups,
     updateWorkflow,
     markSaved,
     markError,
@@ -452,39 +624,56 @@ export function WorkflowBuilderPage() {
 
   const handleEdgeStyleChange = useCallback(
     (edgeId: string, style: EdgeStyle) => {
-      setEdges((current) =>
+      const proxy = projected.edges.find((e) => e.id === edgeId);
+      const realId = proxy?.data?.realEdgeId ?? edgeId;
+      setAllEdges((current) =>
         current.map((e) =>
-          e.id !== edgeId ? e : { ...e, data: { ...e.data, edgeStyle: style } },
+          e.id !== realId ? e : { ...e, data: { ...e.data, edgeStyle: style } },
         ),
       );
       markDirty();
     },
-    [setEdges, markDirty],
+    [projected.edges, markDirty],
   );
 
   const handleNodeTitleChange = useCallback(
     (nodeId: string, title: string) => {
-      setNodes((current) =>
+      setAllNodes((current) =>
         current.map((n) =>
           n.id !== nodeId ? n : { ...n, data: { ...n.data, title } },
         ),
       );
       markDirty();
     },
-    [setNodes, markDirty],
+    [markDirty],
   );
 
   const handleAlignNodes = useCallback(
     (nodeIds: string[], alignment: NodeAlignment) => {
-      setNodes((current) => alignCanvasNodes(current, nodeIds, alignment));
+      const aligned = alignCanvasNodes(projected.nodes, nodeIds, alignment);
+      const positionById = new Map(aligned.map((n) => [n.id, n.position]));
+
+      setAllNodes((current) =>
+        current.map((n) =>
+          positionById.has(n.id) ? { ...n, position: positionById.get(n.id)! } : n,
+        ),
+      );
+      setGroups((current) =>
+        current.map((g) => {
+          const syntheticId = groupNodeId(g.id);
+          return positionById.has(syntheticId)
+            ? { ...g, position: positionById.get(syntheticId)! }
+            : g;
+        }),
+      );
       markDirty();
     },
-    [setNodes, markDirty],
+    [projected.nodes, markDirty],
   );
 
   const handleNodeConfigChange = useCallback(
     (nodeId: string, config: Record<string, unknown>) => {
-      setNodes((current) =>
+      setAllNodes((current) =>
         current.map((n) => {
           if (n.id !== nodeId) {
             return n;
@@ -501,7 +690,7 @@ export function WorkflowBuilderPage() {
       );
       markDirty();
     },
-    [setNodes, markDirty],
+    [markDirty],
   );
 
   const buildStepNode = useCallback(
@@ -541,58 +730,91 @@ export function WorkflowBuilderPage() {
     [],
   );
 
+  const appendToActiveGroup = useCallback(
+    (nodeId: string) => {
+      if (!activeGroupId) return;
+      setGroups((current) =>
+        current.map((g) =>
+          g.id === activeGroupId ? { ...g, nodeIds: [...g.nodeIds, nodeId] } : g,
+        ),
+      );
+    },
+    [activeGroupId],
+  );
+
   const handleAddStep = useCallback(
     (step: StepPayload) => {
-      const nextIndex = nodes.length + 1;
+      const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, { x: 160 + nextIndex * 44, y: 460 });
-      setNodes((currentNodes) => [...currentNodes, node]);
+      setAllNodes((currentNodes) => [...currentNodes, node]);
+      appendToActiveGroup(id);
       selectNode(id);
       markDirty();
     },
-    [nodes.length, buildStepNode, selectNode, setNodes, markDirty],
+    [allNodes.length, buildStepNode, appendToActiveGroup, selectNode, markDirty],
   );
 
   const handleAddStepAtPosition = useCallback(
     (step: StepPayload, position: { x: number; y: number }) => {
-      const nextIndex = nodes.length + 1;
+      const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, position);
-      setNodes((currentNodes) => [...currentNodes, node]);
+      setAllNodes((currentNodes) => [...currentNodes, node]);
+      appendToActiveGroup(id);
       selectNode(id);
       markDirty();
     },
-    [nodes.length, buildStepNode, selectNode, setNodes, markDirty],
+    [allNodes.length, buildStepNode, appendToActiveGroup, selectNode, markDirty],
   );
 
   const handleDeleteNodes = useCallback(
     (nodeIds: string[]) => {
-      const idSet = new Set(nodeIds);
-      setNodes((current) => current.filter((n) => !idSet.has(n.id)));
-      setEdges((current) =>
-        current.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)),
-      );
+      const realIds = nodeIds.filter((id) => !groupIdFromNodeId(id));
+      const groupIds = nodeIds
+        .map((id) => groupIdFromNodeId(id))
+        .filter((id): id is string => id !== null);
+
+      let nextAllNodes = allNodes;
+      let nextAllEdges = allEdges;
+      let nextGroups = groups;
+
+      if (realIds.length > 0) {
+        const result = removeRealNodes(nextAllNodes, nextAllEdges, nextGroups, realIds);
+        nextAllNodes = result.nodes;
+        nextAllEdges = result.edges;
+        nextGroups = result.groups;
+      }
+      for (const groupId of groupIds) {
+        nextGroups = ungroupNode(nextGroups, groupId);
+      }
+
+      setAllNodes(nextAllNodes);
+      setAllEdges(nextAllEdges);
+      setGroups(nextGroups);
       selectNode(null);
       markDirty();
     },
-    [setNodes, setEdges, selectNode, markDirty],
+    [allNodes, allEdges, groups, selectNode, markDirty],
   );
 
   const handleDeleteEdge = useCallback(
     (edgeId: string) => {
-      setEdges((current) => current.filter((e) => e.id !== edgeId));
+      const proxy = projected.edges.find((e) => e.id === edgeId);
+      const realId = proxy?.data?.realEdgeId ?? edgeId;
+      setAllEdges((current) => current.filter((e) => e.id !== realId));
       selectNode(null);
       markDirty();
     },
-    [setEdges, selectNode, markDirty],
+    [projected.edges, selectNode, markDirty],
   );
 
   const handleDuplicateNode = useCallback(
     (nodeId: string) => {
-      const source = nodes.find((n) => n.id === nodeId);
+      const source = allNodes.find((n) => n.id === nodeId);
       if (!source) return;
-      const newId = `${source.data.kind}-${nodes.length + 1}`;
-      setNodes((current) => [
+      const newId = `${source.data.kind}-${allNodes.length + 1}`;
+      setAllNodes((current) => [
         ...current.map((n) => (n.id === nodeId ? { ...n, selected: false } : n)),
         {
           ...source,
@@ -605,7 +827,61 @@ export function WorkflowBuilderPage() {
       selectNode(newId);
       markDirty();
     },
-    [nodes, setNodes, selectNode, markDirty],
+    [allNodes, selectNode, markDirty],
+  );
+
+  const handleGroupSelectedSteps = useCallback(
+    (nodeIds: string[]) => {
+      const result = validateGroupBoundary(nodeIds, allEdges, groups);
+      if (!result.valid || !result.entryNodeId || !result.exitNodeId) {
+        markError(result.reason ?? "Cannot group the selected steps.");
+        return;
+      }
+
+      const memberNodes = allNodes.filter((n) => nodeIds.includes(n.id));
+      const avgX =
+        memberNodes.reduce((sum, n) => sum + n.position.x, 0) / memberNodes.length;
+      const avgY =
+        memberNodes.reduce((sum, n) => sum + n.position.y, 0) / memberNodes.length;
+
+      const newGroup: CanvasGroup = {
+        id: `group-${crypto.randomUUID()}`,
+        title: "New group",
+        nodeIds,
+        entryNodeId: result.entryNodeId,
+        exitNodeId: result.exitNodeId,
+        position: { x: avgX, y: avgY },
+        parentGroupId: null,
+      };
+      setGroups((current) => [...current, newGroup]);
+      selectNode(groupNodeId(newGroup.id));
+      markDirty();
+    },
+    [allNodes, allEdges, groups, selectNode, markDirty, markError],
+  );
+
+  const handleRenameGroup = useCallback(
+    (groupId: string, title: string) => {
+      setGroups((current) => current.map((g) => (g.id === groupId ? { ...g, title } : g)));
+      markDirty();
+    },
+    [markDirty],
+  );
+
+  const handleUngroupGroup = useCallback(
+    (groupId: string) => {
+      setGroups((current) => ungroupNode(current, groupId));
+      selectNode(null);
+      markDirty();
+    },
+    [selectNode, markDirty],
+  );
+
+  const handleOpenGroup = useCallback(
+    (groupId: string) => {
+      enterGroup(groupId);
+    },
+    [enterGroup],
   );
 
   return (
@@ -619,38 +895,46 @@ export function WorkflowBuilderPage() {
         onSaveAs={() => setIsSaveAsOpen(true)}
       />
       <main className="flex min-h-0 flex-1">
-        <section className="min-w-0 flex-1">
-          <WorkflowCanvas
-            edges={edges}
-            nodes={nodes}
-            onEdgesChange={handleEdgesChange}
-            onNodesChange={handleNodesChange}
-            onAddStepAtPosition={handleAddStepAtPosition}
-            plugins={plugins}
-            setEdges={setEdges}
-          />
+        <section className="flex min-w-0 flex-1 flex-col">
+          <CanvasGroupBreadcrumb groups={groups} />
+          <div className="min-h-0 flex-1">
+            <WorkflowCanvas
+              edges={projected.edges}
+              nodes={projected.nodes}
+              onEdgesChange={handleEdgesChange}
+              onNodesChange={handleNodesChange}
+              onConnect={handleConnect}
+              onAddStepAtPosition={handleAddStepAtPosition}
+              plugins={plugins}
+            />
+          </div>
         </section>
         <WorkflowPropertiesPanel
-          edges={edges}
+          edges={projected.edges}
           isPluginsLoading={isPluginsLoading}
-          nodes={nodes}
+          nodes={projected.nodes}
           onAddStep={handleAddStep}
           onAlignNodes={handleAlignNodes}
           onDeleteEdge={handleDeleteEdge}
           onDeleteNodes={handleDeleteNodes}
           onDuplicateNode={handleDuplicateNode}
           onEdgeStyleChange={handleEdgeStyleChange}
+          onGroupSelectedSteps={handleGroupSelectedSteps}
           onNodeTitleChange={handleNodeTitleChange}
+          onOpenGroup={handleOpenGroup}
+          onRenameGroup={handleRenameGroup}
+          onUngroupGroup={handleUngroupGroup}
           pluginErrorMessage={pluginError?.message}
           plugins={plugins}
+          isInsideGroup={activeGroupId !== null}
         />
         <NodeConfigModal
-          nodes={nodes}
-          edges={edges}
+          nodes={allNodes}
+          edges={allEdges}
           plugins={plugins}
           onNodeConfigChange={handleNodeConfigChange}
           onNodeTitleChange={handleNodeTitleChange}
-          workflowNodes={nodes}
+          workflowNodes={allNodes}
         />
       </main>
       <WorkflowRunControls />

@@ -52,7 +52,50 @@ export type EdgeStyle = "straight" | "smooth";
 export interface WorkflowEdgeData extends Record<string, unknown> {
   waypoints?: Waypoint[];
   edgeStyle?: EdgeStyle;
+  /** Set only on synthetic group-boundary proxy edges in the root projection. */
+  realEdgeId?: string;
 }
 
 export type WorkflowCanvasNode = Node<WorkflowNodeData, "workflowNode">;
 export type WorkflowCanvasEdge = Edge<WorkflowEdgeData, "waypoint">;
+
+export interface CanvasGroup {
+  /** Stable id, e.g. "group-1". Never reuse after delete. */
+  id: string;
+  /** Display title on the collapsed Group node. */
+  title: string;
+  /** Member step node ids (must all exist in canvas_nodes). */
+  nodeIds: string[];
+  /**
+   * Cached boundary ids, validated strictly at group creation. NOT re-validated
+   * synchronously on every member change — best-effort cache, re-checked strictly
+   * at save/run time (see workflow-validation.ts).
+   */
+  entryNodeId: string;
+  exitNodeId: string;
+  /** Position of the collapsed Group node on the root canvas. */
+  position: { x: number; y: number };
+  /** Reserved for v2 nested groups. Always null in v1. */
+  parentGroupId: string | null;
+}
+
+export interface GroupNodeData extends Record<string, unknown> {
+  kind: "__canvas-group__";
+  title: string;
+  memberCount: number;
+  groupId: string;
+  requires?: Capability[];
+  requiresParsed?: string[];
+  outcomes?: WorkflowOutcomeField[];
+  produces?: Capability[];
+  producesParsed?: string[];
+  consumes?: Capability[];
+}
+
+export type GroupCanvasNode = Node<GroupNodeData, "groupNode">;
+
+/** Nodes flowing through the canvas after group projection: real steps or synthetic groups. */
+export type ProjectedCanvasNode = WorkflowCanvasNode | GroupCanvasNode;
+
+export const GROUP_NODE_ID_PREFIX = "__group__";
+export const GROUP_EDGE_ID_PREFIX = "__group-edge__";

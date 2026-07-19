@@ -46,6 +46,7 @@ def _to_response(workflow: Workflow, creator_username: str | None) -> WorkflowRe
         visibility=workflow.visibility,
         canvas_nodes=workflow.canvas_nodes,
         canvas_edges=workflow.canvas_edges,
+        canvas_groups=workflow.canvas_groups,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
     )
@@ -83,6 +84,7 @@ class WorkflowService:
                 visibility=data.visibility,
                 canvas_nodes=data.canvas_nodes,
                 canvas_edges=data.canvas_edges,
+                canvas_groups=data.canvas_groups,
             )
             result = self.repo.get_by_id(workflow.id)
             if result is None:

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  addEdge,
   Background,
   BackgroundVariant,
   Controls,
@@ -16,7 +15,7 @@ import {
   type OnNodesChange,
   type OnSelectionChangeFunc,
 } from "@xyflow/react";
-import type { Dispatch, DragEvent, MouseEvent, SetStateAction } from "react";
+import type { DragEvent, MouseEvent } from "react";
 import { useCallback, useMemo } from "react";
 
 import { useToast } from "@/hooks/use-toast";
@@ -32,16 +31,18 @@ import {
 import { findPluginByKind, STEP_DRAG_MIME_TYPE, toStepPayload } from "../utils/step-catalog";
 import type { PluginDefinition } from "../types/plugin-registry";
 import type {
+  ProjectedCanvasNode,
   StepPayload,
   WorkflowCanvasEdge,
-  WorkflowCanvasNode,
 } from "../types/workflow-canvas";
 import { WaypointEdge } from "./edges/waypoint-edge";
 import { CollapsibleMiniMap } from "./collapsible-minimap";
+import { GroupNode } from "./nodes/group-node";
 import { WorkflowNode } from "./nodes/workflow-node";
 
 const nodeTypes: NodeTypes = {
   workflowNode: WorkflowNode,
+  groupNode: GroupNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -52,12 +53,12 @@ const edgeTypes: EdgeTypes = {
 const NODE_DROP_OFFSET = { x: 160, y: 64 };
 
 interface WorkflowCanvasProps {
-  nodes: WorkflowCanvasNode[];
+  nodes: ProjectedCanvasNode[];
   edges: WorkflowCanvasEdge[];
   plugins: PluginDefinition[];
-  onNodesChange: OnNodesChange<WorkflowCanvasNode>;
+  onNodesChange: OnNodesChange<ProjectedCanvasNode>;
   onEdgesChange: OnEdgesChange<WorkflowCanvasEdge>;
-  setEdges: Dispatch<SetStateAction<WorkflowCanvasEdge[]>>;
+  onConnect: (connection: Connection) => void;
   onAddStepAtPosition: (step: StepPayload, position: { x: number; y: number }) => void;
 }
 
@@ -67,7 +68,7 @@ function WorkflowCanvasInner({
   plugins,
   onNodesChange,
   onEdgesChange,
-  setEdges,
+  onConnect,
   onAddStepAtPosition,
 }: WorkflowCanvasProps) {
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
@@ -79,13 +80,6 @@ function WorkflowCanvasInner({
   const outcomeProvides = useMemo(
     () => computeOutcomeProvides(nodes, edges),
     [nodes, edges],
-  );
-
-  const handleConnect = useCallback(
-    (connection: Connection) => {
-      setEdges((currentEdges) => addEdge({ ...connection, type: "waypoint" }, currentEdges));
-    },
-    [setEdges],
   );
 
   const isValidConnection = useCallback(
@@ -142,7 +136,7 @@ function WorkflowCanvasInner({
   );
 
   const handleNodeClick = useCallback(
-    (_: MouseEvent, node: WorkflowCanvasNode) => {
+    (_: MouseEvent, node: ProjectedCanvasNode) => {
       selectNode(node.id);
     },
     [selectNode],
@@ -204,7 +198,7 @@ function WorkflowCanvasInner({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <ReactFlow<WorkflowCanvasNode, WorkflowCanvasEdge>
+      <ReactFlow<ProjectedCanvasNode, WorkflowCanvasEdge>
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -212,7 +206,7 @@ function WorkflowCanvasInner({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         defaultEdgeOptions={{ type: "waypoint" }}
-        onConnect={handleConnect}
+        onConnect={onConnect}
         onConnectEnd={handleConnectEnd}
         isValidConnection={isValidConnection}
         onEdgeClick={handleEdgeClick}

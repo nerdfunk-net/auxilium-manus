@@ -9,18 +9,21 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalDistributeCenter,
+  Group,
   Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 import type { NodeAlignment } from "../utils/node-alignment";
-import type { WorkflowCanvasNode } from "../types/workflow-canvas";
+import type { ProjectedCanvasNode } from "../types/workflow-canvas";
 
 interface MultiStepLayoutPanelProps {
-  nodes: WorkflowCanvasNode[];
+  nodes: ProjectedCanvasNode[];
+  canGroup?: boolean;
   onAlign: (alignment: NodeAlignment) => void;
   onDelete: () => void;
+  onGroup?: () => void;
 }
 
 type AlignmentAction = {
@@ -64,7 +67,13 @@ const DISTRIBUTE_ACTIONS: AlignmentAction[] = [
   },
 ];
 
-export function MultiStepLayoutPanel({ nodes, onAlign, onDelete }: MultiStepLayoutPanelProps) {
+export function MultiStepLayoutPanel({
+  nodes,
+  canGroup = false,
+  onAlign,
+  onDelete,
+  onGroup,
+}: MultiStepLayoutPanelProps) {
   const canDistribute = nodes.length >= 3;
 
   return (
@@ -124,8 +133,20 @@ export function MultiStepLayoutPanel({ nodes, onAlign, onDelete }: MultiStepLayo
         </p>
       ) : null}
 
+      {canGroup ? (
+        <Button
+          className="mt-4 w-full gap-1.5"
+          onClick={onGroup}
+          size="sm"
+          variant="outline"
+        >
+          <Group className="size-3.5" aria-hidden />
+          Group selected steps
+        </Button>
+      ) : null}
+
       <Button
-        className="mt-4 w-full gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+        className="mt-2 w-full gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
         onClick={onDelete}
         size="sm"
         variant="outline"

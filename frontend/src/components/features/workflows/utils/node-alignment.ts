@@ -1,4 +1,4 @@
-import type { WorkflowCanvasNode } from "../types/workflow-canvas";
+import type { ProjectedCanvasNode } from "../types/workflow-canvas";
 
 const DEFAULT_NODE_WIDTH = 224;
 const DEFAULT_NODE_HEIGHT = 112;
@@ -13,27 +13,27 @@ export type NodeAlignment =
   | "distribute-horizontal"
   | "distribute-vertical";
 
-function nodeWidth(node: WorkflowCanvasNode): number {
+function nodeWidth(node: ProjectedCanvasNode): number {
   return node.measured?.width ?? node.width ?? DEFAULT_NODE_WIDTH;
 }
 
-function nodeHeight(node: WorkflowCanvasNode): number {
+function nodeHeight(node: ProjectedCanvasNode): number {
   return node.measured?.height ?? node.height ?? DEFAULT_NODE_HEIGHT;
 }
 
 function selectedNodes(
-  nodes: WorkflowCanvasNode[],
+  nodes: ProjectedCanvasNode[],
   nodeIds: string[],
-): WorkflowCanvasNode[] {
+): ProjectedCanvasNode[] {
   const idSet = new Set(nodeIds);
   return nodes.filter((node) => idSet.has(node.id));
 }
 
 export function alignCanvasNodes(
-  nodes: WorkflowCanvasNode[],
+  nodes: ProjectedCanvasNode[],
   nodeIds: string[],
   alignment: NodeAlignment,
-): WorkflowCanvasNode[] {
+): ProjectedCanvasNode[] {
   const targets = selectedNodes(nodes, nodeIds);
   if (targets.length < 2) {
     return nodes;

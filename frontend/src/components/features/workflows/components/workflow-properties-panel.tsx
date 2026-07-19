@@ -3,6 +3,7 @@
 import {
   ChevronsRight,
   Copy,
+  FolderOpen,
   Layers,
   MoveRight,
   PanelRightOpen,
@@ -22,10 +23,11 @@ import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "../types/plugin-registry";
 import type {
   EdgeStyle,
+  ProjectedCanvasNode,
   StepPayload,
   WorkflowCanvasEdge,
-  WorkflowCanvasNode,
 } from "../types/workflow-canvas";
+import { groupIdFromNodeId, isGroupCanvasNode } from "../utils/canvas-group-projection";
 import type { NodeAlignment } from "../utils/node-alignment";
 import {
   CATEGORY_TILE_FALLBACK,
@@ -38,11 +40,12 @@ import {
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 interface WorkflowPropertiesPanelProps {
-  nodes: WorkflowCanvasNode[];
+  nodes: ProjectedCanvasNode[];
   edges?: WorkflowCanvasEdge[];
   plugins: PluginDefinition[];
   isPluginsLoading: boolean;
   pluginErrorMessage?: string;
+  isInsideGroup?: boolean;
   onAddStep: (step: StepPayload) => void;
   onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
   onAlignNodes?: (nodeIds: string[], alignment: NodeAlignment) => void;
@@ -50,6 +53,10 @@ interface WorkflowPropertiesPanelProps {
   onDeleteEdge?: (edgeId: string) => void;
   onDuplicateNode?: (nodeId: string) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
+  onGroupSelectedSteps?: (nodeIds: string[]) => void;
+  onRenameGroup?: (groupId: string, title: string) => void;
+  onUngroupGroup?: (groupId: string) => void;
+  onOpenGroup?: (groupId: string) => void;
 }
 
 function DataContractChips({ capabilities, emptyLabel }: { capabilities: string[]; emptyLabel: string }) {
@@ -76,6 +83,7 @@ export function WorkflowPropertiesPanel({
   plugins,
   isPluginsLoading,
   pluginErrorMessage,
+  isInsideGroup = false,
   onAddStep,
   onEdgeStyleChange,
   onAlignNodes,
@@ -83,6 +91,10 @@ export function WorkflowPropertiesPanel({
   onDeleteEdge,
   onDuplicateNode,
   onNodeTitleChange,
+  onGroupSelectedSteps,
+  onRenameGroup,
+  onUngroupGroup,
+  onOpenGroup,
 }: WorkflowPropertiesPanelProps) {
   const rightPanelTab = useWorkflowBuilderStore((state) => state.rightPanelTab);
   const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
@@ -259,6 +271,10 @@ export function WorkflowPropertiesPanel({
           ) : isMultiSelect ? (
             <MultiStepLayoutPanel
               nodes={selectedCanvasNodes}
+              canGroup={
+                !isInsideGroup &&
+                selectedCanvasNodes.every((node) => groupIdFromNodeId(node.id) === null)
+              }
               onAlign={(alignment) =>
                 onAlignNodes?.(
                   selectedCanvasNodes.map((node) => node.id),
@@ -268,7 +284,49 @@ export function WorkflowPropertiesPanel({
               onDelete={() =>
                 onDeleteNodes?.(selectedCanvasNodes.map((node) => node.id))
               }
+              onGroup={() =>
+                onGroupSelectedSteps?.(selectedCanvasNodes.map((node) => node.id))
+              }
             />
+          ) : singleNode && isGroupCanvasNode(singleNode) ? (
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="flex size-[42px] shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+                  <FolderOpen className="size-[18px]" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
+                  Group
+                </span>
+              </div>
+
+              <Input
+                className="mt-3 h-auto rounded-[9px] p-[9px_11px] text-[15px] font-semibold"
+                onChange={(event) =>
+                  onRenameGroup?.(singleNode.data.groupId, event.target.value)
+                }
+                value={singleNode.data.title}
+              />
+              <p className="mt-3 text-[12.5px] leading-[1.5] text-muted-foreground">
+                {singleNode.data.memberCount} step
+                {singleNode.data.memberCount === 1 ? "" : "s"} in this group.
+              </p>
+
+              <Button
+                className="mt-5 w-full gap-2"
+                onClick={() => onOpenGroup?.(singleNode.data.groupId)}
+              >
+                <FolderOpen className="size-4" aria-hidden />
+                Open group
+              </Button>
+              <Button
+                className="mt-2 w-full gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+                onClick={() => onUngroupGroup?.(singleNode.data.groupId)}
+                variant="outline"
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+                Ungroup
+              </Button>
+            </div>
           ) : singleNode ? (
             <div>
               <div className="flex items-center gap-3">

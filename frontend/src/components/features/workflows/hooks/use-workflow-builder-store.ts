@@ -26,6 +26,13 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   lastAction: string;
   stepCatalogExpanded: Record<string, boolean>;
   overviewPanelOpen: boolean;
+  /** null = root canvas view */
+  activeGroupId: string | null;
+  /** Stack for breadcrumb; [] means root. Last item = current view. */
+  groupNavigationStack: string[];
+  enterGroup: (groupId: string) => void;
+  exitToParent: () => void;
+  exitToRoot: () => void;
   setRunMode: (runMode: RunMode) => void;
   setActiveRunId: (activeRunId: number | null) => void;
   setRightPanelTab: (tab: RightPanelTab) => void;
@@ -71,6 +78,22 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   lastAction: "Ready to design workflow",
   stepCatalogExpanded: {},
   overviewPanelOpen: true,
+  activeGroupId: null,
+  groupNavigationStack: [],
+  enterGroup: (groupId) =>
+    set((state) => {
+      const groupNavigationStack = [...state.groupNavigationStack, groupId];
+      return { groupNavigationStack, activeGroupId: groupId };
+    }),
+  exitToParent: () =>
+    set((state) => {
+      const groupNavigationStack = state.groupNavigationStack.slice(0, -1);
+      return {
+        groupNavigationStack,
+        activeGroupId: groupNavigationStack[groupNavigationStack.length - 1] ?? null,
+      };
+    }),
+  exitToRoot: () => set({ groupNavigationStack: [], activeGroupId: null }),
   setRunMode: (runMode) => set({ runMode }),
   setActiveRunId: (activeRunId) => set({ activeRunId }),
   setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
@@ -129,6 +152,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       workflowStatus: "Saved",
       isDirty: false,
       activeRunId: null,
+      activeGroupId: null,
+      groupNavigationStack: [],
       lastAction: `Loaded "${meta.workflowName}"`,
     }),
   resetToNew: () =>
@@ -137,6 +162,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       workflowStatus: "Draft",
       isDirty: false,
       activeRunId: null,
+      activeGroupId: null,
+      groupNavigationStack: [],
       rightPanelTab: "steps",
       selectedNodeId: null,
       selectedEdgeId: null,

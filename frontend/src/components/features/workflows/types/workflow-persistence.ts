@@ -7,6 +7,7 @@ export interface WorkflowCreate {
   visibility: WorkflowVisibility;
   canvas_nodes: Record<string, unknown>[];
   canvas_edges: Record<string, unknown>[];
+  canvas_groups: Record<string, unknown>[];
 }
 
 export interface WorkflowUpdate {
@@ -16,6 +17,7 @@ export interface WorkflowUpdate {
   visibility?: WorkflowVisibility;
   canvas_nodes?: Record<string, unknown>[];
   canvas_edges?: Record<string, unknown>[];
+  canvas_groups?: Record<string, unknown>[];
 }
 
 export interface WorkflowSummary {
@@ -34,6 +36,7 @@ export interface WorkflowSummary {
 export interface WorkflowResponse extends WorkflowSummary {
   canvas_nodes: Record<string, unknown>[] | null;
   canvas_edges: Record<string, unknown>[] | null;
+  canvas_groups: Record<string, unknown>[] | null;
 }
 
 export interface WorkflowListResponse {

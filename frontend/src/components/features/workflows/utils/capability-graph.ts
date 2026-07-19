@@ -1,8 +1,8 @@
 import type { Capability } from "@/lib/capability-types";
 
 import type {
+  ProjectedCanvasNode,
   WorkflowCanvasEdge,
-  WorkflowCanvasNode,
 } from "../types/workflow-canvas";
 
 export interface CapabilityState {
@@ -21,7 +21,7 @@ function emptyState(): CapabilityState {
 
 function applyStep(
   input: CapabilityState,
-  node: WorkflowCanvasNode,
+  node: ProjectedCanvasNode,
 ): CapabilityState {
   const produces = node.data.produces ?? [];
   const producesParsed = node.data.producesParsed ?? [];
@@ -78,7 +78,7 @@ function toProvides(state: CapabilityState): OutcomeProvides {
  * Compute transitive capability guarantees per node outcome handle for canvas validation.
  */
 export function computeOutcomeProvides(
-  nodes: WorkflowCanvasNode[],
+  nodes: ProjectedCanvasNode[],
   edges: WorkflowCanvasEdge[],
 ): Map<string, OutcomeProvides> {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
