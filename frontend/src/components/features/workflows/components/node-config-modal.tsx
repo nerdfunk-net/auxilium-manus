@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+import { HelpUnavailable } from "@/components/features/workflow-steps/shared/step-help";
 import { getPluginUI } from "@/lib/plugin-ui-registry";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
@@ -241,6 +242,9 @@ export function NodeConfigModal({
               <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="description">
                 Description
               </TabsTrigger>
+              <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="help">
+                Help
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="general">
@@ -408,6 +412,22 @@ export function NodeConfigModal({
                   </p>
                 )}
               </div>
+            </TabsContent>
+
+            <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="help">
+              {pluginUI?.HelpPanel ? (
+                <pluginUI.HelpPanel
+                  config={pluginConfig}
+                  nodeId={activeNode.id}
+                  workflowNodes={workflowNodes}
+                  workflowEdges={edges}
+                  plugins={plugins}
+                  onChange={(config) => onNodeConfigChange?.(activeNode.id, config)}
+                  onPreview={() => undefined}
+                />
+              ) : (
+                <HelpUnavailable />
+              )}
             </TabsContent>
           </Tabs>
         ) : null}

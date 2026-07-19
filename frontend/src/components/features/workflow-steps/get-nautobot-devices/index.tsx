@@ -33,6 +33,7 @@ import {
   emptyTree,
   type FilterTree,
 } from "./condition-builder/types";
+import { GetNautobotDevicesHelpPanel } from "./help-panel";
 import { LoadInventoryDialog } from "./load-inventory-dialog";
 import { DeviceSelectionPreviewDialog } from "./preview-dialog";
 import type { SavedInventory } from "./types/saved-inventory";
@@ -348,4 +349,5 @@ function DeviceSelectionConfigPanel({
 
 export const GetNautobotDevicesPlugin: PluginUIComponent = {
   ConfigPanel: DeviceSelectionConfigPanel,
+  HelpPanel: GetNautobotDevicesHelpPanel,
 };

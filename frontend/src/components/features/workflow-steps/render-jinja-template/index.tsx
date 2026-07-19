@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { RenderJinjaTemplateHelpPanel } from "./help-panel";
 import {
   buildRenderJinjaTemplateConfig,
   DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG,
@@ -140,4 +141,5 @@ function RenderJinjaTemplateConfigPanel({
 
 export const RenderJinjaTemplatePlugin: PluginUIComponent = {
   ConfigPanel: RenderJinjaTemplateConfigPanel,
+  HelpPanel: RenderJinjaTemplateHelpPanel,
 };

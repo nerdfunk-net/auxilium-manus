@@ -30,6 +30,7 @@ import type { GitDevicePreview } from "@/hooks/queries/use-get-git-devices-previ
 
 import { GitSourceSelectDialog } from "./git-source-select-dialog";
 import { GitDevicesPreviewDialog } from "./preview-dialog";
+import { GetGitDevicesHelpPanel } from "./help-panel";
 
 const GIT_SOURCE_ID_KEY = "git_source_id";
 const FILENAME_PATTERN_KEY = "filename_pattern";
@@ -357,4 +358,5 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
 export const GetGitDevicesPlugin: PluginUIComponent = {
   ConfigPanel: GitDevicesConfigPanel,
+  HelpPanel: GetGitDevicesHelpPanel,
 };

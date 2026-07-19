@@ -19,6 +19,7 @@ import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dia
 import { UpdateDeviceDialog } from "./update-device-dialog";
 import type { UpdateNautobotDeviceConfig } from "./types";
 import { countEnabledUpdateFields } from "./update-device-config";
+import { UpdateNautobotDeviceHelpPanel } from "./help-panel";
 
 function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
@@ -144,4 +145,5 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
 
 export const UpdateNautobotDevicePlugin: PluginUIComponent = {
   ConfigPanel: UpdateNautobotDeviceConfigPanel,
+  HelpPanel: UpdateNautobotDeviceHelpPanel,
 };

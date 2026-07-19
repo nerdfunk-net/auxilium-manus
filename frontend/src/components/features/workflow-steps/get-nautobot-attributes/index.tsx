@@ -18,6 +18,7 @@ import {
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import { AttributesDialog } from "./attributes-dialog";
 import { ATTRIBUTE_GROUPS, type AttributeGroupKey } from "./types";
+import { GetNautobotAttributesHelpPanel } from "./help-panel";
 
 function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
   const raw = config.list_of_attributes;
@@ -145,4 +146,5 @@ function GetNautobotAttributesConfigPanel({
 
 export const GetNautobotAttributesPlugin: PluginUIComponent = {
   ConfigPanel: GetNautobotAttributesConfigPanel,
+  HelpPanel: GetNautobotAttributesHelpPanel,
 };

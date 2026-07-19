@@ -312,6 +312,8 @@ All text/number inputs follow the same pattern:
 - [ ] `aria-hidden` on all decorative icons
 - [ ] Shadcn primitives used for all UI (no raw `<select>`, `<dialog>`, etc.)
 - [ ] Inventory steps: fan-out block matches the shared pattern (`border-t pt-3`, Switch header, fields revealed only when enabled)
+- [ ] `HelpPanel` documents every Configuration control with examples (reuse
+      `workflow-steps/shared/step-help.tsx`; reference `get-nautobot-devices/help-panel.tsx`)
 
 ### Backend executor logging
 

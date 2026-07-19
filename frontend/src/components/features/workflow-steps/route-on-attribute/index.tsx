@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
 
+import { RouteOnAttributeHelpPanel } from "./help-panel";
 import {
   buildRouteOnAttributeConfig,
   DEFAULT_ROUTE_ON_ATTRIBUTE_CONFIG,
@@ -275,4 +276,5 @@ function RouteOnAttributeConfigPanel({
 
 export const RouteOnAttributePlugin = {
   ConfigPanel: RouteOnAttributeConfigPanel,
+  HelpPanel: RouteOnAttributeHelpPanel,
 };

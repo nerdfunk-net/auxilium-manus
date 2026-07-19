@@ -22,6 +22,7 @@ import {
   type RegexFlags,
 } from "./update-attribute-config";
 import { RegexProbePanel } from "./regex-probe-panel";
+import { UpdateAttributeHelpPanel } from "./help-panel";
 
 function AttributePathHelp() {
   return (
@@ -302,6 +303,7 @@ function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
 
 export const UpdateAttributePlugin = {
   ConfigPanel: UpdateAttributeConfigPanel,
+  HelpPanel: UpdateAttributeHelpPanel,
   modalTabs: [
     {
       id: "probe",

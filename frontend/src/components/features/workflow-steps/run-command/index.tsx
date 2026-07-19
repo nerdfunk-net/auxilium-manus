@@ -19,6 +19,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import { RunCommandHelpPanel } from "./help-panel";
 
 const DEFAULT_COMMANDS = ["show version"];
 
@@ -242,4 +243,5 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
 
 export const RunCommandPlugin: PluginUIComponent = {
   ConfigPanel: RunCommandConfigPanel,
+  HelpPanel: RunCommandHelpPanel,
 };

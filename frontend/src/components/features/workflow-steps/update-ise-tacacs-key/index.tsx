@@ -12,6 +12,7 @@ import type {
 
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
+import { UpdateIseTacacsKeyHelpPanel } from "./help-panel";
 
 const NEW_KEY_KEY = "new_key";
 
@@ -103,4 +104,5 @@ function UpdateIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelPr
 
 export const UpdateIseTacacsKeyPlugin: PluginUIComponent = {
   ConfigPanel: UpdateIseTacacsKeyConfigPanel,
+  HelpPanel: UpdateIseTacacsKeyHelpPanel,
 };

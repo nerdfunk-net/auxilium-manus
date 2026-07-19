@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
+import { WorkflowLogHelpPanel } from "./help-panel";
 
 const DEFAULT_MESSAGE = "Device {device.name}: {device.network_driver}";
 
@@ -70,4 +71,5 @@ function WorkflowLogConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
 
 export const WorkflowLogPlugin = {
   ConfigPanel: WorkflowLogConfigPanel,
+  HelpPanel: WorkflowLogHelpPanel,
 };

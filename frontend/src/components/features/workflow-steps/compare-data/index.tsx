@@ -19,9 +19,9 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
-import {
-  findUpstreamOutput,
-} from "@/components/features/workflows/utils/upstream-output";
+import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
+
+import { CompareDataHelpPanel } from "./help-panel";
 
 const CONTENT_SOURCE_OPTIONS = [
   {
@@ -668,4 +668,5 @@ function CompareDataConfigPanel({
 
 export const CompareDataPlugin: PluginUIComponent = {
   ConfigPanel: CompareDataConfigPanel,
+  HelpPanel: CompareDataHelpPanel,
 };

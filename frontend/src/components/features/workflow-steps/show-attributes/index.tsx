@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
+import { ShowAttributesHelpPanel } from "./help-panel";
 
 const OUTPUT_DESTINATION_OPTIONS = [
   {
@@ -244,4 +245,5 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
 
 export const ShowAttributesPlugin = {
   ConfigPanel: ShowAttributesConfigPanel,
+  HelpPanel: ShowAttributesHelpPanel,
 };

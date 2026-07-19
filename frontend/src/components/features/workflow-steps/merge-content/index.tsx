@@ -17,6 +17,8 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
+import { MergeContentHelpPanel } from "./help-panel";
+
 type MergeMode = "text_sectioned" | "text_plain" | "json_merged";
 type ContentSource = "command_output" | "filtered_output" | "merged_content";
 
@@ -374,4 +376,5 @@ function MergeContentConfigPanel({
 
 export const MergeContentPlugin: PluginUIComponent = {
   ConfigPanel: MergeContentConfigPanel,
+  HelpPanel: MergeContentHelpPanel,
 };

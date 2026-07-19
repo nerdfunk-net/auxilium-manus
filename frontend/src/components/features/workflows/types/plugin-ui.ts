@@ -25,4 +25,10 @@ export interface PluginModalTab {
 export interface PluginUIComponent {
   ConfigPanel: React.ComponentType<PluginConfigPanelProps>;
   modalTabs?: PluginModalTab[];
+  /**
+   * Optional help content for the built-in Help tab in the step configuration
+   * modal (shown beside Description). When omitted, the Help tab still appears
+   * with a short “not available yet” placeholder.
+   */
+  HelpPanel?: React.ComponentType<PluginConfigPanelProps>;
 }

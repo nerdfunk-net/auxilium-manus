@@ -31,6 +31,7 @@ import { IseDevicesHelpDialog } from "./help-dialog";
 import { IseDevicesPreviewDialog } from "./preview-dialog";
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
+import { GetIseDevicesHelpPanel } from "./help-panel";
 
 type QueryMode = "name" | "cidr" | "group";
 
@@ -453,4 +454,5 @@ function GetIseDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) 
 
 export const GetIseDevicesPlugin: PluginUIComponent = {
   ConfigPanel: GetIseDevicesConfigPanel,
+  HelpPanel: GetIseDevicesHelpPanel,
 };

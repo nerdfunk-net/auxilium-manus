@@ -292,8 +292,19 @@ import type { PluginUIComponent } from "@/components/features/workflows/types/pl
 
 export const MyStepPlugin: PluginUIComponent = {
   ConfigPanel: MyStepConfigPanel,
+  // Optional: detailed how-to for the built-in Help tab (beside Description)
+  HelpPanel: MyStepHelpPanel,
 };
 ```
+
+The step configuration modal always shows **General**, **Description**, and **Help**.
+**Configuration** appears when the step has a `ConfigPanel` (or registry
+`configuration_input`). Extra tabs can be added via `modalTabs` (e.g. Probe).
+
+`HelpPanel` is step-authored usage documentation (examples for every control).
+When omitted, Help still appears with a short placeholder. Reuse helpers from
+`workflow-steps/shared/step-help.tsx` (`HelpSection`, `HelpCode`, `HelpExample`,
+`HelpWarning`). Reference: `get-nautobot-devices/help-panel.tsx`.
 
 The `ConfigPanel` component receives:
 

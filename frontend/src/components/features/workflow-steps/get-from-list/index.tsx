@@ -20,6 +20,8 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
+import { GetFromListHelpPanel } from "./help-panel";
+
 const DEVICES_KEY = "devices";
 
 interface FanOutConfig {
@@ -259,4 +261,5 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
 
 export const GetFromListPlugin: PluginUIComponent = {
   ConfigPanel: GetFromListConfigPanel,
+  HelpPanel: GetFromListHelpPanel,
 };

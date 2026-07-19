@@ -1,6 +1,7 @@
 "use client";
 
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
+import { FanInHelpPanel } from "./help-panel";
 
 function FanInConfigPanel() {
   return (
@@ -20,4 +21,5 @@ function FanInConfigPanel() {
 
 export const FanInPlugin: PluginUIComponent = {
   ConfigPanel: FanInConfigPanel,
+  HelpPanel: FanInHelpPanel,
 };

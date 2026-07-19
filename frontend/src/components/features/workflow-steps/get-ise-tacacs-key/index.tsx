@@ -15,6 +15,7 @@ import type {
 
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
+import { GetIseTacacsKeyHelpPanel } from "./help-panel";
 
 type TierType =
   | "name_exact_32"
@@ -253,4 +254,5 @@ function GetIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelProps
 
 export const GetIseTacacsKeyPlugin: PluginUIComponent = {
   ConfigPanel: GetIseTacacsKeyConfigPanel,
+  HelpPanel: GetIseTacacsKeyHelpPanel,
 };

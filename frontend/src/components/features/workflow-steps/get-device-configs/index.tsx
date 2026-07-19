@@ -16,6 +16,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import { GetDeviceConfigsHelpPanel } from "./help-panel";
 
 const CONFIG_FORMAT_OPTIONS = [
   { value: "both", label: "Running and startup" },
@@ -125,4 +126,5 @@ function GetDeviceConfigsConfigPanel({
 
 export const GetDeviceConfigsPlugin: PluginUIComponent = {
   ConfigPanel: GetDeviceConfigsConfigPanel,
+  HelpPanel: GetDeviceConfigsHelpPanel,
 };
