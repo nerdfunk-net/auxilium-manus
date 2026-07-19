@@ -157,10 +157,18 @@ export function WorkflowBuilderPage() {
       .catch(() => markError("Failed to restore workflow canvas"));
   }, [mountWorkflowId, isPluginsLoading, plugins, markDirty, markError]);
 
-  // Auto-enter a step's group when it is focused (e.g. from the executions
-  // panel) so the selected node is actually visible on the current view.
+  // Auto-enter a step's group when it is newly focused (e.g. from the
+  // executions panel) so the selected node is actually visible on the current
+  // view. Gated on selectedNodeId actually *changing* (not just re-evaluated
+  // because activeGroupId changed) — otherwise navigating back out via "Go to
+  // upper group" while a member step is still selected would immediately
+  // re-trigger this effect and drive activeGroupId right back into the group.
+  const previousSelectedNodeIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!selectedNodeId) return;
+    const previousSelectedNodeId = previousSelectedNodeIdRef.current;
+    previousSelectedNodeIdRef.current = selectedNodeId;
+    if (!selectedNodeId || selectedNodeId === previousSelectedNodeId) return;
+
     const group = findGroupContainingNode(groups, selectedNodeId);
     if (group && activeGroupId !== group.id) {
       enterGroup(group.id);
