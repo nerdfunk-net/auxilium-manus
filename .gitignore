@@ -230,3 +230,4 @@ data/artifacts
 data/exports
 docker/airgap-artifacts/auxilium-manus-all-in-one.tar.gz
 docker/airgap-artifacts/auxilium-manus-all-in-one.tar
+.DS_Store
