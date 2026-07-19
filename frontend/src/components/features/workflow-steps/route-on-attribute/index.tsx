@@ -228,8 +228,8 @@ function RouteOnAttributeConfigPanel({
           <span className="font-mono">{"{empty}"}</span>, and{" "}
           <span className="font-mono">{"{exists}"}</span> match on the attribute&apos;s
           existence state instead of its literal text — use{" "}
-          <span className="font-mono">{"{exists}"}</span> for "has a non-empty value" (for
-          example, checking whether a TACACS+ key was found).
+          <span className="font-mono">{"{exists}"}</span> for &quot;has a non-empty
+          value&quot; (for example, checking whether a TACACS+ key was found).
         </p>
       </div>
 

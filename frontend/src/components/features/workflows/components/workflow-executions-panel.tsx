@@ -463,7 +463,7 @@ export function WorkflowExecutionsPanel({
               </p>
             </div>
           </div>
-        ) : (
+        ) : workflowId == null ? null : (
           <div className="space-y-3">
             {runs.map((run) => (
               <RunRow

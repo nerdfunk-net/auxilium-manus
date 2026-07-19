@@ -8,10 +8,31 @@
 # Then start the application stack from this directory:
 #   cp .env.example .env
 #   docker compose -f docker-compose.yml -f docker-compose.hatchet-network.yml up -d
+#
+# manus-web: bind address, backend port, BACKEND_URL, and NODE_ENV are set by
+# supervisord-web.conf. manus-worker only runs the Hatchet worker process.
+
+x-manus-app-env: &manus-app-env
+  ENV: ${ENV:-development}
+  SECRET_KEY: ${SECRET_KEY:-change-in-production-use-at-least-32-characters}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+  DATABASE_HOST: postgres
+  DATABASE_PORT: 5432
+  DATABASE_NAME: ${POSTGRES_DB:-manus}
+  DATABASE_USERNAME: ${POSTGRES_USER:-postgres}
+  DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  MANUS_REDIS_HOST: redis
+  MANUS_REDIS_PORT: 6379
+  MANUS_REDIS_PASSWORD: ${MANUS_REDIS_PASSWORD:-changeme}
+  HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+  HATCHET_CLIENT_HOST_PORT: ${HATCHET_CLIENT_HOST_PORT:-host.docker.internal:7077}
+  HATCHET_CLIENT_TLS_STRATEGY: ${HATCHET_CLIENT_TLS_STRATEGY:-none}
+  HATCHET_CLIENT_DEBUG: ${HATCHET_CLIENT_DEBUG:-false}
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:17
     container_name: manus-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-manus}
@@ -30,7 +51,7 @@ services:
       - manus-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: manus-redis
     command: redis-server --appendonly yes --requirepass ${MANUS_REDIS_PASSWORD:-changeme}
     volumes:
@@ -53,30 +74,13 @@ services:
       - "${FRONTEND_PORT:-3000}:3000"
       - "8000:8000"
     environment:
-      - ENV=${ENV:-development}
-      - SECRET_KEY=${SECRET_KEY:-change-in-production-use-at-least-32-characters}
-      - INITIAL_USERNAME=${INITIAL_USERNAME:-admin}
-      - INITIAL_PASSWORD=${INITIAL_PASSWORD:-admin}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DOCS_ENABLED=${DOCS_ENABLED:-true}
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_NAME=${POSTGRES_DB:-manus}
-      - DATABASE_USERNAME=${POSTGRES_USER:-postgres}
-      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - MANUS_REDIS_HOST=redis
-      - MANUS_REDIS_PORT=6379
-      - MANUS_REDIS_PASSWORD=${MANUS_REDIS_PASSWORD:-changeme}
-      - HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN:-}
-      - HATCHET_CLIENT_HOST_PORT=${HATCHET_CLIENT_HOST_PORT:-host.docker.internal:7077}
-      - HATCHET_CLIENT_TLS_STRATEGY=${HATCHET_CLIENT_TLS_STRATEGY:-none}
-      - NODE_ENV=production
-      - NEXT_TELEMETRY_DISABLED=1
-      - BACKEND_URL=http://127.0.0.1:8000
-      - FRONTEND_PORT=${FRONTEND_PORT:-3000}
-      - BACKEND_HOST=0.0.0.0
-      - BACKEND_PORT=8000
-      - SUPERVISORD_CONF=/etc/supervisor/conf.d/supervisord-web.conf
+      <<: *manus-app-env
+      INITIAL_USERNAME: ${INITIAL_USERNAME:-admin}
+      INITIAL_PASSWORD: ${INITIAL_PASSWORD:-admin}
+      DOCS_ENABLED: ${DOCS_ENABLED:-true}
+      FRONTEND_PORT: ${FRONTEND_PORT:-3000}
+      NEXT_TELEMETRY_DISABLED: "1"
+      SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-web.conf
     volumes:
       - manus_data:/app/data
       - ./config:/app/config
@@ -105,24 +109,11 @@ services:
       dockerfile: docker/Dockerfile.all-in-one
     container_name: manus-worker
     environment:
-      - ENV=${ENV:-development}
-      - SECRET_KEY=${SECRET_KEY:-change-in-production-use-at-least-32-characters}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_NAME=${POSTGRES_DB:-manus}
-      - DATABASE_USERNAME=${POSTGRES_USER:-postgres}
-      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - MANUS_REDIS_HOST=redis
-      - MANUS_REDIS_PORT=6379
-      - MANUS_REDIS_PASSWORD=${MANUS_REDIS_PASSWORD:-changeme}
-      - HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN:-}
-      - HATCHET_CLIENT_HOST_PORT=${HATCHET_CLIENT_HOST_PORT:-host.docker.internal:7077}
-      - HATCHET_CLIENT_TLS_STRATEGY=${HATCHET_CLIENT_TLS_STRATEGY:-none}
-      - SUPERVISORD_CONF=/etc/supervisor/conf.d/supervisord-worker.conf
+      <<: *manus-app-env
+      # Worker runs python -m hatchet.worker only (no API bootstrap / frontend).
+      SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-worker.conf
     volumes:
       - manus_data:/app/data
-      - ./config:/app/config
       - ./logs:/app/data/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -131,6 +122,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # Wait for web so init_db / admin seed finish before the worker accepts jobs.
       manus-web:
         condition: service_healthy
     restart: unless-stopped
