@@ -16,6 +16,7 @@ import { GitPushPlugin } from "@/components/features/workflow-steps/git-push";
 import { GetNautobotDevicesPlugin } from "@/components/features/workflow-steps/get-nautobot-devices";
 import { GetNautobotAttributesPlugin } from "@/components/features/workflow-steps/get-nautobot-attributes";
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
+import { RouteOnContentPlugin } from "@/components/features/workflow-steps/route-on-content";
 import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
 import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/render-jinja-template";
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
@@ -37,6 +38,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "run-command": RunCommandPlugin,
   "route-on-attribute": RouteOnAttributePlugin,
+  "route-on-content": RouteOnContentPlugin,
   "list-contains": ListContainsPlugin,
   "fan-in": FanInPlugin,
   "merge-content": MergeContentPlugin,

@@ -13,6 +13,7 @@ import {
   List,
   Router,
   Scale,
+  SearchCode,
   ShieldCheck,
   Tags,
   TerminalSquare,
@@ -56,6 +57,7 @@ export function formatArtifactType(artifactType: string): string {
 
 const nodeIconsByKind: Record<string, LucideIcon> = {
   "compare-data": Scale,
+  "route-on-content": SearchCode,
   "fan-in": GitMerge,
   "filter-output": Filter,
   "merge-content": Combine,

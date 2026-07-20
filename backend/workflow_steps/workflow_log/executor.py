@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from workflow_steps.common.attribute_path import (
-    DEBUG_LOGS_METADATA_SUFFIX,
-    resolve_device_attribute,
-)
+from workflow_steps.common.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
+from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.workflow_log.config import get_config
 
 logger = logging.getLogger(__name__)
-
-_PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z0-9_.]+)\}")
 
 
 def _default_config() -> dict[str, Any]:
@@ -28,16 +23,15 @@ def _default_config() -> dict[str, Any]:
 def render_message_template(template: str, device: DeviceContext) -> str:
     """Replace ``{path.to.value}`` placeholders with the device's resolved
     attribute values. A path that resolves to nothing renders as an empty
-    string rather than failing the step."""
+    string rather than failing the step.
 
-    def _replace(match: re.Match[str]) -> str:
-        # workflow-log writes into INFO logs and persisted step metadata, so
-        # secret-valued paths must never be rehydrated here — reveal_secrets=False
-        # returns REDACTED_PLACEHOLDER instead of the cleartext.
-        value = resolve_device_attribute(device, match.group(1), reveal_secrets=False)
-        return value if value is not None else ""
-
-    return _PLACEHOLDER_PATTERN.sub(_replace, template)
+    workflow-log writes into INFO logs and persisted step metadata, so
+    secret-valued paths must never be rehydrated here —
+    ``render_placeholder_template`` always resolves with
+    ``reveal_secrets=False``, returning ``REDACTED_PLACEHOLDER`` instead of
+    the cleartext.
+    """
+    return render_placeholder_template(template, device)
 
 
 async def execute(

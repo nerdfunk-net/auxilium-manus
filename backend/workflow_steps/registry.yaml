@@ -679,6 +679,76 @@ plugins:
           required: false
           default: false
 
+  - id: route-on-content
+    name: Route on Content
+    overview: Branch workflow paths by searching content for text or a pattern.
+    description: >
+      Search device content for fixed text or a regular expression and branch
+      on whether it was found.
+    artifact_type: control_flow
+    directory: route_on_content
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    primary_output: content_match
+    outcomes:
+      - name: match
+      - name: mismatch
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: content_source
+          description: >
+            Which device content to search (running_config, startup_config,
+            command_output, latest_command_output, rendered_template,
+            merged_content, filtered_output, comparison_diff).
+          data_type: string
+          required: true
+          example: running_config
+        - name: source_step_node_id
+          description: >
+            Canvas node id of the upstream step, required when content_source
+            is command_output, rendered_template, merged_content,
+            filtered_output, or comparison_diff.
+          data_type: string
+          required: false
+        - name: parsed_output_key
+          description: >
+            Optional output_key from render-jinja-template when
+            content_source is rendered_template.
+          data_type: string
+          required: false
+        - name: match_mode
+          description: >
+            "fixed_text" for a literal substring search, or "regex" for a
+            regular expression.
+          data_type: string
+          required: true
+          default: fixed_text
+        - name: pattern
+          description: >
+            Text or regular expression to search for. Supports
+            {path.to.attribute} placeholders resolved per device (e.g.
+            {nautobot.tacacs_ip}); in regex mode, resolved placeholder values
+            are regex-escaped before being spliced into the pattern.
+          data_type: string
+          required: true
+          example: "tacacs-server|tacacs server"
+        - name: case_sensitive
+          description: When false, matching ignores letter case.
+          data_type: boolean
+          required: false
+          default: false
+        - name: multiline
+          description: >
+            Regex only. When true, ^ and $ match at line boundaries within
+            the content instead of only the start/end of the whole text.
+            Ignored in fixed_text mode.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: update-attribute
     name: Update Attribute
     overview: Set or transform device attributes in the workflow.

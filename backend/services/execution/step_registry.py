@@ -35,6 +35,7 @@ from workflow_steps.get_nautobot_attributes.executor import execute as get_nauto
 from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_config
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
+from workflow_steps.route_on_content.executor import execute as route_on_content
 from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.update_attribute.executor import execute as update_attribute
@@ -58,6 +59,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "render-jinja-template": render_jinja_template,
     "run-command": run_command,
     "route-on-attribute": route_on_attribute,
+    "route-on-content": route_on_content,
     "list-contains": list_contains,
     "fan-in": fan_in,
     "merge-content": merge_content,
