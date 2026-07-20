@@ -1,5 +1,12 @@
 def get_config() -> dict:
     return {
+        "attributes": [],
+    }
+
+
+def get_default_attribute() -> dict:
+    """Default fields for a single attribute update entry."""
+    return {
         "mode": "fixed",
         "destination_path": "custom.location",
         "fixed_value": "",

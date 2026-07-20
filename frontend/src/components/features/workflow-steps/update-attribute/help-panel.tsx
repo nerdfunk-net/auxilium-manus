@@ -17,15 +17,46 @@ export function UpdateAttributeHelpPanel() {
       <HelpSection title="What this step does">
         <p>
           Writes or transforms values on the workflow device context — either a fixed
-          literal or a regex-based extraction from an existing attribute. Use it to
+          literal or a regex-based extraction from an existing attribute. Configure one or
+          more attribute updates in a list; they run in order for each device. Use this to
           normalize names, copy fields between paths, or prepare values for Route on
           Attribute and downstream API steps.
         </p>
       </HelpSection>
 
+      <HelpSection title="Attributes list">
+        <p>
+          <HelpCode>attributes</HelpCode> is the list of updates applied by this step.
+          It starts empty. Use <span className="font-medium text-foreground">+</span> to
+          add an update, the pencil button to edit, and{" "}
+          <span className="font-medium text-foreground">−</span> to remove. Each entry
+          has its own mode and fields.
+        </p>
+        <HelpExample>
+          attributes:
+          <br />
+          {"  "}- mode: fixed
+          <br />
+          {"    "}destination_path: custom.site
+          <br />
+          {"    "}fixed_value: office-a
+          <br />
+          {"  "}- mode: regex
+          <br />
+          {"    "}source_path: device.name
+          <br />
+          {"    "}destination_path: custom.datacenter
+          <br />
+          {"    "}pattern: ^([^-]+)-.*
+          <br />
+          {"    "}destination_template: DC-\1
+        </HelpExample>
+      </HelpSection>
+
       <HelpSection title="Mode">
         <p>
-          <HelpCode>mode</HelpCode> selects how the destination value is produced:
+          <HelpCode>mode</HelpCode> (per attribute) selects how the destination value is
+          produced:
         </p>
         <ul className="list-disc space-y-1.5 pl-4">
           <li>
@@ -41,13 +72,6 @@ export function UpdateAttributeHelpPanel() {
             <HelpCode>destination_path</HelpCode>.
           </li>
         </ul>
-        <HelpExample>
-          mode: fixed
-          <br />
-          destination_path: custom.site
-          <br />
-          fixed_value: office-a
-        </HelpExample>
       </HelpSection>
 
       <HelpSection title="Destination path">
@@ -152,18 +176,18 @@ export function UpdateAttributeHelpPanel() {
 
       <HelpSection title="Probe tab">
         <p>
-          When mode is <HelpCode>regex</HelpCode>, open the{" "}
+          When any attribute uses <HelpCode>mode: regex</HelpCode>, open the{" "}
           <span className="font-medium text-foreground">Probe</span> tab in the step
-          modal to test your pattern and destination template against sample input
-          before running the workflow. Probe uses the same{" "}
-          <HelpCode>source_path</HelpCode>, <HelpCode>pattern</HelpCode>,{" "}
-          <HelpCode>destination_template</HelpCode>, and <HelpCode>regex_flags</HelpCode>{" "}
-          from Configuration.
+          modal to test that pattern and destination template against sample input
+          before running the workflow. If multiple regex updates exist, pick which one
+          to probe. Probe uses the same <HelpCode>source_path</HelpCode>,{" "}
+          <HelpCode>pattern</HelpCode>, <HelpCode>destination_template</HelpCode>, and{" "}
+          <HelpCode>regex_flags</HelpCode> from that attribute.
         </p>
         <HelpWarning title="Probe is regex-only">
           <p>
-            The Probe tab appears only when mode is regular expression. Fixed-value
-            updates do not need probing.
+            The Probe tab appears only when at least one attribute uses regular
+            expression mode. Fixed-value updates do not need probing.
           </p>
         </HelpWarning>
       </HelpSection>
@@ -171,13 +195,9 @@ export function UpdateAttributeHelpPanel() {
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>
-            <span className="font-medium text-foreground">success</span> — attribute
-            written (fixed) or pattern matched and template applied (regex).
-          </li>
-          <li>
-            <span className="font-medium text-foreground">failure</span> — regex mode
-            with no match, invalid pattern, or missing source path. Use Probe to
-            debug patterns.
+            <span className="font-medium text-foreground">success</span> — step
+            completed. Fixed updates always write; regex updates that do not match are
+            skipped for that device.
           </li>
         </ul>
       </HelpSection>
@@ -185,16 +205,16 @@ export function UpdateAttributeHelpPanel() {
       <HelpSection title="Typical setup">
         <ol className="list-decimal space-y-1.5 pl-4">
           <li>
-            Fixed mode: set destination_path and fixed_value for simple tagging or
-            defaults.
+            Click + and choose fixed mode: set destination_path and fixed_value for
+            simple tagging or defaults.
           </li>
           <li>
-            Regex mode: set source_path and pattern, use Probe to validate, then set
-            destination_template with backrefs.
+            Add another entry in regex mode: set source_path and pattern, use Probe to
+            validate, then set destination_template with backrefs.
           </li>
           <li>
-            Place before Route on Attribute when routing depends on a derived custom
-            field.
+            Place before Route on Attribute when routing depends on derived custom
+            fields.
           </li>
         </ol>
       </HelpSection>

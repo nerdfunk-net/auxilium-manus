@@ -44,9 +44,13 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "mode": "fixed",
-                "destination_path": "custom.location",
-                "fixed_value": "office-a",
+                "attributes": [
+                    {
+                        "mode": "fixed",
+                        "destination_path": "custom.location",
+                        "fixed_value": "office-a",
+                    }
+                ],
             },
             context=context,
             run=run,
@@ -59,6 +63,66 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "custom.location"), "office-a")
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
 
+    async def test_legacy_flat_config_still_works(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1")},
+        )
+
+        outcomes = await execute(
+            config={
+                "mode": "fixed",
+                "destination_path": "custom.location",
+                "fixed_value": "office-a",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+        )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(resolve_device_attribute(updated, "custom.location"), "office-a")
+
+    async def test_multiple_attributes_applied_in_order(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"dev-1": _device("dev-1", name="l123-router-1.local.zz")},
+        )
+
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "fixed",
+                        "destination_path": "custom.site",
+                        "fixed_value": "office-a",
+                    },
+                    {
+                        "mode": "regex",
+                        "source_path": "device.name",
+                        "destination_path": "custom.location",
+                        "pattern": r"^([^-]+)-",
+                        "destination_template": r"DC-\1",
+                    },
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="node-1",
+        )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(resolve_device_attribute(updated, "custom.site"), "office-a")
+        self.assertEqual(resolve_device_attribute(updated, "custom.location"), "DC-l123")
+        self.assertEqual(outcomes[0].context.metadata["node-1.attribute_count"], 2)
+        self.assertEqual(outcomes[0].context.metadata["node-1.write_count"], 2)
+
     async def test_regex_mode_skips_when_pattern_does_not_match(self) -> None:
         run = MagicMock()
         context = WorkflowContext(
@@ -69,11 +133,15 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "mode": "regex",
-                "source_path": "device.name",
-                "destination_path": "custom.location",
-                "pattern": r"^([^-]+)-",
-                "destination_template": r"DC-\1",
+                "attributes": [
+                    {
+                        "mode": "regex",
+                        "source_path": "device.name",
+                        "destination_path": "custom.location",
+                        "pattern": r"^([^-]+)-",
+                        "destination_template": r"DC-\1",
+                    }
+                ],
             },
             context=context,
             run=run,
@@ -95,11 +163,15 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "mode": "regex",
-                "source_path": "device.name",
-                "destination_path": "custom.location",
-                "pattern": r"^([^-]+)-",
-                "destination_template": r"DC-\1",
+                "attributes": [
+                    {
+                        "mode": "regex",
+                        "source_path": "device.name",
+                        "destination_path": "custom.location",
+                        "pattern": r"^([^-]+)-",
+                        "destination_template": r"DC-\1",
+                    }
+                ],
             },
             context=context,
             run=run,
@@ -122,9 +194,13 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "mode": "fixed",
-                "destination_path": "tacacs.shared_secret",
-                "fixed_value": "mykey",
+                "attributes": [
+                    {
+                        "mode": "fixed",
+                        "destination_path": "tacacs.shared_secret",
+                        "fixed_value": "mykey",
+                    }
+                ],
             },
             context=context,
             run=run,
@@ -153,11 +229,15 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError) as ctx:
             await execute(
                 config={
-                    "mode": "regex",
-                    "source_path": "tacacs.shared_secret",
-                    "destination_path": "backup.token",
-                    "pattern": r"(.*)",
-                    "destination_template": r"\1",
+                    "attributes": [
+                        {
+                            "mode": "regex",
+                            "source_path": "tacacs.shared_secret",
+                            "destination_path": "backup.token",
+                            "pattern": r"(.*)",
+                            "destination_template": r"\1",
+                        }
+                    ],
                 },
                 context=context,
                 run=run,
