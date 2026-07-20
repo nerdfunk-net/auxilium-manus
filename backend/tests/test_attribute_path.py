@@ -81,6 +81,64 @@ class AttributePathTests(unittest.TestCase):
             {"name": "access-switch", "id": "abc"},
         )
 
+    def test_resolves_scalar_leaf_from_parsed_namespace(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"cisco_config": {"hostname": "router1", "platform": "IOS"}},
+        )
+        self.assertEqual(
+            resolve_device_attribute(device, "parsed.cisco_config.hostname"),
+            "router1",
+        )
+
+    def test_dict_or_list_leaf_from_parsed_namespace_is_none_via_scalar_resolver(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "cisco_config": {
+                    "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                }
+            },
+        )
+        self.assertIsNone(
+            resolve_device_attribute(device, "parsed.cisco_config.aaa_servers.servers")
+        )
+
+    def test_resolve_device_value_returns_raw_structure_from_parsed_namespace(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "cisco_config": {
+                    "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                }
+            },
+        )
+        self.assertEqual(
+            resolve_device_value(device, "parsed.cisco_config.aaa_servers.servers"),
+            [{"name": "tacacs1", "address": "10.0.0.5"}],
+        )
+
+    def test_parsed_namespace_does_not_collide_with_attribute_bag_named_parsed(self) -> None:
+        # attribute_bags never actually has a "parsed" key in practice, but the
+        # reserved namespace must win over it rather than silently merging.
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"parsed": {"hostname": "from-bag"}},
+            parsed={"cisco_config": {"hostname": "from-parsed-field"}},
+        )
+        self.assertEqual(
+            resolve_device_attribute(device, "parsed.cisco_config.hostname"),
+            "from-parsed-field",
+        )
+
 
 class AttributeStateTests(unittest.TestCase):
     def test_absent_when_bag_missing(self) -> None:
@@ -137,6 +195,42 @@ class AttributeStateTests(unittest.TestCase):
         device = DeviceContext(id="device-1", name="lab", hostname="lab", platform=None)
         state, value = resolve_device_attribute_state(device, "device.platform")
         self.assertEqual(state, AttributeState.NULL)
+        self.assertIsNone(value)
+
+    def test_present_when_parsed_server_list_is_non_empty(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "cisco_config": {
+                    "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                }
+            },
+        )
+        state, value = resolve_device_attribute_state(
+            device, "parsed.cisco_config.aaa_servers.servers"
+        )
+        self.assertEqual(state, AttributeState.PRESENT)
+        self.assertIsNone(value)  # list contents aren't stringified — only PRESENT/EMPTY
+
+    def test_empty_when_parsed_server_list_is_empty(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"cisco_config": {"aaa_servers": {"servers": []}}},
+        )
+        state, value = resolve_device_attribute_state(
+            device, "parsed.cisco_config.aaa_servers.servers"
+        )
+        self.assertEqual(state, AttributeState.EMPTY)
+        self.assertIsNone(value)
+
+    def test_absent_when_parsed_key_missing(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        state, value = resolve_device_attribute_state(device, "parsed.cisco_config.hostname")
+        self.assertEqual(state, AttributeState.ABSENT)
         self.assertIsNone(value)
 
 

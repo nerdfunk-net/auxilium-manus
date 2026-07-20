@@ -302,6 +302,42 @@ plugins:
             - "Location#All Locations"
             - "Device Type#All Device Types"
 
+  - id: parse-cisco-config
+    name: Parse Cisco Config
+    overview: Parse a Cisco running/startup config into structured data.
+    description: >
+      Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into
+      structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.)
+      using cisco-config-parser, for use by Jinja templates and Log Attributes.
+    artifact_type: configuration_retrieval
+    palette_category: cisco
+    directory: parse_cisco_config
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    primary_output: cisco_config
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: config_source
+          description: Which config to parse — running, startup, or both.
+          data_type: string
+          required: true
+          example: both
+        - name: output_key
+          description: >
+            Unique key for this step's parsed output on each device (used by
+            downstream Jinja templates and Log Attributes as
+            device.parsed.<output_key>). When config_source is "both", the
+            running/startup models are nested under this key's "running"/
+            "startup" fields.
+          data_type: string
+          required: true
+          example: cisco_config
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.
@@ -549,8 +585,14 @@ plugins:
         - name: attribute_path
           description: >
             Dot path to the attribute to match. Use device.* for core fields
-            (device.network_driver) or bag paths for enriched attributes
-            (nautobot.role.name, git.filename, custom.field).
+            (device.network_driver), bag paths for enriched attributes
+            (nautobot.role.name, git.filename, custom.field), or parsed.* for a
+            step's parsed output (parsed.cisco_config.hostname, from
+            parse-cisco-config/render-jinja-template/filter-output). A
+            parsed.* leaf holding a list or dict (e.g.
+            parsed.cisco_config.aaa_servers.servers) can't be matched as a
+            literal value, but {exists}/{empty}/{absent} still work to route
+            on whether it's populated.
           data_type: string
           required: true
           example: device.network_driver
@@ -578,6 +620,60 @@ plugins:
           required: false
           default: false
 
+  - id: list-contains
+    name: List Contains
+    overview: Check whether a value is present anywhere in a parsed list.
+    description: >
+      Check whether a specific value — or a specific field of each item — appears
+      in a list resolved from device context, e.g. whether a given TACACS+ server
+      is among a device's parsed AAA servers. No Jinja template required.
+    artifact_type: control_flow
+    directory: list_contains
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    primary_output: membership
+    outcomes:
+      - name: match
+      - name: mismatch
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: list_path
+          description: >
+            Dot path to the list to search. Supports device.* scalars, bag paths
+            (nautobot.tags), and parsed.* for a step's parsed output (e.g.
+            parsed.cisco_config.aaa_servers.servers). Must resolve to a list;
+            devices where it isn't populated, or resolves to something other
+            than a list, route to failure.
+          data_type: string
+          required: true
+          example: parsed.cisco_config.aaa_servers.servers
+        - name: field
+          description: >
+            Optional dot path within each list item to compare (for a list of
+            objects, e.g. address, or a nested source.ip). Leave empty to compare
+            each list item directly (for a list of plain strings/numbers, e.g.
+            a VLAN id list).
+          data_type: string
+          required: false
+          example: address
+        - name: value
+          description: >
+            The value to look for. Use a fixed value, or wrap a dot path in
+            braces to resolve it per device, e.g. {custom.expected_tacacs_ip},
+            optionally with a fallback: {custom.expected_tacacs_ip | default('10.0.0.5')}.
+            A device whose value expression resolves to nothing routes to failure.
+          data_type: string
+          required: true
+          example: "10.0.0.5"
+        - name: case_sensitive
+          description: When false, value comparison ignores letter case.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: update-attribute
     name: Update Attribute
     overview: Set or transform device attributes in the workflow.
@@ -598,7 +694,11 @@ plugins:
             Ordered list of attribute updates. Each entry has a mode (fixed or
             regex), destination_path, and mode-specific fields (fixed_value, or
             source_path / pattern / destination_template / regex_flags). Updates
-            run in list order for every device.
+            run in list order for every device. source_path may read a scalar
+            leaf from a step's parsed output (e.g.
+            parsed.cisco_config.hostname), but destination_path may not target
+            parsed.* — that namespace is populated only by step executors
+            (parse-cisco-config, render-jinja-template, ...), not by this step.
           data_type: object_list
           required: true
           example:

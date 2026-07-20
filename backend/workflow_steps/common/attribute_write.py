@@ -9,6 +9,14 @@ from workflow_steps.common.attribute_path import DEVICE_SCALAR_FIELDS
 
 _READ_ONLY_DEVICE_FIELDS = frozenset({"id", "source", "source_id"})
 
+# "parsed" is a reserved read namespace backed by DeviceContext.parsed (see
+# attribute_path.py) — populated only by step executors (parse-cisco-config,
+# render-jinja-template, filter-output, ...), never by generic attribute
+# writes. Writing "parsed.foo" here would land in attribute_bags["parsed"]
+# instead, which the read side ignores entirely (it always reads
+# DeviceContext.parsed for this name), making the write silently unreadable.
+_RESERVED_BAG_NAMES = frozenset({"parsed"})
+
 
 def _set_nested(root: dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")
@@ -68,6 +76,12 @@ def set_device_attribute(device: DeviceContext, attribute_path: str, value: Any)
     bag_name, remainder = path.split(".", 1)
     if bag_name in DEVICE_SCALAR_FIELDS:
         raise ValueError("use device.* prefix for device scalar fields")
+    if bag_name in _RESERVED_BAG_NAMES:
+        raise ValueError(
+            f"{bag_name!r} is a reserved namespace populated by workflow steps "
+            "(e.g. parse-cisco-config, render-jinja-template) and cannot be "
+            "written via update-attribute"
+        )
 
     attribute_bags = {name: dict(bag) for name, bag in device.attribute_bags.items()}
     bag = dict(attribute_bags.get(bag_name, {}))

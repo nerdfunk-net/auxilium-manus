@@ -48,6 +48,20 @@ class AttributeState(str, Enum):
 
 _MISSING = object()
 
+# Reserved namespace name for a step's parsed output (DeviceContext.parsed),
+# mirroring the "parsed" namespace Jinja rendering already exposes via
+# build_jinja_context — kept separate from attribute_bags so a step like
+# parse-cisco-config's output_key can't collide with an attribute bag name.
+_PARSED_NAMESPACE = "parsed"
+
+
+def _namespace_bag(device: DeviceContext, bag_name: str) -> dict[str, Any] | None:
+    """Look up a namespaced bag by name: "parsed" reads DeviceContext.parsed,
+    anything else reads DeviceContext.attribute_bags."""
+    if bag_name == _PARSED_NAMESPACE:
+        return device.parsed or None
+    return device.attribute_bags.get(bag_name)
+
 
 def _traverse_path(root: Any, path: str) -> Any:
     current = root
@@ -104,6 +118,8 @@ def build_device_value_context(
     for bag_name, bag_value in device.attribute_bags.items():
         if bag_name not in context:
             context[bag_name] = dict(bag_value)
+    if device.parsed:
+        context[_PARSED_NAMESPACE] = dict(device.parsed)
     context["capabilities"] = sorted(cap.value for cap in device.capabilities)
     context["status"] = device.status.value
     return context
@@ -157,6 +173,15 @@ def resolve_device_attribute(
 ) -> str | None:
     """Resolve a dot path against device scalars and namespaced attribute bags.
 
+    A leading ``parsed.`` segment reads ``DeviceContext.parsed`` (the output
+    of steps like ``parse-cisco-config``, ``render-jinja-template``,
+    ``filter-output``) instead of ``attribute_bags`` — e.g.
+    ``parsed.cisco_config.hostname``. Like any other bag, only scalar leaves
+    resolve to a string here; a leaf holding a dict/list (e.g. a list of
+    parsed AAA servers) resolves to ``None`` — use ``resolve_device_value``
+    or ``resolve_device_attribute_state`` (``{exists}``/``{empty}``) for
+    those instead of expecting a literal-value match.
+
     ``reveal_secrets`` controls what happens when the resolved leaf is a
     sealed secret envelope (see ``services.workflow_context.secret_fields``):
     ``True`` (the default — for trusted consumers like Jinja rendering and
@@ -182,13 +207,13 @@ def resolve_device_attribute(
 
     if "." in path:
         bag_name, remainder = path.split(".", 1)
-        bag = device.attribute_bags.get(bag_name)
+        bag = _namespace_bag(device, bag_name)
         if bag is None:
             return None
         raw = _traverse_path(bag, remainder)
         return _resolve_leaf(raw, reveal_secrets=reveal_secrets)
 
-    bag = device.attribute_bags.get(path)
+    bag = _namespace_bag(device, path)
     if bag is None:
         return None
     if isinstance(bag, dict) and len(bag) == 1:
@@ -206,7 +231,15 @@ def resolve_device_attribute_state(
     doesn't exist at all (``ABSENT``) from one whose value is explicitly
     ``None`` (``NULL``) from one whose value is an empty string/list/dict
     (``EMPTY``) — needed for steps that route on those states rather than on
-    a literal string value (for example: "was a TACACS+ key ever set?").
+    a literal string value (for example: "was a TACACS+ key ever set?", or
+    "does this device have any parsed AAA servers at all?").
+
+    A leading ``parsed.`` segment reads ``DeviceContext.parsed`` — see
+    ``resolve_device_attribute`` for the same convention. This is how
+    ``route-on-attribute`` can branch on ``{exists}``/``{empty}``/``{absent}``
+    for a parsed list/dict value (e.g. ``parsed.cisco_config.aaa_servers.servers``)
+    even though the literal contents of that list can't be matched as a single
+    string value.
     """
     path = attribute_path.strip()
     if not path:
@@ -223,7 +256,7 @@ def resolve_device_attribute_state(
 
     if "." in path:
         bag_name, remainder = path.split(".", 1)
-        bag = device.attribute_bags.get(bag_name)
+        bag = _namespace_bag(device, bag_name)
         if bag is None:
             return AttributeState.ABSENT, None
         raw = _traverse_path_raw(bag, remainder)
@@ -231,7 +264,7 @@ def resolve_device_attribute_state(
             return AttributeState.ABSENT, None
         return _classify_value(raw)
 
-    bag = device.attribute_bags.get(path)
+    bag = _namespace_bag(device, path)
     if bag is None:
         return AttributeState.ABSENT, None
     if isinstance(bag, dict):

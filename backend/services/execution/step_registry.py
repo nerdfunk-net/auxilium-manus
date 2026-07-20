@@ -29,8 +29,10 @@ from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot
 from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
 from workflow_steps.git_push.executor import execute as git_push
+from workflow_steps.list_contains.executor import execute as list_contains
 from workflow_steps.merge_content.executor import execute as merge_content
 from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
+from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_config
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.run_command.executor import execute as run_command
@@ -52,9 +54,11 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "add-to-ise": add_to_ise,
     "get-nautobot-attributes": get_nautobot_attributes,
     "get-device-configs": get_device_configs,
+    "parse-cisco-config": parse_cisco_config,
     "render-jinja-template": render_jinja_template,
     "run-command": run_command,
     "route-on-attribute": route_on_attribute,
+    "list-contains": list_contains,
     "fan-in": fan_in,
     "merge-content": merge_content,
     "filter-output": filter_output,

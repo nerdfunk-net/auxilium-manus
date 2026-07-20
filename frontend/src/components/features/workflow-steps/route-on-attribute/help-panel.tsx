@@ -43,6 +43,10 @@ export function RouteOnAttributeHelpPanel() {
             <HelpCode>custom.tacacs_key</HelpCode> — user-defined attribute from
             Update Attribute or upstream steps
           </li>
+          <li>
+            <HelpCode>parsed.cisco_config.hostname</HelpCode> — a step&apos;s parsed
+            output (e.g. Parse Cisco Config, Render Jinja Template)
+          </li>
         </ul>
         <HelpExample>
           attribute_path: device.network_driver
@@ -115,6 +119,18 @@ export function RouteOnAttributeHelpPanel() {
           <br />
           {`    values: ["{absent}", "{empty}"]`}
         </HelpExample>
+        <HelpWarning title="Lists and objects only support existence tokens">
+          <p>
+            When <HelpCode>attribute_path</HelpCode> resolves to a list or object —
+            e.g. <HelpCode>parsed.cisco_config.aaa_servers.servers</HelpCode>, a
+            parsed list of AAA servers — literal values never match it; only{" "}
+            <HelpCode>{"{exists}"}</HelpCode>/<HelpCode>{"{empty}"}</HelpCode>/
+            <HelpCode>{"{absent}"}</HelpCode> work, to check whether it&apos;s
+            populated at all. To match one specific entry in that list (e.g. one
+            particular server address), compute the check first in a Render Jinja
+            Template step and route on that derived value instead.
+          </p>
+        </HelpWarning>
       </HelpSection>
 
       <HelpSection title="Default outcome">

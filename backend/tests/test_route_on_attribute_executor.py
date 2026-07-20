@@ -18,6 +18,7 @@ def _device(
     *,
     network_driver: str | None = None,
     attribute_bags: dict | None = None,
+    parsed: dict | None = None,
 ) -> DeviceContext:
     return DeviceContext(
         id=device_id,
@@ -25,6 +26,7 @@ def _device(
         hostname=device_id,
         network_driver=network_driver,
         attribute_bags=attribute_bags or {},
+        parsed=parsed or {},
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )
@@ -331,6 +333,56 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["primary"].context.devices), ["ios-1"])
         self.assertEqual(by_name["secondary"].context.devices, {})
+
+    async def test_routes_on_presence_of_parsed_cisco_aaa_servers(self) -> None:
+        """A device parsed by parse-cisco-config exposes device.parsed under the
+        "parsed" namespace, e.g. parsed.cisco_config.aaa_servers.servers — a list
+        that can't be matched as a literal value, but can be routed on
+        {exists}/{absent} to check whether any AAA server is configured at all."""
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "has-tacacs": _device(
+                    "has-tacacs",
+                    parsed={
+                        "cisco_config": {
+                            "aaa_servers": {
+                                "servers": [
+                                    {"name": "tacacs1", "protocol": "tacacs", "address": "10.0.0.5"}
+                                ]
+                            }
+                        }
+                    },
+                ),
+                "no-tacacs": _device(
+                    "no-tacacs",
+                    parsed={"cisco_config": {"aaa_servers": {"servers": []}}},
+                ),
+                "not-parsed": _device("not-parsed"),
+            },
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "parsed.cisco_config.aaa_servers.servers",
+                "routes": [
+                    {"outcome": "has-tacacs", "values": ["{exists}"]},
+                    {"outcome": "no-tacacs", "values": ["{empty}", "{absent}"]},
+                ],
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-10",
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(list(by_name["has-tacacs"].context.devices), ["has-tacacs"])
+        self.assertEqual(
+            set(by_name["no-tacacs"].context.devices), {"no-tacacs", "not-parsed"}
+        )
 
 
 if __name__ == "__main__":

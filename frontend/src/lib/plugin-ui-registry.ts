@@ -5,6 +5,7 @@ import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
+import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/parse-cisco-config";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
 import { GetIseDevicesPlugin } from "@/components/features/workflow-steps/get-ise-devices";
@@ -15,6 +16,7 @@ import { GitPushPlugin } from "@/components/features/workflow-steps/git-push";
 import { GetNautobotDevicesPlugin } from "@/components/features/workflow-steps/get-nautobot-devices";
 import { GetNautobotAttributesPlugin } from "@/components/features/workflow-steps/get-nautobot-attributes";
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
+import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
 import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/render-jinja-template";
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
 import { LogAttributesPlugin } from "@/components/features/workflow-steps/log-attributes";
@@ -32,8 +34,10 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-ise-tacacs-key": GetIseTacacsKeyPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,
+  "parse-cisco-config": ParseCiscoConfigPlugin,
   "run-command": RunCommandPlugin,
   "route-on-attribute": RouteOnAttributePlugin,
+  "list-contains": ListContainsPlugin,
   "fan-in": FanInPlugin,
   "merge-content": MergeContentPlugin,
   "filter-output": FilterOutputPlugin,

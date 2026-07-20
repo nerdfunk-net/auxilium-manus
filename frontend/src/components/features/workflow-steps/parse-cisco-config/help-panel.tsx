@@ -1,0 +1,153 @@
+"use client";
+
+import {
+  HelpCode,
+  HelpExample,
+  HelpSection,
+  HelpWarning,
+} from "../shared/step-help";
+
+/**
+ * Built-in Help tab content for Parse Cisco Config.
+ * Covers every Configuration control with practical examples.
+ */
+export function ParseCiscoConfigHelpPanel() {
+  return (
+    <div className="space-y-6">
+      <HelpSection title="What this step does">
+        <p>
+          Parses each device&apos;s running and/or startup configuration (fetched by an
+          upstream Get Configs step) into structured data using the cisco-config-parser
+          library — hostname, VRFs, VLANs, L2/L3 interfaces, ACLs, prefix lists,
+          route maps, FHRP groups, port channels, and routing (static/OSPF/EIGRP/BGP).
+          Cisco IOS, IOS-XE, NXOS, and IOS-XR are supported.
+        </p>
+        <p>
+          The parsed result is written to{" "}
+          <HelpCode>device.parsed.{"{output_key}"}</HelpCode> for downstream Render
+          Jinja Template or Log Attributes steps.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="Config source">
+        <p>
+          Choose which fetched config to parse: <HelpCode>running</HelpCode>,{" "}
+          <HelpCode>startup</HelpCode>, or <HelpCode>both</HelpCode>. A device is
+          routed to <span className="font-medium text-foreground">failure</span> if
+          the config it needs was never fetched (add a Get Configs step upstream with
+          the matching option enabled).
+        </p>
+        <HelpExample>
+          config_source: both
+          <br />
+          <span className="text-muted-foreground">
+            → parses both device.running_config and device.startup_config
+          </span>
+        </HelpExample>
+        <HelpWarning title="Both requires both configs to succeed">
+          <p>
+            When <HelpCode>config_source</HelpCode> is <HelpCode>both</HelpCode>, the
+            whole device is marked failed if either side fails to parse — there is no
+            partial (running-only or startup-only) success.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
+      <HelpSection title="Output key">
+        <p>
+          <HelpCode>output_key</HelpCode> names the slot where the parsed model is
+          stored on each device. Downstream steps and templates reference{" "}
+          <HelpCode>device.parsed.{"{output_key}"}</HelpCode>.
+        </p>
+        <p>
+          When <HelpCode>config_source</HelpCode> is <HelpCode>running</HelpCode> or{" "}
+          <HelpCode>startup</HelpCode>, the value at that key is the parsed model
+          directly. When it is <HelpCode>both</HelpCode>, the running and startup
+          models are nested under <HelpCode>running</HelpCode> /{" "}
+          <HelpCode>startup</HelpCode> sub-keys.
+        </p>
+        <HelpExample>
+          output_key: cisco_config
+          <br />
+          {"{{ parsed.cisco_config.hostname }}"}
+          <br />
+          {"{{ parsed.cisco_config.vlans }}"}
+          <br />
+          <span className="text-muted-foreground">
+            — with config_source: both, use parsed.cisco_config.running.hostname /
+            parsed.cisco_config.startup.hostname
+          </span>
+        </HelpExample>
+      </HelpSection>
+
+      <HelpSection title="Using parsed data in Route on Attribute / Update Attribute">
+        <p>
+          Route on Attribute and Update Attribute can also read{" "}
+          <HelpCode>parsed.{"{output_key}"}...</HelpCode> paths, not just Jinja
+          templates. A leaf holding a scalar (e.g.{" "}
+          <HelpCode>parsed.cisco_config.hostname</HelpCode>) can be matched by exact
+          value. A leaf holding a list or dict (e.g.{" "}
+          <HelpCode>parsed.cisco_config.aaa_servers.servers</HelpCode>, a list of
+          configured AAA servers) can&apos;t be matched by value, but Route on
+          Attribute can still branch on <HelpCode>{"{exists}"}</HelpCode> /{" "}
+          <HelpCode>{"{empty}"}</HelpCode> / <HelpCode>{"{absent}"}</HelpCode> to
+          check whether it&apos;s populated at all.
+        </p>
+        <HelpExample>
+          attribute_path: parsed.cisco_config.aaa_servers.servers
+          <br />
+          routes: [{"{"} outcome: has_tacacs, values: [{"{exists}"}] {"}"}]
+          <br />
+          <span className="text-muted-foreground">
+            → routes devices with at least one parsed AAA server to has_tacacs
+          </span>
+        </HelpExample>
+        <HelpWarning title="Checking for one specific server">
+          <p>
+            To check whether a <span className="font-medium text-foreground">
+              specific
+            </span>{" "}
+            TACACS server (by name or address) is present — not just whether the
+            list is non-empty — compute that check in a Render Jinja Template step
+            first (e.g. with Jinja&apos;s <HelpCode>selectattr</HelpCode> filter),
+            store the result under a new <HelpCode>output_key</HelpCode>, then route
+            on that derived value.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
+      <HelpSection title="Outcomes">
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            <span className="font-medium text-foreground">success</span> — the
+            requested config(s) parsed; the model is available at{" "}
+            <HelpCode>device.parsed.{"{output_key}"}</HelpCode>. Sections the parser
+            doesn&apos;t support for the detected platform are listed under{" "}
+            <HelpCode>unsupported</HelpCode>; individual section failures are
+            collected under <HelpCode>parse_errors</HelpCode> without failing the
+            whole device.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">failure</span> — the
+            requested config wasn&apos;t fetched upstream, or the platform
+            (IOS/IOS-XE/NXOS/XR) couldn&apos;t be determined from the config text.
+            Setting the device&apos;s network driver (e.g. via Get from Nautobot) helps
+            the parser when the config text lacks a recognizable platform banner.
+          </li>
+        </ul>
+      </HelpSection>
+
+      <HelpSection title="Typical setup">
+        <ol className="list-decimal space-y-1.5 pl-4">
+          <li>Add a Get Configs step upstream and enable the config(s) you need.</li>
+          <li>Add this step after it; set config_source and output_key.</li>
+          <li>
+            Use Log Attributes to inspect the parsed structure, or reference{" "}
+            <HelpCode>parsed.{"{output_key}"}</HelpCode> fields from a Render Jinja
+            Template step.
+          </li>
+        </ol>
+      </HelpSection>
+    </div>
+  );
+}

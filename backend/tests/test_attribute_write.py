@@ -43,6 +43,11 @@ class AttributeWriteTests(unittest.TestCase):
         updated = set_device_attribute(device, "device.platform", "cisco-ios")
         self.assertEqual(updated.platform, "cisco-ios")
 
+    def test_rejects_write_to_reserved_parsed_namespace(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        with self.assertRaises(ValueError):
+            set_device_attribute(device, "parsed.cisco_config", "anything")
+
 
 if __name__ == "__main__":
     unittest.main()
