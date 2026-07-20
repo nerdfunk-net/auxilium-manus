@@ -117,8 +117,8 @@ export function summarizeWorkflowLogMessage(
   return typeof message === "string" && message.trim() ? message.trim() : null;
 }
 
-/** Short summary for show-attributes destination/format in the run list. */
-export function summarizeShowAttributes(
+/** Short summary for log-attributes destination/format in the run list. */
+export function summarizeLogAttributes(
   output: Record<string, unknown> | null,
 ): string | null {
   const metadata = firstOutcomeMetadata(output);
@@ -127,7 +127,7 @@ export function summarizeShowAttributes(
   }
 
   const payload = Object.entries(metadata).find(([key]) =>
-    key.endsWith(".show_attributes"),
+    key.endsWith(".log_attributes"),
   )?.[1];
   if (!payload || typeof payload !== "object" || payload === null) {
     return null;

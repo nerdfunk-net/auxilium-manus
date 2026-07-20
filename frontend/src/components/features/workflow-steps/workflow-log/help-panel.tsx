@@ -22,7 +22,7 @@ export function WorkflowLogHelpPanel() {
           dumping full context.
         </p>
         <p>
-          Unlike Show Attributes, this step emits one concise line per device rather
+          Unlike Log Attributes, this step emits one concise line per device rather
           than serializing the entire context.
         </p>
       </HelpSection>

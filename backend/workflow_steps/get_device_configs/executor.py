@@ -150,8 +150,37 @@ async def execute(
             )
             return device_id, failed, False
 
+    async def fetch_device_logged(
+        index: int, device_id: str, device: DeviceContext
+    ) -> tuple[str, DeviceContext, bool]:
+        host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
+        total = len(context.devices)
+        logger.info(
+            "get-device-configs device %d/%d id=%s host=%s: connecting run_id=%s",
+            index,
+            total,
+            device_id,
+            host,
+            run.id,
+        )
+        result = await fetch_device(device_id, device)
+        _, _, ok = result
+        logger.info(
+            "get-device-configs device %d/%d id=%s host=%s: %s run_id=%s",
+            index,
+            total,
+            device_id,
+            host,
+            "ok" if ok else "failed",
+            run.id,
+        )
+        return result
+
     results = await asyncio.gather(
-        *[fetch_device(device_id, device) for device_id, device in context.devices.items()]
+        *[
+            fetch_device_logged(index, device_id, device)
+            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
+        ]
     )
 
     for device_id, updated_device, ok in results:

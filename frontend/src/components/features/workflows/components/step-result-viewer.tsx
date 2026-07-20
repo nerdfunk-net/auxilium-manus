@@ -27,7 +27,7 @@ interface StepResultViewerProps {
 /** Lists with more than this many devices start collapsed. */
 const DEVICES_COLLAPSE_THRESHOLD = 5;
 const DEBUG_LOGS_METADATA_SUFFIX = ".debug_logs";
-const SHOW_ATTRIBUTES_METADATA_SUFFIX = ".show_attributes";
+const LOG_ATTRIBUTES_METADATA_SUFFIX = ".log_attributes";
 
 interface DebugLogDeviceEntry {
   device_id: string;
@@ -51,7 +51,7 @@ function isDebugLogsPayload(value: unknown): value is DebugLogsPayload {
   );
 }
 
-interface ShowAttributesPayload {
+interface LogAttributesPayload {
   output_destination?: string;
   output_format?: string;
   filename?: string | null;
@@ -62,7 +62,7 @@ interface ShowAttributesPayload {
   content?: string;
 }
 
-function isShowAttributesPayload(value: unknown): value is ShowAttributesPayload {
+function isLogAttributesPayload(value: unknown): value is LogAttributesPayload {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -77,11 +77,11 @@ function extractDebugLogs(metadata: Record<string, unknown>): DebugLogsPayload[]
     .filter(isDebugLogsPayload);
 }
 
-function extractShowAttributes(metadata: Record<string, unknown>): ShowAttributesPayload[] {
+function extractLogAttributes(metadata: Record<string, unknown>): LogAttributesPayload[] {
   return Object.entries(metadata)
-    .filter(([key]) => key.endsWith(SHOW_ATTRIBUTES_METADATA_SUFFIX))
+    .filter(([key]) => key.endsWith(LOG_ATTRIBUTES_METADATA_SUFFIX))
     .map(([, value]) => value)
-    .filter(isShowAttributesPayload);
+    .filter(isLogAttributesPayload);
 }
 
 function metadataWithoutDebugPanels(metadata: Record<string, unknown>): Record<string, unknown> {
@@ -89,7 +89,7 @@ function metadataWithoutDebugPanels(metadata: Record<string, unknown>): Record<s
     Object.entries(metadata).filter(
       ([key]) =>
         !key.endsWith(DEBUG_LOGS_METADATA_SUFFIX) &&
-        !key.endsWith(SHOW_ATTRIBUTES_METADATA_SUFFIX),
+        !key.endsWith(LOG_ATTRIBUTES_METADATA_SUFFIX),
     ),
   );
 }
@@ -158,7 +158,7 @@ function DebugLogsPanel({ logs }: { logs: DebugLogsPayload[] }) {
   );
 }
 
-function ShowAttributesPanel({ entries }: { entries: ShowAttributesPayload[] }) {
+function LogAttributesPanel({ entries }: { entries: LogAttributesPayload[] }) {
   if (entries.length === 0) {
     return null;
   }
@@ -166,11 +166,11 @@ function ShowAttributesPanel({ entries }: { entries: ShowAttributesPayload[] }) 
   return (
     <div className="space-y-3">
       {entries.map((entry, index) => (
-        <div key={`show-attributes-${index}`} className="rounded-lg border bg-card p-3">
+        <div key={`log-attributes-${index}`} className="rounded-lg border bg-card p-3">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <ScrollText className="size-3.5 shrink-0 text-muted-foreground" />
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Show attributes
+              Log attributes
             </p>
             {entry.output_destination ? (
               <Badge className="text-[10px]" variant="secondary">
@@ -937,8 +937,8 @@ function OutcomeContextView({
   const devices = Object.values(context.devices);
   const pendingCommandNodes = Object.keys(context.pending_commands);
   const debugLogs = useMemo(() => extractDebugLogs(context.metadata), [context.metadata]);
-  const showAttributes = useMemo(
-    () => extractShowAttributes(context.metadata),
+  const logAttributes = useMemo(
+    () => extractLogAttributes(context.metadata),
     [context.metadata],
   );
   const remainingMetadata = useMemo(
@@ -959,12 +959,12 @@ function OutcomeContextView({
         </div>
       ) : null}
 
-      {showAttributes.length > 0 ? (
+      {logAttributes.length > 0 ? (
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Attribute dump
+            Log attributes
           </p>
-          <ShowAttributesPanel entries={showAttributes} />
+          <LogAttributesPanel entries={logAttributes} />
         </div>
       ) : null}
 

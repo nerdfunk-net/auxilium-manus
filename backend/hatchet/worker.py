@@ -19,6 +19,7 @@ if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
 import service_factory  # noqa: E402
+from core.database import SessionLocal  # noqa: E402
 from core.logging_config import configure_logging  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
 from hatchet.workflows.device_group_execution import (  # noqa: E402
@@ -26,6 +27,7 @@ from hatchet.workflows.device_group_execution import (  # noqa: E402
 )
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
 from services.ise.client import ISEService  # noqa: E402
+from services.logging.logging_settings_service import LoggingSettingsService  # noqa: E402
 from services.nautobot.client import NautobotService  # noqa: E402
 
 configure_logging("worker")
@@ -33,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 
 async def lifespan() -> AsyncGenerator[None, None]:
+    with SessionLocal() as db:
+        LoggingSettingsService(db).apply_to_current_process("worker")
+
     nautobot_service = NautobotService()
     await nautobot_service.startup()
     service_factory.set_nautobot_app_service(nautobot_service)

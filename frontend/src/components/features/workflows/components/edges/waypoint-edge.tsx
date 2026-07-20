@@ -9,7 +9,11 @@ import {
 } from "@xyflow/react";
 import { useCallback, useRef } from "react";
 
-import type { Waypoint, WorkflowCanvasEdge } from "../../types/workflow-canvas";
+import {
+  DEFAULT_EDGE_STYLE,
+  type Waypoint,
+  type WorkflowCanvasEdge,
+} from "../../types/workflow-canvas";
 
 function buildPath(
   sourceX: number,
@@ -134,7 +138,7 @@ export function WaypointEdge({
   // ── End of hooks ─────────────────────────────────────────────────────────
 
   const waypoints: Waypoint[] = (data?.waypoints as Waypoint[] | undefined) ?? [];
-  const isSmooth = data?.edgeStyle === "smooth";
+  const isSmooth = (data?.edgeStyle ?? DEFAULT_EDGE_STYLE) === "smooth";
   const edgeColor = selected ? "#6366f1" : "#94a3b8";
   const edgeWidth = selected ? 2 : 1.5;
   const labelX = (sourceX + targetX) / 2;

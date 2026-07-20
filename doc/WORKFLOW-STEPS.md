@@ -391,7 +391,7 @@ contract lives in `backend/services/workflow_context/secret_fields.py`:
   literal `***REDACTED***`. Applied at every boundary that persists or
   displays a run: `StepRunner._serialize_outcomes`, the Hatchet fan-out merge
   path (`hatchet/workflows/workflow_run.py::_aggregate_and_persist`), and
-  `show-attributes`'s `build_context_snapshot`.
+  `log-attributes`'s `build_context_snapshot`.
 
 **`resolve_device_attribute(device, path, *, reveal_secrets=True)`**
 (`workflow_steps/common/attribute_path.py`) is the shared read path and

@@ -21,11 +21,12 @@ import { MultiStepLayoutPanel } from "./multi-step-layout-panel";
 import { StepCatalog } from "./step-catalog";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "../types/plugin-registry";
-import type {
-  EdgeStyle,
-  ProjectedCanvasNode,
-  StepPayload,
-  WorkflowCanvasEdge,
+import {
+  DEFAULT_EDGE_STYLE,
+  type EdgeStyle,
+  type ProjectedCanvasNode,
+  type StepPayload,
+  type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 import { groupIdFromNodeId, isGroupCanvasNode } from "../utils/canvas-group-projection";
 import type { NodeAlignment } from "../utils/node-alignment";
@@ -234,7 +235,7 @@ export function WorkflowPropertiesPanel({
                   onClick={() => onEdgeStyleChange?.(selectedEdge.id, "straight")}
                   size="sm"
                   variant={
-                    (selectedEdge.data?.edgeStyle ?? "straight") === "straight"
+                    (selectedEdge.data?.edgeStyle ?? DEFAULT_EDGE_STYLE) === "straight"
                       ? "default"
                       : "outline"
                   }
@@ -246,14 +247,16 @@ export function WorkflowPropertiesPanel({
                   onClick={() => onEdgeStyleChange?.(selectedEdge.id, "smooth")}
                   size="sm"
                   variant={
-                    selectedEdge.data?.edgeStyle === "smooth" ? "default" : "outline"
+                    (selectedEdge.data?.edgeStyle ?? DEFAULT_EDGE_STYLE) === "smooth"
+                      ? "default"
+                      : "outline"
                   }
                 >
                   Smooth
                 </Button>
               </div>
               <p className="mt-3 text-[11.5px] leading-[1.5] text-muted-foreground">
-                {(selectedEdge.data?.edgeStyle ?? "straight") === "straight"
+                {(selectedEdge.data?.edgeStyle ?? DEFAULT_EDGE_STYLE) === "straight"
                   ? "Polyline path with bend points. Double-click the line to add a bend point, drag to reposition, right-click to remove."
                   : "Bezier curve managed automatically. Bend points are inactive in smooth mode."}
               </p>

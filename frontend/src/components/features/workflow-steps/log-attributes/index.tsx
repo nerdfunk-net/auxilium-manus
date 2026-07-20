@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
-import { ShowAttributesHelpPanel } from "./help-panel";
+import { LogAttributesHelpPanel } from "./help-panel";
 
 const OUTPUT_DESTINATION_OPTIONS = [
   {
@@ -25,7 +25,7 @@ const OUTPUT_DESTINATION_OPTIONS = [
   {
     value: "file",
     label: "File",
-    hint: "Write under DATA_DIRECTORY/show-attributes/<workflow_id>/<run_id>/.",
+    hint: "Write under DATA_DIRECTORY/log-attributes/<workflow_id>/<run_id>/.",
   },
 ] as const;
 
@@ -45,7 +45,7 @@ const OUTPUT_FORMAT_OPTIONS = [
 type OutputDestination = (typeof OUTPUT_DESTINATION_OPTIONS)[number]["value"];
 type OutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number]["value"];
 
-function buildShowAttributesConfig(
+function buildLogAttributesConfig(
   config: Record<string, unknown>,
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
@@ -68,7 +68,7 @@ function buildShowAttributesConfig(
   };
 }
 
-function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
+function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const outputDestination =
     config.output_destination === "file" ? "file" : ("stdout" as OutputDestination);
@@ -83,13 +83,13 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
       return;
     }
     initializedForNode.current = nodeId;
-    onChange(buildShowAttributesConfig(config));
+    onChange(buildLogAttributesConfig(config));
   }, [nodeId, config, onChange]);
 
   const handleDestinationChange = useCallback(
     (value: string) => {
       onChange(
-        buildShowAttributesConfig(config, {
+        buildLogAttributesConfig(config, {
           output_destination: value === "file" ? "file" : "stdout",
         }),
       );
@@ -100,7 +100,7 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
   const handleFormatChange = useCallback(
     (value: string) => {
       onChange(
-        buildShowAttributesConfig(config, {
+        buildLogAttributesConfig(config, {
           output_format: value === "pretty_text" ? "pretty_text" : "json",
         }),
       );
@@ -110,21 +110,21 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
 
   const handleFilenameChange = useCallback(
     (value: string) => {
-      onChange(buildShowAttributesConfig(config, { filename: value }));
+      onChange(buildLogAttributesConfig(config, { filename: value }));
     },
     [config, onChange],
   );
 
   const handleAppendChange = useCallback(
     (checked: boolean) => {
-      onChange(buildShowAttributesConfig(config, { append: checked }));
+      onChange(buildLogAttributesConfig(config, { append: checked }));
     },
     [config, onChange],
   );
 
   const handleShowParsedTemplatesChange = useCallback(
     (checked: boolean) => {
-      onChange(buildShowAttributesConfig(config, { show_parsed_templates: checked }));
+      onChange(buildLogAttributesConfig(config, { show_parsed_templates: checked }));
     },
     [config, onChange],
   );
@@ -243,7 +243,7 @@ function ShowAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPan
   );
 }
 
-export const ShowAttributesPlugin = {
-  ConfigPanel: ShowAttributesConfigPanel,
-  HelpPanel: ShowAttributesHelpPanel,
+export const LogAttributesPlugin = {
+  ConfigPanel: LogAttributesConfigPanel,
+  HelpPanel: LogAttributesHelpPanel,
 };

@@ -30,13 +30,14 @@ import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "./types/plugin-registry";
 import type { WorkflowSummary, WorkflowVisibility } from "./types/workflow-persistence";
-import type {
-  CanvasGroup,
-  EdgeStyle,
-  ProjectedCanvasNode,
-  StepPayload,
-  WorkflowCanvasEdge,
-  WorkflowCanvasNode,
+import {
+  DEFAULT_EDGE_STYLE,
+  type CanvasGroup,
+  type EdgeStyle,
+  type ProjectedCanvasNode,
+  type StepPayload,
+  type WorkflowCanvasEdge,
+  type WorkflowCanvasNode,
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { validateGroupBoundary } from "./utils/canvas-group-boundary";
@@ -294,7 +295,16 @@ export function WorkflowBuilderPage() {
         targetHandle: targetGroup ? "input" : connection.targetHandle,
       };
 
-      setAllEdges((current) => addEdge({ ...resolvedConnection, type: "waypoint" }, current));
+      setAllEdges((current) =>
+        addEdge(
+          {
+            ...resolvedConnection,
+            type: "waypoint",
+            data: { edgeStyle: DEFAULT_EDGE_STYLE },
+          },
+          current,
+        ),
+      );
       markDirty();
     },
     [groups, markDirty],

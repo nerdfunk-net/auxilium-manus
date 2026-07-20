@@ -668,14 +668,14 @@ plugins:
           required: true
           example: "Device {device.name} processed from ISE"
 
-  - id: show-attributes
-    name: Show Attributes
+  - id: log-attributes
+    name: Log Attributes
     overview: Dump workflow context to STDOUT or a file.
     description: >
       Dump the full workflow context — every device field, attribute bag,
       parsed value, and metadata entry — to STDOUT or a file.
     artifact_type: control_flow
-    directory: show_attributes
+    directory: log_attributes
     enabled: true
     requires: [identity]
     produces: []

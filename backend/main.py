@@ -21,6 +21,7 @@ from routers.cache_settings import router as cache_settings_router
 from routers.credentials import router as credentials_router
 from routers.git import router as git_router
 from routers.hatchet_settings import router as hatchet_settings_router
+from routers.logging_settings import router as logging_settings_router
 from routers.nautobot.custom_fields import router as nautobot_custom_fields_router
 from routers.netmiko import router as netmiko_router
 from routers.rbac import router as rbac_router
@@ -41,6 +42,7 @@ from services.auth.auth_service import AuthService
 from services.auth.rbac_seed import seed_rbac
 from services.auth.rbac_service import RBACService
 from services.ise.client import ISEService
+from services.logging.logging_settings_service import LoggingSettingsService
 from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         admin_user = AuthService(db).ensure_initial_admin()
         seed_rbac(db)
         RBACService(db).assign_role_to_user_by_name(admin_user.id, "admin")
+        LoggingSettingsService(db).apply_to_current_process("app")
 
     plugin_service = PluginRegistryService(
         PluginRepository(plugins_file=settings.plugins_file),
@@ -103,6 +106,7 @@ app.include_router(templates_router, prefix=settings.api_prefix)
 app.include_router(netmiko_router, prefix=settings.api_prefix)
 app.include_router(hatchet_settings_router, prefix=settings.api_prefix)
 app.include_router(cache_settings_router, prefix=settings.api_prefix)
+app.include_router(logging_settings_router, prefix=settings.api_prefix)
 app.include_router(rbac_router, prefix=settings.api_prefix)
 app.include_router(users_router, prefix=settings.api_prefix)
 

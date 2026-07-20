@@ -2,14 +2,14 @@
 
 TACACS shared secrets (and similar) may ride in ``DeviceContext.attribute_bags``
 for in-run use, but must never appear as cleartext in persisted step results
-(``WorkflowStepResult.output``), show-attributes dumps, or INFO logs.
+(``WorkflowStepResult.output``), log-attributes dumps, or INFO logs.
 
 Data-flow:
 
 - **Sealed** (at rest in bags / in-memory between steps): a Fernet envelope
   produced by :func:`seal_secret`, reusing the same key material as
   credential-table encryption (``core.crypto.EncryptionService``).
-- **Exported** (DB step output, show-attributes files, workflow-log metadata,
+- **Exported** (DB step output, log-attributes files, workflow-log metadata,
   any run API): always the literal ``***REDACTED***`` placeholder via
   :func:`redact_secrets_in_data` — never even ciphertext.
 - **Consumed** (attribute resolution, Jinja namespace, ISE update payloads):

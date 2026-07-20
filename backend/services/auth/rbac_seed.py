@@ -47,6 +47,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("hatchet_settings", "write", "Update Hatchet workflow engine settings"),
     ("cache_settings", "read", "View cache/Redis settings and stats"),
     ("cache_settings", "write", "Update or clear cache/Redis settings"),
+    ("logging_settings", "read", "View application logging configuration"),
+    ("logging_settings", "write", "Update application logging configuration"),
     ("rbac.permissions", "read", "View the permission catalog"),
     ("rbac.permissions", "write", "Create permissions"),
     ("rbac.permissions", "delete", "Delete permissions"),

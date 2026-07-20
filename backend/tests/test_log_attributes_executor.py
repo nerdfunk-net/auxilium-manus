@@ -1,4 +1,4 @@
-"""Tests for show-attributes executor."""
+"""Tests for log-attributes executor."""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ from unittest.mock import MagicMock, patch
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
-from workflow_steps.show_attributes.executor import (
-    SHOW_ATTRIBUTES_METADATA_SUFFIX,
+from workflow_steps.log_attributes.executor import (
+    LOG_ATTRIBUTES_METADATA_SUFFIX,
     build_context_snapshot,
     execute,
     format_pretty_text,
 )
 
 
-class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
+class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_stdout_json_includes_all_device_attributes(self) -> None:
         run = MagicMock()
         device = DeviceContext(
@@ -41,7 +41,7 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             metadata={"upstream.step": {"count": 1}},
         )
 
-        with patch("workflow_steps.show_attributes.executor.logger") as mock_logger:
+        with patch("workflow_steps.log_attributes.executor.logger") as mock_logger:
             outcomes = await execute(
                 config={
                     "output_destination": "stdout",
@@ -50,13 +50,13 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=context,
                 run=run,
                 artifact_service=MagicMock(),
-                node_id="show-attributes-1",
+                node_id="log-attributes-1",
             )
 
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].name, "success")
         payload = outcomes[0].context.metadata[
-            f"show-attributes-1{SHOW_ATTRIBUTES_METADATA_SUFFIX}"
+            f"log-attributes-1{LOG_ATTRIBUTES_METADATA_SUFFIX}"
         ]
         self.assertEqual(payload["output_destination"], "stdout")
         self.assertEqual(payload["device_count"], 1)
@@ -79,7 +79,7 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             with patch(
-                "workflow_steps.show_attributes.executor.settings.data_directory",
+                "workflow_steps.log_attributes.executor.settings.data_directory",
                 Path(tmp_dir),
             ):
                 outcomes = await execute(
@@ -92,11 +92,11 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     context=context,
                     run=run,
                     artifact_service=MagicMock(),
-                    node_id="show-attributes-2",
+                    node_id="log-attributes-2",
                 )
 
                 payload = outcomes[0].context.metadata[
-                    f"show-attributes-2{SHOW_ATTRIBUTES_METADATA_SUFFIX}"
+                    f"log-attributes-2{LOG_ATTRIBUTES_METADATA_SUFFIX}"
                 ]
                 target = Path(payload["file_path"])
                 self.assertTrue(target.exists())
@@ -114,7 +114,7 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     context=context,
                     run=run,
                     artifact_service=MagicMock(),
-                    node_id="show-attributes-2b",
+                    node_id="log-attributes-2b",
                 )
                 second_content = target.read_text(encoding="utf-8")
                 self.assertIn("---", second_content)
@@ -134,7 +134,7 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 context=context,
                 run=run,
                 artifact_service=MagicMock(),
-                node_id="show-attributes-3",
+                node_id="log-attributes-3",
             )
 
     async def test_show_parsed_templates_disabled_by_default(self) -> None:
@@ -167,10 +167,10 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             run=run,
             artifact_service=artifact_service,
-            node_id="show-attributes-4",
+            node_id="log-attributes-4",
         )
 
-        payload = outcomes[0].context.metadata[f"show-attributes-4{SHOW_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-4{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
         self.assertFalse(payload["show_parsed_templates"])
         entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
         self.assertNotIn("rendered_content", entry)
@@ -209,10 +209,10 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             run=run,
             artifact_service=artifact_service,
-            node_id="show-attributes-5",
+            node_id="log-attributes-5",
         )
 
-        payload = outcomes[0].context.metadata[f"show-attributes-5{SHOW_ATTRIBUTES_METADATA_SUFFIX}"]
+        payload = outcomes[0].context.metadata[f"log-attributes-5{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
         self.assertTrue(payload["show_parsed_templates"])
         entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
         self.assertEqual(entry["rendered_content"], "hostname lab\nrole access-switch")
@@ -242,7 +242,7 @@ class ShowAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
 
         sealed = seal_secret(
-            "s3cr3t", encryption=EncryptionService("test-secret-key-for-show-attributes")
+            "s3cr3t", encryption=EncryptionService("test-secret-key-for-log-attributes")
         )
         device = DeviceContext(
             id="device-1",

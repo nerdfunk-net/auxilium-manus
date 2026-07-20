@@ -58,6 +58,9 @@ export interface StepPayload {
 
 export type EdgeStyle = "straight" | "smooth";
 
+/** Default edge path style for new connections and unset `edgeStyle`. */
+export const DEFAULT_EDGE_STYLE: EdgeStyle = "smooth";
+
 export interface WorkflowEdgeData extends Record<string, unknown> {
   waypoints?: Waypoint[];
   edgeStyle?: EdgeStyle;

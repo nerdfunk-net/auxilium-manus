@@ -44,7 +44,7 @@ The broader backend follows the Model → Repository → Service → Router laye
 | `route-on-attribute` | `route_on_attribute` | 236 | ✓ |
 | `update-attribute` | `update_attribute` | 188 | ✓ |
 | `workflow-log` | `workflow_log` | ~90 | ✓ |
-| `show-attributes` | `show_attributes` | 324 | ✓ |
+| `log-attributes` | `log_attributes` | 324 | ✓ |
 | `fan-in` | `fan_in` | ~50 | ✓ |
 | `merge-content` | `merge_content` | 261 | ✓ |
 | `compare-data` | `compare_data` | **381** | ✓ |
@@ -96,7 +96,7 @@ Notable strengths:
 3. **Bulky content uses `ArtifactRef`** — CLI/config blobs stay off the workflow envelope.
 4. **Credentials are vault references** (`credential_reference` name) decrypted at use via `resolve_ssh_credential` — passwords are not stored in step config.
 5. **Workflow Jinja uses `SandboxedEnvironment`** (`workflow_steps/common/jinja_render.py`).
-6. **Path sanitization helper** `sanitize_relative_path` rejects `..` and is used by git sink, compare-data, show-attributes, store-artifact filename templates.
+6. **Path sanitization helper** `sanitize_relative_path` rejects `..` and is used by git sink, compare-data, log-attributes, store-artifact filename templates.
 7. **Fan-out / fan-in** are first-class (`FanOutSignal`, join resume) with registry warnings for unsafe concurrent git/filesystem sinks.
 
 ---
@@ -158,14 +158,14 @@ Severity scale: **High** (exploitable or secret exposure), **Medium** (needs aut
 
 `get-ise-tacacs-key` writes `tacacs.shared_secret` into `DeviceContext.attribute_bags` and returns it in `StepOutcome` context. That envelope is persisted with step results / run output.
 
-Anyone with `workflow_runs:read` (or equivalent) can read TACACS keys. `show-attributes` dumps the full context (`context.model_dump`), and `workflow-log` registry examples even interpolate `{tacacs.shared_secret}`.
+Anyone with `workflow_runs:read` (or equivalent) can read TACACS keys. `log-attributes` dumps the full context (`context.model_dump`), and `workflow-log` registry examples even interpolate `{tacacs.shared_secret}`.
 
 **Also:** `device_builders.py` can copy ISE shared secrets into device bags when building from ISE inventory.
 
 **Recommendations:**
 
 - Redact or encrypt secrets at rest in step results (store a vault ref or one-way handle, not the cleartext).
-- Exclude `tacacs.shared_secret` (and similar) from `show-attributes` / API run payloads by default.
+- Exclude `tacacs.shared_secret` (and similar) from `log-attributes` / API run payloads by default.
 - Audit logs so secrets are never written at `INFO`.
 
 #### H2 — Unsandboxed Jinja in TemplatesService
@@ -279,7 +279,7 @@ Highest maintenance risk is **`services/git/*`** (multiple 600–745 line module
 
 | Covered (dedicated or strong related tests) | Missing executor tests |
 |---------------------------------------------|------------------------|
-| compare_data, fan_in, get_device_configs, get_from_list, get_ise_devices, get_ise_tacacs_key, git_*, render_jinja_template, route_on_attribute, run_command, show_attributes, store_artifact, update_attribute, workflow_log | **filter_output**, **get_git_devices**, **get_nautobot_attributes**, **get_nautobot_devices**, **merge_content**, **update_nautobot_device** |
+| compare_data, fan_in, get_device_configs, get_from_list, get_ise_devices, get_ise_tacacs_key, git_*, render_jinja_template, route_on_attribute, run_command, log_attributes, store_artifact, update_attribute, workflow_log | **filter_output**, **get_git_devices**, **get_nautobot_attributes**, **get_nautobot_devices**, **merge_content**, **update_nautobot_device** |
 
 Common modules are well tested (`test_attribute_path.py`, `test_jinja_render.py`, `test_device_template.py`, `test_content_resolver.py`, `test_ise_lookup.py`, etc.).
 
@@ -304,7 +304,7 @@ ISE TACACS multi-tier lookup is sophisticated and well-commented; also the main 
 ### Persistence (`store-artifact`, git-*)
 Fan-out races are documented. Path sanitization is good for filenames; subdirectory hardening is incomplete (M2).
 
-### Debug (`show-attributes`, `workflow-log`)
+### Debug (`log-attributes`, `workflow-log`)
 Useful for operators; dangerous when bags contain secrets (H1).
 
 ---

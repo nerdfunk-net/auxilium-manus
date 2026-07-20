@@ -30,10 +30,11 @@ import {
 } from "../utils/capability-graph";
 import { findPluginByKind, STEP_DRAG_MIME_TYPE, toStepPayload } from "../utils/step-catalog";
 import type { PluginDefinition } from "../types/plugin-registry";
-import type {
-  ProjectedCanvasNode,
-  StepPayload,
-  WorkflowCanvasEdge,
+import {
+  DEFAULT_EDGE_STYLE,
+  type ProjectedCanvasNode,
+  type StepPayload,
+  type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 import { WaypointEdge } from "./edges/waypoint-edge";
 import { CollapsibleMiniMap } from "./collapsible-minimap";
@@ -205,7 +206,10 @@ function WorkflowCanvasInner({
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        defaultEdgeOptions={{ type: "waypoint" }}
+        defaultEdgeOptions={{
+          type: "waypoint",
+          data: { edgeStyle: DEFAULT_EDGE_STYLE },
+        }}
         onConnect={onConnect}
         onConnectEnd={handleConnectEnd}
         isValidConnection={isValidConnection}

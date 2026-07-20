@@ -8,10 +8,10 @@ import {
 } from "../shared/step-help";
 
 /**
- * Built-in Help tab content for Show Attributes.
+ * Built-in Help tab content for Log Attributes.
  * Covers every Configuration control with practical examples.
  */
-export function ShowAttributesHelpPanel() {
+export function LogAttributesHelpPanel() {
   return (
     <div className="space-y-6">
       <HelpSection title="What this step does">
@@ -44,7 +44,7 @@ export function ShowAttributesHelpPanel() {
             <span className="font-medium text-foreground">File</span> —{" "}
             <HelpCode>file</HelpCode>. Writes under{" "}
             <HelpCode>
-              DATA_DIRECTORY/show-attributes/&lt;workflow_id&gt;/&lt;run_id&gt;/
+              DATA_DIRECTORY/log-attributes/&lt;workflow_id&gt;/&lt;run_id&gt;/
             </HelpCode>
             . Use when you want to download or diff context snapshots across runs.
           </li>
@@ -112,7 +112,7 @@ export function ShowAttributesHelpPanel() {
           Shown only when <HelpCode>output_destination</HelpCode> is{" "}
           <HelpCode>file</HelpCode>. Relative path inside the run directory (
           <HelpCode>
-            DATA_DIRECTORY/show-attributes/&lt;workflow_id&gt;/&lt;run_id&gt;/
+            DATA_DIRECTORY/log-attributes/&lt;workflow_id&gt;/&lt;run_id&gt;/
           </HelpCode>
           ). Parent path segments are allowed.
         </p>
@@ -124,7 +124,7 @@ export function ShowAttributesHelpPanel() {
           filename: debug/context.json
           <br />
           <span className="text-muted-foreground">
-            → writes to …/show-attributes/&lt;workflow_id&gt;/&lt;run_id&gt;/debug/context.json
+            → writes to …/log-attributes/&lt;workflow_id&gt;/&lt;run_id&gt;/debug/context.json
           </span>
         </HelpExample>
       </HelpSection>
@@ -181,7 +181,7 @@ export function ShowAttributesHelpPanel() {
         <HelpWarning title="Debugging only">
           <p>
             Full context dumps can be large and may include sensitive data. Avoid
-            leaving Show Attributes on production paths unless you need it.
+            leaving Log Attributes on production paths unless you need it.
           </p>
         </HelpWarning>
       </HelpSection>

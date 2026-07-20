@@ -1,4 +1,4 @@
-"""Executor for the show-attributes debugging step."""
+"""Executor for the log-attributes debugging step."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from models.workflow_context import ArtifactRef, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import redact_secrets_in_data
 from workflow_steps.common.device_template import sanitize_relative_path
-from workflow_steps.show_attributes.config import get_config
+from workflow_steps.log_attributes.config import get_config
 
 logger = logging.getLogger(__name__)
 
-SHOW_ATTRIBUTES_METADATA_SUFFIX = ".show_attributes"
+LOG_ATTRIBUTES_METADATA_SUFFIX = ".log_attributes"
 _OUTPUT_DESTINATIONS = frozenset({"stdout", "file"})
 _OUTPUT_FORMATS = frozenset({"json", "pretty_text"})
 _FILE_APPEND_SEPARATOR = "\n\n---\n\n"
@@ -45,13 +45,13 @@ def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
     ).strip().lower()
     if output_destination not in _OUTPUT_DESTINATIONS:
         raise ValueError(
-            "show-attributes: output_destination must be 'stdout' or 'file'"
+            "log-attributes: output_destination must be 'stdout' or 'file'"
         )
 
     output_format = str(config.get("output_format") or defaults["output_format"]).strip().lower()
     if output_format not in _OUTPUT_FORMATS:
         raise ValueError(
-            "show-attributes: output_format must be 'json' or 'pretty_text'"
+            "log-attributes: output_format must be 'json' or 'pretty_text'"
         )
 
     raw_filename = config.get("filename")
@@ -59,7 +59,7 @@ def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
         raw_filename = defaults["filename"]
     filename = str(raw_filename or "").strip()
     if output_destination == "file" and not filename:
-        raise ValueError("show-attributes: filename is required when output_destination=file")
+        raise ValueError("log-attributes: filename is required when output_destination=file")
 
     return {
         "output_destination": output_destination,
@@ -235,7 +235,7 @@ def _file_target(*, workflow_id: str, run_id: str, filename: str) -> Path:
     safe_name = sanitize_relative_path(filename)
     return (
         settings.data_directory
-        / "show-attributes"
+        / "log-attributes"
         / workflow_id
         / run_id
         / safe_name
@@ -265,7 +265,7 @@ async def execute(
     artifact_service: ArtifactService,
     node_id: str,
 ) -> list[StepOutcome]:
-    logger.info("show-attributes started run_id=%s node_id=%s", run.id, node_id)
+    logger.info("log-attributes started run_id=%s node_id=%s", run.id, node_id)
 
     parsed = _parse_config(config)
     snapshot = build_context_snapshot(context)
@@ -277,7 +277,7 @@ async def execute(
     file_path: str | None = None
     if parsed["output_destination"] == "stdout":
         logger.info(
-            "show-attributes node_id=%s format=%s devices=%d\n%s",
+            "log-attributes node_id=%s format=%s devices=%d\n%s",
             node_id,
             parsed["output_format"],
             len(snapshot.get("devices") or {}),
@@ -292,14 +292,14 @@ async def execute(
         _write_output_file(target=target, content=rendered, append=parsed["append"])
         file_path = str(target)
         logger.info(
-            "show-attributes node_id=%s wrote file=%s append=%s bytes=%d",
+            "log-attributes node_id=%s wrote file=%s append=%s bytes=%d",
             node_id,
             file_path,
             parsed["append"],
             len(rendered.encode("utf-8")),
         )
 
-    show_attributes = {
+    log_attributes = {
         "output_destination": parsed["output_destination"],
         "output_format": parsed["output_format"],
         "filename": parsed["filename"] if parsed["output_destination"] == "file" else None,
@@ -314,7 +314,7 @@ async def execute(
 
     metadata = {
         **context.metadata,
-        f"{node_id}{SHOW_ATTRIBUTES_METADATA_SUFFIX}": show_attributes,
+        f"{node_id}{LOG_ATTRIBUTES_METADATA_SUFFIX}": log_attributes,
     }
 
     return [

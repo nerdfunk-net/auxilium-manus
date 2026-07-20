@@ -30,6 +30,10 @@ export const queryKeys = {
     settings: () => [...queryKeys.redis.all, "settings"] as const,
     stats: () => [...queryKeys.redis.all, "stats"] as const,
   },
+  logging: {
+    all: ["logging"] as const,
+    settings: () => [...queryKeys.logging.all, "settings"] as const,
+  },
   workflowRuns: {
     all: ["workflow-runs"] as const,
     list: (workflowId: number, filtersKey?: string) =>

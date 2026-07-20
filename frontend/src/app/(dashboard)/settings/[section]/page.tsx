@@ -13,6 +13,7 @@ export function generateStaticParams() {
     { section: "users" },
     { section: "hatchet" },
     { section: "redis" },
+    { section: "logging" },
   ];
 }
 

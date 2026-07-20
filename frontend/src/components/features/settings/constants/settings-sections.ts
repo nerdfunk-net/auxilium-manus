@@ -1,4 +1,4 @@
-import { Database, KeyRound, Plug, Settings2, Users, Workflow } from "lucide-react";
+import { Database, KeyRound, Plug, ScrollText, Settings2, Users, Workflow } from "lucide-react";
 
 import type { SettingsSection } from "../types/settings-section";
 
@@ -43,5 +43,11 @@ export const SETTINGS_SECTIONS: {
     label: "Redis",
     description: "Device cache TTL and cache management.",
     icon: Database,
+  },
+  {
+    id: "logging",
+    label: "Logging",
+    description: "Log levels, the workflow execution log, and noisy loggers to mute.",
+    icon: ScrollText,
   },
 ];

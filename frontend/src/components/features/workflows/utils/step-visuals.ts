@@ -61,7 +61,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "merge-content": Combine,
   "update-nautobot-device": CloudCog,
   "update-attribute": Tags,
-  "show-attributes": Eye,
+  "log-attributes": Eye,
   "workflow-log": List,
   "get-ise-devices": ShieldCheck,
   "get-ise-tacacs-key": Key,
