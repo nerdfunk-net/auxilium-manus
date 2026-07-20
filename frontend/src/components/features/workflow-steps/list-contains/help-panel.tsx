@@ -17,9 +17,9 @@ export function ListContainsHelpPanel() {
       <HelpSection title="What this step does">
         <p>
           Checks whether a specific value is present anywhere in a list resolved
-          from device context — no Jinja template required. The classic use case:
-          checking whether a specific TACACS+ server is among a device&apos;s parsed
-          AAA servers after Parse Cisco Config.
+          from device context — no Jinja template required. Real-world example:
+          &quot;does ACL <HelpCode>MGMT_100</HelpCode> permit source{" "}
+          <HelpCode>172.16.9.100</HelpCode>?&quot; after Parse Cisco Config.
         </p>
         <p>
           Each device routes to exactly one outcome:{" "}
@@ -28,6 +28,34 @@ export function ListContainsHelpPanel() {
           resolved fine, value not found), or{" "}
           <span className="font-medium text-foreground">failure</span> (the list
           itself couldn&apos;t be read).
+        </p>
+      </HelpSection>
+
+      <HelpSection title="Worked example: does an ACL permit a specific source?">
+        <p>
+          Given a parsed ACL named <HelpCode>MGMT_100</HelpCode> that permits{" "}
+          <HelpCode>172.16.9.100</HelpCode>, configure the step like this:
+        </p>
+        <HelpExample>
+          list_path: parsed.cisco_config.access_lists[name=MGMT_100].entries
+          <br />
+          field: source
+          <br />
+          value: 172.16.9.100
+        </HelpExample>
+        <p>
+          <HelpCode>access_lists[name=MGMT_100]</HelpCode> filters the full list of
+          parsed ACLs down to the one whose <HelpCode>name</HelpCode> is{" "}
+          <HelpCode>MGMT_100</HelpCode>, then <HelpCode>.entries</HelpCode> reaches
+          into that one ACL&apos;s entry list. <HelpCode>field: source</HelpCode> /{" "}
+          <HelpCode>value: 172.16.9.100</HelpCode> then checks whether any entry in{" "}
+          <span className="font-medium text-foreground">that</span> ACL permits (or
+          denies — action isn&apos;t checked here) that source. Without the{" "}
+          <HelpCode>[name=MGMT_100]</HelpCode> filter,{" "}
+          <HelpCode>list_path</HelpCode> would resolve to the list of ACLs
+          themselves (objects with <HelpCode>name</HelpCode>/
+          <HelpCode>entries</HelpCode>/<HelpCode>type</HelpCode>), not their
+          entries — the filter is what lets you drill into one specific ACL first.
         </p>
       </HelpSection>
 
@@ -42,18 +70,40 @@ export function ListContainsHelpPanel() {
           list_path: parsed.cisco_config.aaa_servers.servers
           <br />
           <span className="text-muted-foreground">
-            → the list of AAA servers parsed by Parse Cisco Config under output_key
-            &quot;cisco_config&quot;
+            → the flat list of AAA servers parsed by Parse Cisco Config
+          </span>
+        </HelpExample>
+        <p>
+          A segment can also filter a list down to one matching item before
+          continuing the path, using{" "}
+          <HelpCode>key[field=value]</HelpCode> — this is how you reach into one
+          specific item of a list (like one ACL, or one VRF) instead of searching
+          across all of them:
+        </p>
+        <HelpExample>
+          parsed.cisco_config.access_lists[name=MGMT_100].entries
+          <br />
+          <span className="text-muted-foreground">
+            → entries of the ACL named MGMT_100 only
+          </span>
+          <br />
+          <br />
+          parsed.cisco_config.l3_interfaces[ip_address=192.168.178.120].name
+          <br />
+          <span className="text-muted-foreground">
+            → the interface name whose ip_address is 192.168.178.120
           </span>
         </HelpExample>
         <HelpWarning title="Must resolve to a list">
           <p>
             A device where <HelpCode>list_path</HelpCode> isn&apos;t populated (e.g.
-            it never went through Parse Cisco Config), or resolves to something
-            other than a list, routes to{" "}
+            it never went through Parse Cisco Config), where a{" "}
+            <HelpCode>[field=value]</HelpCode> filter matches nothing (e.g. no ACL
+            named <HelpCode>MGMT_100</HelpCode> on that device), or where the path
+            resolves to something other than a list, routes to{" "}
             <span className="font-medium text-foreground">failure</span> — this
-            usually means the workflow needs an upstream step added, or the path has
-            a typo.
+            usually means the workflow needs an upstream step added, or the path
+            has a typo.
           </p>
         </HelpWarning>
       </HelpSection>
@@ -63,16 +113,18 @@ export function ListContainsHelpPanel() {
           <HelpCode>field</HelpCode> names the field to read from each list item
           before comparing — needed when the list holds objects (like AAA servers,
           each with a <HelpCode>name</HelpCode>/<HelpCode>protocol</HelpCode>/
-          <HelpCode>address</HelpCode>). Leave it empty when the list holds plain
-          values directly (e.g. a list of VLAN ids).
+          <HelpCode>address</HelpCode>, or ACL entries, each with{" "}
+          <HelpCode>action</HelpCode>/<HelpCode>source</HelpCode>/
+          <HelpCode>destination</HelpCode>). Leave it empty when the list holds
+          plain values directly (e.g. a list of VLAN ids).
         </p>
         <HelpExample>
-          list_path: parsed.cisco_config.aaa_servers.servers
+          list_path: parsed.cisco_config.access_lists[name=MGMT_100].entries
           <br />
-          field: address
+          field: source
           <br />
           <span className="text-muted-foreground">
-            → compares value against each server&apos;s address
+            → compares value against each entry&apos;s source
           </span>
           <br />
           <br />
@@ -93,19 +145,19 @@ export function ListContainsHelpPanel() {
           to ISE and Update ISE TACACS+ Key — optionally with a fallback.
         </p>
         <HelpExample>
-          value: 10.0.0.5
+          value: 172.16.9.100
           <br />
           <span className="text-muted-foreground">— fixed value, same for every device</span>
           <br />
           <br />
-          {"value: {custom.expected_tacacs_ip}"}
+          {"value: {custom.expected_mgmt_source}"}
           <br />
           <span className="text-muted-foreground">
             — resolved per device from an attribute bag
           </span>
           <br />
           <br />
-          {"value: {custom.expected_tacacs_ip | default('10.0.0.5')}"}
+          {"value: {custom.expected_mgmt_source | default('172.16.9.100')}"}
           <br />
           <span className="text-muted-foreground">
             — falls back to the default if the attribute isn&apos;t set
@@ -143,8 +195,10 @@ export function ListContainsHelpPanel() {
           </li>
           <li>
             <span className="font-medium text-foreground">failure</span> —{" "}
-            <HelpCode>list_path</HelpCode> wasn&apos;t populated or didn&apos;t
-            resolve to a list, or <HelpCode>value</HelpCode> resolved to nothing.
+            <HelpCode>list_path</HelpCode> wasn&apos;t populated, a{" "}
+            <HelpCode>[field=value]</HelpCode> filter matched nothing, the path
+            didn&apos;t resolve to a list, or <HelpCode>value</HelpCode> resolved to
+            nothing.
           </li>
         </ul>
       </HelpSection>
@@ -153,10 +207,15 @@ export function ListContainsHelpPanel() {
         <ol className="list-decimal space-y-1.5 pl-4">
           <li>Add Get Configs → Parse Cisco Config upstream.</li>
           <li>
-            Set <HelpCode>list_path</HelpCode> to the parsed list you care about, and{" "}
-            <HelpCode>field</HelpCode> if it&apos;s a list of objects.
+            Set <HelpCode>list_path</HelpCode> to the parsed list you care about —
+            add a <HelpCode>[field=value]</HelpCode> filter segment first if you
+            need one specific item (one ACL, one interface, one VRF) rather than
+            searching across all of them.
           </li>
-          <li>Set the value to check for.</li>
+          <li>
+            Set <HelpCode>field</HelpCode> if the list holds objects, and the{" "}
+            <HelpCode>value</HelpCode> to check for.
+          </li>
           <li>
             Connect <span className="font-medium text-foreground">match</span> /{" "}
             <span className="font-medium text-foreground">mismatch</span> /{" "}

@@ -48,6 +48,15 @@ export function RouteOnAttributeHelpPanel() {
             output (e.g. Parse Cisco Config, Render Jinja Template)
           </li>
         </ul>
+        <p>
+          A segment can also filter a list down to one matching item using{" "}
+          <HelpCode>key[field=value]</HelpCode>, e.g.{" "}
+          <HelpCode>parsed.cisco_config.access_lists[name=MGMT_100].style</HelpCode>{" "}
+          reads the <HelpCode>style</HelpCode> field of just the ACL named{" "}
+          <HelpCode>MGMT_100</HelpCode> — see the List Contains step&apos;s help for
+          a full worked example (checking whether an ACL permits a specific
+          source).
+        </p>
         <HelpExample>
           attribute_path: device.network_driver
         </HelpExample>
@@ -126,9 +135,11 @@ export function RouteOnAttributeHelpPanel() {
             parsed list of AAA servers — literal values never match it; only{" "}
             <HelpCode>{"{exists}"}</HelpCode>/<HelpCode>{"{empty}"}</HelpCode>/
             <HelpCode>{"{absent}"}</HelpCode> work, to check whether it&apos;s
-            populated at all. To match one specific entry in that list (e.g. one
-            particular server address), compute the check first in a Render Jinja
-            Template step and route on that derived value instead.
+            populated at all. To check whether one specific value is present in
+            that list (e.g. one particular server address, or whether an ACL
+            permits a specific source), use the{" "}
+            <span className="font-medium text-foreground">List Contains</span>{" "}
+            step instead — it&apos;s built for exactly that.
           </p>
         </HelpWarning>
       </HelpSection>

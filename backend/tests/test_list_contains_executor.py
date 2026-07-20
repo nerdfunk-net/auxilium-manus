@@ -37,6 +37,41 @@ _AAA_SERVERS = {
     }
 }
 
+# Real cisco-config-parser output shape for two ACLs, one of which permits
+# 172.16.9.100 — the exact scenario of "does ACL X permit source Y".
+_ACCESS_LISTS_PARSED = {
+    "cisco_config": {
+        "access_lists": [
+            {
+                "name": "MGMT_100",
+                "style": "named",
+                "type": "standard",
+                "entries": [
+                    {
+                        "action": "permit",
+                        "source": "172.16.9.100",
+                        "destination": None,
+                        "sequence": "10",
+                    }
+                ],
+            },
+            {
+                "name": "TRAFFIC_in",
+                "style": "named",
+                "type": "extended",
+                "entries": [
+                    {
+                        "action": "permit",
+                        "source": "192.168.178.240",
+                        "destination": "192.168.0.2",
+                        "sequence": "110",
+                    }
+                ],
+            },
+        ]
+    }
+}
+
 
 class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_matches_on_field_within_list_of_objects(self) -> None:
@@ -394,6 +429,82 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 artifact_service=MagicMock(),
                 node_id="lc-1",
             )
+
+    async def test_acl_permits_source_via_filter_segment(self) -> None:
+        """The motivating end-to-end case: does ACL MGMT_100 permit source
+        172.16.9.100? list_path filters access_lists down to the one named
+        MGMT_100 and reaches into its entries list in one path."""
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"d1": _device("d1", parsed=_ACCESS_LISTS_PARSED)},
+        )
+
+        outcomes = await execute(
+            config={
+                "list_path": "parsed.cisco_config.access_lists[name=MGMT_100].entries",
+                "field": "source",
+                "value": "172.16.9.100",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="lc-1",
+        )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["match"].context.devices), ["d1"])
+        entry = by_name["match"].context.devices["d1"].parsed["lc-1.membership"]
+        self.assertEqual(entry["matched_item"]["action"], "permit")
+
+    async def test_acl_does_not_permit_source_mismatches(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"d1": _device("d1", parsed=_ACCESS_LISTS_PARSED)},
+        )
+
+        outcomes = await execute(
+            config={
+                "list_path": "parsed.cisco_config.access_lists[name=MGMT_100].entries",
+                "field": "source",
+                "value": "10.10.10.10",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="lc-1",
+        )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["mismatch"].context.devices), ["d1"])
+
+    async def test_acl_name_not_found_fails_the_device(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"d1": _device("d1", parsed=_ACCESS_LISTS_PARSED)},
+        )
+
+        outcomes = await execute(
+            config={
+                "list_path": "parsed.cisco_config.access_lists[name=NOT_A_REAL_ACL].entries",
+                "field": "source",
+                "value": "172.16.9.100",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="lc-1",
+        )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(list(by_name["failure"].context.devices), ["d1"])
+        failed = by_name["failure"].context.devices["d1"]
+        self.assertEqual(failed.errors[-1].code, "list_not_populated")
 
 
 if __name__ == "__main__":

@@ -52,14 +52,17 @@ function ListContainsConfigPanel({ config, onChange, nodeId }: PluginConfigPanel
         <Input
           value={listPath}
           onChange={(event) => handleListPathChange(event.target.value)}
-          placeholder="parsed.cisco_config.aaa_servers.servers"
+          placeholder="parsed.cisco_config.access_lists[name=MGMT_100].entries"
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] leading-4 text-muted-foreground">
           Dot path to the list to search — supports{" "}
           <span className="font-mono">device.*</span>, bag paths (
           <span className="font-mono">nautobot.tags</span>), and{" "}
-          <span className="font-mono">parsed.*</span> for a step&apos;s parsed output.
+          <span className="font-mono">parsed.*</span> for a step&apos;s parsed
+          output. Add <span className="font-mono">[field=value]</span> to a segment
+          to filter down to one matching item first (e.g. one ACL by name) before
+          continuing the path — see Help for a worked example.
         </p>
       </div>
 
@@ -73,7 +76,7 @@ function ListContainsConfigPanel({ config, onChange, nodeId }: PluginConfigPanel
         <Input
           value={field}
           onChange={(event) => handleFieldChange(event.target.value)}
-          placeholder="address"
+          placeholder="source"
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] leading-4 text-muted-foreground">
@@ -92,7 +95,7 @@ function ListContainsConfigPanel({ config, onChange, nodeId }: PluginConfigPanel
         <Input
           value={value}
           onChange={(event) => handleValueChange(event.target.value)}
-          placeholder="10.0.0.5"
+          placeholder="172.16.9.100"
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] leading-4 text-muted-foreground">

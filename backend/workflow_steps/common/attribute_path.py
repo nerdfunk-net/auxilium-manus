@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any
 
@@ -63,13 +64,68 @@ def _namespace_bag(device: DeviceContext, bag_name: str) -> dict[str, Any] | Non
     return device.attribute_bags.get(bag_name)
 
 
+# A path segment like "access_lists[name=MGMT_100]" — navigate to the
+# "access_lists" list, then continue traversal from the first item whose
+# "name" field stringifies to "MGMT_100". Lets a dotted path reach into a
+# specific object inside a list (rather than only ever ending AT a list),
+# e.g. "parsed.cisco_config.access_lists[name=MGMT_100].entries" to check
+# membership within one ACL's entries instead of across all ACLs.
+_FILTER_SEGMENT_RE = re.compile(r"^(?P<key>[^\[\]]+)\[(?P<field>[^\[\]=]+)=(?P<value>[^\[\]]*)\]$")
+
+
+def _split_path_segments(path: str) -> list[str]:
+    """Split on "." but not inside a "[...]" filter segment, so a filter
+    value containing a dot (e.g. an IP address) isn't split apart."""
+    segments: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for char in path:
+        if char == "[":
+            depth += 1
+            current.append(char)
+        elif char == "]":
+            depth = max(0, depth - 1)
+            current.append(char)
+        elif char == "." and depth == 0:
+            segments.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    segments.append("".join(current))
+    return segments
+
+
+def _find_filtered_item(items: Any, field: str, value: str) -> Any | None:
+    """Return the first dict in ``items`` whose ``field`` (itself a dotted
+    path, resolved via ``_traverse_path``) stringifies to ``value``."""
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        candidate = _traverse_path(item, field)
+        if candidate is None or isinstance(candidate, (dict, list)):
+            continue
+        if str(candidate) == value:
+            return item
+    return None
+
+
 def _traverse_path(root: Any, path: str) -> Any:
     current = root
-    for part in path.split("."):
+    for segment in _split_path_segments(path):
         if current is None:
             return None
+        match = _FILTER_SEGMENT_RE.match(segment)
+        if match:
+            if not isinstance(current, dict):
+                return None
+            current = _find_filtered_item(
+                current.get(match.group("key")), match.group("field"), match.group("value")
+            )
+            continue
         if isinstance(current, dict):
-            current = current.get(part)
+            current = current.get(segment)
             continue
         return None
     return current
@@ -79,10 +135,21 @@ def _traverse_path_raw(root: Any, path: str) -> Any:
     """Like ``_traverse_path`` but returns ``_MISSING`` when a key along the
     path doesn't exist, instead of collapsing that case into ``None``."""
     current = root
-    for part in path.split("."):
-        if not isinstance(current, dict) or part not in current:
+    for segment in _split_path_segments(path):
+        match = _FILTER_SEGMENT_RE.match(segment)
+        if match:
+            if not isinstance(current, dict) or match.group("key") not in current:
+                return _MISSING
+            found = _find_filtered_item(
+                current[match.group("key")], match.group("field"), match.group("value")
+            )
+            if found is None:
+                return _MISSING
+            current = found
+            continue
+        if not isinstance(current, dict) or segment not in current:
             return _MISSING
-        current = current[part]
+        current = current[segment]
     return current
 
 

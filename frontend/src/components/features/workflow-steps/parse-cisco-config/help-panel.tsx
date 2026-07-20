@@ -102,16 +102,30 @@ export function ParseCiscoConfigHelpPanel() {
             → routes devices with at least one parsed AAA server to has_tacacs
           </span>
         </HelpExample>
-        <HelpWarning title="Checking for one specific server">
+        <HelpWarning title="Checking for one specific server (or ACL entry)">
           <p>
             To check whether a <span className="font-medium text-foreground">
               specific
             </span>{" "}
             TACACS server (by name or address) is present — not just whether the
-            list is non-empty — compute that check in a Render Jinja Template step
-            first (e.g. with Jinja&apos;s <HelpCode>selectattr</HelpCode> filter),
-            store the result under a new <HelpCode>output_key</HelpCode>, then route
-            on that derived value.
+            list is non-empty — use the{" "}
+            <span className="font-medium text-foreground">List Contains</span> step
+            instead of Route on Attribute. For example, to check whether ACL{" "}
+            <HelpCode>MGMT_100</HelpCode> permits source{" "}
+            <HelpCode>172.16.9.100</HelpCode>:
+          </p>
+          <HelpExample>
+            list_path: parsed.{"{output_key}"}.access_lists[name=MGMT_100].entries
+            <br />
+            field: source
+            <br />
+            value: 172.16.9.100
+          </HelpExample>
+          <p>
+            The <HelpCode>[name=MGMT_100]</HelpCode> filter segment picks out one
+            ACL by its <HelpCode>name</HelpCode> field before continuing into its{" "}
+            <HelpCode>entries</HelpCode> list — see List Contains&apos; help for
+            details.
           </p>
         </HelpWarning>
       </HelpSection>

@@ -140,6 +140,125 @@ class AttributePathTests(unittest.TestCase):
         )
 
 
+_ACCESS_LISTS = [
+    {
+        "name": "MGMT_100",
+        "style": "named",
+        "type": "standard",
+        "entries": [
+            {
+                "action": "permit",
+                "source": "172.16.9.100",
+                "destination": None,
+                "sequence": "10",
+            }
+        ],
+    },
+    {
+        "name": "TRAFFIC_in",
+        "style": "named",
+        "type": "extended",
+        "entries": [
+            {
+                "action": "permit",
+                "source": "192.168.178.240",
+                "destination": "192.168.0.2",
+                "sequence": "110",
+            }
+        ],
+    },
+]
+
+
+class FilterSegmentTests(unittest.TestCase):
+    """Tests for the "key[field=value]" path segment — filters a list to the
+    item matching field==value before continuing traversal, e.g.
+    parsed.cisco_config.access_lists[name=MGMT_100].entries."""
+
+    def _device(self) -> DeviceContext:
+        return DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"cisco_config": {"access_lists": _ACCESS_LISTS}},
+        )
+
+    def test_resolve_device_value_reaches_nested_list_after_filter(self) -> None:
+        device = self._device()
+        entries = resolve_device_value(
+            device, "parsed.cisco_config.access_lists[name=MGMT_100].entries"
+        )
+        self.assertEqual(entries, _ACCESS_LISTS[0]["entries"])
+
+    def test_resolve_device_value_reaches_scalar_field_after_filter(self) -> None:
+        device = self._device()
+        self.assertEqual(
+            resolve_device_value(
+                device, "parsed.cisco_config.access_lists[name=TRAFFIC_in].type"
+            ),
+            "extended",
+        )
+
+    def test_resolve_device_attribute_reaches_scalar_leaf_after_filter(self) -> None:
+        device = self._device()
+        self.assertEqual(
+            resolve_device_attribute(
+                device, "parsed.cisco_config.access_lists[name=MGMT_100].style"
+            ),
+            "named",
+        )
+
+    def test_state_absent_when_filter_matches_nothing(self) -> None:
+        device = self._device()
+        state, value = resolve_device_attribute_state(
+            device, "parsed.cisco_config.access_lists[name=DOES_NOT_EXIST].entries"
+        )
+        self.assertEqual(state, AttributeState.ABSENT)
+        self.assertIsNone(value)
+
+    def test_state_present_when_filter_matches(self) -> None:
+        device = self._device()
+        state, _ = resolve_device_attribute_state(
+            device, "parsed.cisco_config.access_lists[name=MGMT_100].entries"
+        )
+        self.assertEqual(state, AttributeState.PRESENT)
+
+    def test_filter_value_containing_dots_is_not_split(self) -> None:
+        # Regression: a filter value like an IP address must not be split by
+        # the "." tokenizer just because it contains dots.
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "cisco_config": {
+                    "l3_interfaces": [
+                        {"name": "Ethernet0/0", "ip_address": "192.168.178.120"},
+                        {"name": "Ethernet0/1", "ip_address": "192.168.179.240"},
+                    ]
+                }
+            },
+        )
+        self.assertEqual(
+            resolve_device_value(
+                device,
+                "parsed.cisco_config.l3_interfaces[ip_address=192.168.179.240].name",
+            ),
+            "Ethernet0/1",
+        )
+
+    def test_filter_on_non_list_value_returns_none(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"cisco_config": {"hostname": "router1"}},
+        )
+        self.assertIsNone(
+            resolve_device_value(device, "parsed.cisco_config.hostname[name=x].y")
+        )
+
+
 class AttributeStateTests(unittest.TestCase):
     def test_absent_when_bag_missing(self) -> None:
         device = DeviceContext(id="device-1", name="lab", hostname="lab")

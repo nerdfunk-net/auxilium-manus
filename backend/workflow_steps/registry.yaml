@@ -646,19 +646,24 @@ plugins:
             (nautobot.tags), and parsed.* for a step's parsed output (e.g.
             parsed.cisco_config.aaa_servers.servers). Must resolve to a list;
             devices where it isn't populated, or resolves to something other
-            than a list, route to failure.
+            than a list, route to failure. A segment can also filter a list down
+            to one matching item before continuing, using key[field=value] — e.g.
+            parsed.cisco_config.access_lists[name=MGMT_100].entries resolves to
+            just the MGMT_100 ACL's entries, so field/value below can check
+            whether it permits one specific source IP, not just whether any ACL
+            has any entry.
           data_type: string
           required: true
-          example: parsed.cisco_config.aaa_servers.servers
+          example: parsed.cisco_config.access_lists[name=MGMT_100].entries
         - name: field
           description: >
             Optional dot path within each list item to compare (for a list of
-            objects, e.g. address, or a nested source.ip). Leave empty to compare
+            objects, e.g. source, or a nested source.ip). Leave empty to compare
             each list item directly (for a list of plain strings/numbers, e.g.
             a VLAN id list).
           data_type: string
           required: false
-          example: address
+          example: source
         - name: value
           description: >
             The value to look for. Use a fixed value, or wrap a dot path in
@@ -667,7 +672,7 @@ plugins:
             A device whose value expression resolves to nothing routes to failure.
           data_type: string
           required: true
-          example: "10.0.0.5"
+          example: "172.16.9.100"
         - name: case_sensitive
           description: When false, value comparison ignores letter case.
           data_type: boolean
