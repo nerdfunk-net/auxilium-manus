@@ -687,6 +687,14 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: show_device_configs
+          description: >
+            Resolve and print running and/or startup configuration text from any
+            upstream "Get Device Configs" step (device.running_config_ref /
+            device.startup_config_ref) instead of just the artifact references.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: fan-in
     name: Fan In

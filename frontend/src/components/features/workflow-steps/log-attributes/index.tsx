@@ -64,6 +64,7 @@ function buildLogAttributesConfig(
     filename: typeof config.filename === "string" ? config.filename : "attributes.txt",
     append: config.append === true,
     show_parsed_templates: config.show_parsed_templates === true,
+    show_device_configs: config.show_device_configs === true,
     ...patch,
   };
 }
@@ -77,6 +78,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
   const filename = typeof config.filename === "string" ? config.filename : "attributes.txt";
   const append = config.append === true;
   const showParsedTemplates = config.show_parsed_templates === true;
+  const showDeviceConfigs = config.show_device_configs === true;
 
   useEffect(() => {
     if (initializedForNode.current === nodeId) {
@@ -125,6 +127,13 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
   const handleShowParsedTemplatesChange = useCallback(
     (checked: boolean) => {
       onChange(buildLogAttributesConfig(config, { show_parsed_templates: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleShowDeviceConfigsChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildLogAttributesConfig(config, { show_device_configs: checked }));
     },
     [config, onChange],
   );
@@ -200,6 +209,23 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
         <Switch
           checked={showParsedTemplates}
           onCheckedChange={handleShowParsedTemplatesChange}
+          className="data-[state=checked]:bg-teal-500"
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <Label className="text-xs font-medium">Show device Configs</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Also print running and/or startup configuration text from any
+            upstream Get Device Configs step, instead of just the artifact
+            references. Backed by the{" "}
+            <span className="font-mono">show_device_configs</span> field.
+          </p>
+        </div>
+        <Switch
+          checked={showDeviceConfigs}
+          onCheckedChange={handleShowDeviceConfigsChange}
           className="data-[state=checked]:bg-teal-500"
         />
       </div>

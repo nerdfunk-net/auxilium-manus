@@ -107,6 +107,28 @@ export function LogAttributesHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="show_device_configs">
+        <p>
+          Toggle backed by <HelpCode>show_device_configs</HelpCode>. When off
+          (default), device configurations from upstream{" "}
+          <span className="font-medium text-foreground">Get Device Configs</span>{" "}
+          appear only as <HelpCode>running_config_ref</HelpCode> /{" "}
+          <HelpCode>startup_config_ref</HelpCode> artifact references.
+        </p>
+        <p>
+          When on, the step also resolves and prints the running and/or startup
+          configuration text inline (whichever refs are present on each device).
+        </p>
+        <HelpExample>
+          show_device_configs: true
+          <br />
+          <span className="text-muted-foreground">
+            → dump includes running_config_content / startup_config_content when
+            available
+          </span>
+        </HelpExample>
+      </HelpSection>
+
       <HelpSection title="filename">
         <p>
           Shown only when <HelpCode>output_destination</HelpCode> is{" "}
@@ -175,7 +197,8 @@ export function LogAttributesHelpPanel() {
           <li>
             For retained snapshots: <HelpCode>file</HelpCode> +{" "}
             <HelpCode>json</HelpCode>, set <HelpCode>filename</HelpCode>, enable{" "}
-            <HelpCode>show_parsed_templates</HelpCode> if Jinja output matters.
+            <HelpCode>show_parsed_templates</HelpCode> or{" "}
+            <HelpCode>show_device_configs</HelpCode> when those bodies matter.
           </li>
         </ol>
         <HelpWarning title="Debugging only">

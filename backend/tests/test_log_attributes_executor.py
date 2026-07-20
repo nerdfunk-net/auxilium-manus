@@ -217,6 +217,85 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         entry = payload["snapshot"]["devices"]["device-1"]["parsed"]["device_config"]
         self.assertEqual(entry["rendered_content"], "hostname lab\nrole access-switch")
 
+    async def test_show_device_configs_disabled_by_default(self) -> None:
+        run = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        running_ref = await artifact_service.store(
+            content="hostname lab\n!",
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            running_config_ref=running_ref,
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"device-1": device})
+
+        outcomes = await execute(
+            config={"output_destination": "stdout", "output_format": "json"},
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="log-attributes-6",
+        )
+
+        payload = outcomes[0].context.metadata[f"log-attributes-6{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        self.assertFalse(payload["show_device_configs"])
+        device_snapshot = payload["snapshot"]["devices"]["device-1"]
+        self.assertNotIn("running_config_content", device_snapshot)
+        self.assertNotIn("startup_config_content", device_snapshot)
+
+    async def test_show_device_configs_resolves_running_and_startup(self) -> None:
+        run = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        running_ref = await artifact_service.store(
+            content="hostname lab\ninterface GigabitEthernet0/1\n!",
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        startup_ref = await artifact_service.store(
+            content="hostname lab\n!",
+            kind="startup_config",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            running_config_ref=running_ref,
+            startup_config_ref=startup_ref,
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"device-1": device})
+
+        outcomes = await execute(
+            config={
+                "output_destination": "stdout",
+                "output_format": "pretty_text",
+                "show_device_configs": True,
+            },
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="log-attributes-7",
+        )
+
+        payload = outcomes[0].context.metadata[f"log-attributes-7{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
+        self.assertTrue(payload["show_device_configs"])
+        device_snapshot = payload["snapshot"]["devices"]["device-1"]
+        self.assertEqual(
+            device_snapshot["running_config_content"],
+            "hostname lab\ninterface GigabitEthernet0/1\n!",
+        )
+        self.assertEqual(device_snapshot["startup_config_content"], "hostname lab\n!")
+        self.assertIn("Running config:", payload["content"])
+        self.assertIn("interface GigabitEthernet0/1", payload["content"])
+        self.assertIn("Startup config:", payload["content"])
+
     def test_build_context_snapshot_is_json_serializable(self) -> None:
         device = DeviceContext(
             id="device-1",

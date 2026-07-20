@@ -69,6 +69,9 @@ def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
         "show_parsed_templates": _parse_bool(
             config, "show_parsed_templates", default=bool(defaults["show_parsed_templates"])
         ),
+        "show_device_configs": _parse_bool(
+            config, "show_device_configs", default=bool(defaults["show_device_configs"])
+        ),
     }
 
 
@@ -107,6 +110,54 @@ async def _attach_rendered_template_content(
                 and entry.get("artifact_ref")
             ):
                 tasks.append(resolve_entry(device_snapshot, key, entry))
+
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
+async def _attach_device_config_content(
+    snapshot: dict[str, Any],
+    context: WorkflowContext,
+    artifact_service: ArtifactService,
+) -> None:
+    """Resolve running/startup config artifacts so their content is visible in the dump.
+
+    Only devices that carry ``running_config_ref`` and/or ``startup_config_ref``
+    (typically from an upstream Get Device Configs step) are resolved. Missing
+    refs are left alone.
+    """
+    devices_snapshot = snapshot.get("devices") or {}
+
+    async def resolve_config(
+        device_snapshot: dict[str, Any],
+        *,
+        ref: ArtifactRef,
+        content_key: str,
+    ) -> None:
+        content = await artifact_service.resolve(ref)
+        device_snapshot[content_key] = content
+
+    tasks = []
+    for device_id, device in context.devices.items():
+        device_snapshot = devices_snapshot.get(device_id)
+        if not isinstance(device_snapshot, dict):
+            continue
+        if device.running_config_ref is not None:
+            tasks.append(
+                resolve_config(
+                    device_snapshot,
+                    ref=device.running_config_ref,
+                    content_key="running_config_content",
+                )
+            )
+        if device.startup_config_ref is not None:
+            tasks.append(
+                resolve_config(
+                    device_snapshot,
+                    ref=device.startup_config_ref,
+                    content_key="startup_config_content",
+                )
+            )
 
     if tasks:
         await asyncio.gather(*tasks)
@@ -208,6 +259,17 @@ def format_pretty_text(snapshot: dict[str, Any]) -> str:
                 lines.append(f"{ref_name}:")
                 lines.extend(_format_block(ref_value, 2))
 
+        for content_name, content_key in (
+            ("Running config", "running_config_content"),
+            ("Startup config", "startup_config_content"),
+        ):
+            content_value = device.get(content_key)
+            if content_value is not None:
+                lines.append(f"{content_name}:")
+                # Keep multi-line config bodies readable — dump as indented text.
+                for line in str(content_value).splitlines() or [""]:
+                    lines.append(f"  {line}")
+
     pending_commands = snapshot.get("pending_commands") or {}
     lines.extend(["", "=== Pending commands ==="])
     if pending_commands:
@@ -271,6 +333,8 @@ async def execute(
     snapshot = build_context_snapshot(context)
     if parsed["show_parsed_templates"]:
         await _attach_rendered_template_content(snapshot, context, artifact_service)
+    if parsed["show_device_configs"]:
+        await _attach_device_config_content(snapshot, context, artifact_service)
     rendered = render_snapshot_text(snapshot, parsed["output_format"])
     written_at = datetime.now(timezone.utc).isoformat()
 
@@ -305,6 +369,7 @@ async def execute(
         "filename": parsed["filename"] if parsed["output_destination"] == "file" else None,
         "append": parsed["append"] if parsed["output_destination"] == "file" else None,
         "show_parsed_templates": parsed["show_parsed_templates"],
+        "show_device_configs": parsed["show_device_configs"],
         "file_path": file_path,
         "written_at": written_at,
         "device_count": len(snapshot.get("devices") or {}),

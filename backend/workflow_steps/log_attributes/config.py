@@ -5,4 +5,5 @@ def get_config() -> dict:
         "append": False,
         "output_format": "json",
         "show_parsed_templates": False,
+        "show_device_configs": False,
     }
