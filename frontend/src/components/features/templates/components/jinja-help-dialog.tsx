@@ -158,6 +158,43 @@ tacacs-server host 10.10.10.5 key {{ tacacs.shared_secret }}
             </p>
           </Section>
 
+          <Section title="Parsed Cisco configuration">
+            <p>
+              After a <strong>Parse Cisco Config</strong> step (or checking{" "}
+              <strong>Get Configs</strong> in the template editor), the
+              device&apos;s running and startup configuration — fetched and
+              parsed with the same <code>cisco-config-parser</code> library the
+              step uses — is available as <code>parsed</code>, keyed by that
+              step&apos;s <code>output_key</code> (default{" "}
+              <code>cisco_config</code>):
+            </p>
+            <CodeBlock>{`parsed.cisco_config.running.hostname     parsed.cisco_config.startup.hostname
+parsed.cisco_config.running.vrfs         parsed.cisco_config.running.vlans
+parsed.cisco_config.running.l3_interfaces
+parsed.cisco_config.running.access_lists parsed.cisco_config.running.route_maps
+parsed.cisco_config.running.aaa_servers  parsed.cisco_config.running.aaa_servers.servers
+parsed.cisco_config.running.routing.static
+parsed.cisco_config.running.routing.ospf
+parsed.cisco_config.running.routing.eigrp
+parsed.cisco_config.running.routing.bgp
+parsed.cisco_config.running.fhrp_groups  parsed.cisco_config.running.port_channels
+parsed.cisco_config.running.banner       parsed.cisco_config.running.unsupported`}</CodeBlock>
+            <p>
+              When the workflow&apos;s Parse Cisco Config step is configured
+              for only <code>running</code> or only <code>startup</code>{" "}
+              (instead of the default <code>both</code>), the model sits
+              directly under <code>cisco_config</code> — e.g.{" "}
+              <code>parsed.cisco_config.hostname</code> — rather than nested
+              under <code>.running</code>/<code>.startup</code>. The template
+              editor&apos;s <strong>Get Configs</strong> checkbox always
+              fetches both, matching the nested shape above.
+            </p>
+            <p>Example — render a TACACS+ stanza from the parsed AAA servers:</p>
+            <CodeBlock>{`{% for server in parsed.cisco_config.running.aaa_servers.servers %}
+tacacs-server host {{ server.address }}
+{% endfor %}`}</CodeBlock>
+          </Section>
+
           <Section title="Accessing command output (one command)">
             <p>
               After a <strong>Run Command</strong> step, its output is
@@ -245,6 +282,14 @@ Version: {{ version.parsed[0].version if version.parsed else version.raw }}`}</C
               <code>nautobot.config_context</code>,{" "}
               <code>nautobot.custom_fields</code> and the rest resolve
               identically in the editor and at runtime.
+            </p>
+            <p>
+              Checking <strong>Get Configs</strong> fetches the selected test
+              device&apos;s running and startup configuration over SSH (using
+              the selected credential) and parses it with the same logic as
+              the <strong>Parse Cisco Config</strong> step, populating{" "}
+              <code>parsed.cisco_config</code>. It re-fetches automatically if
+              you change the test device while the checkbox stays checked.
             </p>
           </Section>
 

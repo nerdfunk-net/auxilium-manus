@@ -37,3 +37,20 @@ class NetmikoRunCommandsResponse(BaseModel):
     success: bool
     commands: list[NetmikoCommandEntry] = Field(default_factory=list)
     error: str | None = None
+
+
+class NetmikoGetConfigsRequest(BaseModel):
+    host: str = Field(..., min_length=1, description="Device IP address or hostname")
+    platform: str | None = Field(default=None, description="Nautobot platform name")
+    network_driver: str | None = Field(
+        default=None, description="Nautobot platform network driver"
+    )
+    credential_id: int = Field(..., description="Stored SSH credential ID")
+
+
+class NetmikoGetConfigsResponse(BaseModel):
+    """Shaped like the parse-cisco-config step's entry for config_source="both"."""
+
+    success: bool
+    parsed: Any = None
+    error: str | None = None

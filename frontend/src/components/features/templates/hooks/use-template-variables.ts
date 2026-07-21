@@ -2,12 +2,17 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { COMMAND_VARIABLES, NETMIKO_AUTO_VARIABLES } from "../constants";
+import {
+  COMMAND_VARIABLES,
+  NETMIKO_AUTO_VARIABLES,
+  PARSED_CONFIG_VARIABLE,
+} from "../constants";
 import type { CommandEntry, EditorVariable, TemplateVariableRecord } from "../types";
 
 let customVariableCounter = 0;
 
 const COMMAND_VARIABLE_IDS = COMMAND_VARIABLES.map((variable) => `auto:${variable.name}`);
+const PARSED_CONFIG_VARIABLE_ID = `auto:${PARSED_CONFIG_VARIABLE.name}`;
 
 function createAutoVariables(): EditorVariable[] {
   return NETMIKO_AUTO_VARIABLES.map((variable) => ({
@@ -33,6 +38,23 @@ function createCommandVariables(): EditorVariable[] {
 
 function isCommandVariable(variable: EditorVariable): boolean {
   return COMMAND_VARIABLE_IDS.includes(variable.id);
+}
+
+function createParsedConfigVariable(): EditorVariable[] {
+  return [
+    {
+      id: PARSED_CONFIG_VARIABLE_ID,
+      name: PARSED_CONFIG_VARIABLE.name,
+      value: "",
+      type: "auto",
+      isAutoFilled: true,
+      description: PARSED_CONFIG_VARIABLE.description,
+    },
+  ];
+}
+
+function isParsedConfigVariable(variable: EditorVariable): boolean {
+  return variable.id === PARSED_CONFIG_VARIABLE_ID;
 }
 
 export function useTemplateVariables() {
@@ -120,6 +142,35 @@ export function useTemplateVariables() {
     );
   }, []);
 
+  const toggleParsedConfigVariable = useCallback((enabled: boolean) => {
+    setVariables((current) => {
+      const hasParsedConfigVar = current.some(isParsedConfigVariable);
+      if (enabled && !hasParsedConfigVar) {
+        return [...current, ...createParsedConfigVariable()];
+      }
+      if (!enabled && hasParsedConfigVar) {
+        return current.filter((variable) => !isParsedConfigVariable(variable));
+      }
+      return current;
+    });
+  }, []);
+
+  const setParsedConfig = useCallback((entry: unknown) => {
+    setVariables((current) =>
+      current.map((variable) =>
+        variable.id === PARSED_CONFIG_VARIABLE_ID
+          ? {
+              ...variable,
+              value:
+                entry !== null && entry !== undefined
+                  ? JSON.stringify({ cisco_config: entry }, null, 2)
+                  : "",
+            }
+          : variable,
+      ),
+    );
+  }, []);
+
   const loadCustomVariables = useCallback(
     (record: Record<string, TemplateVariableRecord>) => {
       const custom: EditorVariable[] = Object.entries(record).map(([name, entry]) => {
@@ -147,6 +198,8 @@ export function useTemplateVariables() {
       setNautobotAttributes,
       toggleCommandVariables,
       setCommandResults,
+      toggleParsedConfigVariable,
+      setParsedConfig,
       loadCustomVariables,
     }),
     [
@@ -158,6 +211,8 @@ export function useTemplateVariables() {
       setNautobotAttributes,
       toggleCommandVariables,
       setCommandResults,
+      toggleParsedConfigVariable,
+      setParsedConfig,
       loadCustomVariables,
     ],
   );

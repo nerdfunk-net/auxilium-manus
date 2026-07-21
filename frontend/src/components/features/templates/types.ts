@@ -80,6 +80,13 @@ export interface CommandEntry {
   parsed: unknown;
 }
 
+/** Response from POST netmiko/get-configs, mirroring parse-cisco-config's entry. */
+export interface GetConfigsResponse {
+  success: boolean;
+  parsed: unknown;
+  error: string | null;
+}
+
 export interface DeviceSummary {
   id: string;
   name: string | null;

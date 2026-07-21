@@ -55,3 +55,15 @@ export const COMMAND_VARIABLES: { name: string; description: string }[] = [
     description: "Executed commands keyed by their exact command string",
   },
 ];
+
+/**
+ * Parsed Cisco configuration variable, matching the "Parse Cisco Config" step's
+ * default output_key ("cisco_config"). Populated by the "Get Configs" checkbox,
+ * which fetches running + startup config from the test device and parses it
+ * exactly like the workflow step.
+ */
+export const PARSED_CONFIG_VARIABLE: { name: string; description: string } = {
+  name: "parsed",
+  description:
+    'Parsed running/startup config, keyed by output_key ("cisco_config") — hostname, vrfs, vlans, interfaces, access_lists, routing, aaa_servers, etc. Matches the Parse Cisco Config step.',
+};

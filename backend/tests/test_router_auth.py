@@ -61,6 +61,12 @@ def test_netmiko_requires_auth(app: FastAPI) -> None:
     assert response.status_code == 401
 
 
+def test_netmiko_get_configs_requires_auth(app: FastAPI) -> None:
+    with TestClient(app) as client:
+        response = client.post("/api/netmiko/get-configs", json={})
+    assert response.status_code == 401
+
+
 def test_workflows_list_forbidden_without_permission(
     app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,

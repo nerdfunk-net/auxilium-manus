@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, Search, Settings2, Terminal } from "lucide-react";
+import { Database, RefreshCw, Search, Settings2, Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
@@ -29,11 +29,14 @@ interface NetmikoOptionsPanelProps {
   commandCount: number;
   attributeCount: number;
   credentialId: string;
+  getConfigs: boolean;
+  isFetchingConfigs: boolean;
   onSourceChange: (sourceId: string) => void;
   onSelectDevice: (device: DeviceSummary | null) => void;
   onConfigureCommands: () => void;
   onConfigureAttributes: () => void;
   onCredentialChange: (value: string) => void;
+  onGetConfigsChange: (value: boolean) => void;
 }
 
 const NO_SOURCE = "__none__";
@@ -47,11 +50,14 @@ export function NetmikoOptionsPanel({
   commandCount,
   attributeCount,
   credentialId,
+  getConfigs,
+  isFetchingConfigs,
   onSourceChange,
   onSelectDevice,
   onConfigureCommands,
   onConfigureAttributes,
   onCredentialChange,
+  onGetConfigsChange,
 }: NetmikoOptionsPanelProps) {
   const { apiCall } = useApi();
   const { data: credentialsData } = useCredentialsQuery();
@@ -155,7 +161,7 @@ export function NetmikoOptionsPanel({
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-          <div className="space-y-1.5 md:col-span-3">
+          <div className="space-y-1.5 md:col-span-2">
             <Label>Nautobot Source</Label>
             <Select
               value={sourceId || NO_SOURCE}
@@ -182,7 +188,7 @@ export function NetmikoOptionsPanel({
             </Select>
           </div>
 
-          <div className="relative space-y-1.5 md:col-span-3">
+          <div className="relative space-y-1.5 md:col-span-2">
             <Label htmlFor="test-device">Test Device (Optional)</Label>
             <div className="relative" ref={dropdownRef}>
               <Input
@@ -282,6 +288,26 @@ export function NetmikoOptionsPanel({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-1.5 md:col-span-2">
+            <Label htmlFor="get-configs">Get Configs</Label>
+            <label
+              htmlFor="get-configs"
+              className="flex h-9 items-center gap-2 rounded-md border border-input bg-white px-3 text-xs"
+            >
+              <input
+                id="get-configs"
+                type="checkbox"
+                checked={getConfigs}
+                onChange={(event) => onGetConfigsChange(event.target.checked)}
+                className="size-4 rounded border"
+              />
+              <span>Parse config</span>
+              {isFetchingConfigs ? (
+                <RefreshCw className="ml-auto size-3.5 animate-spin text-muted-foreground" />
+              ) : null}
+            </label>
           </div>
         </div>
       </CardContent>

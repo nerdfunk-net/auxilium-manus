@@ -6,8 +6,6 @@ import asyncio
 import logging
 from typing import Any
 
-from cisco_config_parser import ConfigParser
-
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
@@ -18,24 +16,16 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from workflow_steps.common.cisco_config_parsing import (
+    parse_cisco_config_text,
+    platform_hint_for_network_driver,
+)
 from workflow_steps.common.jinja_render import parse_output_key
 from workflow_steps.parse_cisco_config.config import get_config
 
 logger = logging.getLogger(__name__)
 
 _CONFIG_SOURCES = frozenset({"running", "startup", "both"})
-
-# cisco-config-parser's Parser._normalize_platform() lower-cases and looks
-# this up in its own PLATFORM_ALIASES map, so passing "IOS"/"NXOS"/"XR"
-# directly (rather than the Netmiko-style driver name) is accepted.
-_NETWORK_DRIVER_PLATFORM_HINTS = {
-    "cisco_ios": "IOS",
-    "cisco_xe": "IOS",
-    "cisco_ios_xe": "IOS",
-    "cisco_nxos": "NXOS",
-    "cisco_xr": "XR",
-    "cisco_ios_xr": "XR",
-}
 
 
 def _parse_config_source(config: dict[str, Any]) -> str:
@@ -57,11 +47,7 @@ def _config_targets(config_source: str) -> tuple[bool, bool]:
 
 
 def _platform_hint(device: DeviceContext) -> str | None:
-    return _NETWORK_DRIVER_PLATFORM_HINTS.get((device.network_driver or "").strip().lower())
-
-
-def _parse_config_text(content: str, platform_hint: str | None) -> dict[str, Any]:
-    return ConfigParser(content, platform=platform_hint).parse()
+    return platform_hint_for_network_driver(device.network_driver)
 
 
 async def execute(
@@ -108,7 +94,7 @@ async def execute(
                         "Get Configs step upstream with running config enabled"
                     )
                 running_text = await artifact_service.resolve(device.running_config_ref)
-                running_model = _parse_config_text(running_text, platform_hint)
+                running_model = parse_cisco_config_text(running_text, platform_hint)
 
             if need_startup:
                 if device.startup_config_ref is None:
@@ -117,7 +103,7 @@ async def execute(
                         "Get Configs step upstream with startup config enabled"
                     )
                 startup_text = await artifact_service.resolve(device.startup_config_ref)
-                startup_model = _parse_config_text(startup_text, platform_hint)
+                startup_model = parse_cisco_config_text(startup_text, platform_hint)
 
             if config_source == "both":
                 entry: dict[str, Any] | None = {

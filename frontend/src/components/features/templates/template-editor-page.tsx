@@ -27,6 +27,7 @@ import { useTemplateVariables } from "./hooks/use-template-variables";
 import type {
   CommandEntry,
   DeviceSummary,
+  GetConfigsResponse,
   TemplateType,
   TemplateVariableRecord,
 } from "./types";
@@ -64,6 +65,8 @@ function TemplateEditorContent() {
   const [commandsDialogOpen, setCommandsDialogOpen] = useState(false);
   const [attributesDialogOpen, setAttributesDialogOpen] = useState(false);
   const [isExecutingCommands, setIsExecutingCommands] = useState(false);
+  const [getDeviceConfigs, setGetDeviceConfigs] = useState(false);
+  const [isFetchingConfigs, setIsFetchingConfigs] = useState(false);
 
   const variableManager = useTemplateVariables();
   const renderer = useTemplateRender();
@@ -80,11 +83,14 @@ function TemplateEditorContent() {
 
   const loadedRef = useRef(false);
   const lastAttributesKeyRef = useRef<string | null>(null);
+  const lastConfigsKeyRef = useRef<string | null>(null);
   const {
     setDeviceInfo,
     setNautobotAttributes,
     toggleCommandVariables,
     setCommandResults,
+    toggleParsedConfigVariable,
+    setParsedConfig,
     loadCustomVariables,
   } = variableManager;
 
@@ -119,6 +125,11 @@ function TemplateEditorContent() {
   useEffect(() => {
     toggleCommandVariables(cleanedCommands.length > 0);
   }, [cleanedCommands.length, toggleCommandVariables]);
+
+  // Show/hide the parsed-config variable based on the "Get Configs" checkbox.
+  useEffect(() => {
+    toggleParsedConfigVariable(getDeviceConfigs);
+  }, [getDeviceConfigs, toggleParsedConfigVariable]);
 
   // Build the `device` variable from the selected test device (matches the
   // workflow step's device.* namespace).
@@ -192,6 +203,73 @@ function TemplateEditorContent() {
     apiCall,
     setNautobotAttributes,
   ]);
+
+  // When "Get Configs" is enabled and a test device + SSH credential are
+  // selected, fetch running+startup config over SSH and parse it exactly like
+  // the Parse Cisco Config step, populating the `parsed` variable.
+  useEffect(() => {
+    if (!getDeviceConfigs || !selectedDevice || credentialId === "none") {
+      lastConfigsKeyRef.current = null;
+      setParsedConfig(null);
+      return;
+    }
+
+    const fetchKey = `${selectedDevice.id}|${credentialId}`;
+    if (lastConfigsKeyRef.current === fetchKey) {
+      return;
+    }
+    lastConfigsKeyRef.current = fetchKey;
+
+    const host = bareIp(selectedDevice.primary_ip4) ?? selectedDevice.name ?? "";
+
+    let active = true;
+    setIsFetchingConfigs(true);
+    apiCall<GetConfigsResponse>("netmiko/get-configs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        host,
+        platform: selectedDevice.platform,
+        network_driver: selectedDevice.network_driver,
+        credential_id: Number(credentialId),
+      }),
+    })
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+        if (!response.success) {
+          toast({
+            title: "Get Configs failed",
+            description: response.error ?? "Unknown error",
+            variant: "destructive",
+          });
+          setParsedConfig(null);
+          return;
+        }
+        setParsedConfig(response.parsed);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        toast({
+          title: "Get Configs failed",
+          description: error instanceof Error ? error.message : "Unknown error",
+          variant: "destructive",
+        });
+        setParsedConfig(null);
+      })
+      .finally(() => {
+        if (active) {
+          setIsFetchingConfigs(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [getDeviceConfigs, selectedDevice, credentialId, apiCall, toast, setParsedConfig]);
 
   const existingVariableNames = useMemo(
     () => variableManager.variables.map((variable) => variable.name),
@@ -399,11 +477,14 @@ function TemplateEditorContent() {
           commandCount={cleanedCommands.length}
           attributeCount={attributes.length}
           credentialId={credentialId}
+          getConfigs={getDeviceConfigs}
+          isFetchingConfigs={isFetchingConfigs}
           onSourceChange={setSourceId}
           onSelectDevice={setSelectedDevice}
           onConfigureCommands={() => setCommandsDialogOpen(true)}
           onConfigureAttributes={() => setAttributesDialogOpen(true)}
           onCredentialChange={setCredentialId}
+          onGetConfigsChange={setGetDeviceConfigs}
         />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]" style={{ minHeight: 480 }}>
