@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -287,33 +287,16 @@ interface AttributeUpdateDialogProps {
   onSave: (value: AttributeUpdate) => void;
 }
 
-export function AttributeUpdateDialog({
-  open,
+function AttributeUpdateDialogForm({
   mode,
   initialValue,
   onClose,
   onSave,
-}: AttributeUpdateDialogProps) {
-  const [draft, setDraft] = useState<AttributeUpdate>(() => createAttributeUpdate());
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    setDraft(initialValue ?? createAttributeUpdate());
-    setError(null);
-  }, [open, initialValue]);
-
-  const handleOpenChange = useCallback(
-    (isOpen: boolean) => {
-      if (!isOpen) {
-        setError(null);
-        onClose();
-      }
-    },
-    [onClose],
+}: Omit<AttributeUpdateDialogProps, "open">) {
+  const [draft, setDraft] = useState<AttributeUpdate>(
+    () => initialValue ?? createAttributeUpdate(),
   );
+  const [error, setError] = useState<string | null>(null);
 
   const handleSave = useCallback(() => {
     const validationError = validateAttributeDraft(draft);
@@ -333,48 +316,74 @@ export function AttributeUpdateDialog({
   }, [draft, onSave]);
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
-        <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-teal-600 to-teal-500 px-4 py-3 text-white">
-          <DialogTitle className="text-base text-white">
-            {mode === "add" ? "Add attribute update" : "Edit attribute update"}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            Configure mode, destination path, and value or regex transform for this attribute
-            update.
-          </DialogDescription>
-        </DialogHeader>
+    <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+      <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-teal-600 to-teal-500 px-4 py-3 text-white">
+        <DialogTitle className="text-base text-white">
+          {mode === "add" ? "Add attribute update" : "Edit attribute update"}
+        </DialogTitle>
+        <DialogDescription className="sr-only">
+          Configure mode, destination path, and value or regex transform for this attribute
+          update.
+        </DialogDescription>
+      </DialogHeader>
 
-        <div className="overflow-y-auto bg-slate-50 p-4">
-          <AttributeUpdateEditor
-            value={draft}
-            onChange={(next) => {
-              setDraft(next);
-              setError(null);
-            }}
-            fieldId="attribute-dialog"
-          />
-          {error ? (
-            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              {error}
-            </p>
-          ) : null}
-        </div>
+      <div className="overflow-y-auto bg-slate-50 p-4">
+        <AttributeUpdateEditor
+          value={draft}
+          onChange={(next) => {
+            setDraft(next);
+            setError(null);
+          }}
+          fieldId="attribute-dialog"
+        />
+        {error ? (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {error}
+          </p>
+        ) : null}
+      </div>
 
-        <DialogFooter className="shrink-0 border-t bg-white px-4 py-3">
-          <Button type="button" variant="outline" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="bg-teal-500 text-white hover:bg-teal-600"
-            onClick={handleSave}
-          >
-            {mode === "add" ? "Add" : "Save"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+      <DialogFooter className="shrink-0 border-t bg-white px-4 py-3">
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          className="bg-teal-500 text-white hover:bg-teal-600"
+          onClick={handleSave}
+        >
+          {mode === "add" ? "Add" : "Save"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+export function AttributeUpdateDialog({
+  open,
+  mode,
+  initialValue,
+  onClose,
+  onSave,
+}: AttributeUpdateDialogProps) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) {
+          onClose();
+        }
+      }}
+    >
+      {open ? (
+        <AttributeUpdateDialogForm
+          mode={mode}
+          initialValue={initialValue}
+          onClose={onClose}
+          onSave={onSave}
+        />
+      ) : null}
     </Dialog>
   );
 }

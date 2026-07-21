@@ -20,6 +20,7 @@ import { RouteOnContentPlugin } from "@/components/features/workflow-steps/route
 import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
 import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/render-jinja-template";
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
+import { DeployRenderedTemplatePlugin } from "@/components/features/workflow-steps/deploy-rendered-template";
 import { LogAttributesPlugin } from "@/components/features/workflow-steps/log-attributes";
 import { WorkflowLogPlugin } from "@/components/features/workflow-steps/workflow-log";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
@@ -37,6 +38,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-device-configs": GetDeviceConfigsPlugin,
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "run-command": RunCommandPlugin,
+  "deploy-rendered-template": DeployRenderedTemplatePlugin,
   "route-on-attribute": RouteOnAttributePlugin,
   "route-on-content": RouteOnContentPlugin,
   "list-contains": ListContainsPlugin,

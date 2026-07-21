@@ -213,19 +213,19 @@ function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
   );
   const [selectedId, setSelectedId] = useState<string>("");
 
-  useEffect(() => {
+  const effectiveSelectedId = useMemo(() => {
     if (regexAttributes.length === 0) {
-      setSelectedId("");
-      return;
+      return "";
     }
-    if (!regexAttributes.some((attribute) => attribute.id === selectedId)) {
-      setSelectedId(regexAttributes[0].id);
+    if (regexAttributes.some((attribute) => attribute.id === selectedId)) {
+      return selectedId;
     }
+    return regexAttributes[0].id;
   }, [regexAttributes, selectedId]);
 
   const selected = useMemo(
-    () => regexAttributes.find((attribute) => attribute.id === selectedId) ?? null,
-    [regexAttributes, selectedId],
+    () => regexAttributes.find((attribute) => attribute.id === effectiveSelectedId) ?? null,
+    [regexAttributes, effectiveSelectedId],
   );
 
   if (regexAttributes.length === 0) {
@@ -246,7 +246,7 @@ function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
               string
             </Badge>
           </div>
-          <Select value={selectedId} onValueChange={setSelectedId}>
+          <Select value={effectiveSelectedId} onValueChange={setSelectedId}>
             <SelectTrigger className="h-8 text-xs">
               <SelectValue placeholder="Select attribute to probe" />
             </SelectTrigger>

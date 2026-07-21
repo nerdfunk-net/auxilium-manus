@@ -33,6 +33,14 @@ class ConfigResult:
     error: str | None = None
 
 
+@dataclass
+class DeployResult:
+    success: bool
+    config_output: str = ""
+    save_output: str | None = None
+    error: str | None = None
+
+
 class NetmikoConnectionError(Exception):
     """Raised when connection or command execution fails."""
 
@@ -166,6 +174,35 @@ class NetmikoDeviceSession:
             )
         except Exception as exc:
             return CommandResult(success=False, output="\n".join(combined), error=str(exc))
+
+    def deploy_config(
+        self,
+        commands: list[str],
+        *,
+        mode: str,
+        read_timeout: int = DEFAULT_READ_TIMEOUT,
+    ) -> DeployResult:
+        self.connect()
+        try:
+            if mode == "config_mode":
+                output = self.connection.send_config_set(commands, read_timeout=read_timeout)
+            else:
+                outputs = [
+                    self.connection.send_command(command, read_timeout=read_timeout)
+                    for command in commands
+                ]
+                output = "\n".join(serialize_command_output(item) for item in outputs)
+            return DeployResult(success=True, config_output=serialize_command_output(output))
+        except Exception as exc:
+            return DeployResult(success=False, error=str(exc))
+
+    def save_running_config(self) -> str:
+        try:
+            return self.connection.save_config(confirm=True)
+        except Exception as exc:
+            raise NetmikoConnectionError(
+                f"Failed to save running-config to startup-config on {self.host}: {exc}"
+            ) from exc
 
     def get_running_config(self) -> str:
         return self.send_command("show running-config", read_timeout=120)

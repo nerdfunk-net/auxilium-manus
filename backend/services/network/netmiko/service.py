@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from services.network.netmiko.connection import (
     CommandResult,
     ConfigResult,
+    DeployResult,
     NetmikoConnectionError,
     NetmikoDeviceSession,
 )
@@ -72,6 +73,36 @@ class NetmikoService:
             commands,
             privileged,
             use_textfsm,
+        )
+
+    async def deploy_config(
+        self,
+        *,
+        host: str,
+        network_driver: str | None,
+        platform: str | None,
+        username: str,
+        password: str,
+        commands: list[str],
+        mode: str,
+        write_config: bool,
+        device_type: str | None = None,
+    ) -> DeployResult:
+        loop = asyncio.get_running_loop()
+        resolved_device_type = device_type or resolve_netmiko_device_type(
+            network_driver=network_driver,
+            platform=platform,
+        )
+        return await loop.run_in_executor(
+            self._executor,
+            _sync_deploy_config,
+            host,
+            resolved_device_type,
+            username,
+            password,
+            commands,
+            mode,
+            write_config,
         )
 
     async def get_running_config(
@@ -174,6 +205,30 @@ def _sync_send_commands(
     with _session(host, device_type, username, password) as session:
         session.connect(privileged=privileged)
         return session.send_commands(commands, use_textfsm=use_textfsm)
+
+
+def _sync_deploy_config(
+    host: str,
+    device_type: str,
+    username: str,
+    password: str,
+    commands: list[str],
+    mode: str,
+    write_config: bool,
+) -> DeployResult:
+    with _session(host, device_type, username, password) as session:
+        result = session.deploy_config(commands, mode=mode)
+        if not result.success or not write_config:
+            return result
+        try:
+            save_output = session.save_running_config()
+            return DeployResult(
+                success=True,
+                config_output=result.config_output,
+                save_output=save_output,
+            )
+        except NetmikoConnectionError as exc:
+            return DeployResult(success=False, config_output=result.config_output, error=str(exc))
 
 
 def _sync_get_running_config(

@@ -567,6 +567,62 @@ plugins:
           required: false
           example: cisco_ios
 
+  - id: deploy-rendered-template
+    name: Deploy rendered Template
+    overview: Push a rendered template's commands to connected devices.
+    description: >
+      Execute the commands produced by a Render Jinja Template step on connected
+      devices, optionally saving the running configuration afterward.
+    artifact_type: command_execution
+    directory: deploy_rendered_template
+    enabled: true
+    requires: [identity]
+    produces: []
+    primary_output: command_output
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: credential_reference
+          description: Reference to credentials stored in the backend.
+          data_type: credential_ref
+          required: true
+        - name: source_step_node_id
+          description: >
+            Canvas node id of the Render Jinja Template step whose rendered
+            output should be deployed.
+          data_type: string
+          required: true
+        - name: parsed_output_key
+          description: >
+            Optional output_key from the render step. Leave empty to use the
+            template produced by the selected step.
+          data_type: string
+          required: false
+        - name: execution_mode
+          description: >
+            How rendered lines are sent to the device: config_mode (enter
+            configuration mode once, send every line, exit config mode) or
+            exec_mode (send each line individually as an exec-level command,
+            like Run Command).
+          data_type: string
+          required: false
+          default: config_mode
+          example: config_mode
+        - name: network_driver_override
+          description: Override the Netmiko device type for all devices in this step.
+          data_type: string
+          required: false
+          example: cisco_ios
+        - name: write_config_after_execution
+          description: >
+            After a successful deployment, run "copy running-config
+            startup-config" and confirm the prompt automatically.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: route-on-attribute
     name: Route on Attribute
     overview: Branch workflow paths by attribute value.

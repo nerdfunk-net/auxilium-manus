@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable
 from models.workflow_context import StepOutcome
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.compare_data.executor import execute as compare_data
+from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
@@ -58,6 +59,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "parse-cisco-config": parse_cisco_config,
     "render-jinja-template": render_jinja_template,
     "run-command": run_command,
+    "deploy-rendered-template": deploy_rendered_template,
     "route-on-attribute": route_on_attribute,
     "route-on-content": route_on_content,
     "list-contains": list_contains,
