@@ -5,6 +5,11 @@ Run as a separate process alongside the FastAPI server:
     cd backend
     source ../.venv/bin/activate
     python -m hatchet.worker
+
+This process has no hot-reload: unlike the FastAPI app (uvicorn `reload=True`
+in development), code changes require killing and restarting this process.
+For development, use `python scripts/run_worker_dev.py` instead — it restarts
+this module automatically on .py changes under backend/.
 """
 
 from __future__ import annotations

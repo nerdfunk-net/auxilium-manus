@@ -630,7 +630,10 @@ source ../.venv/bin/activate  # run once to activate, then use `python` normally
 # Terminal 1 - Backend
 cd backend && python start.py
 
-# Terminal 2 - Frontend
+# Terminal 2 - Hatchet worker (auto-restarts on backend .py changes, like uvicorn --reload)
+cd backend && python scripts/run_worker_dev.py
+
+# Terminal 3 - Frontend
 cd frontend && npm run dev
 
 # Default credentials: admin/admin
