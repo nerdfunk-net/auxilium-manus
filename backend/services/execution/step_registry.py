@@ -34,6 +34,7 @@ from workflow_steps.list_contains.executor import execute as list_contains
 from workflow_steps.merge_content.executor import execute as merge_content
 from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_config
+from workflow_steps.reachable.executor import execute as reachable
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.route_on_content.executor import execute as route_on_content
@@ -63,6 +64,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "route-on-attribute": route_on_attribute,
     "route-on-content": route_on_content,
     "list-contains": list_contains,
+    "reachable": reachable,
     "fan-in": fan_in,
     "merge-content": merge_content,
     "filter-output": filter_output,

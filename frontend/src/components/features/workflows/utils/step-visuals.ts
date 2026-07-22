@@ -19,6 +19,7 @@ import {
   TerminalSquare,
   type LucideIcon,
   CloudCog,
+  Wifi,
 } from "lucide-react";
 
 // Shared with the canvas node renderer, the step catalog, and the properties
@@ -67,6 +68,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "workflow-log": List,
   "get-ise-devices": ShieldCheck,
   "get-ise-tacacs-key": Key,
+  reachable: Wifi,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

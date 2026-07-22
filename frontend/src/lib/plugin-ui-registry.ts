@@ -18,6 +18,7 @@ import { GetNautobotAttributesPlugin } from "@/components/features/workflow-step
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
 import { RouteOnContentPlugin } from "@/components/features/workflow-steps/route-on-content";
 import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
+import { ReachablePlugin } from "@/components/features/workflow-steps/reachable";
 import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/render-jinja-template";
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
 import { DeployRenderedTemplatePlugin } from "@/components/features/workflow-steps/deploy-rendered-template";
@@ -42,6 +43,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "route-on-attribute": RouteOnAttributePlugin,
   "route-on-content": RouteOnContentPlugin,
   "list-contains": ListContainsPlugin,
+  "reachable": ReachablePlugin,
   "fan-in": FanInPlugin,
   "merge-content": MergeContentPlugin,
   "filter-output": FilterOutputPlugin,

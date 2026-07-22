@@ -805,6 +805,42 @@ plugins:
           required: false
           default: false
 
+  - id: reachable
+    name: Reachable
+    overview: Ping devices to check whether they respond.
+    description: >
+      Ping each device and route it to success or failure based on how many
+      ICMP replies are received within the configured timeout.
+    artifact_type: control_flow
+    directory: reachable
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    primary_output: reachability
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: ping_count
+          description: How many ICMP echo requests to send to each device.
+          data_type: integer
+          required: true
+          default: 4
+        - name: required_replies
+          description: >
+            Minimum number of replies that must be received for the device to
+            be considered reachable. Cannot exceed ping_count.
+          data_type: integer
+          required: true
+          default: 1
+        - name: timeout_seconds
+          description: How long to wait for each individual ping reply, in seconds.
+          data_type: number
+          required: true
+          default: 2
+
   - id: update-attribute
     name: Update Attribute
     overview: Set or transform device attributes in the workflow.
