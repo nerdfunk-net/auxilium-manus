@@ -341,7 +341,9 @@ plugins:
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.
-    description: Enter one or more device names to use as workflow targets.
+    description: >
+      Enter one or more device names and/or IP addresses to use as workflow
+      targets.
     artifact_type: inventory_selector
     directory: get_from_list
     enabled: true
@@ -353,12 +355,17 @@ plugins:
     metadata:
       configuration_input:
         - name: devices
-          description: Device names (hostnames) to include in the workflow.
-          data_type: string_list
+          description: >
+            Devices to include in the workflow. Each row may set a name, an IP
+            address, or both — at least one is required per row. When an IP
+            address is set it becomes the device's primary_ip4 and is used by
+            downstream steps (Reachable, Get Device Configs, ...) to connect;
+            otherwise the name is used as the hostname.
+          data_type: object_list
           required: true
           example:
-            - router1.example.com
-            - switch2.example.com
+            - name: router1.example.com
+            - ip_address: 10.0.0.5
         - name: fan_out
           description: >
             Fan-out configuration. When enabled, each device (or chunk) is processed
@@ -442,6 +449,146 @@ plugins:
           example:
             - location
             - role
+
+  - id: set-default-attributes
+    name: Set Default Attributes
+    overview: Seed default Nautobot attributes for devices that don't have them yet.
+    description: >
+      Fill in default role/status/location/device type/tags/custom fields/interfaces
+      into each device's Nautobot attribute bag, so {nautobot.origin} in Add to
+      Nautobot / Update Device resolves without a live Nautobot lookup.
+    artifact_type: inventory_selector
+    palette_category: nautobot
+    directory: set_default_attributes
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: type
+          description: >
+            Resource type these defaults apply to. Only "device" is implemented;
+            "ip_address" and "ip_prefix" are reserved for a future release.
+          data_type: string
+          required: true
+          example: device
+        - name: mode
+          description: >
+            Where the default values come from: "manual" (the attributes panel below)
+            or "git" (read a YAML file from a configured git source).
+          data_type: string
+          required: true
+          example: manual
+        - name: overwrite
+          description: >
+            When true, a default replaces a value the device's nautobot attribute bag
+            already has. When false, a field already present (non-empty) is left
+            untouched — only missing fields are filled in.
+          data_type: boolean
+          required: false
+          default: false
+        - name: attributes
+          description: >
+            Manual-mode default values — role, status, location, platform,
+            software_version, serial, asset_tag, tags, device_type (model +
+            manufacturer), rack/face/position, custom_fields, and interfaces. Used
+            only when mode is "manual".
+          data_type: object
+          required: false
+          example:
+            role: {enabled: true, value: Network}
+            status: {enabled: true, value: Active}
+        - name: git
+          description: >
+            Git-mode source — git_source_id (from Settings → Sources) and
+            filename_pattern (glob, e.g. "*.yaml"). The matched file must contain a
+            top-level "devices" mapping of default attribute values. Used only when
+            mode is "git".
+          data_type: object
+          required: false
+          example:
+            git_source_id: prod-lab
+            filename_pattern: defaults.yaml
+
+  - id: add-to-nautobot
+    name: Add to Nautobot
+    overview: Create a new device in Nautobot.
+    description: >
+      Create each device in Nautobot with its required attributes, plus optional
+      interfaces, rack placement, and virtual chassis membership.
+    artifact_type: command_execution
+    palette_category: nautobot
+    directory: add_to_nautobot
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: device_fields
+          description: >
+            Device fields. name/role/status/location/device_type are required and
+            accept a fixed value, {path.to.value}, {expr | default('x')}, or
+            {nautobot.origin} (pull straight from the device's nautobot attribute
+            bag, e.g. when the same device was already read via Get Nautobot
+            Attributes). platform/software_version/serial/asset_tag/tags/
+            custom_fields/rack/face/position are optional and only sent to
+            Nautobot when enabled.
+          data_type: object
+          required: true
+          example:
+            name: "{parsed.cisco_config.hostname}"
+            role: "{nautobot.origin}"
+            status: "{nautobot.origin | default('Active')}"
+            location: "{nautobot.origin}"
+            device_type: "{nautobot.origin}"
+        - name: interfaces
+          description: Interfaces to create on the new device, including IP address and description.
+          data_type: object_list
+          required: false
+          example:
+            - name: GigabitEthernet0/0
+              type: 1000base-t
+              status: active
+              ip_address: 10.0.0.1/24
+        - name: add_prefix
+          description: Automatically create missing IP prefixes when assigning addresses.
+          data_type: boolean
+          required: false
+          default: true
+        - name: default_prefix_length
+          description: Default prefix length when creating prefixes.
+          data_type: string
+          required: false
+          default: /24
+        - name: virtual_chassis
+          description: >
+            Optional virtual chassis membership. mode "none" (default), "join" (set
+            id to an existing virtual chassis UUID), or "create" (set name; the new
+            device becomes master at position 1). Joining an existing chassis under
+            fan-out with other children joining the same chassis concurrently is a
+            known race on position assignment — prefer running such devices
+            sequentially (max_concurrency: 1) or through separate runs.
+          data_type: object
+          required: false
+          example:
+            mode: none
+        - name: dry_run
+          description: >
+            Validate the resolved fields against Nautobot (duplicate name check,
+            UUID existence checks) without creating the device.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: update-nautobot-device
     name: Update Device

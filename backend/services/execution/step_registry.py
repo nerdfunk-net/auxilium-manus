@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable
 
 from models.workflow_context import StepOutcome
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
+from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.fan_in.executor import execute as fan_in
@@ -39,6 +40,7 @@ from workflow_steps.render_jinja_template.executor import execute as render_jinj
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.route_on_content.executor import execute as route_on_content
 from workflow_steps.run_command.executor import execute as run_command
+from workflow_steps.set_default_attributes.executor import execute as set_default_attributes
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.update_attribute.executor import execute as update_attribute
 from workflow_steps.update_ise_tacacs_key.executor import execute as update_ise_tacacs_key
@@ -55,7 +57,9 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-ise-devices": get_ise_devices,
     "get-ise-tacacs-key": get_ise_tacacs_key,
     "add-to-ise": add_to_ise,
+    "add-to-nautobot": add_to_nautobot,
     "get-nautobot-attributes": get_nautobot_attributes,
+    "set-default-attributes": set_default_attributes,
     "get-device-configs": get_device_configs,
     "parse-cisco-config": parse_cisco_config,
     "render-jinja-template": render_jinja_template,

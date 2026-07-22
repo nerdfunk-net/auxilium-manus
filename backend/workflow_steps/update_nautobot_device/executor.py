@@ -22,6 +22,10 @@ from services.artifacts import ArtifactService
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
 from services.settings.source_keys import build_source_key
+from workflow_steps.common.nautobot_interfaces import (
+    build_interfaces_from_config,
+    normalize_interfaces,
+)
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.update_field_expression import (
     build_resolved_update_data,
@@ -39,67 +43,6 @@ def _strip_empty(value: Any) -> Any:
         stripped = value.strip()
         return stripped if stripped else None
     return value
-
-
-def _normalize_interfaces(
-    interfaces: list[dict[str, Any]],
-    default_prefix_length: str,
-) -> list[dict[str, Any]]:
-    suffix = (
-        default_prefix_length
-        if default_prefix_length.startswith("/")
-        else f"/{default_prefix_length.lstrip('/')}"
-    )
-    normalized: list[dict[str, Any]] = []
-    for item in interfaces:
-        iface = dict(item)
-        ip_address = iface.get("ip_address")
-        if isinstance(ip_address, str) and ip_address.strip() and "/" not in ip_address:
-            iface["ip_address"] = f"{ip_address.strip()}{suffix}"
-        normalized.append(iface)
-    return normalized
-
-
-def _build_interfaces(config: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_interfaces = config.get("interfaces") or []
-    if not isinstance(raw_interfaces, list):
-        raise ValueError(f"{_STEP_ID}: interfaces must be a list")
-
-    interfaces: list[dict[str, Any]] = []
-    for item in raw_interfaces:
-        if not isinstance(item, dict):
-            continue
-        name = _strip_empty(item.get("name"))
-        if not name:
-            continue
-        iface: dict[str, Any] = {"name": name}
-        for field in (
-            "type",
-            "status",
-            "ip_address",
-            "namespace",
-            "description",
-            "enabled",
-            "mgmt_only",
-            "mac_address",
-            "mtu",
-            "mode",
-            "ip_role",
-        ):
-            if field not in item:
-                continue
-            value = item[field]
-            if field in {"enabled", "mgmt_only"}:
-                if value is not None:
-                    iface[field] = bool(value)
-                continue
-            cleaned = _strip_empty(value)
-            if cleaned is not None:
-                iface[field] = cleaned
-        if item.get("is_primary_ipv4"):
-            iface["is_primary_ipv4"] = True
-        interfaces.append(iface)
-    return interfaces
 
 
 def _resolve_device_identifier(
@@ -152,8 +95,8 @@ async def execute(
     if not isinstance(raw_update_fields, dict):
         raise ValueError(f"{_STEP_ID}: update_fields must be an object")
 
-    interfaces = _normalize_interfaces(
-        _build_interfaces(config),
+    interfaces = normalize_interfaces(
+        build_interfaces_from_config(config, step_id=_STEP_ID),
         str(config.get("default_prefix_length") or "/24"),
     )
     if not config_has_enabled_update_fields(raw_update_fields) and not interfaces:

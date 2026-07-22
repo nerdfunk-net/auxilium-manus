@@ -17,40 +17,54 @@ export function GetFromListHelpPanel() {
     <div className="space-y-6">
       <HelpSection title="What this step does">
         <p>
-          Adds a fixed list of device names to the workflow context as targets
-          for downstream steps. Use when you already know the exact hostnames and
-          do not need Nautobot, ISE, or Git to resolve the inventory.
+          Adds a fixed list of devices to the workflow context as targets for
+          downstream steps. Use when you already know the exact hostnames
+          and/or IP addresses and do not need Nautobot, ISE, or Git to resolve
+          the inventory — including devices with no DNS entry or no existing
+          Nautobot record yet (e.g. get IP → log in → pull config → add to
+          Nautobot).
         </p>
         <p>
-          Each name becomes a workflow device with identity only — no IP,
-          platform, or credentials until a later step enriches the context.
+          Each row becomes a workflow device with identity only — no
+          platform or credentials until a later step enriches the context.
         </p>
       </HelpSection>
 
       <HelpSection title="Devices">
         <p>
-          <HelpCode>devices</HelpCode> is a list of device names (one per row).
-          Click the plus button to add rows; use the minus button to remove a
-          row (at least one row always remains).
+          <HelpCode>devices</HelpCode> is a list of rows, each with a{" "}
+          <HelpCode>name</HelpCode> field and an <HelpCode>ip_address</HelpCode>{" "}
+          field. At least one of the two must be filled in per row — you can
+          set just a name, just an IP address, or both. Click the plus button
+          to add rows; use the minus button to remove a row (at least one row
+          always remains).
         </p>
         <p>
-          Names are passed through as typed — use the same hostname your SSH or
-          API steps expect (FQDN or short name, consistently).
+          When a row has an IP address, it becomes the device&apos;s
+          <HelpCode>primary_ip4</HelpCode> and is what downstream steps
+          (Reachable, Get Device Configs, Run Command, ...) connect to.
+          Otherwise the name is used as the hostname. A row with only an IP
+          address (no name) is shown downstream using that IP as its display
+          name.
         </p>
         <HelpExample>
           devices:
           <br />
-          {"  "}- router1.example.com
+          {"  "}- name: router1.example.com
           <br />
-          {"  "}- router2.example.com
+          {"  "}- name: router2.example.com
           <br />
-          {"  "}- switch-core-01
+          {"    "}ip_address: 10.0.0.6
+          <br />
+          {"  "}- ip_address: 10.0.0.5
         </HelpExample>
-        <HelpWarning title="At least one name required">
+        <HelpWarning title="At least one field required per row">
           <p>
-            Blank rows are ignored at run time, but you must configure at least
-            one non-empty device name. The Configuration panel shows &quot;Enter
-            at least one device name&quot; until you do.
+            Blank rows (both name and IP address empty) are ignored at run
+            time, but you must configure at least one non-empty row. The
+            Configuration panel shows &quot;Enter a name and/or IP address for
+            at least one device&quot; until you do. An invalid IP address
+            format fails the step with a clear error naming the row.
           </p>
         </HelpWarning>
       </HelpSection>
@@ -61,18 +75,18 @@ export function GetFromListHelpPanel() {
         <ul className="list-disc space-y-1 pl-4">
           <li>
             <span className="font-medium text-foreground">success</span> — all
-            configured device names were added to context.
+            configured devices were added to context.
           </li>
           <li>
             <span className="font-medium text-foreground">failure</span> — no
-            valid device names (empty list after trimming).
+            valid devices (empty list after trimming).
           </li>
         </ul>
       </HelpSection>
 
       <HelpSection title="Typical setup">
         <ol className="list-decimal space-y-1.5 pl-4">
-          <li>Enter one or more device hostnames.</li>
+          <li>Enter one or more device names and/or IP addresses.</li>
           <li>
             Enable fan-out when the next steps are expensive per device (Get
             Device Configs, Run Command).

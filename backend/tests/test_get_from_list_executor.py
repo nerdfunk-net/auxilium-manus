@@ -61,6 +61,60 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="get-from-list-1",
             )
 
+    async def test_execute_ip_only_row_sets_primary_ip4_and_falls_back_name(self) -> None:
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
+        run = MagicMock()
+        run.id = "run-1"
+
+        outcomes = await execute(
+            config={"devices": [{"ip_address": "10.0.0.5"}]},
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="get-from-list-1",
+        )
+
+        devices = list(outcomes[0].context.devices.values())
+        self.assertEqual(len(devices), 1)
+        device = devices[0]
+        self.assertEqual(device.name, "10.0.0.5")
+        self.assertEqual(device.hostname, "10.0.0.5")
+        self.assertEqual(device.primary_ip4, "10.0.0.5")
+
+    async def test_execute_name_and_ip_row_prefers_ip_for_hostname(self) -> None:
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
+        run = MagicMock()
+        run.id = "run-1"
+
+        outcomes = await execute(
+            config={"devices": [{"name": "router1", "ip_address": "10.0.0.5"}]},
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="get-from-list-1",
+        )
+
+        devices = list(outcomes[0].context.devices.values())
+        self.assertEqual(len(devices), 1)
+        device = devices[0]
+        self.assertEqual(device.name, "router1")
+        self.assertEqual(device.hostname, "10.0.0.5")
+        self.assertEqual(device.primary_ip4, "10.0.0.5")
+
+    async def test_execute_rejects_invalid_ip_address(self) -> None:
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
+        run = MagicMock()
+        run.id = "run-1"
+
+        with self.assertRaises(ValueError):
+            await execute(
+                config={"devices": [{"name": "router1", "ip_address": "not-an-ip"}]},
+                context=context,
+                run=run,
+                artifact_service=MagicMock(),
+                node_id="get-from-list-1",
+            )
+
     async def test_execute_sets_fan_out_metadata_when_enabled(self) -> None:
         context = WorkflowContext(run_id="run-1", workflow_id="wf-1")
         run = MagicMock()

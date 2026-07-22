@@ -80,6 +80,60 @@ export function ParseCiscoConfigHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Using the parsed config downstream">
+        <p>
+          <HelpCode>parsed.{"{output_key}"}</HelpCode> sits alongside the device&apos;s
+          own identity fields — <HelpCode>device.name</HelpCode>,{" "}
+          <HelpCode>device.hostname</HelpCode>, <HelpCode>device.primary_ip4</HelpCode> —
+          in the same context. A Render Jinja Template or Deploy Rendered Template step
+          can reference both together to build a report or a follow-up command that
+          says which device it&apos;s about, not just what was parsed off it:
+        </p>
+        <HelpExample>
+          Audit for {"{{ device.name }}"} ({"{{ device.primary_ip4 }}"})
+          <br />
+          Configured hostname: {"{{ parsed.cisco_config.hostname }}"}
+          <br />
+          VLANs configured: {"{{ parsed.cisco_config.vlans | length }}"}
+        </HelpExample>
+        <p>
+          Log Attributes can print the same fields for troubleshooting without
+          rendering a template — add{" "}
+          <HelpCode>device.name</HelpCode>, <HelpCode>device.primary_ip4</HelpCode>, and{" "}
+          <HelpCode>parsed.cisco_config.hostname</HelpCode> as the attributes to log.
+        </p>
+        <HelpWarning title="device.name can just be the IP address">
+          <p>
+            If the device entered the workflow via Get from List with an IP address and
+            no name (no DNS entry, no Nautobot record yet), <HelpCode>device.name</HelpCode>{" "}
+            falls back to that IP — it is not the box&apos;s real hostname. Compare it
+            with <HelpCode>parsed.{"{output_key}"}.hostname</HelpCode>, which comes from
+            the actual <HelpCode>hostname</HelpCode> line in the fetched config, to see
+            the device&apos;s true configured name.
+          </p>
+          <HelpExample>
+            Get from List: ip_address: 10.0.0.5{" "}
+            <span className="text-muted-foreground">(no name)</span>
+            <br />
+            → device.name = 10.0.0.5, device.primary_ip4 = 10.0.0.5
+            <br />
+            → after this step: parsed.cisco_config.hostname = core-sw-1
+            <br />
+            <span className="text-muted-foreground">
+              — the workflow still calls it &quot;10.0.0.5&quot;; the config says
+              &quot;core-sw-1&quot;. Use the parsed hostname (e.g. in Add to Nautobot&apos;s
+              name field template) once you need the device&apos;s real name.
+            </span>
+          </HelpExample>
+          <p>
+            When Get from List instead has{" "}
+            <HelpCode>name: router1.example.com</HelpCode> (with or without an IP),{" "}
+            <HelpCode>device.name</HelpCode> is that name from the start and usually
+            already matches <HelpCode>parsed.{"{output_key}"}.hostname</HelpCode>.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Using parsed data in Route on Attribute / Update Attribute">
         <p>
           Route on Attribute and Update Attribute can also read{" "}

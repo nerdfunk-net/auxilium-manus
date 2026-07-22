@@ -1,5 +1,6 @@
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
 import { AddToIsePlugin } from "@/components/features/workflow-steps/add-to-ise";
+import { AddToNautobotPlugin } from "@/components/features/workflow-steps/add-to-nautobot";
 import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-data";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
@@ -15,6 +16,7 @@ import { GitPullPlugin } from "@/components/features/workflow-steps/git-pull";
 import { GitPushPlugin } from "@/components/features/workflow-steps/git-push";
 import { GetNautobotDevicesPlugin } from "@/components/features/workflow-steps/get-nautobot-devices";
 import { GetNautobotAttributesPlugin } from "@/components/features/workflow-steps/get-nautobot-attributes";
+import { SetDefaultAttributesPlugin } from "@/components/features/workflow-steps/set-default-attributes";
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
 import { RouteOnContentPlugin } from "@/components/features/workflow-steps/route-on-content";
 import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
@@ -36,6 +38,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-ise-devices": GetIseDevicesPlugin,
   "get-ise-tacacs-key": GetIseTacacsKeyPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,
+  "set-default-attributes": SetDefaultAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "run-command": RunCommandPlugin,
@@ -57,6 +60,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "update-attribute": UpdateAttributePlugin,
   "update-ise-tacacs-key": UpdateIseTacacsKeyPlugin,
   "add-to-ise": AddToIsePlugin,
+  "add-to-nautobot": AddToNautobotPlugin,
   "workflow-log": WorkflowLogPlugin,
   "log-attributes": LogAttributesPlugin,
 };

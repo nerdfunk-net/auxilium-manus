@@ -33,9 +33,7 @@ class DeviceIdentifier(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Validate that at least one identifier is provided."""
         if not any([self.id, self.name, self.ip_address]):
-            raise ValueError(
-                "At least one identifier must be provided: id, name, or ip_address"
-            )
+            raise ValueError("At least one identifier must be provided: id, name, or ip_address")
 
 
 class InterfaceConfig(BaseModel):
@@ -83,9 +81,7 @@ class InterfaceSpec(BaseModel):
         default=False, description="Set this IP as primary IPv4 for the device"
     )
     enabled: Optional[bool] = Field(None, description="Interface enabled state")
-    mgmt_only: Optional[bool] = Field(
-        None, description="Mark interface as management only"
-    )
+    mgmt_only: Optional[bool] = Field(None, description="Mark interface as management only")
     description: Optional[str] = Field(None, description="Interface description")
     mac_address: Optional[str] = Field(None, description="MAC address")
     mtu: Optional[int] = Field(None, description="MTU size")
@@ -113,15 +109,9 @@ class DeviceUpdateResult(BaseModel):
     updated_fields: list[str] = Field(
         default_factory=list, description="List of fields that were updated"
     )
-    warnings: list[str] = Field(
-        default_factory=list, description="List of warning messages"
-    )
-    interfaces_created: int = Field(
-        default=0, description="Number of interfaces created"
-    )
-    interfaces_updated: int = Field(
-        default=0, description="Number of interfaces updated"
-    )
+    warnings: list[str] = Field(default_factory=list, description="List of warning messages")
+    interfaces_created: int = Field(default=0, description="Number of interfaces created")
+    interfaces_updated: int = Field(default=0, description="Number of interfaces updated")
     interfaces_failed: int = Field(
         default=0, description="Number of interface operations that failed"
     )
@@ -134,22 +124,59 @@ class DeviceUpdateResult(BaseModel):
 class InterfaceUpdateResult(BaseModel):
     """Result of interface update operations."""
 
-    interfaces_created: int = Field(
-        default=0, description="Number of interfaces created"
-    )
-    interfaces_updated: int = Field(
-        default=0, description="Number of interfaces updated"
-    )
+    interfaces_created: int = Field(default=0, description="Number of interfaces created")
+    interfaces_updated: int = Field(default=0, description="Number of interfaces updated")
     interfaces_failed: int = Field(
         default=0, description="Number of interface operations that failed"
     )
     interfaces_deleted: int = Field(
         default=0, description="Number of interfaces deleted during sync"
     )
-    ip_addresses_created: int = Field(
-        default=0, description="Number of IP addresses created"
-    )
+    ip_addresses_created: int = Field(default=0, description="Number of IP addresses created")
     primary_ip4_id: Optional[str] = Field(None, description="Primary IPv4 ID if set")
-    warnings: list[str] = Field(
-        default_factory=list, description="List of warning messages"
+    warnings: list[str] = Field(default_factory=list, description="List of warning messages")
+
+
+class AddDeviceRequest(BaseModel):
+    """Request to create a new device in Nautobot.
+
+    ``name``/``role``/``status``/``location``/``device_type`` accept either a
+    Nautobot name or an already-resolved UUID — ``DeviceCreationService`` resolves
+    names to UUIDs before creating the device. All other fields are optional.
+    """
+
+    name: str = Field(..., description="Device name")
+    role: str = Field(..., description="Role name or UUID")
+    status: str = Field(..., description="Status name or UUID")
+    location: str = Field(..., description="Location name or UUID")
+    device_type: str = Field(..., description="Device type model or UUID")
+
+    platform: Optional[str] = Field(None, description="Platform name or UUID")
+    software_version: Optional[str] = Field(None, description="Software version")
+    serial: Optional[str] = Field(None, description="Serial number")
+    asset_tag: Optional[str] = Field(None, description="Asset tag")
+    tags: Optional[list[str]] = Field(None, description="Tag names or UUIDs")
+    custom_fields: Optional[Dict[str, str]] = Field(None, description="Custom field values")
+
+    rack: Optional[str] = Field(None, description="Rack name or UUID")
+    face: Optional[str] = Field(None, description="Rack face: front or rear")
+    position: Optional[int] = Field(None, description="Rack U position")
+
+    interfaces: list[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Interfaces to create, same shape as DeviceUpdateService interfaces",
     )
+    add_prefix: bool = Field(default=True, description="Auto-create missing IP prefixes")
+    default_prefix_length: str = Field(
+        default="/24", description="Default prefix length for bare IP addresses"
+    )
+
+    virtual_chassis_id: Optional[str] = Field(
+        None, description="Existing virtual chassis UUID to join"
+    )
+    new_virtual_chassis_name: Optional[str] = Field(
+        None,
+        description="Create a new virtual chassis with this name; device becomes master",
+    )
+
+    dry_run: bool = Field(default=False, description="Validate without creating the device")

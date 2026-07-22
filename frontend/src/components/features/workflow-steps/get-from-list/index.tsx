@@ -20,14 +20,31 @@ import { GetFromListHelpPanel } from "./help-panel";
 
 const DEVICES_KEY = "devices";
 
-const DEFAULT_DEVICES = [""];
+interface DeviceEntry {
+  name: string;
+  ip_address: string;
+}
 
-function parseDevices(config: Record<string, unknown>): string[] {
+const DEFAULT_DEVICES: DeviceEntry[] = [{ name: "", ip_address: "" }];
+
+function parseDeviceEntries(config: Record<string, unknown>): DeviceEntry[] {
   const raw = config[DEVICES_KEY];
   if (!Array.isArray(raw) || raw.length === 0) {
-    return [...DEFAULT_DEVICES];
+    return DEFAULT_DEVICES.map((entry) => ({ ...entry }));
   }
-  return raw.map((item) => (typeof item === "string" ? item : ""));
+  return raw.map((item) => {
+    if (typeof item === "string") {
+      return { name: item, ip_address: "" };
+    }
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      return {
+        name: typeof record.name === "string" ? record.name : "",
+        ip_address: typeof record.ip_address === "string" ? record.ip_address : "",
+      };
+    }
+    return { name: "", ip_address: "" };
+  });
 }
 
 function buildConfig(
@@ -35,14 +52,14 @@ function buildConfig(
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    devices: parseDevices(config),
+    devices: parseDeviceEntries(config),
     fan_out: fanOutFromConfig(config),
     ...patch,
   };
 }
 
-function configuredDeviceCount(devices: string[]): number {
-  return devices.filter((device) => device.trim()).length;
+function configuredDeviceCount(devices: DeviceEntry[]): number {
+  return devices.filter((device) => device.name.trim() || device.ip_address.trim()).length;
 }
 
 function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
@@ -58,21 +75,22 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
     }
   }, [nodeId, config, onChange]);
 
-  const devices = useMemo(() => parseDevices(config), [config]);
+  const devices = useMemo(() => parseDeviceEntries(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
   const configuredCount = useMemo(() => configuredDeviceCount(devices), [devices]);
 
   const handleDeviceChange = useCallback(
-    (index: number, value: string) => {
-      const next = [...devices];
-      next[index] = value;
+    (index: number, field: keyof DeviceEntry, value: string) => {
+      const next = devices.map((device, itemIndex) =>
+        itemIndex === index ? { ...device, [field]: value } : device,
+      );
       onChange(buildConfig(config, { devices: next }));
     },
     [config, devices, onChange],
   );
 
   const handleAddDevice = useCallback(() => {
-    onChange(buildConfig(config, { devices: [...devices, ""] }));
+    onChange(buildConfig(config, { devices: [...devices, { name: "", ip_address: "" }] }));
   }, [config, devices, onChange]);
 
   const handleRemoveDevice = useCallback(
@@ -100,7 +118,7 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
           <div className="flex items-center gap-1.5">
             <span className="font-mono text-xs font-medium">{DEVICES_KEY}</span>
             <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              string_list
+              object_list
             </Badge>
           </div>
           <Button
@@ -120,17 +138,23 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
             {configuredCount} device{configuredCount === 1 ? "" : "s"} configured
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">Enter at least one device name</p>
+          <p className="text-[11px] text-amber-600">Enter a name and/or IP address for at least one device</p>
         )}
 
         <div className="space-y-2">
           {devices.map((device, index) => (
             <div key={`device-${index}`} className="flex items-center gap-2">
               <Input
-                value={device}
-                onChange={(event) => handleDeviceChange(index, event.target.value)}
+                value={device.name}
+                onChange={(event) => handleDeviceChange(index, "name", event.target.value)}
                 placeholder="router1.example.com"
                 className="h-8 font-mono text-xs"
+              />
+              <Input
+                value={device.ip_address}
+                onChange={(event) => handleDeviceChange(index, "ip_address", event.target.value)}
+                placeholder="10.0.0.5"
+                className="h-8 w-32 shrink-0 font-mono text-xs"
               />
               <Button
                 type="button"
@@ -148,7 +172,9 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Static device names passed to downstream steps as workflow targets.
+          Static devices passed to downstream steps as workflow targets. When an
+          IP address is set it is used to connect; otherwise the name is used
+          as the hostname.
         </p>
       </div>
 
