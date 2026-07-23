@@ -402,7 +402,7 @@ decides whether a sealed leaf gets decrypted for the caller:
   default `reveal_secrets=True` — they need the cleartext to do their job
   (build a TACACS+ config line, send an ISE API payload).
 - **Generic / bulk steps** that write a *resolved* value into a *new* bag
-  location — `update-attribute`, `workflow-log` — must pass
+  location — `update-attribute`, `log-message` — must pass
   `reveal_secrets=False`. A `False` call returns `REDACTED_PLACEHOLDER`
   instead of cleartext; `update-attribute` treats that as a hard `ValueError`
   (it must not create a second, unsealed copy of a secret at an arbitrary
@@ -575,7 +575,7 @@ the **same external resources**. A step is fan-out-safe when it:
 
 | Step kind | Fan-out safe? | Why |
 |-----------|---------------|-----|
-| `get-device-configs`, `run-command`, `get-nautobot-attributes`, `render-jinja-template`, `workflow-log`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
+| `get-device-configs`, `run-command`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent children overwrite/race. |
 | `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` | ❌ | All open **one shared on-disk working tree per git source** (`load_git_source_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. |
 

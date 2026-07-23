@@ -26,7 +26,7 @@ import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
 import { DeployRenderedTemplatePlugin } from "@/components/features/workflow-steps/deploy-rendered-template";
 import { LogAttributesPlugin } from "@/components/features/workflow-steps/log-attributes";
-import { WorkflowLogPlugin } from "@/components/features/workflow-steps/workflow-log";
+import { LogMessagePlugin } from "@/components/features/workflow-steps/log-message";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
@@ -63,7 +63,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "update-ise-tacacs-key": UpdateIseTacacsKeyPlugin,
   "add-to-ise": AddToIsePlugin,
   "add-to-nautobot": AddToNautobotPlugin,
-  "workflow-log": WorkflowLogPlugin,
+  "log-message": LogMessagePlugin,
   "log-attributes": LogAttributesPlugin,
 };
 

@@ -54,7 +54,7 @@ import {
   summarizeRenderJinjaTemplate,
   summarizeCompareData,
   summarizeLogAttributes,
-  summarizeWorkflowLogMessage,
+  summarizeLogMessage,
   type DerivedStepStatus,
   type FanOutInfo,
 } from "../utils/step-result-status";
@@ -250,8 +250,8 @@ function StepResultRow({
           ? summarizeRenderJinjaTemplate(step.output)
           : step.step_type === "compare-data"
             ? summarizeCompareData(step.output)
-            : step.step_type === "workflow-log"
-            ? summarizeWorkflowLogMessage(step.output)
+            : step.step_type === "log-message"
+            ? summarizeLogMessage(step.output)
             : step.step_type === "log-attributes"
               ? summarizeLogAttributes(step.output)
             : null;

@@ -70,7 +70,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "set-default-attributes": Settings2,
   "update-attribute": Tags,
   "log-attributes": Eye,
-  "workflow-log": List,
+  "log-message": List,
   "get-ise-devices": ShieldCheck,
   "get-ise-tacacs-key": Key,
   reachable: Wifi,

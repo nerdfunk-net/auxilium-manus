@@ -8,10 +8,10 @@ import {
 } from "../shared/step-help";
 
 /**
- * Built-in Help tab content for Workflow Log.
+ * Built-in Help tab content for Log Message.
  * Covers every Configuration control with practical examples.
  */
-export function WorkflowLogHelpPanel() {
+export function LogMessageHelpPanel() {
   return (
     <div className="space-y-6">
       <HelpSection title="What this step does">
@@ -92,7 +92,7 @@ export function WorkflowLogHelpPanel() {
             business fields for readable audit trails.
           </li>
           <li>
-            Add multiple Workflow Log steps at different graph points to mark pipeline
+            Add multiple Log Message steps at different graph points to mark pipeline
             stages.
           </li>
         </ol>

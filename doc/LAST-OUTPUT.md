@@ -69,7 +69,7 @@ plugins:
 
   # Pass-through steps (no primary_output field):
   # get-nautobot-devices, get-git-devices, get-nautobot-attributes,
-  # route-on-attribute, workflow-log, fan-in, git-clone, git-pull, git-push
+  # route-on-attribute, log-message, fan-in, git-clone, git-pull, git-push
 ```
 
 The frontend reads `primary_output` from the plugin definitions it already loads from

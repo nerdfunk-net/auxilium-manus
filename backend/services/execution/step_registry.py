@@ -47,7 +47,7 @@ from workflow_steps.update_attribute.executor import execute as update_attribute
 from workflow_steps.update_ise_tacacs_key.executor import execute as update_ise_tacacs_key
 from workflow_steps.update_nautobot_device.executor import execute as update_nautobot_device
 from workflow_steps.log_attributes.executor import execute as log_attributes
-from workflow_steps.workflow_log.executor import execute as workflow_log
+from workflow_steps.log_message.executor import execute as log_message
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 
@@ -82,6 +82,6 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "update-attribute": update_attribute,
     "update-ise-tacacs-key": update_ise_tacacs_key,
     "update-nautobot-device": update_nautobot_device,
-    "workflow-log": workflow_log,
+    "log-message": log_message,
     "log-attributes": log_attributes,
 }

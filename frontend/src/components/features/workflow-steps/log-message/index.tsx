@@ -5,11 +5,11 @@ import { useCallback, useEffect, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
-import { WorkflowLogHelpPanel } from "./help-panel";
+import { LogMessageHelpPanel } from "./help-panel";
 
 const DEFAULT_MESSAGE = "Device {device.name}: {device.network_driver}";
 
-function buildWorkflowLogConfig(
+function buildLogMessageConfig(
   config: Record<string, unknown>,
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
@@ -19,7 +19,7 @@ function buildWorkflowLogConfig(
   };
 }
 
-function WorkflowLogConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
+function LogMessageConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const message = typeof config.message === "string" ? config.message : "";
 
@@ -29,13 +29,13 @@ function WorkflowLogConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
     }
     initializedForNode.current = nodeId;
     if (!message.trim()) {
-      onChange(buildWorkflowLogConfig(config, { message: DEFAULT_MESSAGE }));
+      onChange(buildLogMessageConfig(config, { message: DEFAULT_MESSAGE }));
     }
   }, [nodeId, message, config, onChange]);
 
   const handleMessageChange = useCallback(
     (value: string) => {
-      onChange(buildWorkflowLogConfig(config, { message: value }));
+      onChange(buildLogMessageConfig(config, { message: value }));
     },
     [config, onChange],
   );
@@ -69,7 +69,7 @@ function WorkflowLogConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
   );
 }
 
-export const WorkflowLogPlugin = {
-  ConfigPanel: WorkflowLogConfigPanel,
-  HelpPanel: WorkflowLogHelpPanel,
+export const LogMessagePlugin = {
+  ConfigPanel: LogMessageConfigPanel,
+  HelpPanel: LogMessageHelpPanel,
 };

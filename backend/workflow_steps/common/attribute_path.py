@@ -254,7 +254,7 @@ def resolve_device_attribute(
     ``True`` (the default — for trusted consumers like Jinja rendering and
     ISE-update expressions) decrypts it in-memory for this call; ``False``
     (for generic/bulk callers such as ``update-attribute`` and
-    ``workflow-log``, which must never rehydrate or re-expose a secret)
+    ``log-message``, which must never rehydrate or re-expose a secret)
     returns ``REDACTED_PLACEHOLDER`` instead.
     """
     path = attribute_path.strip()

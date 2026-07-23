@@ -16,11 +16,11 @@ Apply in this order so each step is independently reviewable and testable.
 3. **H1-B** — Seal secrets at write sites (`get-ise-tacacs-key`, `update-ise-tacacs-key`, `add-to-ise`, `device_builders`)
 4. **H1-C** — Unwrap on read (`resolve_device_attribute`, Jinja context builder)
 5. **H1-C2** — Close the `update-attribute` sealing bypass (`reveal_secrets=False` for this non-trusted consumer; seal fixed-mode writes to known secret paths) — **do this before or alongside H1-C**, since H1-C is what introduces the bypass
-6. **H1-D** — Redact at persist / dump / log boundaries (`StepRunner._serialize_outcomes`, `log-attributes`, `workflow-log`)
+6. **H1-D** — Redact at persist / dump / log boundaries (`StepRunner._serialize_outcomes`, `log-attributes`, `log-message`)
 7. **H1-E** — Frontend + registry + `doc/WORKFLOW-STEPS.md` copy cleanup (placeholder examples that advertise secret interpolation; document the sealed-secret contract for future step authors)
 8. **Tests** — unit coverage for seal/unwrap/redact + TemplatesService sandbox + regression on TACACS executors + `update-attribute` bypass regression
 
-> **Design choice (H1):** Prefer **encrypt-at-write + redact-on-export** over “drop the secret from context entirely.” Downstream steps (`render-jinja-template`, `update-ise-tacacs-key`, `add-to-ise`, `workflow-log` expressions) legitimately need the value *during* a run. Cleartext must not land in PostgreSQL step results, run APIs, log-attributes artifacts, or INFO logs.
+> **Design choice (H1):** Prefer **encrypt-at-write + redact-on-export** over “drop the secret from context entirely.” Downstream steps (`render-jinja-template`, `update-ise-tacacs-key`, `add-to-ise`, `log-message` expressions) legitimately need the value *during* a run. Cleartext must not land in PostgreSQL step results, run APIs, log-attributes artifacts, or INFO logs.
 
 ---
 
@@ -147,7 +147,7 @@ Cleartext `tacacs.shared_secret` (and nested `ise.tacacsSettings.sharedSecret`) 
         }
 ```
 
-Anyone with run-read permission can recover TACACS keys. `log-attributes` dumps `context.model_dump`, and `workflow-log` can interpolate `{tacacs.shared_secret}` into INFO logs and step metadata.
+Anyone with run-read permission can recover TACACS keys. `log-attributes` dumps `context.model_dump`, and `log-message` can interpolate `{tacacs.shared_secret}` into INFO logs and step metadata.
 
 **Write sites today:**
 
@@ -176,7 +176,7 @@ Anyone with run-read permission can recover TACACS keys. `log-attributes` dumps 
 ```
 
 - **Sealed value** (at rest in bags / in-memory between steps): Fernet envelope reusing `core.crypto.EncryptionService` (same key material as credentials).
-- **Exported value** (DB step `output`, log-attributes files, workflow-log metadata, any run API): always the literal `***REDACTED***` — not even ciphertext.
+- **Exported value** (DB step `output`, log-attributes files, log-message metadata, any run API): always the literal `***REDACTED***` — not even ciphertext.
 - **Consumer value** (attribute resolution, Jinja namespace, ISE update payloads): unwrap to cleartext only in process memory for the duration of the call.
 
 Presence checks (`route-on-attribute` on `tacacs.shared_secret`, “already had key” in get-ise-tacacs-key) must treat a sealed envelope as present.
@@ -450,7 +450,7 @@ source_value = resolve_device_attribute(device, source_path)   # H1-C makes this
 return set_device_attribute(device, destination_path, transformed)  # plain write — no seal_secret()
 ```
 
-Once H1-C makes `resolve_device_attribute` transparently unwrap sealed values (required for legitimate Jinja/ISE-update consumers), a workflow author can configure `update-attribute` with `source_path: tacacs.shared_secret` and any `destination_path` (e.g. `backup.token`, or a regex pattern that just passes the value through). The result is a **cleartext copy of the secret at a bag path that is neither a `SECRET_BAG_PATHS` entry nor a sealed dict** — it bypasses `_redact_bag_paths` (wrong path) and the generic `is_sealed_secret` sweep (no longer sealed), and lands unredacted in `WorkflowStepResult.output`, log-attributes dumps, and workflow-log interpolation of the new path. Fixed mode is unaffected (writes to `destination_path` directly, still caught by `SECRET_BAG_PATHS` if that path is the canonical one) unless the operator picks a non-canonical destination for a literal secret value, which the same fix below also covers.
+Once H1-C makes `resolve_device_attribute` transparently unwrap sealed values (required for legitimate Jinja/ISE-update consumers), a workflow author can configure `update-attribute` with `source_path: tacacs.shared_secret` and any `destination_path` (e.g. `backup.token`, or a regex pattern that just passes the value through). The result is a **cleartext copy of the secret at a bag path that is neither a `SECRET_BAG_PATHS` entry nor a sealed dict** — it bypasses `_redact_bag_paths` (wrong path) and the generic `is_sealed_secret` sweep (no longer sealed), and lands unredacted in `WorkflowStepResult.output`, log-attributes dumps, and log-message interpolation of the new path. Fixed mode is unaffected (writes to `destination_path` directly, still caught by `SECRET_BAG_PATHS` if that path is the canonical one) unless the operator picks a non-canonical destination for a literal secret value, which the same fix below also covers.
 
 **Fix:** `update-attribute` is a generic, non-trusted consumer (unlike `render-jinja-template`/`update-ise-tacacs-key`, whose whole purpose is consuming the secret intentionally) — it must not silently rehydrate a sealed value into a new plaintext home.
 
@@ -584,7 +584,7 @@ def build_context_snapshot(context: WorkflowContext) -> dict[str, Any]:
 
 Pretty-text formatting then automatically shows `shared_secret: ***REDACTED***`.
 
-#### workflow-log
+#### log-message
 
 ### Code before
 
@@ -592,7 +592,7 @@ Pretty-text formatting then automatically shows `shared_secret: ***REDACTED***`.
 rendered = render_message_template(message, device)
 # ...
 logger.info(
-    "workflow-log node_id=%s device_id=%s message=%r",
+    "log-message node_id=%s device_id=%s message=%r",
     node_id,
     device_id,
     rendered,
@@ -609,7 +609,7 @@ Two complementary controls:
 2. **Change the UI placeholder** so examples do not teach secret logging.
 
 ```python
-# workflow_log/executor.py
+# log_message/executor.py
 
 def render_message_template(template: str, device: DeviceContext) -> str:
     def _replace(match: re.Match[str]) -> str:
@@ -639,7 +639,7 @@ def resolve_device_attribute(
         return unwrap_secret(raw) if is_sealed_secret(raw) else raw
 ```
 
-Default `reveal_secrets=True` preserves ISE update / expression behaviour; workflow-log opts out.
+Default `reveal_secrets=True` preserves ISE update / expression behaviour; log-message opts out.
 
 ---
 
@@ -648,7 +648,7 @@ Default `reveal_secrets=True` preserves ISE update / expression behaviour; workf
 ### Code before
 
 ```tsx
-// frontend/.../workflow-log/index.tsx
+// frontend/.../log-message/index.tsx
 placeholder="Tacacs key {tacacs.shared_secret} successfully read from ISE"
 ```
 
@@ -658,7 +658,7 @@ placeholder="Tacacs key {tacacs.shared_secret} successfully read from ISE"
 placeholder="Device {device.name} processed from ISE"
 ```
 
-Update any `registry.yaml` examples or docs that interpolate `{tacacs.shared_secret}` in workflow-log samples. Keep attribute path `tacacs.shared_secret` as the supported in-run handle for steps that need it; do not advertise it as a log field.
+Update any `registry.yaml` examples or docs that interpolate `{tacacs.shared_secret}` in log-message samples. Keep attribute path `tacacs.shared_secret` as the supported in-run handle for steps that need it; do not advertise it as a log field.
 
 **Also update `doc/WORKFLOW-STEPS.md`** (required per `CLAUDE.md`'s step-authoring rule — this doc must stay accurate for anyone adding/modifying a step). Add a short "Secret-valued attributes" subsection covering:
 - Sealed-envelope contract: `seal_secret`/`unwrap_secret`/`secret_is_present`/`is_sealed_secret` in `services/workflow_context/secret_fields.py`, and which dotted paths (`SECRET_BAG_PATHS`) are currently treated as secret.
@@ -689,7 +689,7 @@ Update any `registry.yaml` examples or docs that interpolate `{tacacs.shared_sec
 | `get_ise_tacacs_key` executor | bag leaf is sealed (`__am_sealed__`); unwrap returns key |
 | `StepRunner._serialize_outcomes` | persisted JSON has placeholder, not cleartext/ciphertext |
 | `build_context_snapshot` | redacted |
-| `workflow-log` with `{tacacs.shared_secret}` | metadata + INFO contain `***REDACTED***` |
+| `log-message` with `{tacacs.shared_secret}` | metadata + INFO contain `***REDACTED***` |
 | `route-on-attribute` present/absent on sealed key | still routes correctly |
 | `test_device_builders` | expects sealed envelope or redacted nested ISE field (update assertions) |
 | Legacy cleartext string in bag | still unwraps / redacts (migration safety) |
@@ -728,7 +728,7 @@ Run (from `backend/` with venv):
 - [ ] New TACACS writes store sealed envelopes in `attribute_bags`, never raw strings.
 - [ ] `ise.tacacsSettings.sharedSecret` is sealed or stripped in device builders.
 - [ ] Persisted step `output` and log-attributes dumps never contain TACACS cleartext.
-- [ ] `workflow-log` does not write cleartext secrets to INFO or step metadata.
+- [ ] `log-message` does not write cleartext secrets to INFO or step metadata.
 - [ ] In-run consumers (Jinja, ISE update expressions, presence routing) still function via unwrap.
 - [ ] `update-attribute` cannot read or copy a sealed secret into a new plaintext location (H1-C2); fixed-mode writes to a known secret path are sealed, not plaintext.
 - [ ] Simulated `CREDENTIAL_ENCRYPTION_KEY` rotation causes `unwrap_secret` to fail closed (`RuntimeError` from the calling step), not silent data loss.

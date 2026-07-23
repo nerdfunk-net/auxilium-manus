@@ -622,7 +622,7 @@ optional, via e2e-runner, once the flow is stable.)
    (check `app.log` for `015_add_run_approval_state`).
 3. Build a workflow: `get-from-list` (cheap, no Nautobot needed) with ~6 fake devices,
    fan-out `per_device`, approval `{enabled, batch_size: 2, first_batch_auto: true}` →
-   `workflow-log` step.
+   `log-message` step.
 4. Run. Expect: batch 1 (2 devices) executes; run turns `paused` with amber banner
    "Batch 1/3 finished…"; step results for the 2 devices inspectable.
 5. Click **Run next batch** → batch 2 runs → pauses again. Click **Run all remaining**

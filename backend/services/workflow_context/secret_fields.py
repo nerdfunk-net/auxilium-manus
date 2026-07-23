@@ -9,7 +9,7 @@ Data-flow:
 - **Sealed** (at rest in bags / in-memory between steps): a Fernet envelope
   produced by :func:`seal_secret`, reusing the same key material as
   credential-table encryption (``core.crypto.EncryptionService``).
-- **Exported** (DB step output, log-attributes files, workflow-log metadata,
+- **Exported** (DB step output, log-attributes files, log-message metadata,
   any run API): always the literal ``***REDACTED***`` placeholder via
   :func:`redact_secrets_in_data` — never even ciphertext.
 - **Consumed** (attribute resolution, Jinja namespace, ISE update payloads):

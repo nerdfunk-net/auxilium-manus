@@ -1,4 +1,4 @@
-"""Executor for the workflow-log debugging step."""
+"""Executor for the log-message debugging step."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.common.placeholder_template import render_placeholder_template
-from workflow_steps.workflow_log.config import get_config
+from workflow_steps.log_message.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ def render_message_template(template: str, device: DeviceContext) -> str:
     attribute values. A path that resolves to nothing renders as an empty
     string rather than failing the step.
 
-    workflow-log writes into INFO logs and persisted step metadata, so
+    log-message writes into INFO logs and persisted step metadata, so
     secret-valued paths must never be rehydrated here —
     ``render_placeholder_template`` always resolves with
     ``reveal_secrets=False``, returning ``REDACTED_PLACEHOLDER`` instead of
@@ -46,7 +46,7 @@ async def execute(
 
     message = str(config.get("message") or _default_config()["message"] or "").strip()
     if not message:
-        raise ValueError("workflow-log: message is required")
+        raise ValueError("log-message: message is required")
 
     logged_at = datetime.now(timezone.utc).isoformat()
 
@@ -59,7 +59,7 @@ async def execute(
             "message": rendered,
         }
         logger.info(
-            "workflow-log node_id=%s device_id=%s message=%r",
+            "log-message node_id=%s device_id=%s message=%r",
             node_id,
             device_id,
             rendered,
@@ -77,7 +77,7 @@ async def execute(
         f"{node_id}{DEBUG_LOGS_METADATA_SUFFIX}": debug_logs,
     }
 
-    logger.info("workflow-log node_id=%s devices=%d", node_id, len(device_logs))
+    logger.info("log-message node_id=%s devices=%d", node_id, len(device_logs))
 
     return [
         StepOutcome(

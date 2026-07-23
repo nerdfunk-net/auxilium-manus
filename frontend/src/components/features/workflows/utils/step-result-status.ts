@@ -97,8 +97,8 @@ export function summarizeRouteCounts(
   return parts.length > 0 ? parts.join(" · ") : "no devices routed";
 }
 
-/** Short summary for workflow-log message in the run list. */
-export function summarizeWorkflowLogMessage(
+/** Short summary for log-message step in the run list. */
+export function summarizeLogMessage(
   output: Record<string, unknown> | null,
 ): string | null {
   const metadata = firstOutcomeMetadata(output);

@@ -1106,8 +1106,8 @@ plugins:
                 multiline: false
                 dotall: false
 
-  - id: workflow-log
-    name: Logging
+  - id: log-message
+    name: Log Message
     overview: Log a per-device message for workflow debugging.
     description: >
       Log a message to the run result for each device in the workflow context.
@@ -1117,7 +1117,7 @@ plugins:
       that doesn't resolve renders as an empty string.
     artifact_type: control_flow
     palette_category: debug
-    directory: workflow_log
+    directory: log_message
     enabled: true
     requires: [identity]
     produces: []
