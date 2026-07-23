@@ -512,6 +512,49 @@ plugins:
             git_source_id: prod-lab
             filename_pattern: defaults.yaml
 
+  - id: config-to-attributes
+    name: Config to Attributes
+    overview: Turn parsed Cisco config into Nautobot attributes.
+    description: >
+      Read a device's parsed Cisco config (from Parse Cisco Config) and populate
+      its Nautobot attribute bag — starting with Layer3 interfaces — for later
+      use by Add to Nautobot. No live Nautobot connection is used.
+    artifact_type: inventory_selector
+    palette_category: nautobot
+    directory: config_to_attributes
+    enabled: true
+    requires: [identity, parsed]
+    produces: [attributes]
+    consumes: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: config_source
+          description: >
+            Which parsed config to read for attribute values — running or
+            startup (exactly one).
+          data_type: string
+          required: true
+          example: running
+        - name: parsed_key
+          description: >
+            The output_key used by the upstream Parse Cisco Config step
+            (device.parsed.<parsed_key>). Must match that step's own
+            "output_key" configuration value.
+          data_type: string
+          required: true
+          example: cisco_config
+        - name: attributes
+          description: >
+            Which attribute groups to populate. Currently only
+            "layer3_interfaces" is implemented; more groups will be added
+            later.
+          data_type: object_list
+          required: true
+          example:
+            - layer3_interfaces
+
   - id: add-to-nautobot
     name: Add to Nautobot
     overview: Create a new device in Nautobot.
@@ -540,9 +583,11 @@ plugins:
             accept a fixed value, {path.to.value}, {expr | default('x')}, or
             {nautobot.origin} (pull straight from the device's nautobot attribute
             bag, e.g. when the same device was already read via Get Nautobot
-            Attributes). platform/software_version/serial/asset_tag/tags/
-            custom_fields/rack/face/position are optional and only sent to
-            Nautobot when enabled.
+            Attributes, or seeded by Set Default Attributes). platform/
+            software_version/serial/asset_tag/tags default to enabled with
+            {nautobot.origin} too, but — unlike the required fields — can be
+            unchecked; custom_fields/rack/face/position are optional and start
+            unchecked, and are only sent to Nautobot when enabled.
           data_type: object
           required: true
           example:
@@ -551,6 +596,22 @@ plugins:
             status: "{nautobot.origin | default('Active')}"
             location: "{nautobot.origin}"
             device_type: "{nautobot.origin}"
+            platform: "{nautobot.origin}"
+            software_version: "{nautobot.origin}"
+            serial: "{nautobot.origin}"
+            asset_tag: "{nautobot.origin}"
+            tags: "{nautobot.origin}"
+        - name: custom_fields_source
+          description: >
+            "manual" (default) sends only the custom_fields rows configured under
+            device_fields. "nautobot_origin" ignores those rows and instead sends
+            every custom field present in the device's nautobot attribute bag —
+            useful when the set of custom fields varies per device and isn't known
+            in advance (e.g. seeded by Set Default Attributes or Get Nautobot
+            Attributes).
+          data_type: string
+          required: false
+          default: manual
         - name: interfaces
           description: Interfaces to create on the new device, including IP address and description.
           data_type: object_list
@@ -560,6 +621,17 @@ plugins:
               type: 1000base-t
               status: active
               ip_address: 10.0.0.1/24
+        - name: interfaces_source
+          description: >
+            "manual" (default) creates only the interfaces listed above. "nautobot_origin"
+            ignores that list and instead creates every interface present in the
+            device's nautobot attribute bag, each with however many IP addresses it
+            has (the bag's plural ip_addresses per interface) — useful when the
+            number of interfaces varies per device and isn't obvious before the
+            workflow runs.
+          data_type: string
+          required: false
+          default: manual
         - name: add_prefix
           description: Automatically create missing IP prefixes when assigning addresses.
           data_type: boolean

@@ -25,7 +25,9 @@ import { Switch } from "@/components/ui/switch";
 
 import {
   customFieldRowsFromConfig,
+  customFieldsSourceFromConfig,
   customFieldsToConfig,
+  interfacesSourceFromConfig,
   parseDeviceFieldsConfig,
   patchDeviceFieldSpec,
   requiredFieldSpec,
@@ -33,9 +35,11 @@ import {
 import type {
   AddToNautobotConfig,
   CustomFieldRow,
+  CustomFieldsSource,
   DeviceFieldKey,
   DeviceFieldsConfig,
   InterfaceCreateConfig,
+  InterfacesSource,
   UpdateFieldSpec,
   VirtualChassisConfig,
 } from "./types";
@@ -152,11 +156,14 @@ function interfaceForSave({ id, ...rest }: InterfaceCreateConfig) {
 
 function buildInitialDraft(value: AddToNautobotConfig) {
   const parsedFields = parseDeviceFieldsConfig(value.device_fields);
+  const rawConfig = value as Record<string, unknown>;
   return {
     draft: {
       ...value,
       device_fields: parsedFields,
+      custom_fields_source: customFieldsSourceFromConfig(rawConfig),
       interfaces: withInterfaceIds(value.interfaces as Array<Partial<InterfaceCreateConfig>>),
+      interfaces_source: interfacesSourceFromConfig(rawConfig),
       virtual_chassis: { ...DEFAULT_VIRTUAL_CHASSIS, ...(value.virtual_chassis ?? {}) },
     },
     customFieldRows: customFieldRowsFromConfig(parsedFields),
@@ -175,6 +182,8 @@ function AddToNautobotDialogForm({
   const deviceFields = draft.device_fields ?? ({} as DeviceFieldsConfig);
   const interfaces = draft.interfaces ?? EMPTY_INTERFACES;
   const virtualChassis = draft.virtual_chassis ?? DEFAULT_VIRTUAL_CHASSIS;
+  const customFieldsSource = draft.custom_fields_source ?? "manual";
+  const interfacesSource = draft.interfaces_source ?? "manual";
 
   const handleSave = () => {
     onChange({
@@ -183,13 +192,23 @@ function AddToNautobotDialogForm({
         ...deviceFields,
         custom_fields: customFieldsToConfig(customFieldRows),
       },
+      custom_fields_source: customFieldsSource,
       interfaces: interfaces.map(interfaceForSave),
+      interfaces_source: interfacesSource,
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
       virtual_chassis: virtualChassis,
       dry_run: draft.dry_run ?? false,
     });
     onClose();
+  };
+
+  const setCustomFieldsSource = (source: CustomFieldsSource) => {
+    setDraft((current) => ({ ...current, custom_fields_source: source }));
+  };
+
+  const setInterfacesSource = (source: InterfacesSource) => {
+    setDraft((current) => ({ ...current, interfaces_source: source }));
   };
 
   const patchRequiredField = (key: DeviceFieldKey, text: string) => {
@@ -255,7 +274,9 @@ function AddToNautobotDialogForm({
 
   const enabledOptionalCount =
     OPTIONAL_DEVICE_FIELD_DEFINITIONS.filter(({ key }) => deviceFields[key]?.enabled).length +
-    customFieldRows.filter((row) => row.enabled && row.name.trim()).length;
+    (customFieldsSource === "manual"
+      ? customFieldRows.filter((row) => row.enabled && row.name.trim()).length
+      : 0);
 
   return (
     <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
@@ -307,17 +328,38 @@ function AddToNautobotDialogForm({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-xs font-medium">custom_fields</span>
-              <Button
-                className="h-7 bg-teal-500 text-white hover:bg-teal-600"
-                size="sm"
-                type="button"
-                onClick={addCustomFieldRow}
-              >
-                <Plus className="mr-1 size-3.5" />
-                Add
-              </Button>
+              {customFieldsSource === "manual" ? (
+                <Button
+                  className="h-7 bg-teal-500 text-white hover:bg-teal-600"
+                  size="sm"
+                  type="button"
+                  onClick={addCustomFieldRow}
+                >
+                  <Plus className="mr-1 size-3.5" />
+                  Add
+                </Button>
+              ) : null}
             </div>
-            {customFieldRows.length === 0 ? (
+            <Select
+              value={customFieldsSource}
+              onValueChange={(source) => setCustomFieldsSource(source as CustomFieldsSource)}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual — rows below</SelectItem>
+                <SelectItem value="nautobot_origin">All from Nautobot origin</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {customFieldsSource === "nautobot_origin" ? (
+              <p className="text-[11px] text-muted-foreground">
+                Every custom field present in the device&apos;s nautobot attribute bag is sent
+                as-is — however many there are, whatever they&apos;re named. The rows below are
+                ignored while this is selected.
+              </p>
+            ) : customFieldRows.length === 0 ? (
               <p className="text-[11px] text-muted-foreground">No custom fields configured.</p>
             ) : (
               <div className="space-y-2">
@@ -406,18 +448,39 @@ function AddToNautobotDialogForm({
                 object_list
               </Badge>
             </div>
-            <Button
-              className="h-7 bg-teal-500 text-white hover:bg-teal-600"
-              size="sm"
-              type="button"
-              onClick={addInterface}
-            >
-              <Plus className="mr-1 size-3.5" />
-              Add
-            </Button>
+            {interfacesSource === "manual" ? (
+              <Button
+                className="h-7 bg-teal-500 text-white hover:bg-teal-600"
+                size="sm"
+                type="button"
+                onClick={addInterface}
+              >
+                <Plus className="mr-1 size-3.5" />
+                Add
+              </Button>
+            ) : null}
           </div>
 
-          {interfaces.length === 0 ? (
+          <Select
+            value={interfacesSource}
+            onValueChange={(source) => setInterfacesSource(source as InterfacesSource)}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="manual">Manual — rows below</SelectItem>
+              <SelectItem value="nautobot_origin">All from Nautobot origin</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {interfacesSource === "nautobot_origin" ? (
+            <p className="text-[11px] text-muted-foreground">
+              Every interface present in the device&apos;s nautobot attribute bag is created —
+              however many there are, each with however many IP addresses it has. The rows below
+              are ignored while this is selected.
+            </p>
+          ) : interfaces.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">No interfaces configured.</p>
           ) : (
             <div className="space-y-3">

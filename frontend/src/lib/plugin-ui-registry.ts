@@ -17,6 +17,7 @@ import { GitPushPlugin } from "@/components/features/workflow-steps/git-push";
 import { GetNautobotDevicesPlugin } from "@/components/features/workflow-steps/get-nautobot-devices";
 import { GetNautobotAttributesPlugin } from "@/components/features/workflow-steps/get-nautobot-attributes";
 import { SetDefaultAttributesPlugin } from "@/components/features/workflow-steps/set-default-attributes";
+import { ConfigToAttributesPlugin } from "@/components/features/workflow-steps/config-to-attributes";
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
 import { RouteOnContentPlugin } from "@/components/features/workflow-steps/route-on-content";
 import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
@@ -39,6 +40,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-ise-tacacs-key": GetIseTacacsKeyPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,
   "set-default-attributes": SetDefaultAttributesPlugin,
+  "config-to-attributes": ConfigToAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "run-command": RunCommandPlugin,

@@ -27,7 +27,9 @@ _BASE_CONFIG = {
 }
 
 
-def _device(device_id: str, *, name: str | None = None) -> DeviceContext:
+def _device(
+    device_id: str, *, name: str | None = None, nautobot_bag: dict | None = None
+) -> DeviceContext:
     resolved_name = name or device_id
     return DeviceContext(
         id=device_id,
@@ -36,6 +38,7 @@ def _device(device_id: str, *, name: str | None = None) -> DeviceContext:
         source="list",
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
+        attribute_bags={"nautobot": nautobot_bag} if nautobot_bag is not None else {},
     )
 
 
@@ -189,6 +192,194 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         updated = outcomes[0].context.devices["dev-1"]
         self.assertIs(updated.status, DeviceStatus.OK)
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
+
+    async def test_custom_fields_source_all_sends_every_bag_field(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-device-uuid-3",
+                "device_name": "router1",
+                "device": {"id": "nb-device-uuid-3"},
+                "interfaces_created": 0,
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": [],
+            }
+        )
+        config = {**_BASE_CONFIG, "custom_fields_source": "nautobot_origin"}
+        device = _device(
+            "dev-1",
+            name="router1",
+            nautobot_bag={"custom_fields": {"net": "lab", "mounts": "rack1", "empty": None}},
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            await execute(
+                config=config,
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+        request = create_device.await_args.args[0]
+        self.assertEqual(request.custom_fields, {"net": "lab", "mounts": "rack1"})
+
+    async def test_custom_fields_source_all_varies_per_device(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-device-uuid-4",
+                "device_name": "router",
+                "device": {"id": "nb-device-uuid-4"},
+                "interfaces_created": 0,
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": [],
+            }
+        )
+        config = {**_BASE_CONFIG, "custom_fields_source": "nautobot_origin"}
+        device_a = _device("dev-a", name="a", nautobot_bag={"custom_fields": {"net": "lab"}})
+        device_b = _device("dev-b", name="b", nautobot_bag={"custom_fields": {"site": "hq"}})
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            await execute(
+                config=config,
+                context=_context({"dev-a": device_a, "dev-b": device_b}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+        payloads = {
+            call.args[0].name: call.args[0].custom_fields
+            for call in create_device.await_args_list
+        }
+        self.assertEqual(payloads["a"], {"net": "lab"})
+        self.assertEqual(payloads["b"], {"site": "hq"})
+
+    async def test_interfaces_source_all_reads_bag_with_multiple_ips(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-device-uuid-5",
+                "device_name": "router1",
+                "device": {"id": "nb-device-uuid-5"},
+                "interfaces_created": 2,
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": [],
+            }
+        )
+        config = {**_BASE_CONFIG, "interfaces_source": "nautobot_origin"}
+        device = _device(
+            "dev-1",
+            name="router1",
+            nautobot_bag={
+                "interfaces": [
+                    {
+                        "name": "Loopback0",
+                        "type": "VIRTUAL",
+                        "status": {"name": "Active"},
+                        "ip_addresses": [
+                            {"address": "10.0.0.1/32"},
+                            {"address": "10.0.0.2"},
+                        ],
+                    },
+                    {"name": "Ethernet0/1", "status": "Active"},
+                ]
+            },
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            await execute(
+                config=config,
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+        request = create_device.await_args.args[0]
+        self.assertEqual(len(request.interfaces), 2)
+        loopback = next(i for i in request.interfaces if i["name"] == "Loopback0")
+        self.assertEqual(loopback["type"], "VIRTUAL")
+        self.assertEqual(loopback["status"], "Active")
+        self.assertEqual(
+            loopback["ip_addresses"],
+            [
+                {"address": "10.0.0.1/32", "namespace": "Global"},
+                {"address": "10.0.0.2/24", "namespace": "Global"},
+            ],
+        )
+        eth = next(i for i in request.interfaces if i["name"] == "Ethernet0/1")
+        self.assertEqual(eth["status"], "Active")
+        self.assertNotIn("ip_addresses", eth)
+
+    async def test_interfaces_source_all_empty_bag_creates_no_interfaces(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-device-uuid-6",
+                "device_name": "router1",
+                "device": {"id": "nb-device-uuid-6"},
+                "interfaces_created": 0,
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": [],
+            }
+        )
+        config = {**_BASE_CONFIG, "interfaces_source": "nautobot_origin"}
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            await execute(
+                config=config,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+        request = create_device.await_args.args[0]
+        self.assertEqual(request.interfaces, [])
+
+    async def test_invalid_custom_fields_source_raises(self) -> None:
+        config = {**_BASE_CONFIG, "custom_fields_source": "bogus"}
+        with self.assertRaises(ValueError):
+            await execute(
+                config=config,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
+
+    async def test_invalid_interfaces_source_raises(self) -> None:
+        config = {**_BASE_CONFIG, "interfaces_source": "bogus"}
+        with self.assertRaises(ValueError):
+            await execute(
+                config=config,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+            )
 
     async def test_missing_required_field_fails_only_that_device(self) -> None:
         create_device = AsyncMock(

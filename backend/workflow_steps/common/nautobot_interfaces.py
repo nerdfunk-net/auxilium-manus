@@ -77,3 +77,75 @@ def normalize_interfaces(
             iface["ip_address"] = f"{ip_address.strip()}{suffix}"
         normalized.append(iface)
     return normalized
+
+
+def interfaces_from_nautobot_bag(
+    bag: dict[str, Any] | None, *, default_prefix_length: str
+) -> list[dict[str, Any]]:
+    """Build the interfaces payload directly from a device's nautobot attribute bag.
+
+    Unlike ``build_interfaces_from_config`` (a hand-typed config list — a fixed
+    number of interfaces, one IP each, declared in advance), this reads however many
+    interfaces the bag actually has, each with however many IPs it has. The plural
+    ``ip_addresses`` shape is passed straight through to
+    ``InterfaceManagerService.update_device_interfaces``, which already supports
+    multiple IPs per interface (see ``interface.get("ip_addresses", [])`` there) —
+    no new backend service support was needed for this.
+    """
+    if not isinstance(bag, dict):
+        return []
+    raw_interfaces = bag.get("interfaces")
+    if not isinstance(raw_interfaces, list):
+        return []
+
+    suffix = (
+        default_prefix_length
+        if default_prefix_length.startswith("/")
+        else f"/{default_prefix_length.lstrip('/')}"
+    )
+
+    interfaces: list[dict[str, Any]] = []
+    for item in raw_interfaces:
+        if not isinstance(item, dict):
+            continue
+        name = _strip_empty(item.get("name"))
+        if not name:
+            continue
+
+        iface: dict[str, Any] = {"name": name}
+
+        iface_type = _strip_empty(item.get("type"))
+        if iface_type:
+            iface["type"] = iface_type
+
+        description = _strip_empty(item.get("description"))
+        if description:
+            iface["description"] = description
+
+        status = item.get("status")
+        status_name = _strip_empty(status.get("name") if isinstance(status, dict) else status)
+        if status_name:
+            iface["status"] = status_name
+
+        enabled = item.get("enabled")
+        if isinstance(enabled, bool):
+            iface["enabled"] = enabled
+
+        raw_ip_addresses = item.get("ip_addresses")
+        if isinstance(raw_ip_addresses, list):
+            addresses: list[dict[str, Any]] = []
+            for ip_item in raw_ip_addresses:
+                address = _strip_empty(
+                    ip_item.get("address") if isinstance(ip_item, dict) else ip_item
+                )
+                if not address:
+                    continue
+                if "/" not in address:
+                    address = f"{address}{suffix}"
+                addresses.append({"address": address, "namespace": "Global"})
+            if addresses:
+                iface["ip_addresses"] = addresses
+
+        interfaces.append(iface)
+
+    return interfaces

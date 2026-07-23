@@ -48,10 +48,15 @@ export interface VirtualChassisConfig {
   name?: string;
 }
 
+export type CustomFieldsSource = "manual" | "nautobot_origin";
+export type InterfacesSource = "manual" | "nautobot_origin";
+
 export interface AddToNautobotConfig {
   nautobot_source_id?: string;
   device_fields?: DeviceFieldsConfig;
+  custom_fields_source?: CustomFieldsSource;
   interfaces?: InterfaceCreateConfig[];
+  interfaces_source?: InterfacesSource;
   add_prefix?: boolean;
   default_prefix_length?: string;
   virtual_chassis?: VirtualChassisConfig;

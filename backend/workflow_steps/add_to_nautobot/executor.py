@@ -26,14 +26,23 @@ from services.nautobot.devices.types import AddDeviceRequest
 from services.settings.source_keys import build_source_key
 from workflow_steps.common.nautobot_interfaces import (
     build_interfaces_from_config,
+    interfaces_from_nautobot_bag,
     normalize_interfaces,
 )
+from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
 from workflow_steps.common.update_field_expression import build_resolved_update_data
 
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "add-to-nautobot"
 _REQUIRED_FIELDS = ("name", "role", "status", "location", "device_type")
+_SOURCE_MODES = frozenset({"manual", "nautobot_origin"})
+
+
+def _all_custom_fields_from_bag(device: DeviceContext) -> dict[str, str] | None:
+    bag = device.attribute_bags.get("nautobot") or {}
+    extracted = extract_update_fields_from_nautobot_bag({"custom_fields": bag.get("custom_fields")})
+    return extracted.get("custom_fields")
 
 
 def _tags_as_list(value: Any) -> list[str] | None:
@@ -112,9 +121,24 @@ async def execute(
     if not isinstance(raw_device_fields, dict):
         raise ValueError(f"{_STEP_ID}: device_fields must be an object")
 
-    interfaces = normalize_interfaces(
+    custom_fields_source = str(config.get("custom_fields_source") or "manual").strip().lower()
+    if custom_fields_source not in _SOURCE_MODES:
+        raise ValueError(
+            f"{_STEP_ID}: custom_fields_source must be one of {sorted(_SOURCE_MODES)}, "
+            f"got {custom_fields_source!r}"
+        )
+
+    interfaces_source = str(config.get("interfaces_source") or "manual").strip().lower()
+    if interfaces_source not in _SOURCE_MODES:
+        raise ValueError(
+            f"{_STEP_ID}: interfaces_source must be one of {sorted(_SOURCE_MODES)}, "
+            f"got {interfaces_source!r}"
+        )
+
+    default_prefix_length = str(config.get("default_prefix_length") or "/24")
+    manual_interfaces = normalize_interfaces(
         build_interfaces_from_config(config, step_id=_STEP_ID),
-        str(config.get("default_prefix_length") or "/24"),
+        default_prefix_length,
     )
 
     if not context.devices:
@@ -146,12 +170,14 @@ async def execute(
     run_id = str(context.run_id) if context.run_id else None
 
     logger.info(
-        "%s started run_id=%s source_id=%s devices=%d interfaces=%d",
+        "%s started run_id=%s source_id=%s devices=%d custom_fields_source=%s "
+        "interfaces_source=%s",
         _STEP_ID,
         run.id,
         source_id,
         len(device_items),
-        len(interfaces),
+        custom_fields_source,
+        interfaces_source,
     )
 
     async def create_one(device_key: str, device: DeviceContext) -> tuple[str, DeviceContext, bool]:
@@ -159,6 +185,22 @@ async def execute(
             resolved = build_resolved_update_data(
                 device=device, raw_fields=raw_device_fields, run_id=run_id
             )
+
+            if custom_fields_source == "nautobot_origin":
+                all_custom_fields = _all_custom_fields_from_bag(device)
+                if all_custom_fields:
+                    resolved["custom_fields"] = all_custom_fields
+                else:
+                    resolved.pop("custom_fields", None)
+
+            if interfaces_source == "nautobot_origin":
+                interfaces = interfaces_from_nautobot_bag(
+                    device.attribute_bags.get("nautobot"),
+                    default_prefix_length=default_prefix_length,
+                )
+            else:
+                interfaces = manual_interfaces
+
             missing = [key for key in _REQUIRED_FIELDS if not resolved.get(key)]
             if missing:
                 err = DeviceError(

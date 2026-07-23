@@ -109,18 +109,89 @@ export function AddToNautobotHelpPanel() {
 
       <HelpSection title="Optional fields, custom fields, and rack">
         <p>
-          Platform, software version, serial, asset tag, and tags are only sent when enabled.
-          Custom fields work the same way as Update Device. Rack placement (rack, face, position)
-          is skipped entirely unless a rack value is set.
+          Platform, software version, serial, asset tag, and tags are only sent to Nautobot
+          when their checkbox is <span className="font-medium text-foreground">enabled</span> —
+          by default on a new node they start enabled with{" "}
+          <HelpCode>{"{nautobot.origin}"}</HelpCode>, same as the required fields, but you can
+          uncheck any of them. Rack placement (rack, face, position) starts unchecked and is
+          skipped entirely unless a rack value is set.
         </p>
+        <HelpWarning title="An unchecked field is never sent, no matter what's in the bag">
+          <p>
+            If Set Default Attributes (or Get Nautobot Attributes) seeded{" "}
+            <HelpCode>serial</HelpCode> or <HelpCode>tags</HelpCode> into the device&apos;s
+            nautobot bag but the device still isn&apos;t created with those values, check that
+            the field&apos;s checkbox is actually enabled here — a value sitting in the bag is
+            never applied for a field that isn&apos;t checked, even with{" "}
+            <HelpCode>{"{nautobot.origin}"}</HelpCode> typed into its value box.
+          </p>
+        </HelpWarning>
+        <p>
+          <HelpCode>tags</HelpCode> already sends <span className="font-medium text-foreground">
+            every
+          </span> tag on the device when set to <HelpCode>{"{nautobot.origin}"}</HelpCode> — the
+          bag&apos;s tag list is joined and re-split automatically, so however many tags a
+          device has, all of them go through. No separate &quot;all tags&quot; toggle is needed.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="Custom fields">
+        <p>
+          Custom fields have two sources, chosen by the <HelpCode>custom_fields_source</HelpCode>{" "}
+          dropdown above the rows:
+        </p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            <span className="font-medium text-foreground">Manual</span> — the same
+            checkbox-per-row editor as Update Device; only enabled rows with a value are sent.
+            You must know each custom field&apos;s name in advance.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">All from Nautobot origin</span> —
+            ignores the rows and sends every custom field present in the device&apos;s nautobot
+            attribute bag as-is, whatever their names are and however many there are. Use this
+            when the set of custom fields varies per device (e.g. seeded per-device by Set
+            Default Attributes reading a git YAML file, or by an upstream Get Nautobot
+            Attributes read of a real device).
+          </li>
+        </ul>
       </HelpSection>
 
       <HelpSection title="Interfaces">
         <p>
-          Optional interfaces to create on the new device, same shape as Update Device: name,
-          type, status, IP address, description, and whether the IP becomes the device&apos;s
-          primary IPv4.
+          Interfaces also have two sources, chosen by the <HelpCode>interfaces_source</HelpCode>{" "}
+          dropdown above the rows:
         </p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            <span className="font-medium text-foreground">Manual</span> — a fixed list you type
+            in advance: name, type, status, IP address, description, and whether the IP becomes
+            the device&apos;s primary IPv4. You must know how many interfaces the device has and
+            name them yourself.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">All from Nautobot origin</span> —
+            ignores the rows and creates every interface present in the device&apos;s nautobot
+            attribute bag, each with however many IP addresses it actually has (a real
+            interface can have more than one). This is the setting for when it&apos;s not
+            obvious in advance how many interfaces a device will turn out to have — the count
+            comes from whatever Set Default Attributes or Get Nautobot Attributes put in the
+            bag for that specific device.
+          </li>
+        </ul>
+        <HelpExample>
+          nautobot.interfaces:
+          <br />
+          {"  "}- name: Loopback0
+          <br />
+          {"    "}status: {"{"}name: Active{"}"}
+          <br />
+          {"    "}ip_addresses: [10.0.0.1/32, 10.0.0.2/32]
+          <br />
+          <span className="text-muted-foreground">
+            → creates Loopback0 with both 10.0.0.1/32 and 10.0.0.2/32 assigned to it
+          </span>
+        </HelpExample>
       </HelpSection>
 
       <HelpSection title="Virtual chassis">

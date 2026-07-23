@@ -74,7 +74,7 @@ def _custom_fields_value(value: Any) -> dict[str, str] | None:
     cleaned = {
         str(key): str(item)
         for key, item in value.items()
-        if str(key).strip() and str(item).strip()
+        if str(key).strip() and item is not None and str(item).strip()
     }
     return cleaned or None
 

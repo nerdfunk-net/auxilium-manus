@@ -34,6 +34,11 @@ const DEFAULT_DEVICE_FIELDS: DeviceFieldsConfig = {
   status: { enabled: true, value: "{nautobot.origin | default('Active')}" },
   location: { enabled: true, value: "{nautobot.origin}" },
   device_type: { enabled: true, value: "{nautobot.origin}" },
+  platform: { enabled: true, value: "{nautobot.origin}" },
+  software_version: { enabled: true, value: "{nautobot.origin}" },
+  serial: { enabled: true, value: "{nautobot.origin}" },
+  asset_tag: { enabled: true, value: "{nautobot.origin}" },
+  tags: { enabled: true, value: "{nautobot.origin}" },
 };
 
 function AddToNautobotConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
@@ -62,6 +67,8 @@ function AddToNautobotConfigPanel({ config, onChange, nodeId }: PluginConfigPane
   const requiredCount = countConfiguredRequiredFields(deviceFields);
   const optionalCount = countEnabledOptionalFields(deviceFields);
   const interfaceCount = Array.isArray(addConfig.interfaces) ? addConfig.interfaces.length : 0;
+  const interfacesSource = addConfig.interfaces_source ?? "manual";
+  const customFieldsSource = addConfig.custom_fields_source ?? "manual";
 
   const handleSourceIdChange = useCallback(
     (newSourceId: string) => {
@@ -127,8 +134,11 @@ function AddToNautobotConfigPanel({ config, onChange, nodeId }: PluginConfigPane
 
         {requiredCount === 5 ? (
           <p className="text-[11px] text-muted-foreground">
-            5 required fields set, {optionalCount} optional, {interfaceCount} interface
-            {interfaceCount === 1 ? "" : "s"}
+            5 required fields set, {optionalCount} optional,{" "}
+            {interfacesSource === "nautobot_origin"
+              ? "all interfaces from Nautobot origin"
+              : `${interfaceCount} interface${interfaceCount === 1 ? "" : "s"}`}
+            {customFieldsSource === "nautobot_origin" ? ", all custom fields from Nautobot origin" : ""}
           </p>
         ) : (
           <p className="text-[11px] text-amber-600">

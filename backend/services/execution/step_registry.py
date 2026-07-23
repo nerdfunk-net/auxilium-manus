@@ -19,6 +19,7 @@ from models.workflow_context import StepOutcome
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
 from workflow_steps.compare_data.executor import execute as compare_data
+from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
@@ -60,6 +61,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "add-to-nautobot": add_to_nautobot,
     "get-nautobot-attributes": get_nautobot_attributes,
     "set-default-attributes": set_default_attributes,
+    "config-to-attributes": config_to_attributes,
     "get-device-configs": get_device_configs,
     "parse-cisco-config": parse_cisco_config,
     "render-jinja-template": render_jinja_template,

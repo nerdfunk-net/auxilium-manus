@@ -1,7 +1,9 @@
 import type {
   CustomFieldRow,
+  CustomFieldsSource,
   DeviceFieldKey,
   DeviceFieldsConfig,
+  InterfacesSource,
   UpdateFieldSpec,
 } from "./types";
 import {
@@ -111,6 +113,16 @@ export function customFieldsToConfig(rows: CustomFieldRow[]): Record<string, Upd
     result[name] = { enabled: row.enabled, value: row.value };
   }
   return result;
+}
+
+export function customFieldsSourceFromConfig(
+  config: Record<string, unknown>,
+): CustomFieldsSource {
+  return config.custom_fields_source === "nautobot_origin" ? "nautobot_origin" : "manual";
+}
+
+export function interfacesSourceFromConfig(config: Record<string, unknown>): InterfacesSource {
+  return config.interfaces_source === "nautobot_origin" ? "nautobot_origin" : "manual";
 }
 
 export function patchDeviceFieldSpec(
