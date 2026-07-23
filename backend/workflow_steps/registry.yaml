@@ -847,6 +847,7 @@ plugins:
     overview: Branch workflow paths by attribute value.
     description: Split devices onto different paths by matching an attribute value.
     artifact_type: control_flow
+    palette_category: routing
     directory: route_on_attribute
     enabled: true
     requires: [identity]
@@ -903,6 +904,7 @@ plugins:
       in a list resolved from device context, e.g. whether a given TACACS+ server
       is among a device's parsed AAA servers. No Jinja template required.
     artifact_type: control_flow
+    palette_category: routing
     directory: list_contains
     enabled: true
     requires: [identity]
@@ -961,6 +963,7 @@ plugins:
       Search device content for fixed text or a regular expression and branch
       on whether it was found.
     artifact_type: control_flow
+    palette_category: routing
     directory: route_on_content
     enabled: true
     requires: [identity]
@@ -1031,6 +1034,7 @@ plugins:
       Ping each device and route it to success or failure based on how many
       ICMP replies are received within the configured timeout.
     artifact_type: control_flow
+    palette_category: routing
     directory: reachable
     enabled: true
     requires: [identity]
@@ -1067,6 +1071,7 @@ plugins:
       Set or transform one or more in-workflow device attributes using a fixed
       value or a regular expression with capture groups.
     artifact_type: control_flow
+    palette_category: attributes
     directory: update_attribute
     enabled: true
     requires: [identity]
@@ -1111,6 +1116,7 @@ plugins:
       (nautobot.role.name, custom.field), capabilities, and status. A path
       that doesn't resolve renders as an empty string.
     artifact_type: control_flow
+    palette_category: debug
     directory: workflow_log
     enabled: true
     requires: [identity]
@@ -1134,6 +1140,7 @@ plugins:
       Dump the full workflow context — every device field, attribute bag,
       parsed value, and metadata entry — to STDOUT or a file.
     artifact_type: control_flow
+    palette_category: debug
     directory: log_attributes
     enabled: true
     requires: [identity]
@@ -1191,6 +1198,7 @@ plugins:
       over all devices. Place git / store-artifact steps after Fan In for safe,
       single-commit exports.
     artifact_type: control_flow
+    palette_category: routing
     directory: fan_in
     enabled: true
     requires: [identity]
@@ -1207,6 +1215,7 @@ plugins:
       Combines the command output from one or more upstream run-command steps
       into a single merged artifact per device.
     artifact_type: control_flow
+    palette_category: content_tools
     directory: merge_content
     enabled: true
     requires: [identity]
@@ -1242,6 +1251,7 @@ plugins:
       Compare device configuration or command output against a reference file on the
       local filesystem or in a git repository.
     artifact_type: control_flow
+    palette_category: routing
     directory: compare_data
     enabled: true
     requires: [identity]
@@ -1339,6 +1349,7 @@ plugins:
       store-artifact when output contains timestamps, uptime, or other
       non-deterministic fields.
     artifact_type: control_flow
+    palette_category: content_tools
     directory: filter_output
     enabled: true
     requires: [identity]
