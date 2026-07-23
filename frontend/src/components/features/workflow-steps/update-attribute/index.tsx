@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, Pencil, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, Minus, Pencil, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +84,22 @@ function UpdateAttributeConfigPanel({
     [config, onChange, parsed.attributes],
   );
 
+  const handleMove = useCallback(
+    (index: number, direction: -1 | 1) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= parsed.attributes.length) {
+        return;
+      }
+      const nextAttributes = [...parsed.attributes];
+      [nextAttributes[index], nextAttributes[targetIndex]] = [
+        nextAttributes[targetIndex],
+        nextAttributes[index],
+      ];
+      onChange(buildUpdateAttributeConfig(config, { attributes: nextAttributes }));
+    },
+    [config, onChange, parsed.attributes],
+  );
+
   const handleSave = useCallback(
     (value: AttributeUpdate) => {
       if (!editor.open) {
@@ -147,8 +163,35 @@ function UpdateAttributeConfigPanel({
                 key={attribute.id}
                 className="flex items-start gap-1.5 rounded-lg border border-slate-200 bg-white p-2"
               >
+                <div className="flex shrink-0 flex-col gap-0.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    onClick={() => handleMove(index, -1)}
+                    disabled={index === 0}
+                    title="Move up (lower priority)"
+                  >
+                    <ArrowUp className="size-3.5" aria-hidden />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-7"
+                    onClick={() => handleMove(index, 1)}
+                    disabled={index === parsed.attributes.length - 1}
+                    title="Move down (higher priority)"
+                  >
+                    <ArrowDown className="size-3.5" aria-hidden />
+                  </Button>
+                </div>
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge className="h-4 rounded px-1 text-[10px]" variant="outline">
+                      #{index + 1}
+                    </Badge>
                     <Badge
                       className="h-4 rounded px-1 text-[10px]"
                       variant={attribute.mode === "fixed" ? "secondary" : "outline"}
@@ -189,8 +232,9 @@ function UpdateAttributeConfigPanel({
         )}
 
         <p className="text-[11px] leading-4 text-muted-foreground">
-          Updates run in list order for each device. Regex entries that do not match are
-          skipped; fixed-value entries always write.
+          Updates run in list order for each device — use the arrows to reorder. Regex
+          entries that do not match are skipped; fixed-value entries always write. Put
+          your default first and later, higher-priority overrides last.
         </p>
       </div>
 
@@ -205,10 +249,27 @@ function UpdateAttributeConfigPanel({
   );
 }
 
+interface IndexedAttribute {
+  attribute: AttributeUpdate;
+  position: number;
+}
+
+function describeRegexAttribute({ attribute, position }: IndexedAttribute): string {
+  const pattern = attribute.pattern.trim();
+  const destination = attribute.destination_path || "(no destination)";
+  return pattern ? `#${position} · ${pattern} → ${destination}` : `#${position} · ${destination}`;
+}
+
 function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
   const parsed = useMemo(() => parseUpdateAttributeConfig(config), [config]);
   const regexAttributes = useMemo(
-    () => parsed.attributes.filter((attribute) => attribute.mode === "regex"),
+    () =>
+      parsed.attributes.reduce<IndexedAttribute[]>((acc, attribute, index) => {
+        if (attribute.mode === "regex") {
+          acc.push({ attribute, position: index + 1 });
+        }
+        return acc;
+      }, []),
     [parsed.attributes],
   );
   const [selectedId, setSelectedId] = useState<string>("");
@@ -217,16 +278,17 @@ function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
     if (regexAttributes.length === 0) {
       return "";
     }
-    if (regexAttributes.some((attribute) => attribute.id === selectedId)) {
+    if (regexAttributes.some(({ attribute }) => attribute.id === selectedId)) {
       return selectedId;
     }
-    return regexAttributes[0].id;
+    return regexAttributes[0].attribute.id;
   }, [regexAttributes, selectedId]);
 
-  const selected = useMemo(
-    () => regexAttributes.find((attribute) => attribute.id === effectiveSelectedId) ?? null,
+  const selectedEntry = useMemo(
+    () => regexAttributes.find(({ attribute }) => attribute.id === effectiveSelectedId) ?? null,
     [regexAttributes, effectiveSelectedId],
   );
+  const selected = selectedEntry?.attribute ?? null;
 
   if (regexAttributes.length === 0) {
     return (
@@ -248,12 +310,14 @@ function UpdateAttributeProbeTabPanel({ config }: PluginConfigPanelProps) {
           </div>
           <Select value={effectiveSelectedId} onValueChange={setSelectedId}>
             <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select attribute to probe" />
+              <SelectValue placeholder="Select attribute to probe">
+                {selectedEntry ? describeRegexAttribute(selectedEntry) : undefined}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {regexAttributes.map((attribute) => (
-                <SelectItem key={attribute.id} value={attribute.id}>
-                  {attribute.destination_path || attribute.id}
+              {regexAttributes.map((entry) => (
+                <SelectItem key={entry.attribute.id} value={entry.attribute.id}>
+                  {describeRegexAttribute(entry)}
                 </SelectItem>
               ))}
             </SelectContent>

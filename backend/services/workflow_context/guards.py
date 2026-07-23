@@ -36,6 +36,39 @@ def pre_step_guard(*, spec: StepCapabilitySpec, context: WorkflowContext) -> Non
         )
 
 
+_LEGACY_ATTRIBUTE_KEYS = (
+    "mode",
+    "destination_path",
+    "fixed_value",
+    "source_path",
+    "pattern",
+    "destination_template",
+    "regex_flags",
+)
+
+
+def _update_attribute_has_guaranteed_write(config: dict) -> bool:
+    """True if update-attribute is guaranteed to write on every device.
+
+    A ``fixed`` mode entry always writes (its ``fixed_value`` is validated once,
+    up front, for all devices). A ``regex`` mode entry only writes when its
+    pattern matches that device's resolved source value, so it can legitimately
+    skip a device — meaning ``Capability.ATTRIBUTES`` cannot be promised unless
+    at least one configured entry is in ``fixed`` mode.
+    """
+    raw_attributes = config.get("attributes")
+    if isinstance(raw_attributes, list):
+        entries = raw_attributes
+    elif any(key in config for key in _LEGACY_ATTRIBUTE_KEYS):
+        entries = [config]
+    else:
+        entries = []
+    return any(
+        isinstance(entry, dict) and str(entry.get("mode", "fixed")).strip().lower() == "fixed"
+        for entry in entries
+    )
+
+
 def effective_produces(
     *,
     spec: StepCapabilitySpec,
@@ -52,6 +85,10 @@ def effective_produces(
         return frozenset({Capability.RUNNING_CONFIG, Capability.STARTUP_CONFIG})
     if step_type == "render-jinja-template":
         return frozenset({Capability.PARSED})
+    if step_type == "update-attribute":
+        if _update_attribute_has_guaranteed_write(config):
+            return frozenset({Capability.ATTRIBUTES})
+        return frozenset()
     return spec.produces
 
 

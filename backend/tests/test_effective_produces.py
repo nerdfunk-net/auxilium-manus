@@ -48,6 +48,59 @@ class EffectiveProducesTests(unittest.TestCase):
         )
         self.assertEqual(result, frozenset({Capability.IDENTITY}))
 
+    def test_update_attribute_all_regex_is_not_guaranteed(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="update-attribute",
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        result = effective_produces(
+            spec=spec,
+            step_type="update-attribute",
+            config={"attributes": [{"mode": "regex", "destination_path": "custom.x"}]},
+        )
+        self.assertEqual(result, frozenset())
+
+    def test_update_attribute_with_one_fixed_entry_is_guaranteed(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="update-attribute",
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        result = effective_produces(
+            spec=spec,
+            step_type="update-attribute",
+            config={
+                "attributes": [
+                    {"mode": "regex", "destination_path": "custom.x"},
+                    {"mode": "fixed", "destination_path": "custom.y", "fixed_value": "v"},
+                ]
+            },
+        )
+        self.assertEqual(result, frozenset({Capability.ATTRIBUTES}))
+
+    def test_update_attribute_legacy_top_level_fixed_config(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="update-attribute",
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        result = effective_produces(
+            spec=spec,
+            step_type="update-attribute",
+            config={"mode": "fixed", "destination_path": "custom.x", "fixed_value": "v"},
+        )
+        self.assertEqual(result, frozenset({Capability.ATTRIBUTES}))
+
+    def test_update_attribute_no_attributes_configured(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="update-attribute",
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        result = effective_produces(
+            spec=spec,
+            step_type="update-attribute",
+            config={"attributes": []},
+        )
+        self.assertEqual(result, frozenset())
+
 
 if __name__ == "__main__":
     unittest.main()
