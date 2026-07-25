@@ -5,17 +5,21 @@
 #
 # Prerequisites (once):
 #   docker network create internal
-#   docker network create backend
+#   docker network create --internal hatchet
 #
 # Hatchet first-time setup:
 #   1. cd docker/hatchet && docker compose up -d
 #   2. Wait ~60s for hatchet-setup-config to complete and hatchet-dashboard to start
 #   3. Open http://localhost:8888, sign in (admin@example.com / Admin1234!)
 #   4. Settings → API Tokens → Create Token → copy token
-#   5. Add to docker/.env (with app on backend network):
-#        HATCHET_CLIENT_TOKEN=<paste token here>
-#        HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070
+#   5. In docker/docker-compose.yml (x-manus-app-env), set:
+#        HATCHET_CLIENT_TOKEN: <paste token here>
+#        HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
 #   6. Start the app stack — see docker/README.md
+#
+# Networks:
+#   internal — Hatchet private infra (postgres, rabbitmq, migrate, setup)
+#   hatchet  — isolated (--internal): engine/dashboard ↔ manus-web / manus-worker
 
 services:
   # ─── Hatchet infrastructure ──────────────────────────────────────────────────
@@ -94,7 +98,7 @@ services:
       - hatchet_config:/hatchet/config
       - hatchet_certs:/hatchet/certs
 
-  # Step 3: engine (listens on container port 7070, exposed as host port 7077)
+  # Step 3: engine (gRPC on :7070 via the isolated hatchet network; host :7077 for bare-metal clients)
   hatchet-engine:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.94.10
     command: /hatchet/hatchet-engine --config /hatchet/config
@@ -106,7 +110,7 @@ services:
         condition: service_completed_successfully
     networks:
       - internal
-      - backend
+      - hatchet
     environment:
       DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
       SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
@@ -130,7 +134,7 @@ services:
         condition: service_completed_successfully
     networks:
       - internal
-      - backend
+      - hatchet
     environment:
       DATABASE_URL: "postgres://hatchet:hatchet@hatchet-postgres:5432/hatchet"
       SERVER_OBSERVABILITY_ENABLED: true
@@ -147,7 +151,7 @@ volumes:
   hatchet_certs:
 
 networks:
-  backend:
+  hatchet:
     external: true
   internal:
     external: true

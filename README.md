@@ -16,7 +16,7 @@ The compose file uses two external networks that must exist before starting serv
 
 ```bash
 docker network create internal
-docker network create backend
+docker network create --internal hatchet
 ```
 
 Only needed once. Skip if the networks already exist.

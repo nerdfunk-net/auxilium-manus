@@ -7,37 +7,31 @@ Running the application requires **two pieces**:
 1. **The application image** — frontend, backend API, and Hatchet worker (built from this directory).
 2. **Hatchet** — workflow orchestration engine (started separately from `docker/hatchet/`).
 
-PostgreSQL and Redis are bundled in the application `docker-compose.yml`. Hatchet brings its own PostgreSQL and RabbitMQ.
-
-> **Port conflict:** `docker/hatchet/docker-compose.yml` also defines PostgreSQL and Redis (for local bare-metal development). Do not start both composes' `postgres` and `redis` services on the same host — use the app stack's database and cache when running the full Docker deployment.
+PostgreSQL and Redis are bundled in the application `docker-compose.yml`. Hatchet brings its own PostgreSQL and RabbitMQ on the private `internal` network.
 
 ## Quick start (development)
 
-### 1. Create shared Docker networks
+### 1. Create Docker networks
 
-Hatchet and the application backend must be able to reach each other on the same Docker network. Create the external networks once:
+Create the external networks once:
 
 ```bash
 docker network create internal 2>/dev/null || true
-docker network create backend 2>/dev/null || true
+docker network create --internal hatchet 2>/dev/null || true
 ```
 
 | Network | Purpose |
 |---|---|
-| `internal` | Hatchet internal services (database, message queue, engine internals) |
-| `backend` | Shared network between Hatchet engine/dashboard and the Auxilium Manus backend/worker |
+| `internal` | Hatchet private infra (postgres, rabbitmq, migrate, setup) |
+| `hatchet` | Isolated (`--internal`): engine/dashboard ↔ `manus-web` / `manus-worker` (no outside routing) |
+| `frontend` | App-stack bridge (created by compose): postgres, redis, web, worker; published ports for users |
 
 ### 2. Start Hatchet
 
 ```bash
 cd docker/hatchet
-docker compose up -d \
-  hatchet-postgres hatchet-rabbitmq \
-  hatchet-migrate hatchet-setup-config \
-  hatchet-engine hatchet-dashboard
+docker compose up -d
 ```
-
-This starts only the Hatchet services (not the `postgres` / `redis` services in the same file, which would conflict with the app stack on ports 5432 and 6379).
 
 Wait ~60 seconds for `hatchet-setup-config` to finish and `hatchet-dashboard` to become healthy.
 
@@ -46,36 +40,22 @@ Wait ~60 seconds for `hatchet-setup-config` to finish and `hatchet-dashboard` to
 1. Open http://localhost:8888
 2. Sign in: `admin@example.com` / `Admin1234!`
 3. Go to **Settings → API Tokens → Create Token** and copy the token
+4. Set `HATCHET_CLIENT_TOKEN` in `docker/docker-compose.yml` (`x-manus-app-env`)
 
 ### 3. Start the application stack
 
 ```bash
 cd docker
-cp .env.example .env   # set HATCHET_CLIENT_TOKEN and other secrets
+docker compose up -d --build
 ```
 
-Connect the app containers to the shared `backend` network and point the Hatchet client at the engine service name:
-
-```bash
-# In .env
-HATCHET_CLIENT_TOKEN=<paste token from step 2>
-HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070
-HATCHET_CLIENT_TLS_STRATEGY=none
-```
-
-Use the network override so `manus-web` and `manus-worker` join `backend`:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.hatchet-network.yml up -d --build
-```
-
-Or run the helper script (creates `.env` if missing, then starts the stack):
+Or run the helper script:
 
 ```bash
 ./start-docker.sh
 ```
 
-> **Note:** `start-docker.sh` uses the default compose file only. When Hatchet runs in Docker, always add `docker-compose.hatchet-network.yml` as shown above, or attach containers to `backend` manually (see [Networking](#networking)).
+`manus-web` and `manus-worker` join both `frontend` (users + app DB/Redis) and `hatchet` (gRPC to `hatchet-engine:7070`).
 
 ### Access URLs
 
@@ -87,45 +67,31 @@ Or run the helper script (creates `.env` if missing, then starts the stack):
 
 ## Networking
 
-The Auxilium Manus backend and Hatchet worker connect to Hatchet over **gRPC**. For reliable workflow execution, the application containers and Hatchet engine must share a Docker network.
-
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  network: backend (external)                                │
-│                                                             │
-│  ┌──────────────┐     gRPC      ┌─────────────────────┐   │
-│  │  manus-web   │──────────────►│  hatchet-engine     │   │
-│  │  manus-worker│  :7070        │  hatchet-dashboard  │   │
-│  └──────────────┘               └─────────────────────┘   │
-│         │                                    │             │
-│         │ manus-network                      │ :8888      │
-└─────────┼────────────────────────────────────┼─────────────┘
-          │                                    │
-     postgres, redis                    published to host
+┌── network: frontend (bridge) ──────────────────────────────┐
+│  postgres · redis · manus-web · manus-worker               │
+│  ports 3000 / 8000 published from manus-web → host/users   │
+└───────────────────────────┬────────────────────────────────┘
+                            │ manus-web / manus-worker
+┌───────────────────────────┴────────────────────────────────┐
+│  network: hatchet (external, --internal)                   │
+│  manus-web · manus-worker ──gRPC :7070──► hatchet-engine   │
+│                              hatchet-dashboard (:8888 host) │
+└────────────────────────────────────────────────────────────┘
 ```
-
-### Same-network configuration (recommended)
 
 | Setting | Value |
 |---|---|
 | `HATCHET_CLIENT_HOST_PORT` | `hatchet-engine:7070` |
-| App containers on | `backend` network (in addition to `manus-network`) |
+| `manus-web` networks | `frontend` + `hatchet` |
+| `manus-worker` networks | `frontend` + `hatchet` |
 | TLS | `HATCHET_CLIENT_TLS_STRATEGY=none` for local Hatchet |
 
-The Hatchet compose file attaches `hatchet-engine` and `hatchet-dashboard` to `backend`. Attach `manus-web` and `manus-worker` to the same network via `docker-compose.hatchet-network.yml`.
-
-### Host-bridge fallback (not recommended)
-
-`.env.example` defaults to the shared-network value (`hatchet-engine:7070`). If `HATCHET_CLIENT_HOST_PORT` is unset, `docker-compose.yml` falls back to `host.docker.internal:7077`, which routes gRPC through the host port mapping instead of the Docker network. That works when Hatchet publishes `7077:7070` but does **not** put the app and Hatchet on the same network. Prefer the shared-network setup above.
+The `hatchet` network has no inter-network routing. Host access to the dashboard (and optional bare-metal gRPC on `:7077`) uses published ports, not the `hatchet` network.
 
 ### Accessing the Hatchet dashboard from outside Docker
 
-The Hatchet UI is served by `hatchet-dashboard` on container port 80, published as host port **8888** in `docker/hatchet/docker-compose.yml`.
-
-To reach the dashboard from your browser or another machine:
-
-- The `hatchet-dashboard` service must publish port `8888` to a host interface that clients can reach.
-- For remote access, bind or proxy that port on the host (firewall rules, reverse proxy, etc.) — the `backend` network alone is internal to Docker; external access always goes through published ports or an ingress layer.
+The Hatchet UI is served by `hatchet-dashboard` on container port 80, published as host port **8888** in `docker/hatchet/docker-compose.yml`. External access goes through that published port (or a reverse proxy), not through the isolated `hatchet` network.
 
 ## Building images
 
@@ -163,9 +129,8 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 | `Dockerfile.all-in-one` | Self-contained production image (air-gap) |
 | `Dockerfile.basic` | Faster online development build |
 | `Dockerfile.worker` | Standalone Hatchet worker (optional) |
-| `docker-compose.yml` | App stack: postgres, redis, web, worker |
-| `docker-compose.hatchet-network.yml` | Override: attach app to Hatchet `backend` network |
-| `.env.example` | Template for compose env (copy to `.env`) |
+| `docker-compose.yml` | App stack: postgres, redis, web, worker (`frontend` + `hatchet` networks) |
+| `.env.example` | Optional template (prefer editing `x-manus-app-env` in compose) |
 | `hatchet/docker-compose.yml` | Hatchet stack (engine, dashboard, dependencies) |
 | `prepare-all-in-one.sh` | Build and export air-gap image |
 | `deploy-all-in-one.sh` | Load and run image in air-gap environment |
@@ -180,7 +145,7 @@ Copy `.env.example` to `.env`. Key values:
 
 ```bash
 HATCHET_CLIENT_TOKEN=          # API token from Hatchet dashboard
-HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070   # when on shared backend network
+HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070   # isolated hatchet network
 HATCHET_CLIENT_TLS_STRATEGY=none
 
 POSTGRES_DB=manus              # mapped to DATABASE_* inside the app containers
@@ -238,8 +203,8 @@ Common Hatchet issues:
 # Hatchet service status
 cd docker/hatchet && docker compose ps
 
-# Confirm app containers are on the backend network
-docker network inspect backend
+# Confirm app containers are on the isolated hatchet network
+docker network inspect hatchet
 
 # Worker / backend Hatchet connection logs
 docker logs manus-worker

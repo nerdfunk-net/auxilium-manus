@@ -2,14 +2,18 @@
 #
 # Start Hatchet first (see docker/README.md):
 #   docker network create internal 2>/dev/null || true
-#   docker network create backend 2>/dev/null || true
+#   docker network create --internal hatchet 2>/dev/null || true
 #   cd docker/hatchet && docker compose up -d
 #
 # Then start the application stack from this directory:
-#   docker compose -f docker-compose.yml -f docker-compose.hatchet-network.yml up -d
+#   docker compose up -d
 #
 # Backend settings for manus-web / manus-worker are declared in x-manus-app-env
 # below (mirrors backend/.env.example). Edit values here — not via docker/.env.
+#
+# Networks:
+#   frontend — user-facing + app data (postgres, redis, web, worker); published ports
+#   hatchet  — isolated (--internal): gRPC to hatchet-engine (no outside routing)
 #
 # manus-web: bind address, backend port, BACKEND_URL, and NODE_ENV are set by
 # supervisord-web.conf. manus-worker only runs the Hatchet worker process.
@@ -46,11 +50,10 @@ x-manus-app-env: &manus-app-env
   MANUS_REDIS_PASSWORD: changeme
   MANUS_REDIS_KEY_PREFIX: manus-cache
 
-  # Hatchet workflow engine
+  # Hatchet workflow engine (reached on the isolated hatchet network)
   # Create a token at http://localhost:8888 → Settings → API Tokens
-  # Use hatchet-engine:7070 when attached via docker-compose.hatchet-network.yml
   HATCHET_CLIENT_TOKEN: ""
-  HATCHET_CLIENT_HOST_PORT: host.docker.internal:7077
+  HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
   HATCHET_CLIENT_TLS_STRATEGY: none
   HATCHET_CLIENT_DEBUG: "false"
 
@@ -88,7 +91,7 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - manus-network
+      - frontend
 
   redis:
     image: redis:8-alpine
@@ -103,7 +106,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - manus-network
+      - frontend
 
   manus-web:
     build:
@@ -123,8 +126,6 @@ services:
       - manus_data:/app/data
       - ./config:/app/config
       - ./logs:/app/data/logs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,7 +139,8 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - manus-network
+      - frontend
+      - hatchet
     command: ["/app/start.sh"]
 
   manus-worker:
@@ -153,8 +155,6 @@ services:
     volumes:
       - manus_data:/app/data
       - ./logs:/app/data/logs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -165,7 +165,8 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - manus-network
+      - frontend
+      - hatchet
     command: ["/app/start.sh"]
 
 volumes:
@@ -174,5 +175,7 @@ volumes:
   redis_data:
 
 networks:
-  manus-network:
+  frontend:
     driver: bridge
+  hatchet:
+    external: true
