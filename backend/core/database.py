@@ -38,9 +38,6 @@ def init_db() -> None:
     runner = MigrationRunner(engine=engine, base=Base)
     runner.run_migrations()
 
-    if settings.environment == "development":
-        Base.metadata.create_all(bind=engine)
-
 
 def ensure_database_exists() -> None:
     if not DATABASE_NAME_PATTERN.fullmatch(settings.database_name):
