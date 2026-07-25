@@ -47,7 +47,7 @@ def load_git_source_repository(git_source_id: str) -> dict[str, Any]:
         "token": str(value.get("token") or "").strip(),
         "username": str(value.get("username") or "").strip(),
         "path": on_disk_path.strip("/\\"),
-        "verify_ssl": True,
+        "verify_ssl": bool(value.get("verify_ssl", True)),
         "git_author_name": value.get("git_author_name"),
         "git_author_email": value.get("git_author_email"),
         "is_active": True,

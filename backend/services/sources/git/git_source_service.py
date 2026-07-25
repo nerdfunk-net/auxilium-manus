@@ -15,6 +15,7 @@ import yaml
 from core.config import PROJECT_ROOT
 from git import GitCommandError, Repo
 from git.exc import InvalidGitRepositoryError
+from services.git.env import set_ssl_env
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,8 @@ def clone_or_pull(source_config: dict[str, Any]) -> Path:
                     origin.set_url(auth_url)
                 except Exception as exc:
                     logger.info("Skipping remote URL update: %s", exc)
-            origin.pull(branch)
+            with set_ssl_env(source_config):
+                origin.pull(branch)
             logger.info("Pulled git source '%s' branch '%s'", source_id, branch)
         except InvalidGitRepositoryError:
             logger.warning("Directory %s is not a valid git repo; re-cloning", repo_dir)
@@ -78,7 +80,8 @@ def clone_or_pull(source_config: dict[str, Any]) -> Path:
     repo_dir.mkdir(parents=True, exist_ok=True)
     try:
         logger.info("Cloning git source '%s' branch '%s' into %s", source_id, branch, repo_dir)
-        Repo.clone_from(auth_url, repo_path, branch=branch)
+        with set_ssl_env(source_config):
+            Repo.clone_from(auth_url, repo_path, branch=branch)
         logger.info("Cloned git source '%s'", source_id)
     except GitCommandError as exc:
         shutil.rmtree(repo_path, ignore_errors=True)
@@ -111,7 +114,8 @@ def remove_and_clone(source_config: dict[str, Any]) -> Path:
     repo_dir.mkdir(parents=True, exist_ok=True)
     try:
         logger.info("Cloning git source '%s' branch '%s' into %s", source_id, branch, repo_dir)
-        Repo.clone_from(auth_url, repo_path, branch=branch)
+        with set_ssl_env(source_config):
+            Repo.clone_from(auth_url, repo_path, branch=branch)
         logger.info("Cloned git source '%s'", source_id)
     except GitCommandError as exc:
         shutil.rmtree(repo_path, ignore_errors=True)

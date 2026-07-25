@@ -228,6 +228,9 @@ cockpit
 data/git
 data/artifacts
 data/exports
+
+# custom CA certificates managed via /tools/add-certificate (see INSTALL_CERTIFICATE_FILES)
+config/certs/*.crt
 docker/airgap-artifacts/auxilium-manus-all-in-one.tar.gz
 docker/airgap-artifacts/auxilium-manus-all-in-one.tar
 .DS_Store

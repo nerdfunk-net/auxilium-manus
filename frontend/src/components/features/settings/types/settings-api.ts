@@ -16,6 +16,7 @@ export interface NautobotSourceValue {
   sourceId: string;
   url: string;
   token: string;
+  verifySsl: boolean;
 }
 
 export interface GitSourceValue {
@@ -25,6 +26,7 @@ export interface GitSourceValue {
   token: string;
   username: string;
   repository_path: string;
+  verifySsl: boolean;
 }
 
 export interface NautobotSourceConfig extends NautobotSourceValue {

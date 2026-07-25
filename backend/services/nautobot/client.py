@@ -18,20 +18,33 @@ logger = logging.getLogger(__name__)
 
 
 class NautobotService:
-    """Async Nautobot API client. App-scoped httpx client; credentials per call."""
+    """Async Nautobot API client.
+
+    Keeps two app-scoped ``httpx.AsyncClient`` pools (TLS-verifying and
+    non-verifying) because ``verify_ssl`` is a per-source, per-request setting
+    (some Nautobot lab/dev instances use self-signed certificates).
+    """
 
     def __init__(self) -> None:
-        self._client: httpx.AsyncClient | None = None
+        self._client_verify: httpx.AsyncClient | None = None
+        self._client_no_verify: httpx.AsyncClient | None = None
 
     async def startup(self) -> None:
-        self._client = httpx.AsyncClient()
+        self._client_verify = httpx.AsyncClient(verify=True)
+        self._client_no_verify = httpx.AsyncClient(verify=False)
         logger.info("NautobotService started")
 
     async def shutdown(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
-            logger.info("NautobotService shut down")
+        if self._client_verify is not None:
+            await self._client_verify.aclose()
+            self._client_verify = None
+        if self._client_no_verify is not None:
+            await self._client_no_verify.aclose()
+            self._client_no_verify = None
+        logger.info("NautobotService shut down")
+
+    def _client_for(self, verify_ssl: bool) -> httpx.AsyncClient | None:
+        return self._client_verify if verify_ssl else self._client_no_verify
 
     async def graphql_query(
         self,
@@ -124,10 +137,11 @@ class NautobotService:
         timeout: float,
         verify_ssl: bool,
     ) -> httpx.Response:
-        if self._client is not None:
-            return await self._client.post(url, json=payload, headers=headers, timeout=timeout)
-        async with httpx.AsyncClient(verify=verify_ssl) as client:
+        client = self._client_for(verify_ssl)
+        if client is not None:
             return await client.post(url, json=payload, headers=headers, timeout=timeout)
+        async with httpx.AsyncClient(verify=verify_ssl) as fallback_client:
+            return await fallback_client.post(url, json=payload, headers=headers, timeout=timeout)
 
     async def _do_request(
         self,
@@ -138,9 +152,10 @@ class NautobotService:
         timeout: float,
         verify_ssl: bool,
     ) -> httpx.Response:
-        if self._client is not None:
-            return await self._client.request(
+        client = self._client_for(verify_ssl)
+        if client is not None:
+            return await client.request(method, url, json=data, headers=headers, timeout=timeout)
+        async with httpx.AsyncClient(verify=verify_ssl) as fallback_client:
+            return await fallback_client.request(
                 method, url, json=data, headers=headers, timeout=timeout
             )
-        async with httpx.AsyncClient(verify=verify_ssl) as client:
-            return await client.request(method, url, json=data, headers=headers, timeout=timeout)

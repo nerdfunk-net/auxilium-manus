@@ -45,6 +45,7 @@ class Settings:
     run_retention_batch_size: int
     apply_safe_migrations: bool
     apply_risky_migrations: bool
+    install_certificate_files: bool
     credential_encryption_key: str
     data_directory: Path
     log_directory: Path
@@ -87,6 +88,7 @@ class Settings:
         self._validate_run_retention()
         self.apply_safe_migrations = self._get_bool("APPLY_SAFE_DATABASE_MIGRATION", False)
         self.apply_risky_migrations = self._get_bool("APPLY_RISKY_DATABASE_MIGRATION", False)
+        self.install_certificate_files = self._get_bool("INSTALL_CERTIFICATE_FILES", False)
         self.credential_encryption_key = environ.get("CREDENTIAL_ENCRYPTION_KEY", "")
         self.data_directory = Path(environ.get("DATA_DIRECTORY", PROJECT_ROOT / "data")).resolve()
         self.log_directory = Path(

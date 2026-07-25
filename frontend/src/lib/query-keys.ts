@@ -101,4 +101,12 @@ export const queryKeys = {
     list: () => [...queryKeys.users.all, "list"] as const,
     detail: (id: number) => [...queryKeys.users.all, "detail", id] as const,
   },
+  system: {
+    all: ["system"] as const,
+    schemaStatus: () => [...queryKeys.system.all, "schema-status"] as const,
+  },
+  certificates: {
+    all: ["certificates"] as const,
+    scan: () => [...queryKeys.certificates.all, "scan"] as const,
+  },
 };

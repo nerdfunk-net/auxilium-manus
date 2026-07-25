@@ -18,6 +18,7 @@ function parseNautobotValue(
     key: record.key,
     url: value.url,
     token: typeof value.token === "string" ? value.token : "",
+    verifySsl: value.verify_ssl !== false,
     description: record.description,
     updatedAt: record.updated_at,
   };
@@ -40,6 +41,7 @@ function parseGitValue(
     username: typeof value.username === "string" ? value.username : "",
     repository_path:
       typeof value.repository_path === "string" ? value.repository_path : "",
+    verifySsl: value.verify_ssl !== false,
     description: record.description,
     updatedAt: record.updated_at,
   };

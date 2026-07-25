@@ -150,11 +150,14 @@ def _build_nautobot_source_service(db: Session, nautobot_source_id: str) -> Naut
         )
     nautobot_url = (setting.value or {}).get("url", "").strip()
     nautobot_token = (setting.value or {}).get("token", "").strip()
+    nautobot_verify_ssl = bool((setting.value or {}).get("verify_ssl", True))
     if not nautobot_url or not nautobot_token:
         raise ValueError(
             f"get-ise-devices: Nautobot source '{nautobot_source_id}' is missing url or token"
         )
-    credentials = service_factory.credentials_from_connection(nautobot_url, nautobot_token)
+    credentials = service_factory.credentials_from_connection(
+        nautobot_url, nautobot_token, verify_ssl=nautobot_verify_ssl
+    )
     return service_factory.build_nautobot_source_service(credentials, db)
 
 

@@ -34,6 +34,28 @@ class GitSourceLoaderTests(unittest.TestCase):
         self.assertEqual(repository["url"], "https://example.com/repo.git")
         self.assertEqual(repository["token"], "secret")
         self.assertEqual(repository["path"], "configs")
+        self.assertTrue(repository["verify_ssl"])
+
+    def test_propagates_verify_ssl_false_from_settings(self) -> None:
+        setting = MagicMock()
+        setting.value = {
+            "url": "https://example.com/repo.git",
+            "branch": "main",
+            "token": "secret",
+            "verify_ssl": False,
+        }
+
+        with patch(
+            "workflow_steps.common.git_source_loader.get_db_session"
+        ) as session_factory, patch(
+            "workflow_steps.common.git_source_loader.SettingsRepository"
+        ) as repo_cls:
+            session_factory.return_value = MagicMock()
+            repo_cls.return_value.get_by_key.return_value = setting
+
+            repository = load_git_source_repository("lab-configs")
+
+        self.assertFalse(repository["verify_ssl"])
 
     def test_missing_setting_raises(self) -> None:
         with patch(

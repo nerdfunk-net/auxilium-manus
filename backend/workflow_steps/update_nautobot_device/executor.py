@@ -119,12 +119,15 @@ async def execute(
 
     nautobot_url = (setting.value or {}).get("url", "").strip()
     nautobot_token = (setting.value or {}).get("token", "").strip()
+    nautobot_verify_ssl = bool((setting.value or {}).get("verify_ssl", True))
     if not nautobot_url or not nautobot_token:
         raise ValueError(
             f"{_STEP_ID}: Nautobot source '{source_id}' is missing url or token"
         )
 
-    credentials = service_factory.credentials_from_connection(nautobot_url, nautobot_token)
+    credentials = service_factory.credentials_from_connection(
+        nautobot_url, nautobot_token, verify_ssl=nautobot_verify_ssl
+    )
     nautobot_service = service_factory.get_nautobot_app_service()
     bound_client = CredentialsBoundNautobotClient(nautobot_service, credentials)
     update_service = DeviceUpdateService(bound_client)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 import {
   SOURCE_ID_REGEX,
@@ -38,6 +39,7 @@ const nautobotSchema = z.object({
   sourceId: sourceIdSchema,
   url: z.string().min(1, "URL is required").url("Enter a valid URL"),
   token: z.string().optional(),
+  verifySsl: z.boolean(),
 });
 
 type NautobotFormValues = z.infer<typeof nautobotSchema>;
@@ -56,6 +58,7 @@ const EMPTY_DEFAULTS: NautobotFormValues = {
   sourceId: "",
   url: "",
   token: "",
+  verifySsl: true,
 };
 
 export function NautobotSourceDialog({
@@ -69,6 +72,7 @@ export function NautobotSourceDialog({
 }: NautobotSourceDialogProps) {
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors },
@@ -83,6 +87,7 @@ export function NautobotSourceDialog({
         sourceId: initialValue?.sourceId ?? "",
         url: initialValue?.url ?? "",
         token: "",
+        verifySsl: initialValue?.verifySsl ?? true,
       });
     }
   }, [open, initialValue, reset]);
@@ -108,6 +113,7 @@ export function NautobotSourceDialog({
         sourceId: values.sourceId,
         url: values.url.trim(),
         token,
+        verifySsl: values.verifySsl,
       };
 
       onSave(payload, buildSourceSettingKey("nautobot", values.sourceId));
@@ -195,6 +201,28 @@ export function NautobotSourceDialog({
             {errors.token ? (
               <p className="text-xs text-destructive">{errors.token.message}</p>
             ) : null}
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <Label htmlFor="nautobot-verify-ssl" className="mb-0">
+                Verify TLS certificate
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Disable for self-signed Nautobot lab/dev certificates.
+              </p>
+            </div>
+            <Controller
+              control={control}
+              name="verifySsl"
+              render={({ field }) => (
+                <Switch
+                  id="nautobot-verify-ssl"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              )}
+            />
           </div>
 
           <DialogFooter>

@@ -6,6 +6,7 @@ from pathlib import Path
 # Ensure the backend directory is on sys.path so workflow_steps packages are importable.
 sys.path.insert(0, str(Path(__file__).parent))
 
+from core.cert_installer import install_certificates  # noqa: E402
 from core.config import settings  # noqa: E402 — loads .env via load_dotenv()
 from core.logging_config import configure_logging  # noqa: E402
 
@@ -16,6 +17,9 @@ if __name__ == "__main__":
 
     logger = logging.getLogger(__name__)
     logger.debug("Log level: %s", settings.log_level)
+
+    # Install custom CA certificates before the app starts making outbound calls.
+    install_certificates(Path(__file__).parent)
 
     is_development = settings.environment == "development"
 

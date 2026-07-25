@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 import {
   SOURCE_ID_REGEX,
@@ -41,6 +42,7 @@ const gitSchema = z.object({
   username: z.string().max(255).optional(),
   repository_path: z.string().max(500).optional(),
   token: z.string().optional(),
+  verifySsl: z.boolean(),
 });
 
 type GitFormValues = z.infer<typeof gitSchema>;
@@ -62,6 +64,7 @@ const EMPTY_DEFAULTS: GitFormValues = {
   username: "",
   repository_path: "",
   token: "",
+  verifySsl: true,
 };
 
 export function GitSourceDialog({
@@ -75,6 +78,7 @@ export function GitSourceDialog({
 }: GitSourceDialogProps) {
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors },
@@ -92,6 +96,7 @@ export function GitSourceDialog({
         username: initialValue?.username ?? "",
         repository_path: initialValue?.repository_path ?? "",
         token: "",
+        verifySsl: initialValue?.verifySsl ?? true,
       });
     }
   }, [open, initialValue, reset]);
@@ -120,6 +125,7 @@ export function GitSourceDialog({
         username: values.username?.trim() ?? "",
         repository_path: values.repository_path?.trim() ?? "",
         token,
+        verifySsl: values.verifySsl,
       };
 
       onSave(payload, buildSourceSettingKey("git", values.sourceId));
@@ -239,6 +245,28 @@ export function GitSourceDialog({
             {errors.token ? (
               <p className="text-xs text-destructive">{errors.token.message}</p>
             ) : null}
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <Label htmlFor="git-verify-ssl" className="mb-0">
+                Verify TLS certificate
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Disable for self-signed Git server certificates.
+              </p>
+            </div>
+            <Controller
+              control={control}
+              name="verifySsl"
+              render={({ field }) => (
+                <Switch
+                  id="git-verify-ssl"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              )}
+            />
           </div>
 
           <DialogFooter>

@@ -47,3 +47,11 @@ class SchemaMigrationResponse(BaseModel):
     column_changes_applied: list[str]
     column_changes_skipped: list[str]
     errors: list[str]
+
+
+class RbacSeedResponse(BaseModel):
+    success: bool
+    message: str
+    permissions_seeded: int
+    roles_seeded: int
+    removed_existing: bool

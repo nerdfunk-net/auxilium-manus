@@ -79,8 +79,14 @@ def credentials_from_connection(
     nautobot_url: str,
     nautobot_token: str,
     timeout: float = 30.0,
+    verify_ssl: bool = True,
 ) -> NautobotCredentials:
-    return NautobotCredentials(url=nautobot_url.rstrip("/"), token=nautobot_token, timeout=timeout)
+    return NautobotCredentials(
+        url=nautobot_url.rstrip("/"),
+        token=nautobot_token,
+        timeout=timeout,
+        verify_ssl=verify_ssl,
+    )
 
 
 def build_inventory_service(db: Session) -> InventoryService:

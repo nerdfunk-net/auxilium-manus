@@ -18,6 +18,7 @@ from core.database import SessionLocal, init_db
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
 from routers.cache_settings import router as cache_settings_router
+from routers.certificates import router as certificates_router
 from routers.credentials import router as credentials_router
 from routers.git import router as git_router
 from routers.hatchet_settings import router as hatchet_settings_router
@@ -111,6 +112,7 @@ app.include_router(logging_settings_router, prefix=settings.api_prefix)
 app.include_router(rbac_router, prefix=settings.api_prefix)
 app.include_router(users_router, prefix=settings.api_prefix)
 app.include_router(system_router, prefix=settings.api_prefix)
+app.include_router(certificates_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["health"])

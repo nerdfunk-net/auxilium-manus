@@ -252,6 +252,7 @@ export function SourcesSettingsCanvas() {
               items={nautobot.map((item) => ({
                 sourceId: item.sourceId,
                 summary: item.url,
+                detail: item.verifySsl ? undefined : "TLS verification disabled",
               }))}
               onAdd={() =>
                 setDialog({ type: "nautobot", mode: "create" })
@@ -279,7 +280,9 @@ export function SourcesSettingsCanvas() {
               items={git.map((item) => ({
                 sourceId: item.sourceId,
                 summary: item.url,
-                detail: `branch: ${item.branch}`,
+                detail: item.verifySsl
+                  ? `branch: ${item.branch}`
+                  : `branch: ${item.branch} · TLS verification disabled`,
               }))}
               onAdd={() => setDialog({ type: "git", mode: "create" })}
               onEdit={(sourceId) =>
