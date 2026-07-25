@@ -64,6 +64,7 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("system.rbac", "write", "Re-seed or reset the RBAC permission/role catalog"),
     ("system.certificates", "read", "View CA certificate files and system trust status"),
     ("system.certificates", "write", "Upload, install, or remove CA certificate files"),
+    ("system.oidc", "read", "View OIDC provider configuration and debug status"),
 ]
 
 SYSTEM_ROLES: dict[str, str] = {

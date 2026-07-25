@@ -21,11 +21,17 @@ class UserRepository:
         username: str,
         password_hash: str,
         is_active: bool = True,
+        email: str | None = None,
+        display_name: str | None = None,
+        oidc_provider: str | None = None,
     ) -> User:
         user = User(
             username=username,
             password_hash=password_hash,
             is_active=is_active,
+            email=email,
+            display_name=display_name,
+            oidc_provider=oidc_provider,
         )
         self.db.add(user)
         self.db.commit()

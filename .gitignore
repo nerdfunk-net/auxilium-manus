@@ -231,6 +231,9 @@ data/exports
 
 # custom CA certificates managed via /tools/add-certificate (see INSTALL_CERTIFICATE_FILES)
 config/certs/*.crt
+
+# OIDC provider config contains client secrets — copy from oidc_providers.yaml.example
+config/oidc_providers.yaml
 docker/airgap-artifacts/auxilium-manus-all-in-one.tar.gz
 docker/airgap-artifacts/auxilium-manus-all-in-one.tar
 .DS_Store

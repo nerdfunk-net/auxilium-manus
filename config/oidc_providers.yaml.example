@@ -1,0 +1,100 @@
+# ============================================================================
+# OIDC Providers Configuration Example
+# ============================================================================
+# Configures OpenID Connect (OIDC) Single Sign-On providers for Auxilium Manus.
+# Copy this file to 'oidc_providers.yaml' (same directory) and customize.
+#
+# Location: config/oidc_providers.yaml
+# Format: YAML
+#
+# If this file is missing or has no enabled providers, OIDC login is simply
+# not offered and the traditional username/password form is used as-is.
+# ============================================================================
+
+providers:
+
+  # ---------------------------------------------------------------------------
+  # Example: Corporate Keycloak instance
+  # ---------------------------------------------------------------------------
+  # The provider ID (e.g. "corporate") is used in URLs (/auth/oidc/corporate/...)
+  # and must be unique.
+  corporate:
+    # enabled: Enable or disable this provider. Required.
+    enabled: false
+
+    # discovery_url: OIDC discovery endpoint. Required.
+    # Keycloak:   https://{host}/realms/{realm}/.well-known/openid-configuration
+    # Azure AD:   https://login.microsoftonline.com/{tenant-id}/v2.0/.well-known/openid-configuration
+    # Okta:       https://{domain}.okta.com/.well-known/openid-configuration
+    discovery_url: "https://keycloak.example.com/realms/production/.well-known/openid-configuration"
+
+    # client_id / client_secret: OAuth 2.0 confidential client credentials. Required.
+    client_id: "manus-production"
+    client_secret: "your-client-secret-here"
+
+    # name: Display name on the login button. Default: provider id.
+    name: "Corporate SSO"
+
+    # description: Help text shown under the button. Default: "".
+    description: "Sign in with your company account"
+
+    # icon: One of building, flask, users, shield, key, globe. Default: none (generic icon).
+    icon: "building"
+
+    # display_order: Sort order on the login page, lower first. Default: 999.
+    display_order: 1
+
+    # ca_cert_path: Custom CA certificate for self-signed/internal OIDC providers.
+    # Path is relative to the repo root, or absolute. PEM format only.
+    # Upload/manage certificates via the existing /tools/add-certificate page —
+    # files land in config/certs/, which is exactly where this path should point.
+    # Default: none (uses the system trust store).
+    ca_cert_path: "config/certs/corporate-ca.crt"
+
+    # scopes: OAuth 2.0 scopes to request. Default: [openid, profile, email].
+    scopes:
+      - openid
+      - profile
+      - email
+
+    # claim_mappings: Map ID token claims to user attributes.
+    # Defaults: username -> preferred_username, email -> email, name -> name.
+    claim_mappings:
+      username: "preferred_username"
+      email: "email"
+      name: "name"
+
+    # auto_provision: Create a local user on first OIDC login. Default: true.
+    # New users are always created inactive (is_active=false) regardless of this
+    # setting's downstream role — an admin must activate them under
+    # Settings > Users before they can sign in (via SSO or password).
+    auto_provision: true
+
+    # default_role: Role name assigned to auto-provisioned users. Default: "viewer".
+    # Must be an existing role name (manus ships "admin" and "viewer" by default;
+    # see Settings > Roles for the full list). Falls back to "viewer" with a
+    # logged warning if the configured name doesn't exist.
+    default_role: "viewer"
+
+  # ---------------------------------------------------------------------------
+  # Example: local development Keycloak (minimal, disabled by default)
+  # ---------------------------------------------------------------------------
+  development:
+    enabled: false
+    discovery_url: "http://127.0.0.1:7080/realms/oidc/.well-known/openid-configuration"
+    client_id: "manus-dev"
+    client_secret: "dev-secret-change-me"
+    name: "Development SSO"
+    description: "For testing and development"
+    icon: "flask"
+    display_order: 2
+    auto_provision: true
+    default_role: "admin" # dev convenience only — do not use in production
+
+# ============================================================================
+# GLOBAL OIDC SETTINGS
+# ============================================================================
+global:
+  # allow_traditional_login: Show the username/password form alongside SSO buttons.
+  # Default: true. Set to false for SSO-only login.
+  allow_traditional_login: true

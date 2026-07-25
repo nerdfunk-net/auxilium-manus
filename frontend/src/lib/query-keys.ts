@@ -109,4 +109,8 @@ export const queryKeys = {
     all: ["certificates"] as const,
     scan: () => [...queryKeys.certificates.all, "scan"] as const,
   },
+  oidc: {
+    all: ["oidc"] as const,
+    debug: () => [...queryKeys.oidc.all, "debug"] as const,
+  },
 };

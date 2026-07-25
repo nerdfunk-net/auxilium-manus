@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, KeyRound, Wrench } from "lucide-react";
+import { Database, KeyRound, Shield, Wrench } from "lucide-react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 
@@ -25,6 +25,12 @@ const TOOL_LINKS: ToolLink[] = [
     description: "Upload and install CA certificates into the system trust store.",
     href: "/tools/add-certificate",
     icon: KeyRound,
+  },
+  {
+    title: "OIDC Test Dashboard",
+    description: "Debug OIDC provider configuration and test SSO login flows.",
+    href: "/tools/oidc-test",
+    icon: Shield,
   },
 ];
 
