@@ -43,6 +43,8 @@ class Settings:
     run_retention_enabled: bool
     run_retention_days: int
     run_retention_batch_size: int
+    apply_safe_migrations: bool
+    apply_risky_migrations: bool
     credential_encryption_key: str
     data_directory: Path
     log_directory: Path
@@ -83,10 +85,10 @@ class Settings:
         self.run_retention_days = self._get_int("RUN_RETENTION_DAYS", 90)
         self.run_retention_batch_size = self._get_int("RUN_RETENTION_BATCH_SIZE", 500)
         self._validate_run_retention()
+        self.apply_safe_migrations = self._get_bool("APPLY_SAFE_DATABASE_MIGRATION", False)
+        self.apply_risky_migrations = self._get_bool("APPLY_RISKY_DATABASE_MIGRATION", False)
         self.credential_encryption_key = environ.get("CREDENTIAL_ENCRYPTION_KEY", "")
-        self.data_directory = Path(
-            environ.get("DATA_DIRECTORY", PROJECT_ROOT / "data")
-        ).resolve()
+        self.data_directory = Path(environ.get("DATA_DIRECTORY", PROJECT_ROOT / "data")).resolve()
         self.log_directory = Path(
             environ.get("LOG_DIRECTORY", self.data_directory / "logs")
         ).resolve()

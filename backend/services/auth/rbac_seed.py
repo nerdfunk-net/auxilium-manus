@@ -58,6 +58,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("users", "read", "View user accounts and their roles"),
     ("users", "write", "Create or update user accounts, roles, and permission overrides"),
     ("users", "delete", "Delete user accounts"),
+    ("system.database", "read", "View database schema sync status"),
+    ("system.database", "write", "Apply database schema migrations"),
 ]
 
 SYSTEM_ROLES: dict[str, str] = {

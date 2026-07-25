@@ -7,9 +7,10 @@
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.hatchet-network.yml up -d
 #
-# Set in .env:
-#   HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070
-#   HATCHET_CLIENT_TLS_STRATEGY=none
+# Set in docker-compose.yml (x-manus-app-env):
+#   HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
+#   HATCHET_CLIENT_TLS_STRATEGY: none
+#   HATCHET_CLIENT_TOKEN: <token from http://localhost:8888>
 
 services:
   manus-web:

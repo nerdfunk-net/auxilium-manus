@@ -32,6 +32,7 @@ from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
 )
+from routers.system import router as system_router
 from routers.templates import router as templates_router
 from routers.users import router as users_router
 from routers.workflow_runs import router as workflow_runs_router
@@ -109,6 +110,7 @@ app.include_router(cache_settings_router, prefix=settings.api_prefix)
 app.include_router(logging_settings_router, prefix=settings.api_prefix)
 app.include_router(rbac_router, prefix=settings.api_prefix)
 app.include_router(users_router, prefix=settings.api_prefix)
+app.include_router(system_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["health"])

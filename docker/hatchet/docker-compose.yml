@@ -18,38 +18,9 @@
 #   6. Start the app stack — see docker/README.md
 
 services:
-  # ─── App database ────────────────────────────────────────────────────────────
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    ports:
-      - "5432:5432"
-    networks:
-      - internal
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: manus
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  # ─── Cache / pub-sub ─────────────────────────────────────────────────────────
-  redis:
-    image: redis:alpine
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    networks:
-      - internal
-    volumes:
-      - redis_data:/data
-
   # ─── Hatchet infrastructure ──────────────────────────────────────────────────
+  # App postgres/redis live in docker/docker-compose.yml (not needed here).
+  # Hatchet uses hatchet-postgres + RabbitMQ for its own state/messaging.
   hatchet-postgres:
     image: postgres:17-alpine
     restart: unless-stopped
@@ -170,8 +141,6 @@ services:
       - "8888:80"
 
 volumes:
-  postgres_data:
-  redis_data:
   hatchet_postgres_data:
   hatchet_rabbitmq_data:
   hatchet_config:

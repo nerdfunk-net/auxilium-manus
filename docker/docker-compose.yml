@@ -6,43 +6,83 @@
 #   cd docker/hatchet && docker compose up -d
 #
 # Then start the application stack from this directory:
-#   cp .env.example .env
 #   docker compose -f docker-compose.yml -f docker-compose.hatchet-network.yml up -d
+#
+# Backend settings for manus-web / manus-worker are declared in x-manus-app-env
+# below (mirrors backend/.env.example). Edit values here — not via docker/.env.
 #
 # manus-web: bind address, backend port, BACKEND_URL, and NODE_ENV are set by
 # supervisord-web.conf. manus-worker only runs the Hatchet worker process.
+# Optional URL overrides (DATABASE_URL, MAINTENANCE_DATABASE_URL, MANUS_REDIS_URL,
+# PLUGINS_FILE) are omitted — values are built from the fields below.
+# INITIAL_PERMISSIONS is omitted (unused by the backend).
 
 x-manus-app-env: &manus-app-env
-  ENV: ${ENV:-development}
-  SECRET_KEY: ${SECRET_KEY:-change-in-production-use-at-least-32-characters}
-  LOG_LEVEL: ${LOG_LEVEL:-INFO}
-  CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+  # Application
+  ENV: development
+  SECRET_KEY: change-in-production-use-at-least-32-characters
+  ACCESS_TOKEN_EXPIRE_MINUTES: 60
+  DOCS_ENABLED: "true"
+  TRUSTED_PROXY_IPS: ""
+  INITIAL_USERNAME: admin
+  INITIAL_PASSWORD: admin
+
+  # Credential vault
+  CREDENTIAL_ENCRYPTION_KEY: ""
+  DATA_DIRECTORY: /app/data
+  KDF_ITERATIONS: 100000
+
+  # PostgreSQL (host/port point at the compose postgres service)
   DATABASE_HOST: postgres
   DATABASE_PORT: 5432
-  DATABASE_NAME: ${POSTGRES_DB:-manus}
-  DATABASE_USERNAME: ${POSTGRES_USER:-postgres}
-  DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  DATABASE_NAME: manus
+  DATABASE_MAINTENANCE_NAME: postgres
+  DATABASE_USERNAME: postgres
+  DATABASE_PASSWORD: postgres
+
+  # Redis (host/port point at the compose redis service)
   MANUS_REDIS_HOST: redis
   MANUS_REDIS_PORT: 6379
-  MANUS_REDIS_PASSWORD: ${MANUS_REDIS_PASSWORD:-changeme}
-  HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
-  HATCHET_CLIENT_HOST_PORT: ${HATCHET_CLIENT_HOST_PORT:-host.docker.internal:7077}
-  HATCHET_CLIENT_TLS_STRATEGY: ${HATCHET_CLIENT_TLS_STRATEGY:-none}
-  HATCHET_CLIENT_DEBUG: ${HATCHET_CLIENT_DEBUG:-false}
+  MANUS_REDIS_PASSWORD: changeme
+  MANUS_REDIS_KEY_PREFIX: manus-cache
+
+  # Hatchet workflow engine
+  # Create a token at http://localhost:8888 → Settings → API Tokens
+  # Use hatchet-engine:7070 when attached via docker-compose.hatchet-network.yml
+  HATCHET_CLIENT_TOKEN: ""
+  HATCHET_CLIENT_HOST_PORT: host.docker.internal:7077
+  HATCHET_CLIENT_TLS_STRATEGY: none
+  HATCHET_CLIENT_DEBUG: "false"
+
+  # Logging
+  LOG_LEVEL: INFO
+  LOG_FORMAT: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  LOG_DIRECTORY: /app/data/logs
+  LOG_MAX_BYTES: 10485760
+  LOG_BACKUP_COUNT: 5
+
+  # Workflow run retention (scripts/purge_retention.py)
+  RUN_RETENTION_ENABLED: "false"
+  RUN_RETENTION_DAYS: 90
+  RUN_RETENTION_BATCH_SIZE: 500
+
+  # Database schema sync (see doc/MIGRATION_SYSTEM.md)
+  APPLY_SAFE_DATABASE_MIGRATION: "false"
+  APPLY_RISKY_DATABASE_MIGRATION: "false"
 
 services:
   postgres:
     image: postgres:17
     container_name: manus-postgres
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-manus}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: manus
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -53,12 +93,12 @@ services:
   redis:
     image: redis:8-alpine
     container_name: manus-redis
-    command: redis-server --appendonly yes --requirepass ${MANUS_REDIS_PASSWORD:-changeme}
+    command: redis-server --appendonly yes --requirepass changeme
     volumes:
       - redis_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${MANUS_REDIS_PASSWORD:-changeme}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "changeme", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -71,14 +111,12 @@ services:
       dockerfile: docker/Dockerfile.all-in-one
     container_name: manus-web
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "3000:3000"
       - "8000:8000"
     environment:
       <<: *manus-app-env
-      INITIAL_USERNAME: ${INITIAL_USERNAME:-admin}
-      INITIAL_PASSWORD: ${INITIAL_PASSWORD:-admin}
-      DOCS_ENABLED: ${DOCS_ENABLED:-true}
-      FRONTEND_PORT: ${FRONTEND_PORT:-3000}
+      # Frontend / process manager (not in backend/.env.example)
+      FRONTEND_PORT: 3000
       NEXT_TELEMETRY_DISABLED: "1"
       SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-web.conf
     volumes:
