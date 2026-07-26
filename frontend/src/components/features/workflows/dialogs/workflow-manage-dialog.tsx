@@ -4,7 +4,14 @@ import { useCallback, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FileText, Pencil, Trash2 } from "lucide-react";
+import {
+  Download,
+  FileText,
+  Loader2,
+  Pencil,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -24,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useWorkflowExportMutation } from "@/hooks/queries/use-workflow-export-mutation";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -41,6 +49,7 @@ import {
   getSortedFolders,
   normalizeFolder,
 } from "../utils/workflow-folders";
+import { WorkflowImportDialog } from "./workflow-import-dialog";
 
 const editSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
@@ -56,25 +65,38 @@ interface WorkflowManageDialogProps {
   onClose: () => void;
 }
 
-export function WorkflowManageDialog({ open, onClose }: WorkflowManageDialogProps) {
+export function WorkflowManageDialog({
+  open,
+  onClose,
+}: WorkflowManageDialogProps) {
   const { data, isLoading, error } = useWorkflowsQuery();
   const { updateWorkflow, deleteWorkflow } = useWorkflowMutations();
+  const exportWorkflow = useWorkflowExportMutation();
   const queryClient = useQueryClient();
 
   const workflows = useMemo(() => data?.workflows ?? [], [data]);
 
   const folderCounts = useMemo(() => buildFolderCounts(workflows), [workflows]);
-  const sortedFolders = useMemo(() => getSortedFolders(folderCounts), [folderCounts]);
+  const sortedFolders = useMemo(
+    () => getSortedFolders(folderCounts),
+    [folderCounts],
+  );
 
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
-  const [editingWorkflow, setEditingWorkflow] = useState<WorkflowSummary | null>(null);
-  const [deletingWorkflowId, setDeletingWorkflowId] = useState<number | null>(null);
+  const [editingWorkflow, setEditingWorkflow] =
+    useState<WorkflowSummary | null>(null);
+  const [deletingWorkflowId, setDeletingWorkflowId] = useState<number | null>(
+    null,
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   const filteredWorkflows = useMemo(() => {
     if (selectedFolder === null) return workflows;
-    return workflows.filter((wf) => normalizeFolder(wf.folder) === selectedFolder);
+    return workflows.filter(
+      (wf) => normalizeFolder(wf.folder) === selectedFolder,
+    );
   }, [workflows, selectedFolder]);
 
   const {
@@ -172,200 +194,240 @@ export function WorkflowManageDialog({ open, onClose }: WorkflowManageDialogProp
   }, [deletingWorkflowId, deleteWorkflow, editingWorkflow, reset]);
 
   const selectedFolderLabel =
-    selectedFolder === null ? "ALL" : getFolderLabel(selectedFolder).toUpperCase();
+    selectedFolder === null
+      ? "ALL"
+      : getFolderLabel(selectedFolder).toUpperCase();
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
-        <DialogHeader className="border-b px-6 py-4">
-          <DialogTitle>Manage Workflows</DialogTitle>
-          <DialogDescription>View, rename, and delete your saved workflows.</DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+        <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+          <DialogHeader className="border-b px-6 py-4">
+            <DialogTitle>Manage Workflows</DialogTitle>
+            <DialogDescription>
+              View, rename, and delete your saved workflows.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          <WorkflowFolderSidebar
-            totalCount={workflows.length}
-            folderCounts={folderCounts}
-            sortedFolders={sortedFolders}
-            selectedFolder={selectedFolder}
-            onSelectFolder={setSelectedFolder}
-          />
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <WorkflowFolderSidebar
+              totalCount={workflows.length}
+              folderCounts={folderCounts}
+              sortedFolders={sortedFolders}
+              selectedFolder={selectedFolder}
+              onSelectFolder={setSelectedFolder}
+            />
 
-          {/* Right: list + edit panel */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {/* Workflow list */}
-            <div className="flex-1 overflow-y-auto p-4">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Workflows in{" "}
-                <span className="text-primary">{selectedFolderLabel}</span>
-              </p>
-
-              {isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading…</p>
-              ) : error ? (
-                <p className="text-sm text-destructive">Failed to load workflows.</p>
-              ) : filteredWorkflows.length === 0 ? (
-                <p className="text-sm italic text-muted-foreground">
-                  No workflows in this folder.
+            {/* Right: list + edit panel */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {/* Workflow list */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Workflows in{" "}
+                  <span className="text-primary">{selectedFolderLabel}</span>
                 </p>
-              ) : (
-                <div className="space-y-2">
-                  {filteredWorkflows.map((wf) =>
-                    deletingWorkflowId === wf.id ? (
-                      <DeleteConfirmRow
-                        key={wf.id}
-                        name={wf.name}
-                        isDeleting={deleteWorkflow.isPending}
-                        onConfirm={handleDeleteConfirm}
-                        onCancel={() => setDeletingWorkflowId(null)}
-                      />
-                    ) : (
-                      <WorkflowRow
-                        key={wf.id}
-                        workflow={wf}
-                        isEditing={editingWorkflow?.id === wf.id}
-                        onEdit={() => handleEditClick(wf)}
-                        onDelete={() => {
-                          setDeletingWorkflowId(wf.id);
-                          if (editingWorkflow?.id === wf.id) {
-                            setEditingWorkflow(null);
-                            reset();
+
+                {isLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                ) : error ? (
+                  <p className="text-sm text-destructive">
+                    Failed to load workflows.
+                  </p>
+                ) : filteredWorkflows.length === 0 ? (
+                  <p className="text-sm italic text-muted-foreground">
+                    No workflows in this folder.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredWorkflows.map((wf) =>
+                      deletingWorkflowId === wf.id ? (
+                        <DeleteConfirmRow
+                          key={wf.id}
+                          name={wf.name}
+                          isDeleting={deleteWorkflow.isPending}
+                          onConfirm={handleDeleteConfirm}
+                          onCancel={() => setDeletingWorkflowId(null)}
+                        />
+                      ) : (
+                        <WorkflowRow
+                          key={wf.id}
+                          workflow={wf}
+                          isEditing={editingWorkflow?.id === wf.id}
+                          isExporting={
+                            exportWorkflow.isPending &&
+                            exportWorkflow.variables === wf.id
                           }
-                        }}
-                      />
-                    ),
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Bottom: edit panel */}
-            <div className="border-t bg-muted/20 p-4">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                General
-              </p>
-
-              {editingWorkflow ? (
-                <form
-                  onSubmit={handleSubmit(handleSaveEdit)}
-                  className="grid grid-cols-2 gap-3"
-                >
-                  <div className="grid gap-1">
-                    <Label className="text-xs" htmlFor="edit-name">
-                      Name
-                    </Label>
-                    <Input
-                      id="edit-name"
-                      className="h-8 text-sm"
-                      {...register("name")}
-                    />
-                    {errors.name ? (
-                      <p className="text-xs text-destructive">{errors.name.message}</p>
-                    ) : null}
+                          onEdit={() => handleEditClick(wf)}
+                          onExport={() => exportWorkflow.mutate(wf.id)}
+                          onDelete={() => {
+                            setDeletingWorkflowId(wf.id);
+                            if (editingWorkflow?.id === wf.id) {
+                              setEditingWorkflow(null);
+                              reset();
+                            }
+                          }}
+                        />
+                      ),
+                    )}
                   </div>
+                )}
+              </div>
 
-                  <div className="grid gap-1">
-                    <Label className="text-xs" htmlFor="edit-folder">
-                      Folder
-                    </Label>
-                    <Input
-                      id="edit-folder"
-                      className="h-8 text-sm"
-                      placeholder="/"
-                      {...register("folder")}
-                    />
-                  </div>
-
-                  <div className="grid gap-1">
-                    <Label className="text-xs" htmlFor="edit-description">
-                      Description
-                    </Label>
-                    <Input
-                      id="edit-description"
-                      className="h-8 text-sm"
-                      placeholder="Optional"
-                      {...register("description")}
-                    />
-                  </div>
-
-                  <div className="grid gap-1">
-                    <Label className="text-xs" htmlFor="edit-visibility">
-                      Visibility
-                    </Label>
-                    <Select
-                      value={visibility}
-                      onValueChange={(v) =>
-                        setValue("visibility", v as WorkflowVisibility)
-                      }
-                    >
-                      <SelectTrigger id="edit-visibility" className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="private">Private</SelectItem>
-                        <SelectItem value="public">Public</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {saveError ? (
-                    <p className="col-span-2 text-xs text-destructive">{saveError}</p>
-                  ) : null}
-
-                  <div className="col-span-2 flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      Editing:{" "}
-                      <span className="font-medium text-foreground">
-                        {editingWorkflow.name}
-                      </span>
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={handleCancelEdit}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        size="sm"
-                        disabled={updateWorkflow.isPending}
-                      >
-                        {updateWorkflow.isPending ? "Saving…" : "Save changes"}
-                      </Button>
-                    </div>
-                  </div>
-                </form>
-              ) : (
-                <p className="text-sm italic text-muted-foreground">
-                  {saveSuccess ?? "Select a workflow to edit its details."}
+              {/* Bottom: edit panel */}
+              <div className="border-t bg-muted/20 p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  General
                 </p>
-              )}
+
+                {editingWorkflow ? (
+                  <form
+                    onSubmit={handleSubmit(handleSaveEdit)}
+                    className="grid grid-cols-2 gap-3"
+                  >
+                    <div className="grid gap-1">
+                      <Label className="text-xs" htmlFor="edit-name">
+                        Name
+                      </Label>
+                      <Input
+                        id="edit-name"
+                        className="h-8 text-sm"
+                        {...register("name")}
+                      />
+                      {errors.name ? (
+                        <p className="text-xs text-destructive">
+                          {errors.name.message}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-1">
+                      <Label className="text-xs" htmlFor="edit-folder">
+                        Folder
+                      </Label>
+                      <Input
+                        id="edit-folder"
+                        className="h-8 text-sm"
+                        placeholder="/"
+                        {...register("folder")}
+                      />
+                    </div>
+
+                    <div className="grid gap-1">
+                      <Label className="text-xs" htmlFor="edit-description">
+                        Description
+                      </Label>
+                      <Input
+                        id="edit-description"
+                        className="h-8 text-sm"
+                        placeholder="Optional"
+                        {...register("description")}
+                      />
+                    </div>
+
+                    <div className="grid gap-1">
+                      <Label className="text-xs" htmlFor="edit-visibility">
+                        Visibility
+                      </Label>
+                      <Select
+                        value={visibility}
+                        onValueChange={(v) =>
+                          setValue("visibility", v as WorkflowVisibility)
+                        }
+                      >
+                        <SelectTrigger
+                          id="edit-visibility"
+                          className="h-8 text-sm"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="private">Private</SelectItem>
+                          <SelectItem value="public">Public</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {saveError ? (
+                      <p className="col-span-2 text-xs text-destructive">
+                        {saveError}
+                      </p>
+                    ) : null}
+
+                    <div className="col-span-2 flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        Editing:{" "}
+                        <span className="font-medium text-foreground">
+                          {editingWorkflow.name}
+                        </span>
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCancelEdit}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          disabled={updateWorkflow.isPending}
+                        >
+                          {updateWorkflow.isPending
+                            ? "Saving…"
+                            : "Save changes"}
+                        </Button>
+                      </div>
+                    </div>
+                  </form>
+                ) : (
+                  <p className="text-sm italic text-muted-foreground">
+                    {saveSuccess ?? "Select a workflow to edit its details."}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="flex justify-end border-t px-6 py-4">
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          {/* Footer */}
+          <div className="flex items-center justify-between border-t px-6 py-4">
+            <Button variant="outline" onClick={() => setIsImportOpen(true)}>
+              <Upload className="mr-2 size-4" />
+              Import…
+            </Button>
+            <Button variant="outline" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <WorkflowImportDialog
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+      />
+    </>
   );
 }
 
 interface WorkflowRowProps {
   workflow: WorkflowSummary;
   isEditing: boolean;
+  isExporting: boolean;
   onEdit: () => void;
+  onExport: () => void;
   onDelete: () => void;
 }
 
-function WorkflowRow({ workflow, isEditing, onEdit, onDelete }: WorkflowRowProps) {
+function WorkflowRow({
+  workflow,
+  isEditing,
+  isExporting,
+  onEdit,
+  onExport,
+  onDelete,
+}: WorkflowRowProps) {
   return (
     <div
       className={cn(
@@ -387,6 +449,19 @@ function WorkflowRow({ workflow, isEditing, onEdit, onDelete }: WorkflowRowProps
         </p>
       </div>
       <div className="ml-4 flex shrink-0 items-center gap-3">
+        <button
+          type="button"
+          aria-label="Export workflow"
+          className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          onClick={onExport}
+          disabled={isExporting}
+        >
+          {isExporting ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Download className="size-4" />
+          )}
+        </button>
         <button
           type="button"
           aria-label="Edit workflow"
@@ -415,16 +490,25 @@ interface DeleteConfirmRowProps {
   onCancel: () => void;
 }
 
-function DeleteConfirmRow({ name, isDeleting, onConfirm, onCancel }: DeleteConfirmRowProps) {
+function DeleteConfirmRow({
+  name,
+  isDeleting,
+  onConfirm,
+  onCancel,
+}: DeleteConfirmRowProps) {
   return (
     <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 p-4">
       <p className="text-sm">
-        Delete{" "}
-        <span className="font-medium">&ldquo;{name}&rdquo;</span>? This cannot be
-        undone.
+        Delete <span className="font-medium">&ldquo;{name}&rdquo;</span>? This
+        cannot be undone.
       </p>
       <div className="ml-4 flex shrink-0 gap-2">
-        <Button size="sm" variant="outline" onClick={onCancel} disabled={isDeleting}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onCancel}
+          disabled={isDeleting}
+        >
           Cancel
         </Button>
         <Button
