@@ -11,6 +11,7 @@ from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.safe_http_errors import raise_internal_server_error
 from models.runs import (
     RUN_LIST_STATUS_FILTERS,
+    TERMINAL_RUN_STATUSES,
     WorkflowRunCreate,
     WorkflowRunListResponse,
     WorkflowRunResponse,
@@ -225,6 +226,26 @@ class RunService:
         self.run_repo.update_run_status(run, status="cancelled")
         step_results = self.run_repo.get_step_results_for_run(run_id)
         return _run_to_response(run, username, step_results)
+
+    def delete_run(self, run_id: int, user_id: int) -> None:
+        result = self.run_repo.get_run_by_id(run_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+        run, _username = result
+        self._assert_workflow_access(run.workflow_id, user_id)
+
+        if run.status not in TERMINAL_RUN_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Cannot delete a run with status {run.status!r}; "
+                    "only finished runs can be deleted"
+                ),
+            )
+        # NOTE: does not delete filesystem artifact content under
+        # {data_directory}/artifacts/ — same known gap as
+        # RunRepository.purge_finished_runs_older_than.
+        self.run_repo.delete_run(run)
 
     def _assert_not_awaiting_batch_approval(self, run: WorkflowRun) -> None:
         if run.approval_state is not None and run.approval_state.get("awaiting"):

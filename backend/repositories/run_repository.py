@@ -199,6 +199,11 @@ class RunRepository:
         )
         return list(self.db.execute(stmt).scalars())
 
+    def delete_run(self, run: WorkflowRun) -> None:
+        """Delete a single run. Step results cascade via ON DELETE CASCADE."""
+        self.db.delete(run)
+        self.db.commit()
+
     def _finished_runs_older_than_filter(self, *, cutoff: datetime):
         return (
             WorkflowRun.status.in_(TERMINAL_RUN_STATUSES),

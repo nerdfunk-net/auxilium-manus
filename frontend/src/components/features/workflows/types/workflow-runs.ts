@@ -5,6 +5,13 @@ export type WorkflowRunStatus =
   | "success"
   | "failed"
   | "cancelled";
+
+/** Runs in one of these statuses are finished and eligible for deletion. */
+export const TERMINAL_RUN_STATUSES: readonly WorkflowRunStatus[] = [
+  "success",
+  "failed",
+  "cancelled",
+];
 export type StepStatus = "pending" | "running" | "success" | "partial" | "failed" | "skipped";
 export type WorkflowRunMode = "normal" | "debug";
 

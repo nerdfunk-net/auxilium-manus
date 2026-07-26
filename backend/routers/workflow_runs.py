@@ -105,6 +105,19 @@ async def get_run_artifact(
     )
 
 
+@router.delete(
+    "/runs/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("workflow_runs", "delete"))],
+)
+async def delete_run(
+    run_id: int,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> None:
+    service.delete_run(run_id=run_id, user_id=current_user.id)
+
+
 @router.post(
     "/runs/{run_id}/cancel",
     response_model=WorkflowRunResponse,

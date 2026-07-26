@@ -10,6 +10,16 @@ import type {
 
 type TriggerRunVariables = TriggerRunRequest & { workflowId?: number };
 
+export interface DeleteRunResult {
+  runId: number;
+  success: boolean;
+  error?: string;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unexpected error";
+}
+
 export function useTriggerRunMutation(workflowId: number | null) {
   const { apiCall } = useApi();
   const queryClient = useQueryClient();
@@ -167,6 +177,77 @@ export function useApproveBatchMutation(workflowId: number | null) {
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
       toast({
         title: "Failed to release batch",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useDeleteRunMutation(workflowId: number | null) {
+  const { apiCall } = useApi();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<void, Error, number>({
+    mutationFn: (runId) => apiCall(`runs/${runId}`, { method: "DELETE" }),
+    onSuccess: (_data, runId) => {
+      if (workflowId) {
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
+      }
+      queryClient.removeQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
+      toast({ title: "Run deleted", description: "The run and its step results were removed." });
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to delete run",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+export function useBulkDeleteRunsMutation(workflowId: number | null) {
+  const { apiCall } = useApi();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<DeleteRunResult[], Error, number[]>({
+    mutationFn: async (runIds) => {
+      const settled = await Promise.allSettled(
+        runIds.map((runId) => apiCall<void>(`runs/${runId}`, { method: "DELETE" })),
+      );
+      return settled.map((result, index) =>
+        result.status === "fulfilled"
+          ? { runId: runIds[index], success: true }
+          : { runId: runIds[index], success: false, error: getErrorMessage(result.reason) },
+      );
+    },
+    onSuccess: (results) => {
+      if (workflowId) {
+        queryClient.invalidateQueries({
+          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+        });
+      }
+      for (const result of results) {
+        if (result.success) {
+          queryClient.removeQueries({ queryKey: queryKeys.workflowRuns.detail(result.runId) });
+        }
+      }
+      const failed = results.filter((r) => !r.success).length;
+      const succeeded = results.length - failed;
+      toast({
+        title: failed === 0 ? "Runs deleted" : "Some runs could not be deleted",
+        description: `${succeeded} of ${results.length} run${results.length === 1 ? "" : "s"} deleted${failed ? `, ${failed} failed` : ""}.`,
+        variant: failed > 0 ? "destructive" : undefined,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to delete runs",
         description: error.message,
         variant: "destructive",
       });
