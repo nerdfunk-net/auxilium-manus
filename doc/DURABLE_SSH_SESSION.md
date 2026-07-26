@@ -204,7 +204,37 @@ send_config_set / save_config) this is safe because no step leaves a session in 
 non-base state between steps. Record this as an invariant: **executors must return
 sessions to privileged-exec base state before returning.**
 
-### 3.5 What is explicitly out of scope for v1
+### 3.5 Fan-out / fan-in interaction (analysis)
+
+Fan-out is not a problem for the pool — it is where pooling pays off most. The
+hard rule from §2.4 (sessions cannot cross the parent→child task boundary)
+costs almost nothing in practice because of *where* SSH happens in a fanned-out
+workflow:
+
+```
+get-nautobot-devices (parent, API only — no SSH)
+        │ fan-out
+        ├── child[device A]: get-configs → parse → render → deploy   ← all SSH; ONE session for A
+        ├── child[device B]: get-configs → parse → render → deploy   ← one session for B
+        │ fan-in
+        └── parent: git-push / store-artifact (runs once — no SSH)
+```
+
+- Pre-fan-out steps are inventory/API steps; post-join steps are run-once sinks
+  (git, artifacts). All device SSH lives inside the child branch, and each child
+  is one in-process coroutine with its own pool → the entire per-device chain
+  runs over a single SSH login.
+- The only lossy case: a workflow that SSHes to devices **before** fan-out and
+  again inside the branch. The parent's sessions close at dispatch
+  (§5.5 item 1) and each child logs in once more — exactly one extra login per
+  device, in a workflow shape that is rare by construction. Accepted; no
+  mitigation needed.
+- Fan-out also fixes a convoy effect the pool alone cannot: without fan-out,
+  steps process all devices in lockstep (`asyncio.gather` per step), so the
+  slowest device in step N delays every device's step N+1. Fanned-out children
+  progress independently.
+
+### 3.6 What is explicitly out of scope for v1
 
 - Cross-segment persistence (parent → fan-out children).
 - Session sharing between concurrent runs (pool is run-segment-scoped by design;
@@ -533,7 +563,17 @@ Outline for a follow-up plan:
 2. Blocker to solve there: persisted outputs pass through
    `redact_secrets_in_data`, so contexts cannot be rehydrated faithfully today —
    either store an un-redacted copy server-side or re-resolve secrets on load.
-3. Until then: verify the retry/reassignment policy for `execute_steps` and prefer
+3. **Fan-out re-dispatch**: the same caveat applies to child workflows.
+   `child_workflow.aio_run(...)` in `_dispatch_children` is a plain awaited call,
+   not a memoized durable operation — on replay the parent would re-dispatch
+   **all** children, re-running deployments on devices that already received
+   them. The follow-up must make dispatch resumable too: before dispatching,
+   check which child results were already aggregated/persisted
+   (`_aggregate_and_persist` with `final=False` already writes per-batch results
+   for Wait & Run — reuse that as the checkpoint) and only dispatch the
+   remainder. This is the strongest argument for prioritizing the follow-up:
+   the blast radius of a replayed fan-out is every device in the run.
+4. Until then: verify the retry/reassignment policy for `execute_steps` and prefer
    a loud failed run over silent re-execution.
 
 The session pool neither worsens nor fixes this; sessions are simply rebuilt on
@@ -561,6 +601,13 @@ replay.
   session state.
 - `reachable` step: optional SSH reachability probe via the pool (doubles as
   session pre-warming). Deferred from v1 (§13.3).
+- Fan-out refinements (independent of sessions, recorded here from the same
+  analysis): replace the per-parent `asyncio.Semaphore` in `_dispatch_children`
+  with Hatchet concurrency keys on `DeviceGroupExecution` so `max_concurrency`
+  is enforced globally across simultaneous runs (two parents fanning out today
+  each get their own semaphore — combined device concurrency doubles); use
+  Hatchet bulk-run APIs for child dispatch once device counts reach the
+  hundreds.
 - Worker-level sticky session cache across Hatchet tasks (Hatchet sticky
   assignment) — only if a real use case demands parent/child session sharing;
   significant complexity, weak payoff today.
