@@ -37,6 +37,12 @@ export function LabelHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="bold">
+        <p>
+          When enabled, the label text is rendered with a bold font weight.
+        </p>
+      </HelpSection>
+
       <HelpSection title="color">
         <p>
           Text color as a hex value, e.g. <HelpCode>#0f172a</HelpCode>.

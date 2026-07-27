@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -32,6 +33,7 @@ function buildLabelConfig(
       typeof config.font_family === "string"
         ? config.font_family
         : DEFAULT_LABEL_CONFIG.font_family,
+    bold: typeof config.bold === "boolean" ? config.bold : DEFAULT_LABEL_CONFIG.bold,
     color:
       typeof config.color === "string"
         ? config.color
@@ -60,6 +62,8 @@ function LabelConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) 
     typeof config.font_family === "string"
       ? config.font_family
       : DEFAULT_LABEL_CONFIG.font_family;
+  const bold =
+    typeof config.bold === "boolean" ? config.bold : DEFAULT_LABEL_CONFIG.bold;
   const color =
     typeof config.color === "string" ? config.color : DEFAULT_LABEL_CONFIG.color;
   const width =
@@ -142,6 +146,20 @@ function LabelConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) 
             <SelectItem value="mono">Mono</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">bold</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            boolean
+          </Badge>
+        </div>
+        <Switch
+          checked={bold}
+          onCheckedChange={(checked) => patch({ bold: checked })}
+          aria-label="Bold text"
+        />
       </div>
 
       <div className="space-y-1.5">

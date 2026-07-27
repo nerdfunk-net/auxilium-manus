@@ -24,6 +24,8 @@ export function LabelNode({ data, selected }: NodeProps<LabelCanvasNode>) {
   const fontSize = readNumber(config.font_size, DEFAULT_LABEL_CONFIG.font_size);
   const fontFamilyKey = readString(config.font_family, DEFAULT_LABEL_CONFIG.font_family);
   const color = readString(config.color, DEFAULT_LABEL_CONFIG.color);
+  const bold =
+    typeof config.bold === "boolean" ? config.bold : DEFAULT_LABEL_CONFIG.bold;
   const fontFamily = LABEL_FONT_STACKS[fontFamilyKey] ?? LABEL_FONT_STACKS.sans;
 
   return (
@@ -41,11 +43,15 @@ export function LabelNode({ data, selected }: NodeProps<LabelCanvasNode>) {
         handleClassName="!h-2 !w-2 !rounded-sm !border-teal-500 !bg-white"
       />
       <p
-        className="w-full break-words text-center leading-snug"
+        className={cn(
+          "w-full break-words text-center leading-snug",
+          bold && "font-bold",
+        )}
         style={{
           color,
           fontSize,
           fontFamily,
+          fontWeight: bold ? 700 : 400,
         }}
       >
         {text || "Label"}

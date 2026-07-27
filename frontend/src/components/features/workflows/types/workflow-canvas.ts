@@ -138,6 +138,7 @@ export const DEFAULT_LABEL_CONFIG = {
   text: "Label",
   font_size: 16,
   font_family: "sans",
+  bold: false,
   color: "#0f172a",
   width: 200,
   height: 40,

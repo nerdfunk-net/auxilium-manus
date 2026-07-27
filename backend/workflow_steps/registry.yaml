@@ -1163,6 +1163,11 @@ plugins:
           required: true
           default: sans
           example: sans
+        - name: bold
+          description: When true, render the label text in bold.
+          data_type: boolean
+          required: false
+          default: false
         - name: color
           description: Text color as a hex string (e.g. #0f172a).
           data_type: string
