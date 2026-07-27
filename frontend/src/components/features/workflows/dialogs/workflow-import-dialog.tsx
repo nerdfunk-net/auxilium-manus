@@ -1,10 +1,17 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
+import { CredentialVisibilityBadge } from "@/components/features/settings/credentials/components/credential-visibility-badge";
+import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import type { CredentialVisibility } from "@/components/features/settings/credentials/types";
+import { useTemplatesQuery } from "@/components/features/templates/hooks/use-templates-query";
+import type { Template } from "@/components/features/templates/types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,12 +30,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
+import { useAuthStore } from "@/lib/auth-store";
+import { queryKeys } from "@/lib/query-keys";
 
-import type { WorkflowVisibility } from "../types/workflow-persistence";
 import type { WorkflowExportFile } from "../types/workflow-export";
-import { parseWorkflowExportFile } from "../utils/workflow-import";
+import type { WorkflowVisibility } from "../types/workflow-persistence";
+import {
+  applyCredentialRemap,
+  applyTemplateIdRemap,
+  buildCredentialRemapRequirements,
+  collectCredentialReferencesFromCanvas,
+  parseWorkflowExportFile,
+  resolveWorkflowTemplatesOnImport,
+} from "../utils/workflow-import";
 
 const importSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
@@ -49,7 +66,15 @@ export function WorkflowImportDialog({
   onClose,
 }: WorkflowImportDialogProps) {
   const { createWorkflow, updateWorkflow } = useWorkflowMutations();
+  const { apiCall } = useApi();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
+  const currentUsername = useAuthStore((state) => state.user?.username ?? "");
+  const { data: credentialsData, isLoading: credentialsLoading } =
+    useCredentialsQuery({ enabled: open });
+  const { data: templatesData, isLoading: templatesLoading } = useTemplatesQuery({
+    enabled: open,
+  });
 
   const [importFile, setImportFile] = useState<WorkflowExportFile | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -59,6 +84,10 @@ export function WorkflowImportDialog({
     values: ImportFormValues;
   } | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [isResolvingTemplates, setIsResolvingTemplates] = useState(false);
+  const [credentialRemap, setCredentialRemap] = useState<
+    Record<string, string>
+  >({});
 
   const {
     register,
@@ -78,13 +107,86 @@ export function WorkflowImportDialog({
   });
 
   const visibility = useWatch({ control, name: "visibility" });
-  const isSaving = createWorkflow.isPending || updateWorkflow.isPending;
+  const isSaving =
+    createWorkflow.isPending ||
+    updateWorkflow.isPending ||
+    isResolvingTemplates;
+
+  const visibleCredentials = useMemo(
+    () => credentialsData?.credentials ?? [],
+    [credentialsData?.credentials],
+  );
+
+  const existingTemplates = useMemo(
+    () => templatesData?.templates ?? [],
+    [templatesData?.templates],
+  );
+
+  const sshCredentials = useMemo(
+    () =>
+      visibleCredentials.filter(
+        (credential) =>
+          credential.type === "ssh" && credential.status !== "expired",
+      ),
+    [visibleCredentials],
+  );
+
+  const canvasCredentialNames = useMemo(
+    () =>
+      importFile
+        ? collectCredentialReferencesFromCanvas(importFile.canvas_nodes)
+        : [],
+    [importFile],
+  );
+
+  const remapRequirements = useMemo(() => {
+    if (!importFile || credentialsLoading) return [];
+    return buildCredentialRemapRequirements(
+      importFile.credential_references,
+      importFile.canvas_nodes,
+      visibleCredentials,
+      currentUsername,
+    );
+  }, [importFile, credentialsLoading, visibleCredentials, currentUsername]);
+
+  const showCredentialMapping =
+    Boolean(importFile) &&
+    (credentialsLoading
+      ? canvasCredentialNames.length > 0
+      : remapRequirements.length > 0);
+
+  const templateImportSummary = useMemo(() => {
+    if (!importFile || templatesLoading) {
+      return { reuse: [] as string[], create: [] as string[] };
+    }
+    const existingNames = new Set(existingTemplates.map((t) => t.name));
+    const reuse: string[] = [];
+    const create: string[] = [];
+    for (const template of importFile.templates) {
+      if (existingNames.has(template.name)) {
+        reuse.push(template.name);
+      } else {
+        create.push(template.name);
+      }
+    }
+    return { reuse, create };
+  }, [importFile, existingTemplates, templatesLoading]);
+
+  const allRemapsSelected = useMemo(
+    () =>
+      remapRequirements.every((requirement) =>
+        Boolean(credentialRemap[requirement.name]?.trim()),
+      ),
+    [remapRequirements, credentialRemap],
+  );
 
   const resetState = useCallback(() => {
     setImportFile(null);
     setParseError(null);
     setPendingOverwrite(null);
     setIsChecking(false);
+    setIsResolvingTemplates(false);
+    setCredentialRemap({});
     reset({ name: "", description: "", folder: "/", visibility: "private" });
   }, [reset]);
 
@@ -106,6 +208,7 @@ export function WorkflowImportDialog({
         setImportFile(parsed);
         setParseError(null);
         setPendingOverwrite(null);
+        setCredentialRemap({});
         reset({
           name: parsed.name,
           description: parsed.description ?? "",
@@ -114,6 +217,7 @@ export function WorkflowImportDialog({
         });
       } catch (err) {
         setImportFile(null);
+        setCredentialRemap({});
         setParseError(
           err instanceof Error
             ? err.message
@@ -124,48 +228,110 @@ export function WorkflowImportDialog({
     input.click();
   }, [reset]);
 
-  const performSave = useCallback(
-    (values: ImportFormValues, overwriteId?: number) => {
-      if (!importFile) return;
-      const payload = {
-        name: values.name,
-        description: values.description,
-        folder: values.folder || "/",
-        visibility: values.visibility,
-        canvas_nodes: importFile.canvas_nodes,
-        canvas_edges: importFile.canvas_edges,
-        canvas_groups: importFile.canvas_groups,
-      };
+  const handleRemapChange = useCallback((oldName: string, newName: string) => {
+    setCredentialRemap((previous) => ({ ...previous, [oldName]: newName }));
+  }, []);
 
-      const onSuccess = () => {
+  const buildRemapMap = useCallback(() => {
+    const map = new Map<string, string>();
+    for (const requirement of remapRequirements) {
+      const selected = credentialRemap[requirement.name]?.trim();
+      if (selected) {
+        map.set(requirement.name, selected);
+      }
+    }
+    return map;
+  }, [remapRequirements, credentialRemap]);
+
+  const performSave = useCallback(
+    async (values: ImportFormValues, overwriteId?: number) => {
+      if (!importFile) return;
+
+      setIsResolvingTemplates(true);
+      try {
+        const templateIdRemap = await resolveWorkflowTemplatesOnImport({
+          exportedTemplates: importFile.templates,
+          existingTemplates,
+          createTemplate: (payload) =>
+            apiCall<Template>("templates", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            }),
+        });
+
+        if (templateImportSummary.create.length > 0) {
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.templates.all,
+          });
+        }
+
+        let canvasNodes = applyCredentialRemap(
+          importFile.canvas_nodes,
+          buildRemapMap(),
+        );
+        canvasNodes = applyTemplateIdRemap(canvasNodes, templateIdRemap);
+
+        const payload = {
+          name: values.name,
+          description: values.description,
+          folder: values.folder || "/",
+          visibility: values.visibility,
+          canvas_nodes: canvasNodes,
+          canvas_edges: importFile.canvas_edges,
+          canvas_groups: importFile.canvas_groups,
+        };
+
+        if (overwriteId !== undefined) {
+          await updateWorkflow.mutateAsync({ id: overwriteId, data: payload });
+        } else {
+          await createWorkflow.mutateAsync(payload);
+        }
+
         toast({
           title: "Import complete",
           description: `"${values.name}" was imported.`,
         });
         handleClose();
-      };
-      const onError = (error: Error) => {
+      } catch (error) {
         toast({
           title: "Import failed",
-          description: error.message,
+          description:
+            error instanceof Error
+              ? error.message
+              : "Could not import workflow.",
           variant: "destructive",
         });
-      };
-
-      if (overwriteId !== undefined) {
-        updateWorkflow.mutate(
-          { id: overwriteId, data: payload },
-          { onSuccess, onError },
-        );
-      } else {
-        createWorkflow.mutate(payload, { onSuccess, onError });
+      } finally {
+        setIsResolvingTemplates(false);
       }
     },
-    [importFile, createWorkflow, updateWorkflow, toast, handleClose],
+    [
+      importFile,
+      existingTemplates,
+      templateImportSummary.create.length,
+      apiCall,
+      queryClient,
+      buildRemapMap,
+      createWorkflow,
+      updateWorkflow,
+      toast,
+      handleClose,
+    ],
   );
 
   const onSubmit = useCallback(
     async (values: ImportFormValues) => {
+      if (remapRequirements.length > 0 && !allRemapsSelected) {
+        toast({
+          title: "Credentials required",
+          description:
+            "Select a replacement credential for each referenced credential before importing.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       setPendingOverwrite(null);
       setIsChecking(true);
       try {
@@ -204,14 +370,19 @@ export function WorkflowImportDialog({
       } finally {
         setIsChecking(false);
       }
-      performSave(values);
+      await performSave(values);
     },
-    [performSave],
+    [performSave, remapRequirements.length, allRemapsSelected, toast],
   );
+
+  const showTemplateSummary =
+    Boolean(importFile) &&
+    (importFile?.templates.length ?? 0) > 0 &&
+    !templatesLoading;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Import Workflow</DialogTitle>
           <DialogDescription>
@@ -257,7 +428,7 @@ export function WorkflowImportDialog({
                     size="sm"
                     variant="destructive"
                     onClick={() =>
-                      performSave(
+                      void performSave(
                         pendingOverwrite.values,
                         pendingOverwrite.existingId,
                       )
@@ -320,15 +491,119 @@ export function WorkflowImportDialog({
             </Select>
           </div>
 
+          {showTemplateSummary ? (
+            <div className="grid gap-1.5 rounded-md border p-3 text-xs">
+              <Label>Templates</Label>
+              {templateImportSummary.reuse.length > 0 ? (
+                <p className="text-muted-foreground">
+                  Reuse existing: {templateImportSummary.reuse.join(", ")}
+                </p>
+              ) : null}
+              {templateImportSummary.create.length > 0 ? (
+                <p className="text-muted-foreground">
+                  Will import: {templateImportSummary.create.join(", ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {showCredentialMapping ? (
+            <div className="grid gap-3 rounded-md border p-3">
+              <div className="grid gap-1">
+                <Label>Credential mapping</Label>
+                <p className="text-xs text-muted-foreground">
+                  Some credentials belong to another user or are not available
+                  in your vault. Choose a replacement for each before importing.
+                </p>
+              </div>
+              {credentialsLoading ? (
+                <p className="text-xs text-muted-foreground">
+                  Loading credentials…
+                </p>
+              ) : sshCredentials.length === 0 ? (
+                <p className="text-xs text-amber-600">
+                  No SSH credentials available. Add credentials in Settings →
+                  Credentials first.
+                </p>
+              ) : (
+                remapRequirements.map((requirement) => (
+                  <div key={requirement.name} className="grid gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="font-mono font-medium">
+                        {requirement.name}
+                      </span>
+                      {requirement.visibility === "unknown" ? (
+                        <Badge
+                          className="h-4 rounded px-1 text-[10px]"
+                          variant="secondary"
+                        >
+                          Unknown
+                        </Badge>
+                      ) : (
+                        <CredentialVisibilityBadge
+                          className="h-4 rounded px-1 text-[10px]"
+                          visibility={
+                            requirement.visibility as CredentialVisibility
+                          }
+                        />
+                      )}
+                      {requirement.owner_username ? (
+                        <span className="text-muted-foreground">
+                          owner: {requirement.owner_username}
+                        </span>
+                      ) : null}
+                    </div>
+                    <Select
+                      value={credentialRemap[requirement.name] ?? ""}
+                      onValueChange={(value) =>
+                        handleRemapChange(requirement.name, value)
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select replacement credential" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sshCredentials.map((credential) => (
+                          <SelectItem
+                            key={credential.id}
+                            value={credential.name}
+                          >
+                            {credential.name} ({credential.username}) ·{" "}
+                            {credential.visibility === "global"
+                              ? "Global"
+                              : "Private"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : null}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleClose}>
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={!importFile || isSaving || isChecking}
+              disabled={
+                !importFile ||
+                isSaving ||
+                isChecking ||
+                credentialsLoading ||
+                templatesLoading ||
+                (remapRequirements.length > 0 && !allRemapsSelected)
+              }
             >
-              {isChecking ? "Checking…" : isSaving ? "Importing…" : "Import"}
+              {isChecking
+                ? "Checking…"
+                : isResolvingTemplates
+                  ? "Importing templates…"
+                  : isSaving
+                    ? "Importing…"
+                    : "Import"}
             </Button>
           </DialogFooter>
         </form>

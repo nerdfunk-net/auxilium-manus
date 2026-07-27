@@ -1,6 +1,6 @@
 "use client";
 
-import { FileCode, HelpCircle, Plus, Search } from "lucide-react";
+import { FileCode, HelpCircle, Plus, Search, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -16,6 +16,8 @@ import { DeleteTemplateDialog } from "./components/delete-template-dialog";
 import { JinjaHelpDialog } from "./components/jinja-help-dialog";
 import { TemplateViewDialog } from "./components/template-view-dialog";
 import { TemplatesTable } from "./components/templates-table";
+import { TemplateImportDialog } from "./dialogs/template-import-dialog";
+import { useTemplateExportMutation } from "./hooks/use-template-export-mutation";
 import { useTemplateMutations } from "./hooks/use-template-mutations";
 import { useTemplatesQuery } from "./hooks/use-templates-query";
 import type { TemplateListItem } from "./types";
@@ -25,10 +27,12 @@ export function TemplatesPage() {
   const [search, setSearch] = useState("");
   const { data, isLoading, error } = useTemplatesQuery({ search });
   const { deleteTemplate } = useTemplateMutations();
+  const exportTemplate = useTemplateExportMutation();
 
   const [viewTarget, setViewTarget] = useState<TemplateListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TemplateListItem | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const templates = data?.templates ?? [];
 
@@ -82,6 +86,14 @@ export function TemplatesPage() {
               </TooltipTrigger>
               <TooltipContent>How to write a Jinja2 template</TooltipContent>
             </Tooltip>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="size-4" />
+              Import
+            </Button>
             <Button type="button" onClick={handleCreate}>
               <Plus className="size-4" />
               Create New Template
@@ -106,8 +118,14 @@ export function TemplatesPage() {
         ) : (
           <TemplatesTable
             templates={templates}
+            exportingId={
+              exportTemplate.isPending
+                ? (exportTemplate.variables as number | undefined) ?? null
+                : null
+            }
             onView={setViewTarget}
             onEdit={handleEdit}
+            onExport={(template) => exportTemplate.mutate(template.id)}
             onDelete={setDeleteTarget}
           />
         )}
@@ -126,6 +144,11 @@ export function TemplatesPage() {
         isDeleting={deleteTemplate.isPending}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleConfirmDelete}
+      />
+
+      <TemplateImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
       />
 
       <JinjaHelpDialog open={showHelp} onClose={() => setShowHelp(false)} />

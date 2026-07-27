@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Pencil, Trash2 } from "lucide-react";
+import { Download, Eye, Pencil, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,9 @@ interface TemplatesTableProps {
   templates: TemplateListItem[];
   onView: (template: TemplateListItem) => void;
   onEdit: (template: TemplateListItem) => void;
+  onExport: (template: TemplateListItem) => void;
   onDelete: (template: TemplateListItem) => void;
+  exportingId?: number | null;
 }
 
 function formatDate(value: string | null): string {
@@ -29,7 +31,9 @@ export function TemplatesTable({
   templates,
   onView,
   onEdit,
+  onExport,
   onDelete,
+  exportingId = null,
 }: TemplatesTableProps) {
   if (templates.length === 0) {
     return (
@@ -85,6 +89,16 @@ export function TemplatesTable({
                     onClick={() => onEdit(template)}
                   >
                     <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    aria-label={`Export ${template.name}`}
+                    disabled={exportingId === template.id}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onExport(template)}
+                  >
+                    <Download className="size-4" />
                   </Button>
                   <Button
                     aria-label={`Delete ${template.name}`}

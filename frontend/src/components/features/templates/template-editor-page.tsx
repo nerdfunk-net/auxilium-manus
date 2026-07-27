@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, FileCode, Play, RefreshCw, Save } from "lucide-react";
+import { ArrowLeft, Download, FileCode, Play, RefreshCw, Save } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -31,6 +31,10 @@ import type {
   TemplateType,
   TemplateVariableRecord,
 } from "./types";
+import {
+  buildTemplateExportFile,
+  downloadTemplateExportFile,
+} from "./utils/template-export";
 
 function bareIp(value: string | null): string | null {
   if (!value) {
@@ -356,6 +360,54 @@ function TemplateEditorContent() {
     renderer.render(content, variableManager.variables);
   }, [renderer, content, variableManager.variables]);
 
+  const handleExport = useCallback(() => {
+    if (!name.trim()) {
+      toast({
+        title: "Validation error",
+        description: "Template name is required before export",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const variables: Record<string, TemplateVariableRecord> = {};
+    for (const variable of variableManager.variables) {
+      if (variable.name && !variable.isAutoFilled) {
+        variables[variable.name] = {
+          value: variable.value,
+          type: variable.type || "custom",
+        };
+      }
+    }
+
+    const envelope = buildTemplateExportFile({
+      name: name.trim(),
+      description: description || null,
+      template_type: templateType,
+      category: TEMPLATE_CATEGORY,
+      content,
+      variables,
+      pre_run_commands: cleanedCommands,
+      pre_run_use_textfsm: useTextfsm,
+      nautobot_attributes: attributes,
+    });
+    downloadTemplateExportFile(envelope);
+    toast({
+      title: "Export complete",
+      description: "Template JSON was downloaded.",
+    });
+  }, [
+    name,
+    description,
+    templateType,
+    content,
+    cleanedCommands,
+    useTextfsm,
+    attributes,
+    variableManager.variables,
+    toast,
+  ]);
+
   const handleAddVariable = useCallback(
     (variableName: string, value: string) => {
       const id = variableManager.addVariable(variableName, value);
@@ -520,10 +572,21 @@ function TemplateEditorContent() {
             Show Rendered Template
           </Button>
 
-          <Button type="button" disabled={isSaving} onClick={handleSave}>
-            {isSaving ? <RefreshCw className="size-4 animate-spin" /> : <Save className="size-4" />}
-            {isEditMode ? "Update Template" : "Save Template"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!name.trim()}
+              onClick={handleExport}
+            >
+              <Download className="size-4" />
+              Export
+            </Button>
+            <Button type="button" disabled={isSaving} onClick={handleSave}>
+              {isSaving ? <RefreshCw className="size-4 animate-spin" /> : <Save className="size-4" />}
+              {isEditMode ? "Update Template" : "Save Template"}
+            </Button>
+          </div>
         </div>
       </div>
 
