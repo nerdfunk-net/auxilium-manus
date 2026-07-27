@@ -21,6 +21,10 @@ import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/st
 
 import { DeployRenderedTemplateHelpPanel } from "./help-panel";
 
+const DEFAULT_READ_TIMEOUT = 60;
+const MIN_READ_TIMEOUT = 5;
+const MAX_READ_TIMEOUT = 600;
+
 const EXECUTION_MODE_OPTIONS = [
   {
     value: "config_mode",
@@ -54,6 +58,11 @@ function buildDeployRenderedTemplateConfig(
     network_driver_override:
       typeof config.network_driver_override === "string" ? config.network_driver_override : "",
     write_config_after_execution: config.write_config_after_execution === true,
+    read_timeout:
+      typeof config.read_timeout === "number" && Number.isFinite(config.read_timeout)
+        ? config.read_timeout
+        : DEFAULT_READ_TIMEOUT,
+    auto_confirm_prompts: config.auto_confirm_prompts === true,
     ...patch,
   };
 }
@@ -95,6 +104,11 @@ function DeployRenderedTemplateConfigPanel({
   const networkDriverOverride =
     typeof config.network_driver_override === "string" ? config.network_driver_override : "";
   const writeConfigAfterExecution = config.write_config_after_execution === true;
+  const readTimeout =
+    typeof config.read_timeout === "number" && Number.isFinite(config.read_timeout)
+      ? config.read_timeout
+      : DEFAULT_READ_TIMEOUT;
+  const autoConfirmPrompts = config.auto_confirm_prompts === true;
 
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, "rendered_template", nodeId),
@@ -167,6 +181,24 @@ function DeployRenderedTemplateConfigPanel({
       onChange(
         buildDeployRenderedTemplateConfig(config, { write_config_after_execution: checked }),
       );
+    },
+    [config, onChange],
+  );
+
+  const handleAutoConfirmPromptsChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { auto_confirm_prompts: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleReadTimeoutChange = useCallback(
+    (value: string) => {
+      const parsed = Number.parseInt(value, 10);
+      const clamped = Number.isFinite(parsed)
+        ? Math.min(MAX_READ_TIMEOUT, Math.max(MIN_READ_TIMEOUT, parsed))
+        : DEFAULT_READ_TIMEOUT;
+      onChange(buildDeployRenderedTemplateConfig(config, { read_timeout: clamped }));
     },
     [config, onChange],
   );
@@ -329,6 +361,28 @@ function DeployRenderedTemplateConfigPanel({
         </p>
       </div>
 
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">read_timeout</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            integer
+          </Badge>
+        </div>
+        <Input
+          type="number"
+          min={MIN_READ_TIMEOUT}
+          max={MAX_READ_TIMEOUT}
+          value={readTimeout}
+          onChange={(event) => handleReadTimeoutChange(event.target.value)}
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Seconds to wait for each command&apos;s response. Raise this if a
+          &ldquo;Pattern not detected&rdquo; timeout appears for commands with slow or
+          multi-line output.
+        </p>
+      </div>
+
       <div className="flex items-start gap-2">
         <input
           id="write-config-after-execution"
@@ -350,6 +404,35 @@ function DeployRenderedTemplateConfigPanel({
             deployment itself fails.
           </p>
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-start gap-2">
+          <input
+            id="auto-confirm-prompts"
+            type="checkbox"
+            checked={autoConfirmPrompts}
+            onChange={(event) => handleAutoConfirmPromptsChange(event.target.checked)}
+            className="mt-0.5 size-4 rounded border"
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-confirm-prompts" className="font-mono text-xs font-medium">
+              auto_confirm_prompts
+            </Label>
+            <p className="text-[11px] text-muted-foreground">
+              Automatically press Enter to accept a device&apos;s interactive
+              confirmation (e.g. &ldquo;...Do you want to continue? [confirm]&rdquo;)
+              instead of failing.
+            </p>
+          </div>
+        </div>
+        {autoConfirmPrompts ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+            Risky: any command in the rendered template that raises a confirmation
+            prompt will be accepted automatically, with no human review. Only enable
+            this when every command is expected and safe to auto-accept.
+          </p>
+        ) : null}
       </div>
     </div>
   );

@@ -27,6 +27,8 @@ from workflow_steps.common.credential_resolver import resolve_ssh_credential
 logger = logging.getLogger(__name__)
 
 _EXECUTION_MODES = {"config_mode", "exec_mode"}
+_MIN_READ_TIMEOUT = 5
+_MAX_READ_TIMEOUT = 600
 
 
 def _default_config() -> dict[str, Any]:
@@ -44,8 +46,33 @@ def _parse_execution_mode(config: dict[str, Any]) -> str:
     return mode
 
 
+def _parse_read_timeout(config: dict[str, Any]) -> int:
+    raw = config.get("read_timeout")
+    if raw in (None, ""):
+        raw = _default_config()["read_timeout"]
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("deploy-rendered-template: read_timeout must be an integer") from exc
+    if not (_MIN_READ_TIMEOUT <= value <= _MAX_READ_TIMEOUT):
+        raise ValueError(
+            f"deploy-rendered-template: read_timeout must be between {_MIN_READ_TIMEOUT} "
+            f"and {_MAX_READ_TIMEOUT} seconds"
+        )
+    return value
+
+
 def _parse_write_config(config: dict[str, Any]) -> bool:
     value = config.get("write_config_after_execution", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _parse_auto_confirm_prompts(config: dict[str, Any]) -> bool:
+    value = config.get("auto_confirm_prompts", False)
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -70,6 +97,8 @@ async def execute(
     network_driver_override = str(config.get("network_driver_override") or "").strip() or None
     execution_mode = _parse_execution_mode(config)
     write_config_after_execution = _parse_write_config(config)
+    read_timeout = _parse_read_timeout(config)
+    auto_confirm_prompts = _parse_auto_confirm_prompts(config)
 
     if not source_step_node_id:
         raise ValueError("deploy-rendered-template: source_step_node_id is required")
@@ -85,7 +114,8 @@ async def execute(
 
     logger.info(
         "deploy-rendered-template started run_id=%s node_id=%s devices=%d credential=%s "
-        "source=%s mode=%s write_config=%s override=%s",
+        "source=%s mode=%s write_config=%s override=%s read_timeout=%d "
+        "auto_confirm_prompts=%s",
         run.id,
         node_id,
         len(context.devices),
@@ -94,6 +124,8 @@ async def execute(
         execution_mode,
         write_config_after_execution,
         network_driver_override,
+        read_timeout,
+        auto_confirm_prompts,
     )
 
     success_devices: dict[str, DeviceContext] = {}
@@ -170,7 +202,20 @@ async def execute(
                 mode=execution_mode,
                 write_config=write_config_after_execution,
                 device_type=device_type,
+                read_timeout=read_timeout,
+                auto_confirm_prompts=auto_confirm_prompts,
             )
+
+            if result.confirmed_prompts:
+                logger.warning(
+                    "deploy-rendered-template auto-confirmed %d prompt(s) run_id=%s "
+                    "node_id=%s device_id=%s commands=%s",
+                    len(result.confirmed_prompts),
+                    run.id,
+                    node_id,
+                    device_id,
+                    result.confirmed_prompts,
+                )
 
             step_results: list[CommandResult] = []
             output_ref = await artifact_service.store(
@@ -179,15 +224,41 @@ async def execute(
                 device_id=device_id,
                 run_id=context.run_id,
             )
+            summary = f"{len(commands)} line(s) deployed ({execution_mode})"
+            if result.confirmed_prompts:
+                summary += (
+                    f" · {len(result.confirmed_prompts)} confirmation prompt(s) "
+                    "auto-confirmed"
+                )
             step_results.append(
                 CommandResult(
                     node_id=node_id,
                     command="deploy-rendered-template",
                     success=result.success,
                     output_ref=output_ref,
-                    summary=f"{len(commands)} line(s) deployed ({execution_mode})",
+                    summary=summary,
                 )
             )
+            if result.session_log:
+                session_log_ref = await artifact_service.store(
+                    content=result.session_log,
+                    kind="netmiko_session_log",
+                    device_id=device_id,
+                    run_id=context.run_id,
+                )
+                step_results.append(
+                    CommandResult(
+                        node_id=node_id,
+                        command="netmiko-session-log",
+                        success=False,
+                        output_ref=session_log_ref,
+                        summary=(
+                            "Raw Netmiko session log captured up to the failure — inspect "
+                            "for confirmation prompts or unexpected CLI output that stalled "
+                            "pattern detection"
+                        ),
+                    )
+                )
             if result.save_output is not None:
                 save_ref = await artifact_service.store(
                     content=result.save_output,

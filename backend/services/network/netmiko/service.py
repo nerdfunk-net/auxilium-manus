@@ -7,6 +7,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from services.network.netmiko.connection import (
+    DEFAULT_READ_TIMEOUT,
     CommandResult,
     ConfigResult,
     DeployResult,
@@ -87,6 +88,8 @@ class NetmikoService:
         mode: str,
         write_config: bool,
         device_type: str | None = None,
+        read_timeout: int | None = None,
+        auto_confirm_prompts: bool = False,
     ) -> DeployResult:
         loop = asyncio.get_running_loop()
         resolved_device_type = device_type or resolve_netmiko_device_type(
@@ -103,6 +106,8 @@ class NetmikoService:
             commands,
             mode,
             write_config,
+            read_timeout,
+            auto_confirm_prompts,
         )
 
     async def get_running_config(
@@ -215,9 +220,16 @@ def _sync_deploy_config(
     commands: list[str],
     mode: str,
     write_config: bool,
+    read_timeout: int | None,
+    auto_confirm_prompts: bool,
 ) -> DeployResult:
     with _session(host, device_type, username, password) as session:
-        result = session.deploy_config(commands, mode=mode)
+        result = session.deploy_config(
+            commands,
+            mode=mode,
+            read_timeout=read_timeout or DEFAULT_READ_TIMEOUT,
+            auto_confirm_prompts=auto_confirm_prompts,
+        )
         if not result.success or not write_config:
             return result
         try:

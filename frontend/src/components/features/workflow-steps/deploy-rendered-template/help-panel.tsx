@@ -100,6 +100,68 @@ export function DeployRenderedTemplateHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Read timeout">
+        <p>
+          <HelpCode>read_timeout</HelpCode> is how many seconds the step waits for each
+          command&apos;s response before giving up. A Netmiko{" "}
+          <HelpCode>&quot;Pattern not detected&quot;</HelpCode> error means a command
+          never returned a recognizable prompt within this window — a confirmation
+          prompt, a slow or multi-line response, or the device landing in an
+          unexpected sub-mode can all cause this. Raise the value rather than retrying
+          blindly.
+        </p>
+        <HelpExample>
+          read_timeout: 120
+          <br />
+          <span className="text-muted-foreground">
+            → waits up to 120s per command instead of the 60s default
+          </span>
+        </HelpExample>
+        <HelpWarning title="Diagnosing a timeout">
+          <p>
+            When a device fails with a pattern-not-detected error, the step stores the
+            raw Netmiko session log captured up to the failure as an additional
+            artifact on that device (visible alongside the command output in the run
+            detail view) — it shows exactly what the device sent back right before the
+            timeout.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
+      <HelpSection title="Auto-confirm prompts">
+        <p>
+          Some commands raise a Cisco-style interactive confirmation instead of
+          returning straight to the prompt — for example{" "}
+          <HelpCode>no username kannweg</HelpCode> triggers &ldquo;This operation
+          will remove all username related configurations with same
+          name.&nbsp;Do you want to continue?&nbsp;[confirm]&rdquo;. By default the
+          step has no way to answer this and the command fails with a Netmiko
+          &ldquo;Pattern not detected&rdquo; timeout. Enabling{" "}
+          <HelpCode>auto_confirm_prompts</HelpCode> presses Enter (the IOS default
+          / yes response) whenever this cue appears, for every command in the
+          rendered template.
+        </p>
+        <HelpExample>
+          auto_confirm_prompts: true
+          <br />
+          <span className="text-muted-foreground">
+            → &ldquo;...[confirm]&rdquo; is answered automatically; commands that
+            never prompt behave exactly as before
+          </span>
+        </HelpExample>
+        <HelpWarning title="This is a blind accept — review before enabling">
+          <p>
+            Any command that raises a confirmation is accepted with no human in
+            the loop, including destructive ones you did not anticipate. Only turn
+            this on when every command the template can produce is known and safe
+            to auto-accept. Commands that were actually auto-confirmed are recorded
+            in the step&apos;s output summary and in the worker logs
+            (&ldquo;auto-confirmed N prompt(s)&rdquo;) so you can audit what
+            happened after the fact.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Write config after execution">
         <p>
           When <HelpCode>write_config_after_execution</HelpCode> is enabled, the step

@@ -841,6 +841,30 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: read_timeout
+          description: >
+            Seconds to wait for each command's response before failing with a
+            Netmiko "Pattern not detected" timeout. Raise this if commands
+            that produce slow, multi-line, or confirmation-prompt output are
+            timing out. On failure, the raw Netmiko session log up to the
+            failure is stored as an artifact for diagnosis.
+          data_type: integer
+          required: false
+          default: 60
+          example: 120
+        - name: auto_confirm_prompts
+          description: >
+            RISK: when a command triggers a Cisco-style interactive
+            confirmation (e.g. "This operation will remove all username
+            related configurations... Do you want to continue? [confirm]"),
+            automatically press Enter to accept it instead of failing.
+            Disabled by default — enable only when every command in the
+            rendered template is expected and safe to auto-accept. Any
+            command actually confirmed this way is recorded in the step's
+            output summary and worker logs.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: route-on-attribute
     name: Route on Attribute

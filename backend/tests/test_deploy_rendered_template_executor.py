@@ -230,6 +230,182 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="deploy-1",
             )
 
+    async def test_read_timeout_defaults_and_is_passed_through(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        with patch(
+            "workflow_steps.deploy_rendered_template.executor.object_session",
+            return_value=db,
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+            return_value=("admin", "secret"),
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.NetmikoService"
+        ) as netmiko_cls, patch.object(
+            artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(success=True, config_output="ok")
+            )
+
+            await execute(
+                config=_base_config(read_timeout=150),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+            )
+
+        self.assertEqual(netmiko.deploy_config.call_args.kwargs["read_timeout"], 150)
+
+    async def test_invalid_read_timeout_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config=_base_config(read_timeout=99999),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="deploy-1",
+            )
+
+    async def test_failure_stores_session_log_artifact(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        with patch(
+            "workflow_steps.deploy_rendered_template.executor.object_session",
+            return_value=db,
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+            return_value=("admin", "secret"),
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.NetmikoService"
+        ) as netmiko_cls, patch.object(
+            artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(
+                    success=False,
+                    config_output="",
+                    error="Pattern not detected: '(?:LAB.*$|#.*$)' in output.",
+                    session_log="LAB(config-if)#",
+                )
+            )
+
+            outcomes = await execute(
+                config=_base_config(),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+            )
+
+        failed_device = next(o for o in outcomes if o.name == "failure").context.devices[
+            "device-1"
+        ]
+        results = failed_device.command_results["deploy-1"]
+        self.assertEqual(len(results), 2)
+        log_result = next(r for r in results if r.command == "netmiko-session-log")
+        self.assertFalse(log_result.success)
+        self.assertIsNotNone(log_result.output_ref)
+        stored_text = await artifact_service.resolve(log_result.output_ref)
+        self.assertEqual(stored_text, "LAB(config-if)#")
+
+    async def test_auto_confirm_prompts_defaults_false_and_is_passed_through(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        with patch(
+            "workflow_steps.deploy_rendered_template.executor.object_session",
+            return_value=db,
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+            return_value=("admin", "secret"),
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.NetmikoService"
+        ) as netmiko_cls, patch.object(
+            artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(success=True, config_output="ok")
+            )
+
+            await execute(
+                config=_base_config(),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+            )
+
+        self.assertFalse(netmiko.deploy_config.call_args.kwargs["auto_confirm_prompts"])
+
+    async def test_confirmed_prompts_are_reflected_in_summary(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        with patch(
+            "workflow_steps.deploy_rendered_template.executor.object_session",
+            return_value=db,
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+            return_value=("admin", "secret"),
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.NetmikoService"
+        ) as netmiko_cls, patch.object(
+            artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(
+                    success=True,
+                    config_output="ok",
+                    confirmed_prompts=["no username kannweg privilege 15 secret 9 xyz"],
+                )
+            )
+
+            outcomes = await execute(
+                config=_base_config(auto_confirm_prompts=True),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+            )
+
+        self.assertTrue(netmiko.deploy_config.call_args.kwargs["auto_confirm_prompts"])
+        device = outcomes[0].context.devices["device-1"]
+        results = device.command_results["deploy-1"]
+        self.assertIn("1 confirmation prompt(s) auto-confirmed", results[0].summary or "")
+
     async def test_invalid_execution_mode_raises(self) -> None:
         run = MagicMock()
         with self.assertRaises(ValueError):
