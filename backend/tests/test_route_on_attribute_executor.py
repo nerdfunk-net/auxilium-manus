@@ -221,9 +221,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run_id="run-1",
             workflow_id="wf-1",
             devices={
-                "null-1": _device(
-                    "null-1", attribute_bags={"tacacs": {"shared_secret": None}}
-                ),
+                "null-1": _device("null-1", attribute_bags={"tacacs": {"shared_secret": None}}),
             },
         )
 
@@ -251,9 +249,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run_id="run-1",
             workflow_id="wf-1",
             devices={
-                "empty-1": _device(
-                    "empty-1", attribute_bags={"tacacs": {"shared_secret": "   "}}
-                ),
+                "empty-1": _device("empty-1", attribute_bags={"tacacs": {"shared_secret": "   "}}),
             },
         )
 
@@ -301,9 +297,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
-        self.assertEqual(
-            set(by_name["matched"].context.devices), {"ios-1", "missing-1"}
-        )
+        self.assertEqual(set(by_name["matched"].context.devices), {"ios-1", "missing-1"})
         self.assertEqual(by_name["other"].context.devices, {})
 
     async def test_first_matching_route_wins(self) -> None:
@@ -380,9 +374,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["has-tacacs"].context.devices), ["has-tacacs"])
-        self.assertEqual(
-            set(by_name["no-tacacs"].context.devices), {"no-tacacs", "not-parsed"}
-        )
+        self.assertEqual(set(by_name["no-tacacs"].context.devices), {"no-tacacs", "not-parsed"})
 
 
 if __name__ == "__main__":

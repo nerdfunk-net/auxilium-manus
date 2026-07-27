@@ -133,9 +133,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run_id="run-1",
             workflow_id="wf-1",
             devices={
-                "d1": _device(
-                    "d1", parsed={"cisco_config": {"aaa_servers": {"servers": []}}}
-                )
+                "d1": _device("d1", parsed={"cisco_config": {"aaa_servers": {"servers": []}}})
             },
         )
 
@@ -402,9 +400,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_list_path_raises_value_error(self) -> None:
         run = MagicMock()
-        context = WorkflowContext(
-            run_id="run-1", workflow_id="wf-1", devices={"d1": _device("d1")}
-        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"d1": _device("d1")})
 
         with self.assertRaises(ValueError):
             await execute(
@@ -417,9 +413,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_value_raises_value_error(self) -> None:
         run = MagicMock()
-        context = WorkflowContext(
-            run_id="run-1", workflow_id="wf-1", devices={"d1": _device("d1")}
-        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"d1": _device("d1")})
 
         with self.assertRaises(ValueError):
             await execute(

@@ -5,7 +5,7 @@ Prefix lifecycle manager.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from ..common.exceptions import NautobotAPIError
 from ..common.utils import normalize_tags
@@ -47,8 +47,8 @@ class PrefixManager:
         namespace: str = "Global",
         status: str = "active",
         prefix_type: str = "network",
-        location: Optional[str] = None,
-        description: Optional[str] = None,
+        location: str | None = None,
+        description: str | None = None,
         **kwargs,
     ) -> str:
         """

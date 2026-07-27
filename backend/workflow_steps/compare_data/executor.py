@@ -178,17 +178,17 @@ async def execute(
     content_source = parse_content_source(config)
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
     parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
-    reference_location = str(
-        config.get("reference_location")
-        or _default_config().get("reference_location")
-        or "filesystem"
-    ).strip().lower()
-    normalize_line_endings = _parse_bool(
-        config, "normalize_line_endings", default=True
+    reference_location = (
+        str(
+            config.get("reference_location")
+            or _default_config().get("reference_location")
+            or "filesystem"
+        )
+        .strip()
+        .lower()
     )
-    ignore_trailing_whitespace = _parse_bool(
-        config, "ignore_trailing_whitespace", default=False
-    )
+    normalize_line_endings = _parse_bool(config, "normalize_line_endings", default=True)
+    ignore_trailing_whitespace = _parse_bool(config, "ignore_trailing_whitespace", default=False)
     diff_service = GitDiffService()
 
     logger.info(
@@ -344,10 +344,7 @@ async def execute(
         return device_id, enriched, "mismatch", record
 
     results = await asyncio.gather(
-        *[
-            compare_for_device(device_id, device)
-            for device_id, device in context.devices.items()
-        ]
+        *[compare_for_device(device_id, device) for device_id, device in context.devices.items()]
     )
 
     for device_id, updated_device, bucket_name, record in results:

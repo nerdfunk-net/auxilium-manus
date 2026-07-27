@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url
 from services.ise.common.exceptions import (
     ISEAPIError,
     ISENotFoundError,
@@ -58,7 +59,17 @@ class ISEService:
         if not credentials.base_url or not credentials.username or not credentials.password:
             raise ISEValidationError("ISE base URL, username, and password are required")
 
-        url = f"{credentials.base_url.rstrip('/')}/ers/config/{endpoint.lstrip('/')}"
+        try:
+            base = validate_outbound_http_url(credentials.base_url, resolve_dns=True)
+        except UnsafeURLError as exc:
+            raise ISEValidationError(str(exc)) from exc
+
+        url = f"{base}/ers/config/{endpoint.lstrip('/')}"
+        if not credentials.verify_ssl:
+            logger.warning(
+                "ISE request with verify_ssl=False url_host=%s",
+                urlparse(base).hostname,
+            )
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -77,9 +88,7 @@ class ISEService:
                 credentials.verify_ssl,
             )
         except httpx.TimeoutException as exc:
-            raise ISEAPIError(
-                f"ISE request timed out after {credentials.timeout} seconds"
-            ) from exc
+            raise ISEAPIError(f"ISE request timed out after {credentials.timeout} seconds") from exc
         except ISEAPIError:
             raise
         except Exception as exc:
@@ -112,10 +121,7 @@ class ISEService:
             payload = response.json()
         except ValueError:
             return "ISE rejected the request (400 Bad Request)"
-        messages = (
-            payload.get("ERSResponse", {})
-            .get("messages", [])
-        )
+        messages = payload.get("ERSResponse", {}).get("messages", [])
         texts = [m.get("title") for m in messages if isinstance(m, dict) and m.get("title")]
         return "; ".join(texts) if texts else "ISE rejected the request (400 Bad Request)"
 

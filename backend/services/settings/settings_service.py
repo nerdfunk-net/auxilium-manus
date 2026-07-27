@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.models.settings import Setting
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url
 from models.settings import (
     SettingCreate,
     SettingListResponse,
@@ -146,4 +147,22 @@ class SettingsService:
                     ),
                 )
 
-        return ensure_value_source_id(value, source_type=source_type, source_id=source_id)
+        validated = SettingsService._validate_source_url(source_type, value)
+        return ensure_value_source_id(validated, source_type=source_type, source_id=source_id)
+
+    @staticmethod
+    def _validate_source_url(source_type: SourceType, value: dict) -> dict:
+        """Validate outbound HTTP URLs for ISE/Nautobot source settings."""
+        if source_type not in ("nautobot", "ise"):
+            return value
+        raw_url = value.get("url")
+        if raw_url is None:
+            return value
+        try:
+            safe_url = validate_outbound_http_url(str(raw_url), resolve_dns=True)
+        except UnsafeURLError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        return {**value, "url": safe_url}

@@ -173,8 +173,7 @@ async def execute(
     run_id = str(context.run_id) if context.run_id else None
 
     logger.info(
-        "%s started run_id=%s source_id=%s devices=%d custom_fields_source=%s "
-        "interfaces_source=%s",
+        "%s started run_id=%s source_id=%s devices=%d custom_fields_source=%s interfaces_source=%s",
         _STEP_ID,
         run.id,
         source_id,

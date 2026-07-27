@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator, Generic, List, Optional, Type, TypeVar
+from typing import Generic, TypeVar
 
 from sqlalchemy.orm import Session
 
@@ -15,13 +16,11 @@ T = TypeVar("T")
 class BaseRepository(Generic[T]):
     """Base repository with common CRUD operations."""
 
-    def __init__(self, model: Type[T]):
+    def __init__(self, model: type[T]):
         self.model = model
 
     @contextmanager
-    def _db_session(
-        self, db: Optional[Session] = None
-    ) -> Generator[Session, None, None]:
+    def _db_session(self, db: Session | None = None) -> Generator[Session, None, None]:
         if db is not None:
             yield db
         else:
@@ -31,15 +30,15 @@ class BaseRepository(Generic[T]):
             finally:
                 session.close()
 
-    def get_by_id(self, id: int, db: Optional[Session] = None) -> Optional[T]:
+    def get_by_id(self, id: int, db: Session | None = None) -> T | None:
         with self._db_session(db) as s:
             return s.query(self.model).filter(self.model.id == id).first()
 
-    def get_all(self, db: Optional[Session] = None) -> List[T]:
+    def get_all(self, db: Session | None = None) -> list[T]:
         with self._db_session(db) as s:
             return s.query(self.model).all()
 
-    def create(self, db: Optional[Session] = None, **kwargs) -> T:
+    def create(self, db: Session | None = None, **kwargs) -> T:
         if db is not None:
             obj = self.model(**kwargs)
             db.add(obj)
@@ -54,7 +53,7 @@ class BaseRepository(Generic[T]):
             s.refresh(obj)
             return obj
 
-    def update(self, id: int, db: Optional[Session] = None, **kwargs) -> Optional[T]:
+    def update(self, id: int, db: Session | None = None, **kwargs) -> T | None:
         if db is not None:
             obj = db.query(self.model).filter(self.model.id == id).first()
             if obj:
@@ -75,7 +74,7 @@ class BaseRepository(Generic[T]):
                 s.refresh(obj)
             return obj
 
-    def delete(self, id: int, db: Optional[Session] = None) -> bool:
+    def delete(self, id: int, db: Session | None = None) -> bool:
         if db is not None:
             obj = db.query(self.model).filter(self.model.id == id).first()
             if obj:
@@ -92,7 +91,7 @@ class BaseRepository(Generic[T]):
                 return True
             return False
 
-    def filter(self, db: Optional[Session] = None, **kwargs) -> List[T]:
+    def filter(self, db: Session | None = None, **kwargs) -> list[T]:
         with self._db_session(db) as s:
             query = s.query(self.model)
             for key, value in kwargs.items():
@@ -100,10 +99,10 @@ class BaseRepository(Generic[T]):
                     query = query.filter(getattr(self.model, key) == value)
             return query.all()
 
-    def count(self, db: Optional[Session] = None) -> int:
+    def count(self, db: Session | None = None) -> int:
         with self._db_session(db) as s:
             return s.query(self.model).count()
 
-    def exists(self, id: int, db: Optional[Session] = None) -> bool:
+    def exists(self, id: int, db: Session | None = None) -> bool:
         with self._db_session(db) as s:
             return s.query(self.model).filter(self.model.id == id).count() > 0

@@ -85,9 +85,7 @@ def clone_or_pull(source_config: dict[str, Any]) -> Path:
         logger.info("Cloned git source '%s'", source_id)
     except GitCommandError as exc:
         shutil.rmtree(repo_path, ignore_errors=True)
-        raise RuntimeError(
-            f"Failed to clone git source '{source_id}': {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to clone git source '{source_id}': {exc}") from exc
 
     return repo_dir
 
@@ -119,9 +117,7 @@ def remove_and_clone(source_config: dict[str, Any]) -> Path:
         logger.info("Cloned git source '%s'", source_id)
     except GitCommandError as exc:
         shutil.rmtree(repo_path, ignore_errors=True)
-        raise RuntimeError(
-            f"Failed to clone git source '{source_id}': {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to clone git source '{source_id}': {exc}") from exc
 
     return repo_dir
 
@@ -198,13 +194,20 @@ class GitDeviceService:
         Returns a tuple of (devices, files_read).
         """
         source_id = source_config.get("source_id")
-        logger.info("[DEBUG] fetch_devices START — source=%s pattern=%s", source_id, filename_pattern)
+        logger.info(
+            "[DEBUG] fetch_devices START — source=%s pattern=%s", source_id, filename_pattern
+        )
 
         repo_dir = clone_or_pull(source_config)
         logger.info("[DEBUG] fetch_devices — clone_or_pull returned repo_dir=%s", repo_dir)
 
         repository_path = source_config.get("repository_path", "").strip()
-        logger.info("[DEBUG] fetch_devices — calling _find_files with root=%s path=%r pattern=%s", repo_dir, repository_path, filename_pattern)
+        logger.info(
+            "[DEBUG] fetch_devices — calling _find_files with root=%s path=%r pattern=%s",
+            repo_dir,
+            repository_path,
+            filename_pattern,
+        )
         if repository_path.startswith(("/", "\\")):
             logger.warning(
                 "Git source '%s': repository_path %r starts with a slash — it will be treated as relative to the repo root",
@@ -225,8 +228,14 @@ class GitDeviceService:
         for file_path in files:
             logger.info("[DEBUG] fetch_devices — parsing file: %s", file_path)
             parsed = _parse_yaml_file(file_path)
-            logger.info("[DEBUG] fetch_devices — parsed %d device(s) from %s", len(parsed), file_path)
+            logger.info(
+                "[DEBUG] fetch_devices — parsed %d device(s) from %s", len(parsed), file_path
+            )
             devices.extend(parsed)
 
-        logger.info("[DEBUG] fetch_devices DONE — returning %d device(s) from %d file(s)", len(devices), len(files))
+        logger.info(
+            "[DEBUG] fetch_devices DONE — returning %d device(s) from %d file(s)",
+            len(devices),
+            len(files),
+        )
         return devices, len(files)

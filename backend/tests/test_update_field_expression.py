@@ -107,9 +107,7 @@ class UpdateFieldExpressionTests(unittest.TestCase):
             )
         )
         self.assertFalse(
-            config_has_enabled_update_fields(
-                {"location": {"enabled": False, "value": "cityA"}}
-            )
+            config_has_enabled_update_fields({"location": {"enabled": False, "value": "cityA"}})
         )
 
 

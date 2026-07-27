@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     for key in model.keys():
-        print(f'model[{key!r}]')
+        print(f"model[{key!r}]")
         print(json.dumps(model[key], indent=2, default=str))
         print()
 

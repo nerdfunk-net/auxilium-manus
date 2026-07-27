@@ -20,26 +20,20 @@ def _session() -> NetmikoDeviceSession:
 class NetmikoDeployConfigTests(unittest.TestCase):
     def test_read_timeout_passed_to_send_config_set(self) -> None:
         session = _session()
-        with patch(
-            "services.network.netmiko.connection.ConnectHandler"
-        ) as connect_handler_cls:
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
             connection = connect_handler_cls.return_value
             connection.send_config_set.return_value = "ok"
             result = session.deploy_config(
                 ["no username bob"], mode="config_mode", read_timeout=120
             )
 
-        connection.send_config_set.assert_called_once_with(
-            ["no username bob"], read_timeout=120
-        )
+        connection.send_config_set.assert_called_once_with(["no username bob"], read_timeout=120)
         self.assertTrue(result.success)
         self.assertIsNone(result.session_log)
 
     def test_failure_captures_session_log(self) -> None:
         session = _session()
-        with patch(
-            "services.network.netmiko.connection.ConnectHandler"
-        ) as connect_handler_cls:
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
             connection = connect_handler_cls.return_value
 
             def _fake_read(*args, **kwargs):
@@ -64,9 +58,7 @@ class NetmikoDeployConfigTests(unittest.TestCase):
             password="secret",
             capture_session_log=False,
         )
-        with patch(
-            "services.network.netmiko.connection.ConnectHandler"
-        ) as connect_handler_cls:
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
             connection = connect_handler_cls.return_value
             connection.send_config_set.side_effect = RuntimeError("boom")
 
@@ -79,9 +71,7 @@ class NetmikoDeployConfigTests(unittest.TestCase):
 
     def test_auto_confirm_prompts_disabled_uses_send_config_set(self) -> None:
         session = _session()
-        with patch(
-            "services.network.netmiko.connection.ConnectHandler"
-        ) as connect_handler_cls:
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
             connection = connect_handler_cls.return_value
             connection.send_config_set.return_value = "ok"
             result = session.deploy_config(
@@ -95,9 +85,7 @@ class NetmikoDeployConfigTests(unittest.TestCase):
 
     def test_auto_confirm_prompts_answers_confirmation(self) -> None:
         session = _session()
-        with patch(
-            "services.network.netmiko.connection.ConnectHandler"
-        ) as connect_handler_cls:
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
             connection = connect_handler_cls.return_value
             connection.base_prompt = "LAB"
             connection.RETURN = "\n"
@@ -128,9 +116,7 @@ class NetmikoDeployConfigTests(unittest.TestCase):
 
     def test_auto_confirm_prompts_no_cue_leaves_command_unconfirmed(self) -> None:
         session = _session()
-        with patch(
-            "services.network.netmiko.connection.ConnectHandler"
-        ) as connect_handler_cls:
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
             connection = connect_handler_cls.return_value
             connection.base_prompt = "LAB"
             connection.RETURN = "\n"
@@ -149,18 +135,14 @@ class NetmikoDeployConfigTests(unittest.TestCase):
 
     def test_auto_confirm_prompts_exec_mode(self) -> None:
         session = _session()
-        with patch(
-            "services.network.netmiko.connection.ConnectHandler"
-        ) as connect_handler_cls:
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
             connection = connect_handler_cls.return_value
             connection.base_prompt = "LAB"
             connection.RETURN = "\n"
             connection.send_command.return_value = "reload\nProceed with reload? [confirm]"
             connection.read_until_prompt.return_value = "\nLAB#"
 
-            result = session.deploy_config(
-                ["reload"], mode="exec_mode", auto_confirm_prompts=True
-            )
+            result = session.deploy_config(["reload"], mode="exec_mode", auto_confirm_prompts=True)
 
         connection.write_channel.assert_called_once_with("\n")
         self.assertEqual(result.confirmed_prompts, ["reload"])

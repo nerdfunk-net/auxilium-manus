@@ -14,7 +14,7 @@ Based on the workflow from update_devices_task.py but redesigned to:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from services.nautobot import NautobotService
 from services.nautobot.devices.common import DeviceCommonService
@@ -48,17 +48,17 @@ class DeviceUpdateService:
 
     async def update_device(
         self,
-        device_identifier: Dict[str, Any],
-        update_data: Dict[str, Any],
-        interface_config: Optional[Dict[str, str]] = None,
-        interfaces: Optional[List[Dict[str, Any]]] = None,
+        device_identifier: dict[str, Any],
+        update_data: dict[str, Any],
+        interface_config: dict[str, str] | None = None,
+        interfaces: list[dict[str, Any]] | None = None,
         create_if_missing: bool = False,
         add_prefix: bool = True,
         default_prefix_length: str = "/24",
         matching_strategy: str = "exact",
-        rack_location: Optional[str] = None,
+        rack_location: str | None = None,
         sync_interfaces: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Update a single device.
 
@@ -155,23 +155,15 @@ class DeviceUpdateService:
                 if create_if_missing:
                     # TODO: Call DeviceImportService to create device
                     # For now, raise error
-                    raise ValueError(
-                        "Device not found and create_if_missing not yet implemented"
-                    )
+                    raise ValueError("Device not found and create_if_missing not yet implemented")
                 else:
-                    raise ValueError(
-                        f"Device not found with identifier: {device_identifier}"
-                    )
+                    raise ValueError(f"Device not found with identifier: {device_identifier}")
 
             # Get device state before update (with depth=1 to get full primary_ip4 object)
-            details["before"] = await self.common.get_device_details(
-                device_id=device_id, depth=1
-            )
+            details["before"] = await self.common.get_device_details(device_id=device_id, depth=1)
 
             # Extract current primary_ip4 for updating existing interface
-            current_primary_ip4 = await self.common.extract_primary_ip_address(
-                details["before"]
-            )
+            current_primary_ip4 = await self.common.extract_primary_ip_address(details["before"])
 
             # Step 2: Validate and resolve update data
             logger.info("Step 2: Validating and resolving update data")
@@ -181,9 +173,7 @@ class DeviceUpdateService:
 
             # Only return early if BOTH validated_data AND interfaces are empty
             if not validated_data and not interfaces:
-                logger.info(
-                    "No fields to update and no interfaces for device %s", device_name
-                )
+                logger.info("No fields to update and no interfaces for device %s", device_name)
                 return {
                     "success": True,
                     "device_id": device_id,
@@ -218,26 +208,20 @@ class DeviceUpdateService:
                     current_primary_ip4=current_primary_ip4,
                 )
             else:
-                logger.info(
-                    "Step 3: Skipping device property updates (no fields to update)"
-                )
+                logger.info("Step 3: Skipping device property updates (no fields to update)")
 
             # Step 3.5: Create/update interfaces if provided
             interfaces_created = 0
             interfaces_updated = 0
             interfaces_failed = 0
             if interfaces:
-                logger.info(
-                    "Step 3.5: Creating/updating %s interface(s)", len(interfaces)
-                )
+                logger.info("Step 3.5: Creating/updating %s interface(s)", len(interfaces))
                 logger.info("Prefix auto-creation enabled: %s", add_prefix)
-                interface_result = (
-                    await self.interface_manager.update_device_interfaces(
-                        device_id=device_id,
-                        interfaces=interfaces,
-                        add_prefixes_automatically=add_prefix,
-                        sync_interfaces=sync_interfaces,
-                    )
+                interface_result = await self.interface_manager.update_device_interfaces(
+                    device_id=device_id,
+                    interfaces=interfaces,
+                    add_prefixes_automatically=add_prefix,
+                    sync_interfaces=sync_interfaces,
                 )
                 interfaces_created = interface_result.interfaces_created
                 interfaces_updated = interface_result.interfaces_updated
@@ -251,9 +235,7 @@ class DeviceUpdateService:
                 )
 
             # Get device state after update
-            details["after"] = await self.common.get_device_details(
-                device_id=device_id, depth=0
-            )
+            details["after"] = await self.common.get_device_details(device_id=device_id, depth=0)
 
             # Track changes
             details["changes"] = {
@@ -281,7 +263,9 @@ class DeviceUpdateService:
             # Success!
             success_message = f"Device '{device_name}' updated successfully"
             if interfaces_created > 0 or interfaces_updated > 0:
-                success_message += f" ({interfaces_created} interface(s) created, {interfaces_updated} updated)"
+                success_message += (
+                    f" ({interfaces_created} interface(s) created, {interfaces_updated} updated)"
+                )
 
             return {
                 "success": True,
@@ -303,8 +287,8 @@ class DeviceUpdateService:
             raise
 
     async def _resolve_device_id(
-        self, device_identifier: Dict[str, Any], matching_strategy: str = "exact"
-    ) -> Tuple[Optional[str], Optional[str]]:
+        self, device_identifier: dict[str, Any], matching_strategy: str = "exact"
+    ) -> tuple[str | None, str | None]:
         """
         Resolve device UUID and name from identifier.
 
@@ -323,9 +307,7 @@ class DeviceUpdateService:
         ip_address = device_identifier.get("ip_address")
 
         if not any([device_id, device_name, ip_address]):
-            raise ValueError(
-                "Device identifier must include at least one of: id, name, ip_address"
-            )
+            raise ValueError("Device identifier must include at least one of: id, name, ip_address")
 
         # Use common service to resolve
         resolved_id = await self.common.resolve_device_id(
@@ -352,10 +334,10 @@ class DeviceUpdateService:
     async def validate_update_data(
         self,
         device_id: str,
-        update_data: Dict[str, Any],
-        interface_config: Optional[Dict[str, str]] = None,
-        rack_location: Optional[str] = None,
-    ) -> Tuple[Dict[str, Any], Optional[str]]:
+        update_data: dict[str, Any],
+        interface_config: dict[str, str] | None = None,
+        rack_location: str | None = None,
+    ) -> tuple[dict[str, Any], str | None]:
         """
         Validate update data and resolve all resource names to UUIDs.
 
@@ -390,9 +372,7 @@ class DeviceUpdateService:
             if "." in field:
                 base_field, nested_field = field.rsplit(".", 1)
                 field = base_field
-                logger.debug(
-                    "Flattened nested field: %s.%s → %s", field, nested_field, field
-                )
+                logger.debug("Flattened nested field: %s.%s → %s", field, nested_field, field)
 
             # Clean string values
             if isinstance(value, str):
@@ -402,9 +382,7 @@ class DeviceUpdateService:
             if field == "status":
                 # Resolve status name to UUID
                 if not self.common._is_valid_uuid(value):
-                    validated[field] = await self.common.resolve_status_id(
-                        value, "dcim.device"
-                    )
+                    validated[field] = await self.common.resolve_status_id(value, "dcim.device")
                 else:
                     validated[field] = value
 
@@ -415,9 +393,7 @@ class DeviceUpdateService:
                     if platform_id:
                         validated[field] = platform_id
                     else:
-                        logger.warning(
-                            "Platform '%s' not found, will be omitted", value
-                        )
+                        logger.warning("Platform '%s' not found, will be omitted", value)
                 else:
                     validated[field] = value
 
@@ -439,9 +415,7 @@ class DeviceUpdateService:
                     if location_id:
                         validated[field] = location_id
                     else:
-                        logger.warning(
-                            "Location '%s' not found, will be omitted", value
-                        )
+                        logger.warning("Location '%s' not found, will be omitted", value)
                 else:
                     validated[field] = value
 
@@ -451,9 +425,7 @@ class DeviceUpdateService:
                 if value is None:
                     validated[field] = None
                 elif not self.common._is_valid_uuid(value):
-                    rack_id = await self.common.resolve_rack_id(
-                        value, location=rack_location
-                    )
+                    rack_id = await self.common.resolve_rack_id(value, location=rack_location)
                     if rack_id:
                         validated[field] = rack_id
                     else:
@@ -468,9 +440,7 @@ class DeviceUpdateService:
                     if device_type_id:
                         validated[field] = device_type_id
                     else:
-                        logger.warning(
-                            "Device type '%s' not found, will be omitted", value
-                        )
+                        logger.warning("Device type '%s' not found, will be omitted", value)
                 else:
                     validated[field] = value
 
@@ -487,9 +457,7 @@ class DeviceUpdateService:
                 if isinstance(value, dict):
                     validated[field] = value
                 else:
-                    logger.warning(
-                        "Invalid custom_fields format: %s, expected dict", type(value)
-                    )
+                    logger.warning("Invalid custom_fields format: %s, expected dict", type(value))
 
             else:
                 # Copy other fields as-is (including primary_ip4, etc.)
@@ -519,12 +487,12 @@ class DeviceUpdateService:
     async def _update_device_properties(
         self,
         device_id: str,
-        validated_data: Dict[str, Any],
-        interface_config: Optional[Dict[str, str]] = None,
-        ip_namespace: Optional[str] = None,
-        device_name: Optional[str] = None,
-        current_primary_ip4: Optional[str] = None,
-    ) -> List[str]:
+        validated_data: dict[str, Any],
+        interface_config: dict[str, str] | None = None,
+        ip_namespace: str | None = None,
+        device_name: str | None = None,
+        current_primary_ip4: str | None = None,
+    ) -> list[str]:
         """
         Update device properties via PATCH request.
 
@@ -568,21 +536,15 @@ class DeviceUpdateService:
             namespace = ip_namespace or "Global"
 
             # Check if we should create a new interface or update existing
-            create_new = interface_config.get(
-                "mgmt_interface_create_on_ip_change", False
-            )
+            create_new = interface_config.get("mgmt_interface_create_on_ip_change", False)
             logger.info("Create new interface on IP change: %s", create_new)
 
             # Get add_prefixes_automatically flag (default to False for backward compatibility)
-            add_prefixes_automatically = interface_config.get(
-                "add_prefixes_automatically", False
-            )
+            add_prefixes_automatically = interface_config.get("add_prefixes_automatically", False)
             logger.info("Add prefixes automatically: %s", add_prefixes_automatically)
 
             # Get use_assigned_ip_if_exists flag (default to False for backward compatibility)
-            use_assigned_ip_if_exists = interface_config.get(
-                "use_assigned_ip_if_exists", False
-            )
+            use_assigned_ip_if_exists = interface_config.get("use_assigned_ip_if_exists", False)
             logger.info("Use assigned IP if exists: %s", use_assigned_ip_if_exists)
 
             if create_new:
@@ -627,9 +589,7 @@ class DeviceUpdateService:
         if "primary_ip4" in update_payload:
             expected_ip_id = update_payload["primary_ip4"]
             actual_ip = result.get("primary_ip4", {})
-            actual_ip_id = (
-                actual_ip.get("id") if isinstance(actual_ip, dict) else actual_ip
-            )
+            actual_ip_id = actual_ip.get("id") if isinstance(actual_ip, dict) else actual_ip
 
             if actual_ip_id != expected_ip_id:
                 error_msg = (

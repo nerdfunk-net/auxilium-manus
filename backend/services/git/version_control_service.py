@@ -87,10 +87,7 @@ class GitVersionControlService:
         lines1 = file_content1.splitlines(keepends=True)
         lines2 = file_content2.splitlines(keepends=True)
 
-        diff_lines = [
-            line.rstrip("\n")
-            for line in difflib.unified_diff(lines1, lines2, n=3)
-        ]
+        diff_lines = [line.rstrip("\n") for line in difflib.unified_diff(lines1, lines2, n=3)]
 
         additions = sum(1 for ln in diff_lines if ln.startswith("+") and not ln.startswith("+++"))
         deletions = sum(1 for ln in diff_lines if ln.startswith("-") and not ln.startswith("---"))

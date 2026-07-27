@@ -111,9 +111,7 @@ class FanInExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.name, "success")
         # Devices and their capabilities pass through unchanged.
         self.assertEqual(set(outcome.context.devices), {"d1", "d2"})
-        self.assertIn(
-            Capability.RUNNING_CONFIG, outcome.context.devices["d1"].capabilities
-        )
+        self.assertIn(Capability.RUNNING_CONFIG, outcome.context.devices["d1"].capabilities)
         # Upstream metadata preserved; device_count stamped.
         self.assertEqual(outcome.context.metadata["upstream.note"], "keep")
         self.assertEqual(outcome.context.metadata["join.fan_in"], {"device_count": 2})
@@ -133,9 +131,7 @@ class FanInExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].name, "success")
-        self.assertEqual(
-            outcomes[0].context.metadata["join.fan_in"], {"device_count": 0}
-        )
+        self.assertEqual(outcomes[0].context.metadata["join.fan_in"], {"device_count": 0})
 
 
 if __name__ == "__main__":

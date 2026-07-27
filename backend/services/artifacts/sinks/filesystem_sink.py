@@ -12,19 +12,48 @@ from services.artifacts.sinks.base import ArtifactSink, StoredExport
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_output_subdirectory(output_subdirectory: str) -> str:
+    """Normalize subdirectory under the artifact base dir; reject ``..`` / absolute."""
+    cleaned = (output_subdirectory or "").replace("\\", "/").strip()
+    if not cleaned:
+        return "exports"
+    if cleaned.startswith("/") or Path(cleaned).is_absolute():
+        raise ValueError(f"output_subdirectory must be a relative path: {output_subdirectory!r}")
+    cleaned = cleaned.strip("/")
+    parts = [part for part in cleaned.split("/") if part and part != "."]
+    if not parts:
+        return "exports"
+    if ".." in parts:
+        raise ValueError(
+            f"output_subdirectory must not contain parent directory segments: "
+            f"{output_subdirectory!r}"
+        )
+    if any(":" in part for part in parts):
+        raise ValueError(f"output_subdirectory must be a relative path: {output_subdirectory!r}")
+    return "/".join(parts)
+
+
 class FilesystemArtifactSink(ArtifactSink):
-    """Write exports under ``{base_dir}/exports/{workflow_id}/{run_id}/``."""
+    """Write exports under ``{base_dir}/{output_subdirectory}/{workflow_id}/{run_id}/``."""
 
     def __init__(self, base_dir: Path, *, output_subdirectory: str = "exports") -> None:
-        self._base_dir = base_dir
-        self._output_subdirectory = output_subdirectory.strip("/\\") or "exports"
+        self._base_dir = Path(base_dir)
+        self._output_subdirectory = _sanitize_output_subdirectory(output_subdirectory)
 
     @property
     def destination(self) -> str:
         return "filesystem"
 
     def _run_root(self, *, workflow_id: str, run_id: str) -> Path:
-        return self._base_dir / self._output_subdirectory / workflow_id / run_id
+        root = self._base_dir.resolve()
+        candidate = (root / self._output_subdirectory / workflow_id / run_id).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsafe export root escapes base_dir: {self._output_subdirectory!r}"
+            ) from exc
+        return candidate
 
     async def write_text(
         self,

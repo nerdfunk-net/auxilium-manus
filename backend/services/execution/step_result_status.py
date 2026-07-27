@@ -30,12 +30,8 @@ def derive_step_result_status(
     success_outcome = next((outcome for outcome in outcomes if outcome.name == "success"), None)
     failure_outcome = next((outcome for outcome in outcomes if outcome.name == "failure"), None)
 
-    success_count = (
-        len(success_outcome.context.devices) if success_outcome is not None else 0
-    )
-    failure_count = (
-        len(failure_outcome.context.devices) if failure_outcome is not None else 0
-    )
+    success_count = len(success_outcome.context.devices) if success_outcome is not None else 0
+    failure_count = len(failure_outcome.context.devices) if failure_outcome is not None else 0
 
     if failure_count > 0 and success_count > 0:
         return "partial"

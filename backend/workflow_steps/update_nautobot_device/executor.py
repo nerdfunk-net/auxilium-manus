@@ -121,9 +121,7 @@ async def execute(
     nautobot_token = (setting.value or {}).get("token", "").strip()
     nautobot_verify_ssl = bool((setting.value or {}).get("verify_ssl", True))
     if not nautobot_url or not nautobot_token:
-        raise ValueError(
-            f"{_STEP_ID}: Nautobot source '{source_id}' is missing url or token"
-        )
+        raise ValueError(f"{_STEP_ID}: Nautobot source '{source_id}' is missing url or token")
 
     credentials = service_factory.credentials_from_connection(
         nautobot_url, nautobot_token, verify_ssl=nautobot_verify_ssl
@@ -152,9 +150,7 @@ async def execute(
     enabled_field_count = 0
     for key, raw in raw_update_fields.items():
         if key == "custom_fields" and isinstance(raw, dict):
-            enabled_field_count += sum(
-                1 for item in raw.values() if normalize_field_spec(item)[0]
-            )
+            enabled_field_count += sum(1 for item in raw.values() if normalize_field_spec(item)[0])
             continue
         if normalize_field_spec(raw)[0]:
             enabled_field_count += 1

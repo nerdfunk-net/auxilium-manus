@@ -7,7 +7,13 @@ import unittest
 from unittest.mock import patch
 
 from core.crypto import EncryptionService
-from models.workflow_context import Capability, DeviceContext, DeviceStatus, StepOutcome, WorkflowContext
+from models.workflow_context import (
+    Capability,
+    DeviceContext,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
 from services.execution.step_runner import StepRunner
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
 
@@ -55,7 +61,9 @@ class SerializeOutcomesRedactionTests(unittest.TestCase):
 
         StepRunner._serialize_outcomes(outcomes)
 
-        still_sealed = outcomes[0].context.devices["dev-1"].attribute_bags["tacacs"]["shared_secret"]
+        still_sealed = (
+            outcomes[0].context.devices["dev-1"].attribute_bags["tacacs"]["shared_secret"]
+        )
         self.assertEqual(still_sealed, sealed)
 
 

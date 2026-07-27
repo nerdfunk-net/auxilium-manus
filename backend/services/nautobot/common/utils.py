@@ -4,10 +4,10 @@ Pure data transformation and normalization functions.
 This module contains stateless utility logic with zero service dependencies.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def flatten_nested_fields(data: Dict[str, Any]) -> Dict[str, Any]:
+def flatten_nested_fields(data: dict[str, Any]) -> dict[str, Any]:
     """
     Flatten nested fields in data.
 
@@ -36,7 +36,7 @@ def flatten_nested_fields(data: Dict[str, Any]) -> Dict[str, Any]:
     return flattened
 
 
-def extract_nested_value(data: Dict[str, Any], path: str) -> Any:
+def extract_nested_value(data: dict[str, Any], path: str) -> Any:
     """
     Extract value from nested dictionary using dot notation path.
 
@@ -65,7 +65,7 @@ def extract_nested_value(data: Dict[str, Any], path: str) -> Any:
     return current
 
 
-def normalize_tags(tags: Any) -> List[str]:
+def normalize_tags(tags: Any) -> list[str]:
     """
     Normalize tags to a list of strings.
 
@@ -108,10 +108,10 @@ def normalize_tags(tags: Any) -> List[str]:
 
 
 def prepare_update_data(
-    row: Dict[str, str],
-    headers: List[str],
-    excluded_fields: Optional[List[str]] = None,
-) -> Tuple[Dict[str, Any], Optional[Dict[str, str]], Optional[str]]:
+    row: dict[str, str],
+    headers: list[str],
+    excluded_fields: list[str] | None = None,
+) -> tuple[dict[str, Any], dict[str, str] | None, str | None]:
     """
     Prepare update data from CSV row.
 
@@ -155,9 +155,7 @@ def prepare_update_data(
     }
 
     # Extract interface configuration if present
-    if any(
-        f in headers for f in ["interface_name", "interface_type", "interface_status"]
-    ):
+    if any(f in headers for f in ["interface_name", "interface_type", "interface_status"]):
         interface_config = {
             "name": row.get("interface_name", "").strip() or "Loopback",
             "type": row.get("interface_type", "").strip() or "virtual",
@@ -192,7 +190,7 @@ def prepare_update_data(
     return update_data, interface_config, ip_namespace
 
 
-def extract_id_from_url(url: str) -> Optional[str]:
+def extract_id_from_url(url: str) -> str | None:
     """
     Extract UUID from Nautobot REST API URL.
 

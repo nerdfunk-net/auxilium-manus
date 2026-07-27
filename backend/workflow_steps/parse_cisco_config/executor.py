@@ -66,8 +66,7 @@ async def execute(
     need_running, need_startup = _config_targets(config_source)
 
     logger.info(
-        "parse-cisco-config started run_id=%s node_id=%s devices=%d config_source=%s "
-        "output_key=%s",
+        "parse-cisco-config started run_id=%s node_id=%s devices=%d config_source=%s output_key=%s",
         run.id,
         node_id,
         len(context.devices),

@@ -185,10 +185,8 @@ class NautobotSourceEvaluator:
 
             # Handle primary_prefix — matches devices whose primary_ip4 is in the CIDR
             if condition.field == "primary_prefix":
-                devices_data = (
-                    await self.query_service._query_devices_by_primary_prefix(
-                        condition.value, condition.operator
-                    )
+                devices_data = await self.query_service._query_devices_by_primary_prefix(
+                    condition.value, condition.operator
                 )
                 device_ids = {device.id for device in devices_data}
                 devices_dict = {device.id: device for device in devices_data}

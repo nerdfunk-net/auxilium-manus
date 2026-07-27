@@ -5,7 +5,7 @@ This resolver handles read-only operations for virtualization clusters.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..common.exceptions import NautobotAPIError
 from .base_resolver import BaseResolver
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ClusterResolver(BaseResolver):
     """Resolver for virtualization cluster operations."""
 
-    async def get_all_cluster_groups(self) -> List[Dict[str, Any]]:
+    async def get_all_cluster_groups(self) -> list[dict[str, Any]]:
         """
         Get all cluster groups from Nautobot.
 
@@ -38,24 +38,18 @@ class ClusterResolver(BaseResolver):
             result = await self.nautobot.graphql_query(query)
 
             if "errors" in result:
-                logger.error(
-                    "GraphQL errors fetching cluster groups: %s", result["errors"]
-                )
+                logger.error("GraphQL errors fetching cluster groups: %s", result["errors"])
                 raise NautobotAPIError(f"GraphQL errors: {result['errors']}")
 
             cluster_groups = result.get("data", {}).get("cluster_groups", [])
-            logger.info(
-                "Retrieved %s cluster groups from Nautobot", len(cluster_groups)
-            )
+            logger.info("Retrieved %s cluster groups from Nautobot", len(cluster_groups))
             return cluster_groups
 
         except Exception as e:
             logger.error("Failed to fetch cluster groups: %s", e, exc_info=True)
             raise
 
-    async def get_all_clusters(
-        self, group: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_all_clusters(self, group: list[str] | None = None) -> list[dict[str, Any]]:
         """
         Get all clusters from Nautobot, optionally filtered by cluster group.
 
@@ -114,7 +108,7 @@ class ClusterResolver(BaseResolver):
             logger.error("Failed to fetch clusters: %s", e, exc_info=True)
             raise
 
-    async def get_cluster_by_id(self, cluster_id: str) -> Optional[Dict[str, Any]]:
+    async def get_cluster_by_id(self, cluster_id: str) -> dict[str, Any] | None:
         """
         Get a specific cluster by ID from Nautobot.
 

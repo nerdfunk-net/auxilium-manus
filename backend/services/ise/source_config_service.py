@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.safe_urls import validate_outbound_http_url
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.exceptions import CredentialNotFoundError
@@ -66,6 +67,8 @@ class ISESourceConfigService:
         if self._settings.get_by_key(key) is not None:
             raise ISESourceConflictError(source_id)
 
+        safe_url = validate_outbound_http_url(url, resolve_dns=True)
+
         # This credential is owned by the ISE source config itself, not by
         # any individual user, so it must always be global (never requires
         # an acting_user_id, never hidden from other users' resolution).
@@ -79,7 +82,7 @@ class ISESourceConfigService:
         )
         value = ensure_value_source_id(
             {
-                "url": url.rstrip("/"),
+                "url": safe_url,
                 "verify_ssl": verify_ssl,
                 "timeout": timeout,
                 "credential_id": credential["id"],
@@ -114,7 +117,7 @@ class ISESourceConfigService:
 
         updated_value = dict(setting.value)
         if url is not None:
-            updated_value["url"] = url.rstrip("/")
+            updated_value["url"] = validate_outbound_http_url(url, resolve_dns=True)
         if verify_ssl is not None:
             updated_value["verify_ssl"] = verify_ssl
         if timeout is not None:

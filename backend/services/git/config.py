@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Dict
 
 from git import Repo
 
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def set_git_author(repository: Dict, repo: Repo):
+def set_git_author(repository: dict, repo: Repo):
     """Context manager to temporarily set git author configuration for commits.
 
     Sets user.name and user.email from repository configuration if provided.

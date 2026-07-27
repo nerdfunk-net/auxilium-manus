@@ -23,16 +23,12 @@ def load_git_source_repository(git_source_id: str) -> dict[str, Any]:
         db.close()
 
     if setting is None:
-        raise ValueError(
-            f"store-artifact: git source '{normalized_id}' not found in settings"
-        )
+        raise ValueError(f"store-artifact: git source '{normalized_id}' not found in settings")
 
     value = setting.value or {}
     url = str(value.get("url") or "").strip()
     if not url:
-        raise ValueError(
-            f"store-artifact: git source '{normalized_id}' has no URL configured"
-        )
+        raise ValueError(f"store-artifact: git source '{normalized_id}' has no URL configured")
 
     on_disk_path = str(value.get("repository_path") or normalized_id).strip()
     if not on_disk_path:

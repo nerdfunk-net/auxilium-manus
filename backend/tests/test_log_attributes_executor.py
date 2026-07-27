@@ -55,15 +55,17 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].name, "success")
-        payload = outcomes[0].context.metadata[
-            f"log-attributes-1{LOG_ATTRIBUTES_METADATA_SUFFIX}"
-        ]
+        payload = outcomes[0].context.metadata[f"log-attributes-1{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
         self.assertEqual(payload["output_destination"], "stdout")
         self.assertEqual(payload["device_count"], 1)
         snapshot = payload["snapshot"]
         device_snapshot = snapshot["devices"]["device-1"]
-        self.assertEqual(device_snapshot["attribute_bags"]["nautobot"]["role"]["name"], "access-switch")
-        self.assertEqual(device_snapshot["attribute_bags"]["git"]["source_file"], "configs/lab.yaml")
+        self.assertEqual(
+            device_snapshot["attribute_bags"]["nautobot"]["role"]["name"], "access-switch"
+        )
+        self.assertEqual(
+            device_snapshot["attribute_bags"]["git"]["source_file"], "configs/lab.yaml"
+        )
         self.assertEqual(device_snapshot["attribute_bags"]["custom"]["location"], "dc1")
         self.assertEqual(snapshot["metadata"]["upstream.step"]["count"], 1)
         mock_logger.info.assert_called()

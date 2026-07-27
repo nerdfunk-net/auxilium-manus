@@ -170,9 +170,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.device_type, "C9300-24T")
 
     async def test_dry_run_success_also_marks_attributes_capability(self) -> None:
-        create_device = AsyncMock(
-            return_value={"success": True, "dry_run": True, "errors": []}
-        )
+        create_device = AsyncMock(return_value={"success": True, "dry_run": True, "errors": []})
         config = {**_BASE_CONFIG, "dry_run": True}
         p1, p2, p3, p4, p5 = _patches(
             setting=_setting(),
@@ -260,8 +258,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         payloads = {
-            call.args[0].name: call.args[0].custom_fields
-            for call in create_device.await_args_list
+            call.args[0].name: call.args[0].custom_fields for call in create_device.await_args_list
         }
         self.assertEqual(payloads["a"], {"net": "lab"})
         self.assertEqual(payloads["b"], {"site": "hq"})

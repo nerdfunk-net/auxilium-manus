@@ -12,8 +12,8 @@ Usage (from backend/, with the venv active):
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from watchfiles import Change, PythonFilter, run_process
 

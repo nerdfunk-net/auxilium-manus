@@ -8,7 +8,7 @@ commit author is sometimes a string and sometimes a dict.
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -32,16 +32,14 @@ class GitCommit(BaseModel):
     message: str = Field(..., description="Commit message")
     author: GitAuthor = Field(..., description="Commit author information")
     date: str = Field(..., description="Commit date in ISO format")
-    files_changed: int = Field(
-        default=0, description="Number of files changed in commit"
-    )
+    files_changed: int = Field(default=0, description="Number of files changed in commit")
 
 
 class GitCommitDetails(GitCommit):
     """Detailed commit information with stats and optional diff."""
 
     stats: CommitStats = Field(..., description="Commit statistics")
-    diff: Optional[str] = Field(None, description="Full diff content if requested")
+    diff: str | None = Field(None, description="Full diff content if requested")
 
 
 class CommitStats(BaseModel):
@@ -50,9 +48,7 @@ class CommitStats(BaseModel):
     additions: int = Field(default=0, description="Lines added")
     deletions: int = Field(default=0, description="Lines deleted")
     changes: int = Field(default=0, description="Total changes (additions + deletions)")
-    total_lines: int = Field(
-        default=0, description="Total lines in changed files after commit"
-    )
+    total_lines: int = Field(default=0, description="Total lines in changed files after commit")
 
 
 # ============================================================================
@@ -71,19 +67,15 @@ class DiffLine(BaseModel):
     """Single line in a diff with metadata."""
 
     line_number: int = Field(..., description="Line number in the file")
-    type: Literal["add", "remove", "context"] = Field(
-        ..., description="Type of diff line"
-    )
+    type: Literal["add", "remove", "context"] = Field(..., description="Type of diff line")
     content: str = Field(..., description="Line content")
 
 
 class DiffResult(BaseModel):
     """Result of a diff operation between two versions."""
 
-    diff_lines: List[str] = Field(
-        default_factory=list, description="Unified diff format lines"
-    )
-    line_by_line: List[DiffLine] = Field(
+    diff_lines: list[str] = Field(default_factory=list, description="Unified diff format lines")
+    line_by_line: list[DiffLine] = Field(
         default_factory=list, description="Parsed diff lines with metadata"
     )
     stats: DiffStats = Field(..., description="Diff statistics")
@@ -105,7 +97,7 @@ class SyncResult(BaseModel):
     commits_ahead: int = Field(
         default=0, description="Number of commits ahead of remote after sync"
     )
-    repository_path: Optional[str] = Field(None, description="Local path to repository")
+    repository_path: str | None = Field(None, description="Local path to repository")
 
 
 class CloneResult(BaseModel):
@@ -120,27 +112,13 @@ class StatusInfo(BaseModel):
     """Git repository status information."""
 
     current_branch: str = Field(..., description="Currently active branch name")
-    branches: List[str] = Field(
-        default_factory=list, description="List of all branches"
-    )
-    is_dirty: bool = Field(
-        default=False, description="Whether repository has uncommitted changes"
-    )
-    untracked_files: List[str] = Field(
-        default_factory=list, description="List of untracked files"
-    )
-    modified_files: List[str] = Field(
-        default_factory=list, description="List of modified files"
-    )
-    last_commit: Optional[GitCommit] = Field(
-        None, description="Most recent commit information"
-    )
-    commits_behind: int = Field(
-        default=0, description="Number of commits behind remote"
-    )
-    commits_ahead: int = Field(
-        default=0, description="Number of commits ahead of remote"
-    )
+    branches: list[str] = Field(default_factory=list, description="List of all branches")
+    is_dirty: bool = Field(default=False, description="Whether repository has uncommitted changes")
+    untracked_files: list[str] = Field(default_factory=list, description="List of untracked files")
+    modified_files: list[str] = Field(default_factory=list, description="List of modified files")
+    last_commit: GitCommit | None = Field(None, description="Most recent commit information")
+    commits_behind: int = Field(default=0, description="Number of commits behind remote")
+    commits_ahead: int = Field(default=0, description="Number of commits ahead of remote")
 
 
 # ============================================================================
@@ -154,14 +132,14 @@ class FileHistoryCommit(GitCommit):
     change_type: Literal["added", "modified", "deleted", "renamed"] = Field(
         ..., description="Type of change made to file in this commit"
     )
-    old_path: Optional[str] = Field(None, description="Previous file path if renamed")
+    old_path: str | None = Field(None, description="Previous file path if renamed")
 
 
 class FileHistory(BaseModel):
     """Complete history of a file across commits."""
 
     file_path: str = Field(..., description="Path to the file")
-    commits: List[FileHistoryCommit] = Field(
+    commits: list[FileHistoryCommit] = Field(
         default_factory=list, description="Commits affecting this file"
     )
     total_commits: int = Field(default=0, description="Total number of commits")
@@ -179,12 +157,8 @@ class GitBranch(BaseModel):
     is_current: bool = Field(
         default=False, description="Whether this is the currently active branch"
     )
-    last_commit: Optional[GitCommit] = Field(
-        None, description="Most recent commit on this branch"
-    )
-    commit_count: int = Field(
-        default=0, description="Total number of commits on this branch"
-    )
+    last_commit: GitCommit | None = Field(None, description="Most recent commit on this branch")
+    commit_count: int = Field(default=0, description="Total number of commits on this branch")
 
 
 # ============================================================================
@@ -197,7 +171,7 @@ class CommitComparison(BaseModel):
 
     commit1: str = Field(..., description="First commit hash")
     commit2: str = Field(..., description="Second commit hash")
-    files_changed: List[str] = Field(
+    files_changed: list[str] = Field(
         default_factory=list, description="List of files changed between commits"
     )
     diff: DiffResult = Field(..., description="Diff between commits")
@@ -209,8 +183,8 @@ class CrossRepoComparison(BaseModel):
     repo1_id: int = Field(..., description="First repository ID")
     repo2_id: int = Field(..., description="Second repository ID")
     file_path: str = Field(..., description="Path to file being compared")
-    commit1: Optional[str] = Field(None, description="Commit hash in first repo")
-    commit2: Optional[str] = Field(None, description="Commit hash in second repo")
+    commit1: str | None = Field(None, description="Commit hash in first repo")
+    commit2: str | None = Field(None, description="Commit hash in second repo")
     diff: DiffResult = Field(..., description="Diff between files")
 
 
@@ -223,7 +197,7 @@ class GitCommitRequest(BaseModel):
     """Git commit request model."""
 
     message: str
-    files: Optional[List[str]] = None  # If None, commit all changes
+    files: list[str] | None = None  # If None, commit all changes
 
 
 class GitBranchRequest(BaseModel):

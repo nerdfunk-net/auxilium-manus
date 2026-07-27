@@ -47,9 +47,7 @@ def _parse_filter_rules(config: dict[str, Any]) -> list[dict[str, str]]:
         has_pattern = "pattern" in item and str(item.get("pattern", "")).strip()
         has_path = "path" in item and str(item.get("path", "")).strip()
         if not has_pattern and not has_path:
-            raise ValueError(
-                f"filter-output: filter_rules[{i}] must have 'pattern' or 'path'"
-            )
+            raise ValueError(f"filter-output: filter_rules[{i}] must have 'pattern' or 'path'")
         if has_pattern:
             pattern = str(item["pattern"]).strip()
             try:
@@ -108,9 +106,7 @@ def _filter_text(text: str, rules: list[dict[str, str]]) -> str:
     if not patterns:
         return text
     lines = text.splitlines(keepends=True)
-    return "".join(
-        line for line in lines if not any(re.search(p, line) for p in patterns)
-    )
+    return "".join(line for line in lines if not any(re.search(p, line) for p in patterns))
 
 
 async def execute(
@@ -170,9 +166,7 @@ async def execute(
                 )
 
             if source_command and content_source == "command_output":
-                matched = [
-                    i for i in export_items if i.extra.get("command") == source_command
-                ]
+                matched = [i for i in export_items if i.extra.get("command") == source_command]
                 if not matched:
                     available = [i.extra.get("command", "") for i in export_items]
                     raise ValueError(
@@ -269,9 +263,7 @@ async def execute(
     outcomes = [
         StepOutcome(
             name="success",
-            context=context.model_copy(
-                update={"devices": success_devices, "metadata": metadata}
-            ),
+            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
         )
     ]
     if failed_devices:

@@ -103,9 +103,7 @@ class FilesystemArtifactService(ArtifactService):
     def get_for_run(self, *, run_uuid: str, artifact_id: str) -> tuple[ArtifactRef, str]:
         meta = self.read_meta(artifact_id)
         if meta is None or meta.get("run_id") != run_uuid:
-            raise ArtifactNotFoundError(
-                f"Artifact {artifact_id!r} not found for run {run_uuid!r}"
-            )
+            raise ArtifactNotFoundError(f"Artifact {artifact_id!r} not found for run {run_uuid!r}")
         ref = ArtifactRef(
             artifact_id=artifact_id,
             kind=str(meta["kind"]),

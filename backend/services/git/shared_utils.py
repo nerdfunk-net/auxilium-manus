@@ -34,9 +34,7 @@ def get_git_repositories_by_category(category: str):
             repo = git_service.open_or_clone(repo_dict)
             result.append(repo)
         except Exception as e:
-            logger.error(
-                "Failed to open/clone repository %s: %s", repo_dict.get("name"), e
-            )
+            logger.error("Failed to open/clone repository %s: %s", repo_dict.get("name"), e)
     return result
 
 

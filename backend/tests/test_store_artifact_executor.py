@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 from models.workflow_context import (
     ArtifactRef,
     Capability,
-    CommandResult,
     DeviceContext,
     DeviceStatus,
     WorkflowContext,
@@ -75,12 +74,13 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = _device_with_running_config()
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch(
-                "workflow_steps.store_artifact.executor.settings"
-            ) as settings_mock, patch.object(
-                artifact_service,
-                "resolve",
-                new=AsyncMock(return_value="hostname lab"),
+            with (
+                patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+                patch.object(
+                    artifact_service,
+                    "resolve",
+                    new=AsyncMock(return_value="hostname lab"),
+                ),
             ):
                 settings_mock.data_directory = Path(tmp)
 
@@ -100,9 +100,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                     node_id="store-artifact-4",
                 )
 
-            export_file = (
-                Path(tmp) / "exports" / "wf-1" / "run-uuid-1" / "DC1" / "lab.cfg"
-            )
+            export_file = Path(tmp) / "exports" / "wf-1" / "run-uuid-1" / "DC1" / "lab.cfg"
             self.assertTrue(export_file.is_file())
             self.assertEqual(export_file.read_text(encoding="utf-8"), "hostname lab")
 
@@ -125,12 +123,13 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = _device_with_running_config()
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch(
-                "workflow_steps.store_artifact.executor.settings"
-            ) as settings_mock, patch.object(
-                artifact_service,
-                "resolve",
-                new=AsyncMock(return_value="hostname lab"),
+            with (
+                patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+                patch.object(
+                    artifact_service,
+                    "resolve",
+                    new=AsyncMock(return_value="hostname lab"),
+                ),
             ):
                 settings_mock.data_directory = Path(tmp)
 
@@ -174,12 +173,13 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = _device_with_rendered_template()
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch(
-                "workflow_steps.store_artifact.executor.settings"
-            ) as settings_mock, patch.object(
-                artifact_service,
-                "resolve",
-                new=AsyncMock(return_value="hostname lab\ninterface Gi0/0"),
+            with (
+                patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+                patch.object(
+                    artifact_service,
+                    "resolve",
+                    new=AsyncMock(return_value="hostname lab\ninterface Gi0/0"),
+                ),
             ):
                 settings_mock.data_directory = Path(tmp)
 
@@ -223,13 +223,15 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = device.model_copy(update={"attribute_bags": {}})
 
         artifact_service = InMemoryArtifactService()
-        with patch.object(
-            artifact_service,
-            "resolve",
-            new=AsyncMock(return_value="hostname lab"),
-        ), tempfile.TemporaryDirectory() as tmp, patch(
-            "workflow_steps.store_artifact.executor.settings"
-        ) as settings_mock:
+        with (
+            patch.object(
+                artifact_service,
+                "resolve",
+                new=AsyncMock(return_value="hostname lab"),
+            ),
+            tempfile.TemporaryDirectory() as tmp,
+            patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+        ):
             settings_mock.data_directory = Path(tmp)
             outcomes = await execute(
                 config={
@@ -347,13 +349,16 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch(
-            "workflow_steps.store_artifact.executor._build_sink",
-            return_value=mock_sink,
-        ), patch.object(
-            artifact_service,
-            "resolve",
-            new=AsyncMock(return_value="hostname lab"),
+        with (
+            patch(
+                "workflow_steps.store_artifact.executor._build_sink",
+                return_value=mock_sink,
+            ),
+            patch.object(
+                artifact_service,
+                "resolve",
+                new=AsyncMock(return_value="hostname lab"),
+            ),
         ):
             outcomes = await execute(
                 config={
@@ -375,6 +380,34 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         mock_sink.finalize.assert_awaited_once()
         self.assertEqual(len(outcomes), 1)
         self.assertNotIn("store-artifact-4.git_export", outcomes[0].context.metadata)
+
+    async def test_rejects_escaping_output_subdirectory(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        artifact_service = InMemoryArtifactService()
+        device = _device_with_running_config()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("workflow_steps.store_artifact.executor.settings") as settings_mock:
+                settings_mock.data_directory = Path(tmp)
+                with self.assertRaises(ValueError) as ctx:
+                    await execute(
+                        config={
+                            "destination": "filesystem",
+                            "output_subdirectory": "../escape",
+                            "content_source": "running_config",
+                            "filename_template": "{device.name}.cfg",
+                        },
+                        context=WorkflowContext(
+                            run_id="run-uuid-1",
+                            workflow_id="wf-1",
+                            devices={"device-1": device},
+                        ),
+                        run=run,
+                        artifact_service=artifact_service,
+                        node_id="store-artifact-escape",
+                    )
+        self.assertIn("output_subdirectory", str(ctx.exception))
 
 
 if __name__ == "__main__":

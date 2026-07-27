@@ -128,9 +128,7 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await execute(
             config={
                 "output_key": "device_config",
-                "template": (
-                    "{{ command.parsed[0].interface }} is {{ command.parsed[0].status }}"
-                ),
+                "template": ("{{ command.parsed[0].interface }} is {{ command.parsed[0].status }}"),
             },
             context=context,
             run=run,

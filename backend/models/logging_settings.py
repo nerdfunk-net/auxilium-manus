@@ -41,9 +41,7 @@ class LoggingSettings(BaseModel):
     @classmethod
     def _validate_muted_levels(cls, value: dict[str, str]) -> dict[str, str]:
         return {
-            name.strip(): _validate_level(level)
-            for name, level in value.items()
-            if name.strip()
+            name.strip(): _validate_level(level) for name, level in value.items() if name.strip()
         }
 
 

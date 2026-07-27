@@ -7,7 +7,7 @@ This manager handles lifecycle operations (create/update) for virtual machines.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 from ..common.exceptions import NautobotAPIError
 
@@ -54,12 +54,9 @@ class VirtualMachineManager:
         )
 
         # Check if assignment already exists
-        check_endpoint = (
-            "ipam/ip-address-to-interface/?ip_address=%s&vm_interface=%s"
-            % (
-                ip_address_id,
-                virtual_interface_id,
-            )
+        check_endpoint = "ipam/ip-address-to-interface/?ip_address=%s&vm_interface=%s" % (
+            ip_address_id,
+            virtual_interface_id,
         )
 
         existing_assignment = await self.nautobot.rest_request(
@@ -85,9 +82,7 @@ class VirtualMachineManager:
                 data=payload,
             )
 
-            logger.info(
-                "Assigned IP to virtual interface, assignment ID: %s", result.get("id")
-            )
+            logger.info("Assigned IP to virtual interface, assignment ID: %s", result.get("id"))
             return True
 
         except NautobotAPIError as e:
@@ -96,9 +91,7 @@ class VirtualMachineManager:
                 virtual_interface_id,
                 str(e),
             )
-            raise NautobotAPIError(
-                f"Failed to assign IP to virtual interface: {str(e)}"
-            ) from e
+            raise NautobotAPIError(f"Failed to assign IP to virtual interface: {str(e)}") from e
 
     async def assign_primary_ip_to_vm(self, vm_id: str, ip_address_id: str) -> bool:
         """
@@ -137,20 +130,20 @@ class VirtualMachineManager:
         self,
         vm_id: str,
         *,
-        cluster_id: Optional[str] = None,
-        status_id: Optional[str] = None,
-        role_id: Optional[str] = None,
-        platform_id: Optional[str] = None,
-        vcpus: Optional[int] = None,
-        memory: Optional[int] = None,
-        disk: Optional[int] = None,
-        software_version_id: Optional[str] = None,
-        software_image_file_ids: Optional[list[str]] = None,
-        tags: Optional[list[str]] = None,
-        custom_fields: Optional[dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        cluster_id: str | None = None,
+        status_id: str | None = None,
+        role_id: str | None = None,
+        platform_id: str | None = None,
+        vcpus: int | None = None,
+        memory: int | None = None,
+        disk: int | None = None,
+        software_version_id: str | None = None,
+        software_image_file_ids: list[str] | None = None,
+        tags: list[str] | None = None,
+        custom_fields: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Update a virtual machine via PATCH."""
-        vm_data: Dict[str, Any] = {}
+        vm_data: dict[str, Any] = {}
 
         if status_id:
             vm_data["status"] = {"id": status_id}
@@ -169,9 +162,7 @@ class VirtualMachineManager:
         if software_version_id:
             vm_data["software_version"] = {"id": software_version_id}
         if software_image_file_ids is not None:
-            vm_data["software_image_files"] = [
-                {"id": img_id} for img_id in software_image_file_ids
-            ]
+            vm_data["software_image_files"] = [{"id": img_id} for img_id in software_image_file_ids]
         if tags is not None:
             vm_data["tags"] = [{"id": tag_id} for tag_id in tags]
         if custom_fields is not None:
@@ -197,7 +188,7 @@ class VirtualMachineManager:
             logger.error("Failed to update VM %s: %s", vm_id, e, exc_info=True)
             raise NautobotAPIError(f"Failed to update virtual machine: {str(e)}") from e
 
-    async def list_virtual_interfaces(self, vm_id: str) -> list[Dict[str, Any]]:
+    async def list_virtual_interfaces(self, vm_id: str) -> list[dict[str, Any]]:
         """List virtual interfaces for a VM."""
         endpoint = "virtualization/interfaces/?virtual_machine_id=%s&limit=1000" % vm_id
         response = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
@@ -209,18 +200,18 @@ class VirtualMachineManager:
         self,
         interface_id: str,
         *,
-        status_id: Optional[str] = None,
-        enabled: Optional[bool] = None,
-        mac_address: Optional[str] = None,
-        mtu: Optional[int] = None,
-        description: Optional[str] = None,
-        mode: Optional[str] = None,
-        untagged_vlan_id: Optional[str] = None,
-        tagged_vlan_ids: Optional[list[str]] = None,
-        tags: Optional[list[str]] = None,
-    ) -> Dict[str, Any]:
+        status_id: str | None = None,
+        enabled: bool | None = None,
+        mac_address: str | None = None,
+        mtu: int | None = None,
+        description: str | None = None,
+        mode: str | None = None,
+        untagged_vlan_id: str | None = None,
+        tagged_vlan_ids: list[str] | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Update a virtual interface via PATCH."""
-        interface_data: Dict[str, Any] = {}
+        interface_data: dict[str, Any] = {}
 
         if status_id:
             interface_data["status"] = {"id": status_id}
@@ -237,9 +228,7 @@ class VirtualMachineManager:
         if untagged_vlan_id:
             interface_data["untagged_vlan"] = {"id": untagged_vlan_id}
         if tagged_vlan_ids is not None:
-            interface_data["tagged_vlans"] = [
-                {"id": vlan_id} for vlan_id in tagged_vlan_ids
-            ]
+            interface_data["tagged_vlans"] = [{"id": vlan_id} for vlan_id in tagged_vlan_ids]
         if tags is not None:
             interface_data["tags"] = [{"id": tag_id} for tag_id in tags]
 
@@ -261,12 +250,8 @@ class VirtualMachineManager:
 
     async def clean_virtual_interface_ips(self, interface_id: str) -> None:
         """Remove all IP assignments from a virtual interface."""
-        check_endpoint = (
-            "ipam/ip-address-to-interface/?vm_interface=%s&limit=1000" % interface_id
-        )
-        existing = await self.nautobot.rest_request(
-            endpoint=check_endpoint, method="GET"
-        )
+        check_endpoint = "ipam/ip-address-to-interface/?vm_interface=%s&limit=1000" % interface_id
+        existing = await self.nautobot.rest_request(endpoint=check_endpoint, method="GET")
         if not existing or existing.get("count", 0) == 0:
             return
 
@@ -312,16 +297,16 @@ class VirtualMachineManager:
         name: str,
         cluster_id: str,
         status_id: str,
-        role_id: Optional[str] = None,
-        platform_id: Optional[str] = None,
-        vcpus: Optional[int] = None,
-        memory: Optional[int] = None,
-        disk: Optional[int] = None,
-        software_version_id: Optional[str] = None,
-        software_image_file_ids: Optional[list[str]] = None,
-        tags: Optional[list[str]] = None,
-        custom_fields: Optional[dict[str, str]] = None,
-    ) -> Dict[str, Any]:
+        role_id: str | None = None,
+        platform_id: str | None = None,
+        vcpus: int | None = None,
+        memory: int | None = None,
+        disk: int | None = None,
+        software_version_id: str | None = None,
+        software_image_file_ids: list[str] | None = None,
+        tags: list[str] | None = None,
+        custom_fields: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Create a virtual machine in Nautobot using the REST API.
 
@@ -348,7 +333,7 @@ class VirtualMachineManager:
         logger.info("Creating virtual machine '%s' in cluster %s", name, cluster_id)
 
         # Build the VM data payload according to Nautobot's REST API schema
-        vm_data: Dict[str, Any] = {
+        vm_data: dict[str, Any] = {
             "name": name,
             "cluster": {"id": cluster_id},
             "status": {"id": status_id},
@@ -374,9 +359,7 @@ class VirtualMachineManager:
             vm_data["software_version"] = {"id": software_version_id}
 
         if software_image_file_ids:
-            vm_data["software_image_files"] = [
-                {"id": img_id} for img_id in software_image_file_ids
-            ]
+            vm_data["software_image_files"] = [{"id": img_id} for img_id in software_image_file_ids]
 
         if tags:
             vm_data["tags"] = [{"id": tag_id} for tag_id in tags]
@@ -402,14 +385,14 @@ class VirtualMachineManager:
         virtual_machine_id: str,
         status_id: str,
         enabled: bool = True,
-        mac_address: Optional[str] = None,
-        mtu: Optional[int] = None,
-        description: Optional[str] = None,
-        mode: Optional[str] = None,
-        untagged_vlan_id: Optional[str] = None,
-        tagged_vlan_ids: Optional[list[str]] = None,
-        tags: Optional[list[str]] = None,
-    ) -> Dict[str, Any]:
+        mac_address: str | None = None,
+        mtu: int | None = None,
+        description: str | None = None,
+        mode: str | None = None,
+        untagged_vlan_id: str | None = None,
+        tagged_vlan_ids: list[str] | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Create a virtual interface for a VM in Nautobot using the REST API.
 
@@ -432,12 +415,10 @@ class VirtualMachineManager:
         Raises:
             Exception: If interface creation fails
         """
-        logger.info(
-            "Creating virtual interface '%s' for VM %s", name, virtual_machine_id
-        )
+        logger.info("Creating virtual interface '%s' for VM %s", name, virtual_machine_id)
 
         # Build the interface data payload according to Nautobot's REST API schema
-        interface_data: Dict[str, Any] = {
+        interface_data: dict[str, Any] = {
             "name": name,
             "virtual_machine": {"id": virtual_machine_id},
             "status": {"id": status_id},
@@ -461,9 +442,7 @@ class VirtualMachineManager:
             interface_data["untagged_vlan"] = {"id": untagged_vlan_id}
 
         if tagged_vlan_ids:
-            interface_data["tagged_vlans"] = [
-                {"id": vlan_id} for vlan_id in tagged_vlan_ids
-            ]
+            interface_data["tagged_vlans"] = [{"id": vlan_id} for vlan_id in tagged_vlan_ids]
 
         if tags:
             interface_data["tags"] = [{"id": tag_id} for tag_id in tags]
@@ -473,9 +452,7 @@ class VirtualMachineManager:
                 "virtualization/interfaces/", method="POST", data=interface_data
             )
 
-            logger.info(
-                "Created virtual interface '%s' with ID %s", name, result.get("id")
-            )
+            logger.info("Created virtual interface '%s' with ID %s", name, result.get("id"))
             return result
 
         except NautobotAPIError as e:

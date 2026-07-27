@@ -15,7 +15,7 @@ fine-grained control, you can import resolvers/managers directly.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from services.nautobot import NautobotService
 from services.nautobot.common.exceptions import (
@@ -169,21 +169,21 @@ class DeviceCommonService:
     # DEVICE RESOLUTION METHODS (delegated to DeviceResolver)
     # ========================================================================
 
-    async def resolve_device_by_name(self, device_name: str) -> Optional[str]:
+    async def resolve_device_by_name(self, device_name: str) -> str | None:
         """Delegate to DeviceResolver."""
         return await self.device_resolver.resolve_device_by_name(device_name)
 
-    async def resolve_device_by_ip(self, ip_address: str) -> Optional[str]:
+    async def resolve_device_by_ip(self, ip_address: str) -> str | None:
         """Delegate to DeviceResolver."""
         return await self.device_resolver.resolve_device_by_ip(ip_address)
 
     async def resolve_device_id(
         self,
-        device_id: Optional[str] = None,
-        device_name: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        device_id: str | None = None,
+        device_name: str | None = None,
+        ip_address: str | None = None,
         matching_strategy: str = "exact",
-    ) -> Optional[str]:
+    ) -> str | None:
         """Delegate to DeviceResolver."""
         return await self.device_resolver.resolve_device_id(
             device_id, device_name, ip_address, matching_strategy=matching_strategy
@@ -191,19 +191,17 @@ class DeviceCommonService:
 
     async def find_interface_with_ip(
         self, device_name: str, ip_address: str
-    ) -> Optional[Tuple[str, str]]:
+    ) -> tuple[str, str] | None:
         """Delegate to DeviceResolver."""
-        return await self.device_resolver.find_interface_with_ip(
-            device_name, ip_address
-        )
+        return await self.device_resolver.find_interface_with_ip(device_name, ip_address)
 
     async def resolve_device_type_id(
-        self, model: str, manufacturer: Optional[str] = None
-    ) -> Optional[str]:
+        self, model: str, manufacturer: str | None = None
+    ) -> str | None:
         """Delegate to DeviceResolver."""
         return await self.device_resolver.resolve_device_type_id(model, manufacturer)
 
-    async def get_device_type_display(self, device_type_id: str) -> Optional[str]:
+    async def get_device_type_display(self, device_type_id: str) -> str | None:
         """Delegate to DeviceResolver."""
         return await self.device_resolver.get_device_type_display(device_type_id)
 
@@ -211,35 +209,29 @@ class DeviceCommonService:
     # METADATA RESOLUTION METHODS (delegated to MetadataResolver)
     # ========================================================================
 
-    async def resolve_status_id(
-        self, status_name: str, content_type: str = "dcim.device"
-    ) -> str:
+    async def resolve_status_id(self, status_name: str, content_type: str = "dcim.device") -> str:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.resolve_status_id(status_name, content_type)
 
-    async def resolve_role_id(self, role_name: str) -> Optional[str]:
+    async def resolve_role_id(self, role_name: str) -> str | None:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.resolve_role_id(role_name)
 
-    async def resolve_platform_id(self, platform_name: str) -> Optional[str]:
+    async def resolve_platform_id(self, platform_name: str) -> str | None:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.resolve_platform_id(platform_name)
 
-    async def get_platform_name(self, platform_id: str) -> Optional[str]:
+    async def get_platform_name(self, platform_id: str) -> str | None:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.get_platform_name(platform_id)
 
-    async def resolve_location_id(self, location_name: str) -> Optional[str]:
+    async def resolve_location_id(self, location_name: str) -> str | None:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.resolve_location_id(location_name)
 
-    async def resolve_rack_id(
-        self, rack_name: str, location: Optional[str] = None
-    ) -> Optional[str]:
+    async def resolve_rack_id(self, rack_name: str, location: str | None = None) -> str | None:
         """Delegate to MetadataResolver."""
-        return await self.metadata_resolver.resolve_rack_id(
-            rack_name, location=location
-        )
+        return await self.metadata_resolver.resolve_rack_id(rack_name, location=location)
 
     # ========================================================================
     # NETWORK RESOLUTION METHODS (delegated to NetworkResolver)
@@ -249,27 +241,19 @@ class DeviceCommonService:
         """Delegate to NetworkResolver."""
         return await self.network_resolver.resolve_namespace_id(namespace_name)
 
-    async def resolve_ip_address(
-        self, ip_address: str, namespace_id: str
-    ) -> Optional[str]:
+    async def resolve_ip_address(self, ip_address: str, namespace_id: str) -> str | None:
         """Delegate to NetworkResolver."""
         return await self.network_resolver.resolve_ip_address(ip_address, namespace_id)
 
-    async def resolve_interface_by_name(
-        self, device_id: str, interface_name: str
-    ) -> Optional[str]:
+    async def resolve_interface_by_name(self, device_id: str, interface_name: str) -> str | None:
         """Delegate to NetworkResolver."""
-        return await self.network_resolver.resolve_interface_by_name(
-            device_id, interface_name
-        )
+        return await self.network_resolver.resolve_interface_by_name(device_id, interface_name)
 
     # ========================================================================
     # VALIDATION METHODS (pure functions from common.validators)
     # ========================================================================
 
-    def validate_required_fields(
-        self, data: Dict[str, Any], required_fields: List[str]
-    ) -> None:
+    def validate_required_fields(self, data: dict[str, Any], required_fields: list[str]) -> None:
         """Delegate to validators.validate_required_fields."""
         return validate_required_fields(data, required_fields)
 
@@ -289,24 +273,24 @@ class DeviceCommonService:
     # DATA PROCESSING METHODS (pure functions from common.utils)
     # ========================================================================
 
-    def flatten_nested_fields(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def flatten_nested_fields(self, data: dict[str, Any]) -> dict[str, Any]:
         """Delegate to utils.flatten_nested_fields."""
         return flatten_nested_fields(data)
 
-    def extract_nested_value(self, data: Dict[str, Any], path: str) -> Any:
+    def extract_nested_value(self, data: dict[str, Any], path: str) -> Any:
         """Delegate to utils.extract_nested_value."""
         return extract_nested_value(data, path)
 
-    def normalize_tags(self, tags: Any) -> List[str]:
+    def normalize_tags(self, tags: Any) -> list[str]:
         """Delegate to utils.normalize_tags."""
         return normalize_tags(tags)
 
     def prepare_update_data(
         self,
-        row: Dict[str, str],
-        headers: List[str],
-        excluded_fields: Optional[List[str]] = None,
-    ) -> Tuple[Dict[str, Any], Optional[Dict[str, str]], Optional[str]]:
+        row: dict[str, str],
+        headers: list[str],
+        excluded_fields: list[str] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, str] | None, str | None]:
         """Delegate to utils.prepare_update_data."""
         return prepare_update_data(row, headers, excluded_fields)
 
@@ -337,9 +321,7 @@ class DeviceCommonService:
         self, ip_id: str, interface_id: str, is_primary: bool = False
     ) -> dict:
         """Delegate to IPManager."""
-        return await self.ip_manager.assign_ip_to_interface(
-            ip_id, interface_id, is_primary
-        )
+        return await self.ip_manager.assign_ip_to_interface(ip_id, interface_id, is_primary)
 
     # ========================================================================
     # PREFIX METHODS (delegated to PrefixManager)
@@ -351,8 +333,8 @@ class DeviceCommonService:
         namespace: str = "Global",
         status: str = "active",
         prefix_type: str = "network",
-        location: Optional[str] = None,
-        description: Optional[str] = None,
+        location: str | None = None,
+        description: str | None = None,
         **kwargs,
     ) -> str:
         """Delegate to PrefixManager."""
@@ -404,7 +386,7 @@ class DeviceCommonService:
         self,
         device_id: str,
         device_name: str,
-        old_ip: Optional[str],
+        old_ip: str | None,
         new_ip: str,
         namespace: str,
         add_prefixes_automatically: bool = False,
@@ -425,32 +407,24 @@ class DeviceCommonService:
     # DEVICE OPERATIONS (delegated to DeviceManager)
     # ========================================================================
 
-    async def get_device_details(
-        self, device_id: str, depth: int = 0
-    ) -> Dict[str, Any]:
+    async def get_device_details(self, device_id: str, depth: int = 0) -> dict[str, Any]:
         """Delegate to DeviceManager."""
         return await self.device_manager.get_device_details(device_id, depth)
 
-    async def extract_primary_ip_address(
-        self, device_data: Dict[str, Any]
-    ) -> Optional[str]:
+    async def extract_primary_ip_address(self, device_data: dict[str, Any]) -> str | None:
         """Delegate to DeviceManager."""
         return await self.device_manager.extract_primary_ip_address(device_data)
 
-    async def assign_primary_ip_to_device(
-        self, device_id: str, ip_address_id: str
-    ) -> bool:
+    async def assign_primary_ip_to_device(self, device_id: str, ip_address_id: str) -> bool:
         """Delegate to DeviceManager."""
-        return await self.device_manager.assign_primary_ip_to_device(
-            device_id, ip_address_id
-        )
+        return await self.device_manager.assign_primary_ip_to_device(device_id, ip_address_id)
 
     async def verify_device_updates(
         self,
         device_id: str,
-        expected_updates: Dict[str, Any],
-        actual_device: Dict[str, Any],
-    ) -> Tuple[bool, List[Dict[str, Any]]]:
+        expected_updates: dict[str, Any],
+        actual_device: dict[str, Any],
+    ) -> tuple[bool, list[dict[str, Any]]]:
         """Delegate to DeviceManager."""
         return await self.device_manager.verify_device_updates(
             device_id, expected_updates, actual_device
@@ -464,8 +438,6 @@ class DeviceCommonService:
         """Delegate to exceptions.is_duplicate_error."""
         return is_duplicate_error(error)
 
-    def handle_already_exists_error(
-        self, error: Exception, resource_type: str
-    ) -> Dict[str, Any]:
+    def handle_already_exists_error(self, error: Exception, resource_type: str) -> dict[str, Any]:
         """Delegate to exceptions.handle_already_exists_error."""
         return handle_already_exists_error(error, resource_type)

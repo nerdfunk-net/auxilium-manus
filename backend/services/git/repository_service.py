@@ -7,8 +7,8 @@ This service only manages the database records.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from core.models import GitRepository
 from repositories import GitRepositoryRepository
@@ -26,13 +26,11 @@ class GitRepositoryService:
     def __init__(self) -> None:
         self._repo = GitRepositoryRepository()
 
-    def create_repository(self, repo_data: Dict[str, Any]) -> int:
+    def create_repository(self, repo_data: dict[str, Any]) -> int:
         """Create a new git repository record. Returns new ID."""
         try:
             if self._repo.name_exists(repo_data["name"]):
-                raise ValueError(
-                    f"Repository with name '{repo_data['name']}' already exists"
-                )
+                raise ValueError(f"Repository with name '{repo_data['name']}' already exists")
 
             new_repo = self._repo.create(
                 name=repo_data["name"],
@@ -48,9 +46,7 @@ class GitRepositoryService:
                 is_active=repo_data.get("is_active", True),
             )
 
-            logger.info(
-                "Created git repository: %s (ID: %s)", repo_data["name"], new_repo.id
-            )
+            logger.info("Created git repository: %s (ID: %s)", repo_data["name"], new_repo.id)
             return new_repo.id
         except ValueError:
             raise
@@ -58,7 +54,7 @@ class GitRepositoryService:
             logger.error("Error creating git repository: %s", e)
             raise
 
-    def get_repository(self, repo_id: int) -> Optional[Dict[str, Any]]:
+    def get_repository(self, repo_id: int) -> dict[str, Any] | None:
         """Get a git repository by ID."""
         try:
             repo = self._repo.get_by_id(repo_id)
@@ -68,8 +64,8 @@ class GitRepositoryService:
             raise
 
     def get_repositories(
-        self, category: Optional[str] = None, active_only: bool = False
-    ) -> List[Dict[str, Any]]:
+        self, category: str | None = None, active_only: bool = False
+    ) -> list[dict[str, Any]]:
         """Get all git repositories, optionally filtered by category and active status."""
         try:
             if category:
@@ -83,11 +79,11 @@ class GitRepositoryService:
             logger.error("Error getting git repositories: %s", e)
             raise
 
-    def get_repositories_by_category(self, category: str) -> List[Dict[str, Any]]:
+    def get_repositories_by_category(self, category: str) -> list[dict[str, Any]]:
         """Get all active repositories for a specific category."""
         return self.get_repositories(category=category, active_only=True)
 
-    def update_repository(self, repo_id: int, repo_data: Dict[str, Any]) -> bool:
+    def update_repository(self, repo_id: int, repo_data: dict[str, Any]) -> bool:
         """Update a git repository."""
         try:
             valid_fields = [
@@ -115,7 +111,7 @@ class GitRepositoryService:
                         f"Repository with name '{update_kwargs['name']}' already exists"
                     )
 
-            update_kwargs["updated_at"] = datetime.now(timezone.utc)
+            update_kwargs["updated_at"] = datetime.now(UTC)
             self._repo.update(repo_id, **update_kwargs)
             logger.info("Updated git repository ID: %s", repo_id)
             return True
@@ -132,9 +128,7 @@ class GitRepositoryService:
                 self._repo.delete(repo_id)
                 action = "Deleted"
             else:
-                self._repo.update(
-                    repo_id, is_active=False, updated_at=datetime.now(timezone.utc)
-                )
+                self._repo.update(repo_id, is_active=False, updated_at=datetime.now(UTC))
                 action = "Deactivated"
             logger.info("%s git repository ID: %s", action, repo_id)
             return True
@@ -143,33 +137,31 @@ class GitRepositoryService:
             raise
 
     def update_sync_status(
-        self, repo_id: int, status: str, last_sync: Optional[datetime] = None
+        self, repo_id: int, status: str, last_sync: datetime | None = None
     ) -> bool:
         """Update the sync status of a repository."""
         try:
             if last_sync is None:
-                last_sync = datetime.now(timezone.utc)
+                last_sync = datetime.now(UTC)
             self._repo.update(
                 repo_id,
                 sync_status=status,
                 last_sync=last_sync,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
             return True
         except Exception as e:
             logger.error("Error updating sync status for repository %s: %s", repo_id, e)
             raise
 
-    def health_check(self) -> Dict[str, Any]:
+    def health_check(self) -> dict[str, Any]:
         """Check the health of the git repository management system."""
         try:
             all_repos = self._repo.get_all()
             active_repos = [r for r in all_repos if r.is_active]
-            category_counts: Dict[str, int] = {}
+            category_counts: dict[str, int] = {}
             for repo in all_repos:
-                category_counts[repo.category] = (
-                    category_counts.get(repo.category, 0) + 1
-                )
+                category_counts[repo.category] = category_counts.get(repo.category, 0) + 1
             return {
                 "status": "healthy",
                 "total_repositories": len(all_repos),
@@ -181,7 +173,7 @@ class GitRepositoryService:
             logger.error("Health check failed: %s", e)
             return {"status": "error", "error": str(e), "database": "PostgreSQL"}
 
-    def _to_dict(self, repo: GitRepository) -> Dict[str, Any]:
+    def _to_dict(self, repo: GitRepository) -> dict[str, Any]:
         """Convert GitRepository model to dictionary."""
         return {
             "id": repo.id,

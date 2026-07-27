@@ -8,7 +8,13 @@ from collections.abc import Callable
 from typing import Any
 
 from core.models.runs import WorkflowRun
-from models.workflow_context import DeviceContext, DeviceError, DeviceStatus, StepOutcome, WorkflowContext
+from models.workflow_context import (
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
 from services.artifacts import ArtifactService
 from workflow_steps.common.git_source_loader import load_git_source_repository
 

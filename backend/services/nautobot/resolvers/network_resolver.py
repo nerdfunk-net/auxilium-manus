@@ -3,7 +3,6 @@ Network resolver for IP addresses, Interfaces, Namespaces, Prefixes resolution.
 """
 
 import logging
-from typing import Optional
 
 from ..common.validators import is_valid_uuid
 from .base_resolver import BaseResolver
@@ -48,23 +47,17 @@ class NetworkResolver(BaseResolver):
         result = await self.nautobot.graphql_query(query, variables)
 
         if "errors" in result:
-            raise ValueError(
-                f"GraphQL errors while resolving namespace: {result['errors']}"
-            )
+            raise ValueError(f"GraphQL errors while resolving namespace: {result['errors']}")
 
         namespaces = result.get("data", {}).get("namespaces", [])
         if namespaces:
             namespace_id = namespaces[0]["id"]
-            logger.info(
-                "Resolved namespace '%s' to UUID %s", namespace_name, namespace_id
-            )
+            logger.info("Resolved namespace '%s' to UUID %s", namespace_name, namespace_id)
             return namespace_id
 
         raise ValueError(f"Namespace '{namespace_name}' not found")
 
-    async def resolve_ip_address(
-        self, ip_address: str, namespace_id: str
-    ) -> Optional[str]:
+    async def resolve_ip_address(self, ip_address: str, namespace_id: str) -> str | None:
         """
         Resolve IP address UUID from address and namespace using GraphQL.
 
@@ -76,9 +69,7 @@ class NetworkResolver(BaseResolver):
             IP address UUID if found, None otherwise
         """
         try:
-            logger.debug(
-                "Resolving IP address '%s' in namespace %s", ip_address, namespace_id
-            )
+            logger.debug("Resolving IP address '%s' in namespace %s", ip_address, namespace_id)
 
             query = """
             query GetIPAddress($filter: [String], $namespace: [String]) {
@@ -108,9 +99,7 @@ class NetworkResolver(BaseResolver):
             logger.error("Error resolving IP address: %s", e, exc_info=True)
             return None
 
-    async def resolve_interface_by_name(
-        self, device_id: str, interface_name: str
-    ) -> Optional[str]:
+    async def resolve_interface_by_name(self, device_id: str, interface_name: str) -> str | None:
         """
         Resolve interface UUID from device ID and interface name using GraphQL.
 
@@ -122,9 +111,7 @@ class NetworkResolver(BaseResolver):
             Interface UUID if found, None otherwise
         """
         try:
-            logger.debug(
-                "Resolving interface '%s' on device %s", interface_name, device_id
-            )
+            logger.debug("Resolving interface '%s' on device %s", interface_name, device_id)
 
             query = """
             query GetInterface($device: [String], $name: [String]) {
@@ -144,9 +131,7 @@ class NetworkResolver(BaseResolver):
             interfaces = result.get("data", {}).get("interfaces", [])
             if interfaces and len(interfaces) > 0:
                 interface_id = interfaces[0]["id"]
-                logger.debug(
-                    "Resolved interface '%s' to UUID %s", interface_name, interface_id
-                )
+                logger.debug("Resolved interface '%s' to UUID %s", interface_name, interface_id)
                 return interface_id
 
             logger.debug("Interface not found: %s", interface_name)
@@ -156,7 +141,7 @@ class NetworkResolver(BaseResolver):
             logger.error("Error resolving interface: %s", e, exc_info=True)
             return None
 
-    async def resolve_prefix(self, prefix: str, namespace_id: str) -> Optional[str]:
+    async def resolve_prefix(self, prefix: str, namespace_id: str) -> str | None:
         """
         Resolve prefix UUID from prefix and namespace.
 

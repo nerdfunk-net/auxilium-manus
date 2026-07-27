@@ -131,9 +131,7 @@ async def execute(
                     run_id=context.run_id,
                 )
                 updates["startup_config_ref"] = startup_ref
-                updates["capabilities"] = updates["capabilities"] | {
-                    Capability.STARTUP_CONFIG
-                }
+                updates["capabilities"] = updates["capabilities"] | {Capability.STARTUP_CONFIG}
 
             enriched = device.model_copy(update=updates)
             return device_id, enriched, True

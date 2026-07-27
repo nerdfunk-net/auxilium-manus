@@ -138,8 +138,7 @@ def main() -> None:
             )
 
     print(
-        "\nSUCCESS: Cisco ISE network device group description update via "
-        "the REST API is working."
+        "\nSUCCESS: Cisco ISE network device group description update via the REST API is working."
     )
 
 

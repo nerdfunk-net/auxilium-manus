@@ -122,9 +122,7 @@ def _route_devices(
     default_outcome: str | None,
     case_sensitive: bool,
 ) -> tuple[dict[str, dict[str, DeviceContext]], list[str], list[str]]:
-    buckets: dict[str, dict[str, DeviceContext]] = {
-        route["outcome"]: {} for route in routes
-    }
+    buckets: dict[str, dict[str, DeviceContext]] = {route["outcome"]: {} for route in routes}
     if default_outcome:
         buckets.setdefault(default_outcome, {})
 

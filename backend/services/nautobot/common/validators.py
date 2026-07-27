@@ -6,7 +6,7 @@ This module contains stateless validation logic with zero service dependencies.
 
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ def validate_cidr(cidr: str) -> bool:
     return validate_ip_address(cidr)
 
 
-def validate_required_fields(data: Dict[str, Any], required_fields: List[str]) -> None:
+def validate_required_fields(data: dict[str, Any], required_fields: list[str]) -> None:
     """
     Validate that all required fields are present in data.
 

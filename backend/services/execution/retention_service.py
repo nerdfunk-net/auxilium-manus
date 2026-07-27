@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ class RetentionService:
         batch_size: int,
         dry_run: bool = False,
     ) -> WorkflowRunRetentionResult:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
         logger.info(
             "Workflow run retention cutoff=%s retention_days=%s dry_run=%s",
             cutoff.isoformat(),

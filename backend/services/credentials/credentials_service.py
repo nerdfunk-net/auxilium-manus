@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -76,9 +76,7 @@ class CredentialsService:
         owner_user_id: int | None = None
         if visibility == "private":
             if acting_user_id is None:
-                raise CredentialMissingFieldError(
-                    "A private credential requires an owning user"
-                )
+                raise CredentialMissingFieldError("A private credential requires an owning user")
             owner_user_id = acting_user_id
             if self._repo.find_private_conflict(name, source, owner_user_id):
                 raise CredentialNameConflictError(name)
@@ -86,7 +84,7 @@ class CredentialsService:
             if self._repo.find_global_conflict(name, source):
                 raise CredentialNameConflictError(name)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         credential = self._repo.create(
             name=name,
             username=username,
@@ -150,7 +148,7 @@ class CredentialsService:
             if conflict is not None:
                 raise CredentialNameConflictError(final_name)
 
-        updates: dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
+        updates: dict[str, Any] = {"updated_at": datetime.now(UTC)}
         if name is not None:
             updates["name"] = name
         if username is not None:
@@ -185,9 +183,7 @@ class CredentialsService:
             )
         self._repo.delete(credential)
 
-    def get_decrypted_password(
-        self, cred_id: int, *, acting_user_id: int | None = None
-    ) -> str:
+    def get_decrypted_password(self, cred_id: int, *, acting_user_id: int | None = None) -> str:
         credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             raise CredentialNotFoundError(cred_id)
@@ -195,9 +191,7 @@ class CredentialsService:
             raise CredentialMissingFieldError("Credential has no password")
         return self._encryption.decrypt(credential.password_encrypted)
 
-    def get_decrypted_ssh_key(
-        self, cred_id: int, *, acting_user_id: int | None = None
-    ) -> str:
+    def get_decrypted_ssh_key(self, cred_id: int, *, acting_user_id: int | None = None) -> str:
         credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             raise CredentialNotFoundError(cred_id)
@@ -215,9 +209,7 @@ class CredentialsService:
             return None
         return self._encryption.decrypt(credential.ssh_passphrase_encrypted)
 
-    def get_ssh_key_path(
-        self, cred_id: int, *, acting_user_id: int | None = None
-    ) -> str | None:
+    def get_ssh_key_path(self, cred_id: int, *, acting_user_id: int | None = None) -> str | None:
         credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None or credential.type != "ssh_key" or not credential.ssh_key_encrypted:
             return None
@@ -243,9 +235,7 @@ class CredentialsService:
         os.makedirs(output_dir, exist_ok=True)
         try:
             ssh_key_content = self._encryption.decrypt(credential.ssh_key_encrypted)
-            prefix = self._ssh_key_filename_prefix(
-                credential.visibility, credential.owner_user_id
-            )
+            prefix = self._ssh_key_filename_prefix(credential.visibility, credential.owner_user_id)
             safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", credential.name)
             key_filename = os.path.join(output_dir, f"{prefix}{safe_name}")
             with open(key_filename, "w", encoding="utf-8") as handle:

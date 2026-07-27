@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,19 +40,15 @@ def _parse_bool(config: dict[str, Any], key: str, *, default: bool = False) -> b
 
 def _parse_config(config: dict[str, Any]) -> dict[str, Any]:
     defaults = _default_config()
-    output_destination = str(
-        config.get("output_destination") or defaults["output_destination"]
-    ).strip().lower()
+    output_destination = (
+        str(config.get("output_destination") or defaults["output_destination"]).strip().lower()
+    )
     if output_destination not in _OUTPUT_DESTINATIONS:
-        raise ValueError(
-            "log-attributes: output_destination must be 'stdout' or 'file'"
-        )
+        raise ValueError("log-attributes: output_destination must be 'stdout' or 'file'")
 
     output_format = str(config.get("output_format") or defaults["output_format"]).strip().lower()
     if output_format not in _OUTPUT_FORMATS:
-        raise ValueError(
-            "log-attributes: output_format must be 'json' or 'pretty_text'"
-        )
+        raise ValueError("log-attributes: output_format must be 'json' or 'pretty_text'")
 
     raw_filename = config.get("filename")
     if raw_filename is None:
@@ -93,7 +89,9 @@ async def _attach_rendered_template_content(
     """
     devices_snapshot = snapshot.get("devices") or {}
 
-    async def resolve_entry(device_snapshot: dict[str, Any], key: str, entry: dict[str, Any]) -> None:
+    async def resolve_entry(
+        device_snapshot: dict[str, Any], key: str, entry: dict[str, Any]
+    ) -> None:
         ref = ArtifactRef.model_validate(entry["artifact_ref"])
         content = await artifact_service.resolve(ref)
         device_snapshot["parsed"][key]["rendered_content"] = content
@@ -295,13 +293,7 @@ def render_snapshot_text(snapshot: dict[str, Any], output_format: str) -> str:
 
 def _file_target(*, workflow_id: str, run_id: str, filename: str) -> Path:
     safe_name = sanitize_relative_path(filename)
-    return (
-        settings.data_directory
-        / "log-attributes"
-        / workflow_id
-        / run_id
-        / safe_name
-    )
+    return settings.data_directory / "log-attributes" / workflow_id / run_id / safe_name
 
 
 def _write_output_file(
@@ -336,7 +328,7 @@ async def execute(
     if parsed["show_device_configs"]:
         await _attach_device_config_content(snapshot, context, artifact_service)
     rendered = render_snapshot_text(snapshot, parsed["output_format"])
-    written_at = datetime.now(timezone.utc).isoformat()
+    written_at = datetime.now(UTC).isoformat()
 
     file_path: str | None = None
     if parsed["output_destination"] == "stdout":

@@ -43,12 +43,15 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
         git_service = MagicMock()
         git_service.get_repo_path.return_value = MagicMock(__str__=lambda self: "/tmp/repo")
 
-        with patch(
-            "workflow_steps.common.git_workflow_step.load_git_source_repository",
-            return_value=self.repository,
-        ), patch(
-            "service_factory.build_git_service",
-            return_value=git_service,
+        with (
+            patch(
+                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                return_value=self.repository,
+            ),
+            patch(
+                "service_factory.build_git_service",
+                return_value=git_service,
+            ),
         ):
             outcomes = await git_clone(
                 config={"git_source_id": "prod-configs"},
@@ -70,12 +73,15 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
         git_service.pull.return_value = PullResult(success=False, message="pull failed")
         git_service.get_repo_path.return_value = MagicMock(__str__=lambda self: "/tmp/repo")
 
-        with patch(
-            "workflow_steps.common.git_workflow_step.load_git_source_repository",
-            return_value=self.repository,
-        ), patch(
-            "service_factory.build_git_service",
-            return_value=git_service,
+        with (
+            patch(
+                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                return_value=self.repository,
+            ),
+            patch(
+                "service_factory.build_git_service",
+                return_value=git_service,
+            ),
         ):
             outcomes = await git_pull(
                 config={"git_source_id": "prod-configs"},
@@ -111,19 +117,18 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
         context = WorkflowContext(
             run_id="run-uuid-1",
             workflow_id="wf-1",
-            metadata={
-                "store-artifact-4.stored_artifacts": [
-                    {"path": "/tmp/repo/configs/lab.cfg"}
-                ]
-            },
+            metadata={"store-artifact-4.stored_artifacts": [{"path": "/tmp/repo/configs/lab.cfg"}]},
         )
 
-        with patch(
-            "workflow_steps.common.git_workflow_step.load_git_source_repository",
-            return_value=self.repository,
-        ), patch(
-            "service_factory.build_git_service",
-            return_value=git_service,
+        with (
+            patch(
+                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                return_value=self.repository,
+            ),
+            patch(
+                "service_factory.build_git_service",
+                return_value=git_service,
+            ),
         ):
             outcomes = await git_push(
                 config={
@@ -163,12 +168,15 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
         git_service.get_repo_path.return_value = MagicMock(__str__=lambda self: "/tmp/repo")
         empty_context = WorkflowContext(run_id="run-uuid-1", workflow_id="wf-1")
 
-        with patch(
-            "workflow_steps.common.git_workflow_step.load_git_source_repository",
-            return_value=self.repository,
-        ), patch(
-            "service_factory.build_git_service",
-            return_value=git_service,
+        with (
+            patch(
+                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                return_value=self.repository,
+            ),
+            patch(
+                "service_factory.build_git_service",
+                return_value=git_service,
+            ),
         ):
             outcomes = await git_push(
                 config={"git_source_id": "prod-configs"},

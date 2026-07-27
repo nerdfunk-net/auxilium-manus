@@ -76,10 +76,10 @@ class IPManager:
         logger.info("Ensuring IP address exists: %s", ip_address)
 
         # Check if IP already exists
-        ip_search_endpoint = f"ipam/ip-addresses/?address={ip_address}&namespace={namespace_id}&format=json"
-        ip_result = await self.nautobot.rest_request(
-            endpoint=ip_search_endpoint, method="GET"
+        ip_search_endpoint = (
+            f"ipam/ip-addresses/?address={ip_address}&namespace={namespace_id}&format=json"
         )
+        ip_result = await self.nautobot.rest_request(endpoint=ip_search_endpoint, method="GET")
 
         if ip_result and ip_result.get("count", 0) > 0:
             existing_ip = ip_result["results"][0]
@@ -130,13 +130,13 @@ class IPManager:
                     ip_obj = ipaddress.ip_interface(ip_address)
                     host_ip = str(ip_obj.ip)
 
-                    logger.info(
-                        "Searching for existing IP with host address: %s", host_ip
-                    )
+                    logger.info("Searching for existing IP with host address: %s", host_ip)
 
                     # Search for IP by host address (without netmask) in the namespace
                     # Nautobot's address filter accepts IP without netmask and returns all IPs with that host
-                    ip_search_endpoint = f"ipam/ip-addresses/?address={host_ip}&namespace={namespace_id}&format=json"
+                    ip_search_endpoint = (
+                        f"ipam/ip-addresses/?address={host_ip}&namespace={namespace_id}&format=json"
+                    )
                     existing_ip_result = await self.nautobot.rest_request(
                         endpoint=ip_search_endpoint, method="GET"
                     )
@@ -220,9 +220,7 @@ class IPManager:
                         )
 
                         ip_id = ip_create_result["id"]
-                        logger.info(
-                            "Created IP address after prefix creation: %s", ip_id
-                        )
+                        logger.info("Created IP address after prefix creation: %s", ip_id)
                         return ip_id
 
                     except (ValueError, NautobotAPIError) as prefix_error:
@@ -269,7 +267,9 @@ class IPManager:
         logger.info("Assigning IP %s to interface %s", ip_id, interface_id)
 
         # Check if association already exists
-        check_endpoint = f"ipam/ip-address-to-interface/?ip_address={ip_id}&interface={interface_id}&format=json"
+        check_endpoint = (
+            f"ipam/ip-address-to-interface/?ip_address={ip_id}&interface={interface_id}&format=json"
+        )
         existing_associations = await self.nautobot.rest_request(
             endpoint=check_endpoint, method="GET"
         )

@@ -111,9 +111,7 @@ class RunServiceDeleteTests(unittest.TestCase):
         self.service.delete_run(run_id=run.id, user_id=USER_ID)
 
         remaining = (
-            self.db.query(WorkflowStepResult)
-            .filter(WorkflowStepResult.id == step_id)
-            .first()
+            self.db.query(WorkflowStepResult).filter(WorkflowStepResult.id == step_id).first()
         )
         self.assertIsNone(remaining)
 

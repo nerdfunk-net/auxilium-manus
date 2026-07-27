@@ -93,9 +93,7 @@ async def execute(
 
     resource_type = str(config.get("type") or "device").strip().lower()
     if resource_type not in _SUPPORTED_TYPES:
-        raise ValueError(
-            f"{_STEP_ID}: type '{resource_type}' is not yet supported (only 'device')"
-        )
+        raise ValueError(f"{_STEP_ID}: type '{resource_type}' is not yet supported (only 'device')")
 
     overwrite = bool(config.get("overwrite", False))
     mode = str(config.get("mode") or "manual").strip().lower()

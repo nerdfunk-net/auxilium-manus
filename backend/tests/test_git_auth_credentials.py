@@ -14,8 +14,9 @@ def test_resolve_credentials_scopes_to_global_only() -> None:
     ]
     mock_cred_mgr.get_decrypted_password.return_value = "shh"
 
-    with patch("service_factory.build_credentials_service", return_value=mock_cred_mgr), patch(
-        "core.database.SessionLocal", return_value=MagicMock()
+    with (
+        patch("service_factory.build_credentials_service", return_value=mock_cred_mgr),
+        patch("core.database.SessionLocal", return_value=MagicMock()),
     ):
         service = GitAuthenticationService()
         username, token, ssh_key_path = service.resolve_credentials(
@@ -37,8 +38,9 @@ def test_resolve_credentials_treats_private_only_match_as_not_found() -> None:
     mock_cred_mgr = MagicMock()
     mock_cred_mgr.list_credentials.return_value = []
 
-    with patch("service_factory.build_credentials_service", return_value=mock_cred_mgr), patch(
-        "core.database.SessionLocal", return_value=MagicMock()
+    with (
+        patch("service_factory.build_credentials_service", return_value=mock_cred_mgr),
+        patch("core.database.SessionLocal", return_value=MagicMock()),
     ):
         service = GitAuthenticationService()
         username, token, ssh_key_path = service.resolve_credentials(

@@ -9,9 +9,10 @@ per-device fan-out via Hatchet child workflows. Never raises — the caller
 from __future__ import annotations
 
 import logging
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -50,6 +51,7 @@ class FanOutSignal:
     # whole downstream subgraph (legacy behaviour).
     join_node_id: str | None = None
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,9 +69,7 @@ class StepRunner:
         self.artifact_service = FilesystemArtifactService(settings.data_directory)
         self.plugin_registry = _plugin_registry_service()
 
-    async def execute_all(
-        self, *, run: WorkflowRun, workflow: Workflow
-    ) -> bool | FanOutSignal:
+    async def execute_all(self, *, run: WorkflowRun, workflow: Workflow) -> bool | FanOutSignal:
         """Execute every step in dependency order.
 
         Returns True on full success, False when any step fails (remaining steps
@@ -283,8 +283,7 @@ class StepRunner:
             self.repo.update_step_result(step_result, status="skipped")
             blocked_nodes.add(node_id)
             logger.info(
-                "Step skipped (blocked by upstream device failure) node_id=%s "
-                "type=%s run_id=%s",
+                "Step skipped (blocked by upstream device failure) node_id=%s type=%s run_id=%s",
                 node_id,
                 step_type,
                 run.id,
@@ -328,7 +327,7 @@ class StepRunner:
         self.repo.update_step_result(
             step_result,
             status="running",
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
         logger.info(
             "Step started node_id=%s type=%s run_id=%s",
@@ -363,7 +362,7 @@ class StepRunner:
                 step_result,
                 status=step_status,
                 output=persisted_output,
-                finished_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(UTC),
             )
             summaries = "; ".join(f"{o.name}: {o.summary}" for o in outcomes if o.summary)
             logger.info(
@@ -374,21 +373,26 @@ class StepRunner:
                 f" summary={summaries}" if summaries else "",
             )
             return True
-        except Exception:
+        except Exception as exc:
+            error_id = str(uuid.uuid4())
             logger.error(
-                "Step failed node_id=%s type=%s run_id=%s",
+                "Step failed node_id=%s type=%s run_id=%s error_id=%s",
                 node_id,
                 step_type,
                 run.id,
+                error_id,
                 exc_info=True,
+                extra={"error_id": error_id},
             )
-            import traceback
-
+            # Persist a safe, short message only — full traceback stays in worker logs.
+            safe_message = (
+                f"Step failed ({type(exc).__name__}). See worker logs for error_id={error_id}."
+            )
             self.repo.update_step_result(
                 step_result,
                 status="failed",
-                error_message=traceback.format_exc()[:4000],
-                finished_at=datetime.now(timezone.utc),
+                error_message=safe_message[:4000],
+                finished_at=datetime.now(UTC),
             )
             return False
 
@@ -425,9 +429,7 @@ class StepRunner:
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
         ordered_nodes = self._topological_sort(nodes, edges)
 
-        post_join_ids = {join_node_id} | self._downstream_node_ids(
-            join_node_id, nodes, edges
-        )
+        post_join_ids = {join_node_id} | self._downstream_node_ids(join_node_id, nodes, edges)
 
         # Seed prior outcomes from the children so the fan-in node's parents resolve.
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {
@@ -634,9 +636,7 @@ class StepRunner:
         downstream = StepRunner._downstream_node_ids(inventory_node_id, nodes, edges)
         if join_node_id is None:
             return downstream
-        post_join = {join_node_id} | StepRunner._downstream_node_ids(
-            join_node_id, nodes, edges
-        )
+        post_join = {join_node_id} | StepRunner._downstream_node_ids(join_node_id, nodes, edges)
         return downstream - post_join
 
     def _assemble_input_context(

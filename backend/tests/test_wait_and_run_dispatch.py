@@ -59,8 +59,7 @@ def _make_signal(
         "mode": mode,
         "chunk_size": chunk_size,
         "max_concurrency": 0,
-        "approval": approval
-        or {"enabled": False, "batch_size": 1, "first_batch_auto": True},
+        "approval": approval or {"enabled": False, "batch_size": 1, "first_batch_auto": True},
     }
     return FanOutSignal(
         inventory_node_id="inv",
@@ -151,9 +150,7 @@ class WaitAndRunDispatchTests(unittest.IsolatedAsyncioTestCase):
         results = await self._dispatch(signal, ctx)
 
         self.assertEqual(len(results), 6)
-        expected_keys = [
-            batch_approval_event_key("run-uuid-1", idx) for idx in (1, 2)
-        ]
+        expected_keys = [batch_approval_event_key("run-uuid-1", idx) for idx in (1, 2)]
         actual_keys = [call.args[0] for call in ctx.aio_wait_for_event.await_args_list]
         self.assertEqual(actual_keys, expected_keys)
 
@@ -168,9 +165,7 @@ class WaitAndRunDispatchTests(unittest.IsolatedAsyncioTestCase):
         results = await self._dispatch(signal, ctx)
 
         self.assertEqual(len(results), 4)
-        expected_keys = [
-            batch_approval_event_key("run-uuid-1", idx) for idx in (0, 1)
-        ]
+        expected_keys = [batch_approval_event_key("run-uuid-1", idx) for idx in (0, 1)]
         actual_keys = [call.args[0] for call in ctx.aio_wait_for_event.await_args_list]
         self.assertEqual(actual_keys, expected_keys)
 
@@ -226,9 +221,7 @@ class WaitAndRunDispatchTests(unittest.IsolatedAsyncioTestCase):
                     "awaiting": (run.approval_state or {}).get("awaiting"),
                     "next_batch_index": (run.approval_state or {}).get("next_batch_index"),
                     "total_batches": (run.approval_state or {}).get("total_batches"),
-                    "device_names": (run.approval_state or {}).get(
-                        "next_batch_device_names"
-                    ),
+                    "device_names": (run.approval_state or {}).get("next_batch_device_names"),
                 }
             )
             return {}

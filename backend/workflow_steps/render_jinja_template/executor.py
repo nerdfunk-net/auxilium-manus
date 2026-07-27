@@ -62,14 +62,10 @@ def _resolve_template(config: dict[str, Any]) -> str:
         try:
             template_id = int(raw_id)
         except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "render-jinja-template: template_id must be an integer"
-            ) from exc
+            raise ValueError("render-jinja-template: template_id must be an integer") from exc
         template = _load_stored_template(template_id).strip()
         if not template:
-            raise ValueError(
-                f"render-jinja-template: stored template {template_id} has no content"
-            )
+            raise ValueError(f"render-jinja-template: stored template {template_id} has no content")
         validate_jinja_template(template)
         return template
 
@@ -117,18 +113,14 @@ async def _build_command_context(
     - ``command``: an alias for the most recently executed command, covering
       the common single-command case.
     """
-    all_results = [
-        result for results in device.command_results.values() for result in results
-    ]
+    all_results = [result for results in device.command_results.values() for result in results]
     if not all_results:
         return {}
 
     entries = await asyncio.gather(
         *(_resolve_command_result(result, artifact_service) for result in all_results)
     )
-    latest_index = max(
-        range(len(all_results)), key=lambda i: all_results[i].executed_at
-    )
+    latest_index = max(range(len(all_results)), key=lambda i: all_results[i].executed_at)
     commands_by_name = {entry["name"]: entry for entry in entries}
     return {
         "commands": list(entries),
@@ -187,9 +179,7 @@ async def execute(
                 run_id=context.run_id,
                 workflow_id=context.workflow_id,
             )
-            jinja_context.update(
-                await _build_command_context(device, artifact_service)
-            )
+            jinja_context.update(await _build_command_context(device, artifact_service))
             rendered = render_jinja_template(template, jinja_context)
             artifact_ref = await artifact_service.store(
                 content=rendered,
@@ -289,7 +279,9 @@ async def execute(
         outcomes.append(
             StepOutcome(
                 name="failure",
-                context=context.model_copy(update={"devices": failed_devices, "metadata": metadata}),
+                context=context.model_copy(
+                    update={"devices": failed_devices, "metadata": metadata}
+                ),
             )
         )
     return outcomes

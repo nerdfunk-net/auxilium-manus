@@ -149,8 +149,7 @@ async def execute(
     attributes = _parse_attributes(config)
 
     logger.info(
-        "%s started run_id=%s node_id=%s config_source=%s parsed_key=%s attributes=%s "
-        "devices=%d",
+        "%s started run_id=%s node_id=%s config_source=%s parsed_key=%s attributes=%s devices=%d",
         _STEP_ID,
         run.id,
         node_id,

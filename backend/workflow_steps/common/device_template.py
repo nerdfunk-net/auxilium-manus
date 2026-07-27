@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from models.workflow_context import DeviceContext
@@ -57,7 +57,7 @@ def build_template_context(
 ) -> dict[str, Any]:
     """Build the namespaced lookup tree for template placeholders."""
     primary_ip4 = device.primary_ip4.split("/")[0] if device.primary_ip4 else ""
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 
     command_bag: dict[str, Any] = {}
     parsed_bag: dict[str, Any] = {}
@@ -217,7 +217,7 @@ def render_step_template(
     workflow_id: str | None = None,
 ) -> str:
     """Render run/workflow placeholders for step-level messages (e.g. git commits)."""
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     context: dict[str, Any] = {
         "run": {"id": run_id, "timestamp": timestamp},
         "workflow": {"id": workflow_id or ""},

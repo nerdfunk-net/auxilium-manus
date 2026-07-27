@@ -492,4 +492,3 @@ class NautobotLiveQueryMixin:
         except Exception as e:
             logger.error("Error querying devices by custom field '%s': %s", custom_field_name, e)
             return []
-

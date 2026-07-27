@@ -25,7 +25,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from models.sources_nautobot import DeviceInfo
-
 from services.sources.nautobot.live_query_mixin import NautobotLiveQueryMixin
 
 if TYPE_CHECKING:

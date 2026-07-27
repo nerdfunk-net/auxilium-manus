@@ -93,8 +93,7 @@ def ensure_ise_source(
         )
         if create_response.status_code != 201:
             _fail(
-                f"failed to create ISE source: "
-                f"{create_response.status_code} {create_response.text}"
+                f"failed to create ISE source: {create_response.status_code} {create_response.text}"
             )
         print(f"Created ISE source '{source_id}' -> {ise_url}")
     elif response.status_code == 200:
@@ -105,8 +104,7 @@ def ensure_ise_source(
         )
         if update_response.status_code != 200:
             _fail(
-                f"failed to update ISE source: "
-                f"{update_response.status_code} {update_response.text}"
+                f"failed to update ISE source: {update_response.status_code} {update_response.text}"
             )
         print(f"Updated existing ISE source '{source_id}' -> {ise_url}")
     else:

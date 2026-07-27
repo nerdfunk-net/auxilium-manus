@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from hatchet_sdk import Context, DurableContext
@@ -54,7 +54,7 @@ async def prepare(input: WorkflowRunInput, ctx: Context) -> dict:
         repo.update_run_status(
             run,
             status="running",
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
 
     return {"run_id": input.run_id}
@@ -109,8 +109,7 @@ async def _run_steps_until_fan_out_or_done(
                 status="paused",
                 current_node_id=node_id,
                 debug_message=(
-                    f"Paused before '{node_title}' (node {node_id}). "
-                    "Click Next Step to continue."
+                    f"Paused before '{node_title}' (node {node_id}). Click Next Step to continue."
                 ),
             )
             event_key = debug_step_event_key(run.uuid, node_id)
@@ -218,7 +217,7 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
             run_repo.update_run_status(
                 run,
                 status=final_status,
-                finished_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(UTC),
             )
             logger.info("Run finished run_id=%s status=%s", input.run_id, final_status)
             return {"run_id": input.run_id, "status": final_status}
@@ -294,9 +293,7 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
         if signal.join_node_id is not None:
             wf_result = wf_repo.get_by_id(run.workflow_id)
             if wf_result is None:
-                raise ValueError(
-                    f"Workflow {run.workflow_id} not found (phase 4 resume)"
-                )
+                raise ValueError(f"Workflow {run.workflow_id} not found (phase 4 resume)")
             wf, _ = wf_result
 
             # The fan-in node's parents are child-branch nodes; the inventory
@@ -323,7 +320,7 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
         run_repo.update_run_status(
             run,
             status=final_status,
-            finished_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(UTC),
         )
 
     logger.info("Run finished (fan-out) run_id=%s status=%s", input.run_id, final_status)
@@ -420,10 +417,7 @@ async def _dispatch_children(
     device_ids = list(all_devices.keys())
 
     if mode == "chunked":
-        groups = [
-            device_ids[i : i + chunk_size]
-            for i in range(0, len(device_ids), chunk_size)
-        ]
+        groups = [device_ids[i : i + chunk_size] for i in range(0, len(device_ids), chunk_size)]
     else:
         groups = [[did] for did in device_ids]
 
@@ -436,9 +430,7 @@ async def _dispatch_children(
         inputs: list[DeviceGroupInput] = []
         for offset, group_ids in enumerate(group_list):
             group_devices = {did: all_devices[did] for did in group_ids}
-            group_context = signal.inventory_outcome.model_copy(
-                update={"devices": group_devices}
-            )
+            group_context = signal.inventory_outcome.model_copy(update={"devices": group_devices})
             inputs.append(
                 DeviceGroupInput(
                     parent_run_id=parent_run_id,
@@ -493,14 +485,10 @@ async def _dispatch_children(
     group_index_offset = 0
 
     for batch_index, batch_groups in enumerate(batches):
-        gate_needed = not auto_approve_remaining and not (
-            batch_index == 0 and first_batch_auto
-        )
+        gate_needed = not auto_approve_remaining and not (batch_index == 0 and first_batch_auto)
 
         if gate_needed:
-            batch_device_names = [
-                all_devices[did].name for group in batch_groups for did in group
-            ]
+            batch_device_names = [all_devices[did].name for group in batch_groups for did in group]
             state = _build_approval_state(
                 awaiting=True,
                 next_batch_index=batch_index,
@@ -524,9 +512,7 @@ async def _dispatch_children(
                 run_repo = RunRepository(db)
                 run_result = run_repo.get_run_by_id(parent_run_id)
                 if run_result is None:
-                    raise ValueError(
-                        f"WorkflowRun {parent_run_id} not found (approval gate)"
-                    )
+                    raise ValueError(f"WorkflowRun {parent_run_id} not found (approval gate)")
                 run, _ = run_result
                 run_repo.update_run_status(
                     run,
@@ -551,9 +537,7 @@ async def _dispatch_children(
                 run_repo = RunRepository(db)
                 run_result = run_repo.get_run_by_id(parent_run_id)
                 if run_result is None:
-                    raise ValueError(
-                        f"WorkflowRun {parent_run_id} not found (approval resume)"
-                    )
+                    raise ValueError(f"WorkflowRun {parent_run_id} not found (approval resume)")
                 run, _ = run_result
                 auto_approve_remaining = bool(
                     (run.approval_state or {}).get("auto_approve_remaining")
@@ -631,9 +615,7 @@ def _aggregate_and_persist(
     step_result_by_node: dict[str, Any] = {sr.step_node_id: sr for sr in all_step_results}
 
     # Accumulate outcomes per child-branch node across all children
-    per_node: dict[str, dict[str, list[WorkflowContext]]] = {
-        nid: {} for nid in child_ids
-    }
+    per_node: dict[str, dict[str, list[WorkflowContext]]] = {nid: {} for nid in child_ids}
     has_any_failure = False
 
     for child_result in child_results:
@@ -652,7 +634,7 @@ def _aggregate_and_persist(
                 ctx = WorkflowContext.model_validate(ctx_dict)
                 per_node[node_id].setdefault(outcome_name, []).append(ctx)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     merged_outcomes: dict[str, dict[str, WorkflowContext]] = {}
     any_node_failed = False
 
@@ -672,13 +654,9 @@ def _aggregate_and_persist(
         merged_output: dict[str, Any] = {}
         node_merged: dict[str, WorkflowContext] = {}
         for outcome_name, ctx_list in node_outcomes.items():
-            merged_ctx = (
-                merge_fan_out_contexts(ctx_list) if len(ctx_list) > 1 else ctx_list[0]
-            )
+            merged_ctx = merge_fan_out_contexts(ctx_list) if len(ctx_list) > 1 else ctx_list[0]
             node_merged[outcome_name] = merged_ctx
-            merged_output[outcome_name] = redact_secrets_in_data(
-                merged_ctx.model_dump(mode="json")
-            )
+            merged_output[outcome_name] = redact_secrets_in_data(merged_ctx.model_dump(mode="json"))
         merged_outcomes[node_id] = node_merged
 
         if step_result is not None:

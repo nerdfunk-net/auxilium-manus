@@ -133,8 +133,7 @@ def verify_update(
                 f"before={previous.get(field)!r} after={device.get(field)!r}"
             )
     print(
-        "Description, IP list, and device group list are unchanged — "
-        "merge-safe update confirmed."
+        "Description, IP list, and device group list are unchanged — merge-safe update confirmed."
     )
 
 
@@ -163,8 +162,8 @@ def main() -> None:
             client, args.backend_url, headers, args.source_id, args.device_name
         )
         device_id = previous_device["NetworkDevice"]["id"]
-        previous_secret = previous_device["NetworkDevice"].get("tacacsSettings", {}).get(
-            "sharedSecret"
+        previous_secret = (
+            previous_device["NetworkDevice"].get("tacacsSettings", {}).get("sharedSecret")
         )
         print(f"Found device id={device_id}, current TACACS secret='{previous_secret}'")
 

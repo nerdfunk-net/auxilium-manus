@@ -5,7 +5,7 @@ Interface lifecycle manager.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from services.nautobot import NautobotService
@@ -68,9 +68,7 @@ class InterfaceManager:
         Raises:
             Exception: If creation fails and interface doesn't exist
         """
-        logger.info(
-            "Ensuring interface exists: %s on device %s", interface_name, device_id
-        )
+        logger.info("Ensuring interface exists: %s on device %s", interface_name, device_id)
 
         # Check if interface already exists
         interfaces_endpoint = (
@@ -141,9 +139,7 @@ class InterfaceManager:
         Returns:
             IP address UUID
         """
-        logger.info(
-            "Ensuring interface with IP %s for device %s", ip_address, device_id
-        )
+        logger.info("Ensuring interface with IP %s for device %s", ip_address, device_id)
 
         # Resolve namespace
         namespace_id = await self.network_resolver.resolve_namespace_id(ip_namespace)
@@ -170,16 +166,14 @@ class InterfaceManager:
             ip_id=ip_id, interface_id=interface_id, is_primary=True
         )
 
-        logger.info(
-            "Successfully ensured interface %s with IP %s", interface_name, ip_address
-        )
+        logger.info("Successfully ensured interface %s with IP %s", interface_name, ip_address)
         return ip_id
 
     async def update_interface_ip(
         self,
         device_id: str,
         device_name: str,
-        old_ip: Optional[str],
+        old_ip: str | None,
         new_ip: str,
         namespace: str,
         add_prefixes_automatically: bool = False,
@@ -282,9 +276,7 @@ class InterfaceManager:
 
         # Step 4: Assign the new IP to the existing interface
         logger.info("Assigning IP %s to interface %s", new_ip, interface_name)
-        await self.ip_manager.assign_ip_to_interface(
-            ip_id=new_ip_id, interface_id=interface_id
-        )
+        await self.ip_manager.assign_ip_to_interface(ip_id=new_ip_id, interface_id=interface_id)
 
         logger.info(
             "✓ Successfully updated interface %s from %s to %s",

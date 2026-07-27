@@ -102,9 +102,7 @@ class ISEClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_credentials_raise_validation_error(self) -> None:
         with self.assertRaises(ISEValidationError):
-            await self.service.ers_request(
-                "networkdevice", _credentials(password="")
-            )
+            await self.service.ers_request("networkdevice", _credentials(password=""))
 
     async def test_error_message_never_contains_password(self) -> None:
         self.mock_client.request.return_value = httpx.Response(500, text="boom")
@@ -123,15 +121,11 @@ class ISEClientTests(unittest.IsolatedAsyncioTestCase):
         verify_client.request.return_value = httpx.Response(200, json={})
         no_verify_client.request.return_value = httpx.Response(200, json={})
 
-        await self.service.ers_request(
-            "networkdevice", _credentials(verify_ssl=False)
-        )
+        await self.service.ers_request("networkdevice", _credentials(verify_ssl=False))
         no_verify_client.request.assert_called_once()
         verify_client.request.assert_not_called()
 
-        await self.service.ers_request(
-            "networkdevice", _credentials(verify_ssl=True)
-        )
+        await self.service.ers_request("networkdevice", _credentials(verify_ssl=True))
         verify_client.request.assert_called_once()
 
 

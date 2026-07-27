@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_valid
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Capability(str, Enum):
@@ -114,8 +114,7 @@ class DeviceContext(BaseModel):
             return set()
         if isinstance(value, set):
             return {
-                Capability(item) if not isinstance(item, Capability) else item
-                for item in value
+                Capability(item) if not isinstance(item, Capability) else item for item in value
             }
         if isinstance(value, (list, tuple)):
             return {Capability(item) for item in value}

@@ -31,9 +31,7 @@ def pre_step_guard(*, spec: StepCapabilitySpec, context: WorkflowContext) -> Non
 
     missing_parsed_keys = set(spec.requires_parsed) - context.provided_parsed_keys()
     if missing_parsed_keys:
-        raise ValueError(
-            f"Step {spec.step_id}: missing required parsed keys {missing_parsed_keys}"
-        )
+        raise ValueError(f"Step {spec.step_id}: missing required parsed keys {missing_parsed_keys}")
 
 
 _LEGACY_ATTRIBUTE_KEYS = (

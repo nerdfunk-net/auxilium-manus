@@ -60,7 +60,6 @@ class PluginRegistryCapabilityTests(unittest.TestCase):
         self.assertIn(Capability.PARSED, spec.produces)
         self.assertIn("bgp", spec.requires_parsed)
 
-
     def test_git_steps_require_identity(self) -> None:
         service = PluginRegistryService(PluginRepository(REGISTRY_PATH))
         registry = service.load_registry()

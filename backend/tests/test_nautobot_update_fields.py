@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import unittest
 
-from models.workflow_context import DeviceContext
 from workflow_steps.common.nautobot_update_fields import (
     extract_update_fields_from_nautobot_bag,
     merge_update_data,

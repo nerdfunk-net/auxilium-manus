@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url
 from services.nautobot.common.exceptions import (
     NautobotAPIError,
     NautobotNotFoundError,
@@ -55,7 +57,17 @@ class NautobotService:
         if not credentials.url or not credentials.token:
             raise NautobotValidationError("Nautobot URL and token are required")
 
-        graphql_url = f"{credentials.url.rstrip('/')}/api/graphql/"
+        try:
+            base = validate_outbound_http_url(credentials.url, resolve_dns=True)
+        except UnsafeURLError as exc:
+            raise NautobotValidationError(str(exc)) from exc
+
+        graphql_url = f"{base}/api/graphql/"
+        if not credentials.verify_ssl:
+            logger.warning(
+                "Nautobot GraphQL with verify_ssl=False url_host=%s",
+                urlparse(base).hostname,
+            )
         headers = {
             "Authorization": f"Token {credentials.token}",
             "Content-Type": "application/json",
@@ -95,7 +107,17 @@ class NautobotService:
         if not credentials.url or not credentials.token:
             raise NautobotValidationError("Nautobot URL and token are required")
 
-        api_url = f"{credentials.url.rstrip('/')}/api/{endpoint.lstrip('/')}"
+        try:
+            base = validate_outbound_http_url(credentials.url, resolve_dns=True)
+        except UnsafeURLError as exc:
+            raise NautobotValidationError(str(exc)) from exc
+
+        api_url = f"{base}/api/{endpoint.lstrip('/')}"
+        if not credentials.verify_ssl:
+            logger.warning(
+                "Nautobot REST with verify_ssl=False url_host=%s",
+                urlparse(base).hostname,
+            )
         headers = {
             "Authorization": f"Token {credentials.token}",
             "Content-Type": "application/json",

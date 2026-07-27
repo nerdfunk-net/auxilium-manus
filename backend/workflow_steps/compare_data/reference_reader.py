@@ -98,9 +98,7 @@ async def _read_git_async(config: dict[str, Any], relative_path: str) -> str:
 
     repository = load_git_source_repository(git_source_id)
     repository_subdirectory = str(
-        config.get("repository_subdirectory")
-        or defaults.get("repository_subdirectory")
-        or ""
+        config.get("repository_subdirectory") or defaults.get("repository_subdirectory") or ""
     )
     target = _git_reference_path(
         repository=repository,

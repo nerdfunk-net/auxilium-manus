@@ -212,42 +212,28 @@ class BlockedByUpstreamFailureHelperTests(unittest.TestCase):
     """Direct unit tests for the pure `_blocked_by_upstream_failure` check."""
 
     def test_no_parent_edges_is_never_blocked(self) -> None:
-        self.assertFalse(
-            StepRunner._blocked_by_upstream_failure("n1", [], {}, set())
-        )
+        self.assertFalse(StepRunner._blocked_by_upstream_failure("n1", [], {}, set()))
 
     def test_blocked_when_parent_already_blocked(self) -> None:
         edges = [_edge("a", "b")]
-        self.assertTrue(
-            StepRunner._blocked_by_upstream_failure("b", edges, {}, {"a"})
-        )
+        self.assertTrue(StepRunner._blocked_by_upstream_failure("b", edges, {}, {"a"}))
 
     def test_not_blocked_when_parent_delivers_devices(self) -> None:
         edges = [_edge("a", "b")]
-        ctx = WorkflowContext(
-            run_id="r", workflow_id="w", devices={"d1": _device("d1")}
-        )
+        ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})
         step_outcomes = {"a": {"success": ctx}}
-        self.assertFalse(
-            StepRunner._blocked_by_upstream_failure("b", edges, step_outcomes, set())
-        )
+        self.assertFalse(StepRunner._blocked_by_upstream_failure("b", edges, step_outcomes, set()))
 
     def test_blocked_when_parent_failure_outcome_has_devices(self) -> None:
         edges = [_edge("a", "b")]
         empty_success = WorkflowContext(run_id="r", workflow_id="w", devices={})
-        failure_ctx = WorkflowContext(
-            run_id="r", workflow_id="w", devices={"d1": _device("d1")}
-        )
+        failure_ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})
         step_outcomes = {"a": {"success": empty_success, "failure": failure_ctx}}
-        self.assertTrue(
-            StepRunner._blocked_by_upstream_failure("b", edges, step_outcomes, set())
-        )
+        self.assertTrue(StepRunner._blocked_by_upstream_failure("b", edges, step_outcomes, set()))
 
     def test_not_blocked_when_parent_has_no_outcomes_at_all(self) -> None:
         edges = [_edge("a", "b")]
-        self.assertFalse(
-            StepRunner._blocked_by_upstream_failure("b", edges, {}, set())
-        )
+        self.assertFalse(StepRunner._blocked_by_upstream_failure("b", edges, {}, set()))
 
 
 if __name__ == "__main__":

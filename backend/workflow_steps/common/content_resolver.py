@@ -36,8 +36,7 @@ def parse_content_source(config: dict[str, Any]) -> str:
     source = str(config.get("content_source") or "").strip().lower()
     if source not in _CONTENT_SOURCES:
         raise ValueError(
-            f"store-artifact: content_source {source!r} must be one of "
-            f"{sorted(_CONTENT_SOURCES)}"
+            f"store-artifact: content_source {source!r} must be one of {sorted(_CONTENT_SOURCES)}"
         )
     return source
 
@@ -76,9 +75,7 @@ def list_exportable_content(
 
     if content_source == "command_output":
         if not source_step_node_id:
-            raise ValueError(
-                "store-artifact: source_step_node_id is required for command_output"
-            )
+            raise ValueError("store-artifact: source_step_node_id is required for command_output")
         results = device.command_results.get(source_step_node_id, [])
         return _exportable_from_command_results(
             results,
@@ -108,23 +105,17 @@ def list_exportable_content(
 
     if content_source == "merged_content":
         if not source_step_node_id:
-            raise ValueError(
-                "store-artifact: source_step_node_id is required for merged_content"
-            )
+            raise ValueError("store-artifact: source_step_node_id is required for merged_content")
         return _exportable_from_merged_content(device, source_step_node_id=source_step_node_id)
 
     if content_source == "comparison_diff":
         if not source_step_node_id:
-            raise ValueError(
-                "store-artifact: source_step_node_id is required for comparison_diff"
-            )
+            raise ValueError("store-artifact: source_step_node_id is required for comparison_diff")
         return _exportable_from_comparison_diff(device, source_step_node_id=source_step_node_id)
 
     if content_source == "filtered_output":
         if not source_step_node_id:
-            raise ValueError(
-                "store-artifact: source_step_node_id is required for filtered_output"
-            )
+            raise ValueError("store-artifact: source_step_node_id is required for filtered_output")
         return _exportable_from_filtered_output(device, source_step_node_id=source_step_node_id)
 
     return []
@@ -174,11 +165,7 @@ def _exportable_from_parsed_templates(
 ) -> list[ExportableContent]:
     if parsed_output_key:
         raw = device.parsed.get(parsed_output_key)
-        candidates = (
-            [(parsed_output_key, raw)]
-            if raw is not None
-            else []
-        )
+        candidates = [(parsed_output_key, raw)] if raw is not None else []
     else:
         candidates = list(device.parsed.items())
 

@@ -30,15 +30,17 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.uuid = "run-uuid-1"
         db = MagicMock()
         run.__class__ = MagicMock()
-        with patch(
-            "workflow_steps.get_device_configs.executor.object_session",
-            return_value=db,
-        ), patch(
-            "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-            return_value=("admin", "secret"),
-        ), patch(
-            "workflow_steps.get_device_configs.executor.NetmikoService"
-        ) as netmiko_cls:
+        with (
+            patch(
+                "workflow_steps.get_device_configs.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
+        ):
             netmiko = netmiko_cls.return_value
             netmiko.get_configs = AsyncMock(
                 return_value=ConfigResult(
@@ -85,15 +87,17 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.triggered_by_id = 42
         db = MagicMock()
         run.__class__ = MagicMock()
-        with patch(
-            "workflow_steps.get_device_configs.executor.object_session",
-            return_value=db,
-        ), patch(
-            "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-            return_value=("admin", "secret"),
-        ) as resolve_mock, patch(
-            "workflow_steps.get_device_configs.executor.NetmikoService"
-        ) as netmiko_cls:
+        with (
+            patch(
+                "workflow_steps.get_device_configs.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ) as resolve_mock,
+            patch("workflow_steps.get_device_configs.executor.NetmikoService") as netmiko_cls,
+        ):
             netmiko = netmiko_cls.return_value
             netmiko.get_configs = AsyncMock(
                 return_value=ConfigResult(
@@ -121,12 +125,15 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         run = MagicMock()
         run.id = 1
         db = MagicMock()
-        with patch(
-            "workflow_steps.get_device_configs.executor.object_session",
-            return_value=db,
-        ), patch(
-            "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
-            return_value=("admin", "secret"),
+        with (
+            patch(
+                "workflow_steps.get_device_configs.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
         ):
             device = DeviceContext(
                 id="device-1",

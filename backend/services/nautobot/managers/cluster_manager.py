@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from ..common.exceptions import NautobotAPIError
 
@@ -33,10 +33,10 @@ class ClusterManager:
     async def create_cluster_type(
         self,
         name: str,
-        slug: Optional[str] = None,
-        description: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        slug: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Create a virtualization cluster type in Nautobot.
 
@@ -52,7 +52,7 @@ class ClusterManager:
         Raises:
             NautobotAPIError: If the Nautobot API request fails
         """
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "name": name,
             "slug": slug or slug_from_name(name),
         }
@@ -71,20 +71,18 @@ class ClusterManager:
             logger.info("Created cluster type '%s' with ID %s", name, result.get("id"))
             return result
         except NautobotAPIError as e:
-            logger.error(
-                "Failed to create cluster type '%s': %s", name, e, exc_info=True
-            )
+            logger.error("Failed to create cluster type '%s': %s", name, e, exc_info=True)
             raise NautobotAPIError(f"Failed to create cluster type: {str(e)}") from e
 
     async def create_cluster(
         self,
         name: str,
-        description: Optional[str] = None,
-        cluster_type_id: Optional[str] = None,
-        cluster_group_id: Optional[str] = None,
-        location_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        description: str | None = None,
+        cluster_type_id: str | None = None,
+        cluster_group_id: str | None = None,
+        location_id: str | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Create a virtualization cluster in Nautobot.
 
@@ -102,7 +100,7 @@ class ClusterManager:
         Raises:
             NautobotAPIError: If the Nautobot API request fails
         """
-        payload: Dict[str, Any] = {"name": name}
+        payload: dict[str, Any] = {"name": name}
 
         if description:
             payload["description"] = description

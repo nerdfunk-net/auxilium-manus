@@ -38,13 +38,9 @@ def _build_probe_response(raw: dict[str, object]) -> UpdateAttributeProbeRespons
         source_text=str(raw["source_text"]) if raw.get("source_text") is not None else None,
         full_match=str(raw["full_match"]) if raw.get("full_match") is not None else None,
         groups={str(key): str(value) for key, value in dict(groups or {}).items()},
-        named_groups={
-            str(key): str(value) for key, value in dict(named_groups or {}).items()
-        },
+        named_groups={str(key): str(value) for key, value in dict(named_groups or {}).items()},
         destination_value=(
-            str(raw["destination_value"])
-            if raw.get("destination_value") is not None
-            else None
+            str(raw["destination_value"]) if raw.get("destination_value") is not None else None
         ),
     )
 

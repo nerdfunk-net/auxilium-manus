@@ -23,10 +23,16 @@ class ISESourceConfigServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         settings_patcher = patch("services.ise.source_config_service.SettingsRepository")
         credentials_patcher = patch("services.ise.source_config_service.CredentialsService")
+        validate_patcher = patch(
+            "services.ise.source_config_service.validate_outbound_http_url",
+            side_effect=lambda url, resolve_dns=True: (url or "").rstrip("/"),
+        )
         self.mock_settings_cls = settings_patcher.start()
         self.mock_credentials_cls = credentials_patcher.start()
+        validate_patcher.start()
         self.addCleanup(settings_patcher.stop)
         self.addCleanup(credentials_patcher.stop)
+        self.addCleanup(validate_patcher.stop)
 
         self.mock_settings = self.mock_settings_cls.return_value
         self.mock_credentials = self.mock_credentials_cls.return_value

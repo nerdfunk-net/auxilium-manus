@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import contextmanager
-from typing import Dict, Optional, Tuple
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse, urlunparse
 
@@ -27,9 +26,7 @@ logger = logging.getLogger(__name__)
 class GitAuthenticationService:
     """Service for handling Git authentication operations."""
 
-    def resolve_credentials(
-        self, repository: Dict
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    def resolve_credentials(self, repository: dict) -> tuple[str | None, str | None, str | None]:
         """Resolve username, token/password, and SSH key path from credential_name.
 
         Args:
@@ -75,7 +72,7 @@ class GitAuthenticationService:
         cred_mgr,
         credential_name: str,
         auth_type: str,
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None, str | None]:
         # Git sync/clone/debug flows have no acting-user context anywhere in
         # this call chain (background jobs, not an authenticated HTTP
         # request). acting_user_id=None scopes credential resolution to
@@ -92,11 +89,7 @@ class GitAuthenticationService:
 
         if auth_type == "ssh_key":
             match = next(
-                (
-                    c
-                    for c in creds
-                    if c["name"] == credential_name and c["type"] == "ssh_key"
-                ),
+                (c for c in creds if c["name"] == credential_name and c["type"] == "ssh_key"),
                 None,
             )
             if match:
@@ -124,11 +117,7 @@ class GitAuthenticationService:
 
         if auth_type == "generic":
             match = next(
-                (
-                    c
-                    for c in creds
-                    if c["name"] == credential_name and c["type"] == "generic"
-                ),
+                (c for c in creds if c["name"] == credential_name and c["type"] == "generic"),
                 None,
             )
             if match:
@@ -139,12 +128,8 @@ class GitAuthenticationService:
                     username,
                 )
                 try:
-                    password = cred_mgr.get_decrypted_password(
-                        match["id"], acting_user_id=None
-                    )
-                    logger.debug(
-                        "Successfully decrypted password for '%s'", credential_name
-                    )
+                    password = cred_mgr.get_decrypted_password(match["id"], acting_user_id=None)
+                    logger.debug("Successfully decrypted password for '%s'", credential_name)
                     return username, password, None
                 except Exception as de:
                     logger.error(
@@ -163,11 +148,7 @@ class GitAuthenticationService:
             return None, None, None
 
         match = next(
-            (
-                c
-                for c in creds
-                if c["name"] == credential_name and c["type"] == "token"
-            ),
+            (c for c in creds if c["name"] == credential_name and c["type"] == "token"),
             None,
         )
         if match:
@@ -197,9 +178,7 @@ class GitAuthenticationService:
         )
         return None, None, None
 
-    def build_auth_url(
-        self, url: str, username: Optional[str], token: Optional[str]
-    ) -> str:
+    def build_auth_url(self, url: str, username: str | None, token: str | None) -> str:
         """Return a URL with HTTP(S) basic auth credentials injected.
 
         - Only applies to http/https URLs; other schemes (ssh/git) are returned untouched.
@@ -259,7 +238,7 @@ class GitAuthenticationService:
         except Exception:
             return url
 
-    def is_ssh_auth(self, repository: Dict) -> bool:
+    def is_ssh_auth(self, repository: dict) -> bool:
         """Check if repository uses SSH key authentication.
 
         Args:
@@ -270,7 +249,7 @@ class GitAuthenticationService:
         """
         return repository.get("auth_type", "token") == "ssh_key"
 
-    def is_token_auth(self, repository: Dict) -> bool:
+    def is_token_auth(self, repository: dict) -> bool:
         """Check if repository uses token authentication.
 
         Args:
@@ -282,7 +261,7 @@ class GitAuthenticationService:
         return repository.get("auth_type", "token") == "token"
 
     @contextmanager
-    def setup_auth_environment(self, repository: Dict):
+    def setup_auth_environment(self, repository: dict):
         """Context manager to setup authentication environment for Git operations.
 
         Handles:

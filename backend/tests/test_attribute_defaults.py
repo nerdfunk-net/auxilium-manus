@@ -90,9 +90,7 @@ class NormalizeDefaultsBlockTests(unittest.TestCase):
         self.assertEqual(defaults["tags"], ["production", "lab"])
 
     def test_device_type_partial_manufacturer_only(self) -> None:
-        defaults = normalize_defaults_block(
-            {"device_type": {"manufacturer": {"name": "Cisco"}}}
-        )
+        defaults = normalize_defaults_block({"device_type": {"manufacturer": {"name": "Cisco"}}})
         self.assertEqual(defaults["device_type"], {"manufacturer": {"name": "Cisco"}})
 
     def test_custom_fields_flat_dict(self) -> None:

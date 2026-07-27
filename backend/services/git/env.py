@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import Dict
 
 
 @contextmanager
-def set_ssl_env(repository: Dict):
+def set_ssl_env(repository: dict):
     """Context manager to apply SSL-related environment variables for Git commands.
 
     Honors the 'verify_ssl' flag in the repository dict. Optionally supports

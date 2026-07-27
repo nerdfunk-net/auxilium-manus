@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -30,12 +29,12 @@ class GitRepositoryRequest(BaseModel):
     url: str = Field(..., description="Git repository URL")
     branch: str = Field(default="main", description="Default branch")
     auth_type: GitAuthType = Field(default=GitAuthType.TOKEN, description="Authentication type")
-    credential_name: Optional[str] = Field(None, description="Name of stored credential")
-    path: Optional[str] = Field(None, description="On-disk sub-path override")
+    credential_name: str | None = Field(None, description="Name of stored credential")
+    path: str | None = Field(None, description="On-disk sub-path override")
     verify_ssl: bool = Field(default=True, description="Verify SSL certificates")
-    git_author_name: Optional[str] = Field(None, description="Git author name for commits")
-    git_author_email: Optional[str] = Field(None, description="Git author email for commits")
-    description: Optional[str] = Field(None, description="Repository description")
+    git_author_name: str | None = Field(None, description="Git author name for commits")
+    git_author_email: str | None = Field(None, description="Git author email for commits")
+    description: str | None = Field(None, description="Repository description")
     is_active: bool = Field(default=True, description="Repository is active")
 
 
@@ -45,62 +44,62 @@ class GitRepositoryResponse(BaseModel):
     category: GitCategory
     url: str
     branch: str
-    auth_type: Optional[str] = "token"
-    credential_name: Optional[str] = None
-    path: Optional[str] = None
+    auth_type: str | None = "token"
+    credential_name: str | None = None
+    path: str | None = None
     verify_ssl: bool
-    git_author_name: Optional[str] = None
-    git_author_email: Optional[str] = None
-    description: Optional[str] = None
+    git_author_name: str | None = None
+    git_author_email: str | None = None
+    description: str | None = None
     is_active: bool
     created_at: str
     updated_at: str
-    last_sync: Optional[str] = None
-    sync_status: Optional[str] = None
+    last_sync: str | None = None
+    sync_status: str | None = None
 
 
 class GitRepositoryListResponse(BaseModel):
-    repositories: List[GitRepositoryResponse]
+    repositories: list[GitRepositoryResponse]
     total: int
 
 
 class GitRepositoryUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    category: Optional[GitCategory] = None
-    url: Optional[str] = None
-    branch: Optional[str] = None
-    auth_type: Optional[GitAuthType] = None
-    credential_name: Optional[str] = None
-    path: Optional[str] = None
-    verify_ssl: Optional[bool] = None
-    git_author_name: Optional[str] = None
-    git_author_email: Optional[str] = None
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
+    name: str | None = None
+    category: GitCategory | None = None
+    url: str | None = None
+    branch: str | None = None
+    auth_type: GitAuthType | None = None
+    credential_name: str | None = None
+    path: str | None = None
+    verify_ssl: bool | None = None
+    git_author_name: str | None = None
+    git_author_email: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
 
 
 class GitConnectionTestRequest(BaseModel):
     url: str
     branch: str = "main"
     auth_type: GitAuthType = GitAuthType.TOKEN
-    username: Optional[str] = None
-    token: Optional[str] = None
-    credential_name: Optional[str] = None
+    username: str | None = None
+    token: str | None = None
+    credential_name: str | None = None
     verify_ssl: bool = True
 
 
 class GitConnectionTestResponse(BaseModel):
     success: bool
     message: str
-    details: Optional[dict] = None
+    details: dict | None = None
 
 
 class GitSyncRequest(BaseModel):
-    repository_id: Optional[int] = None
+    repository_id: int | None = None
 
 
 class GitSyncResponse(BaseModel):
-    synced_repositories: List[int]
-    failed_repositories: List[int]
+    synced_repositories: list[int]
+    failed_repositories: list[int]
     errors: dict
     message: str

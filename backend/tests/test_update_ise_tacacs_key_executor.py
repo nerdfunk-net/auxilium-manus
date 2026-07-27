@@ -151,9 +151,7 @@ class UpdateIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         with p1, p2, p3:
             outcomes = await execute(
                 config={"ise_source_id": "lab-ise", "new_key": "new-secret"},
-                context=_context(
-                    {"dev-1": _device("dev-1", name="router1", source="ise")}
-                ),
+                context=_context({"dev-1": _device("dev-1", name="router1", source="ise")}),
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",

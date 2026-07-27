@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -120,7 +120,7 @@ class HatchetSettingsService:
             host_port=host_port,
             dashboard_url=dashboard_url,
             message=message,
-            checked_at=datetime.now(timezone.utc),
+            checked_at=datetime.now(UTC),
         )
 
 
@@ -142,7 +142,7 @@ async def _check_grpc_reachable(host_port: str) -> tuple[bool, str]:
         writer.close()
         await writer.wait_closed()
         return True, f"Reachable at {host_port}"
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False, f"Timed out connecting to {host_port}"
     except (ConnectionRefusedError, OSError) as exc:
         return False, f"Cannot reach {host_port}: {exc}"

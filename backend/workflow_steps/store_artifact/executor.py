@@ -22,7 +22,6 @@ from services.artifacts.sinks import (
     GitArtifactSink,
     StoredExport,
 )
-from workflow_steps.common.git_source_loader import load_git_source_repository
 from workflow_steps.common.content_resolver import (
     ExportableContent,
     list_exportable_content,
@@ -34,6 +33,7 @@ from workflow_steps.common.device_template import (
     render_device_template,
     render_step_template,
 )
+from workflow_steps.common.git_source_loader import load_git_source_repository
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +62,7 @@ def _load_git_repository(git_source_id: str) -> dict[str, Any]:
 def _build_sink(config: dict[str, Any]) -> ArtifactSink:
     destination = str(config.get("destination") or "filesystem").strip().lower()
     if destination not in _DESTINATIONS:
-        raise ValueError(
-            f"store-artifact: destination must be one of {sorted(_DESTINATIONS)}"
-        )
+        raise ValueError(f"store-artifact: destination must be one of {sorted(_DESTINATIONS)}")
     if destination == "filesystem":
         output_subdirectory = str(
             config.get("output_subdirectory")
@@ -323,9 +321,7 @@ async def execute(
     outcomes = [
         StepOutcome(
             name="success",
-            context=context.model_copy(
-                update={"devices": success_devices, "metadata": metadata}
-            ),
+            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
         )
     ]
     if failed_devices:

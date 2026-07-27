@@ -84,9 +84,7 @@ class NetmikoDeviceSession:
         self.timeout = timeout
         self.session_timeout = session_timeout
         self._connection: ConnectHandler | None = None
-        self._session_log_buffer: io.BytesIO | None = (
-            io.BytesIO() if capture_session_log else None
-        )
+        self._session_log_buffer: io.BytesIO | None = io.BytesIO() if capture_session_log else None
 
     def connect(self, *, privileged: bool = True) -> None:
         if self._connection is not None:
@@ -209,9 +207,7 @@ class NetmikoDeviceSession:
         base_prompt = re.escape(getattr(self.connection, "base_prompt", ""))
         return rf"(?:{base_prompt}.*$|#\s*$|{_CONFIRMATION_CUE})"
 
-    def _send_command_confirming(
-        self, command: str, *, read_timeout: int
-    ) -> tuple[str, bool]:
+    def _send_command_confirming(self, command: str, *, read_timeout: int) -> tuple[str, bool]:
         """Send one command; if it raises a Cisco-style '[confirm]' prompt,
         answer it with Enter (the IOS default/yes response) and keep reading
         until the real prompt returns. Returns (output, was_confirmed)."""
@@ -238,9 +234,7 @@ class NetmikoDeviceSession:
         confirmed: list[str] = []
         outputs: list[str] = [self.connection.config_mode()]
         for command in commands:
-            text, was_confirmed = self._send_command_confirming(
-                command, read_timeout=read_timeout
-            )
+            text, was_confirmed = self._send_command_confirming(command, read_timeout=read_timeout)
             outputs.append(text)
             if was_confirmed:
                 confirmed.append(command)
@@ -286,9 +280,7 @@ class NetmikoDeviceSession:
                 confirmed_prompts=confirmed,
             )
         except Exception as exc:
-            return DeployResult(
-                success=False, error=str(exc), session_log=self.get_session_log()
-            )
+            return DeployResult(success=False, error=str(exc), session_log=self.get_session_log())
 
     def save_running_config(self) -> str:
         try:

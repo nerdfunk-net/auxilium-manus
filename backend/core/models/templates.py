@@ -37,9 +37,7 @@ class Template(Base):
     pre_run_command: Mapped[str | None] = mapped_column(Text, nullable=True)
     # JSON array of command strings run, in order, to populate preview variables.
     pre_run_commands: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pre_run_use_textfsm: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    pre_run_use_textfsm: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # JSON array of Nautobot attribute groups to fetch for the preview `nautobot`
     # variable (mirrors the get-nautobot-attributes step's list_of_attributes).
     nautobot_attributes: Mapped[str | None] = mapped_column(Text, nullable=True)

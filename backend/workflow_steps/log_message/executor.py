@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.models.runs import WorkflowRun
@@ -48,7 +48,7 @@ async def execute(
     if not message:
         raise ValueError("log-message: message is required")
 
-    logged_at = datetime.now(timezone.utc).isoformat()
+    logged_at = datetime.now(UTC).isoformat()
 
     device_logs: dict[str, dict[str, Any]] = {}
     for device_id, device in context.devices.items():

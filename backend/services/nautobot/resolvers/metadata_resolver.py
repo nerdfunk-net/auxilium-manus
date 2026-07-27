@@ -3,7 +3,6 @@ Metadata resolver for Status, Role, Platform, Location resolution.
 """
 
 import logging
-from typing import Optional
 
 from ..common.validators import is_valid_uuid
 from .base_resolver import BaseResolver
@@ -14,9 +13,7 @@ logger = logging.getLogger(__name__)
 class MetadataResolver(BaseResolver):
     """Resolver for metadata entities (Status, Role, Platform, Location, etc.)."""
 
-    async def resolve_status_id(
-        self, status_name: str, content_type: str = "dcim.device"
-    ) -> str:
+    async def resolve_status_id(self, status_name: str, content_type: str = "dcim.device") -> str:
         """
         Resolve a status name to its UUID using REST API.
 
@@ -38,9 +35,7 @@ class MetadataResolver(BaseResolver):
             logger.debug("Status is already a UUID: %s", status_name)
             return status_name
 
-        logger.info(
-            "Resolving status '%s' for content type '%s'", status_name, content_type
-        )
+        logger.info("Resolving status '%s' for content type '%s'", status_name, content_type)
 
         # Query for statuses filtered by content type
         endpoint = f"extras/statuses/?content_types={content_type}&format=json"
@@ -49,16 +44,12 @@ class MetadataResolver(BaseResolver):
         if result and result.get("count", 0) > 0:
             for status in result.get("results", []):
                 if status.get("name", "").lower() == status_name.lower():
-                    logger.info(
-                        "Resolved status '%s' to UUID %s", status_name, status["id"]
-                    )
+                    logger.info("Resolved status '%s' to UUID %s", status_name, status["id"])
                     return status["id"]
 
-        raise ValueError(
-            f"Status '{status_name}' not found for content type '{content_type}'"
-        )
+        raise ValueError(f"Status '{status_name}' not found for content type '{content_type}'")
 
-    async def resolve_role_id(self, role_name: str) -> Optional[str]:
+    async def resolve_role_id(self, role_name: str) -> str | None:
         """
         Resolve role name to UUID using GraphQL.
 
@@ -99,7 +90,7 @@ class MetadataResolver(BaseResolver):
             logger.error("Error resolving role: %s", e, exc_info=True)
             return None
 
-    async def resolve_platform_id(self, platform_name: str) -> Optional[str]:
+    async def resolve_platform_id(self, platform_name: str) -> str | None:
         """
         Resolve platform name to UUID using GraphQL.
 
@@ -130,9 +121,7 @@ class MetadataResolver(BaseResolver):
             platforms = result.get("data", {}).get("platforms", [])
             if platforms and len(platforms) > 0:
                 platform_id = platforms[0]["id"]
-                logger.info(
-                    "Resolved platform '%s' to UUID %s", platform_name, platform_id
-                )
+                logger.info("Resolved platform '%s' to UUID %s", platform_name, platform_id)
                 return platform_id
 
             logger.warning("Platform not found: %s", platform_name)
@@ -142,7 +131,7 @@ class MetadataResolver(BaseResolver):
             logger.error("Error resolving platform: %s", e, exc_info=True)
             return None
 
-    async def get_platform_name(self, platform_id: str) -> Optional[str]:
+    async def get_platform_name(self, platform_id: str) -> str | None:
         """
         Get platform display name from UUID using REST API.
 
@@ -171,7 +160,7 @@ class MetadataResolver(BaseResolver):
             logger.error("Error fetching platform name: %s", e, exc_info=True)
             return None
 
-    async def resolve_location_id(self, location_name: str) -> Optional[str]:
+    async def resolve_location_id(self, location_name: str) -> str | None:
         """
         Resolve location name to UUID using GraphQL.
 
@@ -202,9 +191,7 @@ class MetadataResolver(BaseResolver):
             locations = result.get("data", {}).get("locations", [])
             if locations and len(locations) > 0:
                 location_id = locations[0]["id"]
-                logger.info(
-                    "Resolved location '%s' to UUID %s", location_name, location_id
-                )
+                logger.info("Resolved location '%s' to UUID %s", location_name, location_id)
                 return location_id
 
             logger.warning("Location not found: %s", location_name)
@@ -214,7 +201,7 @@ class MetadataResolver(BaseResolver):
             logger.error("Error resolving location: %s", e, exc_info=True)
             return None
 
-    async def resolve_secrets_group_id(self, group_name: str) -> Optional[str]:
+    async def resolve_secrets_group_id(self, group_name: str) -> str | None:
         """
         Resolve secrets group name to UUID using GraphQL.
 
@@ -239,17 +226,13 @@ class MetadataResolver(BaseResolver):
             result = await self.nautobot.graphql_query(query, variables)
 
             if "errors" in result:
-                logger.error(
-                    "GraphQL error resolving secrets group: %s", result["errors"]
-                )
+                logger.error("GraphQL error resolving secrets group: %s", result["errors"])
                 return None
 
             groups = result.get("data", {}).get("secrets_groups", [])
             if groups and len(groups) > 0:
                 group_id = groups[0]["id"]
-                logger.info(
-                    "Resolved secrets group '%s' to UUID %s", group_name, group_id
-                )
+                logger.info("Resolved secrets group '%s' to UUID %s", group_name, group_id)
                 return group_id
 
             logger.warning("Secrets group not found: %s", group_name)
@@ -259,9 +242,7 @@ class MetadataResolver(BaseResolver):
             logger.error("Error resolving secrets group: %s", e, exc_info=True)
             return None
 
-    async def resolve_rack_id(
-        self, rack_name: str, location: Optional[str] = None
-    ) -> Optional[str]:
+    async def resolve_rack_id(self, rack_name: str, location: str | None = None) -> str | None:
         """
         Resolve rack name to UUID using REST API.
 
@@ -285,9 +266,7 @@ class MetadataResolver(BaseResolver):
             return rack_name
 
         try:
-            logger.info(
-                "Resolving rack '%s' (location filter: %s)", rack_name, location
-            )
+            logger.info("Resolving rack '%s' (location filter: %s)", rack_name, location)
 
             endpoint = f"dcim/racks/?name={rack_name}&format=json"
             if location:

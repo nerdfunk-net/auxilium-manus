@@ -88,22 +88,15 @@ async def execute(
         return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
 
     content_source = parse_content_source(
-        {
-            "content_source": str(
-                config.get("content_source") or _default_config()["content_source"]
-            )
-        }
+        {"content_source": str(config.get("content_source") or _default_config()["content_source"])}
     )
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
     parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
 
-    match_mode = str(
-        config.get("match_mode") or _default_config()["match_mode"]
-    ).strip().lower()
+    match_mode = str(config.get("match_mode") or _default_config()["match_mode"]).strip().lower()
     if match_mode not in _MATCH_MODES:
         raise ValueError(
-            f"route-on-content: match_mode {match_mode!r} must be one of "
-            f"{sorted(_MATCH_MODES)}"
+            f"route-on-content: match_mode {match_mode!r} must be one of {sorted(_MATCH_MODES)}"
         )
 
     pattern = str(config.get("pattern") or "").strip()

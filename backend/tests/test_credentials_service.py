@@ -44,9 +44,7 @@ class CredentialsServiceTests(unittest.TestCase):
     def test_to_dict_marks_expiring_status(self) -> None:
         db = MagicMock()
         cred_service = CredentialsService(db)
-        credential = _make_credential(
-            valid_until=(date.today() + timedelta(days=3)).isoformat()
-        )
+        credential = _make_credential(valid_until=(date.today() + timedelta(days=3)).isoformat())
 
         result = cred_service._to_dict(credential)
         self.assertEqual(result["status"], "expiring")
@@ -67,9 +65,7 @@ class CredentialsServiceTests(unittest.TestCase):
         cred_service = CredentialsService(db)
         cred_service._repo = MagicMock()
         global_cred = _make_credential(id=1, name="shared", visibility="global")
-        own_private = _make_credential(
-            id=2, name="mine", visibility="private", owner_user_id=42
-        )
+        own_private = _make_credential(id=2, name="mine", visibility="private", owner_user_id=42)
         cred_service._repo.list_visible.return_value = [
             (global_cred, None),
             (own_private, "alice"),
@@ -77,9 +73,7 @@ class CredentialsServiceTests(unittest.TestCase):
 
         result = cred_service.list_credentials(source="general", acting_user_id=42)
 
-        cred_service._repo.list_visible.assert_called_once_with(
-            acting_user_id=42, source="general"
-        )
+        cred_service._repo.list_visible.assert_called_once_with(acting_user_id=42, source="general")
         names = {item["name"] for item in result}
         self.assertEqual(names, {"shared", "mine"})
 
@@ -99,9 +93,7 @@ class CredentialsServiceTests(unittest.TestCase):
             acting_user_id=5,
         )
 
-        cred_service._repo.find_private_conflict.assert_called_once_with(
-            "my-cred", "general", 5
-        )
+        cred_service._repo.find_private_conflict.assert_called_once_with("my-cred", "general", 5)
         _, kwargs = cred_service._repo.create.call_args
         self.assertEqual(kwargs["visibility"], "private")
         self.assertEqual(kwargs["owner_user_id"], 5)
@@ -138,9 +130,7 @@ class CredentialsServiceTests(unittest.TestCase):
             acting_user_id=5,
         )
 
-        cred_service._repo.find_global_conflict.assert_called_once_with(
-            "shared-cred", "general"
-        )
+        cred_service._repo.find_global_conflict.assert_called_once_with("shared-cred", "general")
         cred_service._repo.find_private_conflict.assert_not_called()
         _, kwargs = cred_service._repo.create.call_args
         self.assertIsNone(kwargs["owner_user_id"])
@@ -163,9 +153,7 @@ class CredentialsServiceTests(unittest.TestCase):
             acting_user_id=9,
         )
 
-        cred_service._repo.find_private_conflict.assert_called_once_with(
-            "prod-admin", "general", 9
-        )
+        cred_service._repo.find_private_conflict.assert_called_once_with("prod-admin", "general", 9)
 
     def test_cross_owner_global_name_conflict_raises(self) -> None:
         db = MagicMock()
@@ -194,9 +182,7 @@ class CredentialsServiceTests(unittest.TestCase):
         result = cred_service.get_credential_by_id(123, acting_user_id=99)
 
         self.assertIsNone(result)
-        cred_service._repo.get_by_id_for_user.assert_called_once_with(
-            123, acting_user_id=99
-        )
+        cred_service._repo.get_by_id_for_user.assert_called_once_with(123, acting_user_id=99)
 
     def test_get_decrypted_password_scoped_to_owner(self) -> None:
         db = MagicMock()

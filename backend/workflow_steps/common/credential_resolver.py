@@ -50,14 +50,10 @@ def resolve_ssh_credential(
             f"Credential {reference!r} must be type 'ssh', got {match['type']!r}"
         )
     if match["status"] == "expired":
-        raise CredentialReferenceInvalidError(
-            f"Credential {reference!r} is expired"
-        )
+        raise CredentialReferenceInvalidError(f"Credential {reference!r} is expired")
 
     try:
-        password = service.get_decrypted_password(
-            int(match["id"]), acting_user_id=acting_user_id
-        )
+        password = service.get_decrypted_password(int(match["id"]), acting_user_id=acting_user_id)
     except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
         raise CredentialReferenceInvalidError(
             f"Credential {reference!r} has no decryptable password"

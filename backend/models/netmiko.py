@@ -10,13 +10,9 @@ from pydantic import BaseModel, Field
 class NetmikoRunCommandsRequest(BaseModel):
     host: str = Field(..., min_length=1, description="Device IP address or hostname")
     platform: str | None = Field(default=None, description="Nautobot platform name")
-    network_driver: str | None = Field(
-        default=None, description="Nautobot platform network driver"
-    )
+    network_driver: str | None = Field(default=None, description="Nautobot platform network driver")
     credential_id: int = Field(..., description="Stored SSH credential ID")
-    commands: list[str] = Field(
-        ..., min_length=1, description="Commands to execute, in order"
-    )
+    commands: list[str] = Field(..., min_length=1, description="Commands to execute, in order")
     use_textfsm: bool = Field(
         default=False,
         description="Parse each command's output with TextFSM when a template exists",
@@ -42,9 +38,7 @@ class NetmikoRunCommandsResponse(BaseModel):
 class NetmikoGetConfigsRequest(BaseModel):
     host: str = Field(..., min_length=1, description="Device IP address or hostname")
     platform: str | None = Field(default=None, description="Nautobot platform name")
-    network_driver: str | None = Field(
-        default=None, description="Nautobot platform network driver"
-    )
+    network_driver: str | None = Field(default=None, description="Nautobot platform network driver")
     credential_id: int = Field(..., description="Stored SSH credential ID")
 
 

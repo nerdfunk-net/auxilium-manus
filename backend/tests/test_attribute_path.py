@@ -193,9 +193,7 @@ class FilterSegmentTests(unittest.TestCase):
     def test_resolve_device_value_reaches_scalar_field_after_filter(self) -> None:
         device = self._device()
         self.assertEqual(
-            resolve_device_value(
-                device, "parsed.cisco_config.access_lists[name=TRAFFIC_in].type"
-            ),
+            resolve_device_value(device, "parsed.cisco_config.access_lists[name=TRAFFIC_in].type"),
             "extended",
         )
 
@@ -254,9 +252,7 @@ class FilterSegmentTests(unittest.TestCase):
             hostname="lab",
             parsed={"cisco_config": {"hostname": "router1"}},
         )
-        self.assertIsNone(
-            resolve_device_value(device, "parsed.cisco_config.hostname[name=x].y")
-        )
+        self.assertIsNone(resolve_device_value(device, "parsed.cisco_config.hostname[name=x].y"))
 
 
 class AttributeStateTests(unittest.TestCase):

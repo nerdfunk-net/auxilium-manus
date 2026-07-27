@@ -275,8 +275,7 @@ class GitDebugService:
                     "error": "Push requires authentication credentials",
                     "error_type": "AuthenticationRequired",
                     "suggestion": (
-                        "Configure a token credential for this repository"
-                        " to enable push operations"
+                        "Configure a token credential for this repository to enable push operations"
                     ),
                 },
             }
@@ -288,8 +287,7 @@ class GitDebugService:
                     "error": "Push requires authentication",
                     "error_type": "AuthenticationRequired",
                     "suggestion": (
-                        "Set authentication type to 'Token' or 'SSH Key'"
-                        " to enable push operations"
+                        "Set authentication type to 'Token' or 'SSH Key' to enable push operations"
                     ),
                 },
             }
@@ -382,8 +380,8 @@ class GitDebugService:
                                             "error_type": "PushError",
                                             "commit_sha": commit_sha,
                                             "suggestion": (
-                                "Check repository permissions and credentials"
-                            ),
+                                                "Check repository permissions and credentials"
+                                            ),
                                         },
                                     }
                                 return {

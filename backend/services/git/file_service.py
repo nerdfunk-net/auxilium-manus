@@ -5,12 +5,14 @@ from __future__ import annotations
 import fnmatch
 import logging
 import os
-from typing import Any, Dict, Optional
+import uuid
+from typing import Any
 
 import yaml
 from fastapi import HTTPException, status
 from git import GitCommandError, InvalidGitRepositoryError
 
+from core.safe_http_errors import raise_internal_server_error
 from services.git.paths import repo_path as git_repo_path
 from services.git.shared_utils import get_git_repo_by_id, git_repo_manager
 
@@ -25,7 +27,7 @@ class GitFileService:
         repo_id: int,
         query: str = "",
         limit: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Scan directory, filter by query, sort by relevance, paginate."""
         try:
             repository = git_repo_manager.get_repository(repo_id)
@@ -124,15 +126,25 @@ class GitFileService:
 
         except HTTPException:
             raise
-        except Exception as e:
-            logger.error("Error searching repository files: %s", e)
-            return {"success": False, "message": "File search failed: %s" % str(e)}
+        except Exception:
+            error_id = str(uuid.uuid4())
+            logger.error(
+                "Error searching repository files (error_id=%s)",
+                error_id,
+                exc_info=True,
+                extra={"error_id": error_id},
+            )
+            return {
+                "success": False,
+                "message": "File search failed",
+                "error_id": error_id,
+            }
 
     def get_commit_files(
         self,
         repo_id: int,
         commit_hash: str,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
     ) -> Any:
         """List files in a commit, or return single file content when file_path given."""
         try:
@@ -141,9 +153,7 @@ class GitFileService:
 
             if file_path:
                 try:
-                    file_content = (
-                        (commit.tree / file_path).data_stream.read().decode("utf-8")
-                    )
+                    file_content = (commit.tree / file_path).data_stream.read().decode("utf-8")
                     return {
                         "file_path": file_path,
                         "content": file_content,
@@ -152,8 +162,7 @@ class GitFileService:
                 except KeyError:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail="File '%s' not found in commit %s"
-                        % (file_path, commit_hash[:8]),
+                        detail=f"File '{file_path}' not found in commit {commit_hash[:8]}",
                     ) from None
 
             files = []
@@ -164,21 +173,18 @@ class GitFileService:
             from config import settings
 
             config_extensions = settings.allowed_file_extensions
-            config_files = [
-                f for f in files if any(f.endswith(ext) for ext in config_extensions)
-            ]
+            config_files = [f for f in files if any(f.endswith(ext) for ext in config_extensions)]
             return sorted(config_files)
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get files: %s" % str(e),
-            ) from e
+            raise_internal_server_error(logger, "Failed to get files", e)
 
     def get_file_last_commit(
         self,
         repo_id: int,
         file_path: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return the most recent commit metadata for a file."""
         try:
             repo = get_git_repo_by_id(repo_id)
@@ -187,7 +193,7 @@ class GitFileService:
             if not commits:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No commits found for file: %s" % file_path,
+                    detail=f"No commits found for file: {file_path}",
                 )
 
             last_commit = commits[0]
@@ -221,26 +227,23 @@ class GitFileService:
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get file history: %s" % str(e),
-            ) from e
+            raise_internal_server_error(logger, "Failed to get file history", e)
 
     def get_file_history(
         self,
         repo_id: int,
         file_path: str,
-        from_commit: Optional[str] = None,
+        from_commit: str | None = None,
         cache_service=None,
         cache_enabled: bool = True,
         cache_ttl: int = 600,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return full commit chain for a file back to its creation."""
         try:
             repo = get_git_repo_by_id(repo_id)
 
-            repo_scope = "repo:%s" % repo_id
-            cache_key = "%s:filehistory:%s:%s" % (
+            repo_scope = f"repo:{repo_id}"
+            cache_key = "{}:filehistory:{}:{}".format(
                 repo_scope,
                 from_commit or "HEAD",
                 file_path,
@@ -261,12 +264,12 @@ class GitFileService:
                     if not commits:
                         raise HTTPException(
                             status_code=status.HTTP_404_NOT_FOUND,
-                            detail="No commits found for file: %s" % file_path,
+                            detail=f"No commits found for file: {file_path}",
                         )
                 except (KeyError, AttributeError):
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail="File not found: %s" % file_path,
+                        detail=f"File not found: {file_path}",
                     ) from None
 
             history_commits = []
@@ -343,19 +346,16 @@ class GitFileService:
         except (InvalidGitRepositoryError, GitCommandError) as e:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Git repository not found or commit not found: %s" % str(e),
+                detail=f"Git repository not found or commit not found: {str(e)}",
             ) from e
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Git file complete history error: %s" % str(e),
-            ) from e
+            raise_internal_server_error(logger, "Git file complete history error", e)
 
     def get_file_content(
         self,
         repo_id: int,
         path: str,
-        username: Optional[str] = None,
+        username: str | None = None,
     ) -> str:
         """Return raw file content at HEAD (working directory)."""
         try:
@@ -368,7 +368,7 @@ class GitFileService:
             if not os.path.exists(repo_path):
                 raise HTTPException(
                     status_code=404,
-                    detail="Repository directory not found: %s" % repo_path,
+                    detail=f"Repository directory not found: {repo_path}",
                 )
 
             file_path = os.path.join(repo_path, path)
@@ -384,13 +384,13 @@ class GitFileService:
             if not os.path.exists(file_path_resolved):
                 raise HTTPException(
                     status_code=404,
-                    detail="File not found: %s" % path,
+                    detail=f"File not found: {path}",
                 )
 
             if not os.path.isfile(file_path_resolved):
                 raise HTTPException(
                     status_code=400,
-                    detail="Path is not a file: %s" % path,
+                    detail=f"Path is not a file: {path}",
                 )
 
             try:
@@ -399,7 +399,7 @@ class GitFileService:
             except UnicodeDecodeError:
                 raise HTTPException(
                     status_code=400,
-                    detail="File is not a text file: %s" % path,
+                    detail=f"File is not a text file: {path}",
                 ) from None
 
             if username:
@@ -415,18 +415,14 @@ class GitFileService:
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("Error reading file content: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error reading file content: %s" % str(e),
-            ) from e
+            raise_internal_server_error(logger, "Error reading file content", e)
 
     def get_file_content_parsed(
         self,
         repo_id: int,
         path: str,
-        username: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        username: str | None = None,
+    ) -> dict[str, Any]:
         """Return file content and its parsed representation (YAML)."""
         try:
             repository = git_repo_manager.get_repository(repo_id)
@@ -452,12 +448,10 @@ class GitFileService:
                 )
 
             if not os.path.exists(file_path_resolved):
-                raise HTTPException(status_code=404, detail="File not found: %s" % path)
+                raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
             if not os.path.isfile(file_path_resolved):
-                raise HTTPException(
-                    status_code=400, detail="Path is not a file: %s" % path
-                )
+                raise HTTPException(status_code=400, detail=f"Path is not a file: {path}")
 
             try:
                 with open(file_path_resolved, encoding="utf-8") as f:
@@ -465,7 +459,7 @@ class GitFileService:
             except UnicodeDecodeError:
                 raise HTTPException(
                     status_code=400,
-                    detail="File is not a text file: %s" % path,
+                    detail=f"File is not a text file: {path}",
                 ) from None
 
             try:
@@ -473,7 +467,7 @@ class GitFileService:
             except yaml.YAMLError as e:
                 raise HTTPException(
                     status_code=400,
-                    detail="YAML parse error: %s" % str(e),
+                    detail=f"YAML parse error: {str(e)}",
                 ) from e
 
             if username:
@@ -489,17 +483,13 @@ class GitFileService:
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("Error parsing YAML file content: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error parsing file content: %s" % str(e),
-            ) from e
+            raise_internal_server_error(logger, "Error parsing file content", e)
 
     def get_directory_tree(
         self,
         repo_id: int,
         path: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return nested directory tree for a commit."""
         try:
             repository = git_repo_manager.get_repository(repo_id)
@@ -530,13 +520,13 @@ class GitFileService:
             if not os.path.exists(target_path_resolved):
                 raise HTTPException(
                     status_code=404,
-                    detail="Path not found: %s" % path,
+                    detail=f"Path not found: {path}",
                 )
 
             if not os.path.isdir(target_path_resolved):
                 raise HTTPException(
                     status_code=400,
-                    detail="Path is not a directory: %s" % path,
+                    detail=f"Path is not a directory: {path}",
                 )
 
             def build_tree(dir_path: str, rel_path: str = "") -> dict:
@@ -545,9 +535,7 @@ class GitFileService:
                 try:
                     items = os.listdir(dir_path)
                 except PermissionError:
-                    logger.warning(
-                        "Permission denied accessing directory: %s", dir_path
-                    )
+                    logger.warning("Permission denied accessing directory: %s", dir_path)
                     return None
 
                 dirs = []
@@ -597,17 +585,13 @@ class GitFileService:
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("Error building directory tree: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error building directory tree: %s" % str(e),
-            ) from e
+            raise_internal_server_error(logger, "Error building directory tree", e)
 
     def get_directory_files(
         self,
         repo_id: int,
         path: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return flat list of files in a specific directory."""
         try:
             repository = git_repo_manager.get_repository(repo_id)
@@ -644,7 +628,7 @@ class GitFileService:
             if not os.path.isdir(target_path_resolved):
                 raise HTTPException(
                     status_code=400,
-                    detail="Path is not a directory: %s" % path,
+                    detail=f"Path is not a directory: {path}",
                 )
 
             files_data = []
@@ -683,9 +667,7 @@ class GitFileService:
                                 "email": last_commit.author.email,
                             },
                             "date": last_commit.committed_datetime.isoformat(),
-                            "timestamp": int(
-                                last_commit.committed_datetime.timestamp()
-                            ),
+                            "timestamp": int(last_commit.committed_datetime.timestamp()),
                         }
                     else:
                         commit_info = {
@@ -697,9 +679,7 @@ class GitFileService:
                             "timestamp": 0,
                         }
                 except Exception as e:
-                    logger.warning(
-                        "Failed to get commit info for %s: %s", file_rel_path, e
-                    )
+                    logger.warning("Failed to get commit info for %s: %s", file_rel_path, e)
                     commit_info = {
                         "hash": "",
                         "short_hash": "",
@@ -729,8 +709,4 @@ class GitFileService:
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("Error listing directory files: %s", e)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error listing directory files: %s" % str(e),
-            ) from e
+            raise_internal_server_error(logger, "Error listing directory files", e)

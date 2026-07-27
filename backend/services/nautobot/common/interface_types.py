@@ -1,9 +1,8 @@
 import logging
-from typing import List
 
 logger = logging.getLogger(__name__)
 
-VALID_INTERFACE_TYPES: List[str] = [
+VALID_INTERFACE_TYPES: list[str] = [
     "virtual",
     "bridge",
     "lag",
@@ -161,9 +160,7 @@ def normalize_interface_type(interface_type: str) -> str:
 
     for valid_type in VALID_INTERFACE_TYPES:
         if valid_type in normalized_input:
-            logger.debug(
-                "Normalized interface type: %s -> %s", interface_type, valid_type
-            )
+            logger.debug("Normalized interface type: %s -> %s", interface_type, valid_type)
             return valid_type
 
     logger.warning("Unknown interface type '%s', defaulting to 'other'", interface_type)

@@ -54,9 +54,7 @@ def _normalize_device_entries(raw_devices: Any) -> list[_DeviceEntry]:
             continue
 
         if ip_address is not None and not validate_ip_address(ip_address):
-            raise ValueError(
-                f"get-from-list: invalid IP address '{ip_address}' (row {index + 1})"
-            )
+            raise ValueError(f"get-from-list: invalid IP address '{ip_address}' (row {index + 1})")
 
         key = (name.casefold() if name else None, ip_address)
         if key in seen:

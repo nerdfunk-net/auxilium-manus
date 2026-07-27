@@ -59,9 +59,7 @@ class ISENetworkDeviceGroupService:
             f"{_ENDPOINT}/{group_id}", self._credentials, method="GET"
         )
 
-    async def create_root_group(
-        self, *, name: str, description: str | None
-    ) -> dict[str, Any]:
+    async def create_root_group(self, *, name: str, description: str | None) -> dict[str, Any]:
         """Create a brand-new group category (e.g. a new root like ``nautobot``)."""
         full_name = f"{name}#{name}"
         payload: dict[str, Any] = {"name": full_name, "othername": name}

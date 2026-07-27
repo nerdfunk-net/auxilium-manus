@@ -145,9 +145,7 @@ class TemplatesService:
         if pre_run_use_textfsm is not None:
             updates["pre_run_use_textfsm"] = pre_run_use_textfsm
         if nautobot_attributes is not None:
-            updates["nautobot_attributes"] = json.dumps(
-                _clean_attributes(nautobot_attributes)
-            )
+            updates["nautobot_attributes"] = json.dumps(_clean_attributes(nautobot_attributes))
         if credential_id is not None:
             updates["credential_id"] = credential_id
 
@@ -163,9 +161,7 @@ class TemplatesService:
             self._repo.delete(template)
         else:
             self._repo.update(template, is_active=False)
-        logger.info(
-            "Template %s %s", template_id, "deleted" if hard_delete else "deactivated"
-        )
+        logger.info("Template %s %s", template_id, "deleted" if hard_delete else "deactivated")
 
     # ------------------------------------------------------------------
     # Render

@@ -3,7 +3,6 @@ Device resolver for device and device-related entity resolution.
 """
 
 import logging
-from typing import Optional, Tuple
 
 from ..common.validators import is_valid_uuid
 from .base_resolver import BaseResolver
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 class DeviceResolver(BaseResolver):
     """Resolver for device and device-related entities."""
 
-    async def resolve_device_by_name(self, device_name: str) -> Optional[str]:
+    async def resolve_device_by_name(self, device_name: str) -> str | None:
         """
         Resolve device UUID from device name using GraphQL.
 
@@ -39,9 +38,7 @@ class DeviceResolver(BaseResolver):
             result = await self.nautobot.graphql_query(query, variables)
 
             if "errors" in result:
-                logger.error(
-                    "GraphQL error looking up device by name: %s", result["errors"]
-                )
+                logger.error("GraphQL error looking up device by name: %s", result["errors"])
                 return None
 
             devices = result.get("data", {}).get("devices", [])
@@ -57,7 +54,7 @@ class DeviceResolver(BaseResolver):
             logger.error("Error resolving device by name: %s", e, exc_info=True)
             return None
 
-    async def resolve_device_by_ip(self, ip_address: str) -> Optional[str]:
+    async def resolve_device_by_ip(self, ip_address: str) -> str | None:
         """
         Resolve device UUID from primary IPv4 address using GraphQL.
 
@@ -90,9 +87,7 @@ class DeviceResolver(BaseResolver):
             result = await self.nautobot.graphql_query(query, variables)
 
             if "errors" in result:
-                logger.error(
-                    "GraphQL error looking up IP address: %s", result["errors"]
-                )
+                logger.error("GraphQL error looking up IP address: %s", result["errors"])
                 return None
 
             ip_addresses = result.get("data", {}).get("ip_addresses", [])
@@ -105,9 +100,7 @@ class DeviceResolver(BaseResolver):
             devices = ip_obj.get("primary_ip4_for")
 
             if not devices:
-                logger.warning(
-                    "IP address %s is not set as primary IP for any device", ip_address
-                )
+                logger.warning("IP address %s is not set as primary IP for any device", ip_address)
                 return None
 
             # primary_ip4_for can be a list or a single device
@@ -124,9 +117,7 @@ class DeviceResolver(BaseResolver):
 
             device_id = device.get("id")
             device_name = device.get("name")
-            logger.info(
-                "Found device by IP '%s': %s (%s)", ip_address, device_name, device_id
-            )
+            logger.info("Found device by IP '%s': %s (%s)", ip_address, device_name, device_id)
             return device_id
 
         except Exception as e:
@@ -135,11 +126,11 @@ class DeviceResolver(BaseResolver):
 
     async def resolve_device_id(
         self,
-        device_id: Optional[str] = None,
-        device_name: Optional[str] = None,
-        ip_address: Optional[str] = None,
+        device_id: str | None = None,
+        device_name: str | None = None,
+        ip_address: str | None = None,
         matching_strategy: str = "exact",
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Resolve device UUID from any available identifier.
 
@@ -186,7 +177,7 @@ class DeviceResolver(BaseResolver):
         logger.error("Could not resolve device ID from any identifier")
         return None
 
-    async def resolve_device_by_name_contains(self, device_name: str) -> Optional[str]:
+    async def resolve_device_by_name_contains(self, device_name: str) -> str | None:
         """
         Resolve device UUID by searching for devices whose name *contains* the given string.
 
@@ -244,14 +235,10 @@ class DeviceResolver(BaseResolver):
             return device_id
 
         except Exception as e:
-            logger.error(
-                "Error resolving device by name (contains): %s", e, exc_info=True
-            )
+            logger.error("Error resolving device by name (contains): %s", e, exc_info=True)
             return None
 
-    async def resolve_device_by_name_starts_with(
-        self, device_name: str
-    ) -> Optional[str]:
+    async def resolve_device_by_name_starts_with(self, device_name: str) -> str | None:
         """
         Resolve device UUID by searching for devices whose name *starts with* the given string.
 
@@ -287,9 +274,7 @@ class DeviceResolver(BaseResolver):
 
             devices = result.get("data", {}).get("devices", [])
             if not devices:
-                logger.warning(
-                    "No device found whose name starts with: %s", device_name
-                )
+                logger.warning("No device found whose name starts with: %s", device_name)
                 return None
 
             if len(devices) > 1:
@@ -311,14 +296,12 @@ class DeviceResolver(BaseResolver):
             return device_id
 
         except Exception as e:
-            logger.error(
-                "Error resolving device by name (starts_with): %s", e, exc_info=True
-            )
+            logger.error("Error resolving device by name (starts_with): %s", e, exc_info=True)
             return None
 
     async def resolve_device_type_id(
-        self, model: str, manufacturer: Optional[str] = None
-    ) -> Optional[str]:
+        self, model: str, manufacturer: str | None = None
+    ) -> str | None:
         """
         Resolve device type (model) to UUID using GraphQL.
 
@@ -367,9 +350,7 @@ class DeviceResolver(BaseResolver):
             result = await self.nautobot.graphql_query(query, variables)
 
             if "errors" in result:
-                logger.error(
-                    "GraphQL error resolving device type: %s", result["errors"]
-                )
+                logger.error("GraphQL error resolving device type: %s", result["errors"])
                 return None
 
             device_types = result.get("data", {}).get("device_types", [])
@@ -392,7 +373,7 @@ class DeviceResolver(BaseResolver):
             logger.error("Error resolving device type: %s", e, exc_info=True)
             return None
 
-    async def get_device_type_display(self, device_type_id: str) -> Optional[str]:
+    async def get_device_type_display(self, device_type_id: str) -> str | None:
         """
         Get device type display name from UUID using REST API.
 
@@ -429,7 +410,7 @@ class DeviceResolver(BaseResolver):
 
     async def find_interface_with_ip(
         self, device_name: str, ip_address: str
-    ) -> Optional[Tuple[str, str]]:
+    ) -> tuple[str, str] | None:
         """
         Find the interface that currently has a specific IP address on a device.
 
@@ -441,9 +422,7 @@ class DeviceResolver(BaseResolver):
             Tuple of (interface_id, interface_name) if found, None otherwise
         """
         try:
-            logger.info(
-                "Finding interface with IP %s on device %s", ip_address, device_name
-            )
+            logger.info("Finding interface with IP %s on device %s", ip_address, device_name)
 
             query = """
             query ($filter_device: [String], $filter_address: [String]) {
@@ -465,9 +444,7 @@ class DeviceResolver(BaseResolver):
             result = await self.nautobot.graphql_query(query, variables)
 
             if "errors" in result:
-                logger.error(
-                    "GraphQL error finding interface with IP: %s", result["errors"]
-                )
+                logger.error("GraphQL error finding interface with IP: %s", result["errors"])
                 return None
 
             devices = result.get("data", {}).get("devices", [])

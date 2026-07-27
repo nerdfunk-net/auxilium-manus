@@ -19,11 +19,10 @@ class GitSourceLoaderTests(unittest.TestCase):
             "repository_path": "configs",
         }
 
-        with patch(
-            "workflow_steps.common.git_source_loader.get_db_session"
-        ) as session_factory, patch(
-            "workflow_steps.common.git_source_loader.SettingsRepository"
-        ) as repo_cls:
+        with (
+            patch("workflow_steps.common.git_source_loader.get_db_session") as session_factory,
+            patch("workflow_steps.common.git_source_loader.SettingsRepository") as repo_cls,
+        ):
             session = MagicMock()
             session_factory.return_value = session
             repo_cls.return_value.get_by_key.return_value = setting
@@ -45,11 +44,10 @@ class GitSourceLoaderTests(unittest.TestCase):
             "verify_ssl": False,
         }
 
-        with patch(
-            "workflow_steps.common.git_source_loader.get_db_session"
-        ) as session_factory, patch(
-            "workflow_steps.common.git_source_loader.SettingsRepository"
-        ) as repo_cls:
+        with (
+            patch("workflow_steps.common.git_source_loader.get_db_session") as session_factory,
+            patch("workflow_steps.common.git_source_loader.SettingsRepository") as repo_cls,
+        ):
             session_factory.return_value = MagicMock()
             repo_cls.return_value.get_by_key.return_value = setting
 
@@ -58,11 +56,10 @@ class GitSourceLoaderTests(unittest.TestCase):
         self.assertFalse(repository["verify_ssl"])
 
     def test_missing_setting_raises(self) -> None:
-        with patch(
-            "workflow_steps.common.git_source_loader.get_db_session"
-        ) as session_factory, patch(
-            "workflow_steps.common.git_source_loader.SettingsRepository"
-        ) as repo_cls:
+        with (
+            patch("workflow_steps.common.git_source_loader.get_db_session") as session_factory,
+            patch("workflow_steps.common.git_source_loader.SettingsRepository") as repo_cls,
+        ):
             session_factory.return_value = MagicMock()
             repo_cls.return_value.get_by_key.return_value = None
 

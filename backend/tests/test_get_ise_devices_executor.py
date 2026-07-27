@@ -285,9 +285,14 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         p1, p2, p3 = _patches(device_service)
-        with p1, p2, p3, patch(
-            "workflow_steps.get_ise_devices.executor._build_nautobot_source_service",
-            return_value=nautobot_service,
+        with (
+            p1,
+            p2,
+            p3,
+            patch(
+                "workflow_steps.get_ise_devices.executor._build_nautobot_source_service",
+                return_value=nautobot_service,
+            ),
         ):
             outcomes = await execute(
                 config={
@@ -330,12 +335,16 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         nautobot_service = MagicMock()
         nautobot_service.preview_inventory = AsyncMock(return_value=([], 1))
         p1, p2, p3 = _patches(device_service)
-        with p1, p2, p3, patch(
-            "workflow_steps.get_ise_devices.executor._build_nautobot_source_service",
-            return_value=nautobot_service,
-        ), self.assertLogs(
-            "workflow_steps.get_ise_devices.executor", level="WARNING"
-        ) as logs:
+        with (
+            p1,
+            p2,
+            p3,
+            patch(
+                "workflow_steps.get_ise_devices.executor._build_nautobot_source_service",
+                return_value=nautobot_service,
+            ),
+            self.assertLogs("workflow_steps.get_ise_devices.executor", level="WARNING") as logs,
+        ):
             outcomes = await execute(
                 config={
                     "ise_source_id": "lab-ise",
@@ -359,15 +368,19 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         device_service = MagicMock()
         source_config_service = MagicMock()
         source_config_service.resolve_credentials.side_effect = ISESourceNotFoundError("missing")
-        with patch(
-            "workflow_steps.get_ise_devices.executor.object_session",
-            return_value=MagicMock(),
-        ), patch(
-            "service_factory.build_ise_source_config_service",
-            return_value=source_config_service,
-        ), patch(
-            "service_factory.build_ise_network_device_service",
-            return_value=device_service,
+        with (
+            patch(
+                "workflow_steps.get_ise_devices.executor.object_session",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "service_factory.build_ise_source_config_service",
+                return_value=source_config_service,
+            ),
+            patch(
+                "service_factory.build_ise_network_device_service",
+                return_value=device_service,
+            ),
         ):
             with self.assertRaises(ValueError):
                 await execute(

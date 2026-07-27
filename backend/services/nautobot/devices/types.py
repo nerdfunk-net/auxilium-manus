@@ -6,7 +6,7 @@ These Pydantic models provide type safety and validation for device update workf
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -18,13 +18,13 @@ class DeviceIdentifier(BaseModel):
     At least one of the fields must be provided to identify a device.
     """
 
-    id: Optional[str] = Field(None, description="Device UUID")
-    name: Optional[str] = Field(None, description="Device name")
-    ip_address: Optional[str] = Field(None, description="Primary IPv4 address")
+    id: str | None = Field(None, description="Device UUID")
+    name: str | None = Field(None, description="Device name")
+    ip_address: str | None = Field(None, description="Primary IPv4 address")
 
     @field_validator("id", "name", "ip_address")
     @classmethod
-    def validate_not_empty(cls, v: Optional[str]) -> Optional[str]:
+    def validate_not_empty(cls, v: str | None) -> str | None:
         """Ensure string values are not empty."""
         if v is not None and isinstance(v, str) and not v.strip():
             return None
@@ -71,28 +71,26 @@ class InterfaceSpec(BaseModel):
     name: str = Field(..., description="Interface name")
     type: str = Field(..., description="Interface type (e.g., '1000base-t', 'virtual')")
     status: str = Field(default="active", description="Interface status")
-    ip_address: Optional[str] = Field(
+    ip_address: str | None = Field(
         None, description="IP address with prefix (e.g., '192.168.1.1/24')"
     )
-    namespace: Optional[str] = Field(
+    namespace: str | None = Field(
         default="Global", description="IP namespace (required if ip_address provided)"
     )
     is_primary_ipv4: bool = Field(
         default=False, description="Set this IP as primary IPv4 for the device"
     )
-    enabled: Optional[bool] = Field(None, description="Interface enabled state")
-    mgmt_only: Optional[bool] = Field(None, description="Mark interface as management only")
-    description: Optional[str] = Field(None, description="Interface description")
-    mac_address: Optional[str] = Field(None, description="MAC address")
-    mtu: Optional[int] = Field(None, description="MTU size")
-    mode: Optional[str] = Field(None, description="Interface mode")
-    ip_role: Optional[str] = Field(
-        None, description="IP address role (e.g., 'Secondary', 'Anycast')"
-    )
+    enabled: bool | None = Field(None, description="Interface enabled state")
+    mgmt_only: bool | None = Field(None, description="Mark interface as management only")
+    description: str | None = Field(None, description="Interface description")
+    mac_address: str | None = Field(None, description="MAC address")
+    mtu: int | None = Field(None, description="MTU size")
+    mode: str | None = Field(None, description="Interface mode")
+    ip_role: str | None = Field(None, description="IP address role (e.g., 'Secondary', 'Anycast')")
 
     @field_validator("namespace")
     @classmethod
-    def validate_namespace_with_ip(cls, v: Optional[str], info) -> Optional[str]:
+    def validate_namespace_with_ip(cls, v: str | None, info) -> str | None:
         """Ensure namespace is provided when ip_address is specified."""
         if info.data.get("ip_address") and not v:
             raise ValueError("namespace is required when ip_address is provided")
@@ -103,7 +101,7 @@ class DeviceUpdateResult(BaseModel):
     """Result of a device update operation."""
 
     success: bool = Field(..., description="Whether the update succeeded")
-    device_id: Optional[str] = Field(None, description="Device UUID")
+    device_id: str | None = Field(None, description="Device UUID")
     device_name: str = Field(..., description="Device name")
     message: str = Field(..., description="Human-readable status message")
     updated_fields: list[str] = Field(
@@ -115,7 +113,7 @@ class DeviceUpdateResult(BaseModel):
     interfaces_failed: int = Field(
         default=0, description="Number of interface operations that failed"
     )
-    details: Dict[str, Any] = Field(
+    details: dict[str, Any] = Field(
         default_factory=dict,
         description="Detailed information about the update (before/after/changes)",
     )
@@ -133,7 +131,7 @@ class InterfaceUpdateResult(BaseModel):
         default=0, description="Number of interfaces deleted during sync"
     )
     ip_addresses_created: int = Field(default=0, description="Number of IP addresses created")
-    primary_ip4_id: Optional[str] = Field(None, description="Primary IPv4 ID if set")
+    primary_ip4_id: str | None = Field(None, description="Primary IPv4 ID if set")
     warnings: list[str] = Field(default_factory=list, description="List of warning messages")
 
 
@@ -151,18 +149,18 @@ class AddDeviceRequest(BaseModel):
     location: str = Field(..., description="Location name or UUID")
     device_type: str = Field(..., description="Device type model or UUID")
 
-    platform: Optional[str] = Field(None, description="Platform name or UUID")
-    software_version: Optional[str] = Field(None, description="Software version")
-    serial: Optional[str] = Field(None, description="Serial number")
-    asset_tag: Optional[str] = Field(None, description="Asset tag")
-    tags: Optional[list[str]] = Field(None, description="Tag names or UUIDs")
-    custom_fields: Optional[Dict[str, str]] = Field(None, description="Custom field values")
+    platform: str | None = Field(None, description="Platform name or UUID")
+    software_version: str | None = Field(None, description="Software version")
+    serial: str | None = Field(None, description="Serial number")
+    asset_tag: str | None = Field(None, description="Asset tag")
+    tags: list[str] | None = Field(None, description="Tag names or UUIDs")
+    custom_fields: dict[str, str] | None = Field(None, description="Custom field values")
 
-    rack: Optional[str] = Field(None, description="Rack name or UUID")
-    face: Optional[str] = Field(None, description="Rack face: front or rear")
-    position: Optional[int] = Field(None, description="Rack U position")
+    rack: str | None = Field(None, description="Rack name or UUID")
+    face: str | None = Field(None, description="Rack face: front or rear")
+    position: int | None = Field(None, description="Rack U position")
 
-    interfaces: list[Dict[str, Any]] = Field(
+    interfaces: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Interfaces to create, same shape as DeviceUpdateService interfaces",
     )
@@ -171,10 +169,10 @@ class AddDeviceRequest(BaseModel):
         default="/24", description="Default prefix length for bare IP addresses"
     )
 
-    virtual_chassis_id: Optional[str] = Field(
+    virtual_chassis_id: str | None = Field(
         None, description="Existing virtual chassis UUID to join"
     )
-    new_virtual_chassis_name: Optional[str] = Field(
+    new_virtual_chassis_name: str | None = Field(
         None,
         description="Create a new virtual chassis with this name; device becomes master",
     )

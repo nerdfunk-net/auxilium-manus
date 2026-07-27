@@ -70,9 +70,7 @@ class TestPrimaryPrefixQuery(unittest.IsolatedAsyncioTestCase):
         graphql_query = AsyncMock(return_value=_graphql_response([]))
         query_service = _query_service(graphql_query)
 
-        await query_service._query_devices_by_primary_prefix(
-            "10.0.0.0/24", "within_include"
-        )
+        await query_service._query_devices_by_primary_prefix("10.0.0.0/24", "within_include")
 
         query_arg = graphql_query.call_args[0][0]
         self.assertIn('prefix: "10.0.0.0/24"', query_arg)
@@ -108,9 +106,7 @@ class TestPrimaryPrefixEvaluator(unittest.IsolatedAsyncioTestCase):
             value="192.168.178.0/30",
         )
 
-        device_ids, op_count, devices_dict = await evaluator._execute_condition(
-            condition
-        )
+        device_ids, op_count, devices_dict = await evaluator._execute_condition(condition)
 
         self.assertEqual(device_ids, {"dev-1"})
         self.assertEqual(op_count, 1)

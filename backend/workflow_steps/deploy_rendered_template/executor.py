@@ -227,8 +227,7 @@ async def execute(
             summary = f"{len(commands)} line(s) deployed ({execution_mode})"
             if result.confirmed_prompts:
                 summary += (
-                    f" · {len(result.confirmed_prompts)} confirmation prompt(s) "
-                    "auto-confirmed"
+                    f" · {len(result.confirmed_prompts)} confirmation prompt(s) auto-confirmed"
                 )
             step_results.append(
                 CommandResult(

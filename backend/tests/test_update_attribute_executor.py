@@ -183,7 +183,6 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve_device_attribute(updated, "custom.location"), "DC-l123")
         self.assertEqual(outcomes[0].context.metadata["node-1.updated_count"], 1)
 
-
     async def test_fixed_mode_writing_known_secret_path_is_sealed(self) -> None:
         run = MagicMock()
         context = WorkflowContext(

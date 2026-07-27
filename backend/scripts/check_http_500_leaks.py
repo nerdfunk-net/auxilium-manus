@@ -28,17 +28,13 @@ from pathlib import Path
 # Relative to ``backend/`` — must remain empty once the sweep is complete.
 ALLOW_LIST: set[str] = set()
 
-_STATUS_5XX = re.compile(
-    r"(?:status\s*\.\s*)?HTTP_5\d\d(?:_[A-Z_]+)?\b|status_code\s*=\s*5\d\d\b"
-)
+_STATUS_5XX = re.compile(r"(?:status\s*\.\s*)?HTTP_5\d\d(?:_[A-Z_]+)?\b|status_code\s*=\s*5\d\d\b")
 
 _LEAK_PATTERNS = (
     re.compile(r"detail\s*=\s*str\s*\(", re.I),
     re.compile(r"detail\s*=\s*error_msg\b"),
     re.compile(r"detail\s*=\s*f[\"'][^\"']*\{(?:e|exc|error)\}[^\"']*[\"']"),
-    re.compile(
-        r"detail\s*=\s*f[\"'][^\"']*\{str\s*\(\s*(?:e|exc|error)\s*\)\}[^\"']*[\"']"
-    ),
+    re.compile(r"detail\s*=\s*f[\"'][^\"']*\{str\s*\(\s*(?:e|exc|error)\s*\)\}[^\"']*[\"']"),
     # Catch dict lookups forwarding external/agent error strings into 5xx detail
     re.compile(r"detail\s*=\s*\w+\.get\s*\("),
     re.compile(r'detail\s*=\s*\w+\s*\[\s*["\']'),

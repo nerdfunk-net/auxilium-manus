@@ -9,7 +9,7 @@ by DeviceUpdateService and other services that need to manipulate device interfa
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from services.nautobot import NautobotService
 from services.nautobot.devices.common import DeviceCommonService
@@ -43,7 +43,7 @@ class InterfaceManagerService:
     async def update_device_interfaces(
         self,
         device_id: str,
-        interfaces: List[Dict[str, Any]],
+        interfaces: list[dict[str, Any]],
         add_prefixes_automatically: bool = False,
         sync_interfaces: bool = False,
     ) -> InterfaceUpdateResult:
@@ -70,13 +70,13 @@ class InterfaceManagerService:
             device_id,
         )
 
-        created_interfaces: List[str] = []
-        updated_interfaces: List[str] = []
-        failed_interfaces: List[str] = []
+        created_interfaces: list[str] = []
+        updated_interfaces: list[str] = []
+        failed_interfaces: list[str] = []
         ip_address_map = {}
         primary_ipv4_id = None
         warnings = []
-        cleaned_interfaces: Set[str] = set()
+        cleaned_interfaces: set[str] = set()
         interfaces_deleted = 0
 
         desired_names = {
@@ -123,9 +123,7 @@ class InterfaceManagerService:
 
                     # Clean existing IP assignments (once per interface)
                     if interface_id not in cleaned_interfaces:
-                        logger.info(
-                            "Cleaning existing IPs from interface %s", interface["name"]
-                        )
+                        logger.info("Cleaning existing IPs from interface %s", interface["name"])
                         await self._clean_interface_ips(
                             interface_id=interface_id,
                             interface_name=interface["name"],
@@ -201,9 +199,7 @@ class InterfaceManagerService:
                 warnings.append(
                     f"Interface {interface['name']}: Failed to process interface: {error_msg}"
                 )
-                logger.error(
-                    "Error processing interface %s: %s", interface["name"], error_msg
-                )
+                logger.error("Error processing interface %s: %s", interface["name"], error_msg)
 
         # Step 3: Set primary IPv4 if found
         if primary_ipv4_id:
@@ -226,8 +222,8 @@ class InterfaceManagerService:
     async def _delete_orphan_device_interfaces(
         self,
         device_id: str,
-        desired_names: Set[str],
-        warnings: List[str],
+        desired_names: set[str],
+        warnings: list[str],
     ) -> int:
         """Delete device interfaces whose names are not in desired_names."""
         deleted = 0
@@ -262,10 +258,10 @@ class InterfaceManagerService:
 
     async def _create_ip_addresses(
         self,
-        interfaces: List[Dict[str, Any]],
-        warnings: List[str],
+        interfaces: list[dict[str, Any]],
+        warnings: list[str],
         add_prefixes_automatically: bool = False,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         Create IP addresses for all interfaces that need them.
 
@@ -321,9 +317,7 @@ class InterfaceManagerService:
                     continue
 
                 # Get namespace from IP data or fall back to interface level
-                namespace = ip_data.get("namespace") or interface.get(
-                    "namespace", "Global"
-                )
+                namespace = ip_data.get("namespace") or interface.get("namespace", "Global")
                 status = interface.get("status", "active")
                 ip_role = ip_data.get("ip_role")
 
@@ -374,10 +368,7 @@ class InterfaceManagerService:
                     )
                     # If this is a missing prefix error and add_prefixes_automatically is False,
                     # the exception should propagate to stop the device creation
-                    if (
-                        "No suitable parent prefix" in str(e)
-                        and not add_prefixes_automatically
-                    ):
+                    if "No suitable parent prefix" in str(e) and not add_prefixes_automatically:
                         raise
 
         logger.info("\n" + "=" * 80)
@@ -390,9 +381,9 @@ class InterfaceManagerService:
     async def _create_or_update_interface(
         self,
         device_id: str,
-        interface: Dict[str, Any],
-        warnings: List[str],
-    ) -> tuple[Optional[str], bool]:
+        interface: dict[str, Any],
+        warnings: list[str],
+    ) -> tuple[str | None, bool]:
         """
         Create or update a single interface.
 
@@ -412,9 +403,7 @@ class InterfaceManagerService:
             warnings.append(
                 f"Interface {interface['name']}: 'type' is required but was not provided — skipping"
             )
-            logger.warning(
-                "Interface '%s' has no type set, skipping creation", interface["name"]
-            )
+            logger.warning("Interface '%s' has no type set, skipping creation", interface["name"])
             return None, False
 
         # Resolve status to UUID — use "or" fallback so empty string also defaults to "active"
@@ -423,7 +412,7 @@ class InterfaceManagerService:
             interface_status, "dcim.interface"
         )
 
-        interface_payload: Dict[str, Any] = {
+        interface_payload: dict[str, Any] = {
             "name": interface["name"],
             "device": device_id,
             "type": interface_type,
@@ -460,9 +449,7 @@ class InterfaceManagerService:
         )
         if existing_id:
             patch_payload = {
-                k: v
-                for k, v in interface_payload.items()
-                if k not in ("name", "device")
+                k: v for k, v in interface_payload.items() if k not in ("name", "device")
             }
             try:
                 await self.nautobot.rest_request(
@@ -470,14 +457,10 @@ class InterfaceManagerService:
                     method="PATCH",
                     data=patch_payload,
                 )
-                logger.info(
-                    "Updated interface %s with ID: %s", interface["name"], existing_id
-                )
+                logger.info("Updated interface %s with ID: %s", interface["name"], existing_id)
                 return existing_id, True
             except Exception as patch_error:
-                warnings.append(
-                    f"Interface {interface['name']}: Failed to update: {patch_error}"
-                )
+                warnings.append(f"Interface {interface['name']}: Failed to update: {patch_error}")
                 return existing_id, True
 
         logger.debug("Creating interface with payload: %s", interface_payload)
@@ -491,9 +474,7 @@ class InterfaceManagerService:
 
             if interface_response and "id" in interface_response:
                 interface_id = interface_response["id"]
-                logger.info(
-                    "Created interface %s with ID: %s", interface["name"], interface_id
-                )
+                logger.info("Created interface %s with ID: %s", interface["name"], interface_id)
                 return interface_id, False
 
         except Exception as create_error:
@@ -504,9 +485,7 @@ class InterfaceManagerService:
                 )
                 if interface_id:
                     patch_payload = {
-                        k: v
-                        for k, v in interface_payload.items()
-                        if k not in ("name", "device")
+                        k: v for k, v in interface_payload.items() if k not in ("name", "device")
                     }
                     try:
                         await self.nautobot.rest_request(
@@ -538,7 +517,7 @@ class InterfaceManagerService:
         self,
         interface_id: str,
         interface_name: str,
-        warnings: List[str],
+        warnings: list[str],
     ) -> None:
         """
         Remove all existing IP assignments from an interface.
@@ -586,11 +565,11 @@ class InterfaceManagerService:
 
     async def _assign_ip_to_interface(
         self,
-        interface: Dict[str, Any],
+        interface: dict[str, Any],
         interface_id: str,
-        ip_address_map: Dict[str, str],
-        warnings: List[str],
-    ) -> Optional[str]:
+        ip_address_map: dict[str, str],
+        warnings: list[str],
+    ) -> str | None:
         """
         Assign an IP address to an interface.
 
@@ -673,16 +652,14 @@ class InterfaceManagerService:
                 ip_address,
                 interface_id,
             )
-            warnings.append(
-                f"Interface {interface['name']}: Failed to assign IP address: {str(e)}"
-            )
+            warnings.append(f"Interface {interface['name']}: Failed to assign IP address: {str(e)}")
             return None
 
     async def _set_primary_ipv4(
         self,
         device_id: str,
         primary_ipv4_id: str,
-        warnings: List[str],
+        warnings: list[str],
     ) -> None:
         """
         Set the primary IPv4 address for a device.

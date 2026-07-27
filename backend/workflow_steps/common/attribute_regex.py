@@ -35,9 +35,7 @@ def _coerce_bool(value: Any) -> bool:
 def compile_regex_flags(flags: RegexFlagsConfig | dict[str, bool]) -> int:
     """Build a Python ``re`` flags bitmask from user-facing toggles."""
     normalized = (
-        flags
-        if isinstance(flags, RegexFlagsConfig)
-        else RegexFlagsConfig.from_mapping(flags)
+        flags if isinstance(flags, RegexFlagsConfig) else RegexFlagsConfig.from_mapping(flags)
     )
     compiled = 0
     if normalized.get("case_insensitive"):
@@ -83,9 +81,7 @@ def probe_regex_transform(
         for index, group in enumerate(match.groups(), start=1)
         if group is not None
     }
-    named_groups = {
-        name: value for name, value in match.groupdict().items() if value is not None
-    }
+    named_groups = {name: value for name, value in match.groupdict().items() if value is not None}
     destination_value = match.expand(destination_template)
 
     return {

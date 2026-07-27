@@ -389,9 +389,7 @@ async def execute(
         except ValueError:
             raise
         except Exception as exc:
-            raise RuntimeError(
-                f"{_STEP_ID}: failed for device '{device.name}': {exc}"
-            ) from exc
+            raise RuntimeError(f"{_STEP_ID}: failed for device '{device.name}': {exc}") from exc
 
         if secret:
             updated_devices[device_id] = set_device_attribute(

@@ -14,9 +14,7 @@ class CredentialsRepository:
     def get_by_id(self, cred_id: int) -> Credential | None:
         return self.db.scalar(select(Credential).where(Credential.id == cred_id))
 
-    def get_by_id_for_user(
-        self, cred_id: int, *, acting_user_id: int | None
-    ) -> Credential | None:
+    def get_by_id_for_user(self, cred_id: int, *, acting_user_id: int | None) -> Credential | None:
         """Returns None both when the row doesn't exist and when it's a
         private row owned by someone else — callers must not distinguish
         the two cases, to avoid leaking existence of another user's

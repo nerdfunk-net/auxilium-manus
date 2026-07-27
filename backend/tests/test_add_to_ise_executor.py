@@ -55,7 +55,10 @@ def _device_service() -> MagicMock:
     device_service = MagicMock()
     device_service.test_connection = AsyncMock(return_value={"total": 0})
     device_service.create_device = AsyncMock(
-        return_value={"id": "ise-guid-1", "location": "https://ise/ers/config/networkdevice/ise-guid-1"}
+        return_value={
+            "id": "ise-guid-1",
+            "location": "https://ise/ers/config/networkdevice/ise-guid-1",
+        }
     )
     return device_service
 

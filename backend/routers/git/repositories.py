@@ -6,7 +6,6 @@ Handles creation, reading, updating, and deletion of Git repository configuratio
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -33,24 +32,20 @@ router = APIRouter(prefix="/git-repositories", tags=["git-repositories"])
     dependencies=[Depends(require_permission("git.repositories", "read"))],
 )
 async def get_repositories(
-    category: Optional[str] = None,
+    category: str | None = None,
     active_only: bool = False,
     current_user: dict = Depends(get_current_user),
 ):
     """Get all git repositories."""
     try:
-        repositories = git_repo_manager.get_repositories(
-            category=category, active_only=active_only
-        )
+        repositories = git_repo_manager.get_repositories(category=category, active_only=active_only)
 
         # Convert to response models
         repo_responses = []
         for repo in repositories:
             repo_responses.append(GitRepositoryResponse(**dict(repo)))
 
-        return GitRepositoryListResponse(
-            repositories=repo_responses, total=len(repo_responses)
-        )
+        return GitRepositoryListResponse(repositories=repo_responses, total=len(repo_responses))
     except Exception as e:
         raise_internal_server_error(logger, "Internal error", e)
 
@@ -122,14 +117,14 @@ async def create_repository(
         # Get the created repository
         created_repo = git_repo_manager.get_repository(repo_id)
         if not created_repo:
-            raise HTTPException(
-                status_code=500, detail="Failed to retrieve created repository"
-            )
+            raise_internal_server_error(logger, f"Failed to retrieve created repository {repo_id}")
 
         # Convert created repository data
         repo_dict = dict(created_repo)
 
         return GitRepositoryResponse(**repo_dict)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -164,14 +159,12 @@ async def update_repository(
 
         success = git_repo_manager.update_repository(repo_id, repo_data)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to update repository")
+            raise_internal_server_error(logger, f"Failed to update repository {repo_id}")
 
         # Get the updated repository
         updated_repo = git_repo_manager.get_repository(repo_id)
         if not updated_repo:
-            raise HTTPException(
-                status_code=500, detail="Failed to retrieve updated repository"
-            )
+            raise_internal_server_error(logger, f"Failed to retrieve updated repository {repo_id}")
 
         # Convert updated repository data
         repo_dict = dict(updated_repo)
@@ -203,7 +196,7 @@ async def delete_repository(
 
         success = git_repo_manager.delete_repository(repo_id, hard_delete=hard_delete)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to delete repository")
+            raise_internal_server_error(logger, f"Failed to delete repository {repo_id}")
 
         action = "deleted" if hard_delete else "deactivated"
         return {"message": f"Repository {action} successfully"}

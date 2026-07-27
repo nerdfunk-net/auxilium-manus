@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from git import Repo
 
@@ -33,7 +33,7 @@ class GitCacheService:
         self._max_commits = 500
         self._ttl_seconds = 600
 
-    def _get_cache_config(self) -> Dict[str, Any]:
+    def _get_cache_config(self) -> dict[str, Any]:
         """Get cache configuration."""
         return _CACHE_DEFAULTS
 
@@ -59,7 +59,7 @@ class GitCacheService:
         branch_name: str,
         limit: int = 50,
         use_models: bool = False,
-    ) -> List[Dict[str, Any]] | List[GitCommit]:
+    ) -> list[dict[str, Any]] | list[GitCommit]:
         """Get commits for a repository with caching.
 
         Args:
@@ -79,9 +79,7 @@ class GitCacheService:
         if cache_cfg.get("enabled", True):
             cached_commits = self._cache.get(cache_key)
             if cached_commits is not None:
-                logger.debug(
-                    "Cache hit for commits: repo %s, branch %s", repo_id, branch_name
-                )
+                logger.debug("Cache hit for commits: repo %s, branch %s", repo_id, branch_name)
                 limited_commits = cached_commits[:limit]
                 if use_models:
                     return [GitCommit(**c) for c in limited_commits]
@@ -89,9 +87,7 @@ class GitCacheService:
 
         # Cache miss - fetch from repository
         logger.debug("Cache miss for commits: repo %s, branch %s", repo_id, branch_name)
-        commits = self._fetch_commits_from_repo(
-            repo_id, repo_path, branch_name, limit, cache_cfg
-        )
+        commits = self._fetch_commits_from_repo(repo_id, repo_path, branch_name, limit, cache_cfg)
 
         if use_models:
             return [GitCommit(**c) for c in commits]
@@ -103,8 +99,8 @@ class GitCacheService:
         repo_path: str,
         branch_name: str,
         limit: int,
-        cache_cfg: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        cache_cfg: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Fetch commits from repository using GitPython with subprocess fallback."""
         try:
             repo = Repo(repo_path)
@@ -142,7 +138,7 @@ class GitCacheService:
 
     def _fetch_commits_subprocess(
         self, repo_path: str, branch_name: str, limit: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Fetch commits using git subprocess as fallback."""
         try:
             log = subprocess.run(
@@ -192,8 +188,8 @@ class GitCacheService:
         repo_path: str,
         file_path: str,
         branch_name: str = "HEAD",
-        from_commit: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        from_commit: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Get commit history for a specific file with caching."""
         cache_cfg = self._get_cache_config()
 
@@ -205,14 +201,10 @@ class GitCacheService:
         if cache_cfg.get("enabled", True):
             cached_history = self._cache.get(cache_key)
             if cached_history is not None:
-                logger.debug(
-                    "Cache hit for file history: repo %s, file %s", repo_id, file_path
-                )
+                logger.debug("Cache hit for file history: repo %s, file %s", repo_id, file_path)
                 return cached_history
 
-        logger.debug(
-            "Cache miss for file history: repo %s, file %s", repo_id, file_path
-        )
+        logger.debug("Cache miss for file history: repo %s, file %s", repo_id, file_path)
 
         try:
             repo = Repo(repo_path)
@@ -256,7 +248,7 @@ class GitCacheService:
 
     def get_commit_details(
         self, repo_id: int, repo_path: str, commit_hash: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get detailed information for a specific commit with caching."""
         cache_cfg = self._get_cache_config()
         cache_key = self._build_cache_key(repo_id, "commit", commit_hash)

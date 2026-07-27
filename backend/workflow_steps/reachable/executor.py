@@ -175,9 +175,7 @@ async def execute(
     )
 
     buckets: dict[str, dict[str, DeviceContext]] = {"success": {}, "failure": {}}
-    for device_id, (outcome_name, device) in zip(
-        context.devices.keys(), results, strict=True
-    ):
+    for device_id, (outcome_name, device) in zip(context.devices.keys(), results, strict=True):
         buckets[outcome_name][device_id] = device
 
     counts = {name: len(buckets[name]) for name in _OUTCOME_NAMES}

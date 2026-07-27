@@ -31,9 +31,7 @@ def _find_first_file(repo_dir: Path, repository_path: str, pattern: str) -> Path
     return Path(sorted(matches)[0])
 
 
-def load_yaml_from_git_source(
-    *, git_source_id: str, filename_pattern: str, step_id: str
-) -> Any:
+def load_yaml_from_git_source(*, git_source_id: str, filename_pattern: str, step_id: str) -> Any:
     """Clone/pull the configured git source and parse the first matching file.
 
     Raises ``ValueError`` for any configuration or content problem (missing source,

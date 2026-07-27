@@ -110,9 +110,7 @@ class RunServiceApprovalTests(unittest.TestCase):
 
         def _capture_push(*args, **kwargs):
             self.db.refresh(run)
-            observed["auto_approve_remaining"] = run.approval_state.get(
-                "auto_approve_remaining"
-            )
+            observed["auto_approve_remaining"] = run.approval_state.get("auto_approve_remaining")
 
         self.mock_hatchet.event.push.side_effect = _capture_push
 

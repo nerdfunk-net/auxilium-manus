@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 class DeviceGroupInput(BaseModel):
     parent_run_id: int
-    context_json: str   # serialized WorkflowContext with this group's devices only
+    context_json: str  # serialized WorkflowContext with this group's devices only
     start_node_id: str  # inventory step's node_id; child runs nodes downstream of this
-    child_index: int    # for logging / tracing
+    child_index: int  # for logging / tracing
     join_node_id: str | None = None  # fan-in node; child stops before it (parent resumes)
 
 
@@ -55,16 +55,12 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
 
         run_result = run_repo.get_run_by_id(input.parent_run_id)
         if run_result is None:
-            raise ValueError(
-                f"DeviceGroupExecution: WorkflowRun {input.parent_run_id} not found"
-            )
+            raise ValueError(f"DeviceGroupExecution: WorkflowRun {input.parent_run_id} not found")
         run, _ = run_result
 
         wf_result = wf_repo.get_by_id(run.workflow_id)
         if wf_result is None:
-            raise ValueError(
-                f"DeviceGroupExecution: Workflow {run.workflow_id} not found"
-            )
+            raise ValueError(f"DeviceGroupExecution: Workflow {run.workflow_id} not found")
         wf, _ = wf_result
 
         nodes: list[dict[str, Any]] = wf.canvas_nodes or []

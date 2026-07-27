@@ -35,7 +35,7 @@ import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
@@ -54,14 +54,14 @@ class GitResult:
 
     success: bool
     message: str
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 @dataclass
 class CommitResult(GitResult):
     """Result of a commit operation."""
 
-    commit_sha: Optional[str] = None
+    commit_sha: str | None = None
     files_changed: int = 0
 
 
@@ -70,7 +70,7 @@ class PushResult(GitResult):
     """Result of a push operation."""
 
     pushed: bool = False
-    branch: Optional[str] = None
+    branch: str | None = None
 
 
 @dataclass
@@ -78,17 +78,17 @@ class PullResult(GitResult):
     """Result of a pull operation."""
 
     commits_pulled: int = 0
-    branch: Optional[str] = None
+    branch: str | None = None
 
 
 @dataclass
 class CommitAndPushResult(GitResult):
     """Result of a combined commit and push operation."""
 
-    commit_sha: Optional[str] = None
+    commit_sha: str | None = None
     files_changed: int = 0
     pushed: bool = False
-    branch: Optional[str] = None
+    branch: str | None = None
 
 
 class GitService:
@@ -131,7 +131,7 @@ class GitService:
     def __init__(self):
         self._auth = GitAuthenticationService()
 
-    def get_repo_path(self, repository: Dict) -> Path:
+    def get_repo_path(self, repository: dict) -> Path:
         """Get the filesystem path for a repository.
 
         Args:
@@ -142,7 +142,7 @@ class GitService:
         """
         return get_repo_path(repository)
 
-    def open_or_clone(self, repository: Dict) -> Repo:
+    def open_or_clone(self, repository: dict) -> Repo:
         """Open an existing repository or clone it if it doesn't exist.
 
         This method handles:
@@ -164,9 +164,7 @@ class GitService:
         repo_dir.mkdir(parents=True, exist_ok=True)
 
         expected_url_norm = (
-            self._auth.normalize_url(repository["url"])
-            if repository.get("url")
-            else None
+            self._auth.normalize_url(repository["url"]) if repository.get("url") else None
         )
 
         try:
@@ -191,9 +189,7 @@ class GitService:
         except Exception:
             return self._clone_fresh(repository, repo_dir)
 
-    def clone(
-        self, repository: Dict, target_path: Optional[Union[str, Path]] = None
-    ) -> Repo:
+    def clone(self, repository: dict, target_path: str | Path | None = None) -> Repo:
         """Clone a repository to a specific path.
 
         Args:
@@ -213,7 +209,7 @@ class GitService:
 
         return self._clone_fresh(repository, path)
 
-    def _clone_fresh(self, repository: Dict, target_path: Path) -> Repo:
+    def _clone_fresh(self, repository: dict, target_path: Path) -> Repo:
         """Clone a repository fresh to the target path.
 
         Internal method that handles the actual clone operation with
@@ -266,7 +262,7 @@ class GitService:
                 pass
             raise
 
-    def pull(self, repository: Dict, repo: Optional[Repo] = None) -> PullResult:
+    def pull(self, repository: dict, repo: Repo | None = None) -> PullResult:
         """Pull latest changes from remote repository.
 
         Args:
@@ -339,9 +335,9 @@ class GitService:
 
     def push(
         self,
-        repository: Dict,
-        repo: Optional[Repo] = None,
-        branch: Optional[str] = None,
+        repository: dict,
+        repo: Repo | None = None,
+        branch: str | None = None,
     ) -> PushResult:
         """Push local commits to remote repository.
 
@@ -440,10 +436,10 @@ class GitService:
 
     def commit(
         self,
-        repository: Dict,
+        repository: dict,
         message: str,
-        files: Optional[List[str]] = None,
-        repo: Optional[Repo] = None,
+        files: list[str] | None = None,
+        repo: Repo | None = None,
         add_all: bool = False,
     ) -> CommitResult:
         """Commit changes to the local repository.
@@ -484,9 +480,7 @@ class GitService:
             with set_git_author(repository, repo):
                 commit = repo.index.commit(message)
 
-            logger.info(
-                "Created commit %s with %s files", commit.hexsha[:8], len(changed_files)
-            )
+            logger.info("Created commit %s with %s files", commit.hexsha[:8], len(changed_files))
 
             return CommitResult(
                 success=True,
@@ -510,12 +504,12 @@ class GitService:
 
     def commit_and_push(
         self,
-        repository: Dict,
+        repository: dict,
         message: str,
-        files: Optional[List[str]] = None,
-        repo: Optional[Repo] = None,
+        files: list[str] | None = None,
+        repo: Repo | None = None,
         add_all: bool = False,
-        branch: Optional[str] = None,
+        branch: str | None = None,
     ) -> CommitAndPushResult:
         """Commit changes and push to remote in one operation.
 
@@ -604,7 +598,7 @@ class GitService:
                 branch=branch or repository.get("branch", "main"),
             )
 
-    def fetch(self, repository: Dict, repo: Optional[Repo] = None) -> GitResult:
+    def fetch(self, repository: dict, repo: Repo | None = None) -> GitResult:
         """Fetch updates from remote without merging.
 
         Args:
@@ -654,9 +648,7 @@ class GitService:
                 message=f"Fetch failed: {str(e)}",
             )
 
-    def get_status(
-        self, repository: Dict, repo: Optional[Repo] = None
-    ) -> Dict[str, Any]:
+    def get_status(self, repository: dict, repo: Repo | None = None) -> dict[str, Any]:
         """Get comprehensive repository status.
 
         Args:
@@ -709,9 +701,7 @@ class GitService:
             status["untracked_files"] = repo.untracked_files
             status["modified_files"] = [item.a_path for item in repo.index.diff(None)]
             status["staged_files"] = (
-                [item.a_path for item in repo.index.diff("HEAD")]
-                if repo.head.is_valid()
-                else []
+                [item.a_path for item in repo.index.diff("HEAD")] if repo.head.is_valid() else []
             )
 
         except InvalidGitRepositoryError:
@@ -723,7 +713,7 @@ class GitService:
         return status
 
     @contextmanager
-    def with_auth_environment(self, repository: Dict):
+    def with_auth_environment(self, repository: dict):
         """Context manager to set up authentication environment for Git operations.
 
         Use this when you need to perform custom Git operations with proper
