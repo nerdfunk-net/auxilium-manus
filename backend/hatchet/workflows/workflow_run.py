@@ -90,7 +90,9 @@ async def _run_steps_until_fan_out_or_done(
     step_results = runner.create_pending_step_results(run_id=run.id, ordered_nodes=ordered_nodes)
 
     step_outcomes: dict[str, dict[str, Any]] = {}
+    blocked_nodes: set[str] = set()
     failed = False
+    any_reported_failure = False
 
     for node in ordered_nodes:
         node_id: str = node.get("id", "")
@@ -133,17 +135,20 @@ async def _run_steps_until_fan_out_or_done(
             else:
                 run_repo.update_run_status(run, status="running")
 
-        ok = await runner.execute_one(
+        raised, indicates_failure = await runner.run_node_in_sequence(
             node=node,
             run=run,
             workflow=wf,
             edges=canvas_edges,
             step_outcomes=step_outcomes,
             step_result=step_result,
+            blocked_nodes=blocked_nodes,
         )
-        if not ok:
+        if raised:
             failed = True
             continue
+        if indicates_failure:
+            any_reported_failure = True
 
         success_ctx = step_outcomes.get(node_id, {}).get("success")
         if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
@@ -173,7 +178,7 @@ async def _run_steps_until_fan_out_or_done(
                 run,
             )
 
-    return ("success" if not failed else "failed"), None, run
+    return ("success" if not (failed or any_reported_failure) else "failed"), None, run
 
 
 @workflow.durable_task(
@@ -649,6 +654,7 @@ def _aggregate_and_persist(
 
     now = datetime.now(timezone.utc)
     merged_outcomes: dict[str, dict[str, WorkflowContext]] = {}
+    any_node_failed = False
 
     for node_id in child_ids:
         node_outcomes = per_node[node_id]
@@ -680,6 +686,8 @@ def _aggregate_and_persist(
                 status = "partial" if "success" in node_outcomes else "failed"
             else:
                 status = "success"
+            if status == "failed":
+                any_node_failed = True
             run_repo.update_step_result(
                 step_result,
                 status=status,
@@ -688,4 +696,4 @@ def _aggregate_and_persist(
                 finished_at=now,
             )
 
-    return not has_any_failure, merged_outcomes
+    return not (has_any_failure or any_node_failed), merged_outcomes

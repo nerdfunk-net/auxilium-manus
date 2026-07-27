@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.workflows import Workflow
-from models.workflow_context import StepOutcome, WorkflowContext
+from models.workflow_context import Capability, StepOutcome, WorkflowContext
 from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
 from services.artifacts import FilesystemArtifactService
@@ -73,9 +73,12 @@ class StepRunner:
         """Execute every step in dependency order.
 
         Returns True on full success, False when any step fails (remaining steps
-        are marked skipped). Returns FanOutSignal when an inventory step embeds
-        ``_fan_out.enabled`` in its outcome context — the caller must handle
-        dispatching child workflows and aggregating results.
+        are marked skipped) or when any step's own device outcome indicates
+        failure — including a downstream step that never ran because every
+        device that could have reached it was lost to an earlier failure (see
+        ``run_node_in_sequence``). Returns FanOutSignal when an inventory step
+        embeds ``_fan_out.enabled`` in its outcome context — the caller must
+        handle dispatching child workflows and aggregating results.
         """
         nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
@@ -85,7 +88,9 @@ class StepRunner:
 
         # node_id -> outcome_name -> WorkflowContext
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {}
+        blocked_nodes: set[str] = set()
         failed = False
+        any_reported_failure = False
 
         for node in ordered_nodes:
             node_id = node.get("id", "")
@@ -95,17 +100,20 @@ class StepRunner:
                 self.repo.update_step_result(step_result, status="skipped")
                 continue
 
-            ok = await self._execute_and_persist_node(
+            raised, indicates_failure = await self.run_node_in_sequence(
                 node=node,
                 run=run,
                 workflow=workflow,
                 edges=edges,
                 step_outcomes=step_outcomes,
                 step_result=step_result,
+                blocked_nodes=blocked_nodes,
             )
-            if not ok:
+            if raised:
                 failed = True
                 continue
+            if indicates_failure:
+                any_reported_failure = True
 
             # Check if this step requested fan-out. When it does, stop here and
             # hand control back to the orchestrator, which dispatches children
@@ -129,7 +137,7 @@ class StepRunner:
                     join_node_id=join_node_id,
                 )
 
-        return not failed
+        return not (failed or any_reported_failure)
 
     def build_execution_plan(
         self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
@@ -159,7 +167,55 @@ class StepRunner:
             )
         return step_results
 
-    async def execute_one(
+    def _step_requires_devices(self, step_type: str) -> bool:
+        """True when this step's registry entry declares it needs devices
+        (``requires: [identity, ...]``) rather than being device-agnostic."""
+        plugin = self.plugin_registry.get_plugin(step_type)
+        if plugin is None:
+            return False
+        return Capability.IDENTITY in capability_spec_from_plugin(plugin).requires
+
+    @staticmethod
+    def _blocked_by_upstream_failure(
+        node_id: str,
+        edges: list[dict[str, Any]],
+        step_outcomes: dict[str, dict[str, WorkflowContext]],
+        blocked_nodes: set[str],
+    ) -> bool:
+        """True when every device that could have reached this node was lost
+        to a real upstream failure — not merely because an inventory step (or
+        a filter) legitimately matched zero devices. Distinguishing the two
+        matters: a run shouldn't read as failed just because a filter matched
+        nothing, only when something actually failed upstream.
+
+        A node counts as blocked when at least one parent edge shows failure
+        evidence (the parent's own ``failure`` outcome has devices, or the
+        parent itself was already blocked) and none of its parent edges
+        actually delivered devices.
+        """
+        parent_edges = [edge for edge in edges if edge.get("target") == node_id]
+        if not parent_edges:
+            return False
+
+        saw_devices = False
+        saw_failure_evidence = False
+        for edge in parent_edges:
+            source_id = edge.get("source", "")
+            if source_id in blocked_nodes:
+                saw_failure_evidence = True
+                continue
+            outcome_name = edge.get("sourceHandle") or "success"
+            parent_outcomes = step_outcomes.get(source_id) or {}
+            outcome_ctx = parent_outcomes.get(outcome_name)
+            if outcome_ctx is not None and outcome_ctx.devices:
+                saw_devices = True
+            failure_ctx = parent_outcomes.get("failure")
+            if failure_ctx is not None and failure_ctx.devices:
+                saw_failure_evidence = True
+
+        return saw_failure_evidence and not saw_devices
+
+    async def run_node_in_sequence(
         self,
         *,
         node: dict[str, Any],
@@ -168,15 +224,44 @@ class StepRunner:
         edges: list[dict[str, Any]],
         step_outcomes: dict[str, dict[str, WorkflowContext]],
         step_result: WorkflowStepResult,
-    ) -> bool:
-        """Execute exactly one node and persist its result.
+        blocked_nodes: set[str],
+    ) -> tuple[bool, bool]:
+        """Run one node in a topological walk, handling the "blocked by an
+        upstream device failure" pre-check before invoking the executor.
 
-        Public entry point for callers that drive the topological walk
-        themselves (debug-mode stepping in the Hatchet task) instead of using
-        `execute_all`. Thin wrapper around `_execute_and_persist_node` so the
-        dispatch/guard/serialize logic lives in exactly one place.
+        Shared by ``execute_all``, ``resume_after_join``, and the Hatchet
+        orchestrator's per-node loop so the check applies identically
+        everywhere a canvas node gets executed and persisted.
+
+        Returns ``(raised_exception, step_indicates_failure)``:
+
+        - ``raised_exception``: the executor raised — callers should hard-stop
+          (blanket-skip all remaining nodes), matching prior behaviour.
+        - ``step_indicates_failure``: this node was skipped because every
+          device that could have reached it was lost upstream, or it ran and
+          failed for every device it saw. Either way the run's final status
+          should be "failed" — but execution should keep going, since an
+          independent branch (e.g. a failure-handler wired to the failing
+          step's own ``failure`` handle) may still have real work to do.
         """
-        return await self._execute_and_persist_node(
+        node_id = node.get("id", "")
+        step_type = (node.get("data", {}) or {}).get("kind", "unknown")
+
+        if self._step_requires_devices(step_type) and self._blocked_by_upstream_failure(
+            node_id, edges, step_outcomes, blocked_nodes
+        ):
+            self.repo.update_step_result(step_result, status="skipped")
+            blocked_nodes.add(node_id)
+            logger.info(
+                "Step skipped (blocked by upstream device failure) node_id=%s "
+                "type=%s run_id=%s",
+                node_id,
+                step_type,
+                run.id,
+            )
+            return False, True
+
+        ok = await self._execute_and_persist_node(
             node=node,
             run=run,
             workflow=workflow,
@@ -184,6 +269,9 @@ class StepRunner:
             step_outcomes=step_outcomes,
             step_result=step_result,
         )
+        if not ok:
+            return True, True
+        return False, step_result.status == "failed"
 
     async def _execute_and_persist_node(
         self,
@@ -292,8 +380,16 @@ class StepRunner:
 
         Writes/updates WorkflowStepResult rows for the post-join nodes on the
         parent run. Returns True when every post-join step ran without raising
-        (device-level ``partial`` results still count as success here, matching
-        the proceed-with-survivors policy).
+        and without every device failing outright (device-level ``partial``
+        results still count as success here, matching the proceed-with-survivors
+        policy). A post-join node whose merged input is empty because every
+        device failed earlier in the (already-merged) child branch is marked
+        "skipped" rather than a trivial success — see
+        ``run_node_in_sequence``/``_blocked_by_upstream_failure``. Note:
+        ``blocked_nodes`` starts empty here, so this does not see failures from
+        nodes that ran before the fan-out point in the same graph — an
+        unusual shape in practice (post-join nodes are fed by the fanned-in
+        device union, not pre-fan-out context).
         """
         nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
@@ -312,7 +408,9 @@ class StepRunner:
             sr.step_node_id: sr for sr in self.repo.get_step_results_for_run(run.id)
         }
 
+        blocked_nodes: set[str] = set()
         failed = False
+        any_reported_failure = False
         for node in ordered_nodes:
             node_id = node.get("id", "")
             if node_id not in post_join_ids:
@@ -332,18 +430,22 @@ class StepRunner:
                 self.repo.update_step_result(step_result, status="skipped")
                 continue
 
-            ok = await self._execute_and_persist_node(
+            raised, indicates_failure = await self.run_node_in_sequence(
                 node=node,
                 run=run,
                 workflow=workflow,
                 edges=edges,
                 step_outcomes=step_outcomes,
                 step_result=step_result,
+                blocked_nodes=blocked_nodes,
             )
-            if not ok:
+            if raised:
                 failed = True
+                continue
+            if indicates_failure:
+                any_reported_failure = True
 
-        return not failed
+        return not (failed or any_reported_failure)
 
     async def execute_subgraph(
         self,
@@ -376,6 +478,7 @@ class StepRunner:
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {
             inventory_node_id: {"success": initial_context}
         }
+        blocked_nodes: set[str] = set()
 
         for node in ordered_nodes:
             node_id: str = node.get("id", "")
@@ -385,6 +488,19 @@ class StepRunner:
             node_data: dict[str, Any] = node.get("data", {})
             step_type: str = node_data.get("kind", "unknown")
             step_config: dict[str, Any] = node_data.get("pluginConfig", {})
+
+            if self._step_requires_devices(step_type) and self._blocked_by_upstream_failure(
+                node_id, edges, step_outcomes, blocked_nodes
+            ):
+                blocked_nodes.add(node_id)
+                logger.info(
+                    "Subgraph step skipped (blocked by upstream device failure) "
+                    "node_id=%s type=%s run_id=%s",
+                    node_id,
+                    step_type,
+                    run.id,
+                )
+                continue
 
             logger.info(
                 "Subgraph step started node_id=%s type=%s run_id=%s",

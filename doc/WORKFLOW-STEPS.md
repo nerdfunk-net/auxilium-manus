@@ -553,7 +553,38 @@ inventory (fan_out on) → get-configs → render → [FAN IN] → store-artifac
   the first `fan-in` node it finds (`StepRunner._find_join_node_id`). No nested fan-out.
 - **Partial failure:** failed devices flow through the merge with `FAILED` status; the fan-in
   and post-join steps still run on the device union (proceed-with-survivors). The per-step
-  result may be `partial`; the run is `failed` only when a post-join step raises.
+  result may be `partial`. The run is also `failed` when a post-join step raises, when a
+  step's own outcome fails for every device it saw, or when a step downstream of it is
+  `skipped` because every device that could have reached it was lost upstream (see
+  **Run and step status** below) — not only on a raised exception.
+
+### Run and step status
+
+`WorkflowRun.status` is not a passive rollup of `WorkflowStepResult.status` values — it is
+computed once, at the end of the topological walk (`StepRunner.run_node_in_sequence`,
+called from `_run_steps_until_fan_out_or_done` / `resume_after_join`, and mirrored for
+fan-out aggregation in `hatchet/workflows/workflow_run.py::_aggregate_and_persist`). A run
+ends up `"failed"` when any of the following happened, not only when an executor raised:
+
+- an executor raised (existing behaviour — all remaining nodes are marked `skipped`);
+- a step's own outcome has zero successful devices and at least one failed device
+  (`WorkflowStepResult.status == "failed"`), even if nothing downstream depended on it;
+- a step was marked `"skipped"` because every device that could have reached it was lost
+  to a real upstream failure (`StepRunner._blocked_by_upstream_failure`) — the step is
+  never invoked in this case, so it doesn't collapse into a misleading trivial `"success"`
+  with zero devices processed.
+
+This last case matters because most executors guard `if not context.devices: return
+[StepOutcome(name="success", context=context)]` — without the pre-check, a step
+downstream of a fully-failed step would silently report `"success"` for having done
+nothing. The pre-check only fires when the step's registry entry `requires` device
+identity (`Capability.IDENTITY`) **and** there is actual failure evidence upstream (a
+parent's `failure` outcome has devices, or the parent was itself blocked) — an inventory
+step that legitimately matches zero devices (no filter results, nothing errored) is left
+alone and still reports a trivial `"success"`, so a run isn't marked failed just because a
+filter matched nothing. A node wired to a failing step's own `failure` handle (e.g. an
+on-failure notification branch) is unaffected and still runs normally — only the branch
+that actually lost its devices gets skipped.
 
 ### Fan-out merge (`services/workflow_context/merge.py`)
 
