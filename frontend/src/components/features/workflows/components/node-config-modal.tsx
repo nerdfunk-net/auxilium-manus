@@ -31,10 +31,10 @@ import type {
   PluginIOField,
   PluginStepOutcome,
 } from "../types/plugin-registry";
-import type { WorkflowCanvasEdge, WorkflowCanvasNode } from "../types/workflow-canvas";
+import type { WorkflowCanvasEdge, PersistedCanvasNode } from "../types/workflow-canvas";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
-const EMPTY_NODES: WorkflowCanvasNode[] = [];
+const EMPTY_NODES: PersistedCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 const MODAL_TAB_TRIGGER_CLASS =
@@ -43,12 +43,12 @@ const MODAL_TAB_TRIGGER_CLASS =
 const MODAL_TAB_CONTENT_CLASS = "mt-0 min-h-0 flex-1 overflow-y-auto p-6";
 
 interface NodeConfigModalProps {
-  nodes: WorkflowCanvasNode[];
+  nodes: PersistedCanvasNode[];
   edges?: WorkflowCanvasEdge[];
   plugins?: PluginDefinition[];
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
-  workflowNodes?: WorkflowCanvasNode[];
+  workflowNodes?: PersistedCanvasNode[];
 }
 
 function formatArtifactType(artifactType: string) {

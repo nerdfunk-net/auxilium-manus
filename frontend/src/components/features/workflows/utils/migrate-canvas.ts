@@ -1,19 +1,24 @@
 import type { Capability } from "@/lib/capability-types";
 
 import type { PluginDefinition } from "../types/plugin-registry";
-import type {
-  WorkflowCanvasEdge,
-  WorkflowCanvasNode,
+import {
+  BACKGROUND_Z_INDEX,
+  DEFAULT_BACKGROUND_CONFIG,
+  DEFAULT_LABEL_CONFIG,
+  FOREGROUND_Z_INDEX,
+  reactFlowTypeForKind,
+  type PersistedCanvasNode,
+  type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 
-type LegacyNodeData = WorkflowCanvasNode["data"] & {
+type LegacyNodeData = PersistedCanvasNode["data"] & {
   mandatoryInputs?: { name: string; dataType?: string }[];
 };
 
 function applyPluginDefaults(
-  data: WorkflowCanvasNode["data"],
+  data: PersistedCanvasNode["data"],
   plugin: PluginDefinition,
-): { data: WorkflowCanvasNode["data"]; changed: boolean } {
+): { data: PersistedCanvasNode["data"]; changed: boolean } {
   const next = { ...data };
   let changed = false;
 
@@ -57,11 +62,11 @@ function applyPluginDefaults(
  * Upgrade persisted canvas JSON from the legacy IO-handle model to capability fields.
  */
 export function migrateCanvasState(
-  nodes: WorkflowCanvasNode[],
+  nodes: PersistedCanvasNode[],
   edges: WorkflowCanvasEdge[],
   plugins: PluginDefinition[],
 ): {
-  nodes: WorkflowCanvasNode[];
+  nodes: PersistedCanvasNode[];
   edges: WorkflowCanvasEdge[];
   migrated: boolean;
 } {
@@ -87,9 +92,50 @@ export function migrateCanvasState(
       nodeChanged = nodeChanged || result.changed;
     }
 
+    const expectedType = reactFlowTypeForKind(data.kind);
+    let nextNode: PersistedCanvasNode = nodeChanged
+      ? ({ ...node, data } as PersistedCanvasNode)
+      : node;
+
+    if (nextNode.type !== expectedType) {
+      nextNode = { ...nextNode, type: expectedType } as PersistedCanvasNode;
+      nodeChanged = true;
+    }
+
+    const desiredZ =
+      nextNode.type === "backgroundNode" ? BACKGROUND_Z_INDEX : FOREGROUND_Z_INDEX;
+    if (nextNode.zIndex !== desiredZ) {
+      nextNode = { ...nextNode, zIndex: desiredZ };
+      nodeChanged = true;
+    }
+
+    if (data.kind === "label" || data.kind === "background") {
+      const defaults =
+        data.kind === "label" ? DEFAULT_LABEL_CONFIG : DEFAULT_BACKGROUND_CONFIG;
+      const config = { ...defaults, ...(data.pluginConfig ?? {}) };
+      const width =
+        typeof config.width === "number" ? config.width : defaults.width;
+      const height =
+        typeof config.height === "number" ? config.height : defaults.height;
+      if (
+        nextNode.width !== width ||
+        nextNode.height !== height ||
+        !data.pluginConfig
+      ) {
+        nextNode = {
+          ...nextNode,
+          width,
+          height,
+          style: { ...nextNode.style, width, height },
+          data: { ...nextNode.data, pluginConfig: config },
+        };
+        nodeChanged = true;
+      }
+    }
+
     if (nodeChanged) {
       migrated = true;
-      return { ...node, data };
+      return nextNode;
     }
 
     return node;

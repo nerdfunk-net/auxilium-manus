@@ -114,6 +114,34 @@ plugins:
 | `command_execution`     | Runs CLI commands on devices                 |
 | `control_flow`          | Branches or gates the execution path         |
 | `persistent_artifact`   | Stores durable output (backups, reports)     |
+| `canvas_decoration`     | Visual-only canvas annotation (not executed) |
+
+---
+
+## Canvas decorations
+
+Some Debug-palette entries are **canvas decorations** — visual annotations that make
+a workflow easier to read. They are **not** executable steps.
+
+| Step id | Purpose |
+|---------|---------|
+| `label` | Configurable text (size, font, color) on the canvas |
+| `background` | Colored rectangle always drawn **behind** other nodes |
+
+Contract:
+
+- Registry: `artifact_type: canvas_decoration`, `palette_category: debug`,
+  **`executable: false`**, empty `requires` / `produces` / `outcomes`
+- **No `executor.py`** and **no** entry in `step_registry.py`
+- Frontend uses dedicated React Flow node types (`labelNode`, `backgroundNode`)
+  with variable size — an intentional exception to the shared `WorkflowNode` /
+  fixed `w-80`×`h-32` rule (see the style guide)
+- No connection handles; edges to/from decorations are rejected
+- `StepRunner` filters `executable: false` nodes (and edges that touch them) out
+  of the execution plan — they never appear in run step results
+
+`config.py` still provides defaults for the ConfigPanel. Decorations persist in
+`canvas_nodes` with the rest of the layout.
 
 ---
 
@@ -628,27 +656,33 @@ commits, so it is not a substitute for the fan-in node.
 1. **Backend package** — create `backend/workflow_steps/{step_id}/`:
    - `__init__.py` (empty)
    - `executor.py` with `async def execute(*, config, context, run, artifact_service, node_id)`
+     (**omit for canvas decorations** — see [Canvas decorations](#canvas-decorations))
    - `config.py` with `def get_config() -> dict` (if the step has configuration)
    - `models.py` with step-specific Pydantic models (if needed)
 
 2. **Logging** — add a `logger.info(...)` line when the step starts and another when it
-   finishes (see [Logging](#logging--start-and-finish-log-lines-are-required) above)
+   finishes (see [Logging](#logging--start-and-finish-log-lines-are-required) above).
+   Skip for `executable: false` decorations.
 
 3. **Dispatch table** — add one import and one entry to `services/execution/step_registry.py`
+   (skip for decorations)
 
-4. **Registry** — add an entry to `workflow_steps/registry.yaml`
+4. **Registry** — add an entry to `workflow_steps/registry.yaml`. For decorations set
+   `executable: false`, `artifact_type: canvas_decoration`, and empty outcomes.
 
 5. **Frontend ConfigPanel** — create `frontend/src/components/features/workflow-steps/{step-id}/index.tsx`
-   (config UI only; canvas rendering is shared — see [Canvas node appearance](#canvas-node-appearance))
+   (config UI only; canvas rendering is shared — see [Canvas node appearance](#canvas-node-appearance),
+   except decorations which use custom RF node types)
 
 6. **UI registry** — add an entry to `frontend/src/lib/plugin-ui-registry.ts`
 
-7. **Canvas icon (optional)** — add a `nodeIconsByKind` entry in `workflow-node.tsx` when the
-   default `artifact_type` icon is not appropriate; do not add a custom node render branch
+7. **Canvas icon (optional)** — add a `nodeIconsByKind` entry in `workflow-node.tsx` /
+   `step-visuals.ts` when the default `artifact_type` icon is not appropriate; do not
+   add a custom node render branch (except decorations)
 
 8. **Fan-out review** — confirm the step is fan-out-safe (see [Fan-out execution](#fan-out-execution)).
    If it writes to a shared external resource, make the write per-device-unique or
-   document the constraint.
+   document the constraint. N/A for decorations.
 
 9. **Secret handling** — if the step writes a credential/secret-like value into
    `DeviceContext.attribute_bags` (a TACACS+ key, an API token, etc.), seal it with
@@ -657,3 +691,4 @@ commits, so it is not a substitute for the fan-in node.
    result elsewhere (not just consumes it in-memory for one call), resolve with
    `reveal_secrets=False` and fail closed on a redacted read, unless the step is one
    of the documented trusted consumers (see [Secret-valued attributes](#secret-valued-attributes)).
+   N/A for decorations.

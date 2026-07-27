@@ -27,6 +27,8 @@ import { RunCommandPlugin } from "@/components/features/workflow-steps/run-comma
 import { DeployRenderedTemplatePlugin } from "@/components/features/workflow-steps/deploy-rendered-template";
 import { LogAttributesPlugin } from "@/components/features/workflow-steps/log-attributes";
 import { LogMessagePlugin } from "@/components/features/workflow-steps/log-message";
+import { LabelPlugin } from "@/components/features/workflow-steps/label";
+import { BackgroundPlugin } from "@/components/features/workflow-steps/background";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
@@ -65,6 +67,8 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "add-to-nautobot": AddToNautobotPlugin,
   "log-message": LogMessagePlugin,
   "log-attributes": LogAttributesPlugin,
+  label: LabelPlugin,
+  background: BackgroundPlugin,
 };
 
 export function getPluginUI(pluginId: string): PluginUIComponent | undefined {

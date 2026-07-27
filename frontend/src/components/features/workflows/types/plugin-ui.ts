@@ -1,6 +1,6 @@
 import type React from "react";
 
-import type { WorkflowCanvasEdge, WorkflowCanvasNode } from "@/components/features/workflows/types/workflow-canvas";
+import type { WorkflowCanvasEdge, PersistedCanvasNode } from "@/components/features/workflows/types/workflow-canvas";
 import type { PluginDefinition } from "@/components/features/workflows/types/plugin-registry";
 
 export interface PluginConfigPanelProps {
@@ -8,7 +8,7 @@ export interface PluginConfigPanelProps {
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   onPreview: () => void;
-  workflowNodes?: WorkflowCanvasNode[];
+  workflowNodes?: PersistedCanvasNode[];
   workflowEdges?: WorkflowCanvasEdge[];
   plugins?: PluginDefinition[];
 }

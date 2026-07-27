@@ -161,6 +161,22 @@ on the canvas — those belong in `registry.yaml`.
   top bar (`workflowStatus`), not on individual nodes
 - ❌ Hard-coded description text on the canvas instead of registry `description`
 
+### Exception — canvas decorations
+
+`label` and `background` (`artifact_type: canvas_decoration`, `executable: false`)
+are **not** rendered by `WorkflowNode`. They use dedicated React Flow node types
+(`labelNode`, `backgroundNode`) with configurable width/height and no connection
+handles. Background nodes use a low `zIndex` so they stay behind other steps.
+
+Rules that still apply:
+
+- ConfigPanel / HelpPanel use the same teal chrome as other steps
+- Never add handles or outcomes
+- Never register an executor — `StepRunner` skips them
+
+Do **not** use this exception for executable steps. New real steps must stay on the
+shared `WorkflowNode` renderer.
+
 ---
 
 ## Config panel (node side-panel)
@@ -299,6 +315,8 @@ All text/number inputs follow the same pattern:
 - [ ] Input handle stays light gray (`!bg-slate-300 !border-slate-400`) — do not style
       target handles like outcomes
 - [ ] Optional: `nodeIconsByKind` entry only when `artifact_type` default icon is wrong
+- [ ] Canvas decorations (`label` / `background`) are the only exception — see
+      **Exception — canvas decorations** above; do not copy that pattern for executable steps
 
 ### Config panel, dialogs, and forms
 

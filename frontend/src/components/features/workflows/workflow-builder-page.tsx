@@ -31,13 +31,19 @@ import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "./types/plugin-registry";
 import type { WorkflowSummary, WorkflowVisibility } from "./types/workflow-persistence";
 import {
+  BACKGROUND_Z_INDEX,
+  DEFAULT_BACKGROUND_CONFIG,
   DEFAULT_EDGE_STYLE,
+  DEFAULT_LABEL_CONFIG,
+  FOREGROUND_Z_INDEX,
+  isCanvasDecorationKind,
+  reactFlowTypeForKind,
   type CanvasGroup,
   type EdgeStyle,
+  type PersistedCanvasNode,
   type ProjectedCanvasNode,
   type StepPayload,
   type WorkflowCanvasEdge,
-  type WorkflowCanvasNode,
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { validateGroupBoundary } from "./utils/canvas-group-boundary";
@@ -58,7 +64,7 @@ import {
   deriveProducesParsed,
 } from "@/components/features/workflow-steps/render-jinja-template/template-config";
 const EMPTY_PLUGINS: PluginDefinition[] = [];
-const EMPTY_NODES: WorkflowCanvasNode[] = [];
+const EMPTY_NODES: PersistedCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 const EMPTY_GROUPS: CanvasGroup[] = [];
 
@@ -114,7 +120,7 @@ export function WorkflowBuilderPage() {
   // architecture — decision: single authoritative array"). allNodes/allEdges/
   // groups are the only stateful arrays; everything React Flow renders is a
   // pure projection recomputed below and never stored in its own state.
-  const [allNodes, setAllNodes] = useState<WorkflowCanvasNode[]>(EMPTY_NODES);
+  const [allNodes, setAllNodes] = useState<PersistedCanvasNode[]>(EMPTY_NODES);
   const [allEdges, setAllEdges] = useState<WorkflowCanvasEdge[]>(EMPTY_EDGES);
   const [groups, setGroups] = useState<CanvasGroup[]>(EMPTY_GROUPS);
 
@@ -142,7 +148,7 @@ export function WorkflowBuilderPage() {
         return res.json();
       })
       .then((full) => {
-        const loadedNodes = (full.canvas_nodes ?? []) as WorkflowCanvasNode[];
+        const loadedNodes = (full.canvas_nodes ?? []) as PersistedCanvasNode[];
         const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
         const loadedGroups = (full.canvas_groups ?? []) as CanvasGroup[];
         const { nodes: migratedNodes, edges: migratedEdges, migrated } =
@@ -220,9 +226,59 @@ export function WorkflowBuilderPage() {
           continue;
         }
 
-        nextAllNodes = nextAllNodes.map((n) =>
-          n.id === node.id ? (node as WorkflowCanvasNode) : n,
-        );
+        nextAllNodes = nextAllNodes.map((n) => {
+          if (n.id !== node.id) return n;
+          const updated = node as PersistedCanvasNode;
+          if (updated.type === "backgroundNode") {
+            const width = Math.round(updated.width ?? updated.measured?.width ?? 0);
+            const height = Math.round(
+              updated.height ?? updated.measured?.height ?? 0,
+            );
+            return {
+              ...updated,
+              zIndex: BACKGROUND_Z_INDEX,
+              ...(width > 0 && height > 0
+                ? {
+                    width,
+                    height,
+                    data: {
+                      ...updated.data,
+                      pluginConfig: {
+                        ...updated.data.pluginConfig,
+                        width,
+                        height,
+                      },
+                    },
+                  }
+                : {}),
+            };
+          }
+          if (updated.type === "labelNode") {
+            const width = Math.round(updated.width ?? updated.measured?.width ?? 0);
+            const height = Math.round(
+              updated.height ?? updated.measured?.height ?? 0,
+            );
+            return {
+              ...updated,
+              zIndex: FOREGROUND_Z_INDEX,
+              ...(width > 0 && height > 0
+                ? {
+                    width,
+                    height,
+                    data: {
+                      ...updated.data,
+                      pluginConfig: {
+                        ...updated.data.pluginConfig,
+                        width,
+                        height,
+                      },
+                    },
+                  }
+                : {}),
+            };
+          }
+          return { ...updated, zIndex: updated.zIndex ?? FOREGROUND_Z_INDEX };
+        });
       }
 
       if (nextAllNodes !== allNodes) setAllNodes(nextAllNodes);
@@ -561,7 +617,7 @@ export function WorkflowBuilderPage() {
           return res.json();
         })
         .then((full) => {
-          const loadedNodes = (full.canvas_nodes ?? []) as WorkflowCanvasNode[];
+          const loadedNodes = (full.canvas_nodes ?? []) as PersistedCanvasNode[];
           const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
           const loadedGroups = (full.canvas_groups ?? []) as CanvasGroup[];
           const { nodes: migratedNodes, edges: migratedEdges, migrated } =
@@ -701,6 +757,23 @@ export function WorkflowBuilderPage() {
           if (n.data.kind === "render-jinja-template") {
             nextData.producesParsed = deriveProducesParsed(config);
           }
+          if (isCanvasDecorationKind(n.data.kind)) {
+            const width =
+              typeof config.width === "number" ? config.width : (n.width ?? 0);
+            const height =
+              typeof config.height === "number" ? config.height : (n.height ?? 0);
+            return {
+              ...n,
+              width,
+              height,
+              zIndex:
+                n.data.kind === "background"
+                  ? BACKGROUND_Z_INDEX
+                  : FOREGROUND_Z_INDEX,
+              style: { ...n.style, width, height },
+              data: nextData,
+            };
+          }
           return { ...n, data: nextData };
         }),
       );
@@ -710,22 +783,41 @@ export function WorkflowBuilderPage() {
   );
 
   const buildStepNode = useCallback(
-    (step: StepPayload, id: string, position: { x: number; y: number }): WorkflowCanvasNode => {
+    (step: StepPayload, id: string, position: { x: number; y: number }): PersistedCanvasNode => {
       const isRenderJinja = step.kind === "render-jinja-template";
       const isUpdateAttribute = step.kind === "update-attribute";
-      const pluginConfig = isRenderJinja
-        ? { ...DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG }
-        : isUpdateAttribute
-          ? { attributes: [] }
-          : undefined;
+      const isLabel = step.kind === "label";
+      const isBackground = step.kind === "background";
+
+      let pluginConfig: Record<string, unknown> | undefined;
+      if (isRenderJinja) {
+        pluginConfig = { ...DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG };
+      } else if (isUpdateAttribute) {
+        pluginConfig = { attributes: [] };
+      } else if (isLabel) {
+        pluginConfig = { ...DEFAULT_LABEL_CONFIG };
+      } else if (isBackground) {
+        pluginConfig = { ...DEFAULT_BACKGROUND_CONFIG };
+      }
+
       const producesParsed = isRenderJinja
         ? deriveProducesParsed(DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG)
         : step.producesParsed;
 
+      const nodeType = reactFlowTypeForKind(step.kind);
+      const width =
+        typeof pluginConfig?.width === "number" ? pluginConfig.width : undefined;
+      const height =
+        typeof pluginConfig?.height === "number" ? pluginConfig.height : undefined;
+
       return {
         id,
-        type: "workflowNode",
+        type: nodeType,
         position,
+        zIndex: isBackground ? BACKGROUND_Z_INDEX : FOREGROUND_Z_INDEX,
+        ...(width != null && height != null
+          ? { width, height, style: { width, height } }
+          : {}),
         data: {
           kind: step.kind,
           stepUuid: crypto.randomUUID(),
@@ -741,7 +833,7 @@ export function WorkflowBuilderPage() {
           outcomes: step.outcomes,
           ...(pluginConfig ? { pluginConfig } : {}),
         },
-      };
+      } as PersistedCanvasNode;
     },
     [],
   );
@@ -763,7 +855,9 @@ export function WorkflowBuilderPage() {
       const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, { x: 160 + nextIndex * 44, y: 460 });
-      setAllNodes((currentNodes) => [...currentNodes, node]);
+      setAllNodes((currentNodes) =>
+        step.kind === "background" ? [node, ...currentNodes] : [...currentNodes, node],
+      );
       appendToActiveGroup(id);
       selectNode(id);
       markDirty();
@@ -776,7 +870,9 @@ export function WorkflowBuilderPage() {
       const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, position);
-      setAllNodes((currentNodes) => [...currentNodes, node]);
+      setAllNodes((currentNodes) =>
+        step.kind === "background" ? [node, ...currentNodes] : [...currentNodes, node],
+      );
       appendToActiveGroup(id);
       selectNode(id);
       markDirty();

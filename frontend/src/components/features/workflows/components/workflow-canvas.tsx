@@ -32,6 +32,8 @@ import { findPluginByKind, STEP_DRAG_MIME_TYPE, toStepPayload } from "../utils/s
 import type { PluginDefinition } from "../types/plugin-registry";
 import {
   DEFAULT_EDGE_STYLE,
+  isCanvasDecorationKind,
+  sortNodesBackgroundsBehind,
   type ProjectedCanvasNode,
   type StepPayload,
   type WorkflowCanvasEdge,
@@ -39,11 +41,15 @@ import {
 import { WaypointEdge } from "./edges/waypoint-edge";
 import { CollapsibleMiniMap } from "./collapsible-minimap";
 import { GroupNode } from "./nodes/group-node";
+import { BackgroundNode } from "./nodes/background-node";
+import { LabelNode } from "./nodes/label-node";
 import { WorkflowNode } from "./nodes/workflow-node";
 
 const nodeTypes: NodeTypes = {
   workflowNode: WorkflowNode,
   groupNode: GroupNode,
+  labelNode: LabelNode,
+  backgroundNode: BackgroundNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -52,6 +58,8 @@ const edgeTypes: EdgeTypes = {
 
 // Half the fixed node footprint (w-80 h-32), used to center a dropped step on the pointer.
 const NODE_DROP_OFFSET = { x: 160, y: 64 };
+const LABEL_DROP_OFFSET = { x: 100, y: 20 };
+const BACKGROUND_DROP_OFFSET = { x: 240, y: 160 };
 
 interface WorkflowCanvasProps {
   nodes: ProjectedCanvasNode[];
@@ -88,6 +96,14 @@ function WorkflowCanvasInner({
       const sourceNode = nodes.find((n) => n.id === connection.source);
       const targetNode = nodes.find((n) => n.id === connection.target);
       if (!sourceNode || !targetNode) return false;
+
+      // Canvas decorations (label / background) never accept or emit edges.
+      if (
+        isCanvasDecorationKind(sourceNode.data.kind) ||
+        isCanvasDecorationKind(targetNode.data.kind)
+      ) {
+        return false;
+      }
 
       const provided = getOutcomeProvides(
         outcomeProvides,
@@ -185,12 +201,25 @@ function WorkflowCanvasInner({
         x: event.clientX,
         y: event.clientY,
       });
+      const offset =
+        kind === "label"
+          ? LABEL_DROP_OFFSET
+          : kind === "background"
+            ? BACKGROUND_DROP_OFFSET
+            : NODE_DROP_OFFSET;
       onAddStepAtPosition(toStepPayload(plugin), {
-        x: flowPosition.x - NODE_DROP_OFFSET.x,
-        y: flowPosition.y - NODE_DROP_OFFSET.y,
+        x: flowPosition.x - offset.x,
+        y: flowPosition.y - offset.y,
       });
     },
     [plugins, screenToFlowPosition, onAddStepAtPosition],
+  );
+
+  // Backgrounds must stay under steps: equal z-index paints later array entries on top,
+  // and selecting a background elevates it — keep them first + low zIndex on the node.
+  const layeredNodes = useMemo(
+    () => sortNodesBackgroundsBehind(nodes),
+    [nodes],
   );
 
   return (
@@ -200,7 +229,7 @@ function WorkflowCanvasInner({
       onDrop={handleDrop}
     >
       <ReactFlow<ProjectedCanvasNode, WorkflowCanvasEdge>
-        nodes={nodes}
+        nodes={layeredNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

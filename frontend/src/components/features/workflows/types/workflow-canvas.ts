@@ -69,6 +69,15 @@ export interface WorkflowEdgeData extends Record<string, unknown> {
 }
 
 export type WorkflowCanvasNode = Node<WorkflowNodeData, "workflowNode">;
+export type LabelCanvasNode = Node<WorkflowNodeData, "labelNode">;
+export type BackgroundCanvasNode = Node<WorkflowNodeData, "backgroundNode">;
+
+/** Persisted canvas nodes: executable steps plus canvas-only decorations. */
+export type PersistedCanvasNode =
+  | WorkflowCanvasNode
+  | LabelCanvasNode
+  | BackgroundCanvasNode;
+
 export type WorkflowCanvasEdge = Edge<WorkflowEdgeData, "waypoint">;
 
 export interface CanvasGroup {
@@ -106,8 +115,57 @@ export interface GroupNodeData extends Record<string, unknown> {
 
 export type GroupCanvasNode = Node<GroupNodeData, "groupNode">;
 
-/** Nodes flowing through the canvas after group projection: real steps or synthetic groups. */
-export type ProjectedCanvasNode = WorkflowCanvasNode | GroupCanvasNode;
+/** Nodes flowing through the canvas after group projection: real steps, decorations, or synthetic groups. */
+export type ProjectedCanvasNode = PersistedCanvasNode | GroupCanvasNode;
 
 export const GROUP_NODE_ID_PREFIX = "__group__";
 export const GROUP_EDGE_ID_PREFIX = "__group-edge__";
+
+/** Canvas decoration kinds — no handles, not executed at runtime. */
+export const CANVAS_DECORATION_KINDS = new Set(["label", "background"]);
+
+export function isCanvasDecorationKind(kind: string | undefined): boolean {
+  return !!kind && CANVAS_DECORATION_KINDS.has(kind);
+}
+
+export function reactFlowTypeForKind(kind: string): PersistedCanvasNode["type"] {
+  if (kind === "label") return "labelNode";
+  if (kind === "background") return "backgroundNode";
+  return "workflowNode";
+}
+
+export const DEFAULT_LABEL_CONFIG = {
+  text: "Label",
+  font_size: 16,
+  font_family: "sans",
+  color: "#0f172a",
+  width: 200,
+  height: 40,
+} as const;
+
+export const DEFAULT_BACKGROUND_CONFIG = {
+  color: "#e2e8f0",
+  width: 480,
+  height: 320,
+} as const;
+
+/** Stacking: backgrounds stay under steps/labels (React Flow paints later equal-z nodes on top). */
+export const BACKGROUND_Z_INDEX = 0;
+export const FOREGROUND_Z_INDEX = 1;
+
+export const LABEL_FONT_STACKS: Record<string, string> = {
+  sans: 'ui-sans-serif, system-ui, sans-serif',
+  serif: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+};
+
+/** Keep background nodes first so equal-z paint order cannot cover steps. */
+export function sortNodesBackgroundsBehind<T extends { type?: string }>(
+  nodes: T[],
+): T[] {
+  return [...nodes].sort((a, b) => {
+    const aRank = a.type === "backgroundNode" ? 0 : 1;
+    const bRank = b.type === "backgroundNode" ? 0 : 1;
+    return aRank - bRank;
+  });
+}

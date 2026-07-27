@@ -1,5 +1,5 @@
 import type { PluginDefinition } from "../types/plugin-registry";
-import type { WorkflowCanvasEdge, WorkflowCanvasNode } from "../types/workflow-canvas";
+import type { WorkflowCanvasEdge, PersistedCanvasNode } from "../types/workflow-canvas";
 
 export interface UpstreamOutput {
   contentSource: string;
@@ -18,7 +18,7 @@ export interface UpstreamOutput {
  */
 export function findUpstreamOutput(
   nodeId: string,
-  nodes: WorkflowCanvasNode[],
+  nodes: PersistedCanvasNode[],
   edges: WorkflowCanvasEdge[],
   plugins: PluginDefinition[],
 ): UpstreamOutput | null {

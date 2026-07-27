@@ -44,6 +44,8 @@ class PluginDefinition(BaseModel):
     palette_category: str | None = None
     directory: str = Field(..., min_length=1)
     enabled: bool = True
+    # False = canvas decoration only (no executor, skipped by StepRunner).
+    executable: bool = True
     requires: list[str] = Field(default_factory=list)
     produces: list[str] = Field(default_factory=list)
     consumes: list[str] = Field(default_factory=list)

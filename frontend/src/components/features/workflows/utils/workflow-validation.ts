@@ -1,20 +1,24 @@
-import type {
-  CanvasGroup,
-  WorkflowCanvasEdge,
-  WorkflowCanvasNode,
+import {
+  isCanvasDecorationKind,
+  type CanvasGroup,
+  type WorkflowCanvasEdge,
+  type PersistedCanvasNode,
 } from "../types/workflow-canvas";
 import { validateGroupBoundary } from "./canvas-group-boundary";
 
 const EMPTY_GROUPS: CanvasGroup[] = [];
 
 export function validateCanvasWorkflow(
-  nodes: WorkflowCanvasNode[],
+  nodes: PersistedCanvasNode[],
   edges: WorkflowCanvasEdge[],
   groups: CanvasGroup[] = EMPTY_GROUPS,
 ) {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const danglingEdges = edges.filter(
     (edge) => !nodeIds.has(edge.source) || !nodeIds.has(edge.target),
+  );
+  const hasExecutableStep = nodes.some(
+    (node) => !isCanvasDecorationKind(node.data.kind),
   );
 
   const groupIssues = groups
@@ -32,7 +36,7 @@ export function validateCanvasWorkflow(
     );
 
   const issues = [
-    ...(nodes.length === 0 ? ["Workflow has no steps."] : []),
+    ...(hasExecutableStep ? [] : ["Workflow has no steps."]),
     ...danglingEdges.map(
       (edge) => `Edge ${edge.id} references a missing workflow step.`,
     ),
@@ -40,7 +44,7 @@ export function validateCanvasWorkflow(
   ];
 
   return {
-    isValid: nodes.length > 0 && danglingEdges.length === 0 && groupIssues.length === 0,
+    isValid: hasExecutableStep && danglingEdges.length === 0 && groupIssues.length === 0,
     issues,
   };
 }

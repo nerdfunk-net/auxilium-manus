@@ -1,11 +1,12 @@
 import {
   GROUP_EDGE_ID_PREFIX,
   GROUP_NODE_ID_PREFIX,
+  sortNodesBackgroundsBehind,
   type CanvasGroup,
   type GroupCanvasNode,
+  type PersistedCanvasNode,
   type ProjectedCanvasNode,
   type WorkflowCanvasEdge,
-  type WorkflowCanvasNode,
 } from "../types/workflow-canvas";
 
 export function groupNodeId(groupId: string): string {
@@ -53,7 +54,7 @@ const GROUP_NODE_HEIGHT = 128;
 
 function synthesizeGroupNode(
   group: CanvasGroup,
-  allNodes: WorkflowCanvasNode[],
+  allNodes: PersistedCanvasNode[],
 ): GroupCanvasNode {
   const entryNode = allNodes.find(
     (n) => n.id === group.entryNodeId && group.nodeIds.includes(n.id),
@@ -90,7 +91,7 @@ function synthesizeGroupNode(
  * stored in its own state.
  */
 export function projectCanvasView(
-  allNodes: WorkflowCanvasNode[],
+  allNodes: PersistedCanvasNode[],
   allEdges: WorkflowCanvasEdge[],
   groups: CanvasGroup[],
   activeGroupId: string | null,
@@ -192,7 +193,7 @@ export function projectCanvasView(
   }
 
   return {
-    nodes: [...visibleStepNodes, ...groupNodes],
+    nodes: sortNodesBackgroundsBehind([...visibleStepNodes, ...groupNodes]),
     edges,
     groupNodeIds,
   };
@@ -206,12 +207,12 @@ export function projectCanvasView(
  * the two never diverge (see FEATURE-GROUPING.md Hard Part 2).
  */
 export function removeRealNodes(
-  allNodes: WorkflowCanvasNode[],
+  allNodes: PersistedCanvasNode[],
   allEdges: WorkflowCanvasEdge[],
   groups: CanvasGroup[],
   nodeIds: string[],
 ): {
-  nodes: WorkflowCanvasNode[];
+  nodes: PersistedCanvasNode[];
   edges: WorkflowCanvasEdge[];
   groups: CanvasGroup[];
 } {
@@ -246,7 +247,7 @@ export function ungroupNode(
  * no longer exist and dissolves groups left with fewer than two members.
  */
 export function repairOrphanGroups(
-  allNodes: WorkflowCanvasNode[],
+  allNodes: PersistedCanvasNode[],
   groups: CanvasGroup[],
 ): CanvasGroup[] {
   const nodeIdSet = new Set(allNodes.map((n) => n.id));

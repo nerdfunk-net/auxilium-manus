@@ -1,4 +1,4 @@
-import type { WorkflowCanvasNode } from "@/components/features/workflows/types/workflow-canvas";
+import type { PersistedCanvasNode } from "@/components/features/workflows/types/workflow-canvas";
 
 export interface UpstreamSourceStep {
   nodeId: string;
@@ -15,7 +15,7 @@ const SOURCE_STEP_KIND: Partial<Record<string, string>> = {
   filtered_output: "filter-output",
 };
 
-function readRenderOutputKey(node: WorkflowCanvasNode): string {
+function readRenderOutputKey(node: PersistedCanvasNode): string {
   const pluginConfig = (node.data.pluginConfig ?? {}) as Record<string, unknown>;
   if (typeof pluginConfig.output_key === "string" && pluginConfig.output_key.trim()) {
     return pluginConfig.output_key.trim();
@@ -24,7 +24,7 @@ function readRenderOutputKey(node: WorkflowCanvasNode): string {
 }
 
 export function listUpstreamSourceSteps(
-  nodes: WorkflowCanvasNode[],
+  nodes: PersistedCanvasNode[],
   contentSource: string,
   currentNodeId: string,
 ): UpstreamSourceStep[] {

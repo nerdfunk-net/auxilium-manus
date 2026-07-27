@@ -24,6 +24,8 @@ export interface PluginDefinition {
   palette_category?: string | null;
   directory: string;
   enabled: boolean;
+  /** False = canvas decoration only (no executor, skipped at runtime). */
+  executable?: boolean;
   requires: string[];
   produces: string[];
   consumes: string[];

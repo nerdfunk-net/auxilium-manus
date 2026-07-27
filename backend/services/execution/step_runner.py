@@ -144,10 +144,40 @@ class StepRunner:
     ) -> list[dict[str, Any]]:
         """Return canvas nodes in dependency (topological) order.
 
+        Canvas decorations (``executable: false`` in the plugin registry) are
+        excluded — they persist on the canvas for layout only and never run.
+
         Public entry point for callers that drive the walk themselves, e.g. the
         Hatchet task's debug-mode per-node loop (`hatchet/workflows/workflow_run.py`).
         """
         return self._topological_sort(nodes, edges)
+
+    def _is_executable_node(self, node: dict[str, Any]) -> bool:
+        """False for canvas decorations (label, background, …); True otherwise.
+
+        Unknown kinds stay executable so StepRunner still fails with
+        ``Unknown step type`` rather than silently dropping them.
+        """
+        kind = (node.get("data") or {}).get("kind", "")
+        if not kind:
+            return True
+        plugin = self.plugin_registry.get_plugin(kind)
+        if plugin is None:
+            return True
+        return plugin.executable
+
+    def _filter_executable_graph(
+        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Drop non-executable decoration nodes and any edges that touch them."""
+        executable_nodes = [n for n in nodes if self._is_executable_node(n)]
+        executable_ids = {n["id"] for n in executable_nodes if "id" in n}
+        executable_edges = [
+            e
+            for e in edges
+            if e.get("source", "") in executable_ids and e.get("target", "") in executable_ids
+        ]
+        return executable_nodes, executable_edges
 
     def create_pending_step_results(
         self, *, run_id: int, ordered_nodes: list[dict[str, Any]]
@@ -697,6 +727,7 @@ class StepRunner:
     def _topological_sort(
         self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
+        nodes, edges = self._filter_executable_graph(nodes, edges)
         node_map = {n["id"]: n for n in nodes if "id" in n}
         in_degree: dict[str, int] = {nid: 0 for nid in node_map}
         dependents: dict[str, list[str]] = {nid: [] for nid in node_map}

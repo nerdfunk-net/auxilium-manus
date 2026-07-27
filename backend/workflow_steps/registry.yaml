@@ -1130,6 +1130,94 @@ plugins:
                 multiline: false
                 dotall: false
 
+  - id: label
+    name: Label
+    overview: Place styled text on the workflow canvas.
+    description: >
+      Canvas decoration — configurable text with size, font, and color.
+      Not executed at runtime and cannot be connected to other steps.
+    artifact_type: canvas_decoration
+    palette_category: debug
+    directory: label
+    enabled: true
+    executable: false
+    requires: []
+    produces: []
+    outcomes: []
+    metadata:
+      configuration_input:
+        - name: text
+          description: Text shown on the canvas.
+          data_type: string
+          required: true
+          example: "Phase 1 — inventory"
+        - name: font_size
+          description: Font size in pixels.
+          data_type: number
+          required: true
+          default: 16
+          example: 16
+        - name: font_family
+          description: Font family — sans, serif, or mono.
+          data_type: string
+          required: true
+          default: sans
+          example: sans
+        - name: color
+          description: Text color as a hex string (e.g. #0f172a).
+          data_type: string
+          required: true
+          default: "#0f172a"
+          example: "#0f172a"
+        - name: width
+          description: Label box width in pixels.
+          data_type: number
+          required: true
+          default: 200
+          example: 200
+        - name: height
+          description: Label box height in pixels.
+          data_type: number
+          required: true
+          default: 40
+          example: 40
+
+  - id: background
+    name: Background
+    overview: Place a colored rectangle behind other canvas steps.
+    description: >
+      Canvas decoration — a colored rectangle always drawn behind other
+      steps. Configure size and color. Not executed at runtime and cannot
+      be connected to other steps.
+    artifact_type: canvas_decoration
+    palette_category: debug
+    directory: background
+    enabled: true
+    executable: false
+    requires: []
+    produces: []
+    outcomes: []
+    metadata:
+      configuration_input:
+        - name: color
+          description: Fill color as a hex string (e.g. #e2e8f0).
+          data_type: string
+          required: true
+          default: "#e2e8f0"
+          example: "#e2e8f0"
+        - name: width
+          description: Rectangle width in pixels.
+          data_type: number
+          required: true
+          default: 480
+          example: 480
+        - name: height
+          description: Rectangle height in pixels.
+          data_type: number
+          required: true
+          default: 320
+          example: 320
+
   - id: log-message
     name: Log Message
     overview: Log a per-device message for workflow debugging.
