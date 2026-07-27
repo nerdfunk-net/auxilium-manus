@@ -31,7 +31,10 @@ import {
 import { findPluginByKind, STEP_DRAG_MIME_TYPE, toStepPayload } from "../utils/step-catalog";
 import type { PluginDefinition } from "../types/plugin-registry";
 import {
+  BACKGROUND_Z_INDEX,
   DEFAULT_EDGE_STYLE,
+  EDGE_Z_INDEX,
+  FOREGROUND_Z_INDEX,
   isCanvasDecorationKind,
   sortNodesBackgroundsBehind,
   type ProjectedCanvasNode,
@@ -215,10 +218,23 @@ function WorkflowCanvasInner({
     [plugins, screenToFlowPosition, onAddStepAtPosition],
   );
 
-  // Backgrounds must stay under steps: equal z-index paints later array entries on top,
-  // and selecting a background elevates it — keep them first + low zIndex on the node.
+  // Backgrounds must stay under edges and steps. React Flow renders the edge
+  // SVG before the nodes layer, so only a negative node z-index sits behind wires.
   const layeredNodes = useMemo(
-    () => sortNodesBackgroundsBehind(nodes),
+    () =>
+      sortNodesBackgroundsBehind(nodes).map((node) => {
+        if (node.type === "backgroundNode") {
+          return node.zIndex === BACKGROUND_Z_INDEX
+            ? node
+            : { ...node, zIndex: BACKGROUND_Z_INDEX };
+        }
+        if (node.type === "labelNode" || node.type === "workflowNode") {
+          return node.zIndex === FOREGROUND_Z_INDEX
+            ? node
+            : { ...node, zIndex: FOREGROUND_Z_INDEX };
+        }
+        return node;
+      }),
     [nodes],
   );
 
@@ -237,6 +253,7 @@ function WorkflowCanvasInner({
         onEdgesChange={onEdgesChange}
         defaultEdgeOptions={{
           type: "waypoint",
+          zIndex: EDGE_Z_INDEX,
           data: { edgeStyle: DEFAULT_EDGE_STYLE },
         }}
         onConnect={onConnect}

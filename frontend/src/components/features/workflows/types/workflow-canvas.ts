@@ -150,9 +150,14 @@ export const DEFAULT_BACKGROUND_CONFIG = {
   height: 320,
 } as const;
 
-/** Stacking: backgrounds stay under steps/labels (React Flow paints later equal-z nodes on top). */
-export const BACKGROUND_Z_INDEX = 0;
+/**
+ * Stacking order in React Flow (edges and nodes are sibling layers):
+ * background (-1) < edges (0) < steps/labels (1).
+ * A non-negative background z-index paints above the edge SVG and hides wires.
+ */
+export const BACKGROUND_Z_INDEX = -1;
 export const FOREGROUND_Z_INDEX = 1;
+export const EDGE_Z_INDEX = 0;
 
 export const LABEL_FONT_STACKS: Record<string, string> = {
   sans: 'ui-sans-serif, system-ui, sans-serif',
