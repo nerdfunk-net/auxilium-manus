@@ -120,3 +120,45 @@ def test_get_configs_rejects_non_ssh_credential(app: FastAPI) -> None:
         response = client.post("/api/netmiko/get-configs", json=_payload())
 
     assert response.status_code == 400
+
+
+def test_get_configs_scopes_credential_lookup_to_acting_user(app: FastAPI) -> None:
+    mock_credentials_service = MagicMock()
+    mock_credentials_service.get_credential_by_id.return_value = {
+        "type": "ssh",
+        "username": "admin",
+    }
+    mock_credentials_service.get_decrypted_password.return_value = "secret"
+    app.dependency_overrides[_credentials_service] = lambda: mock_credentials_service
+
+    with patch("routers.netmiko.NetmikoService") as netmiko_cls, patch(
+        "routers.netmiko.parse_cisco_config_text"
+    ):
+        netmiko = netmiko_cls.return_value
+
+        async def _get_configs(**_kwargs):
+            return ConfigResult(success=True, running_config="x", startup_config="x")
+
+        netmiko.get_configs.side_effect = _get_configs
+
+        with TestClient(app) as client:
+            response = client.post("/api/netmiko/get-configs", json=_payload())
+
+    assert response.status_code == 200
+    mock_credentials_service.get_credential_by_id.assert_called_once_with(
+        1, acting_user_id=1
+    )
+    mock_credentials_service.get_decrypted_password.assert_called_once_with(
+        1, acting_user_id=1
+    )
+
+
+def test_get_configs_returns_404_when_credential_not_visible(app: FastAPI) -> None:
+    mock_credentials_service = MagicMock()
+    mock_credentials_service.get_credential_by_id.return_value = None
+    app.dependency_overrides[_credentials_service] = lambda: mock_credentials_service
+
+    with TestClient(app) as client:
+        response = client.post("/api/netmiko/get-configs", json=_payload())
+
+    assert response.status_code == 404

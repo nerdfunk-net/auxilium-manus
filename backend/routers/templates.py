@@ -17,6 +17,7 @@ from models.templates import (
     TemplateResponse,
     TemplateUpdate,
 )
+from services.credentials.credentials_service import CredentialsService
 from services.templates.exceptions import (
     TemplateNameConflictError,
     TemplateNotFoundError,
@@ -34,6 +35,23 @@ router = APIRouter(
 
 def _service(db: Session = Depends(get_db)) -> TemplatesService:
     return TemplatesService(db)
+
+
+def _assert_credential_visible(
+    db: Session, credential_id: int | None, *, acting_user_id: int
+) -> None:
+    """Prevent wiring a template's pre-run credential to another user's
+    private credential (also prevents ID-probing another user's credential)."""
+    if credential_id is None:
+        return
+    credential = CredentialsService(db).get_credential_by_id(
+        credential_id, acting_user_id=acting_user_id
+    )
+    if credential is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Credential {credential_id} not found",
+        )
 
 
 @router.get(
@@ -113,7 +131,9 @@ async def create_template(
     payload: TemplateCreate,
     current_user: User = Depends(get_current_user),
     service: TemplatesService = Depends(_service),
+    db: Session = Depends(get_db),
 ) -> TemplateResponse:
+    _assert_credential_visible(db, payload.credential_id, acting_user_id=current_user.id)
     try:
         result = service.create_template(
             name=payload.name,
@@ -143,9 +163,11 @@ async def create_template(
 async def update_template(
     template_id: int,
     payload: TemplateUpdate,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     service: TemplatesService = Depends(_service),
+    db: Session = Depends(get_db),
 ) -> TemplateResponse:
+    _assert_credential_visible(db, payload.credential_id, acting_user_id=current_user.id)
     try:
         variables = (
             {key: value.model_dump() for key, value in payload.variables.items()}

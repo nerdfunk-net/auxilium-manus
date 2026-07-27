@@ -11,7 +11,7 @@ import { CredentialFormDialog } from "../credentials/dialogs/credential-form-dia
 import { DeleteCredentialDialog } from "../credentials/dialogs/delete-credential-dialog";
 import { useCredentialMutations } from "../credentials/hooks/use-credential-mutations";
 import { useCredentialsQuery } from "../credentials/hooks/use-credentials-query";
-import type { Credential } from "../credentials/types";
+import type { Credential, CredentialVisibility } from "../credentials/types";
 
 type DialogState =
   | { type: "closed" }
@@ -38,6 +38,7 @@ export function CredentialsSettingsCanvas() {
       username: string;
       password?: string;
       valid_until?: string;
+      visibility: CredentialVisibility;
     }) => {
       createCredential.mutate(
         {
@@ -46,6 +47,7 @@ export function CredentialsSettingsCanvas() {
           type: "ssh",
           password: values.password,
           valid_until: values.valid_until || undefined,
+          visibility: values.visibility,
         },
         { onSuccess: () => setDialog({ type: "closed" }) },
       );
@@ -61,6 +63,7 @@ export function CredentialsSettingsCanvas() {
         username: string;
         password?: string;
         valid_until?: string;
+        visibility: CredentialVisibility;
       },
     ) => {
       const payload: {
@@ -68,10 +71,12 @@ export function CredentialsSettingsCanvas() {
         username: string;
         password?: string;
         valid_until?: string;
+        visibility?: CredentialVisibility;
       } = {
         name: values.name.trim(),
         username: values.username.trim(),
         valid_until: values.valid_until || undefined,
+        visibility: values.visibility,
       };
       if (values.password?.trim()) {
         payload.password = values.password;

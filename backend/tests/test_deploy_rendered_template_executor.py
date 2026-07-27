@@ -102,6 +102,42 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_kwargs["commands"], ["interface Gi0/0", " description test"])
         self.assertFalse(call_kwargs["write_config"])
 
+    async def test_resolves_credential_scoped_to_triggering_user(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        run.triggered_by_id = 42
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        with patch(
+            "workflow_steps.deploy_rendered_template.executor.object_session",
+            return_value=db,
+        ), patch(
+            "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+            return_value=("admin", "secret"),
+        ) as resolve_mock, patch(
+            "workflow_steps.deploy_rendered_template.executor.NetmikoService"
+        ) as netmiko_cls, patch.object(
+            artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(success=True, config_output="ok")
+            )
+
+            await execute(
+                config=_base_config(),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+            )
+
+        resolve_mock.assert_called_once_with(db, "lab-ssh", acting_user_id=42)
+
     async def test_write_config_after_execution_stores_save_result(self) -> None:
         run = MagicMock()
         run.id = 1

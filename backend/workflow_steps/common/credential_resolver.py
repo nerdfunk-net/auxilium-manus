@@ -22,14 +22,24 @@ class CredentialReferenceInvalidError(ValueError):
 def resolve_ssh_credential(
     db: Session,
     credential_reference: str,
+    *,
+    acting_user_id: int | None,
 ) -> tuple[str, str]:
-    """Resolve a credential vault name to (username, password)."""
+    """Resolve a credential vault name to (username, password), scoped to
+    global credentials plus the acting user's own private credentials.
+
+    ``acting_user_id`` should be the executing run's ``triggered_by_id``. If
+    it is ``None`` (e.g. a schedule/system-triggered run with no user), only
+    global credentials resolve.
+    """
     reference = credential_reference.strip()
     if not reference:
         raise ValueError("credential_reference is not configured")
 
     service = CredentialsService(db)
-    credentials = service.list_credentials(include_expired=False, source="general")
+    credentials = service.list_credentials(
+        include_expired=False, source="general", acting_user_id=acting_user_id
+    )
     match = next((item for item in credentials if item["name"] == reference), None)
     if match is None:
         raise CredentialReferenceNotFoundError(
@@ -45,7 +55,9 @@ def resolve_ssh_credential(
         )
 
     try:
-        password = service.get_decrypted_password(int(match["id"]))
+        password = service.get_decrypted_password(
+            int(match["id"]), acting_user_id=acting_user_id
+        )
     except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
         raise CredentialReferenceInvalidError(
             f"Credential {reference!r} has no decryptable password"

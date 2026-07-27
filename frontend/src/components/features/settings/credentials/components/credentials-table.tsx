@@ -5,6 +5,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { CredentialStatusBadge } from "../components/credential-status-badge";
+import { CredentialVisibilityBadge } from "../components/credential-visibility-badge";
 import type { Credential } from "../types";
 import { formatValidUntil } from "../utils/credential-utils";
 
@@ -32,7 +33,7 @@ export function CredentialsTable({
       {credentials.map((credential) => (
         <li
           key={credential.id}
-          className="grid gap-3 rounded-lg border bg-background px-4 py-3 md:grid-cols-[4rem_1fr_1fr_8rem_7rem_auto]"
+          className="grid gap-3 rounded-lg border bg-background px-4 py-3 md:grid-cols-[4rem_1fr_1fr_8rem_7rem_7rem_auto]"
         >
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -63,6 +64,17 @@ export function CredentialsTable({
               Status
             </p>
             <CredentialStatusBadge status={credential.status} />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Visibility
+            </p>
+            <CredentialVisibilityBadge visibility={credential.visibility} />
+            {credential.visibility === "private" && credential.owner_username ? (
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {credential.owner_username}
+              </p>
+            ) : null}
           </div>
           <div className="flex items-end justify-end gap-1">
             <Button

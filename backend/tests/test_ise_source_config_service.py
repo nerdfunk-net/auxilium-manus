@@ -62,6 +62,7 @@ class ISESourceConfigServiceTests(unittest.TestCase):
             cred_type="generic",
             password="C1sco12345!",
             source="ise",
+            visibility="global",
         )
         create_kwargs = self.mock_settings.create.call_args.kwargs
         self.assertEqual(create_kwargs["key"], "sources.ise.lab")

@@ -58,7 +58,9 @@ async def execute(
     if db is None:
         raise RuntimeError("get-device-configs: WorkflowRun has no active DB session")
 
-    username, password = resolve_ssh_credential(db, credential_reference)
+    username, password = resolve_ssh_credential(
+        db, credential_reference, acting_user_id=run.triggered_by_id
+    )
     include_running, include_startup = _config_targets(config_format)
     netmiko = NetmikoService()
 

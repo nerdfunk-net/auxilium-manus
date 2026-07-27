@@ -113,6 +113,47 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         summary = outcomes[0].context.devices["device-1"].command_results["node-1"][0].summary
         self.assertEqual(summary, "2 row(s) parsed")
 
+    async def test_resolves_credential_scoped_to_triggering_user(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        run.triggered_by_id = 42
+        db = MagicMock()
+        with patch(
+            "workflow_steps.run_command.executor.object_session",
+            return_value=db,
+        ), patch(
+            "workflow_steps.run_command.executor.resolve_ssh_credential",
+            return_value=("admin", "secret"),
+        ) as resolve_mock, patch(
+            "workflow_steps.run_command.executor.NetmikoService"
+        ) as netmiko_cls:
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="Cisco IOS",
+                    command_outputs={"show version": "Cisco IOS"},
+                )
+            )
+
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "use_textfsm": False,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+            )
+
+        resolve_mock.assert_called_once_with(db, "lab-ssh", acting_user_id=42)
+
     async def test_missing_commands_raises(self) -> None:
         run = MagicMock()
         with self.assertRaises(ValueError):

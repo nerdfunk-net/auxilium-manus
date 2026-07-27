@@ -36,20 +36,28 @@ class CredentialsService:
         *,
         include_expired: bool = False,
         source: str | None = "general",
+        acting_user_id: int | None = None,
     ) -> list[dict[str, Any]]:
-        credentials = (
-            self._repo.list_by_source(source)
-            if source
-            else self._repo.list_all()
-        )
-        items = [self._to_dict(credential) for credential in credentials]
+        rows = self._repo.list_visible(acting_user_id=acting_user_id, source=source)
+        items = [
+            self._to_dict(credential, owner_username=owner_username)
+            for credential, owner_username in rows
+        ]
         if not include_expired:
             items = [item for item in items if item["status"] != "expired"]
         return items
 
-    def get_credential_by_id(self, cred_id: int) -> dict[str, Any] | None:
-        credential = self._repo.get_by_id(cred_id)
-        return self._to_dict(credential) if credential else None
+    def get_credential_by_id(
+        self, cred_id: int, *, acting_user_id: int | None = None
+    ) -> dict[str, Any] | None:
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
+        if credential is None:
+            return None
+        owner_username = None
+        if credential.visibility == "private":
+            found = self._repo.get_by_id_with_owner(cred_id)
+            owner_username = found[1] if found else None
+        return self._to_dict(credential, owner_username=owner_username)
 
     def create_credential(
         self,
@@ -60,12 +68,23 @@ class CredentialsService:
         password: str | None = None,
         valid_until: str | None = None,
         source: str = "general",
-        owner: str | None = None,
+        visibility: str = "private",
         ssh_private_key: str | None = None,
         ssh_passphrase: str | None = None,
+        acting_user_id: int | None = None,
     ) -> dict[str, Any]:
-        if self._repo.get_by_name_and_source(name, source):
-            raise CredentialNameConflictError(name)
+        owner_user_id: int | None = None
+        if visibility == "private":
+            if acting_user_id is None:
+                raise CredentialMissingFieldError(
+                    "A private credential requires an owning user"
+                )
+            owner_user_id = acting_user_id
+            if self._repo.find_private_conflict(name, source, owner_user_id):
+                raise CredentialNameConflictError(name)
+        else:
+            if self._repo.find_global_conflict(name, source):
+                raise CredentialNameConflictError(name)
 
         now = datetime.now(timezone.utc)
         credential = self._repo.create(
@@ -81,13 +100,14 @@ class CredentialsService:
             else None,
             valid_until=valid_until,
             source=source,
-            owner=owner,
+            visibility=visibility,
+            owner_user_id=owner_user_id,
             is_active=True,
             created_at=now,
             updated_at=now,
         )
         if cred_type == "ssh_key" and ssh_private_key:
-            self.export_single_ssh_key(credential.id)
+            self.export_single_ssh_key(credential.id, acting_user_id=acting_user_id)
         return self._to_dict(credential)
 
     def update_credential(
@@ -99,17 +119,36 @@ class CredentialsService:
         cred_type: str | None = None,
         password: str | None = None,
         valid_until: str | None = None,
+        visibility: str | None = None,
         ssh_private_key: str | None = None,
         ssh_passphrase: str | None = None,
+        acting_user_id: int | None = None,
     ) -> dict[str, Any]:
-        credential = self._repo.get_by_id(cred_id)
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             raise CredentialNotFoundError(cred_id)
 
-        if name is not None and name != credential.name:
-            conflict = self._repo.get_by_name_and_source(name, credential.source)
-            if conflict is not None and conflict.id != cred_id:
-                raise CredentialNameConflictError(name)
+        final_visibility = visibility if visibility is not None else credential.visibility
+        final_name = name if name is not None else credential.name
+        final_owner_user_id = credential.owner_user_id
+        if visibility is not None and visibility != credential.visibility:
+            final_owner_user_id = acting_user_id if visibility == "private" else None
+
+        if name is not None or visibility is not None:
+            if final_visibility == "private":
+                if final_owner_user_id is None:
+                    raise CredentialMissingFieldError(
+                        "A private credential requires an owning user"
+                    )
+                conflict = self._repo.find_private_conflict(
+                    final_name, credential.source, final_owner_user_id, exclude_id=cred_id
+                )
+            else:
+                conflict = self._repo.find_global_conflict(
+                    final_name, credential.source, exclude_id=cred_id
+                )
+            if conflict is not None:
+                raise CredentialNameConflictError(final_name)
 
         updates: dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
         if name is not None:
@@ -120,6 +159,9 @@ class CredentialsService:
             updates["type"] = cred_type
         if valid_until is not None:
             updates["valid_until"] = valid_until
+        if visibility is not None:
+            updates["visibility"] = visibility
+            updates["owner_user_id"] = final_owner_user_id
         if password is not None:
             updates["password_encrypted"] = self._encryption.encrypt(password)
         if ssh_private_key is not None:
@@ -130,55 +172,67 @@ class CredentialsService:
         updated = self._repo.update(credential, **updates)
         final_type = cred_type if cred_type is not None else credential.type
         if final_type == "ssh_key" and ssh_private_key is not None:
-            self.export_single_ssh_key(cred_id)
+            self.export_single_ssh_key(cred_id, acting_user_id=acting_user_id)
         return self._to_dict(updated)
 
-    def delete_credential(self, cred_id: int) -> None:
-        credential = self._repo.get_by_id(cred_id)
+    def delete_credential(self, cred_id: int, *, acting_user_id: int | None = None) -> None:
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             raise CredentialNotFoundError(cred_id)
         if credential.type == "ssh_key":
-            self._delete_ssh_key_file(credential.name, credential.source, credential.owner)
+            self._delete_ssh_key_file(
+                credential.name, credential.visibility, credential.owner_user_id
+            )
         self._repo.delete(credential)
 
-    def get_decrypted_password(self, cred_id: int) -> str:
-        credential = self._repo.get_by_id(cred_id)
+    def get_decrypted_password(
+        self, cred_id: int, *, acting_user_id: int | None = None
+    ) -> str:
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             raise CredentialNotFoundError(cred_id)
         if not credential.password_encrypted:
             raise CredentialMissingFieldError("Credential has no password")
         return self._encryption.decrypt(credential.password_encrypted)
 
-    def get_decrypted_ssh_key(self, cred_id: int) -> str:
-        credential = self._repo.get_by_id(cred_id)
+    def get_decrypted_ssh_key(
+        self, cred_id: int, *, acting_user_id: int | None = None
+    ) -> str:
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             raise CredentialNotFoundError(cred_id)
         if not credential.ssh_key_encrypted:
             raise CredentialMissingFieldError("Credential has no SSH key")
         return self._encryption.decrypt(credential.ssh_key_encrypted)
 
-    def get_decrypted_ssh_passphrase(self, cred_id: int) -> str | None:
-        credential = self._repo.get_by_id(cred_id)
+    def get_decrypted_ssh_passphrase(
+        self, cred_id: int, *, acting_user_id: int | None = None
+    ) -> str | None:
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             raise CredentialNotFoundError(cred_id)
         if not credential.ssh_passphrase_encrypted:
             return None
         return self._encryption.decrypt(credential.ssh_passphrase_encrypted)
 
-    def get_ssh_key_path(self, cred_id: int) -> str | None:
-        credential = self._repo.get_by_id(cred_id)
+    def get_ssh_key_path(
+        self, cred_id: int, *, acting_user_id: int | None = None
+    ) -> str | None:
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None or credential.type != "ssh_key" or not credential.ssh_key_encrypted:
             return None
         output_dir = self._ssh_keys_directory()
-        prefix = self._ssh_key_filename_prefix(credential.source, credential.owner)
+        prefix = self._ssh_key_filename_prefix(credential.visibility, credential.owner_user_id)
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", credential.name)
         key_path = os.path.join(output_dir, f"{prefix}{safe_name}")
         if os.path.exists(key_path):
             return key_path
-        return self.export_single_ssh_key(cred_id)
+        return self.export_single_ssh_key(cred_id, acting_user_id=acting_user_id)
 
-    def export_single_ssh_key(self, cred_id: int) -> str | None:
-        credential = self._repo.get_by_id(cred_id)
+    def export_single_ssh_key(
+        self, cred_id: int, *, acting_user_id: int | None = None
+    ) -> str | None:
+        credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None:
             logger.warning("Credential with ID %s not found", cred_id)
             return None
@@ -189,7 +243,9 @@ class CredentialsService:
         os.makedirs(output_dir, exist_ok=True)
         try:
             ssh_key_content = self._encryption.decrypt(credential.ssh_key_encrypted)
-            prefix = self._ssh_key_filename_prefix(credential.source, credential.owner)
+            prefix = self._ssh_key_filename_prefix(
+                credential.visibility, credential.owner_user_id
+            )
             safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", credential.name)
             key_filename = os.path.join(output_dir, f"{prefix}{safe_name}")
             with open(key_filename, "w", encoding="utf-8") as handle:
@@ -206,23 +262,21 @@ class CredentialsService:
     def _ssh_keys_directory(self) -> str:
         return str(settings.data_directory / "ssh_keys")
 
-    def _ssh_key_filename_prefix(self, source: str, owner: str | None = None) -> str:
-        if source == "general":
+    def _ssh_key_filename_prefix(self, visibility: str, owner_user_id: int | None) -> str:
+        if visibility == "global":
             return "global_"
-        if source == "private" and owner:
-            return re.sub(r"[^a-zA-Z0-9_-]", "_", owner) + "_"
-        if source == "private":
-            return "private_"
-        return ""
+        if owner_user_id is not None:
+            return f"user{owner_user_id}_"
+        return "private_"
 
     def _delete_ssh_key_file(
         self,
         cred_name: str,
-        source: str,
-        owner: str | None = None,
+        visibility: str,
+        owner_user_id: int | None,
     ) -> bool:
         output_dir = self._ssh_keys_directory()
-        prefix = self._ssh_key_filename_prefix(source, owner)
+        prefix = self._ssh_key_filename_prefix(visibility, owner_user_id)
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", cred_name)
         key_filename = os.path.join(output_dir, f"{prefix}{safe_name}")
         try:
@@ -235,7 +289,9 @@ class CredentialsService:
             logger.exception("Failed to delete SSH key file '%s'", key_filename)
             return False
 
-    def _to_dict(self, credential: Credential) -> dict[str, Any]:
+    def _to_dict(
+        self, credential: Credential, *, owner_username: str | None = None
+    ) -> dict[str, Any]:
         status = "active"
         if credential.valid_until:
             try:
@@ -257,6 +313,9 @@ class CredentialsService:
             "is_active": credential.is_active,
             "source": credential.source,
             "owner": credential.owner,
+            "owner_user_id": credential.owner_user_id,
+            "owner_username": owner_username,
+            "visibility": credential.visibility,
             "created_at": credential.created_at.isoformat() if credential.created_at else None,
             "updated_at": credential.updated_at.isoformat() if credential.updated_at else None,
             "status": status,

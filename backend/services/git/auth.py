@@ -76,7 +76,13 @@ class GitAuthenticationService:
         credential_name: str,
         auth_type: str,
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        creds = cred_mgr.list_credentials(include_expired=False)
+        # Git sync/clone/debug flows have no acting-user context anywhere in
+        # this call chain (background jobs, not an authenticated HTTP
+        # request). acting_user_id=None scopes credential resolution to
+        # global credentials only — a private credential matching
+        # credential_name is treated as not found. Known limitation: git
+        # repositories cannot use private credentials, only global ones.
+        creds = cred_mgr.list_credentials(include_expired=False, acting_user_id=None)
         logger.debug(
             "Found %s active credentials, searching for '%s' with type '%s'",
             len(creds),
@@ -99,7 +105,7 @@ class GitAuthenticationService:
                     match["id"],
                     match.get("username"),
                 )
-                ssh_key_path = cred_mgr.get_ssh_key_path(match["id"])
+                ssh_key_path = cred_mgr.get_ssh_key_path(match["id"], acting_user_id=None)
                 if ssh_key_path:
                     logger.debug("SSH key path resolved: %s", ssh_key_path)
                     return match.get("username"), None, ssh_key_path
@@ -133,7 +139,9 @@ class GitAuthenticationService:
                     username,
                 )
                 try:
-                    password = cred_mgr.get_decrypted_password(match["id"])
+                    password = cred_mgr.get_decrypted_password(
+                        match["id"], acting_user_id=None
+                    )
                     logger.debug(
                         "Successfully decrypted password for '%s'", credential_name
                     )
@@ -170,7 +178,7 @@ class GitAuthenticationService:
                 username,
             )
             try:
-                token = cred_mgr.get_decrypted_password(match["id"])
+                token = cred_mgr.get_decrypted_password(match["id"], acting_user_id=None)
                 logger.debug("Successfully decrypted token for '%s'", credential_name)
                 return username, token, None
             except Exception as de:

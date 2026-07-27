@@ -1,5 +1,6 @@
 export type CredentialStatus = "active" | "expiring" | "expired" | "unknown";
 export type CredentialType = "ssh" | "ssh_key" | "tacacs" | "generic" | "token";
+export type CredentialVisibility = "global" | "private";
 
 export interface Credential {
   id: number;
@@ -10,6 +11,9 @@ export interface Credential {
   is_active: boolean;
   source: string;
   owner: string | null;
+  owner_user_id: number | null;
+  owner_username: string | null;
+  visibility: CredentialVisibility;
   created_at: string | null;
   updated_at: string | null;
   status: CredentialStatus;
@@ -28,6 +32,7 @@ export interface CredentialCreatePayload {
   type: CredentialType;
   password?: string;
   valid_until?: string;
+  visibility: CredentialVisibility;
 }
 
 export interface CredentialUpdatePayload {
@@ -36,4 +41,5 @@ export interface CredentialUpdatePayload {
   type?: CredentialType;
   password?: string;
   valid_until?: string;
+  visibility?: CredentialVisibility;
 }

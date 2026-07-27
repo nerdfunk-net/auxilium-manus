@@ -62,7 +62,7 @@ def _parse_output(raw: str, *, use_textfsm: bool) -> Any:
 @router.post("/run-commands", response_model=NetmikoRunCommandsResponse)
 async def run_commands(
     payload: NetmikoRunCommandsRequest,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     credentials_service: CredentialsService = Depends(_credentials_service),
 ) -> NetmikoRunCommandsResponse:
     commands = [command.strip() for command in payload.commands if command.strip()]
@@ -72,7 +72,9 @@ async def run_commands(
             detail="At least one non-empty command is required",
         )
 
-    credential = credentials_service.get_credential_by_id(payload.credential_id)
+    credential = credentials_service.get_credential_by_id(
+        payload.credential_id, acting_user_id=current_user.id
+    )
     if credential is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -85,7 +87,9 @@ async def run_commands(
         )
 
     try:
-        password = credentials_service.get_decrypted_password(payload.credential_id)
+        password = credentials_service.get_decrypted_password(
+            payload.credential_id, acting_user_id=current_user.id
+        )
     except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -132,10 +136,12 @@ async def run_commands(
 @router.post("/get-configs", response_model=NetmikoGetConfigsResponse)
 async def get_configs(
     payload: NetmikoGetConfigsRequest,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     credentials_service: CredentialsService = Depends(_credentials_service),
 ) -> NetmikoGetConfigsResponse:
-    credential = credentials_service.get_credential_by_id(payload.credential_id)
+    credential = credentials_service.get_credential_by_id(
+        payload.credential_id, acting_user_id=current_user.id
+    )
     if credential is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -148,7 +154,9 @@ async def get_configs(
         )
 
     try:
-        password = credentials_service.get_decrypted_password(payload.credential_id)
+        password = credentials_service.get_decrypted_password(
+            payload.credential_id, acting_user_id=current_user.id
+        )
     except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

@@ -30,8 +30,9 @@ ALLOWED_FILES = frozenset(
         "core/schema_manager.py",
     }
 )
-# SQLAlchemy Index/Constraint dialect kwargs (not runtime query SQL).
-_INDEX_PREDICATE = re.compile(r"postgresql_where\s*=\s*text\s*\(")
+# SQLAlchemy Index/Constraint dialect kwargs and column server defaults
+# (schema DDL literals, not runtime query SQL).
+_SCHEMA_DDL_KWARG = re.compile(r"(postgresql_where|server_default)\s*=\s*text\s*\(")
 
 
 def _backend_root() -> Path:
@@ -46,8 +47,9 @@ def _forbidden_line(line: str) -> bool:
         return False
     if "sqlalchemy.text" in line:
         return False
-    # Partial-index predicates on models are schema DDL, not repository SQL.
-    if _INDEX_PREDICATE.search(line):
+    # Partial-index predicates and column server defaults on models are
+    # schema DDL, not repository SQL.
+    if _SCHEMA_DDL_KWARG.search(line):
         return False
     return bool(PATTERN.search(line))
 

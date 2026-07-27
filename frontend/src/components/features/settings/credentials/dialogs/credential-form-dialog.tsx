@@ -24,6 +24,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 import type { Credential } from "../types";
 import { toDateInputValue } from "../utils/credential-utils";
@@ -33,6 +34,7 @@ const formSchema = z.object({
   username: z.string().min(1, "Required").max(128),
   password: z.string().optional(),
   valid_until: z.string().optional(),
+  visibility: z.enum(["global", "private"]),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -61,6 +63,7 @@ export function CredentialFormDialog({
       username: "",
       password: "",
       valid_until: "",
+      visibility: "private",
     },
   });
 
@@ -74,6 +77,7 @@ export function CredentialFormDialog({
         username: credential.username,
         password: "",
         valid_until: toDateInputValue(credential.valid_until),
+        visibility: credential.visibility,
       });
       return;
     }
@@ -82,6 +86,7 @@ export function CredentialFormDialog({
       username: "",
       password: "",
       valid_until: "",
+      visibility: "private",
     });
   }, [credential, form, mode, open]);
 
@@ -172,6 +177,30 @@ export function CredentialFormDialog({
                     Optional expiry date for credential rotation tracking.
                   </FormDescription>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="visibility"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel>Make this credential global</FormLabel>
+                    <FormDescription>
+                      Global credentials are visible and usable by all users.
+                      Private credentials are visible only to you.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value === "global"}
+                      onCheckedChange={(checked) =>
+                        field.onChange(checked ? "global" : "private")
+                      }
+                    />
+                  </FormControl>
                 </FormItem>
               )}
             />

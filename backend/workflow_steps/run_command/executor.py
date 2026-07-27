@@ -94,7 +94,9 @@ async def execute(
     if db is None:
         raise RuntimeError("run-command: WorkflowRun has no active DB session")
 
-    username, password = resolve_ssh_credential(db, credential_reference)
+    username, password = resolve_ssh_credential(
+        db, credential_reference, acting_user_id=run.triggered_by_id
+    )
     netmiko = NetmikoService()
 
     logger.info(

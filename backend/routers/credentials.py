@@ -44,10 +44,14 @@ def _service(db: Session = Depends(get_db)) -> CredentialsService:
 async def list_credentials(
     include_expired: bool = Query(False),
     source: str = Query("general"),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),
 ) -> CredentialListResponse:
-    credentials = service.list_credentials(include_expired=include_expired, source=source)
+    credentials = service.list_credentials(
+        include_expired=include_expired,
+        source=source,
+        acting_user_id=current_user.id,
+    )
     return CredentialListResponse(credentials=credentials)
 
 
@@ -59,7 +63,7 @@ async def list_credentials(
 )
 async def create_credential(
     payload: CredentialCreate,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),
 ) -> CredentialResponse:
     try:
@@ -69,8 +73,10 @@ async def create_credential(
             cred_type=payload.type,
             password=payload.password,
             valid_until=payload.valid_until.isoformat() if payload.valid_until else None,
+            visibility=payload.visibility,
             ssh_private_key=payload.ssh_private_key,
             ssh_passphrase=payload.ssh_passphrase,
+            acting_user_id=current_user.id,
         )
         return CredentialResponse.model_validate(result)
     except CredentialNameConflictError as exc:
@@ -87,7 +93,7 @@ async def create_credential(
 async def update_credential(
     cred_id: int,
     payload: CredentialUpdate,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),
 ) -> CredentialResponse:
     try:
@@ -98,8 +104,10 @@ async def update_credential(
             cred_type=payload.type,
             password=payload.password,
             valid_until=payload.valid_until.isoformat() if payload.valid_until else None,
+            visibility=payload.visibility,
             ssh_private_key=payload.ssh_private_key,
             ssh_passphrase=payload.ssh_passphrase,
+            acting_user_id=current_user.id,
         )
         return CredentialResponse.model_validate(result)
     except CredentialNotFoundError as exc:
@@ -117,11 +125,11 @@ async def update_credential(
 )
 async def delete_credential(
     cred_id: int,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),
 ) -> None:
     try:
-        service.delete_credential(cred_id)
+        service.delete_credential(cred_id, acting_user_id=current_user.id)
     except CredentialNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception as exc:
@@ -135,11 +143,11 @@ async def delete_credential(
 )
 async def get_credential_password(
     cred_id: int,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),
 ) -> CredentialPasswordResponse:
     try:
-        password = service.get_decrypted_password(cred_id)
+        password = service.get_decrypted_password(cred_id, acting_user_id=current_user.id)
         return CredentialPasswordResponse(password=password)
     except CredentialNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

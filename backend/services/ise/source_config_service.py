@@ -66,12 +66,16 @@ class ISESourceConfigService:
         if self._settings.get_by_key(key) is not None:
             raise ISESourceConflictError(source_id)
 
+        # This credential is owned by the ISE source config itself, not by
+        # any individual user, so it must always be global (never requires
+        # an acting_user_id, never hidden from other users' resolution).
         credential = self._credentials.create_credential(
             name=_credential_name(source_id),
             username=username,
             cred_type=CREDENTIAL_TYPE,
             password=password,
             source=CREDENTIAL_SOURCE,
+            visibility="global",
         )
         value = ensure_value_source_id(
             {

@@ -78,6 +78,45 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
         running_text = await artifact_service.resolve(device.running_config_ref)
         self.assertEqual(running_text, "running cfg")
 
+    async def test_resolves_credential_scoped_to_triggering_user(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        run.uuid = "run-uuid-1"
+        run.triggered_by_id = 42
+        db = MagicMock()
+        run.__class__ = MagicMock()
+        with patch(
+            "workflow_steps.get_device_configs.executor.object_session",
+            return_value=db,
+        ), patch(
+            "workflow_steps.get_device_configs.executor.resolve_ssh_credential",
+            return_value=("admin", "secret"),
+        ) as resolve_mock, patch(
+            "workflow_steps.get_device_configs.executor.NetmikoService"
+        ) as netmiko_cls:
+            netmiko = netmiko_cls.return_value
+            netmiko.get_configs = AsyncMock(
+                return_value=ConfigResult(
+                    success=True,
+                    running_config="running cfg",
+                    startup_config="startup cfg",
+                )
+            )
+
+            await execute(
+                config={"credential_reference": "lab-ssh", "config_format": "both"},
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+            )
+
+        resolve_mock.assert_called_once_with(db, "lab-ssh", acting_user_id=42)
+
     async def test_device_without_host_goes_to_failure(self) -> None:
         run = MagicMock()
         run.id = 1

@@ -137,7 +137,7 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
 
         {isLoading ? (
           <p className="text-[11px] text-muted-foreground">Loading credentials…</p>
-        ) : sshCredentials.length === 0 ? (
+        ) : sshCredentials.length === 0 && !credentialReference ? (
           <p className="text-[11px] text-amber-600">
             No SSH credentials in Settings → Credentials
           </p>
@@ -147,6 +147,12 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
               <SelectValue placeholder="Select SSH credential" />
             </SelectTrigger>
             <SelectContent>
+              {credentialReference &&
+                !sshCredentials.some((credential) => credential.name === credentialReference) && (
+                  <SelectItem value={credentialReference} disabled>
+                    {credentialReference} (not accessible)
+                  </SelectItem>
+                )}
               {sshCredentials.map((credential) => (
                 <SelectItem key={credential.id} value={credential.name}>
                   {credential.name} ({credential.username})

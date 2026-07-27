@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 CredentialType = Literal["ssh", "ssh_key", "tacacs", "generic", "token"]
 CredentialStatus = Literal["active", "expiring", "expired", "unknown"]
+CredentialVisibility = Literal["global", "private"]
 ALLOWED_CREDENTIAL_TYPES = frozenset({"ssh", "ssh_key", "tacacs", "generic", "token"})
 
 
@@ -18,6 +19,7 @@ class CredentialCreate(BaseModel):
     ssh_private_key: str | None = None
     ssh_passphrase: str | None = None
     valid_until: date | None = None
+    visibility: CredentialVisibility = "private"
 
     @field_validator("type")
     @classmethod
@@ -44,6 +46,7 @@ class CredentialUpdate(BaseModel):
     ssh_private_key: str | None = None
     ssh_passphrase: str | None = None
     valid_until: date | None = None
+    visibility: CredentialVisibility | None = None
 
     @field_validator("type")
     @classmethod
@@ -64,6 +67,9 @@ class CredentialResponse(BaseModel):
     is_active: bool
     source: str
     owner: str | None
+    owner_user_id: int | None
+    owner_username: str | None
+    visibility: CredentialVisibility
     created_at: datetime | None
     updated_at: datetime | None
     status: CredentialStatus
