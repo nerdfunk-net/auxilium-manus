@@ -104,7 +104,8 @@ async def execute(
 
     if content_source != "command_output" and not source_node_ids:
         raise ValueError(
-            f"merge-content: source_step_node_ids is required when content_source={content_source!r}"
+            "merge-content: source_step_node_ids is required when "
+            f"content_source={content_source!r}"
         )
 
     logger.info(

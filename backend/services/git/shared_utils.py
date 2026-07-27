@@ -53,7 +53,9 @@ def get_git_repo_by_id(repo_id: int):
         if not repository["is_active"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Git repository '{repository['name']}' is inactive. Please activate it first.",
+                detail=(
+                    f"Git repository '{repository['name']}' is inactive. Please activate it first."
+                ),
             )
 
         # Open the repository (or clone if needed) using central git_service

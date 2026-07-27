@@ -210,7 +210,8 @@ class GitDeviceService:
         )
         if repository_path.startswith(("/", "\\")):
             logger.warning(
-                "Git source '%s': repository_path %r starts with a slash — it will be treated as relative to the repo root",
+                "Git source '%s': repository_path %r starts with a slash — "
+                "it will be treated as relative to the repo root",
                 source_id,
                 repository_path,
             )

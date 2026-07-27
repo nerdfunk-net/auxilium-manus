@@ -42,7 +42,10 @@ _LEAK_PATTERNS = (
 
 
 def _extract_balanced_paren(source: str, open_paren_idx: int) -> str | None:
-    """``source[open_paren_idx]`` must be ``'('``. Returns the span ``(...)`` including both parens."""
+    """``source[open_paren_idx]`` must be ``'('``.
+
+    Returns the span ``(...)`` including both parens.
+    """
     depth = 0
     i = open_paren_idx
     n = len(source)

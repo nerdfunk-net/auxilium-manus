@@ -54,9 +54,9 @@ class VirtualMachineManager:
         )
 
         # Check if assignment already exists
-        check_endpoint = "ipam/ip-address-to-interface/?ip_address=%s&vm_interface=%s" % (
-            ip_address_id,
-            virtual_interface_id,
+        check_endpoint = (
+            f"ipam/ip-address-to-interface/?ip_address={ip_address_id}"
+            f"&vm_interface={virtual_interface_id}"
         )
 
         existing_assignment = await self.nautobot.rest_request(
@@ -109,7 +109,7 @@ class VirtualMachineManager:
         """
         logger.info("Assigning primary IPv4 %s to VM %s", ip_address_id, vm_id)
 
-        endpoint = "virtualization/virtual-machines/%s/" % vm_id
+        endpoint = f"virtualization/virtual-machines/{vm_id}/"
         payload = {"primary_ip4": {"id": ip_address_id}}
 
         try:
@@ -171,14 +171,14 @@ class VirtualMachineManager:
         if not vm_data:
             logger.info("No VM fields to update for %s", vm_id)
             return await self.nautobot.rest_request(
-                endpoint="virtualization/virtual-machines/%s/" % vm_id,
+                endpoint=f"virtualization/virtual-machines/{vm_id}/",
                 method="GET",
             )
 
         logger.info("Updating virtual machine %s", vm_id)
         try:
             result = await self.nautobot.rest_request(
-                endpoint="virtualization/virtual-machines/%s/" % vm_id,
+                endpoint=f"virtualization/virtual-machines/{vm_id}/",
                 method="PATCH",
                 data=vm_data,
             )
@@ -190,7 +190,7 @@ class VirtualMachineManager:
 
     async def list_virtual_interfaces(self, vm_id: str) -> list[dict[str, Any]]:
         """List virtual interfaces for a VM."""
-        endpoint = "virtualization/interfaces/?virtual_machine_id=%s&limit=1000" % vm_id
+        endpoint = f"virtualization/interfaces/?virtual_machine_id={vm_id}&limit=1000"
         response = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
         if not response:
             return []
@@ -234,13 +234,13 @@ class VirtualMachineManager:
 
         if not interface_data:
             return await self.nautobot.rest_request(
-                endpoint="virtualization/interfaces/%s/" % interface_id,
+                endpoint=f"virtualization/interfaces/{interface_id}/",
                 method="GET",
             )
 
         try:
             return await self.nautobot.rest_request(
-                endpoint="virtualization/interfaces/%s/" % interface_id,
+                endpoint=f"virtualization/interfaces/{interface_id}/",
                 method="PATCH",
                 data=interface_data,
             )
@@ -250,7 +250,7 @@ class VirtualMachineManager:
 
     async def clean_virtual_interface_ips(self, interface_id: str) -> None:
         """Remove all IP assignments from a virtual interface."""
-        check_endpoint = "ipam/ip-address-to-interface/?vm_interface=%s&limit=1000" % interface_id
+        check_endpoint = f"ipam/ip-address-to-interface/?vm_interface={interface_id}&limit=1000"
         existing = await self.nautobot.rest_request(endpoint=check_endpoint, method="GET")
         if not existing or existing.get("count", 0) == 0:
             return
@@ -260,7 +260,7 @@ class VirtualMachineManager:
             if not assignment_id:
                 continue
             await self.nautobot.rest_request(
-                endpoint="ipam/ip-address-to-interface/%s/" % assignment_id,
+                endpoint=f"ipam/ip-address-to-interface/{assignment_id}/",
                 method="DELETE",
             )
 
@@ -268,7 +268,7 @@ class VirtualMachineManager:
         """Delete a virtual interface."""
         await self.clean_virtual_interface_ips(interface_id)
         await self.nautobot.rest_request(
-            endpoint="virtualization/interfaces/%s/" % interface_id,
+            endpoint=f"virtualization/interfaces/{interface_id}/",
             method="DELETE",
         )
         logger.info("Deleted virtual interface %s", interface_id)
@@ -287,7 +287,7 @@ class VirtualMachineManager:
                 await self.delete_virtual_interface(interface_id)
 
         await self.nautobot.rest_request(
-            endpoint="virtualization/virtual-machines/%s/" % vm_id,
+            endpoint=f"virtualization/virtual-machines/{vm_id}/",
             method="DELETE",
         )
         logger.info("Deleted virtual machine %s", vm_id)

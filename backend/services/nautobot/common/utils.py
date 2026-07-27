@@ -129,7 +129,10 @@ def prepare_update_data(
         Tuple of (update_data dict, interface_config dict or None, ip_namespace str or None)
 
     Example:
-        >>> row = {"name": "device1", "status": "active", "tags": "tag1,tag2", "interface_name": "eth0"}
+        >>> row = {
+        ...     "name": "device1", "status": "active", "tags": "tag1,tag2",
+        ...     "interface_name": "eth0",
+        ... }
         >>> headers = ["name", "status", "tags", "interface_name"]
         >>> data, iface, ns = prepare_update_data(row, headers)
         >>> data

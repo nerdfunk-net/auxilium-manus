@@ -293,7 +293,8 @@ class GitCacheService:
                 self._cache.delete_pattern(pattern)
             else:
                 logger.warning(
-                    "Cache service doesn't support pattern deletion. Cache for repo %s will expire based on TTL.",
+                    "Cache service doesn't support pattern deletion. "
+                    "Cache for repo %s will expire based on TTL.",
                     repo_id,
                 )
 

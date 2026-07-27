@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class GitCategory(str, Enum):
+class GitCategory(StrEnum):
     CONFIGS = "device_configs"
     COCKPIT_CONFIGS = "cockpit_configs"
     TEMPLATES = "templates"
@@ -16,7 +16,7 @@ class GitCategory(str, Enum):
     CSV_EXPORTS = "csv_exports"
 
 
-class GitAuthType(str, Enum):
+class GitAuthType(StrEnum):
     NONE = "none"
     TOKEN = "token"
     SSH_KEY = "ssh_key"

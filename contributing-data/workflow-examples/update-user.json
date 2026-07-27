@@ -1,0 +1,535 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-07-27T17:07:32.111Z",
+  "name": "Update User",
+  "description": "",
+  "folder": "/",
+  "visibility": "private",
+  "canvas_nodes": [
+    {
+      "id": "background-9",
+      "data": {
+        "kind": "background",
+        "title": "Background",
+        "consumes": [],
+        "outcomes": [],
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "produces": [],
+        "requires": [],
+        "stepUuid": "1644a652-1c99-4bad-9f81-f385bab8f250",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1144,
+          "height": 243
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "backgroundNode",
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "width": 1144,
+      "height": 243,
+      "zIndex": -1,
+      "dragging": false,
+      "measured": {
+        "width": 1144,
+        "height": 243
+      },
+      "position": {
+        "x": -223.8891210394464,
+        "y": 215.50311340923966
+      },
+      "resizing": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-devices-1",
+      "data": {
+        "kind": "get-nautobot-devices",
+        "title": "Get from Nautobot",
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "overview": "Select devices from the Nautobot inventory.",
+        "produces": [
+          "identity"
+        ],
+        "requires": [],
+        "stepUuid": "5e717388-0d9c-4bbe-a447-f7bf73d57754",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "pluginConfig": {
+          "inventory_id": 1,
+          "device_filter": {
+            "id": "root",
+            "items": [
+              {
+                "id": "1785049926111-7xy19ekpk",
+                "field": "name",
+                "value": "lab",
+                "operator": "contains"
+              }
+            ],
+            "logic": "AND",
+            "negate": false
+          },
+          "inventory_name": "lab",
+          "nautobot_source_id": "prod"
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "workflowNode",
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "position": {
+        "x": -203.43703324933063,
+        "y": 36.91546703576425
+      },
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-2",
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "title": "Get Nautobot Attributes",
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "produces": [
+          "attributes"
+        ],
+        "requires": [
+          "identity"
+        ],
+        "stepUuid": "d27b2302-b7a6-4797-b208-364813012e29",
+        "description": "Retrieve attributes from Nautobot for selected devices.",
+        "artifactType": "inventory_selector",
+        "pluginConfig": {
+          "list_of_attributes": [
+            "interfaces"
+          ],
+          "nautobot_source_id": "prod"
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "workflowNode",
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "position": {
+        "x": 154.73822837620088,
+        "y": 36.91546703576425
+      },
+      "selected": false
+    },
+    {
+      "id": "get-device-configs-4",
+      "data": {
+        "kind": "get-device-configs",
+        "title": "Get Configs",
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "overview": "Get device configuration in the chosen format.",
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "requires": [
+          "identity"
+        ],
+        "stepUuid": "466692a7-d46f-4c7e-b774-02bca9abf1ca",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_retrieval",
+        "pluginConfig": {
+          "config_format": "both",
+          "credential_reference": "noc"
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "workflowNode",
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "position": {
+        "x": 513.0468363843371,
+        "y": 36.91546703576425
+      },
+      "selected": false
+    },
+    {
+      "id": "parse-cisco-config-5",
+      "data": {
+        "kind": "parse-cisco-config",
+        "title": "Parse Cisco Config",
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "overview": "Parse a Cisco running/startup config into structured data.",
+        "produces": [
+          "parsed"
+        ],
+        "requires": [
+          "identity"
+        ],
+        "stepUuid": "0f110a55-c121-4bad-a316-07d42966aaee",
+        "description": "Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.) using cisco-config-parser, for use by Jinja templates and Log Attributes.\n",
+        "artifactType": "configuration_retrieval",
+        "pluginConfig": {
+          "config_source": "both"
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "workflowNode",
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "position": {
+        "x": 878.3903833855265,
+        "y": 36.91546703576425
+      },
+      "selected": false
+    },
+    {
+      "id": "log-attributes-5",
+      "data": {
+        "kind": "log-attributes",
+        "title": "Log Attributes",
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "overview": "Dump workflow context to STDOUT or a file.",
+        "produces": [],
+        "requires": [
+          "identity"
+        ],
+        "stepUuid": "5de761fa-c38f-4d3f-935c-3357e7e6476f",
+        "description": "Dump the full workflow context — every device field, attribute bag, parsed value, and metadata entry — to STDOUT or a file.\n",
+        "artifactType": "control_flow",
+        "pluginConfig": {
+          "append": false,
+          "filename": "attributes.txt",
+          "output_format": "json",
+          "output_destination": "stdout",
+          "show_device_configs": false,
+          "show_parsed_templates": false
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "workflowNode",
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "position": {
+        "x": -203.25,
+        "y": 262.5830934071529
+      },
+      "selected": false
+    },
+    {
+      "id": "render-jinja-template-6",
+      "data": {
+        "kind": "render-jinja-template",
+        "title": "Render Jinja Template",
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "overview": "Render a Jinja2 template per device.",
+        "produces": [
+          "parsed"
+        ],
+        "requires": [
+          "identity"
+        ],
+        "stepUuid": "993c2b5a-ebed-4f05-a21a-17c212fb6500",
+        "description": "Render a Jinja2 template per device and store the result for downstream steps.",
+        "artifactType": "template_rendering",
+        "pluginConfig": {
+          "output_key": "device_config",
+          "template_id": 1
+        },
+        "producesParsed": [
+          "device_config"
+        ],
+        "requiresParsed": []
+      },
+      "type": "workflowNode",
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "position": {
+        "x": 172,
+        "y": 262.5830934071529
+      },
+      "selected": false
+    },
+    {
+      "id": "deploy-rendered-template-7",
+      "data": {
+        "kind": "deploy-rendered-template",
+        "title": "Deploy rendered Template",
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "overview": "Push a rendered template's commands to connected devices.",
+        "produces": [],
+        "requires": [
+          "identity"
+        ],
+        "stepUuid": "068d10ea-d0ba-4194-8f7d-c49374b000b7",
+        "description": "Execute the commands produced by a Render Jinja Template step on connected devices, optionally saving the running configuration afterward.\n",
+        "artifactType": "command_execution",
+        "pluginConfig": {
+          "read_timeout": 60,
+          "execution_mode": "config_mode",
+          "parsed_output_key": "device_config",
+          "source_step_node_id": "render-jinja-template-6",
+          "auto_confirm_prompts": true,
+          "credential_reference": "noc",
+          "network_driver_override": "",
+          "write_config_after_execution": false
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "workflowNode",
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "position": {
+        "x": 562,
+        "y": 262
+      },
+      "selected": false
+    },
+    {
+      "id": "label-8",
+      "data": {
+        "kind": "label",
+        "title": "Test",
+        "consumes": [],
+        "outcomes": [],
+        "overview": "Place styled text on the workflow canvas.",
+        "produces": [],
+        "requires": [],
+        "stepUuid": "1f147a12-faed-40b4-9e30-a0ec9c698eb0",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "pluginConfig": {
+          "bold": true,
+          "text": "Start",
+          "color": "#0f172a",
+          "width": 200,
+          "height": 40,
+          "font_size": 28,
+          "font_family": "sans"
+        },
+        "producesParsed": [],
+        "requiresParsed": []
+      },
+      "type": "labelNode",
+      "style": {
+        "width": 200,
+        "height": 40
+      },
+      "width": 200,
+      "height": 40,
+      "zIndex": 1,
+      "dragging": false,
+      "measured": {
+        "width": 200,
+        "height": 40
+      },
+      "position": {
+        "x": -264.1200153903678,
+        "y": -15.297151261883684
+      },
+      "selected": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "id": "xy-edge__get-nautobot-devices-1success-get-nautobot-attributes-2input",
+      "data": {
+        "edgeStyle": "smooth"
+      },
+      "type": "waypoint",
+      "source": "get-nautobot-devices-1",
+      "target": "get-nautobot-attributes-2",
+      "selected": false,
+      "sourceHandle": "success",
+      "targetHandle": "input"
+    },
+    {
+      "id": "xy-edge__get-device-configs-4success-parse-cisco-config-5input",
+      "data": {
+        "edgeStyle": "smooth"
+      },
+      "type": "waypoint",
+      "source": "get-device-configs-4",
+      "target": "parse-cisco-config-5",
+      "selected": false,
+      "sourceHandle": "success",
+      "targetHandle": "input"
+    },
+    {
+      "id": "xy-edge__get-nautobot-attributes-2success-get-device-configs-4input",
+      "data": {
+        "edgeStyle": "smooth"
+      },
+      "type": "waypoint",
+      "source": "get-nautobot-attributes-2",
+      "target": "get-device-configs-4",
+      "selected": false,
+      "sourceHandle": "success",
+      "targetHandle": "input"
+    },
+    {
+      "id": "xy-edge__parse-cisco-config-5success-log-attributes-5input",
+      "data": {
+        "edgeStyle": "straight",
+        "waypoints": [
+          {
+            "x": 1302.781786751952,
+            "y": 80.46382770896881
+          },
+          {
+            "x": 1302.781786751952,
+            "y": 190.44762768431
+          },
+          {
+            "x": -253.0998414684824,
+            "y": 192.9530888854543
+          },
+          {
+            "x": -253.0998414684824,
+            "y": 326.28104601538337
+          }
+        ]
+      },
+      "type": "waypoint",
+      "source": "parse-cisco-config-5",
+      "target": "log-attributes-5",
+      "selected": false,
+      "sourceHandle": "success",
+      "targetHandle": "input"
+    },
+    {
+      "id": "xy-edge__log-attributes-5success-render-jinja-template-6input",
+      "data": {
+        "edgeStyle": "smooth"
+      },
+      "type": "waypoint",
+      "source": "log-attributes-5",
+      "target": "render-jinja-template-6",
+      "selected": false,
+      "sourceHandle": "success",
+      "targetHandle": "input"
+    },
+    {
+      "id": "xy-edge__render-jinja-template-6success-deploy-rendered-template-7input",
+      "data": {
+        "edgeStyle": "smooth"
+      },
+      "type": "waypoint",
+      "source": "render-jinja-template-6",
+      "target": "deploy-rendered-template-7",
+      "sourceHandle": "success",
+      "targetHandle": "input"
+    }
+  ],
+  "canvas_groups": [],
+  "credential_references": [
+    {
+      "name": "noc",
+      "visibility": "private",
+      "owner_username": "admin"
+    }
+  ],
+  "templates": [
+    {
+      "id": 1,
+      "name": "remove all but noc user",
+      "description": "remove all but noc user",
+      "template_type": "jinja2",
+      "category": "netmiko",
+      "content": "{% for user in parsed.cisco_config.running.identity.users %}\n{% if user.name != \"noc\" %}\nno {{ user.raw }}\n{% endif %}\n{% endfor %}",
+      "variables": {},
+      "pre_run_commands": [],
+      "pre_run_use_textfsm": false,
+      "nautobot_attributes": []
+    }
+  ]
+}

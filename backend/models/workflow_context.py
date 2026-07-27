@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
@@ -13,7 +13,7 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class Capability(str, Enum):
+class Capability(StrEnum):
     """A discrete, independently-acquired property of a DeviceContext."""
 
     IDENTITY = "identity"
@@ -24,7 +24,7 @@ class Capability(str, Enum):
     PENDING_COMMANDS = "pending_commands"
 
 
-class DeviceStatus(str, Enum):
+class DeviceStatus(StrEnum):
     PENDING = "pending"
     OK = "ok"
     FAILED = "failed"

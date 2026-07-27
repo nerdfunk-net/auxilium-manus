@@ -98,7 +98,10 @@ class GitOperationsService:
                     if "authentication" in err.lower():
                         message = "Authentication failed. Please check your Git credentials."
                     elif "not found" in err.lower():
-                        message = f"Repository or branch not found. URL: {repository['url']} Branch: {repository['branch']}"
+                        message = (
+                            f"Repository or branch not found. "
+                            f"URL: {repository['url']} Branch: {repository['branch']}"
+                        )
                     else:
                         message = f"Git clone failed: {err}"
                 except Exception as e:
@@ -207,7 +210,10 @@ class GitOperationsService:
                 if "authentication" in err.lower():
                     message = "Authentication failed. Please check your Git credentials."
                 elif "not found" in err.lower():
-                    message = f"Repository or branch not found. URL: {repository['url']} Branch: {repository['branch']}"
+                    message = (
+                        f"Repository or branch not found. "
+                        f"URL: {repository['url']} Branch: {repository['branch']}"
+                    )
                 else:
                     message = f"Git clone failed: {err}"
             except Exception as e:

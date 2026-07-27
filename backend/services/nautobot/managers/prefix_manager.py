@@ -64,7 +64,8 @@ class PrefixManager:
             prefix_type: Type of prefix - "network" or "container" (default: "network")
             location: Location name or UUID (optional)
             description: Description for the prefix (optional)
-            **kwargs: Additional fields for prefix creation (role, parent, tenant, vlan, rir, tags, custom_fields)
+            **kwargs: Additional fields for prefix creation
+                (role, parent, tenant, vlan, rir, tags, custom_fields)
 
         Returns:
             Prefix UUID

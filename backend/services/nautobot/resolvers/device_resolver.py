@@ -316,7 +316,7 @@ class DeviceResolver(BaseResolver):
             logger.info(
                 "Resolving device type '%s'%s",
                 model,
-                (" from manufacturer '%s'" % manufacturer) if manufacturer else "",
+                f" from manufacturer '{manufacturer}'" if manufacturer else "",
             )
 
             # Build query with optional manufacturer filter

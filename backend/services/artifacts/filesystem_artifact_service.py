@@ -7,7 +7,6 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Union
 from uuid import uuid4
 
 from models.workflow_context import ArtifactRef, now_iso
@@ -15,7 +14,7 @@ from services.artifacts.artifact_service import ArtifactService
 
 logger = logging.getLogger(__name__)
 
-ContentType = Union[str, bytes]
+ContentType = str | bytes
 
 
 class ArtifactNotFoundError(FileNotFoundError):

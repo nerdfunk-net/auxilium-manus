@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from models.workflow_context import DeviceContext
@@ -31,7 +31,7 @@ DEVICE_SCALAR_FIELDS = _DEVICE_SCALAR_FIELDS
 DEBUG_LOGS_METADATA_SUFFIX = ".debug_logs"
 
 
-class AttributeState(str, Enum):
+class AttributeState(StrEnum):
     """Existence/emptiness classification for an attribute path resolution.
 
     Distinguishes "the key isn't there at all" (ABSENT) from "the key is

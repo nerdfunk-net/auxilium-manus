@@ -59,7 +59,8 @@ class InterfaceManagerService:
         Args:
             device_id: Device UUID
             interfaces: List of interface dicts (can be InterfaceSpec or plain dicts)
-            add_prefixes_automatically: Auto-create missing prefix if IP creation fails (default: False)
+            add_prefixes_automatically: Auto-create missing prefix if IP creation fails
+                (default: False)
 
         Returns:
             InterfaceUpdateResult with operation statistics and warnings
@@ -188,7 +189,8 @@ class InterfaceManagerService:
                                 elif primary_ipv4_id is None:
                                     primary_ipv4_id = ip_assigned
                                     logger.info(
-                                        "  ✓ Interface %s IP %s set as primary IPv4 (first IPv4 found)",
+                                        "  ✓ Interface %s IP %s set as primary IPv4"
+                                        " (first IPv4 found)",
                                         interface["name"],
                                         ip_address,
                                     )
@@ -227,7 +229,7 @@ class InterfaceManagerService:
     ) -> int:
         """Delete device interfaces whose names are not in desired_names."""
         deleted = 0
-        endpoint = "dcim/interfaces/?device_id=%s&limit=1000" % device_id
+        endpoint = f"dcim/interfaces/?device_id={device_id}&limit=1000"
         try:
             response = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
         except Exception as exc:
@@ -246,7 +248,7 @@ class InterfaceManagerService:
                     warnings=warnings,
                 )
                 await self.nautobot.rest_request(
-                    endpoint="dcim/interfaces/%s/" % interface_id,
+                    endpoint=f"dcim/interfaces/{interface_id}/",
                     method="DELETE",
                 )
                 deleted += 1
@@ -271,7 +273,8 @@ class InterfaceManagerService:
         Args:
             interfaces: List of interface specifications
             warnings: List to append warnings to
-            add_prefixes_automatically: Auto-create missing prefix if IP creation fails (default: False)
+            add_prefixes_automatically: Auto-create missing prefix if IP creation fails
+                (default: False)
 
         Returns:
             Dictionary mapping "interface_name:ip_address" to IP UUID
@@ -331,7 +334,8 @@ class InterfaceManagerService:
 
                 if not namespace:
                     warnings.append(
-                        f"Interface {interface['name']}: namespace required for IP {ip_address}, skipping IP creation"
+                        f"Interface {interface['name']}: namespace required for IP "
+                        f"{ip_address}, skipping IP creation"
                     )
                     continue
 
@@ -364,7 +368,8 @@ class InterfaceManagerService:
                 except Exception as e:
                     logger.error("  ✗ Error ensuring IP %s: %s", ip_address, str(e))
                     warnings.append(
-                        f"Interface {interface['name']}: Failed to ensure IP address {ip_address}: {str(e)}"
+                        f"Interface {interface['name']}: Failed to ensure IP address "
+                        f"{ip_address}: {str(e)}"
                     )
                     # If this is a missing prefix error and add_prefixes_automatically is False,
                     # the exception should propagate to stop the device creation
@@ -453,7 +458,7 @@ class InterfaceManagerService:
             }
             try:
                 await self.nautobot.rest_request(
-                    endpoint="dcim/interfaces/%s/" % existing_id,
+                    endpoint=f"dcim/interfaces/{existing_id}/",
                     method="PATCH",
                     data=patch_payload,
                 )
@@ -489,7 +494,7 @@ class InterfaceManagerService:
                     }
                     try:
                         await self.nautobot.rest_request(
-                            endpoint="dcim/interfaces/%s/" % interface_id,
+                            endpoint=f"dcim/interfaces/{interface_id}/",
                             method="PATCH",
                             data=patch_payload,
                         )
@@ -508,7 +513,8 @@ class InterfaceManagerService:
                     str(create_error),
                 )
                 warnings.append(
-                    f"Interface {interface['name']}: Failed to create interface: {str(create_error)}"
+                    f"Interface {interface['name']}: Failed to create interface: "
+                    f"{str(create_error)}"
                 )
 
         return None, False
@@ -529,7 +535,7 @@ class InterfaceManagerService:
         """
         try:
             existing_assignments_endpoint = (
-                "ipam/ip-address-to-interface/?interface=%s&format=json" % interface_id
+                f"ipam/ip-address-to-interface/?interface={interface_id}&format=json"
             )
             existing_assignments = await self.nautobot.rest_request(
                 endpoint=existing_assignments_endpoint, method="GET"
@@ -545,7 +551,7 @@ class InterfaceManagerService:
                     assignment_id = assignment["id"]
                     try:
                         await self.nautobot.rest_request(
-                            endpoint="ipam/ip-address-to-interface/%s/" % assignment_id,
+                            endpoint=f"ipam/ip-address-to-interface/{assignment_id}/",
                             method="DELETE",
                         )
                         logger.info(
@@ -555,7 +561,8 @@ class InterfaceManagerService:
                         )
                     except Exception as delete_error:
                         warnings.append(
-                            f"Interface {interface_name}: Failed to unassign existing IP: {str(delete_error)}"
+                            f"Interface {interface_name}: Failed to unassign existing IP: "
+                            f"{str(delete_error)}"
                         )
 
         except Exception as e:
@@ -607,11 +614,8 @@ class InterfaceManagerService:
         try:
             # Check if assignment already exists
             check_assignment_endpoint = (
-                "ipam/ip-address-to-interface/?ip_address=%s&interface=%s&format=json"
-                % (
-                    ip_id,
-                    interface_id,
-                )
+                f"ipam/ip-address-to-interface/?ip_address={ip_id}"
+                f"&interface={interface_id}&format=json"
             )
             existing_assignment = await self.nautobot.rest_request(
                 endpoint=check_assignment_endpoint, method="GET"
@@ -672,7 +676,7 @@ class InterfaceManagerService:
         try:
             update_payload = {"primary_ip4": primary_ipv4_id}
             await self.nautobot.rest_request(
-                endpoint="dcim/devices/%s/" % device_id,
+                endpoint=f"dcim/devices/{device_id}/",
                 method="PATCH",
                 data=update_payload,
             )

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 from abc import ABC, abstractmethod
-from typing import Union
 from uuid import uuid4
 
 from models.workflow_context import ArtifactRef
 
-ContentType = Union[str, bytes]
+ContentType = str | bytes
 
 
 class ArtifactService(ABC):

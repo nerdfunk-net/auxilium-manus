@@ -134,7 +134,8 @@ class InterfaceManager:
             interface_status: Interface status (default: "active")
             ip_namespace: IP namespace name (default: "Global")
             add_prefixes_automatically: Automatically create missing prefix (default: False)
-            use_assigned_ip_if_exists: Use existing IP if it exists with different netmask (default: False)
+            use_assigned_ip_if_exists: Use existing IP if it exists with different netmask
+                (default: False)
 
         Returns:
             IP address UUID
@@ -196,7 +197,8 @@ class InterfaceManager:
             new_ip: New IP address to assign
             namespace: IP namespace name (will be resolved to UUID)
             add_prefixes_automatically: Automatically create missing prefix (default: False)
-            use_assigned_ip_if_exists: Use existing IP if it exists with different netmask (default: False)
+            use_assigned_ip_if_exists: Use existing IP if it exists with different netmask
+                (default: False)
 
         Returns:
             UUID of the new IP address
@@ -265,7 +267,8 @@ class InterfaceManager:
         logger.info("Resolving namespace '%s'", namespace)
         namespace_id = await self.network_resolver.resolve_namespace_id(namespace)
 
-        # Step 3: Create or get the new IP address in Nautobot (with automatic prefix creation if enabled)
+        # Step 3: Create or get the new IP address in Nautobot
+        # (with automatic prefix creation if enabled)
         logger.info("Ensuring IP address %s exists in namespace %s", new_ip, namespace)
         new_ip_id = await self.ip_manager.ensure_ip_address_exists(
             ip_address=new_ip,

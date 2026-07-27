@@ -54,7 +54,8 @@ def _parse_filter_rules(config: dict[str, Any]) -> list[dict[str, str]]:
                 re.compile(pattern)
             except re.error as exc:
                 raise ValueError(
-                    f"filter-output: filter_rules[{i}].pattern {pattern!r} is not valid regex: {exc}"
+                    f"filter-output: filter_rules[{i}].pattern {pattern!r} "
+                    f"is not valid regex: {exc}"
                 ) from exc
             rules.append({"type": "pattern", "value": pattern})
         else:

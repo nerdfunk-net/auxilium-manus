@@ -257,7 +257,8 @@ class DeviceUpdateService:
                 # Add detailed mismatch info to warnings
                 for mismatch in mismatches:
                     warnings.append(
-                        f"{mismatch['field']}: expected {mismatch['expected']}, got {mismatch['actual']}"
+                        f"{mismatch['field']}: expected {mismatch['expected']}, "
+                        f"got {mismatch['actual']}"
                     )
 
             # Success!

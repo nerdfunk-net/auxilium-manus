@@ -4,16 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generic, TypeVar
 
 from sqlalchemy.orm import Session
 
 from core.database import get_db_session
 
-T = TypeVar("T")
 
-
-class BaseRepository(Generic[T]):
+class BaseRepository[T]:
     """Base repository with common CRUD operations."""
 
     def __init__(self, model: type[T]):

@@ -160,7 +160,10 @@ class GitConnectionService:
             if test_request.credential_name and not ssh_key_path:
                 return GitConnectionTestResponse(
                     success=False,
-                    message=f"Failed to resolve SSH key credential '{test_request.credential_name}' - credential not found or SSH key file missing",
+                    message=(
+                        f"Failed to resolve SSH key credential '{test_request.credential_name}' "
+                        "- credential not found or SSH key file missing"
+                    ),
                     details={},
                 )
 
@@ -169,7 +172,10 @@ class GitConnectionService:
             if test_request.credential_name and not resolved_token:
                 return GitConnectionTestResponse(
                     success=False,
-                    message=f"Failed to resolve credential '{test_request.credential_name}' - credential not found, not a token type, or decryption failed",
+                    message=(
+                        f"Failed to resolve credential '{test_request.credential_name}' "
+                        "- credential not found, not a token type, or decryption failed"
+                    ),
                     details={},
                 )
 
@@ -178,7 +184,10 @@ class GitConnectionService:
             if test_request.credential_name and not resolved_token:
                 return GitConnectionTestResponse(
                     success=False,
-                    message=f"Failed to resolve generic credential '{test_request.credential_name}' - credential not found, not a generic type, or decryption failed",
+                    message=(
+                        f"Failed to resolve generic credential '{test_request.credential_name}' "
+                        "- credential not found, not a generic type, or decryption failed"
+                    ),
                     details={},
                 )
 
@@ -249,7 +258,8 @@ class GitConnectionService:
         # Handle SSH key authentication
         if auth_type == "ssh_key" and ssh_key_path:
             env["GIT_SSH_COMMAND"] = (
-                f'ssh -i "{ssh_key_path}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+                f'ssh -i "{ssh_key_path}" '
+                "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
             )
 
         # Build shallow clone command
