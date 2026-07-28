@@ -354,18 +354,22 @@ class AutoSchemaMigration:
         if not missing_tables:
             return 0
 
+        # Create in FK-dependency order (parents before children) so a table
+        # referencing another missing table doesn't fail before its
+        # dependency exists.
+        ordered_tables = [t for t in self.base.metadata.sorted_tables if t.name in missing_tables]
+
         created_count = 0
-        for table_name in missing_tables:
-            if table_name in _SKIP_TABLES:
+        for table in ordered_tables:
+            if table.name in _SKIP_TABLES:
                 continue
             try:
-                logger.info("Creating missing table: %s", table_name)
-                table = self.base.metadata.tables[table_name]
+                logger.info("Creating missing table: %s", table.name)
                 table.create(bind=self.engine)
                 created_count += 1
-                logger.info("Created table: %s", table_name)
+                logger.info("Created table: %s", table.name)
             except Exception as e:
-                logger.error("Failed to create table %s: %s", table_name, e)
+                logger.error("Failed to create table %s: %s", table.name, e)
 
         return created_count
 
