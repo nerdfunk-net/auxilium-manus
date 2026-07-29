@@ -1,8 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { loader } from "@monaco-editor/react";
 
 import type { TemplateType } from "../types";
+
+// @monaco-editor/react defaults to fetching Monaco from the jsdelivr CDN at
+// runtime. That fails silently in air-gapped environments, leaving the editor
+// stuck on the loading placeholder forever. Point it at the self-hosted copy
+// in public/vs (populated by scripts/copy-monaco-editor.mjs) instead.
+loader.config({ paths: { vs: "/vs" } });
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,

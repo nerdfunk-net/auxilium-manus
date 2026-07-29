@@ -43,7 +43,7 @@ WORKDIR /app/frontend
 RUN if [ -n "${HTTP_PROXY}" ]; then npm config set proxy "${HTTP_PROXY}" && npm config set https-proxy "${HTTPS_PROXY}" || true; fi
 
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY frontend/ ./
 
@@ -51,6 +51,12 @@ ENV NEXT_PUBLIC_AIR_GAPPED=true
 ENV NEXT_PUBLIC_ANALYTICS_DISABLED=true
 ENV NEXT_PUBLIC_CDN_DISABLED=true
 ENV DOCKER_BUILD=true
+
+# Self-host the Monaco editor assets (scripts/copy-monaco-editor.mjs) so the
+# template editor never needs to reach the jsdelivr CDN at runtime — required
+# for air-gapped deployments. Must run after `COPY frontend/ ./` since the
+# script itself only exists once the full source is present.
+RUN node scripts/copy-monaco-editor.mjs
 
 RUN npm run build
 

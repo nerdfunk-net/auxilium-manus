@@ -140,33 +140,12 @@ export function PermissionsSettingsCanvas() {
           </div>
         </div>
 
-        <Tabs defaultValue="roles">
+        <Tabs defaultValue="users">
           <TabsList>
-            <TabsTrigger value="roles">Roles</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
+            <TabsTrigger value="roles">Roles</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="roles" className="space-y-4">
-            <div className="flex justify-end">
-              {canManageRoles ? (
-                <Button type="button" onClick={() => setRoleDialog({ type: "create" })}>
-                  <Plus className="size-4" />
-                  Create role
-                </Button>
-              ) : null}
-            </div>
-            {rolesLoading ? (
-              <p className="text-sm text-muted-foreground">Loading roles…</p>
-            ) : (
-              <RolesTable
-                roles={roles}
-                onDelete={(role) => setRoleDialog({ type: "delete", role })}
-                onEdit={(role) => setRoleDialog({ type: "edit", role })}
-                onManagePermissions={(role) => setRoleDialog({ type: "permissions", role })}
-              />
-            )}
-          </TabsContent>
 
           <TabsContent value="users" className="space-y-4">
             <div className="flex justify-end">
@@ -185,6 +164,27 @@ export function PermissionsSettingsCanvas() {
                 onDelete={(user) => setUserDialog({ type: "delete", user })}
                 onEdit={(user) => setUserDialog({ type: "edit", user })}
                 onManageAccess={(user) => setUserDialog({ type: "access", user })}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="roles" className="space-y-4">
+            <div className="flex justify-end">
+              {canManageRoles ? (
+                <Button type="button" onClick={() => setRoleDialog({ type: "create" })}>
+                  <Plus className="size-4" />
+                  Create role
+                </Button>
+              ) : null}
+            </div>
+            {rolesLoading ? (
+              <p className="text-sm text-muted-foreground">Loading roles…</p>
+            ) : (
+              <RolesTable
+                roles={roles}
+                onDelete={(role) => setRoleDialog({ type: "delete", role })}
+                onEdit={(role) => setRoleDialog({ type: "edit", role })}
+                onManagePermissions={(role) => setRoleDialog({ type: "permissions", role })}
               />
             )}
           </TabsContent>
