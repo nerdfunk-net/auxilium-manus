@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Self-hosted Monaco editor vendor assets (minified third-party JS, not application code).
+    "public/vs/**",
   ]),
 ]);
 
