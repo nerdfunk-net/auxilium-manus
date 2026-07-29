@@ -41,6 +41,7 @@ import {
   type CanvasGroup,
   type EdgeStyle,
   type PersistedCanvasNode,
+  type PortOrientation,
   type ProjectedCanvasNode,
   type StepPayload,
   type WorkflowCanvasEdge,
@@ -720,6 +721,18 @@ export function WorkflowBuilderPage() {
     [markDirty],
   );
 
+  const handleNodeOrientationChange = useCallback(
+    (nodeId: string, portOrientation: PortOrientation) => {
+      setAllNodes((current) =>
+        current.map((n) =>
+          n.id !== nodeId ? n : { ...n, data: { ...n.data, portOrientation } },
+        ),
+      );
+      markDirty();
+    },
+    [markDirty],
+  );
+
   const handleAlignNodes = useCallback(
     (nodeIds: string[], alignment: NodeAlignment) => {
       const aligned = alignCanvasNodes(projected.nodes, nodeIds, alignment);
@@ -1046,6 +1059,7 @@ export function WorkflowBuilderPage() {
           plugins={plugins}
           onNodeConfigChange={handleNodeConfigChange}
           onNodeTitleChange={handleNodeTitleChange}
+          onNodeOrientationChange={handleNodeOrientationChange}
           workflowNodes={allNodes}
         />
       </main>

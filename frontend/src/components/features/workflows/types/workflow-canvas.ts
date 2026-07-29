@@ -9,6 +9,9 @@ export interface WorkflowOutcomeField {
   name: string;
 }
 
+/** Handle placement for a step node: horizontal = input Left / outcomes Right (default), vertical = input Top / outcomes Bottom. */
+export type PortOrientation = "horizontal" | "vertical";
+
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
   stepUuid?: string;
@@ -26,6 +29,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   artifactPath?: string;
   outcomes?: WorkflowOutcomeField[];
   pluginConfig?: Record<string, unknown>;
+  portOrientation?: PortOrientation;
   /**
    * View-only annotations set by projectCanvasView's inner-group projection —
    * never present on allNodes/persisted canvas_nodes, only on the projected

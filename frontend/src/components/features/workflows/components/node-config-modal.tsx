@@ -20,6 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { HelpUnavailable } from "@/components/features/workflow-steps/shared/step-help";
@@ -31,7 +38,11 @@ import type {
   PluginIOField,
   PluginStepOutcome,
 } from "../types/plugin-registry";
-import type { WorkflowCanvasEdge, PersistedCanvasNode } from "../types/workflow-canvas";
+import type {
+  PortOrientation,
+  WorkflowCanvasEdge,
+  PersistedCanvasNode,
+} from "../types/workflow-canvas";
 
 const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: PersistedCanvasNode[] = [];
@@ -48,6 +59,7 @@ interface NodeConfigModalProps {
   plugins?: PluginDefinition[];
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
+  onNodeOrientationChange?: (nodeId: string, orientation: PortOrientation) => void;
   workflowNodes?: PersistedCanvasNode[];
 }
 
@@ -159,6 +171,7 @@ export function NodeConfigModal({
   plugins = EMPTY_PLUGINS,
   onNodeConfigChange,
   onNodeTitleChange,
+  onNodeOrientationChange,
   workflowNodes = EMPTY_NODES,
 }: NodeConfigModalProps) {
   const configModalNodeId = useWorkflowBuilderStore(
@@ -274,6 +287,31 @@ export function NodeConfigModal({
                   Shown on the canvas and in run results.
                 </p>
               </div>
+
+              {activeNode.type === "workflowNode" ? (
+                <div className="mt-4 max-w-sm space-y-1.5">
+                  <Label className="text-xs font-medium" htmlFor="modal-step-orientation">
+                    Flow direction
+                  </Label>
+                  <Select
+                    value={activeNode.data.portOrientation ?? "horizontal"}
+                    onValueChange={(value) =>
+                      onNodeOrientationChange?.(activeNode.id, value as PortOrientation)
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-sm" id="modal-step-orientation">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="horizontal">Left → Right (default)</SelectItem>
+                      <SelectItem value="vertical">Top → Bottom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    Which sides this step&apos;s input and output handles are placed on.
+                  </p>
+                </div>
+              ) : null}
             </TabsContent>
 
             {hasConfigTab ? (

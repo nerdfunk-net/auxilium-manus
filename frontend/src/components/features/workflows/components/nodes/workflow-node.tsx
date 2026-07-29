@@ -1,7 +1,12 @@
 "use client";
 
-import { createElement } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { createElement, useEffect } from "react";
+import {
+  Handle,
+  Position,
+  useUpdateNodeInternals,
+  type NodeProps,
+} from "@xyflow/react";
 import { Info, Settings2, Split } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -45,12 +50,18 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
   const hasSourceHandles = outcomes.length > 0;
+  const isVertical = data.portOrientation === "vertical";
   const fanOut = data.pluginConfig?.fan_out;
   const fanOutEnabled =
     !!fanOut &&
     typeof fanOut === "object" &&
     (fanOut as Record<string, unknown>).enabled === true;
   const showOutcomeLabels = outcomes.length > 1;
+
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, updateNodeInternals, isVertical, hasTargetHandles, hasSourceHandles, outcomes.length]);
 
   return (
     <div
@@ -68,8 +79,8 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         <Handle
           className={data.isGroupEntryPoint ? GROUP_ENTRY_HANDLE_CLASS : TARGET_HANDLE_CLASS}
           id="input"
-          position={Position.Left}
-          style={{ top: "50%" }}
+          position={isVertical ? Position.Top : Position.Left}
+          style={isVertical ? { left: "50%" } : { top: "50%" }}
           type="target"
         />
       ) : null}
@@ -88,7 +99,13 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
       <div
         className={cn(
           "flex h-full items-start gap-3 p-4",
-          showOutcomeLabels ? "pr-24" : "pr-10",
+          isVertical
+            ? showOutcomeLabels
+              ? "pb-8"
+              : "pb-4"
+            : showOutcomeLabels
+              ? "pr-24"
+              : "pr-10",
         )}
       >
         <div
@@ -156,36 +173,38 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         </div>
       </div>
       {hasSourceHandles
-        ? outcomes.map((outcome, index) => (
-            <div key={outcome.name}>
-              {showOutcomeLabels ? (
-                <span
+        ? outcomes.map((outcome, index) => {
+            const offsetPct = `${((index + 1) / (outcomes.length + 1)) * 100}%`;
+            return (
+              <div key={outcome.name}>
+                {showOutcomeLabels ? (
+                  <span
+                    className={cn(
+                      "absolute rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                      isVertical
+                        ? "bottom-4 -translate-x-1/2"
+                        : "right-4 -translate-y-1/2",
+                      outcomeClasses(outcome.name),
+                    )}
+                    style={isVertical ? { left: offsetPct } : { top: offsetPct }}
+                  >
+                    {outcome.name}
+                  </span>
+                ) : null}
+                <Handle
                   className={cn(
-                    "absolute right-4 -translate-y-1/2 rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                    outcomeClasses(outcome.name),
+                    "!size-3 !border-2",
+                    outcomeHandleClasses(outcome.name),
+                    data.groupExitHandle === outcome.name && GROUP_EXIT_HANDLE_RING_CLASS,
                   )}
-                  style={{
-                    top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                  }}
-                >
-                  {outcome.name}
-                </span>
-              ) : null}
-              <Handle
-                className={cn(
-                  "!size-3 !border-2",
-                  outcomeHandleClasses(outcome.name),
-                  data.groupExitHandle === outcome.name && GROUP_EXIT_HANDLE_RING_CLASS,
-                )}
-                id={outcome.name}
-                position={Position.Right}
-                style={{
-                  top: `${((index + 1) / (outcomes.length + 1)) * 100}%`,
-                }}
-                type="source"
-              />
-            </div>
-          ))
+                  id={outcome.name}
+                  position={isVertical ? Position.Bottom : Position.Right}
+                  style={isVertical ? { left: offsetPct } : { top: offsetPct }}
+                  type="source"
+                />
+              </div>
+            );
+          })
         : null}
     </div>
   );
