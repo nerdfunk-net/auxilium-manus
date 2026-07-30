@@ -122,6 +122,15 @@ Transfer `docker/airgap-artifacts/auxilium-manus-all-in-one.tar.gz` to the air-g
 
 See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. In air-gap environments, deploy Hatchet separately and ensure the application container can reach the Hatchet engine host on the gRPC port (default `7077` on the host, or `7070` on the shared Docker network).
 
+**Hatchet dashboard font dependency:** the upstream `hatchet-dashboard` image (`ghcr.io/hatchet-dev/hatchet/hatchet-dashboard`) ships a static `index.html` with a hardcoded `<link>` to `fonts.googleapis.com` (Ubuntu font) — there is no env var to disable it. In an air-gapped network the browser hangs on that request before falling back. On any machine whose browser opens the dashboard, add to the hosts file:
+
+```
+0.0.0.0 fonts.googleapis.com
+0.0.0.0 fonts.gstatic.com
+```
+
+`0.0.0.0` fails the connection immediately (unlike `127.0.0.1`, which can hang if something else is listening on port 443 locally), so the page loads without waiting on the timeout.
+
 ## Files
 
 | File | Purpose |
