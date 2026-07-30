@@ -5,15 +5,27 @@ import {
   EdgeLabelRenderer,
   type EdgeProps,
   getBezierPath,
+  getSmoothStepPath,
   useReactFlow,
 } from "@xyflow/react";
 import { useCallback, useRef } from "react";
 
+import { cn } from "@/lib/utils";
+
 import {
+  DEFAULT_EDGE_LABEL_FONT_SIZE,
   DEFAULT_EDGE_STYLE,
   type Waypoint,
   type WorkflowCanvasEdge,
 } from "../../types/workflow-canvas";
+
+/** Fraction of the way from the source/target point toward the edge midpoint,
+ * so start/end labels clear the connected node's card instead of sitting
+ * right on its boundary and getting visually clipped. */
+const END_LABEL_MIDPOINT_PULL = 0.2;
+
+/** Ensures debug labels always paint above node cards, regardless of DOM order. */
+const EDGE_LABEL_Z_INDEX = 1000;
 
 function buildPath(
   sourceX: number,
@@ -44,7 +56,6 @@ export function WaypointEdge({
   targetY,
   targetPosition,
   data,
-  label,
   markerEnd,
   style,
   selected,
@@ -138,38 +149,90 @@ export function WaypointEdge({
   // ── End of hooks ─────────────────────────────────────────────────────────
 
   const waypoints: Waypoint[] = (data?.waypoints as Waypoint[] | undefined) ?? [];
-  const isSmooth = (data?.edgeStyle ?? DEFAULT_EDGE_STYLE) === "smooth";
+  const edgeStyleValue = data?.edgeStyle ?? DEFAULT_EDGE_STYLE;
   const edgeColor = selected ? "#6366f1" : "#94a3b8";
   const edgeWidth = selected ? 2 : 1.5;
   const labelX = (sourceX + targetX) / 2;
   const labelY = (sourceY + targetY) / 2;
+  const labelText = data?.label;
+  const startLabelText = data?.startLabel;
+  const endLabelText = data?.endLabel;
+  const hasAnyLabel = !!labelText || !!startLabelText || !!endLabelText;
+  const labelBold = !!data?.labelBold;
+  const labelFontSize = data?.labelFontSize ?? DEFAULT_EDGE_LABEL_FONT_SIZE;
 
-  const labelNode = label ? (
+  // Pulled toward the midpoint so the pill clears the connected node's card
+  // instead of sitting on its boundary (where it would be visually clipped).
+  const startAnchor = {
+    x: sourceX + (labelX - sourceX) * END_LABEL_MIDPOINT_PULL,
+    y: sourceY + (labelY - sourceY) * END_LABEL_MIDPOINT_PULL,
+  };
+  const endAnchor = {
+    x: targetX + (labelX - targetX) * END_LABEL_MIDPOINT_PULL,
+    y: targetY + (labelY - targetY) * END_LABEL_MIDPOINT_PULL,
+  };
+
+  const labelPillClassName = cn(
+    "nodrag nopan pointer-events-none absolute rounded-full bg-background px-1.5 py-0.5 text-muted-foreground shadow-sm",
+    labelBold ? "font-bold" : "font-medium",
+  );
+  const labelPillStyle: React.CSSProperties = {
+    fontSize: `${labelFontSize}px`,
+    zIndex: EDGE_LABEL_Z_INDEX,
+  };
+
+  const labelNode = hasAnyLabel ? (
     <EdgeLabelRenderer>
-      <span
-        className="nodrag nopan pointer-events-none absolute rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm"
-        style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
-      >
-        {label}
-      </span>
+      {startLabelText ? (
+        <span
+          className={labelPillClassName}
+          style={{
+            ...labelPillStyle,
+            transform: `translate(-50%, -50%) translate(${startAnchor.x}px, ${startAnchor.y}px)`,
+          }}
+        >
+          {startLabelText}
+        </span>
+      ) : null}
+      {labelText ? (
+        <span
+          className={labelPillClassName}
+          style={{
+            ...labelPillStyle,
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          }}
+        >
+          {labelText}
+        </span>
+      ) : null}
+      {endLabelText ? (
+        <span
+          className={labelPillClassName}
+          style={{
+            ...labelPillStyle,
+            transform: `translate(-50%, -50%) translate(${endAnchor.x}px, ${endAnchor.y}px)`,
+          }}
+        >
+          {endLabelText}
+        </span>
+      ) : null}
     </EdgeLabelRenderer>
   ) : null;
 
-  // ── Smooth mode ───────────────────────────────────────────────────────────
-  if (isSmooth) {
-    const [bezierPath] = getBezierPath({
-      sourceX,
-      sourceY,
-      sourcePosition,
-      targetX,
-      targetY,
-      targetPosition,
-    });
+  // ── Bezier / step / smoothstep modes — React Flow computes the path ───────
+  if (edgeStyleValue !== "straight") {
+    const pathParams = { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition };
+    const [path] =
+      edgeStyleValue === "step"
+        ? getSmoothStepPath({ ...pathParams, borderRadius: 0 })
+        : edgeStyleValue === "smoothstep"
+          ? getSmoothStepPath(pathParams)
+          : getBezierPath(pathParams);
 
     return (
       <>
         <BaseEdge
-          path={bezierPath}
+          path={path}
           markerEnd={markerEnd}
           style={{ ...style, stroke: edgeColor, strokeWidth: edgeWidth }}
         />

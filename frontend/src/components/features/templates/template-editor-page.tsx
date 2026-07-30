@@ -490,7 +490,7 @@ function TemplateEditorContent() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="w-full space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">

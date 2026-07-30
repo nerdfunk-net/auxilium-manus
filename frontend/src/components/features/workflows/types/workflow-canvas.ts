@@ -9,8 +9,8 @@ export interface WorkflowOutcomeField {
   name: string;
 }
 
-/** Handle placement for a step node: horizontal = input Left / outcomes Right (default), vertical = input Top / outcomes Bottom. */
-export type PortOrientation = "horizontal" | "vertical";
+/** Which side of the node a handle attaches to. */
+export type HandleSide = "top" | "bottom" | "left" | "right";
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -29,7 +29,10 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   artifactPath?: string;
   outcomes?: WorkflowOutcomeField[];
   pluginConfig?: Record<string, unknown>;
-  portOrientation?: PortOrientation;
+  /** Side the input handle attaches to. Default "left". Must differ from outcomeHandleSide. */
+  incomeHandleSide?: HandleSide;
+  /** Side the outcome handles attach to. Default "right". Must differ from incomeHandleSide. */
+  outcomeHandleSide?: HandleSide;
   /**
    * View-only annotations set by projectCanvasView's inner-group projection —
    * never present on allNodes/persisted canvas_nodes, only on the projected
@@ -60,14 +63,33 @@ export interface StepPayload {
   outcomes: WorkflowOutcomeField[];
 }
 
-export type EdgeStyle = "straight" | "smooth";
+/**
+ * Edge path style. Names match React Flow's built-in edge types
+ * (https://reactflow.dev/examples/edges/edge-types) except "straight", which
+ * in this app is a custom editable polyline (draggable bend points) rather
+ * than React Flow's plain point-to-point straight line.
+ */
+export type EdgeStyle = "straight" | "bezier" | "step" | "smoothstep";
 
 /** Default edge path style for new connections and unset `edgeStyle`. */
-export const DEFAULT_EDGE_STYLE: EdgeStyle = "smooth";
+export const DEFAULT_EDGE_STYLE: EdgeStyle = "bezier";
+
+/** Default font size (px) for debug edge labels when `labelFontSize` is unset. */
+export const DEFAULT_EDGE_LABEL_FONT_SIZE = 10;
 
 export interface WorkflowEdgeData extends Record<string, unknown> {
   waypoints?: Waypoint[];
   edgeStyle?: EdgeStyle;
+  /** Free-text debug annotation shown at the edge midpoint via EdgeLabelRenderer. */
+  label?: string;
+  /** Free-text debug annotation shown near the edge's source end via EdgeLabelRenderer. */
+  startLabel?: string;
+  /** Free-text debug annotation shown near the edge's target end via EdgeLabelRenderer. */
+  endLabel?: string;
+  /** Bold styling applied to all debug labels on this edge. Default false. */
+  labelBold?: boolean;
+  /** Font size (px) applied to all debug labels on this edge. Default 10. */
+  labelFontSize?: number;
   /** Set only on synthetic group-boundary proxy edges in the root projection. */
   realEdgeId?: string;
 }

@@ -40,11 +40,12 @@ import {
   reactFlowTypeForKind,
   type CanvasGroup,
   type EdgeStyle,
+  type HandleSide,
   type PersistedCanvasNode,
-  type PortOrientation,
   type ProjectedCanvasNode,
   type StepPayload,
   type WorkflowCanvasEdge,
+  type WorkflowEdgeData,
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { validateGroupBoundary } from "./utils/canvas-group-boundary";
@@ -709,6 +710,43 @@ export function WorkflowBuilderPage() {
     [projected.edges, markDirty],
   );
 
+  const updateEdgeData = useCallback(
+    (edgeId: string, patch: Partial<WorkflowEdgeData>) => {
+      const proxy = projected.edges.find((e) => e.id === edgeId);
+      const realId = proxy?.data?.realEdgeId ?? edgeId;
+      setAllEdges((current) =>
+        current.map((e) => (e.id !== realId ? e : { ...e, data: { ...e.data, ...patch } })),
+      );
+      markDirty();
+    },
+    [projected.edges, markDirty],
+  );
+
+  const handleEdgeLabelChange = useCallback(
+    (edgeId: string, label: string) => updateEdgeData(edgeId, { label }),
+    [updateEdgeData],
+  );
+
+  const handleEdgeStartLabelChange = useCallback(
+    (edgeId: string, startLabel: string) => updateEdgeData(edgeId, { startLabel }),
+    [updateEdgeData],
+  );
+
+  const handleEdgeEndLabelChange = useCallback(
+    (edgeId: string, endLabel: string) => updateEdgeData(edgeId, { endLabel }),
+    [updateEdgeData],
+  );
+
+  const handleEdgeLabelBoldChange = useCallback(
+    (edgeId: string, labelBold: boolean) => updateEdgeData(edgeId, { labelBold }),
+    [updateEdgeData],
+  );
+
+  const handleEdgeLabelFontSizeChange = useCallback(
+    (edgeId: string, labelFontSize: number) => updateEdgeData(edgeId, { labelFontSize }),
+    [updateEdgeData],
+  );
+
   const handleNodeTitleChange = useCallback(
     (nodeId: string, title: string) => {
       setAllNodes((current) =>
@@ -721,11 +759,33 @@ export function WorkflowBuilderPage() {
     [markDirty],
   );
 
-  const handleNodeOrientationChange = useCallback(
-    (nodeId: string, portOrientation: PortOrientation) => {
+  const handleIncomeHandleSideChange = useCallback(
+    (nodeId: string, side: HandleSide) => {
+      setAllNodes((current) =>
+        current.map((n) => {
+          if (n.id !== nodeId) return n;
+          const previousIncomeSide = n.data.incomeHandleSide ?? "left";
+          const outcomeSide = n.data.outcomeHandleSide ?? "right";
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              incomeHandleSide: side,
+              outcomeHandleSide: outcomeSide === side ? previousIncomeSide : outcomeSide,
+            },
+          };
+        }),
+      );
+      markDirty();
+    },
+    [markDirty],
+  );
+
+  const handleOutcomeHandleSideChange = useCallback(
+    (nodeId: string, side: HandleSide) => {
       setAllNodes((current) =>
         current.map((n) =>
-          n.id !== nodeId ? n : { ...n, data: { ...n.data, portOrientation } },
+          n.id !== nodeId ? n : { ...n, data: { ...n.data, outcomeHandleSide: side } },
         ),
       );
       markDirty();
@@ -1043,6 +1103,11 @@ export function WorkflowBuilderPage() {
           onDeleteEdge={handleDeleteEdge}
           onDeleteNodes={handleDeleteNodes}
           onDuplicateNode={handleDuplicateNode}
+          onEdgeEndLabelChange={handleEdgeEndLabelChange}
+          onEdgeLabelBoldChange={handleEdgeLabelBoldChange}
+          onEdgeLabelChange={handleEdgeLabelChange}
+          onEdgeLabelFontSizeChange={handleEdgeLabelFontSizeChange}
+          onEdgeStartLabelChange={handleEdgeStartLabelChange}
           onEdgeStyleChange={handleEdgeStyleChange}
           onGroupSelectedSteps={handleGroupSelectedSteps}
           onNodeTitleChange={handleNodeTitleChange}
@@ -1059,7 +1124,8 @@ export function WorkflowBuilderPage() {
           plugins={plugins}
           onNodeConfigChange={handleNodeConfigChange}
           onNodeTitleChange={handleNodeTitleChange}
-          onNodeOrientationChange={handleNodeOrientationChange}
+          onNodeIncomeHandleSideChange={handleIncomeHandleSideChange}
+          onNodeOutcomeHandleSideChange={handleOutcomeHandleSideChange}
           workflowNodes={allNodes}
         />
       </main>

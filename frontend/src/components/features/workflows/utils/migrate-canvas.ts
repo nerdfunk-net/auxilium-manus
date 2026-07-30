@@ -13,6 +13,7 @@ import {
 
 type LegacyNodeData = PersistedCanvasNode["data"] & {
   mandatoryInputs?: { name: string; dataType?: string }[];
+  portOrientation?: "horizontal" | "vertical";
 };
 
 function applyPluginDefaults(
@@ -85,6 +86,23 @@ export function migrateCanvasState(
       nodeChanged = true;
     }
 
+    if ("portOrientation" in legacyData) {
+      const rest = { ...data } as LegacyNodeData;
+      const legacyOrientation = rest.portOrientation;
+      delete rest.portOrientation;
+      if (!rest.incomeHandleSide && !rest.outcomeHandleSide) {
+        if (legacyOrientation === "vertical") {
+          rest.incomeHandleSide = "top";
+          rest.outcomeHandleSide = "bottom";
+        } else {
+          rest.incomeHandleSide = "left";
+          rest.outcomeHandleSide = "right";
+        }
+      }
+      data = rest;
+      nodeChanged = true;
+    }
+
     const plugin = pluginById.get(data.kind);
     if (plugin) {
       const result = applyPluginDefaults(data, plugin);
@@ -142,19 +160,29 @@ export function migrateCanvasState(
   });
 
   const migratedEdges = edges.map((edge) => {
-    const targetNode = migratedNodes.find((node) => node.id === edge.target);
-    if (!targetNode) {
-      return edge;
+    let nextEdge = edge;
+    let edgeChanged = false;
+
+    const legacyEdgeStyle = (edge.data as { edgeStyle?: string } | undefined)?.edgeStyle;
+    if (legacyEdgeStyle === "smooth") {
+      nextEdge = { ...nextEdge, data: { ...nextEdge.data, edgeStyle: "bezier" } };
+      edgeChanged = true;
     }
 
-    const requires = targetNode.data.requires ?? [];
+    const targetNode = migratedNodes.find((node) => node.id === edge.target);
+    const requires = targetNode?.data.requires ?? [];
     if (
       requires.length > 0 &&
-      edge.targetHandle &&
-      edge.targetHandle !== "input"
+      nextEdge.targetHandle &&
+      nextEdge.targetHandle !== "input"
     ) {
+      nextEdge = { ...nextEdge, targetHandle: "input" };
+      edgeChanged = true;
+    }
+
+    if (edgeChanged) {
       migrated = true;
-      return { ...edge, targetHandle: "input" };
+      return nextEdge;
     }
 
     return edge;

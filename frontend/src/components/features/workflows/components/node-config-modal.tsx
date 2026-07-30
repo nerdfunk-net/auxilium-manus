@@ -39,7 +39,7 @@ import type {
   PluginStepOutcome,
 } from "../types/plugin-registry";
 import type {
-  PortOrientation,
+  HandleSide,
   WorkflowCanvasEdge,
   PersistedCanvasNode,
 } from "../types/workflow-canvas";
@@ -53,13 +53,21 @@ const MODAL_TAB_TRIGGER_CLASS =
 
 const MODAL_TAB_CONTENT_CLASS = "mt-0 min-h-0 flex-1 overflow-y-auto p-6";
 
+const HANDLE_SIDE_OPTIONS: { value: HandleSide; label: string }[] = [
+  { value: "top", label: "Top" },
+  { value: "bottom", label: "Bottom" },
+  { value: "left", label: "Left" },
+  { value: "right", label: "Right" },
+];
+
 interface NodeConfigModalProps {
   nodes: PersistedCanvasNode[];
   edges?: WorkflowCanvasEdge[];
   plugins?: PluginDefinition[];
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
-  onNodeOrientationChange?: (nodeId: string, orientation: PortOrientation) => void;
+  onNodeIncomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
+  onNodeOutcomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
   workflowNodes?: PersistedCanvasNode[];
 }
 
@@ -171,7 +179,8 @@ export function NodeConfigModal({
   plugins = EMPTY_PLUGINS,
   onNodeConfigChange,
   onNodeTitleChange,
-  onNodeOrientationChange,
+  onNodeIncomeHandleSideChange,
+  onNodeOutcomeHandleSideChange,
   workflowNodes = EMPTY_NODES,
 }: NodeConfigModalProps) {
   const configModalNodeId = useWorkflowBuilderStore(
@@ -289,28 +298,64 @@ export function NodeConfigModal({
               </div>
 
               {activeNode.type === "workflowNode" ? (
-                <div className="mt-4 max-w-sm space-y-1.5">
-                  <Label className="text-xs font-medium" htmlFor="modal-step-orientation">
-                    Flow direction
-                  </Label>
-                  <Select
-                    value={activeNode.data.portOrientation ?? "horizontal"}
-                    onValueChange={(value) =>
-                      onNodeOrientationChange?.(activeNode.id, value as PortOrientation)
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-sm" id="modal-step-orientation">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="horizontal">Left → Right (default)</SelectItem>
-                      <SelectItem value="vertical">Top → Bottom</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    Which sides this step&apos;s input and output handles are placed on.
-                  </p>
+                <div className="mt-4 flex max-w-sm gap-3">
+                  <div className="flex-1 space-y-1.5">
+                    <Label className="text-xs font-medium" htmlFor="modal-step-income-side">
+                      Income position
+                    </Label>
+                    <Select
+                      value={activeNode.data.incomeHandleSide ?? "left"}
+                      onValueChange={(value) =>
+                        onNodeIncomeHandleSideChange?.(activeNode.id, value as HandleSide)
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-sm" id="modal-step-income-side">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HANDLE_SIDE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1 space-y-1.5">
+                    <Label className="text-xs font-medium" htmlFor="modal-step-outcome-side">
+                      Outcome position
+                    </Label>
+                    <Select
+                      value={activeNode.data.outcomeHandleSide ?? "right"}
+                      onValueChange={(value) =>
+                        onNodeOutcomeHandleSideChange?.(activeNode.id, value as HandleSide)
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-sm" id="modal-step-outcome-side">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HANDLE_SIDE_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            disabled={
+                              option.value === (activeNode.data.incomeHandleSide ?? "left")
+                            }
+                            value={option.value}
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
+              ) : null}
+              {activeNode.type === "workflowNode" ? (
+                <p className="mt-1.5 max-w-sm text-[11px] leading-4 text-muted-foreground">
+                  Which sides this step&apos;s input and outcome handles attach to. Income
+                  takes priority — outcome cannot use the same side.
+                </p>
               ) : null}
             </TabsContent>
 

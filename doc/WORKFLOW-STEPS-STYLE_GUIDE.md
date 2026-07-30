@@ -115,6 +115,25 @@ Rules:
   still gets a coloured source handle; the label is omitted to save space.
 - Handles are stacked vertically on the right edge; labels sit just left of each handle.
 
+#### Configurable handle sides
+
+The side each handle group attaches to is editor-only canvas metadata, set per node on
+the General tab of `node-config-modal.tsx`: `incomeHandleSide` (default `"left"`) for
+the input handle and `outcomeHandleSide` (default `"right"`) for all outcome handles.
+Both accept any of `"top" | "bottom" | "left" | "right"` (`HandleSide` in
+`types/workflow-canvas.ts`) and are resolved independently in `workflow-node.tsx`.
+
+- **Income has priority**: `outcomeHandleSide` can never equal `incomeHandleSide`. The
+  outcome `Select` disables whichever option currently matches income; if the user
+  changes income to the side outcome currently occupies, outcome is swapped away
+  automatically (`workflow-builder-page.tsx`'s `handleIncomeHandleSideChange`).
+- Content padding, outcome label placement, and the `useUpdateNodeInternals` remeasure
+  effect all key off these two fields (not a single shared orientation flag), so each
+  side can be picked independently — e.g. income on top, outcomes on the left.
+- Legacy canvases saved with the older single `portOrientation` (`"horizontal"` /
+  `"vertical"`) field are migrated on load in `migrate-canvas.ts` to the equivalent
+  `incomeHandleSide`/`outcomeHandleSide` pair.
+
 ### Step icon
 
 Icons are resolved in `workflow-node.tsx`:

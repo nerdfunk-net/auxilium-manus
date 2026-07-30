@@ -1,6 +1,6 @@
 "use client";
 
-import { createElement, useEffect } from "react";
+import { createElement, useEffect, type CSSProperties } from "react";
 import {
   Handle,
   Position,
@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 
 import { useWorkflowBuilderStore } from "../../hooks/use-workflow-builder-store";
-import type { WorkflowCanvasNode } from "../../types/workflow-canvas";
+import type { HandleSide, WorkflowCanvasNode } from "../../types/workflow-canvas";
 import {
   CATEGORY_BORDER_FALLBACK,
   CATEGORY_TILE_FALLBACK,
@@ -40,6 +40,41 @@ const GROUP_ENTRY_HANDLE_CLASS =
   "!size-3 !border-2 !bg-teal-400 !border-teal-500";
 const GROUP_EXIT_HANDLE_RING_CLASS = "!ring-2 !ring-teal-400 !ring-offset-1";
 
+const HANDLE_SIDE_TO_POSITION: Record<HandleSide, Position> = {
+  top: Position.Top,
+  bottom: Position.Bottom,
+  left: Position.Left,
+  right: Position.Right,
+};
+
+function isHorizontalSide(side: HandleSide): boolean {
+  return side === "top" || side === "bottom";
+}
+
+/** Centers a handle along the axis perpendicular to the side it attaches to. */
+function centeringStyle(side: HandleSide): CSSProperties {
+  return isHorizontalSide(side) ? { left: "50%" } : { top: "50%" };
+}
+
+/** Positions a handle/label at `offsetPct` along the side it attaches to. */
+function offsetStyle(side: HandleSide, offsetPct: string): CSSProperties {
+  return isHorizontalSide(side) ? { left: offsetPct } : { top: offsetPct };
+}
+
+const CONTENT_PADDING_CLASS: Record<HandleSide, { withLabels: string; withoutLabels: string }> = {
+  right: { withLabels: "pr-24", withoutLabels: "pr-10" },
+  left: { withLabels: "pl-24", withoutLabels: "pl-10" },
+  bottom: { withLabels: "pb-8", withoutLabels: "pb-4" },
+  top: { withLabels: "pt-8", withoutLabels: "pt-4" },
+};
+
+const LABEL_POSITION_CLASS: Record<HandleSide, string> = {
+  right: "right-4 -translate-y-1/2",
+  left: "left-4 -translate-y-1/2",
+  bottom: "bottom-4 -translate-x-1/2",
+  top: "top-4 -translate-x-1/2",
+};
+
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
   const activeRunId = useWorkflowBuilderStore((state) => state.activeRunId);
@@ -50,7 +85,8 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
   const hasSourceHandles = outcomes.length > 0;
-  const isVertical = data.portOrientation === "vertical";
+  const incomeSide = data.incomeHandleSide ?? "left";
+  const outcomeSide = data.outcomeHandleSide ?? "right";
   const fanOut = data.pluginConfig?.fan_out;
   const fanOutEnabled =
     !!fanOut &&
@@ -61,7 +97,15 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
     updateNodeInternals(id);
-  }, [id, updateNodeInternals, isVertical, hasTargetHandles, hasSourceHandles, outcomes.length]);
+  }, [
+    id,
+    updateNodeInternals,
+    incomeSide,
+    outcomeSide,
+    hasTargetHandles,
+    hasSourceHandles,
+    outcomes.length,
+  ]);
 
   return (
     <div
@@ -79,8 +123,8 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         <Handle
           className={data.isGroupEntryPoint ? GROUP_ENTRY_HANDLE_CLASS : TARGET_HANDLE_CLASS}
           id="input"
-          position={isVertical ? Position.Top : Position.Left}
-          style={isVertical ? { left: "50%" } : { top: "50%" }}
+          position={HANDLE_SIDE_TO_POSITION[incomeSide]}
+          style={centeringStyle(incomeSide)}
           type="target"
         />
       ) : null}
@@ -99,13 +143,9 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
       <div
         className={cn(
           "flex h-full items-start gap-3 p-4",
-          isVertical
-            ? showOutcomeLabels
-              ? "pb-8"
-              : "pb-4"
-            : showOutcomeLabels
-              ? "pr-24"
-              : "pr-10",
+          showOutcomeLabels
+            ? CONTENT_PADDING_CLASS[outcomeSide].withLabels
+            : CONTENT_PADDING_CLASS[outcomeSide].withoutLabels,
         )}
       >
         <div
@@ -181,12 +221,10 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                   <span
                     className={cn(
                       "absolute rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                      isVertical
-                        ? "bottom-4 -translate-x-1/2"
-                        : "right-4 -translate-y-1/2",
+                      LABEL_POSITION_CLASS[outcomeSide],
                       outcomeClasses(outcome.name),
                     )}
-                    style={isVertical ? { left: offsetPct } : { top: offsetPct }}
+                    style={offsetStyle(outcomeSide, offsetPct)}
                   >
                     {outcome.name}
                   </span>
@@ -198,8 +236,8 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                     data.groupExitHandle === outcome.name && GROUP_EXIT_HANDLE_RING_CLASS,
                   )}
                   id={outcome.name}
-                  position={isVertical ? Position.Bottom : Position.Right}
-                  style={isVertical ? { left: offsetPct } : { top: offsetPct }}
+                  position={HANDLE_SIDE_TO_POSITION[outcomeSide]}
+                  style={offsetStyle(outcomeSide, offsetPct)}
                   type="source"
                 />
               </div>
