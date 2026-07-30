@@ -1,5 +1,6 @@
 import type {
   CanvasGroup,
+  PersistedCanvasNode,
   WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 
@@ -60,6 +61,7 @@ export function validateGroupBoundary(
   selectedIds: string[],
   edges: WorkflowCanvasEdge[],
   existingGroups: CanvasGroup[],
+  nodes: PersistedCanvasNode[],
 ): GroupBoundaryResult {
   if (selectedIds.length < 2) {
     return {
@@ -77,6 +79,16 @@ export function validateGroupBoundary(
     return {
       valid: false,
       reason: "One or more selected steps already belong to another group.",
+    };
+  }
+
+  const hasBackgroundChild = nodes.some(
+    (n) => idSet.has(n.id) && !!n.parentId,
+  );
+  if (hasBackgroundChild) {
+    return {
+      valid: false,
+      reason: "Steps inside a background can't be added to a group yet.",
     };
   }
 

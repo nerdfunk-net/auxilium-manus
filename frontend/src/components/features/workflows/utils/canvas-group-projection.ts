@@ -1,13 +1,14 @@
 import {
   GROUP_EDGE_ID_PREFIX,
   GROUP_NODE_ID_PREFIX,
-  sortNodesBackgroundsBehind,
+  sortNodesForContainment,
   type CanvasGroup,
   type GroupCanvasNode,
   type PersistedCanvasNode,
   type ProjectedCanvasNode,
   type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
+import { toAbsolutePosition } from "./canvas-containment";
 
 export function groupNodeId(groupId: string): string {
   return `${GROUP_NODE_ID_PREFIX}${groupId}`;
@@ -193,7 +194,7 @@ export function projectCanvasView(
   }
 
   return {
-    nodes: sortNodesBackgroundsBehind([...visibleStepNodes, ...groupNodes]),
+    nodes: sortNodesForContainment([...visibleStepNodes, ...groupNodes]),
     edges,
     groupNodeIds,
   };
@@ -217,7 +218,23 @@ export function removeRealNodes(
   groups: CanvasGroup[];
 } {
   const idSet = new Set(nodeIds);
-  const nodes = allNodes.filter((n) => !idSet.has(n.id));
+
+  // Deleting a background detaches its children rather than deleting them:
+  // keep the step on canvas at its current absolute position, un-parented.
+  const removedPositionById = new Map(
+    allNodes.filter((n) => idSet.has(n.id)).map((n) => [n.id, n.position]),
+  );
+  const withDetachedChildren = allNodes.map((n) => {
+    if (!n.parentId || !idSet.has(n.parentId) || idSet.has(n.id)) return n;
+    const parentPosition = removedPositionById.get(n.parentId) ?? { x: 0, y: 0 };
+    return {
+      ...n,
+      parentId: undefined,
+      position: toAbsolutePosition(n.position, parentPosition),
+    };
+  });
+
+  const nodes = withDetachedChildren.filter((n) => !idSet.has(n.id));
   const edges = allEdges.filter(
     (e) => !idSet.has(e.source) && !idSet.has(e.target),
   );

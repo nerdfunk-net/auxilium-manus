@@ -1,7 +1,12 @@
 "use client";
 
 import { addEdge, applyEdgeChanges, applyNodeChanges } from "@xyflow/react";
-import type { Connection, EdgeChange, NodeChange } from "@xyflow/react";
+import type {
+  Connection,
+  EdgeChange,
+  NodeChange,
+  NodePositionChange,
+} from "@xyflow/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -49,6 +54,7 @@ import {
 } from "./types/workflow-canvas";
 import { validateCanvasWorkflow } from "./utils/workflow-validation";
 import { validateGroupBoundary } from "./utils/canvas-group-boundary";
+import { resolveContainment } from "./utils/canvas-containment";
 import {
   findGroupContainingNode,
   groupIdFromNodeId,
@@ -209,6 +215,18 @@ export function WorkflowBuilderPage() {
         nextGroups = ungroupNode(nextGroups, groupId);
       }
 
+      // Only a drag-end ("dragging: false") position change should trigger a
+      // background attach/detach re-evaluation — not every intermediate
+      // mousemove, and not unrelated changes (resize, selection).
+      const dragEndNodeIds = new Set(
+        changes
+          .filter(
+            (change): change is NodePositionChange =>
+              change.type === "position" && change.dragging === false,
+          )
+          .map((change) => change.id),
+      );
+
       const previousById = new Map(previousVisible.map((node) => [node.id, node]));
       for (const node of nextVisible) {
         if (previousById.get(node.id) === node) continue;
@@ -255,31 +273,33 @@ export function WorkflowBuilderPage() {
                 : {}),
             };
           }
-          if (updated.type === "labelNode") {
-            const width = Math.round(updated.width ?? updated.measured?.width ?? 0);
-            const height = Math.round(
-              updated.height ?? updated.measured?.height ?? 0,
-            );
-            return {
-              ...updated,
-              zIndex: FOREGROUND_Z_INDEX,
-              ...(width > 0 && height > 0
-                ? {
-                    width,
-                    height,
-                    data: {
-                      ...updated.data,
-                      pluginConfig: {
-                        ...updated.data.pluginConfig,
-                        width,
-                        height,
-                      },
-                    },
-                  }
-                : {}),
-            };
+          if (updated.type === "labelNode" || updated.type === "workflowNode") {
+            let next = updated;
+
+            if (next.type === "labelNode") {
+              const width = Math.round(next.width ?? next.measured?.width ?? 0);
+              const height = Math.round(next.height ?? next.measured?.height ?? 0);
+              if (width > 0 && height > 0) {
+                next = {
+                  ...next,
+                  width,
+                  height,
+                  data: {
+                    ...next.data,
+                    pluginConfig: { ...next.data.pluginConfig, width, height },
+                  },
+                };
+              }
+            }
+
+            if (dragEndNodeIds.has(next.id)) {
+              const { parentId, position } = resolveContainment(next, nextAllNodes);
+              next = { ...next, parentId, position };
+            }
+
+            return { ...next, zIndex: next.parentId ? undefined : FOREGROUND_Z_INDEX };
           }
-          return { ...updated, zIndex: updated.zIndex ?? FOREGROUND_Z_INDEX };
+          return updated;
         });
       }
 
@@ -928,9 +948,10 @@ export function WorkflowBuilderPage() {
       const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, { x: 160 + nextIndex * 44, y: 460 });
-      setAllNodes((currentNodes) =>
-        step.kind === "background" ? [node, ...currentNodes] : [...currentNodes, node],
-      );
+      // Insertion order doesn't need to special-case backgrounds anymore:
+      // sortNodesForContainment (applied downstream at projection/layering time)
+      // guarantees backgrounds paint behind and precede their children.
+      setAllNodes((currentNodes) => [...currentNodes, node]);
       appendToActiveGroup(id);
       selectNode(id);
       markDirty();
@@ -943,9 +964,10 @@ export function WorkflowBuilderPage() {
       const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, position);
-      setAllNodes((currentNodes) =>
-        step.kind === "background" ? [node, ...currentNodes] : [...currentNodes, node],
-      );
+      // Insertion order doesn't need to special-case backgrounds anymore:
+      // sortNodesForContainment (applied downstream at projection/layering time)
+      // guarantees backgrounds paint behind and precede their children.
+      setAllNodes((currentNodes) => [...currentNodes, node]);
       appendToActiveGroup(id);
       selectNode(id);
       markDirty();
@@ -1017,7 +1039,7 @@ export function WorkflowBuilderPage() {
 
   const handleGroupSelectedSteps = useCallback(
     (nodeIds: string[]) => {
-      const result = validateGroupBoundary(nodeIds, allEdges, groups);
+      const result = validateGroupBoundary(nodeIds, allEdges, groups, allNodes);
       if (!result.valid || !result.entryNodeId || !result.exitNodeId) {
         markError(result.reason ?? "Cannot group the selected steps.");
         return;

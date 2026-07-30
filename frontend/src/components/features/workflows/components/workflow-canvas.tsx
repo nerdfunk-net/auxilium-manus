@@ -36,7 +36,7 @@ import {
   EDGE_Z_INDEX,
   FOREGROUND_Z_INDEX,
   isCanvasDecorationKind,
-  sortNodesBackgroundsBehind,
+  sortNodesForContainment,
   type ProjectedCanvasNode,
   type StepPayload,
   type WorkflowCanvasEdge,
@@ -222,7 +222,7 @@ function WorkflowCanvasInner({
   // SVG before the nodes layer, so only a negative node z-index sits behind wires.
   const layeredNodes = useMemo(
     () =>
-      sortNodesBackgroundsBehind(nodes).map((node) => {
+      sortNodesForContainment(nodes).map((node) => {
         if (node.type === "backgroundNode") {
           return node.zIndex === BACKGROUND_Z_INDEX
             ? node

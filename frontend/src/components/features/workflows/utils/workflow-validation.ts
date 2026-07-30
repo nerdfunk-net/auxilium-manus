@@ -27,7 +27,7 @@ export function validateCanvasWorkflow(
       // membership. Interactive edits (add/remove members) don't block on this
       // — this is the single checkpoint where group integrity is enforced.
       const otherGroups = groups.filter((g) => g.id !== group.id);
-      const result = validateGroupBoundary(group.nodeIds, edges, otherGroups);
+      const result = validateGroupBoundary(group.nodeIds, edges, otherGroups, nodes);
       return !result.valid;
     })
     .map(

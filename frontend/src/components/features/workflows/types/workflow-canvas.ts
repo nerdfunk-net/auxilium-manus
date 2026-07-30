@@ -191,8 +191,16 @@ export const LABEL_FONT_STACKS: Record<string, string> = {
   mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
 };
 
-/** Keep background nodes first so equal-z paint order cannot cover steps. */
-export function sortNodesBackgroundsBehind<T extends { type?: string }>(
+/**
+ * Keep background nodes first in the array. This serves two purposes:
+ * 1. Cosmetic — a step not yet attached to a background but visually overlapping
+ *    it should still paint above (equal-z paint order otherwise follows array order).
+ * 2. Structural — React Flow requires a parent node to appear before its children.
+ *    Since only `backgroundNode`s can be a `parentId` target (single-level nesting,
+ *    see canvas-containment.ts), sorting all backgrounds before all non-backgrounds
+ *    is sufficient to guarantee every child appears after its parent.
+ */
+export function sortNodesForContainment<T extends { type?: string }>(
   nodes: T[],
 ): T[] {
   return [...nodes].sort((a, b) => {
@@ -200,4 +208,11 @@ export function sortNodesBackgroundsBehind<T extends { type?: string }>(
     const bRank = b.type === "backgroundNode" ? 0 : 1;
     return aRank - bRank;
   });
+}
+
+/** True if `node` is currently attached as a child of a background node. */
+export function hasBackgroundParent(
+  node: PersistedCanvasNode,
+): node is PersistedCanvasNode & { parentId: string } {
+  return typeof node.parentId === "string" && node.parentId.length > 0;
 }
