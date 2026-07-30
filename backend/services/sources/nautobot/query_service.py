@@ -6,7 +6,8 @@ See: doc/refactoring/REFACTORING_SERVICES.md — Phase 4
 
 Cache strategy (Option A — cache-first):
   Most filter operations load the full device list once from Redis
-  (key: nautobot:devices:all, populated by cache_all_devices_task) and
+  (key: nautobot:devices:all:<scope>, populated by the "RefreshNautobotDeviceCache"
+  Hatchet cron workflow — see hatchet/workflows/cache_devices.py) and
   perform in-Python filtering.  The result is held in self._devices_cache
   for the lifetime of the service instance so that multiple conditions in
   the same inventory preview only pay the Redis round-trip once.
@@ -45,12 +46,14 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         nautobot: NautobotService,
         credentials: NautobotCredentials,
         cache_service: RedisCacheService | None = None,
+        bulk_ttl: int = 1800,
     ):
 
         self._nautobot = nautobot
         self._credentials = credentials
         self._cache_service = cache_service
         self._bulk_cache_key = f"{_BULK_CACHE_KEY_PREFIX}:{credentials.cache_scope}"
+        self._bulk_ttl = bulk_ttl
         self._devices_cache: list[DeviceInfo] | None = None
         self._custom_field_types_cache: dict[str, str] | None = None
 
@@ -109,6 +112,28 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         devices = await self._query_all_devices_live()
         self._devices_cache = devices
         return devices
+
+    async def refresh_bulk_cache(self) -> int:
+        """Fetch all devices live and (re)populate the Redis bulk cache.
+
+        Called by the "RefreshNautobotDeviceCache" Hatchet cron workflow. Returns
+        the number of devices written, or 0 if caching is disabled (no cache
+        service configured).
+        """
+        if self._cache_service is None:
+            return 0
+
+        devices = await self._query_all_devices_live()
+        payload = [d.model_dump() for d in devices]
+        self._cache_service.set(self._bulk_cache_key, payload, self._bulk_ttl)
+        self._devices_cache = devices
+        logger.info(
+            "Refreshed bulk cache '%s' with %s devices (ttl=%ss)",
+            self._bulk_cache_key,
+            len(payload),
+            self._bulk_ttl,
+        )
+        return len(payload)
 
     # ------------------------------------------------------------------
     # Custom field metadata

@@ -27,7 +27,9 @@ class NautobotSourceService:
         persistence_service: InventoryService | None = None,
         device_ttl: int = 1800,
     ) -> None:
-        self.query_service = NautobotSourceQueryService(nautobot, credentials, cache_service)
+        self.query_service = NautobotSourceQueryService(
+            nautobot, credentials, cache_service, bulk_ttl=device_ttl
+        )
         self.evaluator = NautobotSourceEvaluator(self.query_service)
         self.metadata_service = NautobotSourceMetadataService(nautobot, credentials)
         self.device_query_service = DeviceQueryService(
@@ -110,6 +112,10 @@ class NautobotSourceService:
         return await self.device_query_service.get_device_attributes(
             device_id, list_of_attributes, use_cache=True
         )
+
+    async def refresh_bulk_device_cache(self) -> int:
+        """(Re)populate the Redis bulk device cache. Returns devices written."""
+        return await self.query_service.refresh_bulk_cache()
 
     async def get_custom_fields(self) -> list[dict[str, Any]]:
         return await self.metadata_service.get_custom_fields()
