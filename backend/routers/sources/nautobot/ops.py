@@ -72,11 +72,20 @@ async def test_connection(
     )
     nautobot = service_factory.get_nautobot_app_service()
     try:
-        await nautobot.test_connection(credentials)
-        return NautobotTestConnectionResponse(
-            success=True,
-            message="Connection successful",
+        status_payload = await nautobot.test_connection(credentials)
+        version = ""
+        if isinstance(status_payload, dict):
+            version = str(
+                status_payload.get("nautobot-version")
+                or status_payload.get("nautobot_version")
+                or ""
+            ).strip()
+        message = (
+            f"Connection successful (Nautobot {version})"
+            if version
+            else "Connection successful"
         )
+        return NautobotTestConnectionResponse(success=True, message=message)
     except NautobotValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except NautobotAPIError as exc:

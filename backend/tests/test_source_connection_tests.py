@@ -11,32 +11,33 @@ from services.sources.git import git_source_service
 
 
 class NautobotTestConnectionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_success_when_graphql_returns_data(self) -> None:
+    async def test_success_when_status_returns_data(self) -> None:
         from services.nautobot.client import NautobotService
 
         service = NautobotService()
-        service.graphql_query = AsyncMock(return_value={"data": {"me": {"id": "1"}}})
+        service.rest_request = AsyncMock(
+            return_value={"nautobot-version": "2.3.0"}
+        )
         credentials = NautobotCredentials(url="https://nb.example", token="tok")
 
-        await service.test_connection(credentials)
+        result = await service.test_connection(credentials)
 
-        service.graphql_query.assert_awaited_once_with(
-            "{ me { id } }", None, credentials
-        )
+        self.assertEqual(result["nautobot-version"], "2.3.0")
+        service.rest_request.assert_awaited_once_with("status/", credentials)
 
-    async def test_raises_when_graphql_returns_errors(self) -> None:
+    async def test_raises_when_rest_request_fails(self) -> None:
         from services.nautobot.client import NautobotService
 
         service = NautobotService()
-        service.graphql_query = AsyncMock(
-            return_value={"errors": [{"message": "Invalid token"}]}
+        service.rest_request = AsyncMock(
+            side_effect=NautobotAPIError("REST request failed with status 403")
         )
         credentials = NautobotCredentials(url="https://nb.example", token="bad")
 
         with self.assertRaises(NautobotAPIError) as ctx:
             await service.test_connection(credentials)
 
-        self.assertIn("Invalid token", str(ctx.exception))
+        self.assertIn("403", str(ctx.exception))
 
 
 class GitSourceTestConnectionTests(unittest.TestCase):
