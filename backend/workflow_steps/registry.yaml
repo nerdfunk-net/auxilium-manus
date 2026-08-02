@@ -1147,6 +1147,35 @@ plugins:
           required: true
           default: 2
 
+  - id: login-successful
+    name: Login Successful
+    overview: Verify SSH login with a configured credential.
+    description: >
+      Attempt an SSH login to each device with a configured credential and route
+      to success or failure based on whether authentication succeeds.
+    artifact_type: control_flow
+    palette_category: routing
+    directory: login_successful
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    primary_output: login
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: credential_reference
+          description: Reference to credentials stored in the backend.
+          data_type: credential_ref
+          required: true
+        - name: network_driver_override
+          description: Override the Netmiko device type for all devices in this step.
+          data_type: string
+          required: false
+          example: cisco_ios
+
   - id: update-attribute
     name: Update Attribute
     overview: Set or transform device attributes in the workflow.

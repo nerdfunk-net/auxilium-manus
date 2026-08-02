@@ -190,6 +190,40 @@ class NetmikoService:
             op=_op,
         )
 
+    async def test_login(
+        self,
+        *,
+        host: str,
+        network_driver: str | None,
+        platform: str | None,
+        username: str,
+        password: str,
+        credential_reference: str,
+        device_type: str | None = None,
+    ) -> bool:
+        """Open (or reuse) an SSH session and confirm it is alive.
+
+        Raises ``NetmikoConnectionError`` (or other Netmiko errors) when the
+        login fails. On success the pooled session remains available for later
+        steps that share the same host + credential key.
+        """
+        resolved_device_type = device_type or resolve_netmiko_device_type(
+            network_driver=network_driver,
+            platform=platform,
+        )
+
+        def _op(session: NetmikoDeviceSession) -> bool:
+            return session.is_alive()
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=resolved_device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
+        )
+
     async def get_configs(
         self,
         *,

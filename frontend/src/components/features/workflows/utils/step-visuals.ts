@@ -11,6 +11,7 @@ import {
   HardDriveDownload,
   Key,
   List,
+  LogIn,
   Router,
   Scale,
   SearchCode,
@@ -80,6 +81,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "get-ise-devices": ShieldCheck,
   "get-ise-tacacs-key": Key,
   reachable: Wifi,
+  "login-successful": LogIn,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

@@ -22,6 +22,7 @@ import { ConfigToAttributesPlugin } from "@/components/features/workflow-steps/c
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
 import { RouteOnContentPlugin } from "@/components/features/workflow-steps/route-on-content";
 import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
+import { LoginSuccessfulPlugin } from "@/components/features/workflow-steps/login-successful";
 import { ReachablePlugin } from "@/components/features/workflow-steps/reachable";
 import { RenderJinjaTemplatePlugin } from "@/components/features/workflow-steps/render-jinja-template";
 import { RunCommandPlugin } from "@/components/features/workflow-steps/run-command";
@@ -54,6 +55,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "route-on-content": RouteOnContentPlugin,
   "list-contains": ListContainsPlugin,
   "reachable": ReachablePlugin,
+  "login-successful": LoginSuccessfulPlugin,
   "fan-in": FanInPlugin,
   "merge-content": MergeContentPlugin,
   "filter-output": FilterOutputPlugin,
