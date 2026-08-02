@@ -112,6 +112,8 @@ class RunRepository:
         status: str,
         hatchet_run_id: str | None = None,
         error_message: str | None = None,
+        error_category: str | None = None,
+        error_id: str | None = None,
         started_at: datetime | None = None,
         finished_at: datetime | None = None,
         run_mode: str | None = None,
@@ -125,6 +127,10 @@ class RunRepository:
             run.hatchet_run_id = hatchet_run_id
         if error_message is not None:
             run.error_message = error_message
+        if error_category is not None:
+            run.error_category = error_category
+        if error_id is not None:
+            run.error_id = error_id
         if started_at is not None:
             run.started_at = started_at
         if finished_at is not None:
@@ -175,6 +181,8 @@ class RunRepository:
         status: str,
         output: dict[str, Any] | None = None,
         error_message: str | None = None,
+        error_category: str | None = None,
+        error_id: str | None = None,
         started_at: datetime | None = None,
         finished_at: datetime | None = None,
     ) -> WorkflowStepResult:
@@ -183,6 +191,10 @@ class RunRepository:
             step_result.output = output
         if error_message is not None:
             step_result.error_message = error_message
+        if error_category is not None:
+            step_result.error_category = error_category
+        if error_id is not None:
+            step_result.error_id = error_id
         if started_at is not None:
             step_result.started_at = started_at
         if finished_at is not None:

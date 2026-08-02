@@ -42,6 +42,8 @@ export function StepLogsModal({
           <StepResultViewer
             output={step?.output ?? null}
             errorMessage={step?.error_message}
+            errorCategory={step?.error_category}
+            errorId={step?.error_id}
             runId={runId}
           />
         </div>

@@ -15,6 +15,9 @@ export const TERMINAL_RUN_STATUSES: readonly WorkflowRunStatus[] = [
 export type StepStatus = "pending" | "running" | "success" | "partial" | "failed" | "skipped";
 export type WorkflowRunMode = "normal" | "debug";
 
+/** See backend/models/runs.py::ErrorCategory for the full contract. */
+export type ErrorCategory = "configuration" | "execution" | "internal";
+
 /** WorkflowRun.approval_state — see doc/WAIT-AND-RUN.md §5.2. Authored only by
  * the backend orchestrator; the frontend treats it read-only. */
 export interface ApprovalState {
@@ -40,6 +43,8 @@ export interface WorkflowStepResult {
   finished_at: string | null;
   output: Record<string, unknown> | null;
   error_message: string | null;
+  error_category: ErrorCategory | null;
+  error_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -66,6 +71,8 @@ export interface WorkflowRunSummary {
 export interface WorkflowRunDetail extends WorkflowRunSummary {
   hatchet_run_id: string | null;
   error_message: string | null;
+  error_category: ErrorCategory | null;
+  error_id: string | null;
   step_results: WorkflowStepResult[];
 }
 

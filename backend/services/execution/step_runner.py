@@ -55,6 +55,26 @@ class FanOutSignal:
 logger = logging.getLogger(__name__)
 
 
+def classify_step_exception(exc: Exception) -> tuple[str, str]:
+    """Map a raised exception to (error_category, user-facing message).
+
+    Steps follow the convention documented in doc/WORKFLOW-STEPS.md: raise
+    ``ValueError`` for configuration problems (missing/invalid settings,
+    unresolved references) and ``RuntimeError`` for expected-but-failed
+    execution conditions (e.g. a device unreachable). Both are authored by
+    step code with human-readable messages, so it's safe to show them
+    directly. Anything else is an unanticipated bug — its message may
+    contain internals (paths, library-specific text) so it's withheld;
+    only the error_id (correlatable with the full traceback in worker
+    logs) is shown.
+    """
+    if isinstance(exc, ValueError):
+        return "configuration", str(exc) or "This step's configuration is invalid."
+    if isinstance(exc, RuntimeError):
+        return "execution", str(exc) or "This step failed to complete."
+    return "internal", "An unexpected internal error occurred while running this step."
+
+
 @lru_cache(maxsize=1)
 def _plugin_registry_service() -> PluginRegistryService:
     service = PluginRegistryService(PluginRepository(plugins_file=settings.plugins_file))
@@ -375,23 +395,23 @@ class StepRunner:
             return True
         except Exception as exc:
             error_id = str(uuid.uuid4())
+            category, message = classify_step_exception(exc)
             logger.error(
-                "Step failed node_id=%s type=%s run_id=%s error_id=%s",
+                "Step failed node_id=%s type=%s run_id=%s error_id=%s category=%s",
                 node_id,
                 step_type,
                 run.id,
                 error_id,
+                category,
                 exc_info=True,
                 extra={"error_id": error_id},
-            )
-            # Persist a safe, short message only — full traceback stays in worker logs.
-            safe_message = (
-                f"Step failed ({type(exc).__name__}). See worker logs for error_id={error_id}."
             )
             self.repo.update_step_result(
                 step_result,
                 status="failed",
-                error_message=safe_message[:4000],
+                error_message=message[:4000],
+                error_category=category,
+                error_id=error_id,
                 finished_at=datetime.now(UTC),
             )
             return False
@@ -487,7 +507,7 @@ class StepRunner:
         initial_context: WorkflowContext,
         inventory_node_id: str,
         allowed_node_ids: set[str],
-    ) -> dict[str, dict[str, WorkflowContext]]:
+    ) -> tuple[dict[str, dict[str, WorkflowContext]], dict[str, dict[str, str]]]:
         """Run only the downstream subgraph without writing WorkflowStepResult records.
 
         Used by child workflows during fan-out. The parent aggregates and persists
@@ -501,7 +521,11 @@ class StepRunner:
             allowed_node_ids: Set of node IDs this child should execute.
 
         Returns:
-            Mapping of node_id → outcome_name → WorkflowContext for all executed nodes.
+            A tuple of:
+            - Mapping of node_id → outcome_name → WorkflowContext for all executed nodes.
+            - Mapping of node_id → {"message", "category", "error_id"} for nodes whose
+              executor raised (see ``classify_step_exception``); the parent folds this
+              into the persisted WorkflowStepResult.error_message/error_category/error_id.
         """
         nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
@@ -510,6 +534,7 @@ class StepRunner:
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {
             inventory_node_id: {"success": initial_context}
         }
+        step_errors: dict[str, dict[str, str]] = {}
         blocked_nodes: set[str] = set()
 
         for node in ordered_nodes:
@@ -563,19 +588,29 @@ class StepRunner:
                     step_type,
                     f" summary={summaries}" if summaries else "",
                 )
-            except Exception:
+            except Exception as exc:
+                error_id = str(uuid.uuid4())
+                category, message = classify_step_exception(exc)
                 logger.error(
-                    "Subgraph step failed node_id=%s type=%s run_id=%s",
+                    "Subgraph step failed node_id=%s type=%s run_id=%s error_id=%s category=%s",
                     node_id,
                     step_type,
                     run.id,
+                    error_id,
+                    category,
                     exc_info=True,
+                    extra={"error_id": error_id},
                 )
+                step_errors[node_id] = {
+                    "message": message[:4000],
+                    "category": category,
+                    "error_id": error_id,
+                }
                 self._store_step_outcomes(
                     step_outcomes, node_id, [StepOutcome(name="failure", context=initial_context)]
                 )
 
-        return step_outcomes
+        return step_outcomes, step_errors
 
     @staticmethod
     def _downstream_node_ids(

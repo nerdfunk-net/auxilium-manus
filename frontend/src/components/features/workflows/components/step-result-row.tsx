@@ -3,7 +3,9 @@
 import { ChevronDown, ChevronRight, MapPin, ScrollText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ErrorCategoryIcon } from "./step-error-alert";
 import { StepResultViewer } from "./step-result-viewer";
+import { StepSummaryTable } from "./step-summary-table";
 import { StepStatusBadge } from "./step-status-badge";
 import { formatDuration } from "./run-status-icon";
 import {
@@ -21,6 +23,7 @@ import type { WorkflowStepResult } from "../types/workflow-runs";
 
 interface StepResultRowProps {
   step: WorkflowStepResult;
+  allSteps: WorkflowStepResult[];
   runId: number;
   expanded: boolean;
   onToggle: () => void;
@@ -31,6 +34,7 @@ interface StepResultRowProps {
 
 export function StepResultRow({
   step,
+  allSteps,
   runId,
   expanded,
   onToggle,
@@ -104,7 +108,10 @@ export function StepResultRow({
             </p>
           ) : null}
           {step.error_message && !expanded ? (
-            <p className="mt-0.5 line-clamp-1 text-xs text-red-500">{step.error_message}</p>
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-red-500">
+              <ErrorCategoryIcon category={step.error_category} className="size-3 shrink-0" />
+              <span className="line-clamp-1">{step.error_message}</span>
+            </p>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -123,7 +130,18 @@ export function StepResultRow({
       </div>
       {expanded ? (
         <div className="mt-3 min-w-0 overflow-x-hidden border-t pt-3">
-          <StepResultViewer output={step.output} errorMessage={step.error_message} compact runId={runId} />
+          {step.step_type === "show-summary" ? (
+            <StepSummaryTable steps={allSteps} />
+          ) : (
+            <StepResultViewer
+              output={step.output}
+              errorMessage={step.error_message}
+              errorCategory={step.error_category}
+              errorId={step.error_id}
+              compact
+              runId={runId}
+            />
+          )}
         </div>
       ) : null}
     </div>

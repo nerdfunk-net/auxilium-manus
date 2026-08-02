@@ -29,6 +29,26 @@ function selectedNodes(
   return nodes.filter((node) => idSet.has(node.id));
 }
 
+/**
+ * A step parented to a background node (single-level nesting only, see
+ * canvas-containment.ts) stores `position` relative to that parent, while every
+ * other node stores absolute canvas position. Aligning a mix of the two
+ * requires a shared coordinate space, so this resolves each target's parent
+ * offset (zero when un-parented) up front and undoes it after computing the
+ * new absolute positions.
+ */
+function parentOffset(
+  node: ProjectedCanvasNode,
+  nodesById: Map<string, ProjectedCanvasNode>,
+): { x: number; y: number } {
+  const parentId = node.parentId;
+  if (!parentId) {
+    return { x: 0, y: 0 };
+  }
+  const parent = nodesById.get(parentId);
+  return parent ? { x: parent.position.x, y: parent.position.y } : { x: 0, y: 0 };
+}
+
 export function alignCanvasNodes(
   nodes: ProjectedCanvasNode[],
   nodeIds: string[],
@@ -39,13 +59,22 @@ export function alignCanvasNodes(
     return nodes;
   }
 
-  const positions = targets.map((node) => ({
-    id: node.id,
-    x: node.position.x,
-    y: node.position.y,
-    width: nodeWidth(node),
-    height: nodeHeight(node),
-  }));
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const offsetById = new Map(
+    targets.map((node) => [node.id, parentOffset(node, nodesById)]),
+  );
+
+  // Absolute (canvas-space) positions, so parented and un-parented nodes align correctly.
+  const positions = targets.map((node) => {
+    const offset = offsetById.get(node.id)!;
+    return {
+      id: node.id,
+      x: node.position.x + offset.x,
+      y: node.position.y + offset.y,
+      width: nodeWidth(node),
+      height: nodeHeight(node),
+    };
+  });
 
   const nextPositions = new Map<string, { x: number; y: number }>();
 
@@ -133,9 +162,11 @@ export function alignCanvasNodes(
     if (!nextPosition) {
       return node;
     }
+    // Undo the parent offset applied above, converting back to the node's own coordinate space.
+    const offset = offsetById.get(node.id) ?? { x: 0, y: 0 };
     return {
       ...node,
-      position: nextPosition,
+      position: { x: nextPosition.x - offset.x, y: nextPosition.y - offset.y },
     };
   });
 }

@@ -616,6 +616,9 @@ def _aggregate_and_persist(
 
     # Accumulate outcomes per child-branch node across all children
     per_node: dict[str, dict[str, list[WorkflowContext]]] = {nid: {} for nid in child_ids}
+    # node_id -> {message, category, error_id} for the first child that reported a
+    # step-level exception for that node (see StepRunner.execute_subgraph).
+    node_errors: dict[str, dict[str, str]] = {}
     has_any_failure = False
 
     for child_result in child_results:
@@ -627,8 +630,11 @@ def _aggregate_and_persist(
         # child_result shape: {"execute_device_group": {node_id: {outcome_name: ctx_dict}}}
         task_output = child_result.get("execute_device_group", child_result)
 
+        for node_id, err in (task_output.get("__step_errors__") or {}).items():
+            node_errors.setdefault(node_id, err)
+
         for node_id, outcomes in task_output.items():
-            if node_id not in per_node:
+            if node_id == "__step_errors__" or node_id not in per_node:
                 continue
             for outcome_name, ctx_dict in outcomes.items():
                 ctx = WorkflowContext.model_validate(ctx_dict)
@@ -666,10 +672,14 @@ def _aggregate_and_persist(
                 status = "success"
             if status == "failed":
                 any_node_failed = True
+            err = node_errors.get(node_id)
             run_repo.update_step_result(
                 step_result,
                 status=status,
                 output={"outcomes": merged_output},
+                error_message=err["message"] if err else None,
+                error_category=err["category"] if err else None,
+                error_id=err["error_id"] if err else None,
                 started_at=now,
                 finished_at=now,
             )

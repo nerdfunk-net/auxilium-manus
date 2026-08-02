@@ -74,7 +74,7 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
         )
 
         runner = StepRunner(db)
-        step_outcomes = await runner.execute_subgraph(
+        step_outcomes, step_errors = await runner.execute_subgraph(
             run=run,
             workflow=wf,
             initial_context=initial_context,
@@ -82,8 +82,10 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
             allowed_node_ids=allowed_ids,
         )
 
-    # Serialize outcomes for parent aggregation; exclude the inventory step itself
-    result: dict[str, Any] = {}
+    # Serialize outcomes for parent aggregation; exclude the inventory step itself.
+    # "__step_errors__" is a reserved key (not a canvas node_id) carrying
+    # node_id -> {message, category, error_id} for nodes whose executor raised.
+    result: dict[str, Any] = {"__step_errors__": step_errors}
     for node_id, outcomes in step_outcomes.items():
         if node_id == input.start_node_id:
             continue

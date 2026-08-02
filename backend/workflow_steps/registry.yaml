@@ -1306,6 +1306,22 @@ plugins:
           required: false
           default: false
 
+  - id: show-summary
+    name: Show Summary
+    overview: Show a device x step status summary table for this workflow run.
+    description: >
+      Displays a table of every device against every step that ran in this
+      workflow, with a success or failure indicator per cell. Click a
+      failure to see the detailed error for that device and step.
+    artifact_type: control_flow
+    palette_category: debug
+    directory: show_summary
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+
   - id: fan-in
     name: Fan In
     overview: Rejoin fan-out branches into one execution path.

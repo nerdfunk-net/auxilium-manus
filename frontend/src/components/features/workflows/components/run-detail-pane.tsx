@@ -8,6 +8,7 @@ import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 import { RunStatusIcon, formatTime } from "./run-status-icon";
 import { ApprovalBanner, FanOutBanner } from "./run-banners";
+import { StepErrorAlert } from "./step-error-alert";
 import { StepResultRow } from "./step-result-row";
 import { StepLogsModal } from "./step-logs-modal";
 import { detectRunFanOut } from "../utils/step-result-status";
@@ -66,9 +67,6 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
             {data.triggered_by_username ?? "unknown"} · started {formatTime(data.created_at)}
             {data.finished_at ? ` · finished ${formatTime(data.finished_at)}` : ""}
           </p>
-          {data.error_message ? (
-            <p className="mt-1 text-xs text-red-500">{data.error_message}</p>
-          ) : null}
         </div>
         {canCancel ? (
           <Button
@@ -85,6 +83,15 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {data.error_message ? (
+          <div className="border-b px-4 py-3">
+            <StepErrorAlert
+              message={data.error_message}
+              category={data.error_category}
+              errorId={data.error_id}
+            />
+          </div>
+        ) : null}
         {data.approval_state?.awaiting ? (
           <ApprovalBanner approvalState={data.approval_state} runId={data.id} workflowId={workflowId} />
         ) : null}
@@ -98,6 +105,7 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
               <StepResultRow
                 key={step.id}
                 step={step}
+                allSteps={data.step_results}
                 runId={data.id}
                 expanded={expandedStepId === step.id}
                 onToggle={() => toggleStep(step.id)}

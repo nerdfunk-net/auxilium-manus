@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -36,6 +37,8 @@ def _step_to_response(step: WorkflowStepResult) -> WorkflowStepResultResponse:
         finished_at=step.finished_at,
         output=step.output,
         error_message=step.error_message,
+        error_category=step.error_category,
+        error_id=step.error_id,
         created_at=step.created_at,
         updated_at=step.updated_at,
     )
@@ -82,6 +85,8 @@ def _run_to_response(
         device_ids=run.device_ids,
         hatchet_run_id=run.hatchet_run_id,
         error_message=run.error_message,
+        error_category=run.error_category,
+        error_id=run.error_id,
         started_at=run.started_at,
         finished_at=run.finished_at,
         created_at=run.created_at,
@@ -130,11 +135,20 @@ class RunService:
             self.run_repo.update_run_status(run, status="pending", hatchet_run_id=hatchet_run_id)
             logger.info("Dispatched run_id=%s hatchet_run_id=%s", run.id, hatchet_run_id)
         except Exception:
-            logger.error("Failed to dispatch run_id=%s to Hatchet", run.id, exc_info=True)
+            error_id = str(uuid4())
+            logger.error(
+                "Failed to dispatch run_id=%s to Hatchet error_id=%s",
+                run.id,
+                error_id,
+                exc_info=True,
+                extra={"error_id": error_id},
+            )
             self.run_repo.update_run_status(
                 run,
                 status="failed",
                 error_message="Workflow execution engine unavailable",
+                error_category="internal",
+                error_id=error_id,
             )
             raise_internal_server_error("Workflow execution engine unavailable")
 

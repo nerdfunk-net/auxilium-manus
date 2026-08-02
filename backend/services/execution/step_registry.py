@@ -44,6 +44,7 @@ from workflow_steps.route_on_attribute.executor import execute as route_on_attri
 from workflow_steps.route_on_content.executor import execute as route_on_content
 from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.set_default_attributes.executor import execute as set_default_attributes
+from workflow_steps.show_summary.executor import execute as show_summary
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.update_attribute.executor import execute as update_attribute
 from workflow_steps.update_ise_tacacs_key.executor import execute as update_ise_tacacs_key
@@ -84,4 +85,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "update-nautobot-device": update_nautobot_device,
     "log-message": log_message,
     "log-attributes": log_attributes,
+    "show-summary": show_summary,
 }

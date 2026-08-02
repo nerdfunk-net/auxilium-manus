@@ -16,10 +16,14 @@ import type {
   WorkflowContext,
 } from "@/lib/workflow-context-types";
 import { parseStepOutput } from "@/lib/workflow-context-types";
+import { StepErrorAlert } from "./step-error-alert";
+import type { ErrorCategory } from "../types/workflow-runs";
 
 interface StepResultViewerProps {
   output: Record<string, unknown> | null;
   errorMessage?: string | null;
+  errorCategory?: ErrorCategory | null;
+  errorId?: string | null;
   compact?: boolean;
   runId?: number | null;
 }
@@ -669,7 +673,7 @@ function DeviceCommandResultsContent({
   );
 }
 
-function DeviceErrorList({ errors }: { errors: DeviceError[] }) {
+export function DeviceErrorList({ errors }: { errors: DeviceError[] }) {
   if (errors.length === 0) {
     return null;
   }
@@ -996,6 +1000,8 @@ function OutcomeContextView({
 export function StepResultViewer({
   output,
   errorMessage,
+  errorCategory = null,
+  errorId = null,
   compact = false,
   runId = null,
 }: StepResultViewerProps) {
@@ -1014,9 +1020,7 @@ export function StepResultViewer({
 
   if (errorMessage) {
     return (
-      <pre className="max-h-48 overflow-auto rounded bg-red-50 p-3 text-xs font-mono text-red-700 dark:bg-red-950/30 dark:text-red-400">
-        {errorMessage}
-      </pre>
+      <StepErrorAlert message={errorMessage} category={errorCategory} errorId={errorId} />
     );
   }
 

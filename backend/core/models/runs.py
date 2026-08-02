@@ -35,6 +35,10 @@ class WorkflowRun(Base):
     device_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     hatchet_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # configuration | execution | internal — see step_runner.classify_step_exception
+    error_category: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # correlates this failure with the full traceback in worker logs
+    error_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -61,6 +65,10 @@ class WorkflowStepResult(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     output: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # configuration | execution | internal — see step_runner.classify_step_exception
+    error_category: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # correlates this failure with the full traceback in worker logs
+    error_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -6,6 +6,14 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 RunStatus = Literal["pending", "running", "paused", "success", "failed", "cancelled"]
+# configuration: the step/run raised a ValueError — almost always a fixable setup
+#   problem (missing/invalid config, bad reference) and the message is safe to show.
+# execution: the step/run raised a RuntimeError — a step-defined "this run failed"
+#   condition (e.g. device unreachable); message is safe to show but not user-fixable
+#   by editing the workflow.
+# internal: an unexpected exception type — message is withheld to avoid leaking
+#   internals; only the error_id (correlatable with worker logs) is shown.
+ErrorCategory = Literal["configuration", "execution", "internal"]
 RunListStatusFilter = Literal[
     "pending", "running", "paused", "success", "failed", "cancelled", "skipped"
 ]
@@ -40,6 +48,8 @@ class WorkflowStepResultResponse(BaseModel):
     finished_at: datetime | None
     output: dict[str, Any] | None
     error_message: str | None
+    error_category: ErrorCategory | None = None
+    error_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -70,6 +80,8 @@ class WorkflowRunSummary(BaseModel):
 class WorkflowRunResponse(WorkflowRunSummary):
     hatchet_run_id: str | None
     error_message: str | None
+    error_category: ErrorCategory | None = None
+    error_id: str | None = None
     step_results: list[WorkflowStepResultResponse] = []
 
 
