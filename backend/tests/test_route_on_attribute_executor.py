@@ -57,6 +57,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -94,6 +95,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-2",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -120,6 +122,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-3",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -146,6 +149,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="route-4",
+                device_sessions=MagicMock(),
             )
 
     async def test_routes_on_absent_vs_present_tacacs_key(self) -> None:
@@ -173,6 +177,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-6",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -209,6 +214,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-6b",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -237,6 +243,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-7",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -265,6 +272,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-8",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -294,6 +302,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-9",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -322,6 +331,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-5",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -370,6 +380,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="route-10",
+            device_sessions=MagicMock(),
         )
 
         by_name = {outcome.name: outcome for outcome in outcomes}

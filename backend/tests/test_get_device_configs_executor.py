@@ -66,6 +66,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -117,6 +118,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         resolve_mock.assert_called_once_with(db, "lab-ssh", acting_user_id=42)
@@ -154,6 +156,7 @@ class GetDeviceConfigsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 2)

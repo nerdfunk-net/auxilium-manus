@@ -59,6 +59,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="git-clone-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -89,6 +90,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="git-pull-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 2)
@@ -139,6 +141,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="git-push-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -184,6 +187,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="git-push-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -198,6 +202,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
             run=self.run,
             artifact_service=self.artifact_service,
             node_id="git-clone-1",
+            device_sessions=MagicMock(),
         )
         self.assertEqual(len(outcomes), 2)
         self.assertEqual(outcomes[1].name, "failure")

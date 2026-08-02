@@ -74,13 +74,18 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
         )
 
         runner = StepRunner(db)
-        step_outcomes, step_errors = await runner.execute_subgraph(
-            run=run,
-            workflow=wf,
-            initial_context=initial_context,
-            inventory_node_id=input.start_node_id,
-            allowed_node_ids=allowed_ids,
-        )
+        try:
+            step_outcomes, step_errors = await runner.execute_subgraph(
+                run=run,
+                workflow=wf,
+                initial_context=initial_context,
+                inventory_node_id=input.start_node_id,
+                allowed_node_ids=allowed_ids,
+            )
+        finally:
+            # This is where session reuse pays off most: a per-device child
+            # runs its whole downstream chain over a single SSH login.
+            await runner.close_device_sessions()
 
     # Serialize outcomes for parent aggregation; exclude the inventory step itself.
     # "__step_errors__" is a reserved key (not a canvas node_id) carrying

@@ -88,6 +88,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -136,6 +137,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         resolve_mock.assert_called_once_with(db, "lab-ssh", acting_user_id=42)
@@ -174,6 +176,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         device = outcomes[0].context.devices["device-1"]
@@ -215,6 +218,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(netmiko.deploy_config.call_args.kwargs["mode"], "exec_mode")
@@ -232,6 +236,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_read_timeout_defaults_and_is_passed_through(self) -> None:
@@ -266,6 +271,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(netmiko.deploy_config.call_args.kwargs["read_timeout"], 150)
@@ -283,6 +289,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_failure_stores_session_log_artifact(self) -> None:
@@ -322,6 +329,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         failed_device = next(o for o in outcomes if o.name == "failure").context.devices["device-1"]
@@ -365,6 +373,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertFalse(netmiko.deploy_config.call_args.kwargs["auto_confirm_prompts"])
@@ -405,6 +414,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertTrue(netmiko.deploy_config.call_args.kwargs["auto_confirm_prompts"])
@@ -425,6 +435,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_device_without_rendered_template_fails(self) -> None:
@@ -458,6 +469,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         names = {outcome.name for outcome in outcomes}
@@ -499,6 +511,7 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="deploy-1",
+                device_sessions=MagicMock(),
             )
 
         names = {outcome.name for outcome in outcomes}

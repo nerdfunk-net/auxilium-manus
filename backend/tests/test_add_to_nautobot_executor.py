@@ -101,6 +101,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_requires_devices_in_context(self) -> None:
@@ -111,6 +112,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_missing_source_setting_raises(self) -> None:
@@ -123,6 +125,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=_run(),
                     artifact_service=MagicMock(),
                     node_id="node-1",
+                    device_sessions=MagicMock(),
                 )
 
     async def test_success_path_creates_device_and_enriches_context(self) -> None:
@@ -150,6 +153,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -183,6 +187,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -222,6 +227,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         request = create_device.await_args.args[0]
@@ -255,6 +261,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         payloads = {
@@ -307,6 +314,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         request = create_device.await_args.args[0]
@@ -351,6 +359,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         request = create_device.await_args.args[0]
@@ -365,6 +374,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_invalid_interfaces_source_raises(self) -> None:
@@ -376,6 +386,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_missing_required_field_fails_only_that_device(self) -> None:
@@ -410,6 +421,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 2)
@@ -439,6 +451,7 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         # Both devices attempt creation and both fail identically here since the

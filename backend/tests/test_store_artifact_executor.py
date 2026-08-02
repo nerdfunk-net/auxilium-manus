@@ -98,6 +98,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=artifact_service,
                     node_id="store-artifact-4",
+                    device_sessions=MagicMock(),
                 )
 
             export_file = Path(tmp) / "exports" / "wf-1" / "run-uuid-1" / "DC1" / "lab.cfg"
@@ -147,6 +148,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=artifact_service,
                     node_id="store-artifact-4",
+                    device_sessions=MagicMock(),
                 )
 
             export_root = Path(tmp) / "exports" / "wf-1" / "run-uuid-1"
@@ -199,6 +201,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=artifact_service,
                     node_id="store-artifact-4",
+                    device_sessions=MagicMock(),
                 )
 
             export_root = Path(tmp) / "exports" / "wf-1" / "run-uuid-1"
@@ -247,6 +250,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="store-artifact-4",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 2)
@@ -279,6 +283,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=InMemoryArtifactService(),
                     node_id="store-artifact-4",
+                    device_sessions=MagicMock(),
                 )
 
         self.assertEqual(len(outcomes), 2)
@@ -316,6 +321,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="store-artifact-4",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 2)
@@ -375,6 +381,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=artifact_service,
                 node_id="store-artifact-4",
+                device_sessions=MagicMock(),
             )
 
         mock_sink.finalize.assert_awaited_once()
@@ -406,6 +413,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                         run=run,
                         artifact_service=artifact_service,
                         node_id="store-artifact-escape",
+                        device_sessions=MagicMock(),
                     )
         self.assertIn("output_subdirectory", str(ctx.exception))
 

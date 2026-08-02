@@ -104,6 +104,7 @@ class FanInExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="join",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -127,6 +128,7 @@ class FanInExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="join",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)

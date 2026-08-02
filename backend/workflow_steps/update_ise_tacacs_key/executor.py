@@ -31,7 +31,7 @@ preserves sibling settings such as ``enableKeyWrap``/``connectModeOptions``.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
 
@@ -51,6 +51,9 @@ from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from icmplib import ICMPLibError, async_ping
 
@@ -20,6 +20,9 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from workflow_steps.reachable.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +142,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del run, artifact_service
 

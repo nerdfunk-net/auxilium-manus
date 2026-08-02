@@ -26,6 +26,7 @@ from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
 from services.artifacts import FilesystemArtifactService
 from services.execution.step_result_status import derive_step_result_status
+from services.network.netmiko.session_pool import DeviceSessionPool
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow_context.guards import (
     effective_produces,
@@ -83,11 +84,34 @@ def _plugin_registry_service() -> PluginRegistryService:
 
 
 class StepRunner:
+    """Executes the steps of one execution segment (a phase-1 walk, a phase-4
+    post-join resume, or a fan-out child's subgraph).
+
+    Owns a ``DeviceSessionPool`` (``self.device_sessions``) scoped to that
+    segment. Ownership rule: whoever instantiates ``StepRunner`` must
+    ``finally: await runner.close_device_sessions()`` — see
+    doc/DURABLE_SSH_SESSION.md §5.4/§5.5/§5.6 for the call sites.
+    """
+
     def __init__(self, db: Session) -> None:
         self.db = db
         self.repo = RunRepository(db)
         self.artifact_service = FilesystemArtifactService(settings.data_directory)
         self.plugin_registry = _plugin_registry_service()
+        self.device_sessions = DeviceSessionPool(
+            max_workers=settings.netmiko_pool_workers,
+            enabled=settings.netmiko_session_pooling,
+        )
+
+    async def suspend_device_sessions(self) -> None:
+        """Disconnect all live device sessions before a durable wait; the pool
+        stays usable and reconnects lazily on the next network step."""
+        await self.device_sessions.suspend()
+
+    async def close_device_sessions(self) -> None:
+        """Disconnect everything and shut down the pool's thread executor.
+        Idempotent — safe to call even if the pool was never used."""
+        await self.device_sessions.close()
 
     async def execute_all(self, *, run: WorkflowRun, workflow: Workflow) -> bool | FanOutSignal:
         """Execute every step in dependency order.
@@ -726,6 +750,7 @@ class StepRunner:
             run=run,
             artifact_service=self.artifact_service,
             node_id=node_id,
+            device_sessions=self.device_sessions,
         )
         if not outcomes:
             raise RuntimeError(f"Step {step_type!r} returned no outcomes")

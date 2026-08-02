@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
@@ -13,6 +13,9 @@ from workflow_steps.common.attribute_path import (
     resolve_device_attribute_state,
 )
 from workflow_steps.route_on_attribute.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +167,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del run, artifact_service
 

@@ -15,7 +15,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
@@ -28,6 +28,9 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from workflow_steps.common.content_resolver import list_exportable_content
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +120,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

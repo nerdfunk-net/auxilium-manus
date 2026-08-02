@@ -58,6 +58,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="get-from-config-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -101,6 +102,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="get-from-config-1",
+                device_sessions=MagicMock(),
             )
 
         devices = list(outcomes[0].context.devices.values())
@@ -130,6 +132,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="get-from-config-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(outcomes[0].context.devices, {})
@@ -143,6 +146,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="get-from-config-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -174,6 +178,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="get-from-config-1",
+                device_sessions=MagicMock(),
             )
 
         fan_out = outcomes[0].context.metadata["_fan_out"]
@@ -188,6 +193,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="get-from-config-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_missing_search_text_raises(self) -> None:
@@ -198,6 +204,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=self.run,
                 artifact_service=self.artifact_service,
                 node_id="get-from-config-1",
+                device_sessions=MagicMock(),
             )
 
 

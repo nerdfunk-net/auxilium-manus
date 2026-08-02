@@ -51,6 +51,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_missing_required_field_per_query_mode_raises(self) -> None:
@@ -66,6 +67,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                         run=_run(),
                         artifact_service=InMemoryArtifactService(),
                         node_id="node-1",
+                        device_sessions=MagicMock(),
                     )
 
     async def test_name_mode_found_and_missing_are_skipped(self) -> None:
@@ -94,6 +96,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -151,6 +154,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.list_devices_by_group.assert_called_once()
@@ -189,6 +193,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.list_devices.assert_called_once_with(filter_="ipaddress.EQ.10.0.0.1")
@@ -238,6 +243,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.list_devices.assert_called_once_with(page=1, size=100)
@@ -261,6 +267,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_resolve_to_devices_expands_group_or_prefix_via_nautobot(self) -> None:
@@ -306,6 +313,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         devices = outcomes[0].context.devices
@@ -357,6 +365,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertTrue(any("keeping the raw ISE entry" in message for message in logs.output))
@@ -393,6 +402,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=_run(),
                     artifact_service=InMemoryArtifactService(),
                     node_id="node-1",
+                    device_sessions=MagicMock(),
                 )
 
     async def test_fan_out_metadata_stamped(self) -> None:
@@ -424,6 +434,7 @@ class GetIseDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         metadata = outcomes[0].context.metadata

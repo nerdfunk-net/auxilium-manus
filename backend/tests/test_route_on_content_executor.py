@@ -53,6 +53,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=InMemoryArtifactService(),
             node_id="route-on-content-1",
+            device_sessions=MagicMock(),
         )
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(set(by_name), {"match", "mismatch", "failure"})
@@ -84,6 +85,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["match"].context.devices), ["dev-new"])
@@ -113,6 +115,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes_insensitive}
         self.assertEqual(list(by_name["match"].context.devices), ["dev-1"])
@@ -123,6 +126,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name_sensitive = {o.name: o for o in outcomes_sensitive}
         self.assertEqual(list(by_name_sensitive["mismatch"].context.devices), ["dev-1"])
@@ -145,6 +149,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["match"].context.devices), ["dev-1"])
@@ -167,6 +172,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["mismatch"].context.devices), ["dev-1"])
@@ -189,6 +195,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["match"].context.devices), ["dev-1"])
@@ -216,6 +223,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["mismatch"].context.devices), ["dev-1"])
@@ -234,6 +242,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=InMemoryArtifactService(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["failure"].context.devices), ["dev-1"])
@@ -251,6 +260,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["failure"].context.devices), ["dev-1"])
@@ -268,6 +278,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=artifact_service,
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["failure"].context.devices), ["dev-1"])
@@ -290,6 +301,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_invalid_match_mode_raises_value_error(self) -> None:
@@ -308,6 +320,7 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
@@ -18,6 +18,9 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.nautobot.common.validators import validate_ip_address
 from workflow_steps.common.fan_out import build_fan_out_metadata
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +99,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
 

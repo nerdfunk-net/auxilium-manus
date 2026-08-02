@@ -39,6 +39,7 @@ class LogMessageExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="log-message-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -68,6 +69,7 @@ class LogMessageExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="log-message-1",
+            device_sessions=MagicMock(),
         )
 
         debug_logs = outcomes[0].context.metadata[f"log-message-1{DEBUG_LOGS_METADATA_SUFFIX}"]
@@ -99,6 +101,7 @@ class LogMessageExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="log-message-1",
+            device_sessions=MagicMock(),
         )
 
         debug_logs = outcomes[0].context.metadata[f"log-message-1{DEBUG_LOGS_METADATA_SUFFIX}"]
@@ -116,6 +119,7 @@ class LogMessageExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="log-message-2",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(outcomes[0].context.devices, {})
@@ -140,6 +144,7 @@ class LogMessageExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="log-message-3",
+            device_sessions=MagicMock(),
         )
 
         debug_logs = outcomes[0].context.metadata[f"log-message-3{DEBUG_LOGS_METADATA_SUFFIX}"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
@@ -16,6 +16,9 @@ from services.sources.git.git_source_service import GitDeviceService
 from workflow_steps.common.device_builders import device_context_from_git_detail
 from workflow_steps.common.fan_out import build_fan_out_metadata
 
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +29,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
 

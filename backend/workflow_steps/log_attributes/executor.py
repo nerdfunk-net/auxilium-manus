@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.config import settings
 from core.models.runs import WorkflowRun
@@ -16,6 +16,9 @@ from services.artifacts import ArtifactService
 from services.workflow_context.secret_fields import redact_secrets_in_data
 from workflow_steps.common.device_template import sanitize_relative_path
 from workflow_steps.log_attributes.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +321,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     logger.info("log-attributes started run_id=%s node_id=%s", run.id, node_id)
 

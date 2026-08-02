@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
@@ -19,6 +19,9 @@ from workflow_steps.common.cisco_config_parsing import parse_cisco_config_text
 from workflow_steps.common.device_builders import device_context_from_config_match
 from workflow_steps.common.fan_out import build_fan_out_metadata
 
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +32,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
 

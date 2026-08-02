@@ -59,6 +59,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         by_name = {i["name"]: i for i in interfaces}
@@ -84,6 +85,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         by_name = {i["name"]: i for i in interfaces}
@@ -129,6 +131,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         by_name = {i["name"]: i for i in interfaces}
@@ -164,6 +167,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         self.assertEqual([i["name"] for i in interfaces], ["Ethernet0/1"])
@@ -181,6 +185,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         self.assertEqual([i["name"] for i in interfaces], ["Ethernet0/0"])
@@ -200,6 +205,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         bag = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]
         self.assertEqual(bag["role"], {"name": "Network"})
@@ -218,6 +224,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         self.assertNotIn("nautobot", outcomes[0].context.devices["dev-1"].attribute_bags)
 
@@ -230,6 +237,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_defaults_apply_when_config_is_empty(self) -> None:
@@ -246,6 +254,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         self.assertEqual([i["name"] for i in interfaces], ["Ethernet0/0"])
@@ -261,6 +270,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         self.assertIn(Capability.ATTRIBUTES, outcomes[0].context.devices["dev-1"].capabilities)
 

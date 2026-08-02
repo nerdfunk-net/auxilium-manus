@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
@@ -20,6 +20,9 @@ from services.artifacts import ArtifactService
 from workflow_steps.common.content_resolver import list_exportable_content, parse_content_source
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.route_on_content.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del run
 

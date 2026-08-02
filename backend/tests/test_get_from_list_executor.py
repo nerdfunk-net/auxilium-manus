@@ -23,6 +23,7 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="get-from-list-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -59,6 +60,7 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="get-from-list-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_execute_ip_only_row_sets_primary_ip4_and_falls_back_name(self) -> None:
@@ -72,6 +74,7 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="get-from-list-1",
+            device_sessions=MagicMock(),
         )
 
         devices = list(outcomes[0].context.devices.values())
@@ -92,6 +95,7 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="get-from-list-1",
+            device_sessions=MagicMock(),
         )
 
         devices = list(outcomes[0].context.devices.values())
@@ -113,6 +117,7 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="get-from-list-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_execute_sets_fan_out_metadata_when_enabled(self) -> None:
@@ -134,6 +139,7 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="get-from-list-1",
+            device_sessions=MagicMock(),
         )
 
         fan_out = outcomes[0].context.metadata["_fan_out"]
@@ -170,6 +176,7 @@ class GetFromListExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="get-from-list-1",
+            device_sessions=MagicMock(),
         )
 
         approval = outcomes[0].context.metadata["_fan_out"]["approval"]

@@ -163,6 +163,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     ...
 ```
@@ -174,6 +175,12 @@ async def execute(
 | `run`              | `WorkflowRun`         | ORM instance — use `object_session(run)` for DB   |
 | `artifact_service` | `ArtifactService`     | Store/retrieve bulky content via `ArtifactRef`     |
 | `node_id`          | `str`                 | React Flow node id (for metadata namespacing)      |
+| `device_sessions`  | `DeviceSessionPool`   | Run-segment-scoped pool of live Netmiko sessions — see "Device sessions" below |
+
+Non-SSH executors accept `device_sessions` but never use it — import
+`DeviceSessionPool` under `TYPE_CHECKING` in those files so it costs nothing at
+runtime (`from __future__ import annotations` makes the forward-ref annotation
+safe). SSH executors pass it straight through to `NetmikoService(pool=device_sessions)`.
 
 The function must return one or more `StepOutcome` values. Each outcome carries a
 `WorkflowContext` snapshot for downstream routing via `sourceHandle` on canvas edges.
@@ -199,7 +206,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-async def execute(*, config, context, run, artifact_service, node_id) -> list[StepOutcome]:
+async def execute(
+    *, config, context, run, artifact_service, node_id, device_sessions
+) -> list[StepOutcome]:
     ...  # validate config, raise ValueError on bad input
 
     logger.info("my-new-step started run_id=%s node_id=%s", run.id, node_id)
@@ -285,6 +294,38 @@ executors.
 routers and services when they expose pure utilities (path sanitization, attribute
 path probes, regex transforms, etc.). Do not import executor modules or step
 packages from outside `StepRunner` / `STEP_REGISTRY`.
+
+### Device sessions
+
+**Full design:** `doc/DURABLE_SSH_SESSION.md`.
+
+SSH steps (`run-command`, `get-device-configs`, `deploy-rendered-template`) share
+live Netmiko sessions across steps within one execution segment (a phase-1 walk,
+a phase-4 post-join resume, or a fan-out child) via `DeviceSessionPool`
+(`services/network/netmiko/session_pool.py`). `StepRunner` owns one pool per
+segment and injects it into every executor call as `device_sessions`.
+
+Key points for step authors:
+
+- Pooling is transparent — a step that targets the same device + credential as
+  an earlier step in the same segment silently reuses the socket. No canvas/UI
+  change is required.
+- **Invariant:** an executor must leave a pooled session in privileged-exec base
+  state before returning (config mode always exited, no pending interactive
+  prompts). A later step may reuse the same live session, so leaving it mid-prompt
+  or in config mode corrupts the next step's command.
+- **Fan-out boundary:** sessions never cross a Hatchet parent→child task
+  boundary. Each fan-out child gets its own pool; a workflow that SSHes to
+  devices both before and inside a fanned-out branch pays one extra login per
+  device at the boundary — rare by construction, accepted.
+- **Durable waits:** the pool is suspended (all live sessions disconnected, pool
+  kept) immediately before every debug-mode step gate; sessions reconnect
+  lazily on the next network step after resume.
+- Never store `device_sessions` or a session object beyond the `execute()` call
+  — the pool is scoped to the segment and closed by its owner in a `finally`
+  once the segment ends.
+- Emergency rollback: `settings.netmiko_session_pooling = False` restores the
+  legacy fresh-session-per-call behavior without a code change.
 
 ### Optional modules
 
@@ -655,7 +696,7 @@ commits, so it is not a substitute for the fan-in node.
 
 1. **Backend package** — create `backend/workflow_steps/{step_id}/`:
    - `__init__.py` (empty)
-   - `executor.py` with `async def execute(*, config, context, run, artifact_service, node_id)`
+   - `executor.py` with `async def execute(*, config, context, run, artifact_service, node_id, device_sessions)`
      (**omit for canvas decorations** — see [Canvas decorations](#canvas-decorations))
    - `config.py` with `def get_config() -> dict` (if the step has configuration)
    - `models.py` with step-specific Pydantic models (if needed)

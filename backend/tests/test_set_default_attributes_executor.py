@@ -48,6 +48,7 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -72,6 +73,7 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         device = outcomes[0].context.devices["dev-1"]
         self.assertEqual(device.attribute_bags["nautobot"]["role"], {"name": "Existing"})
@@ -92,6 +94,7 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         device = outcomes[0].context.devices["dev-1"]
         self.assertEqual(device.attribute_bags["nautobot"]["role"], {"name": "Network"})
@@ -119,6 +122,7 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         bag = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]
         self.assertEqual(bag["device_type"], {"manufacturer": {"name": "Cisco"}})
@@ -149,6 +153,7 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
             run=_run(),
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].context.devices, {})
@@ -162,6 +167,7 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_invalid_mode_raises(self) -> None:
@@ -173,6 +179,7 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
 
@@ -193,6 +200,7 @@ class SetDefaultAttributesGitModeTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         mocked.assert_called_once_with(
@@ -221,6 +229,7 @@ class SetDefaultAttributesGitModeTests(unittest.IsolatedAsyncioTestCase):
                     run=_run(),
                     artifact_service=MagicMock(),
                     node_id="node-1",
+                    device_sessions=MagicMock(),
                 )
 
     async def test_git_mode_propagates_loader_error(self) -> None:
@@ -240,6 +249,7 @@ class SetDefaultAttributesGitModeTests(unittest.IsolatedAsyncioTestCase):
                     run=_run(),
                     artifact_service=MagicMock(),
                     node_id="node-1",
+                    device_sessions=MagicMock(),
                 )
 
 

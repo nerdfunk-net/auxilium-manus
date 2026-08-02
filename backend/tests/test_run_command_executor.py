@@ -64,6 +64,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -112,6 +113,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         summary = outcomes[0].context.devices["device-1"].command_results["node-1"][0].summary
@@ -156,6 +158,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         resolve_mock.assert_called_once_with(db, "lab-ssh", acting_user_id=42)
@@ -173,6 +176,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_defaults_commands_when_missing_from_config(self) -> None:
@@ -209,6 +213,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=InMemoryArtifactService(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(

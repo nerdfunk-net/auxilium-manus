@@ -103,6 +103,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_all_tiers_disabled_raises(self) -> None:
@@ -126,6 +127,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_unreachable_ise_returns_failure_outcome(self) -> None:
@@ -141,6 +143,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -167,6 +170,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -194,6 +198,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -215,6 +220,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.get_device_by_name.assert_called_once_with("router1")
@@ -241,6 +247,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         # cached: get_device_by_name called once even though 2 tiers use it
@@ -270,6 +277,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.list_devices_by_group.assert_not_called()
@@ -318,6 +326,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         (call_args,), _ = device_service.list_devices_by_group.call_args
@@ -362,6 +371,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -416,6 +426,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -446,6 +457,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         # 32 down to 8 inclusive = 25 calls
@@ -484,6 +496,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -525,6 +538,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -566,6 +580,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -590,6 +605,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.get_device_by_name.assert_not_called()

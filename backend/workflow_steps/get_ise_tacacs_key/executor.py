@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
 
@@ -61,6 +61,9 @@ from workflow_steps.common.ise_lookup import (
     paginate_ise_summaries,
 )
 from workflow_steps.get_ise_tacacs_key.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +303,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del artifact_service  # unused for this step
 

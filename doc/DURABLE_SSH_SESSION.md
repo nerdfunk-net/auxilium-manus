@@ -1,6 +1,7 @@
 # Durable SSH Sessions Across Workflow Steps — Implementation Plan
 
-Status: **PLAN — not implemented**
+Status: **IMPLEMENTED** (v1, backend only). §9 (replay idempotency) remains a
+separate, unimplemented follow-up.
 Scope: backend only (no frontend/UI changes required for v1)
 Related docs: `WORKFLOW-STEPS.md`, `WAIT-AND-RUN.md`
 
@@ -452,10 +453,13 @@ This is where reuse pays off most: a per-device child runs
 3. No other logic changes — per-device `asyncio.gather`, artifact storage, outcome
    splitting all stay identical.
 
-### 5.8 The 29 non-SSH executors
+### 5.8 The non-SSH executors
 
 Mechanical: add `device_sessions: DeviceSessionPool` (type via
 `TYPE_CHECKING` import to avoid pulling netmiko into pure steps) to the signature.
+List below is 29 as of this plan's authoring; by implementation time two more
+non-SSH steps (`get-from-config`, `show-summary`) had been added, bringing the
+real total to 31 non-SSH + 3 SSH = 34 executors — same mechanical treatment.
 List (from `STEP_REGISTRY`): add_to_ise, add_to_nautobot, compare_data,
 config_to_attributes, fan_in, filter_output, get_from_list, get_git_devices,
 get_ise_devices, get_ise_tacacs_key, get_nautobot_attributes,

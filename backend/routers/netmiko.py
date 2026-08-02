@@ -25,6 +25,7 @@ from services.credentials.exceptions import (
 )
 from services.network.netmiko.connection import NetmikoConnectionError
 from services.network.netmiko.service import NetmikoService
+from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.cisco_config_parsing import (
     parse_cisco_config_text,
     platform_hint_for_network_driver,
@@ -93,8 +94,9 @@ async def run_commands(
     except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    pool = DeviceSessionPool(max_workers=1, enabled=False)
     try:
-        netmiko = NetmikoService()
+        netmiko = NetmikoService(pool=pool)
         result = await netmiko.send_commands(
             host=payload.host,
             network_driver=payload.network_driver,
@@ -103,12 +105,15 @@ async def run_commands(
             password=password,
             commands=commands,
             use_textfsm=payload.use_textfsm,
+            credential_reference=f"credential:{payload.credential_id}",
         )
     except NetmikoConnectionError as exc:
         # Device-side connect/auth/timeout failure: report gracefully so the
         # editor can surface it, rather than emitting a generic 500.
         logger.info("Netmiko preview connection failed host=%s", payload.host)
         return NetmikoRunCommandsResponse(success=False, commands=[], error=str(exc))
+    finally:
+        await pool.close()
 
     try:
         entries = [
@@ -160,8 +165,9 @@ async def get_configs(
     except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    pool = DeviceSessionPool(max_workers=1, enabled=False)
     try:
-        netmiko = NetmikoService()
+        netmiko = NetmikoService(pool=pool)
         result = await netmiko.get_configs(
             host=payload.host,
             network_driver=payload.network_driver,
@@ -170,10 +176,13 @@ async def get_configs(
             password=password,
             include_running=True,
             include_startup=True,
+            credential_reference=f"credential:{payload.credential_id}",
         )
     except NetmikoConnectionError as exc:
         logger.info("Netmiko get-configs connection failed host=%s", payload.host)
         return NetmikoGetConfigsResponse(success=False, error=str(exc))
+    finally:
+        await pool.close()
 
     if not result.success:
         return NetmikoGetConfigsResponse(success=False, error=result.error)

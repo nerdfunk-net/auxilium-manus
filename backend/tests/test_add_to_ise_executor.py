@@ -92,6 +92,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_requires_device_name(self) -> None:
@@ -103,6 +104,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_requires_ip_address(self) -> None:
@@ -114,6 +116,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_requires_new_key(self) -> None:
@@ -125,6 +128,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_no_devices_is_a_noop(self) -> None:
@@ -137,6 +141,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -156,6 +161,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -173,6 +179,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.create_device.assert_called_once_with(
@@ -213,6 +220,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.create_device.assert_called_once_with(
@@ -257,6 +265,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         (payload,), _ = device_service.create_device.call_args
@@ -277,6 +286,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.create_device.assert_not_called()
@@ -297,6 +307,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.create_device.assert_not_called()
@@ -334,6 +345,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         (payload,), _ = device_service.create_device.call_args
@@ -352,6 +364,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.create_device.assert_not_called()
@@ -372,6 +385,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(outcomes[0].name, "success")
@@ -393,6 +407,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -408,6 +423,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_cidr_suffixed_ip_address_is_normalized_to_bare_host(self) -> None:
@@ -421,6 +437,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         (payload,), _ = device_service.create_device.call_args
@@ -438,6 +455,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         device_service.create_device.assert_not_called()

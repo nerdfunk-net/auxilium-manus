@@ -1,10 +1,14 @@
-"""Async Netmiko orchestration for workflow steps."""
+"""Async Netmiko orchestration for workflow steps, backed by a DeviceSessionPool.
+
+Every public method leaves the session in privileged-exec base state (config
+mode always exited, no pending interactive prompts) before returning, so a
+pooled session is always safe for a later step to reuse — see
+doc/DURABLE_SSH_SESSION.md §3.4.
+"""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 from services.network.netmiko.connection import (
     DEFAULT_READ_TIMEOUT,
@@ -15,15 +19,16 @@ from services.network.netmiko.connection import (
     NetmikoDeviceSession,
 )
 from services.network.netmiko.platform import resolve_netmiko_device_type
+from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
 
 class NetmikoService:
-    """Run blocking Netmiko operations on a shared thread pool."""
+    """Run Netmiko operations against a run-segment-scoped DeviceSessionPool."""
 
-    def __init__(self, *, max_workers: int = 10) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+    def __init__(self, *, pool: DeviceSessionPool) -> None:
+        self._pool = pool
 
     async def send_command(
         self,
@@ -34,6 +39,7 @@ class NetmikoService:
         username: str,
         password: str,
         command: str,
+        credential_reference: str,
         privileged: bool = True,
     ) -> CommandResult:
         return await self.send_commands(
@@ -43,6 +49,7 @@ class NetmikoService:
             username=username,
             password=password,
             commands=[command],
+            credential_reference=credential_reference,
             privileged=privileged,
         )
 
@@ -55,25 +62,27 @@ class NetmikoService:
         username: str,
         password: str,
         commands: list[str],
+        credential_reference: str,
         privileged: bool = True,
         use_textfsm: bool = False,
         device_type: str | None = None,
     ) -> CommandResult:
-        loop = asyncio.get_running_loop()
+        del privileged  # pooled sessions always connect privileged; see module docstring
         resolved_device_type = device_type or resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
-        return await loop.run_in_executor(
-            self._executor,
-            _sync_send_commands,
-            host,
-            resolved_device_type,
-            username,
-            password,
-            commands,
-            privileged,
-            use_textfsm,
+
+        def _op(session: NetmikoDeviceSession) -> CommandResult:
+            return session.send_commands(commands, use_textfsm=use_textfsm)
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=resolved_device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
         )
 
     async def deploy_config(
@@ -87,27 +96,44 @@ class NetmikoService:
         commands: list[str],
         mode: str,
         write_config: bool,
+        credential_reference: str,
         device_type: str | None = None,
         read_timeout: int | None = None,
         auto_confirm_prompts: bool = False,
     ) -> DeployResult:
-        loop = asyncio.get_running_loop()
         resolved_device_type = device_type or resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
-        return await loop.run_in_executor(
-            self._executor,
-            _sync_deploy_config,
-            host,
-            resolved_device_type,
-            username,
-            password,
-            commands,
-            mode,
-            write_config,
-            read_timeout,
-            auto_confirm_prompts,
+
+        def _op(session: NetmikoDeviceSession) -> DeployResult:
+            result = session.deploy_config(
+                commands,
+                mode=mode,
+                read_timeout=read_timeout or DEFAULT_READ_TIMEOUT,
+                auto_confirm_prompts=auto_confirm_prompts,
+            )
+            if not result.success or not write_config:
+                return result
+            try:
+                save_output = session.save_running_config()
+                return DeployResult(
+                    success=True,
+                    config_output=result.config_output,
+                    save_output=save_output,
+                )
+            except NetmikoConnectionError as exc:
+                return DeployResult(
+                    success=False, config_output=result.config_output, error=str(exc)
+                )
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=resolved_device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
         )
 
     async def get_running_config(
@@ -118,19 +144,23 @@ class NetmikoService:
         platform: str | None,
         username: str,
         password: str,
+        credential_reference: str,
     ) -> str:
-        loop = asyncio.get_running_loop()
         device_type = resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
-        return await loop.run_in_executor(
-            self._executor,
-            _sync_get_running_config,
-            host,
-            device_type,
-            username,
-            password,
+
+        def _op(session: NetmikoDeviceSession) -> str:
+            return session.get_running_config()
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
         )
 
     async def get_startup_config(
@@ -141,19 +171,23 @@ class NetmikoService:
         platform: str | None,
         username: str,
         password: str,
+        credential_reference: str,
     ) -> str:
-        loop = asyncio.get_running_loop()
         device_type = resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
-        return await loop.run_in_executor(
-            self._executor,
-            _sync_get_startup_config,
-            host,
-            device_type,
-            username,
-            password,
+
+        def _op(session: NetmikoDeviceSession) -> str:
+            return session.get_startup_config()
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
         )
 
     async def get_configs(
@@ -164,127 +198,38 @@ class NetmikoService:
         platform: str | None,
         username: str,
         password: str,
+        credential_reference: str,
         include_running: bool = True,
         include_startup: bool = True,
     ) -> ConfigResult:
-        loop = asyncio.get_running_loop()
         device_type = resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
-        return await loop.run_in_executor(
-            self._executor,
-            _sync_get_configs,
-            host,
-            device_type,
-            username,
-            password,
-            include_running,
-            include_startup,
+
+        def _op(session: NetmikoDeviceSession) -> ConfigResult:
+            running: str | None = None
+            startup: str | None = None
+            try:
+                if include_running:
+                    running = session.get_running_config()
+                if include_startup:
+                    startup = session.get_startup_config()
+                return ConfigResult(
+                    success=True,
+                    running_config=running,
+                    startup_config=startup,
+                )
+            except NetmikoConnectionError as exc:
+                return ConfigResult(success=False, error=str(exc))
+            except Exception as exc:
+                return ConfigResult(success=False, error=str(exc))
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
         )
-
-
-def _session(
-    host: str,
-    device_type: str,
-    username: str,
-    password: str,
-) -> NetmikoDeviceSession:
-    return NetmikoDeviceSession(
-        host=host,
-        device_type=device_type,
-        username=username,
-        password=password,
-    )
-
-
-def _sync_send_commands(
-    host: str,
-    device_type: str,
-    username: str,
-    password: str,
-    commands: list[str],
-    privileged: bool,
-    use_textfsm: bool,
-) -> CommandResult:
-    with _session(host, device_type, username, password) as session:
-        session.connect(privileged=privileged)
-        return session.send_commands(commands, use_textfsm=use_textfsm)
-
-
-def _sync_deploy_config(
-    host: str,
-    device_type: str,
-    username: str,
-    password: str,
-    commands: list[str],
-    mode: str,
-    write_config: bool,
-    read_timeout: int | None,
-    auto_confirm_prompts: bool,
-) -> DeployResult:
-    with _session(host, device_type, username, password) as session:
-        result = session.deploy_config(
-            commands,
-            mode=mode,
-            read_timeout=read_timeout or DEFAULT_READ_TIMEOUT,
-            auto_confirm_prompts=auto_confirm_prompts,
-        )
-        if not result.success or not write_config:
-            return result
-        try:
-            save_output = session.save_running_config()
-            return DeployResult(
-                success=True,
-                config_output=result.config_output,
-                save_output=save_output,
-            )
-        except NetmikoConnectionError as exc:
-            return DeployResult(success=False, config_output=result.config_output, error=str(exc))
-
-
-def _sync_get_running_config(
-    host: str,
-    device_type: str,
-    username: str,
-    password: str,
-) -> str:
-    with _session(host, device_type, username, password) as session:
-        return session.get_running_config()
-
-
-def _sync_get_startup_config(
-    host: str,
-    device_type: str,
-    username: str,
-    password: str,
-) -> str:
-    with _session(host, device_type, username, password) as session:
-        return session.get_startup_config()
-
-
-def _sync_get_configs(
-    host: str,
-    device_type: str,
-    username: str,
-    password: str,
-    include_running: bool,
-    include_startup: bool,
-) -> ConfigResult:
-    with _session(host, device_type, username, password) as session:
-        running: str | None = None
-        startup: str | None = None
-        try:
-            if include_running:
-                running = session.get_running_config()
-            if include_startup:
-                startup = session.get_startup_config()
-            return ConfigResult(
-                success=True,
-                running_config=running,
-                startup_config=startup,
-            )
-        except NetmikoConnectionError as exc:
-            return ConfigResult(success=False, error=str(exc))
-        except Exception as exc:
-            return ConfigResult(success=False, error=str(exc))

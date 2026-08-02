@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
@@ -29,6 +29,9 @@ from workflow_steps.common.jinja_render import (
     validate_jinja_template,
 )
 from workflow_steps.render_jinja_template.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +155,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]

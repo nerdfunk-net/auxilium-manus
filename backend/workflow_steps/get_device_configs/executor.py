@@ -20,6 +20,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.network.netmiko.service import NetmikoService
+from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
@@ -62,7 +64,7 @@ async def execute(
         db, credential_reference, acting_user_id=run.triggered_by_id
     )
     include_running, include_startup = _config_targets(config_format)
-    netmiko = NetmikoService()
+    netmiko = NetmikoService(pool=device_sessions)
 
     logger.info(
         "get-device-configs run_id=%s devices=%d credential=%s format=%s",
@@ -104,6 +106,7 @@ async def execute(
                 password=password,
                 include_running=include_running,
                 include_startup=include_startup,
+                credential_reference=credential_reference,
             )
             if not result.success:
                 raise RuntimeError(result.error or "Config retrieval failed")

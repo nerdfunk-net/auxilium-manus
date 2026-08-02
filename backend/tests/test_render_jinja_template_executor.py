@@ -45,6 +45,7 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="render-jinja-template-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -82,6 +83,7 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=InMemoryArtifactService(),
             node_id="render-jinja-template-2",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 2)
@@ -134,6 +136,7 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="render-jinja-template-3",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -204,6 +207,7 @@ class RenderJinjaTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="render-jinja-template-3",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)

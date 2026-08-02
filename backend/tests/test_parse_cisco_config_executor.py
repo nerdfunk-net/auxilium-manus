@@ -71,6 +71,7 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -107,6 +108,7 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -133,6 +135,7 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=InMemoryArtifactService(),
             node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 2)
@@ -164,6 +167,7 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 2)
@@ -199,6 +203,7 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -231,6 +236,7 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 2)

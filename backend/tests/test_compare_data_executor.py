@@ -77,6 +77,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=artifact_service,
                     node_id="compare-data-1",
+                    device_sessions=MagicMock(),
                 )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -134,6 +135,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=artifact_service,
                     node_id="compare-data-1",
+                    device_sessions=MagicMock(),
                 )
 
         by_name = {outcome.name: outcome for outcome in outcomes}
@@ -193,6 +195,7 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=artifact_service,
                     node_id="compare-data-1",
+                    device_sessions=MagicMock(),
                 )
 
         by_name = {outcome.name: outcome for outcome in outcomes}

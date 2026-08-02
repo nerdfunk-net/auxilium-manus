@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
@@ -14,6 +14,9 @@ from workflow_steps.common.git_push_helpers import (
 )
 from workflow_steps.common.git_workflow_step import run_git_workflow_step
 from workflow_steps.git_push.config import get_config
+
+if TYPE_CHECKING:
+    from services.network.netmiko.session_pool import DeviceSessionPool
 
 
 def _commit_message(config: dict[str, Any], context: WorkflowContext) -> str:
@@ -89,6 +92,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     return await run_git_workflow_step(
         config=config,

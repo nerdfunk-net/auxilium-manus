@@ -56,6 +56,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual(len(outcomes), 1)
@@ -81,6 +82,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -115,6 +117,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -147,6 +150,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -177,6 +181,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -205,6 +210,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="node-1",
+            device_sessions=MagicMock(),
         )
 
         updated = outcomes[0].context.devices["dev-1"]
@@ -242,6 +248,7 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="node-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertIn("sealed secret", str(ctx.exception))

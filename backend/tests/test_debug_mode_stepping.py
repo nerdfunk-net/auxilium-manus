@@ -138,6 +138,33 @@ class DebugSteppingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({r.status for r in results.values()}, {"success"})
         self.assertIsNotNone(returned_run.debug_message)
 
+    async def test_debug_mode_suspends_device_sessions_before_each_pause(self) -> None:
+        """Devices drop idle SSH long before a debug pause resumes, so live
+        sessions must be released before every wait — see
+        doc/DURABLE_SSH_SESSION.md §3.4/§5.5 item 2."""
+        run = _make_run(self.db, run_mode="debug")
+        ctx = AsyncMock()
+        call_order: list[str] = []
+
+        async def _suspend() -> None:
+            call_order.append("suspend")
+
+        async def _wait_for_event(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            call_order.append("wait")
+            return {}
+
+        ctx.aio_wait_for_event.side_effect = _wait_for_event
+
+        with (
+            patch.object(StepRunner, "_execute_step", side_effect=_noop_success_step),
+            patch.object(self.runner, "suspend_device_sessions", side_effect=_suspend),
+        ):
+            await _run_steps_until_fan_out_or_done(
+                run_repo=self.run_repo, runner=self.runner, run=run, wf=self.wf, ctx=ctx
+            )
+
+        self.assertEqual(call_order, ["suspend", "wait"] * 3)
+
     async def test_run_to_completion_stops_pausing_after_the_current_step(self) -> None:
         run = _make_run(self.db, run_mode="debug")
         ctx = AsyncMock()

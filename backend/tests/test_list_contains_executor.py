@@ -92,6 +92,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -121,6 +122,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -147,6 +149,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -170,6 +173,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -193,6 +197,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -218,6 +223,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -248,6 +254,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -273,6 +280,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -296,6 +304,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -330,6 +339,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
         by_name = {o.name: o for o in insensitive}
         self.assertEqual(list(by_name["match"].context.devices), ["d1"])
@@ -345,6 +355,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
         by_name_sensitive = {o.name: o for o in sensitive}
         self.assertEqual(list(by_name_sensitive["mismatch"].context.devices), ["d1"])
@@ -373,6 +384,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -392,6 +404,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         self.assertEqual({o.name for o in outcomes}, {"match", "mismatch", "failure"})
@@ -409,6 +422,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="lc-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_missing_value_raises_value_error(self) -> None:
@@ -422,6 +436,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="lc-1",
+                device_sessions=MagicMock(),
             )
 
     async def test_acl_permits_source_via_filter_segment(self) -> None:
@@ -445,6 +460,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -470,6 +486,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}
@@ -493,6 +510,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=MagicMock(),
             node_id="lc-1",
+            device_sessions=MagicMock(),
         )
 
         by_name = {o.name: o for o in outcomes}

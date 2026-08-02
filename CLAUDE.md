@@ -593,8 +593,11 @@ The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/e
 1. `backend/workflow_steps/{step_id}/__init__.py` — empty
 2. `backend/workflow_steps/{step_id}/executor.py` — business logic:
    ```python
-   async def execute(*, config: dict, context: WorkflowContext, run: WorkflowRun, artifact_service, node_id) -> list[StepOutcome]: ...
+   async def execute(*, config: dict, context: WorkflowContext, run: WorkflowRun, artifact_service, node_id, device_sessions) -> list[StepOutcome]: ...
    ```
+   `device_sessions` is a run-segment-scoped `DeviceSessionPool` (see
+   `doc/DURABLE_SSH_SESSION.md`); non-SSH steps accept it but never use it
+   (import `DeviceSessionPool` under `TYPE_CHECKING`).
 3. `backend/workflow_steps/{step_id}/config.py` — `def get_config() -> dict` (if step has config)
 4. `backend/services/execution/step_registry.py` — add one import + one dict entry
 5. `backend/workflow_steps/registry.yaml` — add registry entry

@@ -114,6 +114,9 @@ async def _run_steps_until_fan_out_or_done(
             )
             event_key = debug_step_event_key(run.uuid, node_id)
             logger.info("Debug pause run_id=%s node_id=%s", run.id, node_id)
+            # Devices drop idle SSH long before a debug pause can resume — release
+            # live sessions now; the next network step reconnects lazily.
+            await runner.suspend_device_sessions()
             await ctx.aio_wait_for_event(
                 event_key,
                 scope=event_key,
@@ -209,9 +212,15 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
         wf, _ = wf_result
 
         runner = StepRunner(db)
-        final_status, fan_out, run = await _run_steps_until_fan_out_or_done(
-            run_repo=run_repo, runner=runner, run=run, wf=wf, ctx=ctx
-        )
+        try:
+            final_status, fan_out, run = await _run_steps_until_fan_out_or_done(
+                run_repo=run_repo, runner=runner, run=run, wf=wf, ctx=ctx
+            )
+        finally:
+            # Close (not suspend) here: on the fan-out path, children build their
+            # own pools and phase 2/3 hold no device connections — this also runs
+            # before the fan-out debug pause below.
+            await runner.close_device_sessions()
 
         if fan_out is None:
             run_repo.update_run_status(
@@ -308,12 +317,16 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
                 input.run_id,
                 signal.join_node_id,
             )
-            join_success = await StepRunner(db).resume_after_join(
-                run=run,
-                workflow=wf,
-                merged_outcomes=merged_outcomes,
-                join_node_id=signal.join_node_id,
-            )
+            post_join_runner = StepRunner(db)
+            try:
+                join_success = await post_join_runner.resume_after_join(
+                    run=run,
+                    workflow=wf,
+                    merged_outcomes=merged_outcomes,
+                    join_node_id=signal.join_node_id,
+                )
+            finally:
+                await post_join_runner.close_device_sessions()
             success = success and join_success
 
         final_status = "success" if success else "failed"
@@ -399,6 +412,11 @@ async def _dispatch_children(
     durably pausing the run between batches until a
     ``POST /runs/{id}/approve-batch`` (or ``approve-all``) call pushes the
     batch's event — this is the Wait & Run gate. See doc/WAIT-AND-RUN.md.
+
+    No StepRunner/DeviceSessionPool is held across this function: the
+    orchestrator itself never opens device sessions during dispatch, so there
+    is nothing to suspend before the approval-gate waits — children own their
+    own pools (see doc/DURABLE_SSH_SESSION.md §3.5, §5.5 item 4).
     """
     from core.database import SessionLocal
     from repositories.run_repository import RunRepository

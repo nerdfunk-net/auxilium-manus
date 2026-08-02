@@ -52,6 +52,9 @@ class Settings:
     log_max_bytes: int
     log_backup_count: int
     allow_loopback_source_urls: bool
+    netmiko_session_pooling: bool
+    netmiko_pool_workers: int
+    netmiko_keepalive_seconds: int
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -98,6 +101,9 @@ class Settings:
         self.log_max_bytes = self._get_int("LOG_MAX_BYTES", 10_485_760)
         self.log_backup_count = self._get_int("LOG_BACKUP_COUNT", 5)
         self.allow_loopback_source_urls = self._get_bool("ALLOW_LOOPBACK_SOURCE_URLS", False)
+        self.netmiko_session_pooling = self._get_bool("NETMIKO_SESSION_POOLING", True)
+        self.netmiko_pool_workers = self._get_int("NETMIKO_POOL_WORKERS", 10)
+        self.netmiko_keepalive_seconds = self._get_int("NETMIKO_KEEPALIVE_SECONDS", 30)
 
     def _validate_run_retention(self) -> None:
         if self.run_retention_days < 1:

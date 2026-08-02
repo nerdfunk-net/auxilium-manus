@@ -76,6 +76,7 @@ class NetmikoDeviceSession:
         timeout: int = DEFAULT_TIMEOUT,
         session_timeout: int = DEFAULT_SESSION_TIMEOUT,
         capture_session_log: bool = True,
+        keepalive: int = 30,
     ) -> None:
         self.host = host.split("/")[0] if "/" in host else host
         self.device_type = device_type
@@ -83,6 +84,7 @@ class NetmikoDeviceSession:
         self.password = password
         self.timeout = timeout
         self.session_timeout = session_timeout
+        self.keepalive = keepalive
         self._connection: ConnectHandler | None = None
         self._session_log_buffer: io.BytesIO | None = io.BytesIO() if capture_session_log else None
 
@@ -98,6 +100,7 @@ class NetmikoDeviceSession:
             "timeout": self.timeout,
             "session_timeout": self.session_timeout,
             "session_log": self._session_log_buffer,
+            "keepalive": self.keepalive,
         }
 
         try:
@@ -134,6 +137,31 @@ class NetmikoDeviceSession:
         if self._connection is None:
             raise NetmikoConnectionError("Not connected")
         return self._connection
+
+    def is_alive(self) -> bool:
+        """True when the underlying transport is still connected.
+
+        Used by DeviceSessionPool to decide whether to reuse this session or
+        transparently reconnect (e.g. after a device-side exec-timeout).
+        """
+        if self._connection is None:
+            return False
+        try:
+            return bool(self._connection.is_alive())
+        except Exception:
+            return False
+
+    def check_config_mode(self) -> bool:
+        """True when the session is currently sitting in config mode.
+
+        Used by DeviceSessionPool's debug-only post-op guard (see
+        doc/DURABLE_SSH_SESSION.md §7) to catch an executor that left a
+        pooled session in a non-base state.
+        """
+        try:
+            return bool(self.connection.check_config_mode())
+        except Exception:
+            return False
 
     def get_session_log(self) -> str | None:
         """Return the raw CLI byte stream captured so far, decoded as text.

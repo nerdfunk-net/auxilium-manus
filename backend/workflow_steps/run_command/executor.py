@@ -22,6 +22,7 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
+from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,7 @@ async def execute(
     run: WorkflowRun,
     artifact_service: ArtifactService,
     node_id: str,
+    device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
@@ -97,7 +99,7 @@ async def execute(
     username, password = resolve_ssh_credential(
         db, credential_reference, acting_user_id=run.triggered_by_id
     )
-    netmiko = NetmikoService()
+    netmiko = NetmikoService(pool=device_sessions)
 
     logger.info(
         "run-command run_id=%s devices=%d credential=%s commands=%d textfsm=%s override=%s",
@@ -148,6 +150,7 @@ async def execute(
                 commands=commands,
                 use_textfsm=use_textfsm,
                 device_type=device_type,
+                credential_reference=credential_reference,
             )
 
             step_results: list[CommandResult] = []

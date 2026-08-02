@@ -51,6 +51,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="log-attributes-1",
+                device_sessions=MagicMock(),
             )
 
         self.assertEqual(len(outcomes), 1)
@@ -95,6 +96,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=MagicMock(),
                     node_id="log-attributes-2",
+                    device_sessions=MagicMock(),
                 )
 
                 payload = outcomes[0].context.metadata[
@@ -117,6 +119,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                     run=run,
                     artifact_service=MagicMock(),
                     node_id="log-attributes-2b",
+                    device_sessions=MagicMock(),
                 )
                 second_content = target.read_text(encoding="utf-8")
                 self.assertIn("---", second_content)
@@ -137,6 +140,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 run=run,
                 artifact_service=MagicMock(),
                 node_id="log-attributes-3",
+                device_sessions=MagicMock(),
             )
 
     async def test_show_parsed_templates_disabled_by_default(self) -> None:
@@ -170,6 +174,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="log-attributes-4",
+            device_sessions=MagicMock(),
         )
 
         payload = outcomes[0].context.metadata[f"log-attributes-4{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
@@ -212,6 +217,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="log-attributes-5",
+            device_sessions=MagicMock(),
         )
 
         payload = outcomes[0].context.metadata[f"log-attributes-5{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
@@ -242,6 +248,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="log-attributes-6",
+            device_sessions=MagicMock(),
         )
 
         payload = outcomes[0].context.metadata[f"log-attributes-6{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
@@ -284,6 +291,7 @@ class LogAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             run=run,
             artifact_service=artifact_service,
             node_id="log-attributes-7",
+            device_sessions=MagicMock(),
         )
 
         payload = outcomes[0].context.metadata[f"log-attributes-7{LOG_ATTRIBUTES_METADATA_SUFFIX}"]
