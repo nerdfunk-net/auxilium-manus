@@ -105,7 +105,11 @@ export function SourcesSettingsCanvas() {
       const exists = nautobotById.has(values.sourceId);
       await upsertSetting.mutateAsync({
         key: settingKey,
-        value: { ...values },
+        value: {
+          url: values.url,
+          token: values.token,
+          verify_ssl: values.verifySsl,
+        },
         description: `Nautobot source ${values.sourceId}`,
         exists,
       });
@@ -119,7 +123,14 @@ export function SourcesSettingsCanvas() {
       const exists = gitById.has(values.sourceId);
       await upsertSetting.mutateAsync({
         key: settingKey,
-        value: { ...values },
+        value: {
+          url: values.url,
+          branch: values.branch,
+          username: values.username,
+          repository_path: values.repository_path,
+          token: values.token,
+          verify_ssl: values.verifySsl,
+        },
         description: `Git source ${values.sourceId}`,
         exists,
       });

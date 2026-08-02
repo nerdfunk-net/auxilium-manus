@@ -48,6 +48,21 @@ class NautobotService:
     def _client_for(self, verify_ssl: bool) -> httpx.AsyncClient | None:
         return self._client_verify if verify_ssl else self._client_no_verify
 
+    async def test_connection(self, credentials: NautobotCredentials) -> None:
+        """Verify URL + token with a minimal authenticated GraphQL query.
+
+        Raises:
+            NautobotValidationError: Missing credentials or unsafe URL.
+            NautobotAPIError: Auth failure, network error, or GraphQL errors.
+        """
+        result = await self.graphql_query("{ me { id } }", None, credentials)
+        errors = result.get("errors")
+        if errors:
+            messages = "; ".join(
+                str(err.get("message", err)) for err in errors if isinstance(err, dict)
+            )
+            raise NautobotAPIError(messages or "GraphQL returned errors")
+
     async def graphql_query(
         self,
         query: str,

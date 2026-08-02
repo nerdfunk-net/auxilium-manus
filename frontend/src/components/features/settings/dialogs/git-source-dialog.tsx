@@ -17,6 +17,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useGitSourceTestConnectionMutation } from "@/hooks/queries/use-source-test-connection-mutations";
+import { useToast } from "@/hooks/use-toast";
 
 import {
   SOURCE_ID_REGEX,
@@ -76,11 +78,16 @@ export function GitSourceDialog({
   onClose,
   onSave,
 }: GitSourceDialogProps) {
+  const { toast } = useToast();
+  const testConnection = useGitSourceTestConnectionMutation();
+
   const {
     register,
     control,
     handleSubmit,
     reset,
+    getValues,
+    trigger,
     formState: { errors },
   } = useForm<GitFormValues>({
     resolver: zodResolver(gitSchema),
@@ -101,11 +108,17 @@ export function GitSourceDialog({
     }
   }, [open, initialValue, reset]);
 
+  const resolveToken = useCallback(
+    (entered: string | undefined) => {
+      const trimmed = entered?.trim() ?? "";
+      return trimmed || (initialValue?.token ?? "");
+    },
+    [initialValue?.token],
+  );
+
   const onSubmit = useCallback(
     (values: GitFormValues) => {
-      const token = values.token?.trim()
-        ? values.token.trim()
-        : (initialValue?.token ?? "");
+      const token = resolveToken(values.token);
 
       if (!token) {
         return;
@@ -130,8 +143,34 @@ export function GitSourceDialog({
 
       onSave(payload, buildSourceSettingKey("git", values.sourceId));
     },
-    [existingSourceIds, initialValue?.token, mode, onSave],
+    [existingSourceIds, mode, onSave, resolveToken],
   );
+
+  const handleTestConnection = useCallback(async () => {
+    const valid = await trigger(["url", "branch", "token"]);
+    if (!valid) {
+      return;
+    }
+
+    const values = getValues();
+    const token = resolveToken(values.token);
+    if (!token) {
+      toast({
+        title: "Token required",
+        description: "Enter a token or password to test the connection.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    testConnection.mutate({
+      url: values.url.trim(),
+      branch: values.branch.trim(),
+      username: values.username?.trim() || undefined,
+      token,
+      verify_ssl: values.verifySsl,
+    });
+  }, [getValues, resolveToken, testConnection, toast, trigger]);
 
   const hasExistingToken = Boolean(initialValue?.token);
   const isEdit = mode === "edit";
@@ -267,6 +306,21 @@ export function GitSourceDialog({
                 />
               )}
             />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              Test with the URL, branch, credentials, and TLS settings entered above.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={testConnection.isPending}
+              onClick={handleTestConnection}
+            >
+              {testConnection.isPending ? "Testing…" : "Test connection"}
+            </Button>
           </div>
 
           <DialogFooter>

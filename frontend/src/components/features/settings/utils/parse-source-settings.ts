@@ -18,7 +18,7 @@ function parseNautobotValue(
     key: record.key,
     url: value.url,
     token: typeof value.token === "string" ? value.token : "",
-    verifySsl: value.verify_ssl !== false,
+    verifySsl: resolveVerifySsl(value),
     description: record.description,
     updatedAt: record.updated_at,
   };
@@ -41,10 +41,20 @@ function parseGitValue(
     username: typeof value.username === "string" ? value.username : "",
     repository_path:
       typeof value.repository_path === "string" ? value.repository_path : "",
-    verifySsl: value.verify_ssl !== false,
+    verifySsl: resolveVerifySsl(value),
     description: record.description,
     updatedAt: record.updated_at,
   };
+}
+
+function resolveVerifySsl(value: Record<string, unknown>): boolean {
+  if (typeof value.verify_ssl === "boolean") {
+    return value.verify_ssl;
+  }
+  if (typeof value.verifySsl === "boolean") {
+    return value.verifySsl;
+  }
+  return true;
 }
 
 export function groupSourceSettings(settings: SettingRecord[]): {

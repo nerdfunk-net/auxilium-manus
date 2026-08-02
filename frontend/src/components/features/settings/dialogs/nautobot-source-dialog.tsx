@@ -17,6 +17,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useNautobotTestConnectionMutation } from "@/hooks/queries/use-source-test-connection-mutations";
+import { useToast } from "@/hooks/use-toast";
 
 import {
   SOURCE_ID_REGEX,
@@ -70,11 +72,16 @@ export function NautobotSourceDialog({
   onClose,
   onSave,
 }: NautobotSourceDialogProps) {
+  const { toast } = useToast();
+  const testConnection = useNautobotTestConnectionMutation();
+
   const {
     register,
     control,
     handleSubmit,
     reset,
+    getValues,
+    trigger,
     formState: { errors },
   } = useForm<NautobotFormValues>({
     resolver: zodResolver(nautobotSchema),
@@ -92,11 +99,17 @@ export function NautobotSourceDialog({
     }
   }, [open, initialValue, reset]);
 
+  const resolveToken = useCallback(
+    (entered: string | undefined) => {
+      const trimmed = entered?.trim() ?? "";
+      return trimmed || (initialValue?.token ?? "");
+    },
+    [initialValue?.token],
+  );
+
   const onSubmit = useCallback(
     (values: NautobotFormValues) => {
-      const token = values.token?.trim()
-        ? values.token.trim()
-        : (initialValue?.token ?? "");
+      const token = resolveToken(values.token);
 
       if (!token) {
         return;
@@ -118,8 +131,32 @@ export function NautobotSourceDialog({
 
       onSave(payload, buildSourceSettingKey("nautobot", values.sourceId));
     },
-    [existingSourceIds, initialValue?.token, mode, onSave],
+    [existingSourceIds, mode, onSave, resolveToken],
   );
+
+  const handleTestConnection = useCallback(async () => {
+    const valid = await trigger(["url", "token"]);
+    if (!valid) {
+      return;
+    }
+
+    const values = getValues();
+    const token = resolveToken(values.token);
+    if (!token) {
+      toast({
+        title: "Token required",
+        description: "Enter an API token to test the connection.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    testConnection.mutate({
+      url: values.url.trim(),
+      token,
+      verify_ssl: values.verifySsl,
+    });
+  }, [getValues, resolveToken, testConnection, toast, trigger]);
 
   const hasExistingToken = Boolean(initialValue?.token);
   const isEdit = mode === "edit";
@@ -223,6 +260,21 @@ export function NautobotSourceDialog({
                 />
               )}
             />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              Test with the URL, token, and TLS settings entered above.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={testConnection.isPending}
+              onClick={handleTestConnection}
+            >
+              {testConnection.isPending ? "Testing…" : "Test connection"}
+            </Button>
           </div>
 
           <DialogFooter>

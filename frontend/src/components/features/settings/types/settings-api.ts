@@ -85,3 +85,8 @@ export interface ISETestConnectionResponse {
   success: boolean;
   message: string;
 }
+
+export interface SourceTestConnectionResponse {
+  success: boolean;
+  message: string;
+}

@@ -14,11 +14,18 @@ from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
+from models.sources_git import (
+    GitSourceTestConnectionRequest,
+    GitSourceTestConnectionResponse,
+)
 from services.settings.settings_service import SettingsService
 from services.sources.git.git_source_service import (
     GitDeviceService,
     clone_or_pull,
     remove_and_clone,
+)
+from services.sources.git.git_source_service import (
+    test_connection as test_git_source_connection,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +45,33 @@ class GitPreviewResponse(BaseModel):
 
 class GitSourceActionRequest(BaseModel):
     git_source_id: str
+
+
+@router.post(
+    "/test-connection",
+    response_model=GitSourceTestConnectionResponse,
+    dependencies=[Depends(require_permission("sources.git", "read"))],
+)
+async def test_connection(
+    request: GitSourceTestConnectionRequest,
+    _: User = Depends(get_current_user),
+) -> GitSourceTestConnectionResponse:
+    """Test Git connectivity using form values (does not require a saved source)."""
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: test_git_source_connection(
+                url=request.url,
+                branch=request.branch,
+                username=request.username,
+                token=request.token,
+                verify_ssl=request.verify_ssl,
+            ),
+        )
+        return GitSourceTestConnectionResponse(**result)
+    except Exception as exc:
+        raise_internal_server_error(logger, "Git test connection failed: ", exc)
 
 
 @router.post(

@@ -15,6 +15,20 @@ class NautobotConnection(BaseModel):
     timeout: float = Field(default=30.0, ge=1, le=120)
 
 
+class NautobotTestConnectionRequest(BaseModel):
+    """Credentials from the Settings / Sources form (not necessarily saved yet)."""
+
+    url: str = Field(..., min_length=1)
+    token: str = Field(..., min_length=1)
+    verify_ssl: bool = True
+    timeout: float = Field(default=30.0, ge=1, le=120)
+
+
+class NautobotTestConnectionResponse(BaseModel):
+    success: bool
+    message: str
+
+
 class CreateInventoryRequest(BaseModel):
     name: str
     description: str | None = None

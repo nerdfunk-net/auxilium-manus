@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import glob
 import logging
+import os
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote as urlquote
@@ -20,6 +23,7 @@ from services.git.env import set_ssl_env
 logger = logging.getLogger(__name__)
 
 _GIT_BASE_DIR = PROJECT_ROOT / "data" / "git"
+_TEST_CLONE_TIMEOUT_SECONDS = 30
 
 
 def _build_auth_url(url: str, username: str, token: str) -> str:
@@ -37,6 +41,89 @@ def _build_auth_url(url: str, username: str, token: str) -> str:
         return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, ""))
     except Exception:
         return url
+
+
+def _redact_secrets(message: str, *, auth_url: str, public_url: str, token: str) -> str:
+    """Strip credentials from git error text before returning to the client."""
+    redacted = message.replace(auth_url, public_url)
+    if token:
+        redacted = redacted.replace(token, "***")
+    return redacted
+
+
+def test_connection(
+    *,
+    url: str,
+    branch: str = "main",
+    username: str = "",
+    token: str = "",
+    verify_ssl: bool = True,
+) -> dict[str, Any]:
+    """Shallow-clone into a temp directory to verify URL, branch, and credentials.
+
+    Does not touch ``data/git/<source_id>``. Returns ``{success, message}``.
+    """
+    public_url = url.strip()
+    branch_name = (branch or "main").strip() or "main"
+    user = (username or "").strip()
+    secret = (token or "").strip()
+
+    if not public_url:
+        return {"success": False, "message": "Repository URL is required"}
+
+    auth_url = _build_auth_url(public_url, user, secret)
+    ssl_config = {"verify_ssl": verify_ssl}
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="git-source-test-") as temp_dir:
+            clone_path = Path(temp_dir) / "repo"
+            cmd = [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                branch_name,
+                auth_url,
+                str(clone_path),
+            ]
+            with set_ssl_env(ssl_config):
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    env=os.environ.copy(),
+                    timeout=_TEST_CLONE_TIMEOUT_SECONDS,
+                )
+            if result.returncode != 0:
+                raw = (result.stderr or result.stdout or "clone failed").strip()
+                safe = _redact_secrets(
+                    raw, auth_url=auth_url, public_url=public_url, token=secret
+                )
+                logger.warning("Git source connection test failed: %s", safe)
+                return {"success": False, "message": f"Git connection failed: {safe}"}
+
+        logger.info(
+            "Git source connection test succeeded url=%s branch=%s",
+            public_url,
+            branch_name,
+        )
+        return {
+            "success": True,
+            "message": f"Connection successful (branch '{branch_name}')",
+        }
+    except subprocess.TimeoutExpired:
+        logger.warning("Git source connection test timed out url=%s", public_url)
+        return {
+            "success": False,
+            "message": f"Git connection test timed out after {_TEST_CLONE_TIMEOUT_SECONDS} seconds",
+        }
+    except Exception as exc:
+        safe = _redact_secrets(
+            str(exc), auth_url=auth_url, public_url=public_url, token=secret
+        )
+        logger.error("Git source connection test error: %s", safe)
+        return {"success": False, "message": f"Git connection test error: {safe}"}
 
 
 def clone_or_pull(source_config: dict[str, Any]) -> Path:

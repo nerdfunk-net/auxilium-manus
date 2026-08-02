@@ -24,8 +24,14 @@ from models.sources_nautobot import (
     GroupsResponse,
     InventoryPreviewRequest,
     InventoryPreviewResponse,
+    NautobotTestConnectionRequest,
+    NautobotTestConnectionResponse,
     RenameGroupRequest,
     RenameGroupResponse,
+)
+from services.nautobot.common.exceptions import (
+    NautobotAPIError,
+    NautobotValidationError,
 )
 from services.nautobot.credentials import NautobotCredentials
 from services.sources.nautobot.persistence_service import InventoryService
@@ -50,6 +56,36 @@ def _build_source_service(
         cache_service=service_factory.build_cache_service(),
         persistence_service=persistence,
     )
+
+
+@router.post("/test-connection", response_model=NautobotTestConnectionResponse)
+async def test_connection(
+    request: NautobotTestConnectionRequest,
+    _: User = Depends(get_current_user),
+) -> NautobotTestConnectionResponse:
+    """Test Nautobot connectivity using form values (does not require a saved source)."""
+    credentials = service_factory.credentials_from_connection(
+        request.url.strip(),
+        request.token.strip(),
+        request.timeout,
+        verify_ssl=request.verify_ssl,
+    )
+    nautobot = service_factory.get_nautobot_app_service()
+    try:
+        await nautobot.test_connection(credentials)
+        return NautobotTestConnectionResponse(
+            success=True,
+            message="Connection successful",
+        )
+    except NautobotValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except NautobotAPIError as exc:
+        return NautobotTestConnectionResponse(
+            success=False,
+            message=f"Connection failed: {exc}",
+        )
+    except Exception as exc:
+        raise_internal_server_error(logger, "Nautobot test connection failed: ", exc)
 
 
 @router.get("/get-all-groups", response_model=GroupsResponse)
