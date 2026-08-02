@@ -6,7 +6,7 @@ These exercise `_run_steps_until_fan_out_or_done` (the plain async helper
 against a real in-memory SQLite-backed `WorkflowRun`/`WorkflowStepResult`
 session, with `StepRunner._execute_step` stubbed so the tests focus purely on
 the pause/resume orchestration rather than individual step executors (already
-covered by the other `tests/test_*_executor.py` files).
+covered by the other `tests/unit/test_*_executor.py` files).
 """
 
 from __future__ import annotations

@@ -11,7 +11,8 @@ from repositories.plugin_repository import PluginRepository
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow_context.registry import capability_spec_from_plugin
 
-REGISTRY_PATH = Path(__file__).resolve().parents[1] / "workflow_steps" / "registry.yaml"
+# tests/unit/<file> → parents[2] is backend/
+REGISTRY_PATH = Path(__file__).resolve().parents[2] / "workflow_steps" / "registry.yaml"
 
 
 class PluginRegistryCapabilityTests(unittest.TestCase):

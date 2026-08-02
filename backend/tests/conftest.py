@@ -1,6 +1,7 @@
 """Ensure ``backend/`` is on ``sys.path`` so ``core.*`` / ``services.*`` import.
 
 Allows pytest to be started from either ``backend/`` or the repo root.
+Loaded for both ``tests/unit`` and ``tests/integration``.
 """
 
 from __future__ import annotations

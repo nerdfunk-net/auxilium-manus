@@ -7,10 +7,13 @@ select = ["E", "F", "I", "UP", "B"]
 ignore = ["B008"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
 addopts = "-q"
+markers = [
+    "integration: heavy tests against real devices or live services (opt-in)",
+]
 
 [tool.coverage.run]
 source = ["."]
