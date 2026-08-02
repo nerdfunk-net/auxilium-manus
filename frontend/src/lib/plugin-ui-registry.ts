@@ -8,6 +8,7 @@ import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-c
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
 import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/parse-cisco-config";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
+import { GetFromConfigPlugin } from "@/components/features/workflow-steps/get-from-config";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
 import { GetIseDevicesPlugin } from "@/components/features/workflow-steps/get-ise-devices";
 import { GetIseTacacsKeyPlugin } from "@/components/features/workflow-steps/get-ise-tacacs-key";
@@ -38,6 +39,7 @@ import { UpdateIseTacacsKeyPlugin } from "@/components/features/workflow-steps/u
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
   "get-from-list": GetFromListPlugin,
+  "get-from-config": GetFromConfigPlugin,
   "get-git-devices": GetGitDevicesPlugin,
   "get-ise-devices": GetIseDevicesPlugin,
   "get-ise-tacacs-key": GetIseTacacsKeyPlugin,

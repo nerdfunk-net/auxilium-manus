@@ -76,6 +76,38 @@ def device_context_from_git_detail(
     )
 
 
+def device_context_from_config_match(
+    hostname: str,
+    *,
+    source_id: str,
+    file_path: str,
+    commit: str | None,
+) -> DeviceContext:
+    """Build a DeviceContext for a device found by searching Git config files.
+
+    Only the hostname is known at this point (no IP/platform) — the device was
+    discovered by matching text inside a config file, not resolved from an
+    inventory API.
+    """
+    digest = hashlib.sha256(f"{source_id}:{hostname}:{file_path}".encode()).hexdigest()[:32]
+    device_id = f"cfg-{digest}"
+
+    git_bag: dict[str, Any] = {"file_path": file_path}
+    if commit:
+        git_bag["commit"] = commit
+
+    return DeviceContext(
+        id=device_id,
+        name=hostname,
+        hostname=bare_hostname(None, hostname),
+        source="git",
+        source_id=source_id,
+        attribute_bags={"git": git_bag},
+        capabilities={Capability.IDENTITY},
+        status=DeviceStatus.OK,
+    )
+
+
 def device_context_from_ise(
     device: dict[str, Any],
     *,

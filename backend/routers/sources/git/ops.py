@@ -19,6 +19,7 @@ from models.sources_git import (
     GitSourceTestConnectionResponse,
 )
 from services.settings.settings_service import SettingsService
+from services.sources.git.git_content_search_service import GitContentSearchService
 from services.sources.git.git_source_service import (
     GitDeviceService,
     clone_or_pull,
@@ -27,6 +28,7 @@ from services.sources.git.git_source_service import (
 from services.sources.git.git_source_service import (
     test_connection as test_git_source_connection,
 )
+from workflow_steps.common.cisco_config_parsing import parse_cisco_config_text
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sources/git", tags=["sources-git"])
@@ -41,6 +43,29 @@ class GitPreviewResponse(BaseModel):
     devices: list[dict[str, Any]]
     total_count: int
     files_read: int
+
+
+class GitContentSearchPreviewRequest(BaseModel):
+    git_source_id: str
+    directory: str = ""
+    file_filter: str = ""
+    recursive: bool = True
+    include_history: bool = False
+    search_text: str
+    case_sensitive: bool = False
+
+
+class GitContentSearchPreviewMatch(BaseModel):
+    file_path: str
+    line_content: str
+    hostname: str | None
+    commit: str | None
+
+
+class GitContentSearchPreviewResponse(BaseModel):
+    matches: list[GitContentSearchPreviewMatch]
+    total_matches: int
+    files_scanned: int
 
 
 class GitSourceActionRequest(BaseModel):
@@ -123,6 +148,72 @@ async def preview_git_devices(
     except Exception as exc:
         logger.info("[DEBUG] preview_git_devices — unexpected exception: %s", exc)
         raise_internal_server_error(logger, "Failed to preview git source: ", exc)
+
+
+@router.post(
+    "/content-search-preview",
+    response_model=GitContentSearchPreviewResponse,
+    dependencies=[Depends(require_permission("sources.git", "read"))],
+)
+async def preview_git_content_search(
+    request: GitContentSearchPreviewRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> GitContentSearchPreviewResponse:
+    if not request.search_text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="search_text is required",
+        )
+
+    source_config = SettingsService(db).get_source_config("git", request.git_source_id)
+
+    try:
+        loop = asyncio.get_event_loop()
+        repo_dir = await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
+
+        search_service = GitContentSearchService()
+        matches, files_scanned = await loop.run_in_executor(
+            None,
+            lambda: search_service.search(
+                repo_dir,
+                source_config,
+                directory=request.directory,
+                file_filter=request.file_filter,
+                recursive=request.recursive,
+                include_history=request.include_history,
+                search_text=request.search_text,
+                case_sensitive=request.case_sensitive,
+            ),
+        )
+
+        preview_matches: list[GitContentSearchPreviewMatch] = []
+        for match in matches:
+            hostname: str | None = None
+            try:
+                parsed = parse_cisco_config_text(match.content, None)
+                candidate = str(parsed.get("hostname") or "").strip()
+                hostname = candidate or None
+            except ValueError:
+                hostname = None
+            preview_matches.append(
+                GitContentSearchPreviewMatch(
+                    file_path=match.file_path,
+                    line_content=match.line_content,
+                    hostname=hostname,
+                    commit=match.commit,
+                )
+            )
+
+        return GitContentSearchPreviewResponse(
+            matches=preview_matches,
+            total_matches=len(preview_matches),
+            files_scanned=files_scanned,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to preview git content search: ", exc)
 
 
 @router.post(

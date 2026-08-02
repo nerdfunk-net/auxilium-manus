@@ -24,6 +24,7 @@ from workflow_steps.deploy_rendered_template.executor import execute as deploy_r
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
+from workflow_steps.get_from_config.executor import execute as get_from_config
 from workflow_steps.get_from_list.executor import execute as get_from_list
 from workflow_steps.get_git_devices.executor import execute as get_git_devices
 from workflow_steps.get_ise_devices.executor import execute as get_ise_devices
@@ -55,6 +56,7 @@ StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-nautobot-devices": get_nautobot_devices,
     "get-from-list": get_from_list,
+    "get-from-config": get_from_config,
     "get-git-devices": get_git_devices,
     "get-ise-devices": get_ise_devices,
     "get-ise-tacacs-key": get_ise_tacacs_key,

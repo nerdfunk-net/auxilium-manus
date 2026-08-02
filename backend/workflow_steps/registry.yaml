@@ -422,6 +422,65 @@ plugins:
             chunk_size: 1
             max_concurrency: 0
 
+  - id: get-from-config
+    name: Get from Config
+    overview: Find a device by searching Git-stored config files for text.
+    description: Search config files in a Git source for matching text and add the device found.
+    artifact_type: inventory_selector
+    directory: get_from_config
+    enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: git_source_id
+          description: ID of a Git source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: directory
+          description: Directory inside the Git source to search (blank = repo root).
+          data_type: string
+          required: false
+          example: configs/
+        - name: file_filter
+          description: Glob pattern to restrict which files are searched (blank = all files).
+          data_type: string
+          required: false
+          example: '*.cfg'
+        - name: recursive
+          description: Search subdirectories recursively.
+          data_type: boolean
+          required: false
+        - name: include_history
+          description: Also search historical commits for files with no current match.
+          data_type: boolean
+          required: false
+        - name: search_text
+          description: Text to search for inside files.
+          data_type: string
+          required: true
+          example: 'snmp-server community'
+        - name: case_sensitive
+          description: Whether the text search is case-sensitive.
+          data_type: boolean
+          required: false
+        - name: fan_out
+          description: >
+            Fan-out configuration. When enabled, each device (or chunk) is processed
+            as an independent Hatchet child workflow instead of all devices sharing
+            one workflow run.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            mode: per_device
+            chunk_size: 1
+            max_concurrency: 0
+
   - id: get-nautobot-attributes
     name: Get Nautobot Attributes
     overview: Retrieve Nautobot attributes for selected devices.
