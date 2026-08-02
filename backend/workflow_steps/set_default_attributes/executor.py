@@ -105,7 +105,7 @@ async def execute(
     if mode == "manual":
         raw_defaults = _defaults_from_manual_config(config.get("attributes") or {})
     elif mode == "git":
-        raw_defaults = await asyncio.get_event_loop().run_in_executor(
+        raw_defaults = await asyncio.get_running_loop().run_in_executor(
             None, lambda: _defaults_from_git(config)
         )
     else:

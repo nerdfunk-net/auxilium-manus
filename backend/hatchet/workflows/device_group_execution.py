@@ -47,6 +47,7 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
     from models.workflow_context import WorkflowContext
     from repositories.run_repository import RunRepository
     from repositories.workflow_repository import WorkflowRepository
+    from services.execution.graph import child_node_ids
     from services.execution.step_runner import StepRunner
 
     with SessionLocal() as db:
@@ -69,7 +70,7 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
         initial_context = WorkflowContext.model_validate_json(input.context_json)
         # Children run up to (but not including) the fan-in node; the parent runs
         # the fan-in node and everything downstream of it once after the rejoin.
-        allowed_ids = StepRunner._child_node_ids(
+        allowed_ids = child_node_ids(
             input.start_node_id, input.join_node_id, nodes, edges
         )
 

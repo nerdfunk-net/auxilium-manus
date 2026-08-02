@@ -2,7 +2,8 @@
 
 > Based on: `doc/FABLE-ANALYSIS.md` §8 ("Prioritized Recommendations"), which references §§3–7 for full detail.
 > Date: 2026-08-02
-> Status: NOT STARTED
+> Status: Steps 1–11 DONE (implemented, tests + regression guards green). Step 12 (testing debt) and
+> Step 13 (function decomposition) are sustained/opportunistic work, intentionally not done in this pass.
 
 This plan expands each of the 9 items in `FABLE-ANALYSIS.md` §8 into a concrete, self-contained diff. Every "Code before" block was read from the file at the stated lines during the analysis; every "Code after" block is the exact intended replacement. No further source investigation should be needed to execute steps 1–11. Steps 12–13 (testing debt, function decomposition) are inherently open-ended — they get a precise target list and a worked pattern instead of a line-for-line diff, and are explicitly the last, lowest-priority, "opportunistic" work.
 

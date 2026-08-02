@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 from core.crypto import EncryptionService
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from services.workflow_context.secret_fields import REDACTED_PLACEHOLDER, seal_secret
-from workflow_steps.common.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.log_message.executor import execute
 
 _ENC = EncryptionService("test-secret-key-for-log-message")

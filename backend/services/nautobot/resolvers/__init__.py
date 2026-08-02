@@ -6,7 +6,6 @@ and other identifiers.
 """
 
 from .base_resolver import BaseResolver
-from .cluster_resolver import ClusterResolver
 from .device_resolver import DeviceResolver
 from .metadata_resolver import MetadataResolver
 from .network_resolver import NetworkResolver
@@ -16,5 +15,4 @@ __all__ = [
     "DeviceResolver",
     "MetadataResolver",
     "NetworkResolver",
-    "ClusterResolver",
 ]

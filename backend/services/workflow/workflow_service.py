@@ -15,8 +15,22 @@ from models.workflows import (
     WorkflowUpdate,
 )
 from repositories.workflow_repository import WorkflowRepository
+from services.execution.graph import GraphCycleError, topological_order
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_no_cycle(canvas_nodes: list[dict], canvas_edges: list[dict]) -> None:
+    """Raise HTTP 400 if the canvas graph contains a cycle.
+
+    See doc/FABLE-ANALYSIS.md §4.2: without this, a cyclic graph is accepted
+    at save time and then silently loses the cyclic nodes at run time (they
+    never reach in-degree 0 in StepRunner's topological sort).
+    """
+    try:
+        topological_order(canvas_nodes, canvas_edges)
+    except GraphCycleError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSummary:
@@ -75,6 +89,7 @@ class WorkflowService:
 
     def create_workflow(self, data: WorkflowCreate, user_id: int) -> WorkflowResponse:
         logger.info("Creating workflow name=%r user_id=%s", data.name, user_id)
+        _validate_no_cycle(data.canvas_nodes, data.canvas_edges)
         try:
             workflow = self.repo.create(
                 name=data.name,
@@ -117,6 +132,11 @@ class WorkflowService:
             if workflow.creator_id != user_id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
             updated_fields = data.model_dump(exclude_unset=True)
+            if "canvas_nodes" in updated_fields or "canvas_edges" in updated_fields:
+                _validate_no_cycle(
+                    updated_fields.get("canvas_nodes", workflow.canvas_nodes),
+                    updated_fields.get("canvas_edges", workflow.canvas_edges),
+                )
             workflow = self.repo.update(workflow, updated_fields)
             logger.info("Workflow updated id=%s user_id=%s", workflow_id, user_id)
             return _to_response(workflow, creator_username)

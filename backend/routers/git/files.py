@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
 from core.auth import get_current_user, require_permission
-from dependencies import get_cache_service
+from dependencies import get_cache_service, get_git_csv_service, get_git_file_service
 from services.git.csv_service import GitCsvService
 from services.git.file_service import GitFileService
 
@@ -21,9 +21,6 @@ router = APIRouter(
     dependencies=[Depends(require_permission("git.files", "read"))],
 )
 
-_git_file_service = GitFileService()
-_git_csv_service = GitCsvService()
-
 
 @router.get("/files/search")
 async def search_repository_files(
@@ -31,8 +28,9 @@ async def search_repository_files(
     query: str = "",
     limit: int = 50,
     current_user: dict = Depends(get_current_user),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    return _git_file_service.search_files(repo_id, query, limit)
+    return git_file_service.search_files(repo_id, query, limit)
 
 
 @router.get("/files/{commit_hash}/commit")
@@ -41,8 +39,9 @@ async def get_files(
     commit_hash: str,
     file_path: str = None,
     current_user: dict = Depends(get_current_user),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    return _git_file_service.get_commit_files(repo_id, commit_hash, file_path)
+    return git_file_service.get_commit_files(repo_id, commit_hash, file_path)
 
 
 @router.get("/files/{file_path:path}/history")
@@ -50,8 +49,9 @@ async def get_file_history(
     repo_id: int,
     file_path: str,
     current_user: dict = Depends(get_current_user),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    return _git_file_service.get_file_last_commit(repo_id, file_path)
+    return git_file_service.get_file_last_commit(repo_id, file_path)
 
 
 @router.get("/files/{file_path:path}/complete-history")
@@ -61,8 +61,9 @@ async def get_file_complete_history(
     from_commit: str = None,
     current_user: dict = Depends(get_current_user),
     cache_service=Depends(get_cache_service),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    return _git_file_service.get_file_history(
+    return git_file_service.get_file_history(
         repo_id,
         file_path,
         from_commit,
@@ -75,8 +76,9 @@ async def get_file_content(
     repo_id: int,
     path: str,
     current_user: dict = Depends(get_current_user),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    content = _git_file_service.get_file_content(
+    content = git_file_service.get_file_content(
         repo_id, path, username=current_user.get("username")
     )
     return PlainTextResponse(content=content)
@@ -87,8 +89,9 @@ async def get_file_content_parsed(
     repo_id: int,
     path: str,
     current_user: dict = Depends(get_current_user),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    return _git_file_service.get_file_content_parsed(
+    return git_file_service.get_file_content_parsed(
         repo_id, path, username=current_user.get("username")
     )
 
@@ -98,8 +101,9 @@ async def get_directory_tree(
     repo_id: int,
     path: str = "",
     current_user: dict = Depends(get_current_user),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    return _git_file_service.get_directory_tree(repo_id, path)
+    return git_file_service.get_directory_tree(repo_id, path)
 
 
 @router.get("/directory")
@@ -107,8 +111,9 @@ async def get_directory_files(
     repo_id: int,
     path: str = "",
     current_user: dict = Depends(get_current_user),
+    git_file_service: GitFileService = Depends(get_git_file_service),
 ):
-    return _git_file_service.get_directory_files(repo_id, path)
+    return git_file_service.get_directory_files(repo_id, path)
 
 
 @router.get("/csv-files")
@@ -117,8 +122,9 @@ async def list_csv_files(
     query: str = "",
     limit: int = 200,
     current_user: dict = Depends(get_current_user),
+    git_csv_service: GitCsvService = Depends(get_git_csv_service),
 ):
-    return _git_csv_service.list_csv_files(repo_id, query, limit)
+    return git_csv_service.list_csv_files(repo_id, query, limit)
 
 
 @router.get("/csv-headers")
@@ -128,5 +134,6 @@ async def get_csv_headers(
     delimiter: str = ",",
     quote_char: str = '"',
     current_user: dict = Depends(get_current_user),
+    git_csv_service: GitCsvService = Depends(get_git_csv_service),
 ):
-    return _git_csv_service.get_csv_headers(repo_id, path, delimiter, quote_char)
+    return git_csv_service.get_csv_headers(repo_id, path, delimiter, quote_char)

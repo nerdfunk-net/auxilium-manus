@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from workflow_steps.common.attribute_regex import apply_regex_transform, probe_regex_transform
+from services.workflow_context.attribute_regex import apply_regex_transform, probe_regex_transform
 
 
 class AttributeRegexTests(unittest.TestCase):

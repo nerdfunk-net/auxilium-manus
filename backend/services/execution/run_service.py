@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.safe_http_errors import raise_internal_server_error
+from models.artifacts import ArtifactContentResponse
 from models.runs import (
     RUN_LIST_STATUS_FILTERS,
     TERMINAL_RUN_STATUSES,
@@ -21,6 +22,7 @@ from models.runs import (
 )
 from repositories.run_repository import RunRepository
 from repositories.workflow_repository import WorkflowRepository
+from services.artifacts import ArtifactNotFoundError, FilesystemArtifactService
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,7 @@ class RunService:
         self.db = db
         self.run_repo = RunRepository(db)
         self.wf_repo = WorkflowRepository(db)
+        self.artifact_service = FilesystemArtifactService(settings.data_directory)
 
     def _assert_workflow_access(self, workflow_id: int, user_id: int) -> None:
         wf_result = self.wf_repo.get_by_id(workflow_id)
@@ -189,19 +192,19 @@ class RunService:
         step_results = self.run_repo.get_step_results_for_run(run_id)
         return _run_to_response(run, username, step_results)
 
-    def get_run_artifact(self, run_id: int, artifact_id: str, user_id: int):
-        from models.artifacts import ArtifactContentResponse
-        from services.artifacts import ArtifactNotFoundError, FilesystemArtifactService
-
+    def get_run_artifact(
+        self, run_id: int, artifact_id: str, user_id: int
+    ) -> ArtifactContentResponse:
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
         run, _username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
-        service = FilesystemArtifactService(settings.data_directory)
         try:
-            ref, content = service.get_for_run(run_uuid=run.uuid, artifact_id=artifact_id)
+            ref, content = self.artifact_service.get_for_run(
+                run_uuid=run.uuid, artifact_id=artifact_id
+            )
         except ArtifactNotFoundError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

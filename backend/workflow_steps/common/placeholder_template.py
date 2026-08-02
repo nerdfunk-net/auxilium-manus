@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable
 
 from models.workflow_context import DeviceContext
-from workflow_steps.common.attribute_path import resolve_device_attribute
+from services.workflow_context.attribute_path import resolve_device_attribute
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{([A-Za-z0-9_.]+)\}")
 

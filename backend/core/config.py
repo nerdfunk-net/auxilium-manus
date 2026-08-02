@@ -23,6 +23,7 @@ class Settings:
     plugins_file: Path
     secret_key: str
     access_token_expire_minutes: int
+    refresh_token_max_age_hours: int
     database_host: str
     database_port: int
     database_name: str
@@ -63,6 +64,8 @@ class Settings:
         self.plugins_file = Path(environ.get("PLUGINS_FILE", DEFAULT_PLUGINS_FILE)).resolve()
         self.secret_key = self._get_secret_key()
         self.access_token_expire_minutes = self._get_int("ACCESS_TOKEN_EXPIRE_MINUTES", 60)
+        self.refresh_token_max_age_hours = self._get_int("REFRESH_TOKEN_MAX_AGE_HOURS", 24)
+        self._validate_refresh_token_max_age()
         self.database_host = environ.get("DATABASE_HOST", "localhost")
         self.database_port = self._get_int("DATABASE_PORT", 5432)
         self.database_name = environ.get("DATABASE_NAME", "manus")
@@ -110,6 +113,10 @@ class Settings:
             raise RuntimeError("RUN_RETENTION_DAYS must be at least 1")
         if self.run_retention_batch_size < 1:
             raise RuntimeError("RUN_RETENTION_BATCH_SIZE must be at least 1")
+
+    def _validate_refresh_token_max_age(self) -> None:
+        if self.refresh_token_max_age_hours < 1:
+            raise RuntimeError("REFRESH_TOKEN_MAX_AGE_HOURS must be at least 1")
 
     def _build_redis_url(self) -> str:
         if self.redis_password:

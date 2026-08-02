@@ -105,6 +105,23 @@ class TestAuthServiceRefresh:
         with pytest.raises(AuthenticationError):
             service.refresh_access_token(token)
 
+    def test_refresh_rejects_token_expired_beyond_max_age(self) -> None:
+        user = _make_user()
+        service = AuthService(MagicMock())
+        service.users = MagicMock()
+        service.users.get_by_id.return_value = user
+
+        max_age = timedelta(hours=settings.refresh_token_max_age_hours, minutes=1)
+        payload = {
+            "sub": user.username,
+            "user_id": user.id,
+            "exp": datetime.now(UTC) - max_age,
+        }
+        stale_token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+        with pytest.raises(AuthenticationError):
+            service.refresh_access_token(stale_token)
+
 
 def _override_db() -> Iterator[MagicMock]:
     yield MagicMock()

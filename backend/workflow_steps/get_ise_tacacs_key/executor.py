@@ -51,8 +51,8 @@ from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.ise.source_config_service import ISESourceNotFoundError
+from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_fields import seal_secret, secret_is_present
-from workflow_steps.common.attribute_path import resolve_device_value
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.ise_lookup import (
     device_ip_list_matches,

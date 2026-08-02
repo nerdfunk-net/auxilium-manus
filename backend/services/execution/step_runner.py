@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -25,6 +24,11 @@ from models.workflow_context import Capability, StepOutcome, WorkflowContext
 from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
 from services.artifacts import FilesystemArtifactService
+from services.execution.graph import (
+    downstream_node_ids,
+    find_join_node_id,
+    topological_order,
+)
 from services.execution.step_result_status import derive_step_result_status
 from services.network.netmiko.session_pool import DeviceSessionPool
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
@@ -165,7 +169,7 @@ class StepRunner:
             success_ctx = step_outcomes.get(node_id, {}).get("success")
             if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
                 fan_out_config = dict(success_ctx.metadata["_fan_out"])
-                join_node_id = self._find_join_node_id(node_id, nodes, edges)
+                join_node_id = find_join_node_id(node_id, nodes, edges)
                 logger.info(
                     "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
                     node_id,
@@ -473,7 +477,7 @@ class StepRunner:
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
         ordered_nodes = self._topological_sort(nodes, edges)
 
-        post_join_ids = {join_node_id} | self._downstream_node_ids(join_node_id, nodes, edges)
+        post_join_ids = {join_node_id} | downstream_node_ids(join_node_id, nodes, edges)
 
         # Seed prior outcomes from the children so the fan-in node's parents resolve.
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {
@@ -636,68 +640,6 @@ class StepRunner:
 
         return step_outcomes, step_errors
 
-    @staticmethod
-    def _downstream_node_ids(
-        start_node_id: str,
-        nodes: list[dict[str, Any]],
-        edges: list[dict[str, Any]],
-    ) -> set[str]:
-        """Return all node IDs reachable downstream of start_node_id (excluding it)."""
-        adjacency: dict[str, list[str]] = {n["id"]: [] for n in nodes if "id" in n}
-        for edge in edges:
-            src = edge.get("source", "")
-            tgt = edge.get("target", "")
-            if src in adjacency and tgt in adjacency:
-                adjacency[src].append(tgt)
-
-        visited: set[str] = set()
-        queue: deque[str] = deque(adjacency.get(start_node_id, []))
-        while queue:
-            nid = queue.popleft()
-            if nid in visited:
-                continue
-            visited.add(nid)
-            queue.extend(adjacency.get(nid, []))
-        return visited
-
-    @staticmethod
-    def _find_join_node_id(
-        inventory_node_id: str,
-        nodes: list[dict[str, Any]],
-        edges: list[dict[str, Any]],
-    ) -> str | None:
-        """Return the first fan-in node downstream of the inventory step, if any.
-
-        v1 supports at most one fan-in node per fanned-out branch; the match is
-        deterministic by node list order.
-        """
-        downstream = StepRunner._downstream_node_ids(inventory_node_id, nodes, edges)
-        for node in nodes:
-            node_id = node.get("id", "")
-            if node_id in downstream and (node.get("data", {}) or {}).get("kind") == "fan-in":
-                return node_id
-        return None
-
-    @staticmethod
-    def _child_node_ids(
-        inventory_node_id: str,
-        join_node_id: str | None,
-        nodes: list[dict[str, Any]],
-        edges: list[dict[str, Any]],
-    ) -> set[str]:
-        """Nodes a fan-out child should execute.
-
-        That is everything downstream of the inventory step, minus the fan-in
-        node and everything downstream of it (which the parent runs once after
-        the children rejoin). When no fan-in node exists, children run the whole
-        downstream subgraph (legacy behaviour).
-        """
-        downstream = StepRunner._downstream_node_ids(inventory_node_id, nodes, edges)
-        if join_node_id is None:
-            return downstream
-        post_join = {join_node_id} | StepRunner._downstream_node_ids(join_node_id, nodes, edges)
-        return downstream - post_join
-
     def _assemble_input_context(
         self,
         *,
@@ -787,27 +729,14 @@ class StepRunner:
     def _topological_sort(
         self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        nodes, edges = self._filter_executable_graph(nodes, edges)
-        node_map = {n["id"]: n for n in nodes if "id" in n}
-        in_degree: dict[str, int] = {nid: 0 for nid in node_map}
-        dependents: dict[str, list[str]] = {nid: [] for nid in node_map}
+        """Executable-node-filtered topological order.
 
-        for edge in edges:
-            src = edge.get("source", "")
-            tgt = edge.get("target", "")
-            if src in in_degree and tgt in in_degree:
-                in_degree[tgt] += 1
-                dependents[src].append(tgt)
-
-        queue = [nid for nid, deg in in_degree.items() if deg == 0]
-        result: list[dict[str, Any]] = []
-
-        while queue:
-            nid = queue.pop(0)
-            result.append(node_map[nid])
-            for dep in dependents[nid]:
-                in_degree[dep] -= 1
-                if in_degree[dep] == 0:
-                    queue.append(dep)
-
-        return result
+        Raises ``GraphCycleError`` (a ``ValueError``) if the graph contains a
+        cycle — see ``services.execution.graph.topological_order``. Workflow
+        definitions are also validated for cycles at save time
+        (``WorkflowService``), but this is defense in depth: canvas data can
+        change between save and run (e.g. direct DB edits, older saved
+        workflows from before that validation existed).
+        """
+        executable_nodes, executable_edges = self._filter_executable_graph(nodes, edges)
+        return topological_order(executable_nodes, executable_edges)

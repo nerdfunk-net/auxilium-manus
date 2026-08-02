@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from models.workflow_context import Capability, WorkflowContext
+from services.settings.exceptions import SourceConfigError
 from services.sources.git.git_content_search_service import GitContentMatch
 from workflow_steps.get_from_config.executor import execute as get_from_config
 
@@ -27,7 +28,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         search_service_cls = MagicMock(return_value=search_service)
 
         settings_service = MagicMock()
-        settings_service.get_source_config.return_value = self.source_config
+        settings_service.get_source_config_for_step.return_value = self.source_config
         settings_service_cls = MagicMock(return_value=settings_service)
 
         return (
@@ -200,6 +201,27 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await get_from_config(
                 config={"git_source_id": "prod-lab"},
+                context=self.context,
+                run=self.run,
+                artifact_service=self.artifact_service,
+                node_id="get-from-config-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_source_config_error_surfaces_as_value_error(self) -> None:
+        settings_service = MagicMock()
+        settings_service.get_source_config_for_step.side_effect = SourceConfigError(
+            "Git source 'prod-lab' not found in settings"
+        )
+        settings_service_cls = MagicMock(return_value=settings_service)
+
+        with (
+            patch(f"{_MODULE}.get_db_session", return_value=MagicMock()),
+            patch(f"{_MODULE}.SettingsService", settings_service_cls),
+            self.assertRaises(ValueError),
+        ):
+            await get_from_config(
+                config={"git_source_id": "prod-lab", "search_text": "FINDME"},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,

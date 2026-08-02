@@ -12,7 +12,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
-from services.execution.step_runner import StepRunner
+from services.execution.graph import child_node_ids, downstream_node_ids, find_join_node_id
 from workflow_steps.fan_in.executor import execute as fan_in_execute
 
 
@@ -45,7 +45,7 @@ _EDGES = [
 class FanInBoundaryHelperTests(unittest.TestCase):
     def test_find_join_node_id_returns_fan_in_node(self) -> None:
         self.assertEqual(
-            StepRunner._find_join_node_id("inv", _NODES, _EDGES),
+            find_join_node_id("inv", _NODES, _EDGES),
             "join",
         )
 
@@ -56,23 +56,23 @@ class FanInBoundaryHelperTests(unittest.TestCase):
             _edge("inv", "b"),
             _edge("a", "store"),
         ]
-        self.assertIsNone(StepRunner._find_join_node_id("inv", nodes, edges))
+        self.assertIsNone(find_join_node_id("inv", nodes, edges))
 
     def test_child_node_ids_excludes_join_and_descendants(self) -> None:
         self.assertEqual(
-            StepRunner._child_node_ids("inv", "join", _NODES, _EDGES),
+            child_node_ids("inv", "join", _NODES, _EDGES),
             {"a", "b"},
         )
 
     def test_child_node_ids_equals_full_downstream_without_join(self) -> None:
         self.assertEqual(
-            StepRunner._child_node_ids("inv", None, _NODES, _EDGES),
+            child_node_ids("inv", None, _NODES, _EDGES),
             {"a", "b", "join", "store"},
         )
 
     def test_downstream_of_join_is_post_join_set(self) -> None:
         self.assertEqual(
-            StepRunner._downstream_node_ids("join", _NODES, _EDGES),
+            downstream_node_ids("join", _NODES, _EDGES),
             {"store"},
         )
 

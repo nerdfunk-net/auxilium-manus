@@ -4,6 +4,12 @@
 **Scope:** `backend/` (~61,500 lines of Python), with emphasis on `workflow_steps/`, the execution engine, and conformance to `CLAUDE.md`.
 **Method:** All four regression guards executed, `ruff check` (clean), full test suite (`641 passed in 6.3s`), coverage run (`--cov`), AST-based scans for dead modules and oversized functions, and manual review of the auth stack, execution engine, artifact storage, git/Nautobot/ISE service layers, and every workflow-step package.
 
+> **Update (2026-08-02):** Steps 1–11 of `doc/refactoring/FABLE_PRIO.md` have been implemented, closing
+> every §3/§4.1–4.4/§5.1/§6 finding below (marked **✅ FINISHED**). Full test suite and all four
+> regression guards pass after each step. §4.5–4.7 (SSRF/rate-limiting/informational), §5.2 (function
+> length beyond the graph-utility extraction), and §7 (testing debt) remain open — they are sustained
+> or opportunistic work per the plan's Steps 12–13, intentionally not addressed in this pass.
+
 ---
 
 ## 1. Executive Summary
@@ -14,13 +20,13 @@ The fussy findings cluster in five areas:
 
 | Area | Verdict |
 |---|---|
-| CLAUDE.md architectural conformance | **Good**, with 4 concrete violations (§3) |
-| Security | **Solid foundation**, 1 high finding (unbounded token refresh), several medium/low (§4) |
-| Python best practices | **Good**, but deprecated APIs (`asyncio.get_event_loop`, `datetime.utcnow`) and 77 functions over 80 lines (§5) |
-| Dead code | ~1,000+ lines of confirmed-dead Nautobot manager/resolver code (§6) |
-| Testing | 641 green unit tests, but **53% coverage vs. the 80% target** and an **empty integration-test suite** (§7) |
+| CLAUDE.md architectural conformance | **Good**, with 4 concrete violations (§3) — **✅ ALL FINISHED** |
+| Security | **Solid foundation**, 1 high finding (unbounded token refresh), several medium/low (§4) — **✅ high + both mediums + the low UUID finding FINISHED**; §4.5/§4.6/§4.7 still open |
+| Python best practices | **Good**, but deprecated APIs (`asyncio.get_event_loop`, `datetime.utcnow`) and 77 functions over 80 lines (§5) — **✅ deprecated APIs and the `step_runner.py` file-size violation FINISHED**; the 77-function decomposition (§5.2) is still open (opportunistic) |
+| Dead code | ~1,000+ lines of confirmed-dead Nautobot manager/resolver code (§6) — **✅ FINISHED** |
+| Testing | 641 green unit tests, but **53% coverage vs. the 80% target** and an **empty integration-test suite** (§7) — still open (sustained effort, out of scope for a single patch) |
 
-No God Objects were found. One file (`step_runner.py`, 813 lines) marginally exceeds the 800-line limit.
+No God Objects were found. `step_runner.py` (813 lines, marginally over the 800-line limit) has been brought back under the limit — **✅ FINISHED**, see §5.3.
 
 ---
 
@@ -43,7 +49,11 @@ No God Objects were found. One file (`step_runner.py`, 813 lines) marginally exc
 
 ## 3. CLAUDE.md / Architecture Violations
 
-### 3.1 Services raise `HTTPException` — HTTP leaks into the worker (MEDIUM)
+### 3.1 Services raise `HTTPException` — HTTP leaks into the worker (MEDIUM) — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 8:** `SettingsService.get_source_config_for_step` now raises
+the domain exception `SourceConfigError` (a `ValueError` subclass, `services/settings/exceptions.py`);
+`get_from_config/executor.py` no longer imports `fastapi.HTTPException`.
 
 89 occurrences of `HTTPException` in `services/`. For request-scoped services this is a tolerated (if impure) FastAPI idiom, but it demonstrably leaks into the **non-HTTP execution path**:
 
@@ -52,7 +62,12 @@ No God Objects were found. One file (`step_runner.py`, 813 lines) marginally exc
 
 This violates the spirit of "Thin routers that delegate to services" and the step-contract rule that steps deal in `ValueError`/`RuntimeError`. Services shared with the worker should raise domain exceptions; routers should translate them to HTTP.
 
-### 3.2 Routers import `workflow_steps` packages (LOW–MEDIUM)
+### 3.2 Routers import `workflow_steps` packages (LOW–MEDIUM) — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 9:** `attribute_path.py`, `attribute_regex.py`, and
+`cisco_config_parsing.py` moved to `services/workflow_context/` and `services/network/` respectively;
+all ~25 importers updated. `grep -rn "^from workflow_steps\|^import workflow_steps" routers/` now
+returns nothing.
 
 CLAUDE.md: *"External code must never import `workflow_steps` packages directly; only `StepRunner` calls executors."* Violations (all of `workflow_steps.common`, not executors, but the rule says *packages*):
 
@@ -62,7 +77,11 @@ CLAUDE.md: *"External code must never import `workflow_steps` packages directly;
 
 Either the rule should be amended to bless `workflow_steps/common/` as a shared library, or these helpers belong under `services/` (the cleaner fix — `workflow_steps/common/` currently plays two roles: step-internal helpers *and* de-facto shared library).
 
-### 3.3 Module-level service singletons in routers bypass DI (LOW)
+### 3.3 Module-level service singletons in routers bypass DI (LOW) — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 10:** both routers now use `Depends()` — new
+`build_git_file_service`/`build_git_csv_service`/`build_oidc_config_service`/`build_oidc_service`
+factories plus matching `dependencies.py` getters.
 
 `dependencies.py` exists precisely to provide services, yet:
 
@@ -71,11 +90,18 @@ Either the rule should be amended to bless `workflow_steps/common/` as a shared 
 
 Inconsistent with the rest of the codebase (e.g. `routers/git/debug.py` correctly uses `Depends(get_git_debug_service)`), and it makes these routers harder to test.
 
-### 3.4 Inline construction + function-level imports in `RunService` (LOW)
+### 3.4 Inline construction + function-level imports in `RunService` (LOW) — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 11:** imports moved to module level;
+`FilesystemArtifactService` is now constructed once in `RunService.__init__` and reused.
 
 `services/execution/run_service.py:193-202`: `get_run_artifact` imports `models.artifacts` and `services.artifacts` inside the method body and constructs `FilesystemArtifactService(settings.data_directory)` per call instead of receiving it. Same file is otherwise cleanly injected.
 
-### 3.5 CLAUDE.md documentation drift (LOW, fix the doc)
+### 3.5 CLAUDE.md documentation drift (LOW, fix the doc) — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 2:** Python version corrected to 3.12+; Nautobot
+`devices/` directory listing now matches the actual tree (`query.py`, `attribute_bag.py`, `types.py`,
+`interface_workflow.py`; `import_service.py` removed since it never existed).
 
 - CLAUDE.md's Nautobot directory listing names `devices/import_service.py` — **the file does not exist**.
 - Tech stack says **"Python 3.9+"**, but the code requires ≥3.12: PEP 695 generics (`class BaseRepository[T]`, `repositories/base.py:13`), `datetime.UTC`, and the venv is Python 3.14.
@@ -85,7 +111,11 @@ Inconsistent with the rest of the codebase (e.g. `routers/git/debug.py` correctl
 
 ## 4. Security Findings
 
-### 4.1 HIGH — Unbounded token refresh: expiry is effectively decorative
+### 4.1 HIGH — Unbounded token refresh: expiry is effectively decorative — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 6:** new `REFRESH_TOKEN_MAX_AGE_HOURS` setting
+(default 24h, validated ≥1); `refresh_access_token` now rejects tokens whose `exp` claim is older
+than that window.
 
 `services/auth/auth_service.py:51-73` (`refresh_access_token`) decodes with `options={"verify_exp": False}` and **no limit on how long ago the token expired**. There is no separate refresh token, no `iat`-based maximum session age, and no revocation list. Consequences:
 
@@ -94,15 +124,29 @@ Inconsistent with the rest of the codebase (e.g. `routers/git/debug.py` correctl
 
 Mitigations (pick one): enforce a maximum refresh window (e.g. reject tokens whose `exp` is older than N hours), add an `iat` claim plus absolute session lifetime, or move to proper refresh tokens with rotation. Positive note: refresh *does* re-check `is_active` and username match, so deactivation eventually cuts access.
 
-### 4.2 MEDIUM — No cycle detection: cyclic graphs silently drop steps
+### 4.2 MEDIUM — No cycle detection: cyclic graphs silently drop steps — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 7:** new `services/execution/graph.py` with
+`topological_order` (raises `GraphCycleError`, a `ValueError` subclass, on any cycle);
+`StepRunner._topological_sort` now delegates to it, and `WorkflowService.create_workflow`/
+`update_workflow` validate the canvas graph for cycles at save time (400 on cycle) — closing the gap
+between CLAUDE.md's "the backend validates the graph" claim and actual behavior.
 
 `StepRunner._topological_sort` (`step_runner.py:787-813`) is Kahn's algorithm **without a cycle check**: nodes in a cycle never reach in-degree 0 and are silently omitted from the execution plan. Because `create_pending_step_results` only creates rows for ordered nodes, cycle members produce **no step results at all**, and `execute_all` can return `True` (run "completed") while part of the workflow never ran. CLAUDE.md explicitly claims *"The backend validates the graph"*; no cycle/graph validation exists anywhere in `services/workflow/workflow_service.py` (pure CRUD) or the run submission path. Even if React Flow prevents cycles in the UI, the API accepts arbitrary `canvas_nodes`/`canvas_edges`. Fix: after the sort, `if len(result) != len(node_map): raise ValueError("workflow graph contains a cycle")` — one line, and it belongs in definition validation too.
 
-### 4.3 MEDIUM — `require_permission` never checks `user.is_active`
+### 4.3 MEDIUM — `require_permission` never checks `user.is_active` — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 4:** new `_require_active_user_id` helper in
+`core/auth.py`, used by `require_permission`, `require_any_permission`, `require_all_permissions`, and
+`require_role` alike — a deactivated user is now rejected at the permission-check layer itself, not
+just at `get_current_user`.
 
 `core/auth.py:85-100` resolves permissions via `RBACService`, which contains **no `is_active` check** (verified: zero hits in `rbac_service.py`/`rbac_repository.py`). `get_current_user` does check it — but endpoints protected only by router-level `require_permission(...)` dependencies authorize a **deactivated user for up to `ACCESS_TOKEN_EXPIRE_MINUTES`** after deactivation, as long as their RBAC rows remain. Cheap fix: have `require_permission`'s checker load the user (or add an `is_active` join in `has_permission`).
 
-### 4.4 LOW — Artifact ID interpolated into filesystem paths without validation
+### 4.4 LOW — Artifact ID interpolated into filesystem paths without validation — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 5:** the router path parameter is now typed
+`artifact_id: UUID`, so FastAPI rejects malformed values with a `422` before the handler body runs.
 
 `FilesystemArtifactService._content_path` (`filesystem_artifact_service.py:31-35`) does `self._artifacts_dir / f"{artifact_id}.content"` where `artifact_id` arrives as a raw `str` path parameter (`routers/workflow_runs.py:91-105`). Traversal is *currently* impractical (path segments can't contain `/` through Starlette routing, and `get_for_run` requires a matching `run_id` in the meta file), but this is accidental safety, not designed safety. Artifact IDs are always `uuid4()` — validate the format at the router (`artifact_id: UUID`) or in the service.
 
@@ -125,13 +169,20 @@ Mitigations (pick one): enforce a maximum refresh window (e.g. reject tokens who
 
 ## 5. Python Best Practices
 
-### 5.1 Deprecated APIs (should be fixed before they break on an upgrade)
+### 5.1 Deprecated APIs (should be fixed before they break on an upgrade) — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 3:** all 8 `asyncio.get_event_loop()` call sites now use
+`asyncio.get_running_loop()`; `datetime.utcnow()` and the three naive `datetime.now()` calls now use
+`datetime.now(UTC)` (byte-identical output preserved for the `"Z"`-suffixed timestamp).
 
 - **`asyncio.get_event_loop()` inside running coroutines** — deprecated since 3.10, warns/misbehaves on 3.12+; 8 occurrences: `routers/sources/git/ops.py:86,131,172,231,253`, `workflow_steps/set_default_attributes/executor.py:108`, `workflow_steps/get_git_devices/executor.py:67`, `workflow_steps/get_from_config/executor.py:68`. Replace with `asyncio.get_running_loop()` or, better, `asyncio.to_thread(...)` (already used correctly in `filesystem_artifact_service.py:66`).
 - **`datetime.utcnow()`** — deprecated in 3.12: `routers/sources/nautobot/crud.py:168` (also hand-appends `"Z"`). Use `datetime.now(UTC)` as the rest of the codebase does.
 - **Naive `datetime.now()`** in `services/git/debug_service.py:90,298,318` — inconsistent with the codebase's otherwise-strict `datetime.now(UTC)` convention.
 
-### 5.2 Function length (rule: <50 lines; 77 functions exceed 80)
+### 5.2 Function length (rule: <50 lines; 77 functions exceed 80) — ⏳ OPEN
+
+Not addressed by the current pass — `doc/refactoring/FABLE_PRIO.md` Step 13 explicitly defers this as
+opportunistic, do-last work rather than a single patch. The table below is unchanged.
 
 The executor entry points are the systematic offenders — `execute()` monoliths that inline config parsing, per-device iteration, outcome assembly, and summary building:
 
@@ -150,19 +201,26 @@ The executor entry points are the systematic offenders — `execute()` monoliths
 
 Contrast with `get_ise_tacacs_key/executor.py`, which decomposes its 439 lines into small `_tier_*` helpers — that is the pattern the big executors should follow (extract `_parse_config`, `_run_for_device`, `_build_outcomes`).
 
-### 5.3 File size (rule: ≤800 lines)
+### 5.3 File size (rule: ≤800 lines) — ✅ FINISHED
 
-Only one violation: `services/execution/step_runner.py` — **813 lines**. Marginal, and the file is cohesive and superbly documented; extracting the graph utilities (`_topological_sort`, `_downstream_node_ids`, `_find_join_node_id`, `_child_node_ids`, ~130 lines of static methods) into `services/execution/graph.py` would fix both this and give cycle detection (§4.2) a natural home. Next-largest files (`git/service.py` 735, `hatchet/workflows/workflow_run.py` 705) are within the limit but trending up.
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 7:** the graph utilities (`_topological_sort`,
+`_downstream_node_ids`, `_find_join_node_id`, `_child_node_ids`) were extracted into
+`services/execution/graph.py`, bringing `step_runner.py` down from 813 to ~740 lines and giving cycle
+detection (§4.2) a single, shared home. Next-largest files (`git/service.py` 735,
+`hatchet/workflows/workflow_run.py` 705) are within the limit but trending up.
 
 ### 5.4 Minor
 
-- `step_runner.py:806` — `queue.pop(0)` on a list is O(n²); `collections.deque` is already imported in the same file. Irrelevant at canvas scale, but sloppy next to otherwise careful code.
+- ~~`step_runner.py:806` — `queue.pop(0)` on a list is O(n²); `collections.deque` is already imported in the same file.~~ **✅ FINISHED** (incidental fix from Step 7: `services/execution/graph.py::topological_order` uses `collections.deque` with `popleft()`, and `step_runner._topological_sort` now delegates to it).
 - `repositories/base.py` dual-mode sessions (own-session-with-commit vs. caller-session-with-flush) are correct but subtle; the behavioral difference (commit vs. flush) is only discoverable by reading the implementation. A docstring on `create()` would prevent misuse.
 - Type hints are consistently present, including `TYPE_CHECKING`-guarded `DeviceSessionPool` imports in non-SSH executors, per the documented pattern. Good.
 
 ---
 
-## 6. Dead Code
+## 6. Dead Code — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_PRIO.md` Step 1:** all five items below deleted, including the three
+`__init__.py` re-exports; `grep` for the removed symbols now returns nothing repo-wide.
 
 Confirmed dead (zero references outside their own definition/`__init__` re-export, and not covered by the CLAUDE.md facade path):
 
@@ -180,7 +238,13 @@ No God Objects found: `DeviceCommonService` is the sanctioned facade; `GitServic
 
 ---
 
-## 7. Testing
+## 7. Testing — ⏳ OPEN
+
+Not addressed by the current pass — `doc/refactoring/FABLE_PRIO.md` Step 12 explicitly frames this as
+sustained, multi-day test-authoring effort rather than a single patch. The findings below are
+unchanged (some counts may have shifted slightly given the new files added by Steps 1–11, e.g.
+`services/execution/graph.py`, but the overall picture — git write path and Nautobot mutation path are
+the highest-risk, lowest-coverage areas, and the integration suite is still empty — still holds).
 
 - **641 unit tests, all passing, 6.3s** — fast, deterministic, well-named, with dedicated files per executor and per common helper. The step subsystem is genuinely well-tested (most executors 80–100% covered).
 - **Total coverage: 53% vs. the 80% mandate.** The gap is concentrated in:
@@ -196,12 +260,14 @@ No God Objects found: `DeviceCommonService` is the sanctioned facade; `GitServic
 
 ## 8. Prioritized Recommendations
 
-1. **(Security, small)** Bound the refresh window in `refresh_access_token` — reject tokens expired more than N hours ago (§4.1).
-2. **(Correctness, one line)** Raise on cycle in `_topological_sort`, and add graph validation to workflow save/run submission (§4.2).
-3. **(Security, small)** Check `is_active` in the `require_permission` path (§4.3); validate `artifact_id` as UUID (§4.4).
-4. **(Cleanup, mechanical)** Delete `vm_manager.py`, `cluster_manager.py`, `cluster_resolver.py`, `interface_types.py`, `services/validation/`, and their re-exports (§6).
-5. **(Architecture, incremental)** Introduce domain exceptions for `SettingsService` (and any service the worker touches); drop the `fastapi` import from `get_from_config` (§3.1). Move router-consumed `workflow_steps/common` helpers into `services/` (§3.2).
-6. **(Modernization, mechanical)** Replace the 8 `get_event_loop()` call sites and the `utcnow()`/naive-`now()` stragglers (§5.1).
-7. **(Testing, sustained)** Target the git write path and Nautobot mutation services first — highest risk, lowest coverage; stand up the integration suite against real PostgreSQL (§7).
-8. **(Docs, trivial)** Fix CLAUDE.md drift: Python version, Nautobot file listing (§3.5).
-9. **(Refactor, opportunistic)** Extract graph utilities from `step_runner.py`; decompose the five largest `execute()` functions following the `get_ise_tacacs_key` tier-helper pattern (§5.2, §5.3).
+1. **(Security, small)** Bound the refresh window in `refresh_access_token` — reject tokens expired more than N hours ago (§4.1). — **✅ FINISHED** (`FABLE_PRIO.md` Step 6)
+2. **(Correctness, one line)** Raise on cycle in `_topological_sort`, and add graph validation to workflow save/run submission (§4.2). — **✅ FINISHED** (`FABLE_PRIO.md` Step 7)
+3. **(Security, small)** Check `is_active` in the `require_permission` path (§4.3); validate `artifact_id` as UUID (§4.4). — **✅ FINISHED** (`FABLE_PRIO.md` Steps 4, 5)
+4. **(Cleanup, mechanical)** Delete `vm_manager.py`, `cluster_manager.py`, `cluster_resolver.py`, `interface_types.py`, `services/validation/`, and their re-exports (§6). — **✅ FINISHED** (`FABLE_PRIO.md` Step 1)
+5. **(Architecture, incremental)** Introduce domain exceptions for `SettingsService` (and any service the worker touches); drop the `fastapi` import from `get_from_config` (§3.1). Move router-consumed `workflow_steps/common` helpers into `services/` (§3.2). — **✅ FINISHED** (`FABLE_PRIO.md` Steps 8, 9)
+6. **(Modernization, mechanical)** Replace the 8 `get_event_loop()` call sites and the `utcnow()`/naive-`now()` stragglers (§5.1). — **✅ FINISHED** (`FABLE_PRIO.md` Step 3)
+7. **(Testing, sustained)** Target the git write path and Nautobot mutation services first — highest risk, lowest coverage; stand up the integration suite against real PostgreSQL (§7). — **⏳ OPEN** (`FABLE_PRIO.md` Step 12 — sustained effort, intentionally deferred)
+8. **(Docs, trivial)** Fix CLAUDE.md drift: Python version, Nautobot file listing (§3.5). — **✅ FINISHED** (`FABLE_PRIO.md` Step 2)
+9. **(Refactor, opportunistic)** Extract graph utilities from `step_runner.py`; decompose the five largest `execute()` functions following the `get_ise_tacacs_key` tier-helper pattern (§5.2, §5.3). — **PARTIALLY FINISHED**: graph-utility extraction done (`FABLE_PRIO.md` Step 7, §5.3); decomposing the largest `execute()` functions remains **⏳ OPEN** (`FABLE_PRIO.md` Step 13 — opportunistic, do last)
+
+Two items not in the original recommendation list also remain open: §4.5 (SSRF-adjacent test-connection endpoints) and §4.6 (in-memory login rate limiting) were not part of `FABLE_PRIO.md`'s scope.

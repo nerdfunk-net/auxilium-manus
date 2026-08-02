@@ -16,7 +16,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from workflow_steps.common.cisco_config_parsing import (
+from services.network.cisco_config_parsing import (
     parse_cisco_config_text,
     platform_hint_for_network_driver,
 )

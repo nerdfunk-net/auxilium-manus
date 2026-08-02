@@ -70,3 +70,19 @@ def get_git_debug_service():
 
 def get_git_version_control_service():
     return service_factory.build_git_version_control_service()
+
+
+def get_git_file_service():
+    return service_factory.build_git_file_service()
+
+
+def get_git_csv_service():
+    return service_factory.build_git_csv_service()
+
+
+def get_oidc_config_service():
+    return service_factory.build_oidc_config_service()
+
+
+def get_oidc_service():
+    return service_factory.build_oidc_service()

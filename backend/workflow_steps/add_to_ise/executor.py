@@ -59,8 +59,8 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
 from services.ise.source_config_service import ISESourceNotFoundError
+from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_fields import seal_secret
-from workflow_steps.common.attribute_path import resolve_device_value
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:

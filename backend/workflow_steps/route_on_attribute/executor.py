@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from workflow_steps.common.attribute_path import (
+from services.workflow_context.attribute_path import (
     AttributeState,
     resolve_device_attribute_state,
 )

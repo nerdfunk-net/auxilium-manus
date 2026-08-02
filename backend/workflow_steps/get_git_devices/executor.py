@@ -64,7 +64,7 @@ async def execute(
     }
 
     service = GitDeviceService()
-    devices, files_read = await asyncio.get_event_loop().run_in_executor(
+    devices, files_read = await asyncio.get_running_loop().run_in_executor(
         None, lambda: service.fetch_devices(source_config, filename_pattern)
     )
 

@@ -12,6 +12,7 @@ import service_factory
 from core.auth import require_permission
 from core.database import get_db
 from core.safe_http_errors import raise_internal_server_error
+from dependencies import get_oidc_config_service, get_oidc_service
 from models.auth import (
     ApprovalPendingResponse,
     OIDCCallbackRequest,
@@ -35,9 +36,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth/oidc", tags=["oidc"])
 
-_config_service = OidcConfigService()
-_oidc_service = OIDCService(_config_service)
-
 OIDC_STATE_TTL_SECONDS = 600
 
 
@@ -52,9 +50,11 @@ def _cache_or_503():
 
 
 @router.get("/providers", response_model=OIDCProvidersResponse)
-async def list_providers() -> OIDCProvidersResponse:
-    enabled = _config_service.get_enabled_providers()
-    global_settings = _config_service.get_global_settings()
+async def list_providers(
+    config_service: OidcConfigService = Depends(get_oidc_config_service),
+) -> OIDCProvidersResponse:
+    enabled = config_service.get_enabled_providers()
+    global_settings = config_service.get_global_settings()
 
     return OIDCProvidersResponse(
         providers=[
@@ -72,8 +72,12 @@ async def list_providers() -> OIDCProvidersResponse:
 
 
 @router.get("/{provider_id}/login", response_model=OIDCLoginResponse)
-async def initiate_login(provider_id: str, redirect_uri: str) -> OIDCLoginResponse:
-    return await _build_login_response(provider_id, redirect_uri)
+async def initiate_login(
+    provider_id: str,
+    redirect_uri: str,
+    oidc_service: OIDCService = Depends(get_oidc_service),
+) -> OIDCLoginResponse:
+    return await _build_login_response(provider_id, redirect_uri, oidc_service=oidc_service)
 
 
 @router.post("/{provider_id}/test-login", response_model=OIDCLoginResponse)
@@ -81,6 +85,7 @@ async def initiate_test_login(
     provider_id: str,
     body: OIDCTestLoginRequest,
     _: None = Depends(require_permission("system.oidc", "read")),
+    oidc_service: OIDCService = Depends(get_oidc_service),
 ) -> OIDCLoginResponse:
     if not body.redirect_uri:
         raise HTTPException(
@@ -93,6 +98,7 @@ async def initiate_test_login(
         scopes=body.scopes,
         response_type=body.response_type or "code",
         client_id=body.client_id,
+        oidc_service=oidc_service,
     )
 
 
@@ -103,13 +109,14 @@ async def _build_login_response(
     scopes: list[str] | None = None,
     response_type: str = "code",
     client_id: str | None = None,
+    oidc_service: OIDCService,
 ) -> OIDCLoginResponse:
     cache = _cache_or_503()
 
     try:
-        state = _oidc_service.generate_state()
+        state = oidc_service.generate_state()
         state_with_provider = f"{provider_id}:{state}"
-        authorization_url = await _oidc_service.generate_authorization_url(
+        authorization_url = await oidc_service.generate_authorization_url(
             provider_id,
             redirect_uri,
             state_with_provider,
@@ -137,6 +144,7 @@ async def handle_callback(
     provider_id: str,
     body: OIDCCallbackRequest,
     db: Session = Depends(get_db),
+    oidc_service: OIDCService = Depends(get_oidc_service),
 ) -> TokenResponse | ApprovalPendingResponse:
     cache = _cache_or_503()
 
@@ -151,16 +159,16 @@ async def handle_callback(
     redirect_uri = body.redirect_uri or ""
 
     try:
-        tokens = await _oidc_service.exchange_code_for_tokens(provider_id, body.code, redirect_uri)
+        tokens = await oidc_service.exchange_code_for_tokens(provider_id, body.code, redirect_uri)
         id_token = tokens.get("id_token")
         if not id_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Provider did not return an ID token",
             )
-        claims = await _oidc_service.verify_id_token(provider_id, id_token)
-        user_data = _oidc_service.extract_user_data(provider_id, claims)
-        user = _oidc_service.provision_or_get_user(provider_id, user_data, db)
+        claims = await oidc_service.verify_id_token(provider_id, id_token)
+        user_data = oidc_service.extract_user_data(provider_id, claims)
+        user = oidc_service.provision_or_get_user(provider_id, user_data, db)
     except OIDCApprovalPendingError as exc:
         return ApprovalPendingResponse(
             username=exc.username,
@@ -181,9 +189,13 @@ async def handle_callback(
 
 
 @router.post("/{provider_id}/logout", response_model=OIDCLogoutResponse)
-async def logout(provider_id: str, id_token_hint: str | None = None) -> OIDCLogoutResponse:
+async def logout(
+    provider_id: str,
+    id_token_hint: str | None = None,
+    oidc_service: OIDCService = Depends(get_oidc_service),
+) -> OIDCLogoutResponse:
     try:
-        logout_url = await _oidc_service.get_end_session_url(provider_id, id_token_hint)
+        logout_url = await oidc_service.get_end_session_url(provider_id, id_token_hint)
     except OIDCError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -191,22 +203,25 @@ async def logout(provider_id: str, id_token_hint: str | None = None) -> OIDCLogo
 
 
 @router.get("/debug", dependencies=[Depends(require_permission("system.oidc", "read"))])
-async def debug_status() -> dict:
-    global_settings = _config_service.get_global_settings()
-    providers = _config_service.get_providers()
+async def debug_status(
+    config_service: OidcConfigService = Depends(get_oidc_config_service),
+    oidc_service: OIDCService = Depends(get_oidc_service),
+) -> dict:
+    global_settings = config_service.get_global_settings()
+    providers = config_service.get_providers()
 
     provider_debug = []
     for provider_id, config in providers.items():
         ca_cert_path = config.get("ca_cert_path")
         ca_cert_exists = (
-            _oidc_service.resolve_ca_cert_path(ca_cert_path).exists() if ca_cert_path else None
+            oidc_service.resolve_ca_cert_path(ca_cert_path).exists() if ca_cert_path else None
         )
 
         endpoints = None
         discovery_error = None
         if config.get("enabled", False):
             try:
-                oidc_config = await _oidc_service.get_oidc_config(provider_id)
+                oidc_config = await oidc_service.get_oidc_config(provider_id)
                 endpoints = {
                     "issuer": oidc_config.issuer,
                     "authorization_endpoint": oidc_config.authorization_endpoint,
@@ -237,8 +252,8 @@ async def debug_status() -> dict:
         )
 
     return {
-        "oidc_enabled": _config_service.is_enabled(),
+        "oidc_enabled": config_service.is_enabled(),
         "allow_traditional_login": global_settings.get("allow_traditional_login", True),
         "providers": provider_debug,
-        "config_path": str(_config_service.get_config_path()),
+        "config_path": str(config_service.get_config_path()),
     }

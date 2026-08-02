@@ -8,7 +8,7 @@ Workflows consist of ordered and dependency-aware steps. The output of one step 
 ## Tech Stack
 
 **Frontend:** Next.js 16.2.6 (App Router), React 19, React Flow, TypeScript 5, Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
-**Backend:** FastAPI, Python 3.9+, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko, GitPython
+**Backend:** FastAPI, Python 3.12+, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko, GitPython
 **Integrations:** Nautobot API
 
 ## Architecture
@@ -691,9 +691,12 @@ backend/services/nautobot/
 │
 └── devices/
     ├── common.py              # Unified facade (recommended for device operations)
-    ├── creation.py            # Device creation workflows
-    ├── update.py              # Device update workflows
-    └── import_service.py      # Bulk device import
+    ├── query.py               # Device query/lookup workflows
+    ├── attribute_bag.py        # Device attribute-bag assembly
+    ├── types.py                # Shared request/result dataclasses
+    ├── creation.py              # Device creation workflows
+    ├── update.py                # Device update workflows
+    └── interface_workflow.py    # Interface create/update workflows
 ```
 
 ### Usage Pattern

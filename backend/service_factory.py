@@ -180,3 +180,27 @@ def build_git_version_control_service():
     from services.git.version_control_service import GitVersionControlService
 
     return GitVersionControlService()
+
+
+def build_git_file_service():
+    from services.git.file_service import GitFileService
+
+    return GitFileService()
+
+
+def build_git_csv_service():
+    from services.git.csv_service import GitCsvService
+
+    return GitCsvService()
+
+
+def build_oidc_config_service():
+    from services.auth.oidc_config_service import OidcConfigService
+
+    return OidcConfigService()
+
+
+def build_oidc_service():
+    from services.auth.oidc_service import OIDCService
+
+    return OIDCService(build_oidc_config_service())

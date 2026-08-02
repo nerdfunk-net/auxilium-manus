@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -165,7 +165,7 @@ async def export_inventory(
                 "name": inventory["name"],
                 "description": inventory.get("description", ""),
                 "scope": inventory["scope"],
-                "exportedAt": datetime.utcnow().isoformat() + "Z",
+                "exportedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 "exportedBy": current_user.username,
                 "originalId": inventory["id"],
             },

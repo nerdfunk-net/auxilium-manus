@@ -14,10 +14,6 @@ from .exceptions import (
     handle_already_exists_error,
     is_duplicate_error,
 )
-from .interface_types import (
-    VALID_INTERFACE_TYPES,
-    normalize_interface_type,
-)
 from .utils import (
     extract_id_from_url,
     extract_nested_value,
@@ -54,7 +50,4 @@ __all__ = [
     "NautobotAPIError",
     "is_duplicate_error",
     "handle_already_exists_error",
-    # Interface types
-    "VALID_INTERFACE_TYPES",
-    "normalize_interface_type",
 ]

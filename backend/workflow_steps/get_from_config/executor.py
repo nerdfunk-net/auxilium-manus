@@ -6,16 +6,15 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from fastapi import HTTPException
-
 from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.network.cisco_config_parsing import parse_cisco_config_text
+from services.settings.exceptions import SourceConfigError
 from services.settings.settings_service import SettingsService
 from services.sources.git.git_content_search_service import GitContentSearchService
 from services.sources.git.git_source_service import clone_or_pull
-from workflow_steps.common.cisco_config_parsing import parse_cisco_config_text
 from workflow_steps.common.device_builders import device_context_from_config_match
 from workflow_steps.common.fan_out import build_fan_out_metadata
 
@@ -59,13 +58,13 @@ async def execute(
     db = get_db_session()
     try:
         try:
-            source_config = SettingsService(db).get_source_config("git", git_source_id)
-        except HTTPException as exc:
-            raise ValueError(f"get-from-config: {exc.detail}") from exc
+            source_config = SettingsService(db).get_source_config_for_step("git", git_source_id)
+        except SourceConfigError as exc:
+            raise ValueError(f"get-from-config: {exc}") from exc
     finally:
         db.close()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     repo_dir = await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
 
     search_service = GitContentSearchService()

@@ -15,6 +15,7 @@ from models.settings import (
     SettingUpdate,
 )
 from repositories.settings_repository import SettingsRepository
+from services.settings.exceptions import SourceConfigError
 from services.settings.source_keys import (
     SourceType,
     build_source_key,
@@ -55,7 +56,13 @@ class SettingsService:
         return _to_response(setting)
 
     def get_source_config(self, source_type: SourceType, source_id: str) -> dict[str, Any]:
-        """Load a typed source setting and return its value with ``source_id`` set."""
+        """Load a typed source setting and return its value with ``source_id`` set.
+
+        Router-facing: raises ``HTTPException`` directly, matching the 4
+        call sites in routers/sources/git/ops.py that let it propagate
+        uncaught to FastAPI's handler. Workflow-step executors must use
+        ``get_source_config_for_step`` instead — see its docstring.
+        """
         source_id = source_id.strip()
         if not source_id:
             raise HTTPException(
@@ -76,6 +83,19 @@ class SettingsService:
                 detail=f"{source_type.title()} source '{source_id}' not found in settings",
             )
         return {**(setting.value or {}), "source_id": source_id}
+
+    def get_source_config_for_step(self, source_type: SourceType, source_id: str) -> dict[str, Any]:
+        """Worker-safe equivalent of ``get_source_config``.
+
+        Workflow-step executors run in the Hatchet worker, not a FastAPI
+        request, and must raise ``ValueError`` for configuration problems
+        (doc/WORKFLOW-STEPS.md) rather than importing/catching
+        ``fastapi.HTTPException`` — see doc/FABLE-ANALYSIS.md §3.1.
+        """
+        try:
+            return self.get_source_config(source_type, source_id)
+        except HTTPException as exc:
+            raise SourceConfigError(str(exc.detail)) from exc
 
     def create_setting(self, data: SettingCreate) -> SettingResponse:
         if self.repo.get_by_key(data.key) is not None:

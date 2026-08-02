@@ -18,6 +18,7 @@ from models.sources_git import (
     GitSourceTestConnectionRequest,
     GitSourceTestConnectionResponse,
 )
+from services.network.cisco_config_parsing import parse_cisco_config_text
 from services.settings.settings_service import SettingsService
 from services.sources.git.git_content_search_service import GitContentSearchService
 from services.sources.git.git_source_service import (
@@ -28,7 +29,6 @@ from services.sources.git.git_source_service import (
 from services.sources.git.git_source_service import (
     test_connection as test_git_source_connection,
 )
-from workflow_steps.common.cisco_config_parsing import parse_cisco_config_text
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sources/git", tags=["sources-git"])
@@ -83,7 +83,7 @@ async def test_connection(
 ) -> GitSourceTestConnectionResponse:
     """Test Git connectivity using form values (does not require a saved source)."""
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
             lambda: test_git_source_connection(
@@ -128,7 +128,7 @@ async def preview_git_devices(
     try:
         service = GitDeviceService()
         pattern = request.filename_pattern.strip()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         devices, files_read = await loop.run_in_executor(
             None, lambda: service.fetch_devices(source_config, pattern)
         )
@@ -169,7 +169,7 @@ async def preview_git_content_search(
     source_config = SettingsService(db).get_source_config("git", request.git_source_id)
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         repo_dir = await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
 
         search_service = GitContentSearchService()
@@ -228,7 +228,7 @@ async def pull_git_source(
     """Pull latest changes for a git source (clone if not yet cloned)."""
     source_config = SettingsService(db).get_source_config("git", request.git_source_id)
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
         sid = source_config["source_id"]
         return {"success": True, "message": f"Git source '{sid}' pulled successfully"}
@@ -250,7 +250,7 @@ async def remove_and_clone_git_source(
     """Remove existing local copy of a git source and clone fresh."""
     source_config = SettingsService(db).get_source_config("git", request.git_source_id)
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: remove_and_clone(source_config))
         sid = source_config["source_id"]
         msg = f"Git source '{sid}' removed and re-cloned successfully"

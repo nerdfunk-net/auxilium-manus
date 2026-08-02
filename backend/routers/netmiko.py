@@ -23,13 +23,13 @@ from services.credentials.exceptions import (
     CredentialMissingFieldError,
     CredentialNotFoundError,
 )
-from services.network.netmiko.connection import NetmikoConnectionError
-from services.network.netmiko.service import NetmikoService
-from services.network.netmiko.session_pool import DeviceSessionPool
-from workflow_steps.common.cisco_config_parsing import (
+from services.network.cisco_config_parsing import (
     parse_cisco_config_text,
     platform_hint_for_network_driver,
 )
+from services.network.netmiko.connection import NetmikoConnectionError
+from services.network.netmiko.service import NetmikoService
+from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 

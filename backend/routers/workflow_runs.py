@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
@@ -94,13 +95,13 @@ async def get_run(
 )
 async def get_run_artifact(
     run_id: int,
-    artifact_id: str,
+    artifact_id: UUID,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
 ) -> ArtifactContentResponse:
     return service.get_run_artifact(
         run_id=run_id,
-        artifact_id=artifact_id,
+        artifact_id=str(artifact_id),
         user_id=current_user.id,
     )
 

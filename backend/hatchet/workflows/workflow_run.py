@@ -82,7 +82,8 @@ async def _run_steps_until_fan_out_or_done(
     the (possibly reloaded, e.g. after a debug resume) WorkflowRun to keep
     using in the caller.
     """
-    from services.execution.step_runner import FanOutSignal, StepRunner
+    from services.execution.graph import find_join_node_id
+    from services.execution.step_runner import FanOutSignal
 
     canvas_nodes: list[dict[str, Any]] = wf.canvas_nodes or []
     canvas_edges: list[dict[str, Any]] = wf.canvas_edges or []
@@ -155,7 +156,7 @@ async def _run_steps_until_fan_out_or_done(
         success_ctx = step_outcomes.get(node_id, {}).get("success")
         if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
             fan_out_config = dict(success_ctx.metadata["_fan_out"])
-            join_node_id = StepRunner._find_join_node_id(node_id, canvas_nodes, canvas_edges)
+            join_node_id = find_join_node_id(node_id, canvas_nodes, canvas_edges)
             logger.info(
                 "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
                 node_id,
@@ -617,14 +618,14 @@ def _aggregate_and_persist(
     ``skipped``, since more child_results may still arrive in a later call.
     """
     from models.workflow_context import WorkflowContext
-    from services.execution.step_runner import StepRunner
+    from services.execution.graph import child_node_ids
     from services.workflow_context.merge import merge_fan_out_contexts
     from services.workflow_context.secret_fields import redact_secrets_in_data
 
     # Children only produce the child branch (nodes before the fan-in node). The
     # post-join nodes are run once by the parent in resume_after_join, so they must
     # NOT be marked skipped here.
-    child_ids = StepRunner._child_node_ids(
+    child_ids = child_node_ids(
         signal.inventory_node_id, signal.join_node_id, canvas_nodes, canvas_edges
     )
 

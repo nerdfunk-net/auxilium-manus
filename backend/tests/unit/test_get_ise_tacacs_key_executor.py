@@ -12,7 +12,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError
-from workflow_steps.common.attribute_path import resolve_device_attribute
+from services.workflow_context.attribute_path import resolve_device_attribute
 from workflow_steps.get_ise_tacacs_key.executor import execute
 
 

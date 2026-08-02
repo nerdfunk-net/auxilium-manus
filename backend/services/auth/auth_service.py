@@ -49,7 +49,14 @@ class AuthService:
         return token, int(expires_delta.total_seconds())
 
     def refresh_access_token(self, token: str) -> tuple[User, str, int]:
-        """Re-issue an access token from a signed JWT, allowing expired tokens."""
+        """Re-issue an access token from a signed JWT, allowing expired tokens.
+
+        Still rejects tokens whose ``exp`` claim is older than
+        ``settings.refresh_token_max_age_hours`` — otherwise a leaked access
+        token could be exchanged for a fresh one indefinitely, making
+        ACCESS_TOKEN_EXPIRE_MINUTES a no-op security boundary (see
+        doc/FABLE-ANALYSIS.md §4.1).
+        """
         try:
             payload = jwt.decode(
                 token,
@@ -62,7 +69,17 @@ class AuthService:
 
         user_id = payload.get("user_id")
         username = payload.get("sub")
-        if not isinstance(user_id, int) or not isinstance(username, str) or not username:
+        expires_at_ts = payload.get("exp")
+        if (
+            not isinstance(user_id, int)
+            or not isinstance(username, str)
+            or not username
+            or not isinstance(expires_at_ts, int | float)
+        ):
+            raise AuthenticationError("Invalid authentication token")
+
+        expired_since = datetime.now(UTC) - datetime.fromtimestamp(expires_at_ts, UTC)
+        if expired_since > timedelta(hours=settings.refresh_token_max_age_hours):
             raise AuthenticationError("Invalid authentication token")
 
         user = self.users.get_by_id(user_id)

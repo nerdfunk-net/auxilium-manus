@@ -12,8 +12,8 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
+from services.workflow_context.attribute_path import resolve_device_attribute
 from workflow_steps.add_to_ise.executor import execute
-from workflow_steps.common.attribute_path import resolve_device_attribute
 
 _BASE_CONFIG = {
     "ise_source_id": "lab-ise",

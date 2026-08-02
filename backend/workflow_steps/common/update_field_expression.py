@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from models.workflow_context import DeviceContext
-from workflow_steps.common.attribute_path import resolve_device_attribute, resolve_device_value
+from services.workflow_context.attribute_path import resolve_device_attribute, resolve_device_value
 from workflow_steps.common.nautobot_update_fields import (
     extract_update_fields_from_nautobot_bag,
 )

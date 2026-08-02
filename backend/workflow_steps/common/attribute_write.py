@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from models.workflow_context import Capability, DeviceContext
-from workflow_steps.common.attribute_path import DEVICE_SCALAR_FIELDS
+from services.workflow_context.attribute_path import DEVICE_SCALAR_FIELDS
 
 _READ_ONLY_DEVICE_FIELDS = frozenset({"id", "source", "source_id"})
 

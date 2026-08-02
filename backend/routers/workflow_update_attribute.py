@@ -15,8 +15,8 @@ from models.update_attribute import (
     UpdateAttributeProbeResponse,
 )
 from models.workflow_context import DeviceContext
-from workflow_steps.common.attribute_path import resolve_device_attribute
-from workflow_steps.common.attribute_regex import RegexFlagsConfig, probe_regex_transform
+from services.workflow_context.attribute_path import resolve_device_attribute
+from services.workflow_context.attribute_regex import RegexFlagsConfig, probe_regex_transform
 
 logger = logging.getLogger(__name__)
 

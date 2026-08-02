@@ -15,7 +15,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from workflow_steps.common.attribute_path import (
+from services.workflow_context.attribute_path import (
     AttributeState,
     resolve_device_attribute_state,
     resolve_device_value,

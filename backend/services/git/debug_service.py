@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import ssl
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +87,7 @@ class GitDebugService:
 
         test_content = (
             f"Cockpit Debug Test\n"
-            f"Timestamp: {datetime.now().isoformat()}\n"
+            f"Timestamp: {datetime.now(UTC).isoformat()}\n"
             f"Repository: {repository['name']}\n"
         )
 
@@ -295,7 +295,7 @@ class GitDebugService:
         try:
             test_content = (
                 f"Cockpit Debug Push Test\n"
-                f"Timestamp: {datetime.now().isoformat()}\n"
+                f"Timestamp: {datetime.now(UTC).isoformat()}\n"
                 f"Repository: {repository['name']}\n"
             )
             test_file_path.write_text(test_content)
@@ -315,7 +315,7 @@ class GitDebugService:
 
             commit_sha = None
             try:
-                commit_message = f"Debug push test - {datetime.now().isoformat()}"
+                commit_message = f"Debug push test - {datetime.now(UTC).isoformat()}"
                 with set_git_author(repository, repo):
                     commit = repo.index.commit(commit_message)
                 commit_sha = commit.hexsha[:8]

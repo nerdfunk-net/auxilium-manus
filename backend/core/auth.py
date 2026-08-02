@@ -82,12 +82,35 @@ def _require_user_id(token_payload: dict[str, Any]) -> int:
     return user_id
 
 
+def _require_active_user_id(token_payload: dict[str, Any], db: Session) -> int:
+    """Like ``_require_user_id``, but also rejects deactivated users.
+
+    ``get_current_user`` already does this check, but permission/role
+    dependencies are frequently used on their own (e.g. router-level
+    ``dependencies=[Depends(require_permission(...))]``) without
+    ``get_current_user`` in the chain, so deactivating a user must be
+    enforced here too — otherwise a still-valid JWT keeps working for a
+    deactivated account until it naturally expires.
+    """
+    user_id = _require_user_id(token_payload)
+    user = UserRepository(db).get_by_id(user_id)
+
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers=AUTHENTICATE_HEADER,
+        )
+
+    return user_id
+
+
 def require_permission(resource: str, action: str):
     def permission_checker(
         token_payload: dict[str, Any] = Depends(verify_token),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
-        user_id = _require_user_id(token_payload)
+        user_id = _require_active_user_id(token_payload, db)
 
         if not RBACService(db).has_permission(user_id, resource, action):
             raise HTTPException(
@@ -105,7 +128,7 @@ def require_any_permission(checks: list[tuple[str, str]]):
         token_payload: dict[str, Any] = Depends(verify_token),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
-        user_id = _require_user_id(token_payload)
+        user_id = _require_active_user_id(token_payload, db)
 
         if not RBACService(db).check_any_permission(user_id, checks):
             raise HTTPException(
@@ -123,7 +146,7 @@ def require_all_permissions(checks: list[tuple[str, str]]):
         token_payload: dict[str, Any] = Depends(verify_token),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
-        user_id = _require_user_id(token_payload)
+        user_id = _require_active_user_id(token_payload, db)
 
         if not RBACService(db).check_all_permissions(user_id, checks):
             raise HTTPException(
@@ -141,7 +164,7 @@ def require_role(role_name: str):
         token_payload: dict[str, Any] = Depends(verify_token),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
-        user_id = _require_user_id(token_payload)
+        user_id = _require_active_user_id(token_payload, db)
 
         if not RBACService(db).has_role(user_id, role_name):
             raise HTTPException(

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from workflow_steps.common.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
+from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.log_message.config import get_config
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from models.workflow_context import DeviceContext
-from workflow_steps.common.attribute_path import (
+from services.workflow_context.attribute_path import (
     AttributeState,
     resolve_device_attribute,
     resolve_device_attribute_state,
