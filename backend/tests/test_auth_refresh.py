@@ -40,7 +40,8 @@ def _make_invalid_signature_token(user: User) -> str:
         "user_id": user.id,
         "exp": datetime.now(UTC) + timedelta(minutes=30),
     }
-    return jwt.encode(payload, "wrong-secret-key", algorithm="HS256")
+    # >= 32 bytes — PyJWT warns on shorter HS256 keys (RFC 7518 §3.2).
+    return jwt.encode(payload, "wrong-secret-key-for-tests-only!!", algorithm="HS256")
 
 
 class TestAuthServiceRefresh:
