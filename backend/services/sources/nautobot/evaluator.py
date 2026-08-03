@@ -8,6 +8,7 @@ See: doc/refactoring/REFACTORING_SERVICES.md — Phase 4
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
@@ -16,6 +17,27 @@ if TYPE_CHECKING:
     from services.sources.nautobot.query_service import NautobotSourceQueryService
 
 logger = logging.getLogger(__name__)
+
+_NATIVE_NOT_EQUALS_LOG_SUFFIX = {
+    "location": "using GraphQL location__n",
+    "device_type": "using GraphQL device_type__n",
+    "manufacturer": "using GraphQL manufacturer__n",
+    "role": "using GraphQL role__n",
+}
+
+
+def _operator_flags(operator: str) -> tuple[bool, bool]:
+    use_contains = operator in ["contains", "not_contains"]
+    is_negated = operator in ["not_equals", "not_contains"]
+    return use_contains, is_negated
+
+
+def _pack_devices(
+    devices_data: list[DeviceInfo], *, operations_count: int = 1
+) -> tuple[set[str], int, dict[str, DeviceInfo]]:
+    device_ids = {device.id for device in devices_data}
+    devices_dict = {device.id: device for device in devices_data}
+    return device_ids, operations_count, devices_dict
 
 
 class NautobotSourceEvaluator:
@@ -152,6 +174,84 @@ class NautobotSourceEvaluator:
         )
         return result, operations_count, all_devices_data
 
+    async def _query_prefix_field(
+        self, field: str, value: str, operator: str
+    ) -> tuple[set[str], int, dict[str, DeviceInfo]]:
+        if field == "ip_prefix":
+            devices_data = await self.query_service._query_devices_by_ip_prefix(value, operator)
+        else:
+            devices_data = await self.query_service._query_devices_by_primary_prefix(
+                value, operator
+            )
+        return _pack_devices(devices_data)
+
+    async def _query_custom_field_condition(
+        self, condition: LogicalCondition
+    ) -> tuple[set[str], int, dict[str, DeviceInfo]]:
+        use_contains, is_negated = _operator_flags(condition.operator)
+
+        devices_data = await self.query_service._query_devices_by_custom_field(
+            condition.field, condition.value, use_contains
+        )
+
+        if is_negated:
+            devices_data = await self._apply_client_negation(devices_data)
+
+        return _pack_devices(devices_data)
+
+    async def _query_native_not_equals(
+        self, field: str, value: str
+    ) -> tuple[set[str], int, dict[str, DeviceInfo]] | None:
+        handlers: dict[str, Callable[[str], Awaitable[list[DeviceInfo]]]] = {
+            "location": lambda v: self.query_service._query_devices_by_location(
+                v, use_contains=False, use_negation=True
+            ),
+            "device_type": lambda v: self.query_service._query_devices_by_devicetype(
+                v, use_negation=True
+            ),
+            "manufacturer": lambda v: self.query_service._query_devices_by_manufacturer(
+                v, use_negation=True
+            ),
+            "role": lambda v: self.query_service._query_devices_by_role(v, use_negation=True),
+        }
+
+        handler = handlers.get(field)
+        if handler is None:
+            return None
+
+        devices_data = await handler(value)
+        operations_count = len(devices_data) if field == "location" else 1
+        logger.info(
+            "Condition %s not_equals '%s' returned %s devices (%s)",
+            field,
+            value,
+            len(devices_data),
+            _NATIVE_NOT_EQUALS_LOG_SUFFIX[field],
+        )
+        return _pack_devices(devices_data, operations_count=operations_count)
+
+    async def _query_mapped_field(
+        self, field: str, value: str, use_contains: bool
+    ) -> list[DeviceInfo]:
+        query_func = self.field_to_query_map[field]
+
+        if field in ["name", "location"] and use_contains:
+            return await query_func(value, use_contains=True)
+        if field in ["name", "location"]:
+            return await query_func(value, use_contains=False)
+
+        if use_contains:
+            logger.warning(
+                "Field %s does not support 'contains' operator, using exact match",
+                field,
+            )
+        return await query_func(value)
+
+    async def _apply_client_negation(self, matched: list[DeviceInfo]) -> list[DeviceInfo]:
+        all_devices = await self.query_service._query_all_devices()
+        matched_ids = {device.id for device in matched}
+        return [d for d in all_devices if d.id not in matched_ids]
+
     async def _execute_condition(
         self, condition: LogicalCondition
     ) -> tuple[set[str], int, dict[str, DeviceInfo]]:
@@ -165,7 +265,6 @@ class NautobotSourceEvaluator:
             Tuple of (device_ids_set, operations_count, devices_data)
         """
         try:
-            # Validate condition values - prevent None/empty values from causing issues
             if not condition.field or condition.value is None or condition.value == "":
                 logger.warning(
                     "Skipping condition with empty field or value: field=%s, value=%s",
@@ -174,141 +273,34 @@ class NautobotSourceEvaluator:
                 )
                 return set(), 0, {}
 
-            # Handle ip_prefix — operator is the GraphQL filter type (within_include/within/exact)
-            if condition.field == "ip_prefix":
-                devices_data = await self.query_service._query_devices_by_ip_prefix(
-                    condition.value, condition.operator
+            if condition.field in ("ip_prefix", "primary_prefix"):
+                return await self._query_prefix_field(
+                    condition.field, condition.value, condition.operator
                 )
-                device_ids = {device.id for device in devices_data}
-                devices_dict = {device.id: device for device in devices_data}
-                return device_ids, 1, devices_dict
 
-            # Handle primary_prefix — matches devices whose primary_ip4 is in the CIDR
-            if condition.field == "primary_prefix":
-                devices_data = await self.query_service._query_devices_by_primary_prefix(
-                    condition.value, condition.operator
-                )
-                device_ids = {device.id for device in devices_data}
-                devices_dict = {device.id: device for device in devices_data}
-                return device_ids, 1, devices_dict
-
-            # Check if this is a custom field (starts with cf_)
             if condition.field.startswith("cf_"):
-                # Keep the full field name with cf_ prefix for GraphQL query
-                use_contains = condition.operator in ["contains", "not_contains"]
-                is_negated = condition.operator in ["not_equals", "not_contains"]
+                return await self._query_custom_field_condition(condition)
 
-                devices_data = await self.query_service._query_devices_by_custom_field(
-                    condition.field, condition.value, use_contains
-                )
-
-                # Handle negation for custom fields
-                if is_negated:
-                    all_devices = await self.query_service._query_all_devices()
-                    matched_ids = {device.id for device in devices_data}
-                    devices_data = [d for d in all_devices if d.id not in matched_ids]
-
-                device_ids = {device.id for device in devices_data}
-                devices_dict = {device.id: device for device in devices_data}
-                return device_ids, 1, devices_dict
-
-            # Handle regular fields
             query_func = self.field_to_query_map.get(condition.field)
             if not query_func:
                 logger.error("No query function found for field: %s", condition.field)
                 return set(), 0, {}
 
-            # Determine operator type
-            use_contains = condition.operator in ["contains", "not_contains"]
-            is_negated = condition.operator in ["not_equals", "not_contains"]
+            use_contains, is_negated = _operator_flags(condition.operator)
 
-            # Special handling for location with not_equals - use GraphQL location__n filter
-            if condition.field == "location" and condition.operator == "not_equals":
-                devices_data = await self.query_service._query_devices_by_location(
-                    condition.value, use_contains=False, use_negation=True
+            if condition.operator == "not_equals":
+                native_result = await self._query_native_not_equals(
+                    condition.field, condition.value
                 )
-                device_ids = {device.id for device in devices_data}
-                devices_dict = {device.id: device for device in devices_data}
-                logger.info(
-                    "Condition %s %s '%s' returned %s devices (using GraphQL location__n)",
-                    condition.field,
-                    condition.operator,
-                    condition.value,
-                    len(devices_data),
-                )
-                return device_ids, len(devices_data), devices_dict
+                if native_result is not None:
+                    return native_result
 
-            # Special handling for device_type with not_equals - use GraphQL device_type__n filter
-            if condition.field == "device_type" and condition.operator == "not_equals":
-                devices_data = await self.query_service._query_devices_by_devicetype(
-                    condition.value, use_negation=True
-                )
-                device_ids = {device.id for device in devices_data}
-                devices_dict = {device.id: device for device in devices_data}
-                logger.info(
-                    "Condition %s %s '%s' returned %s devices (using GraphQL device_type__n)",
-                    condition.field,
-                    condition.operator,
-                    condition.value,
-                    len(devices_data),
-                )
-                return device_ids, 1, devices_dict
+            devices_data = await self._query_mapped_field(
+                condition.field, condition.value, use_contains
+            )
 
-            # Special handling for manufacturer with not_equals - use GraphQL manufacturer__n filter
-            if condition.field == "manufacturer" and condition.operator == "not_equals":
-                devices_data = await self.query_service._query_devices_by_manufacturer(
-                    condition.value, use_negation=True
-                )
-                device_ids = {device.id for device in devices_data}
-                devices_dict = {device.id: device for device in devices_data}
-                logger.info(
-                    "Condition %s %s '%s' returned %s devices (using GraphQL manufacturer__n)",
-                    condition.field,
-                    condition.operator,
-                    condition.value,
-                    len(devices_data),
-                )
-                return device_ids, 1, devices_dict
-
-            # Special handling for role with not_equals - use GraphQL role__n filter
-            if condition.field == "role" and condition.operator == "not_equals":
-                devices_data = await self.query_service._query_devices_by_role(
-                    condition.value, use_negation=True
-                )
-                device_ids = {device.id for device in devices_data}
-                devices_dict = {device.id: device for device in devices_data}
-                logger.info(
-                    "Condition %s %s '%s' returned %s devices (using GraphQL role__n)",
-                    condition.field,
-                    condition.operator,
-                    condition.value,
-                    len(devices_data),
-                )
-                return device_ids, 1, devices_dict
-
-            # Only name and location support contains matching
-            if condition.field in ["name", "location"] and use_contains:
-                devices_data = await query_func(condition.value, use_contains=True)
-            elif condition.field in ["name", "location"]:
-                devices_data = await query_func(condition.value, use_contains=False)
-            else:
-                # Other fields only support exact matching
-                if use_contains:
-                    logger.warning(
-                        "Field %s does not support 'contains' operator, using exact match",
-                        condition.field,
-                    )
-                devices_data = await query_func(condition.value)
-
-            # Handle negation (not_equals, not_contains)
             if is_negated:
-                # Get all devices
-                all_devices = await self.query_service._query_all_devices()
-
-                # Filter out devices that match the condition
-                matched_ids = {device.id for device in devices_data}
-                devices_data = [d for d in all_devices if d.id not in matched_ids]
-
+                devices_data = await self._apply_client_negation(devices_data)
                 logger.info(
                     "Negated condition %s %s '%s' returned %s devices",
                     condition.field,
@@ -316,9 +308,6 @@ class NautobotSourceEvaluator:
                     condition.value,
                     len(devices_data),
                 )
-
-            device_ids = {device.id for device in devices_data}
-            devices_dict = {device.id: device for device in devices_data}
 
             logger.info(
                 "Condition %s %s '%s' returned %s devices",
@@ -328,7 +317,7 @@ class NautobotSourceEvaluator:
                 len(devices_data),
             )
 
-            return device_ids, 1, devices_dict
+            return _pack_devices(devices_data)
 
         except Exception as e:
             logger.error(

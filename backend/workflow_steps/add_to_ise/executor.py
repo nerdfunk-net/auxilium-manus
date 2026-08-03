@@ -42,7 +42,8 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy.orm import object_session
 
@@ -64,11 +65,36 @@ from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
+    from services.ise.network_device_service import ISENetworkDeviceService
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "add-to-ise"
+
+
+@dataclass(frozen=True)
+class _ParsedConfig:
+    source_id: str
+    raw_device_name: str
+    raw_ip_address: str
+    raw_new_key: str
+    description: str
+    device_groups: list[str]
+
+
+@dataclass(frozen=True)
+class _ResolvedFields:
+    name: str
+    ip_host: str
+    key: str
+
+
+@dataclass(frozen=True)
+class _CreateOneResult:
+    kind: Literal["created", "failed", "abort"]
+    device: DeviceContext | None = None
+    abort_outcome: StepOutcome | None = None
 
 
 def _mark_failed(device: DeviceContext, *, node_id: str, code: str, message: str) -> DeviceContext:
@@ -119,17 +145,7 @@ def _effective_primary_ip4(device: DeviceContext) -> str | None:
     return str(value) if value else None
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del artifact_service  # unused for this step
-
+def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     source_id = (config.get("ise_source_id") or "").strip()
     if not source_id:
         raise ValueError(f"{_STEP_ID}: ise_source_id is not configured")
@@ -149,9 +165,17 @@ async def execute(
     description = str(config.get("description") or "").strip()
     device_groups = _parse_device_groups(config.get("device_groups"))
 
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
+    return _ParsedConfig(
+        source_id=source_id,
+        raw_device_name=raw_device_name,
+        raw_ip_address=raw_ip_address,
+        raw_new_key=raw_new_key,
+        description=description,
+        device_groups=device_groups,
+    )
 
+
+def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
     db = object_session(run)
     if db is None:
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
@@ -164,166 +188,192 @@ async def execute(
     except ISEValidationError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
-    device_service = service_factory.build_ise_network_device_service(credentials)
+    return service_factory.build_ise_network_device_service(credentials)
 
-    logger.info(
-        "%s started run_id=%s node_id=%s devices=%d",
-        _STEP_ID,
-        context.run_id,
-        node_id,
-        len(context.devices),
+
+def _resolve_device_fields(
+    device: DeviceContext,
+    cfg: _ParsedConfig,
+    run_id: str | None,
+) -> _ResolvedFields | tuple[str, str]:
+    """Return resolved fields or ``(failure_code, failure_message)``."""
+    resolved_name = resolve_update_field_expression(
+        device=device,
+        field_key="device_name",
+        raw_value=cfg.raw_device_name,
+        run_id=run_id,
+    )
+    if not resolved_name:
+        return (
+            "device_name_unresolved",
+            (
+                f"device_name expression '{cfg.raw_device_name}' did not resolve to a "
+                f"value for '{device.name}'"
+            ),
+        )
+
+    resolved_ip = resolve_update_field_expression(
+        device=device,
+        field_key="ip_address",
+        raw_value=cfg.raw_ip_address,
+        run_id=run_id,
+    )
+    if not resolved_ip and "primary_ip4" in cfg.raw_ip_address:
+        resolved_ip = _effective_primary_ip4(device)
+
+    if not resolved_ip:
+        return (
+            "ip_address_unresolved",
+            (
+                f"ip_address expression '{cfg.raw_ip_address}' did not resolve to a "
+                f"value for '{device.name}' (device.primary_ip4={device.primary_ip4!r}, "
+                f"available attribute bags: {sorted(device.attribute_bags)})"
+            ),
+        )
+
+    ip_host = _extract_ip_host(resolved_ip)
+    if not ip_host:
+        return (
+            "ip_address_invalid",
+            (
+                f"ip_address resolved to '{resolved_ip}' for '{device.name}', which is "
+                "not a valid IP address"
+            ),
+        )
+
+    resolved_key = resolve_update_field_expression(
+        device=device,
+        field_key="new_key",
+        raw_value=cfg.raw_new_key,
+        run_id=run_id,
+    )
+    if not resolved_key:
+        return (
+            "tacacs_key_unresolved",
+            (
+                f"new_key expression '{cfg.raw_new_key}' did not resolve to a value for "
+                f"'{device.name}' (available attribute bags: {sorted(device.attribute_bags)})"
+            ),
+        )
+
+    return _ResolvedFields(name=resolved_name, ip_host=ip_host, key=resolved_key)
+
+
+def _build_create_payload(
+    resolved: _ResolvedFields,
+    *,
+    description: str,
+    device_groups: list[str],
+) -> dict[str, Any]:
+    device_payload: dict[str, Any] = {
+        "name": resolved.name,
+        "NetworkDeviceIPList": [{"ipaddress": resolved.ip_host, "mask": _HOST_MASK}],
+        "tacacsSettings": {"sharedSecret": resolved.key, "connectModeOptions": "OFF"},
+    }
+    if description:
+        device_payload["description"] = description
+    if device_groups:
+        device_payload["NetworkDeviceGroupList"] = device_groups
+    return device_payload
+
+
+def _enrich_device_after_create(
+    device: DeviceContext,
+    device_payload: dict[str, Any],
+    created: dict[str, Any],
+    resolved_key: str,
+) -> DeviceContext:
+    sealed_ise_payload = {
+        **device_payload,
+        "tacacsSettings": {
+            **device_payload["tacacsSettings"],
+            "sharedSecret": seal_secret(resolved_key),
+        },
+    }
+    attribute_bags = {
+        **device.attribute_bags,
+        "ise": {**sealed_ise_payload, "id": created.get("id"), "is_group_or_prefix": False},
+        "tacacs": {"shared_secret": seal_secret(resolved_key)},
+    }
+    return device.model_copy(
+        update={
+            "attribute_bags": attribute_bags,
+            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+        }
+    )
+
+
+async def _create_one_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    cfg: _ParsedConfig,
+    device_service: ISENetworkDeviceService,
+    source_id: str,
+    node_id: str,
+    context: WorkflowContext,
+) -> _CreateOneResult:
+    resolved = _resolve_device_fields(device, cfg, context.run_id)
+    if isinstance(resolved, tuple):
+        failure_code, failure_message = resolved
+        return _CreateOneResult(
+            kind="failed",
+            device=_mark_failed(
+                device,
+                node_id=node_id,
+                code=failure_code,
+                message=failure_message,
+            ),
+        )
+
+    device_payload = _build_create_payload(
+        resolved,
+        description=cfg.description,
+        device_groups=cfg.device_groups,
     )
 
     try:
-        await device_service.test_connection()
-    except ISEAPIError as exc:
-        logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, source_id, exc)
-        return [
-            StepOutcome(
-                name="failure",
-                context=context,
-                summary=f"could not reach ISE source '{source_id}': {exc}",
-            )
-        ]
-
-    updated_devices: dict[str, DeviceContext] = {}
-    created_count = 0
-    failed_count = 0
-
-    for device_id, device in context.devices.items():
-        resolved_name = resolve_update_field_expression(
-            device=device,
-            field_key="device_name",
-            raw_value=raw_device_name,
-            run_id=context.run_id,
-        )
-        if not resolved_name:
-            updated_devices[device_id] = _mark_failed(
-                device,
-                node_id=node_id,
-                code="device_name_unresolved",
-                message=(
-                    f"device_name expression '{raw_device_name}' did not resolve to a "
-                    f"value for '{device.name}'"
-                ),
-            )
-            failed_count += 1
-            continue
-
-        resolved_ip = resolve_update_field_expression(
-            device=device,
-            field_key="ip_address",
-            raw_value=raw_ip_address,
-            run_id=context.run_id,
-        )
-        if not resolved_ip and "primary_ip4" in raw_ip_address:
-            resolved_ip = _effective_primary_ip4(device)
-
-        if not resolved_ip:
-            updated_devices[device_id] = _mark_failed(
-                device,
-                node_id=node_id,
-                code="ip_address_unresolved",
-                message=(
-                    f"ip_address expression '{raw_ip_address}' did not resolve to a "
-                    f"value for '{device.name}' (device.primary_ip4={device.primary_ip4!r}, "
-                    f"available attribute bags: {sorted(device.attribute_bags)})"
-                ),
-            )
-            failed_count += 1
-            continue
-
-        ip_host = _extract_ip_host(resolved_ip)
-        if not ip_host:
-            updated_devices[device_id] = _mark_failed(
-                device,
-                node_id=node_id,
-                code="ip_address_invalid",
-                message=(
-                    f"ip_address resolved to '{resolved_ip}' for '{device.name}', which is "
-                    "not a valid IP address"
-                ),
-            )
-            failed_count += 1
-            continue
-
-        resolved_key = resolve_update_field_expression(
-            device=device,
-            field_key="new_key",
-            raw_value=raw_new_key,
-            run_id=context.run_id,
-        )
-        if not resolved_key:
-            updated_devices[device_id] = _mark_failed(
-                device,
-                node_id=node_id,
-                code="tacacs_key_unresolved",
-                message=(
-                    f"new_key expression '{raw_new_key}' did not resolve to a value for "
-                    f"'{device.name}' (available attribute bags: {sorted(device.attribute_bags)})"
-                ),
-            )
-            failed_count += 1
-            continue
-
-        device_payload: dict[str, Any] = {
-            "name": resolved_name,
-            "NetworkDeviceIPList": [{"ipaddress": ip_host, "mask": _HOST_MASK}],
-            "tacacsSettings": {"sharedSecret": resolved_key, "connectModeOptions": "OFF"},
-        }
-        if description:
-            device_payload["description"] = description
-        if device_groups:
-            device_payload["NetworkDeviceGroupList"] = device_groups
-
-        try:
-            created = await device_service.create_device(device_payload)
-        except ISEValidationError as exc:
-            updated_devices[device_id] = _mark_failed(
+        created = await device_service.create_device(device_payload)
+    except ISEValidationError as exc:
+        return _CreateOneResult(
+            kind="failed",
+            device=_mark_failed(
                 device,
                 node_id=node_id,
                 code="ise_device_create_rejected",
-                message=f"ISE rejected creating device '{resolved_name}': {exc}",
-            )
-            failed_count += 1
-            continue
-        except ISEAPIError as exc:
-            logger.warning(
-                "%s: lost connection to ISE source '%s' while creating device '%s': %s",
-                _STEP_ID,
-                source_id,
-                resolved_name,
-                exc,
-            )
-            return [
-                StepOutcome(
-                    name="failure",
-                    context=context,
-                    summary=f"lost connection to ISE source '{source_id}': {exc}",
-                )
-            ]
-
-        sealed_ise_payload = {
-            **device_payload,
-            "tacacsSettings": {
-                **device_payload["tacacsSettings"],
-                "sharedSecret": seal_secret(resolved_key),
-            },
-        }
-        attribute_bags = {
-            **device.attribute_bags,
-            "ise": {**sealed_ise_payload, "id": created.get("id"), "is_group_or_prefix": False},
-            "tacacs": {"shared_secret": seal_secret(resolved_key)},
-        }
-        updated_devices[device_id] = device.model_copy(
-            update={
-                "attribute_bags": attribute_bags,
-                "capabilities": device.capabilities | {Capability.ATTRIBUTES},
-            }
+                message=f"ISE rejected creating device '{resolved.name}': {exc}",
+            ),
         )
-        created_count += 1
-        logger.info("%s: created device=%s ise_id=%s", _STEP_ID, resolved_name, created.get("id"))
+    except ISEAPIError as exc:
+        logger.warning(
+            "%s: lost connection to ISE source '%s' while creating device '%s': %s",
+            _STEP_ID,
+            source_id,
+            resolved.name,
+            exc,
+        )
+        return _CreateOneResult(
+            kind="abort",
+            abort_outcome=StepOutcome(
+                name="failure",
+                context=context,
+                summary=f"lost connection to ISE source '{source_id}': {exc}",
+            ),
+        )
 
+    updated = _enrich_device_after_create(device, device_payload, created, resolved.key)
+    logger.info("%s: created device=%s ise_id=%s", _STEP_ID, resolved.name, created.get("id"))
+    return _CreateOneResult(kind="created", device=updated)
+
+
+def _build_success_outcome(
+    *,
+    context: WorkflowContext,
+    updated_devices: dict[str, DeviceContext],
+    node_id: str,
+    created_count: int,
+    failed_count: int,
+) -> StepOutcome:
     metadata = {
         **context.metadata,
         f"{node_id}.total": len(context.devices),
@@ -350,10 +400,85 @@ async def execute(
         context.run_id,
     )
 
+    return StepOutcome(
+        name="success",
+        context=context.model_copy(update={"devices": updated_devices, "metadata": metadata}),
+        summary=f"created {created_count}, failed {failed_count}",
+    )
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service  # unused for this step
+
+    parsed = _parse_config(config)
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    device_service = _build_ise_device_service(run, parsed.source_id)
+
+    logger.info(
+        "%s started run_id=%s node_id=%s devices=%d",
+        _STEP_ID,
+        context.run_id,
+        node_id,
+        len(context.devices),
+    )
+
+    try:
+        await device_service.test_connection()
+    except ISEAPIError as exc:
+        logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, parsed.source_id, exc)
+        return [
+            StepOutcome(
+                name="failure",
+                context=context,
+                summary=f"could not reach ISE source '{parsed.source_id}': {exc}",
+            )
+        ]
+
+    updated_devices: dict[str, DeviceContext] = {}
+    created_count = 0
+    failed_count = 0
+
+    for device_id, device in context.devices.items():
+        result = await _create_one_device(
+            device_id=device_id,
+            device=device,
+            cfg=parsed,
+            device_service=device_service,
+            source_id=parsed.source_id,
+            node_id=node_id,
+            context=context,
+        )
+
+        if result.kind == "abort":
+            assert result.abort_outcome is not None
+            return [result.abort_outcome]
+
+        assert result.device is not None
+        if result.kind == "failed":
+            updated_devices[device_id] = result.device
+            failed_count += 1
+            continue
+
+        updated_devices[device_id] = result.device
+        created_count += 1
+
     return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": updated_devices, "metadata": metadata}),
-            summary=f"created {created_count}, failed {failed_count}",
+        _build_success_outcome(
+            context=context,
+            updated_devices=updated_devices,
+            node_id=node_id,
+            created_count=created_count,
+            failed_count=failed_count,
         )
     ]

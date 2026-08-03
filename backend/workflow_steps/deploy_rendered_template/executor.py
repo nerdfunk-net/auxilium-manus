@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import object_session
@@ -27,9 +28,22 @@ from workflow_steps.common.credential_resolver import resolve_ssh_credential
 
 logger = logging.getLogger(__name__)
 
+_STEP_ID = "deploy-rendered-template"
 _EXECUTION_MODES = {"config_mode", "exec_mode"}
 _MIN_READ_TIMEOUT = 5
 _MAX_READ_TIMEOUT = 600
+
+
+@dataclass(frozen=True)
+class _ParsedDeployConfig:
+    credential_reference: str
+    source_step_node_id: str
+    parsed_output_key: str | None
+    network_driver_override: str | None
+    execution_mode: str
+    write_config_after_execution: bool
+    read_timeout: int
+    auto_confirm_prompts: bool
 
 
 def _default_config() -> dict[str, Any]:
@@ -81,278 +95,290 @@ def _parse_auto_confirm_prompts(config: dict[str, Any]) -> bool:
     return bool(value)
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
-    credential_reference = str(config.get("credential_reference") or "").strip()
+def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
     source_step_node_id = str(config.get("source_step_node_id") or "").strip()
-    parsed_output_key = str(config.get("parsed_output_key") or "").strip() or None
-    network_driver_override = str(config.get("network_driver_override") or "").strip() or None
-    execution_mode = _parse_execution_mode(config)
-    write_config_after_execution = _parse_write_config(config)
-    read_timeout = _parse_read_timeout(config)
-    auto_confirm_prompts = _parse_auto_confirm_prompts(config)
-
     if not source_step_node_id:
         raise ValueError("deploy-rendered-template: source_step_node_id is required")
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("deploy-rendered-template: WorkflowRun has no active DB session")
-
-    username, password = resolve_ssh_credential(
-        db, credential_reference, acting_user_id=run.triggered_by_id
-    )
-    netmiko = NetmikoService(pool=device_sessions)
-
-    logger.info(
-        "deploy-rendered-template started run_id=%s node_id=%s devices=%d credential=%s "
-        "source=%s mode=%s write_config=%s override=%s read_timeout=%d "
-        "auto_confirm_prompts=%s",
-        run.id,
-        node_id,
-        len(context.devices),
-        credential_reference,
-        source_step_node_id,
-        execution_mode,
-        write_config_after_execution,
-        network_driver_override,
-        read_timeout,
-        auto_confirm_prompts,
+    return _ParsedDeployConfig(
+        credential_reference=str(config.get("credential_reference") or "").strip(),
+        source_step_node_id=source_step_node_id,
+        parsed_output_key=str(config.get("parsed_output_key") or "").strip() or None,
+        network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
+        execution_mode=_parse_execution_mode(config),
+        write_config_after_execution=_parse_write_config(config),
+        read_timeout=_parse_read_timeout(config),
+        auto_confirm_prompts=_parse_auto_confirm_prompts(config),
     )
 
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
 
-    def _fail(
-        device: DeviceContext, device_id: str, code: str, message: str
-    ) -> tuple[str, DeviceContext, bool]:
-        err = DeviceError(
+def _fail_device(
+    *,
+    device: DeviceContext,
+    device_id: str,
+    node_id: str,
+    code: str,
+    message: str,
+) -> tuple[str, DeviceContext, bool]:
+    err = DeviceError(
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code=code,
+        message=message,
+    )
+    failed = device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+    return device_id, failed, False
+
+
+async def _deploy_on_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    run_id: Any,
+    context_run_id: str | None,
+    parsed: _ParsedDeployConfig,
+    username: str,
+    password: str,
+    netmiko: NetmikoService,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    host = bare_hostname(device.primary_ip4, device.hostname)
+    if not host:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
             node_id=node_id,
-            step_id="deploy-rendered-template",
-            code=code,
-            message=message,
+            code="missing_host",
+            message=f"Device {device_id} has no hostname or primary IP",
         )
-        failed = device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
-            }
+
+    items = list_exportable_content(
+        device,
+        content_source="rendered_template",
+        source_step_node_id=parsed.source_step_node_id,
+        parsed_output_key=parsed.parsed_output_key,
+    )
+    if not items:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code="rendered_template_missing",
+            message="No rendered template found for the configured source step",
         )
-        return device_id, failed, False
 
-    async def deploy_on_device(
-        device_id: str,
-        device: DeviceContext,
-    ) -> tuple[str, DeviceContext, bool]:
-        host = bare_hostname(device.primary_ip4, device.hostname)
-        if not host:
-            return _fail(
-                device,
-                device_id,
-                "missing_host",
-                f"Device {device_id} has no hostname or primary IP",
-            )
-
-        items = list_exportable_content(
-            device,
-            content_source="rendered_template",
-            source_step_node_id=source_step_node_id,
-            parsed_output_key=parsed_output_key,
+    rendered_text = await artifact_service.resolve(items[0].artifact_ref)
+    commands = [line for line in rendered_text.splitlines() if line.strip()]
+    if not commands:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code="empty_rendered_template",
+            message="Rendered template produced no commands",
         )
-        if not items:
-            return _fail(
-                device,
-                device_id,
-                "rendered_template_missing",
-                "No rendered template found for the configured source step",
-            )
 
-        rendered_text = await artifact_service.resolve(items[0].artifact_ref)
-        commands = [line for line in rendered_text.splitlines() if line.strip()]
-        if not commands:
-            return _fail(
-                device,
-                device_id,
-                "empty_rendered_template",
-                "Rendered template produced no commands",
-            )
+    device_type = resolve_connection_device_type(
+        network_driver=device.network_driver,
+        platform=device.platform,
+        override=parsed.network_driver_override,
+    )
 
-        device_type = resolve_connection_device_type(
+    try:
+        result = await netmiko.deploy_config(
+            host=host,
             network_driver=device.network_driver,
             platform=device.platform,
-            override=network_driver_override,
+            username=username,
+            password=password,
+            commands=commands,
+            mode=parsed.execution_mode,
+            write_config=parsed.write_config_after_execution,
+            device_type=device_type,
+            read_timeout=parsed.read_timeout,
+            auto_confirm_prompts=parsed.auto_confirm_prompts,
+            credential_reference=parsed.credential_reference,
         )
 
-        try:
-            result = await netmiko.deploy_config(
-                host=host,
-                network_driver=device.network_driver,
-                platform=device.platform,
-                username=username,
-                password=password,
-                commands=commands,
-                mode=execution_mode,
-                write_config=write_config_after_execution,
-                device_type=device_type,
-                read_timeout=read_timeout,
-                auto_confirm_prompts=auto_confirm_prompts,
-                credential_reference=credential_reference,
+        if result.confirmed_prompts:
+            logger.warning(
+                "deploy-rendered-template auto-confirmed %d prompt(s) run_id=%s "
+                "node_id=%s device_id=%s commands=%s",
+                len(result.confirmed_prompts),
+                run_id,
+                node_id,
+                device_id,
+                result.confirmed_prompts,
             )
 
-            if result.confirmed_prompts:
-                logger.warning(
-                    "deploy-rendered-template auto-confirmed %d prompt(s) run_id=%s "
-                    "node_id=%s device_id=%s commands=%s",
-                    len(result.confirmed_prompts),
-                    run.id,
-                    node_id,
-                    device_id,
-                    result.confirmed_prompts,
-                )
-
-            step_results: list[CommandResult] = []
-            output_ref = await artifact_service.store(
-                content=result.config_output,
-                kind="command_output",
+        step_results: list[CommandResult] = []
+        output_ref = await artifact_service.store(
+            content=result.config_output,
+            kind="command_output",
+            device_id=device_id,
+            run_id=context_run_id,
+        )
+        summary = f"{len(commands)} line(s) deployed ({parsed.execution_mode})"
+        if result.confirmed_prompts:
+            summary += (
+                f" · {len(result.confirmed_prompts)} confirmation prompt(s) auto-confirmed"
+            )
+        step_results.append(
+            CommandResult(
+                node_id=node_id,
+                command="deploy-rendered-template",
+                success=result.success,
+                output_ref=output_ref,
+                summary=summary,
+            )
+        )
+        if result.session_log:
+            session_log_ref = await artifact_service.store(
+                content=result.session_log,
+                kind="netmiko_session_log",
                 device_id=device_id,
-                run_id=context.run_id,
+                run_id=context_run_id,
             )
-            summary = f"{len(commands)} line(s) deployed ({execution_mode})"
-            if result.confirmed_prompts:
-                summary += (
-                    f" · {len(result.confirmed_prompts)} confirmation prompt(s) auto-confirmed"
-                )
             step_results.append(
                 CommandResult(
                     node_id=node_id,
-                    command="deploy-rendered-template",
-                    success=result.success,
-                    output_ref=output_ref,
-                    summary=summary,
+                    command="netmiko-session-log",
+                    success=False,
+                    output_ref=session_log_ref,
+                    summary=(
+                        "Raw Netmiko session log captured up to the failure — inspect "
+                        "for confirmation prompts or unexpected CLI output that stalled "
+                        "pattern detection"
+                    ),
                 )
             )
-            if result.session_log:
-                session_log_ref = await artifact_service.store(
-                    content=result.session_log,
-                    kind="netmiko_session_log",
-                    device_id=device_id,
-                    run_id=context.run_id,
-                )
-                step_results.append(
-                    CommandResult(
-                        node_id=node_id,
-                        command="netmiko-session-log",
-                        success=False,
-                        output_ref=session_log_ref,
-                        summary=(
-                            "Raw Netmiko session log captured up to the failure — inspect "
-                            "for confirmation prompts or unexpected CLI output that stalled "
-                            "pattern detection"
-                        ),
-                    )
-                )
-            if result.save_output is not None:
-                save_ref = await artifact_service.store(
-                    content=result.save_output,
-                    kind="command_output",
-                    device_id=device_id,
-                    run_id=context.run_id,
-                )
-                step_results.append(
-                    CommandResult(
-                        node_id=node_id,
-                        command="copy running-config startup-config",
-                        success=True,
-                        output_ref=save_ref,
-                        summary="running-config saved to startup-config",
-                    )
-                )
-
-            updated_command_results = dict(device.command_results)
-            updated_command_results[node_id] = step_results
-
-            if not result.success:
-                err = DeviceError(
+        if result.save_output is not None:
+            save_ref = await artifact_service.store(
+                content=result.save_output,
+                kind="command_output",
+                device_id=device_id,
+                run_id=context_run_id,
+            )
+            step_results.append(
+                CommandResult(
                     node_id=node_id,
-                    step_id="deploy-rendered-template",
-                    code="deploy_failed",
-                    message=result.error or "Deploying rendered template failed",
+                    command="copy running-config startup-config",
+                    success=True,
+                    output_ref=save_ref,
+                    summary="running-config saved to startup-config",
                 )
-                failed = device.model_copy(
-                    update={
-                        "status": DeviceStatus.FAILED,
-                        "errors": [*device.errors, err],
-                        "command_results": updated_command_results,
-                    }
-                )
-                return device_id, failed, False
+            )
 
-            enriched = device.model_copy(
+        updated_command_results = dict(device.command_results)
+        updated_command_results[node_id] = step_results
+
+        if not result.success:
+            err = DeviceError(
+                node_id=node_id,
+                step_id=_STEP_ID,
+                code="deploy_failed",
+                message=result.error or "Deploying rendered template failed",
+            )
+            failed = device.model_copy(
                 update={
-                    "status": DeviceStatus.OK,
+                    "status": DeviceStatus.FAILED,
+                    "errors": [*device.errors, err],
                     "command_results": updated_command_results,
                 }
             )
-            return device_id, enriched, True
-        except Exception as exc:
-            return _fail(device, device_id, type(exc).__name__.lower(), str(exc))
+            return device_id, failed, False
 
-    async def deploy_on_device_logged(
-        index: int, device_id: str, device: DeviceContext
-    ) -> tuple[str, DeviceContext, bool]:
-        host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-        total = len(context.devices)
-        logger.info(
-            "deploy-rendered-template device %d/%d id=%s host=%s: connecting run_id=%s",
-            index,
-            total,
-            device_id,
-            host,
-            run.id,
+        enriched = device.model_copy(
+            update={
+                "status": DeviceStatus.OK,
+                "command_results": updated_command_results,
+            }
         )
-        result = await deploy_on_device(device_id, device)
-        _, _, ok = result
-        logger.info(
-            "deploy-rendered-template device %d/%d id=%s host=%s: %s run_id=%s",
-            index,
-            total,
-            device_id,
-            host,
-            "ok" if ok else "failed",
-            run.id,
+        return device_id, enriched, True
+    except Exception as exc:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code=type(exc).__name__.lower(),
+            message=str(exc),
         )
-        return result
 
-    results = await asyncio.gather(
-        *[
-            deploy_on_device_logged(index, device_id, device)
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
+
+async def _deploy_on_device_logged(
+    *,
+    index: int,
+    device_id: str,
+    device: DeviceContext,
+    total: int,
+    run_id: Any,
+    node_id: str,
+    context_run_id: str | None,
+    parsed: _ParsedDeployConfig,
+    username: str,
+    password: str,
+    netmiko: NetmikoService,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
+    logger.info(
+        "deploy-rendered-template device %d/%d id=%s host=%s: connecting run_id=%s",
+        index,
+        total,
+        device_id,
+        host,
+        run_id,
     )
+    result = await _deploy_on_device(
+        device_id=device_id,
+        device=device,
+        node_id=node_id,
+        run_id=run_id,
+        context_run_id=context_run_id,
+        parsed=parsed,
+        username=username,
+        password=password,
+        netmiko=netmiko,
+        artifact_service=artifact_service,
+    )
+    _, _, ok = result
+    logger.info(
+        "deploy-rendered-template device %d/%d id=%s host=%s: %s run_id=%s",
+        index,
+        total,
+        device_id,
+        host,
+        "ok" if ok else "failed",
+        run_id,
+    )
+    return result
 
+
+def _partition_device_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
     for device_id, updated_device, ok in results:
         if ok:
             success_devices[device_id] = updated_device
         else:
             failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
 
-    logger.info(
-        "deploy-rendered-template finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
-        run.id,
-    )
 
+def _build_deploy_outcomes(
+    *,
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
     outcomes = [
         StepOutcome(
             name="success",
@@ -369,3 +395,79 @@ async def execute(
             )
         )
     return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    parsed = _parse_deploy_config(config)
+
+    db = object_session(run)
+    if db is None:
+        raise RuntimeError("deploy-rendered-template: WorkflowRun has no active DB session")
+
+    username, password = resolve_ssh_credential(
+        db, parsed.credential_reference, acting_user_id=run.triggered_by_id
+    )
+    netmiko = NetmikoService(pool=device_sessions)
+    total = len(context.devices)
+
+    logger.info(
+        "deploy-rendered-template started run_id=%s node_id=%s devices=%d credential=%s "
+        "source=%s mode=%s write_config=%s override=%s read_timeout=%d "
+        "auto_confirm_prompts=%s",
+        run.id,
+        node_id,
+        total,
+        parsed.credential_reference,
+        parsed.source_step_node_id,
+        parsed.execution_mode,
+        parsed.write_config_after_execution,
+        parsed.network_driver_override,
+        parsed.read_timeout,
+        parsed.auto_confirm_prompts,
+    )
+
+    results = await asyncio.gather(
+        *[
+            _deploy_on_device_logged(
+                index=index,
+                device_id=device_id,
+                device=device,
+                total=total,
+                run_id=run.id,
+                node_id=node_id,
+                context_run_id=context.run_id,
+                parsed=parsed,
+                username=username,
+                password=password,
+                netmiko=netmiko,
+                artifact_service=artifact_service,
+            )
+            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
+        ]
+    )
+
+    success_devices, failed_devices = _partition_device_results(results)
+
+    logger.info(
+        "deploy-rendered-template finished success=%d failure=%d run_id=%s",
+        len(success_devices),
+        len(failed_devices),
+        run.id,
+    )
+
+    return _build_deploy_outcomes(
+        context=context,
+        success_devices=success_devices,
+        failed_devices=failed_devices,
+    )

@@ -16,6 +16,220 @@ from services.git.shared_utils import get_git_repo_by_id, git_repo_manager
 logger = logging.getLogger(__name__)
 
 
+def _debug_result(success: bool, message: str, **details: Any) -> dict[str, Any]:
+    return {"success": success, "message": message, "details": details}
+
+
+def _require_push_auth(
+    repository: dict[str, Any],
+    username: str | None,
+    token: str | None,
+    ssh_key_path: str | None,
+) -> dict[str, Any] | None:
+    auth_type = repository.get("auth_type", "token")
+    has_token_auth = bool(username and token)
+    has_ssh_auth = bool(ssh_key_path)
+
+    if auth_type == "ssh_key" and not has_ssh_auth:
+        return _debug_result(
+            False,
+            "SSH key authentication configured but no SSH key found",
+            error="Push requires SSH key credential",
+            error_type="AuthenticationRequired",
+            suggestion=(
+                "Configure an SSH key credential for this repository"
+                " to enable push operations"
+            ),
+        )
+    if auth_type == "token" and not has_token_auth:
+        return _debug_result(
+            False,
+            "No credentials configured for push",
+            error="Push requires authentication credentials",
+            error_type="AuthenticationRequired",
+            suggestion=(
+                "Configure a token credential for this repository to enable push operations"
+            ),
+        )
+    if auth_type == "none":
+        return _debug_result(
+            False,
+            "Authentication is disabled for this repository",
+            error="Push requires authentication",
+            error_type="AuthenticationRequired",
+            suggestion=(
+                "Set authentication type to 'Token' or 'SSH Key' to enable push operations"
+            ),
+        )
+    return None
+
+
+def _stage_debug_sentinel(
+    repo: Any,
+    test_file_path: Path,
+    repository: dict[str, Any],
+) -> dict[str, Any] | None:
+    test_content = (
+        f"Cockpit Debug Push Test\n"
+        f"Timestamp: {datetime.now(UTC).isoformat()}\n"
+        f"Repository: {repository['name']}\n"
+    )
+    test_file_path.write_text(test_content)
+
+    try:
+        repo.index.add([".cockpit_debug_test.txt"])
+    except Exception as add_error:
+        return _debug_result(
+            False,
+            f"Failed to stage file: {str(add_error)}",
+            error=str(add_error),
+            error_type=type(add_error).__name__,
+            stage="git_add",
+        )
+    return None
+
+
+def _commit_debug_change(
+    repo: Any,
+    repository: dict[str, Any],
+) -> tuple[str, str] | dict[str, Any]:
+    try:
+        commit_message = f"Debug push test - {datetime.now(UTC).isoformat()}"
+        with set_git_author(repository, repo):
+            commit = repo.index.commit(commit_message)
+        return commit.hexsha[:8], commit_message
+    except Exception as commit_error:
+        if "nothing to commit" in str(commit_error).lower():
+            return _debug_result(
+                False,
+                "No changes to push (test file unchanged)",
+                error=str(commit_error),
+                error_type="NoChanges",
+                suggestion=(
+                    "The test file already exists with the same content."
+                    " Use Write test first."
+                ),
+            )
+        return _debug_result(
+            False,
+            f"Failed to commit changes: {str(commit_error)}",
+            error=str(commit_error),
+            error_type=type(commit_error).__name__,
+            stage="git_commit",
+        )
+
+
+def _push_error_suggestion(error_message: str) -> str:
+    if "permission denied" in error_message.lower() or "403" in error_message:
+        return (
+            "Authentication failed or insufficient permissions."
+            " Check that the token has write access."
+        )
+    if "could not resolve host" in error_message.lower():
+        return (
+            "Network error: Cannot reach remote repository."
+            " Check network connectivity."
+        )
+    if "authentication failed" in error_message.lower():
+        return "Credentials are invalid. Update the token in credential settings."
+    return "Check repository configuration and network connectivity"
+
+
+def _restore_origin_url(origin: Any, original_url: str | None, auth_type: str) -> None:
+    if auth_type != "ssh_key" and original_url:
+        try:
+            origin.set_url(original_url)
+        except Exception:
+            pass
+
+
+def _push_debug_commit(
+    *,
+    repo: Any,
+    repository: dict[str, Any],
+    auth_type: str,
+    commit_sha: str,
+    commit_message: str,
+    test_file_path: Path,
+    git_auth_service: Any,
+) -> dict[str, Any]:
+    try:
+        origin = repo.remote("origin")
+        original_url = list(origin.urls)[0]
+
+        with set_ssl_env(repository):
+            with git_auth_service.setup_auth_environment(repository) as (
+                auth_url,
+                _username,
+                _token,
+                _ssh_key_path,
+            ):
+                if auth_type != "ssh_key":
+                    origin.set_url(auth_url)
+
+                try:
+                    push_info = origin.push(
+                        refspec=f"{repository['branch']}:{repository['branch']}"
+                    )
+
+                    _restore_origin_url(origin, original_url, auth_type)
+
+                    if push_info and len(push_info) > 0:
+                        push_result = push_info[0]
+                        if push_result.flags & push_result.ERROR:
+                            return _debug_result(
+                                False,
+                                f"Push failed: {push_result.summary}",
+                                error=push_result.summary,
+                                error_type="PushError",
+                                commit_sha=commit_sha,
+                                suggestion=(
+                                    "Check repository permissions and credentials"
+                                ),
+                            )
+                        return _debug_result(
+                            True,
+                            "Push test successful - changes pushed to remote",
+                            commit_sha=commit_sha,
+                            commit_message=commit_message,
+                            branch=repository["branch"],
+                            remote="origin",
+                            file_path=str(test_file_path),
+                            push_summary=push_result.summary,
+                            verified=True,
+                        )
+                    return _debug_result(
+                        False,
+                        "Push completed but no feedback received",
+                        error="No push info returned",
+                        error_type="UnknownPushResult",
+                        commit_sha=commit_sha,
+                    )
+
+                except Exception as push_error:
+                    _restore_origin_url(origin, original_url, auth_type)
+
+                    error_message = str(push_error)
+                    return _debug_result(
+                        False,
+                        f"Failed to push: {error_message}",
+                        error=error_message,
+                        error_type=type(push_error).__name__,
+                        stage="git_push",
+                        commit_sha=commit_sha,
+                        suggestion=_push_error_suggestion(error_message),
+                    )
+
+    except Exception as remote_error:
+        return _debug_result(
+            False,
+            f"Failed to configure remote: {str(remote_error)}",
+            error=str(remote_error),
+            error_type=type(remote_error).__name__,
+            stage="configure_remote",
+        )
+
+
 class GitDebugService:
     """Encapsulates all debug/diagnostic operations for a git repository."""
 
@@ -251,237 +465,48 @@ class GitDebugService:
 
         username, token, ssh_key_path = git_auth_service.resolve_credentials(repository)
         auth_type = repository.get("auth_type", "token")
-        has_token_auth = bool(username and token)
-        has_ssh_auth = bool(ssh_key_path)
 
-        if auth_type == "ssh_key" and not has_ssh_auth:
-            return {
-                "success": False,
-                "message": "SSH key authentication configured but no SSH key found",
-                "details": {
-                    "error": "Push requires SSH key credential",
-                    "error_type": "AuthenticationRequired",
-                    "suggestion": (
-                        "Configure an SSH key credential for this repository"
-                        " to enable push operations"
-                    ),
-                },
-            }
-        elif auth_type == "token" and not has_token_auth:
-            return {
-                "success": False,
-                "message": "No credentials configured for push",
-                "details": {
-                    "error": "Push requires authentication credentials",
-                    "error_type": "AuthenticationRequired",
-                    "suggestion": (
-                        "Configure a token credential for this repository to enable push operations"
-                    ),
-                },
-            }
-        elif auth_type == "none":
-            return {
-                "success": False,
-                "message": "Authentication is disabled for this repository",
-                "details": {
-                    "error": "Push requires authentication",
-                    "error_type": "AuthenticationRequired",
-                    "suggestion": (
-                        "Set authentication type to 'Token' or 'SSH Key' to enable push operations"
-                    ),
-                },
-            }
+        auth_error = _require_push_auth(repository, username, token, ssh_key_path)
+        if auth_error is not None:
+            return auth_error
 
         try:
-            test_content = (
-                f"Cockpit Debug Push Test\n"
-                f"Timestamp: {datetime.now(UTC).isoformat()}\n"
-                f"Repository: {repository['name']}\n"
+            stage_error = _stage_debug_sentinel(repo, test_file_path, repository)
+            if stage_error is not None:
+                return stage_error
+
+            commit_result = _commit_debug_change(repo, repository)
+            if isinstance(commit_result, dict):
+                return commit_result
+            commit_sha, commit_message = commit_result
+
+            return _push_debug_commit(
+                repo=repo,
+                repository=repository,
+                auth_type=auth_type,
+                commit_sha=commit_sha,
+                commit_message=commit_message,
+                test_file_path=test_file_path,
+                git_auth_service=git_auth_service,
             )
-            test_file_path.write_text(test_content)
-
-            try:
-                repo.index.add([".cockpit_debug_test.txt"])
-            except Exception as add_error:
-                return {
-                    "success": False,
-                    "message": f"Failed to stage file: {str(add_error)}",
-                    "details": {
-                        "error": str(add_error),
-                        "error_type": type(add_error).__name__,
-                        "stage": "git_add",
-                    },
-                }
-
-            commit_sha = None
-            try:
-                commit_message = f"Debug push test - {datetime.now(UTC).isoformat()}"
-                with set_git_author(repository, repo):
-                    commit = repo.index.commit(commit_message)
-                commit_sha = commit.hexsha[:8]
-            except Exception as commit_error:
-                if "nothing to commit" in str(commit_error).lower():
-                    return {
-                        "success": False,
-                        "message": "No changes to push (test file unchanged)",
-                        "details": {
-                            "error": str(commit_error),
-                            "error_type": "NoChanges",
-                            "suggestion": (
-                                "The test file already exists with the same content."
-                                " Use Write test first."
-                            ),
-                        },
-                    }
-                return {
-                    "success": False,
-                    "message": f"Failed to commit changes: {str(commit_error)}",
-                    "details": {
-                        "error": str(commit_error),
-                        "error_type": type(commit_error).__name__,
-                        "stage": "git_commit",
-                    },
-                }
-
-            original_url = None
-            try:
-                origin = repo.remote("origin")
-                original_url = list(origin.urls)[0]
-
-                with set_ssl_env(repository):
-                    with git_auth_service.setup_auth_environment(repository) as (
-                        auth_url,
-                        _username,
-                        _token,
-                        _ssh_key_path,
-                    ):
-                        if auth_type != "ssh_key":
-                            origin.set_url(auth_url)
-
-                        try:
-                            push_info = origin.push(
-                                refspec=f"{repository['branch']}:{repository['branch']}"
-                            )
-
-                            if auth_type != "ssh_key" and original_url:
-                                try:
-                                    origin.set_url(original_url)
-                                except Exception:
-                                    pass
-
-                            if push_info and len(push_info) > 0:
-                                push_result = push_info[0]
-                                if push_result.flags & push_result.ERROR:
-                                    return {
-                                        "success": False,
-                                        "message": f"Push failed: {push_result.summary}",
-                                        "details": {
-                                            "error": push_result.summary,
-                                            "error_type": "PushError",
-                                            "commit_sha": commit_sha,
-                                            "suggestion": (
-                                                "Check repository permissions and credentials"
-                                            ),
-                                        },
-                                    }
-                                return {
-                                    "success": True,
-                                    "message": "Push test successful - changes pushed to remote",
-                                    "details": {
-                                        "commit_sha": commit_sha,
-                                        "commit_message": commit_message,
-                                        "branch": repository["branch"],
-                                        "remote": "origin",
-                                        "file_path": str(test_file_path),
-                                        "push_summary": push_result.summary,
-                                        "verified": True,
-                                    },
-                                }
-                            return {
-                                "success": False,
-                                "message": "Push completed but no feedback received",
-                                "details": {
-                                    "error": "No push info returned",
-                                    "error_type": "UnknownPushResult",
-                                    "commit_sha": commit_sha,
-                                },
-                            }
-
-                        except Exception as push_error:
-                            if auth_type != "ssh_key" and original_url:
-                                try:
-                                    origin.set_url(original_url)
-                                except Exception:
-                                    pass
-
-                            error_message = str(push_error)
-                            if (
-                                "permission denied" in error_message.lower()
-                                or "403" in error_message
-                            ):
-                                suggestion = (
-                                    "Authentication failed or insufficient permissions."
-                                    " Check that the token has write access."
-                                )
-                            elif "could not resolve host" in error_message.lower():
-                                suggestion = (
-                                    "Network error: Cannot reach remote repository."
-                                    " Check network connectivity."
-                                )
-                            elif "authentication failed" in error_message.lower():
-                                suggestion = (
-                                    "Credentials are invalid."
-                                    " Update the token in credential settings."
-                                )
-                            else:
-                                suggestion = (
-                                    "Check repository configuration and network connectivity"
-                                )
-
-                            return {
-                                "success": False,
-                                "message": f"Failed to push: {error_message}",
-                                "details": {
-                                    "error": error_message,
-                                    "error_type": type(push_error).__name__,
-                                    "stage": "git_push",
-                                    "commit_sha": commit_sha,
-                                    "suggestion": suggestion,
-                                },
-                            }
-
-            except Exception as remote_error:
-                return {
-                    "success": False,
-                    "message": f"Failed to configure remote: {str(remote_error)}",
-                    "details": {
-                        "error": str(remote_error),
-                        "error_type": type(remote_error).__name__,
-                        "stage": "configure_remote",
-                    },
-                }
 
         except PermissionError as e:
-            return {
-                "success": False,
-                "message": "Permission denied for file operations",
-                "details": {
-                    "error": str(e),
-                    "file_path": str(test_file_path),
-                    "error_type": "PermissionError",
-                    "suggestion": "Check file system permissions for the repository directory",
-                },
-            }
+            return _debug_result(
+                False,
+                "Permission denied for file operations",
+                error=str(e),
+                file_path=str(test_file_path),
+                error_type="PermissionError",
+                suggestion="Check file system permissions for the repository directory",
+            )
         except Exception as e:
-            return {
-                "success": False,
-                "message": f"Unexpected error during push test: {str(e)}",
-                "details": {
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "file_path": str(test_file_path),
-                },
-            }
+            return _debug_result(
+                False,
+                f"Unexpected error during push test: {str(e)}",
+                error=str(e),
+                error_type=type(e).__name__,
+                file_path=str(test_file_path),
+            )
 
     def get_diagnostics(self, repo_id: int, git_auth_service) -> dict[str, Any]:
         """Return comprehensive diagnostic information for the repository."""

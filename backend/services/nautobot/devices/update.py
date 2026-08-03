@@ -46,6 +46,198 @@ class DeviceUpdateService:
         self.common = DeviceCommonService(nautobot_service)
         self.interface_manager = InterfaceManagerService(nautobot_service)
 
+    def _empty_update_result(
+        self,
+        *,
+        device_id: str,
+        device_name: str,
+        details: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "success": True,
+            "device_id": device_id,
+            "device_name": device_name,
+            "message": f"Device '{device_name}' - no fields to update and no interfaces",
+            "updated_fields": [],
+            "warnings": ["No fields to update and no interfaces"],
+            "details": details,
+        }
+
+    async def _apply_interface_updates(
+        self,
+        *,
+        device_id: str,
+        interfaces: list[dict[str, Any]],
+        add_prefix: bool,
+        sync_interfaces: bool,
+        warnings: list[str],
+    ) -> tuple[int, int, int]:
+        logger.info("Step 3.5: Creating/updating %s interface(s)", len(interfaces))
+        logger.info("Prefix auto-creation enabled: %s", add_prefix)
+        interface_result = await self.interface_manager.update_device_interfaces(
+            device_id=device_id,
+            interfaces=interfaces,
+            add_prefixes_automatically=add_prefix,
+            sync_interfaces=sync_interfaces,
+        )
+        warnings.extend(interface_result.warnings)
+        logger.info(
+            "Interface update complete: %s created, %s updated, %s failed",
+            interface_result.interfaces_created,
+            interface_result.interfaces_updated,
+            interface_result.interfaces_failed,
+        )
+        return (
+            interface_result.interfaces_created,
+            interface_result.interfaces_updated,
+            interface_result.interfaces_failed,
+        )
+
+    def _compute_field_changes(
+        self,
+        before: dict[str, Any],
+        after: dict[str, Any],
+        updated_fields: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        return {
+            field: {
+                "from": before.get(field),
+                "to": after.get(field),
+            }
+            for field in updated_fields
+        }
+
+    async def _collect_verification_warnings(
+        self,
+        *,
+        device_id: str,
+        validated_data: dict[str, Any],
+        after_state: dict[str, Any],
+        warnings: list[str],
+    ) -> None:
+        logger.info("Step 4: Verifying updates")
+        verification_passed, mismatches = await self.common.verify_device_updates(
+            device_id, validated_data, after_state
+        )
+
+        if not verification_passed:
+            warnings.append("Some updates may not have been applied correctly")
+            for mismatch in mismatches:
+                warnings.append(
+                    f"{mismatch['field']}: expected {mismatch['expected']}, "
+                    f"got {mismatch['actual']}"
+                )
+
+    def _success_update_result(
+        self,
+        *,
+        device_id: str,
+        device_name: str,
+        updated_fields: list[str],
+        warnings: list[str],
+        interfaces_created: int,
+        interfaces_updated: int,
+        interfaces_failed: int,
+        details: dict[str, Any],
+    ) -> dict[str, Any]:
+        success_message = f"Device '{device_name}' updated successfully"
+        if interfaces_created > 0 or interfaces_updated > 0:
+            success_message += (
+                f" ({interfaces_created} interface(s) created, {interfaces_updated} updated)"
+            )
+
+        return {
+            "success": True,
+            "device_id": device_id,
+            "device_name": device_name,
+            "message": success_message,
+            "updated_fields": updated_fields,
+            "warnings": warnings,
+            "interfaces_created": interfaces_created,
+            "interfaces_updated": interfaces_updated,
+            "interfaces_failed": interfaces_failed,
+            "details": details,
+        }
+
+    async def _resolve_device_for_update(
+        self,
+        device_identifier: dict[str, Any],
+        *,
+        matching_strategy: str,
+        create_if_missing: bool,
+    ) -> tuple[str, str]:
+        logger.info("Step 1: Resolving device ID")
+        device_id, device_name = await self._resolve_device_id(
+            device_identifier, matching_strategy=matching_strategy
+        )
+        if device_id:
+            return device_id, device_name or ""
+        if create_if_missing:
+            # TODO: Call DeviceImportService to create device
+            raise ValueError("Device not found and create_if_missing not yet implemented")
+        raise ValueError(f"Device not found with identifier: {device_identifier}")
+
+    async def _apply_property_updates(
+        self,
+        *,
+        device_id: str,
+        device_name: str,
+        validated_data: dict[str, Any],
+        interface_config: dict[str, str] | None,
+        ip_namespace: str | None,
+        current_primary_ip4: str | None,
+    ) -> list[str]:
+        if not validated_data:
+            logger.info("Step 3: Skipping device property updates (no fields to update)")
+            return []
+        logger.info(
+            "Step 3: Updating device %s with %s field(s)",
+            device_name,
+            len(validated_data),
+        )
+        return await self._update_device_properties(
+            device_id=device_id,
+            validated_data=validated_data,
+            interface_config=interface_config,
+            ip_namespace=ip_namespace,
+            device_name=device_name,
+            current_primary_ip4=current_primary_ip4,
+        )
+
+    async def _finalize_device_update(
+        self,
+        *,
+        device_id: str,
+        device_name: str,
+        validated_data: dict[str, Any],
+        updated_fields: list[str],
+        warnings: list[str],
+        interfaces_created: int,
+        interfaces_updated: int,
+        interfaces_failed: int,
+        details: dict[str, Any],
+    ) -> dict[str, Any]:
+        details["after"] = await self.common.get_device_details(device_id=device_id, depth=0)
+        details["changes"] = self._compute_field_changes(
+            details["before"], details["after"], updated_fields
+        )
+        await self._collect_verification_warnings(
+            device_id=device_id,
+            validated_data=validated_data,
+            after_state=details["after"],
+            warnings=warnings,
+        )
+        return self._success_update_result(
+            device_id=device_id,
+            device_name=device_name,
+            updated_fields=updated_fields,
+            warnings=warnings,
+            interfaces_created=interfaces_created,
+            interfaces_updated=interfaces_updated,
+            interfaces_failed=interfaces_failed,
+            details=details,
+        )
+
     async def update_device(
         self,
         device_identifier: dict[str, Any],
@@ -136,155 +328,66 @@ class DeviceUpdateService:
             Exception: If update fails for any other reason
         """
         logger.info("Starting device update for: %s", device_identifier)
-
-        warnings = []
-        details = {
-            "before": None,
-            "after": None,
-            "changes": {},
-        }
-
+        warnings: list[str] = []
+        details: dict[str, Any] = {"before": None, "after": None, "changes": {}}
         try:
-            # Step 1: Resolve device ID
-            logger.info("Step 1: Resolving device ID")
-            device_id, device_name = await self._resolve_device_id(
-                device_identifier, matching_strategy=matching_strategy
+            device_id, device_name = await self._resolve_device_for_update(
+                device_identifier,
+                matching_strategy=matching_strategy,
+                create_if_missing=create_if_missing,
             )
-
-            if not device_id:
-                if create_if_missing:
-                    # TODO: Call DeviceImportService to create device
-                    # For now, raise error
-                    raise ValueError("Device not found and create_if_missing not yet implemented")
-                else:
-                    raise ValueError(f"Device not found with identifier: {device_identifier}")
-
-            # Get device state before update (with depth=1 to get full primary_ip4 object)
             details["before"] = await self.common.get_device_details(device_id=device_id, depth=1)
-
-            # Extract current primary_ip4 for updating existing interface
             current_primary_ip4 = await self.common.extract_primary_ip_address(details["before"])
 
-            # Step 2: Validate and resolve update data
             logger.info("Step 2: Validating and resolving update data")
             validated_data, ip_namespace = await self.validate_update_data(
                 device_id, update_data, interface_config, rack_location=rack_location
             )
-
-            # Only return early if BOTH validated_data AND interfaces are empty
             if not validated_data and not interfaces:
                 logger.info("No fields to update and no interfaces for device %s", device_name)
-                return {
-                    "success": True,
-                    "device_id": device_id,
-                    "device_name": device_name,
-                    "message": f"Device '{device_name}' - no fields to update and no interfaces",
-                    "updated_fields": [],
-                    "warnings": ["No fields to update and no interfaces"],
-                    "details": details,
-                }
-
-            # Log what we're going to process
+                return self._empty_update_result(
+                    device_id=device_id, device_name=device_name, details=details
+                )
             if not validated_data and interfaces:
                 logger.info(
                     "No device fields to update, but processing %s interface(s)",
                     len(interfaces),
                 )
 
-            # Step 3: Update device properties (if any)
-            updated_fields = []
-            if validated_data:
-                logger.info(
-                    "Step 3: Updating device %s with %s field(s)",
-                    device_name,
-                    len(validated_data),
-                )
-                updated_fields = await self._update_device_properties(
-                    device_id=device_id,
-                    validated_data=validated_data,
-                    interface_config=interface_config,
-                    ip_namespace=ip_namespace,
-                    device_name=device_name,
-                    current_primary_ip4=current_primary_ip4,
-                )
-            else:
-                logger.info("Step 3: Skipping device property updates (no fields to update)")
-
-            # Step 3.5: Create/update interfaces if provided
-            interfaces_created = 0
-            interfaces_updated = 0
-            interfaces_failed = 0
-            if interfaces:
-                logger.info("Step 3.5: Creating/updating %s interface(s)", len(interfaces))
-                logger.info("Prefix auto-creation enabled: %s", add_prefix)
-                interface_result = await self.interface_manager.update_device_interfaces(
-                    device_id=device_id,
-                    interfaces=interfaces,
-                    add_prefixes_automatically=add_prefix,
-                    sync_interfaces=sync_interfaces,
-                )
-                interfaces_created = interface_result.interfaces_created
-                interfaces_updated = interface_result.interfaces_updated
-                interfaces_failed = interface_result.interfaces_failed
-                warnings.extend(interface_result.warnings)
-                logger.info(
-                    "Interface update complete: %s created, %s updated, %s failed",
-                    interfaces_created,
-                    interfaces_updated,
-                    interfaces_failed,
-                )
-
-            # Get device state after update
-            details["after"] = await self.common.get_device_details(device_id=device_id, depth=0)
-
-            # Track changes
-            details["changes"] = {
-                field: {
-                    "from": details["before"].get(field),
-                    "to": details["after"].get(field),
-                }
-                for field in updated_fields
-            }
-
-            # Step 4: Verify updates (optional)
-            logger.info("Step 4: Verifying updates")
-            verification_passed, mismatches = await self.common.verify_device_updates(
-                device_id, validated_data, details["after"]
+            updated_fields = await self._apply_property_updates(
+                device_id=device_id,
+                device_name=device_name,
+                validated_data=validated_data,
+                interface_config=interface_config,
+                ip_namespace=ip_namespace,
+                current_primary_ip4=current_primary_ip4,
             )
-
-            if not verification_passed:
-                warnings.append("Some updates may not have been applied correctly")
-                # Add detailed mismatch info to warnings
-                for mismatch in mismatches:
-                    warnings.append(
-                        f"{mismatch['field']}: expected {mismatch['expected']}, "
-                        f"got {mismatch['actual']}"
+            interfaces_created = interfaces_updated = interfaces_failed = 0
+            if interfaces:
+                interfaces_created, interfaces_updated, interfaces_failed = (
+                    await self._apply_interface_updates(
+                        device_id=device_id,
+                        interfaces=interfaces,
+                        add_prefix=add_prefix,
+                        sync_interfaces=sync_interfaces,
+                        warnings=warnings,
                     )
-
-            # Success!
-            success_message = f"Device '{device_name}' updated successfully"
-            if interfaces_created > 0 or interfaces_updated > 0:
-                success_message += (
-                    f" ({interfaces_created} interface(s) created, {interfaces_updated} updated)"
                 )
-
-            return {
-                "success": True,
-                "device_id": device_id,
-                "device_name": device_name,
-                "message": success_message,
-                "updated_fields": updated_fields,
-                "warnings": warnings,
-                "interfaces_created": interfaces_created,
-                "interfaces_updated": interfaces_updated,
-                "interfaces_failed": interfaces_failed,
-                "details": details,
-            }
-
+            return await self._finalize_device_update(
+                device_id=device_id,
+                device_name=device_name,
+                validated_data=validated_data,
+                updated_fields=updated_fields,
+                warnings=warnings,
+                interfaces_created=interfaces_created,
+                interfaces_updated=interfaces_updated,
+                interfaces_failed=interfaces_failed,
+                details=details,
+            )
         except Exception as e:
-            error_msg = f"Failed to update device {device_identifier}: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            # Re-raise exception - let caller handle HTTP response conversion
+            logger.error(
+                "Failed to update device %s: %s", device_identifier, e, exc_info=True
+            )
             raise
 
     async def _resolve_device_id(

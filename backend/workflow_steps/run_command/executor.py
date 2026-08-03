@@ -27,6 +27,8 @@ from workflow_steps.common.credential_resolver import resolve_ssh_credential
 
 logger = logging.getLogger(__name__)
 
+_STEP_ID = "run-command"
+
 
 def _default_config() -> dict[str, Any]:
     from workflow_steps.run_command.config import get_config
@@ -75,6 +77,218 @@ def _build_summary(*, content: str, use_textfsm: bool) -> str:
     return f"{len(content.encode('utf-8'))} bytes"
 
 
+def _fail_device(
+    *,
+    device: DeviceContext,
+    device_id: str,
+    node_id: str,
+    code: str,
+    message: str,
+    command_results: dict[str, list[CommandResult]] | None = None,
+) -> tuple[str, DeviceContext, bool]:
+    err = DeviceError(
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code=code,
+        message=message,
+    )
+    update: dict[str, Any] = {
+        "status": DeviceStatus.FAILED,
+        "errors": [*device.errors, err],
+    }
+    if command_results is not None:
+        update["command_results"] = command_results
+    failed = device.model_copy(update=update)
+    return device_id, failed, False
+
+
+async def _run_on_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    context_run_id: str | None,
+    commands: list[str],
+    use_textfsm: bool,
+    network_driver_override: str | None,
+    username: str,
+    password: str,
+    credential_reference: str,
+    netmiko: NetmikoService,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    host = bare_hostname(device.primary_ip4, device.hostname)
+    if not host:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code="missing_host",
+            message=f"Device {device_id} has no hostname or primary IP",
+        )
+
+    device_type = resolve_connection_device_type(
+        network_driver=device.network_driver,
+        platform=device.platform,
+        override=network_driver_override,
+    )
+
+    try:
+        result = await netmiko.send_commands(
+            host=host,
+            network_driver=device.network_driver,
+            platform=device.platform,
+            username=username,
+            password=password,
+            commands=commands,
+            use_textfsm=use_textfsm,
+            device_type=device_type,
+            credential_reference=credential_reference,
+        )
+
+        step_results: list[CommandResult] = []
+        media_type = "application/json" if use_textfsm else "text/plain"
+        for command in commands:
+            output = result.command_outputs.get(command, "")
+            output_ref = await artifact_service.store(
+                content=output,
+                kind="command_output",
+                device_id=device_id,
+                run_id=context_run_id,
+                media_type=media_type,
+            )
+            step_results.append(
+                CommandResult(
+                    node_id=node_id,
+                    command=command,
+                    success=result.success,
+                    output_ref=output_ref,
+                    summary=_build_summary(content=output, use_textfsm=use_textfsm),
+                )
+            )
+
+        updated_command_results = dict(device.command_results)
+        updated_command_results[node_id] = step_results
+
+        if not result.success:
+            return _fail_device(
+                device=device,
+                device_id=device_id,
+                node_id=node_id,
+                code="command_failed",
+                message=result.error or "Command execution failed",
+                command_results=updated_command_results,
+            )
+
+        enriched = device.model_copy(
+            update={
+                "status": DeviceStatus.OK,
+                "command_results": updated_command_results,
+            }
+        )
+        return device_id, enriched, True
+    except Exception as exc:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code=type(exc).__name__.lower(),
+            message=str(exc),
+        )
+
+
+async def _run_on_device_logged(
+    *,
+    index: int,
+    device_id: str,
+    device: DeviceContext,
+    total: int,
+    run_id: Any,
+    node_id: str,
+    context_run_id: str | None,
+    commands: list[str],
+    use_textfsm: bool,
+    network_driver_override: str | None,
+    username: str,
+    password: str,
+    credential_reference: str,
+    netmiko: NetmikoService,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
+    logger.info(
+        "run-command device %d/%d id=%s host=%s: connecting run_id=%s",
+        index,
+        total,
+        device_id,
+        host,
+        run_id,
+    )
+    result = await _run_on_device(
+        device_id=device_id,
+        device=device,
+        node_id=node_id,
+        context_run_id=context_run_id,
+        commands=commands,
+        use_textfsm=use_textfsm,
+        network_driver_override=network_driver_override,
+        username=username,
+        password=password,
+        credential_reference=credential_reference,
+        netmiko=netmiko,
+        artifact_service=artifact_service,
+    )
+    _, _, ok = result
+    logger.info(
+        "run-command device %d/%d id=%s host=%s: %s run_id=%s",
+        index,
+        total,
+        device_id,
+        host,
+        "ok" if ok else "failed",
+        run_id,
+    )
+    return result
+
+
+def _partition_device_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
+    for device_id, updated_device, ok in results:
+        if ok:
+            success_devices[device_id] = updated_device
+        else:
+            failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
+
+
+def _build_outcomes(
+    *,
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+    command_count: int,
+) -> list[StepOutcome]:
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": success_devices}),
+            summary=f"ran {command_count} command(s) on {len(success_devices)} device(s)",
+        )
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(update={"devices": failed_devices}),
+                summary=f"{len(failed_devices)} device(s) failed",
+            )
+        )
+    return outcomes
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -100,180 +314,53 @@ async def execute(
         db, credential_reference, acting_user_id=run.triggered_by_id
     )
     netmiko = NetmikoService(pool=device_sessions)
+    total = len(context.devices)
 
     logger.info(
         "run-command run_id=%s devices=%d credential=%s commands=%d textfsm=%s override=%s",
         run.id,
-        len(context.devices),
+        total,
         credential_reference,
         len(commands),
         use_textfsm,
         network_driver_override,
     )
 
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-
-    async def run_on_device(
-        device_id: str,
-        device: DeviceContext,
-    ) -> tuple[str, DeviceContext, bool]:
-        host = bare_hostname(device.primary_ip4, device.hostname)
-        if not host:
-            err = DeviceError(
-                node_id=node_id,
-                step_id="run-command",
-                code="missing_host",
-                message=f"Device {device_id} has no hostname or primary IP",
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
-        device_type = resolve_connection_device_type(
-            network_driver=device.network_driver,
-            platform=device.platform,
-            override=network_driver_override,
-        )
-
-        try:
-            result = await netmiko.send_commands(
-                host=host,
-                network_driver=device.network_driver,
-                platform=device.platform,
-                username=username,
-                password=password,
-                commands=commands,
-                use_textfsm=use_textfsm,
-                device_type=device_type,
-                credential_reference=credential_reference,
-            )
-
-            step_results: list[CommandResult] = []
-            media_type = "application/json" if use_textfsm else "text/plain"
-            for command in commands:
-                output = result.command_outputs.get(command, "")
-                output_ref = await artifact_service.store(
-                    content=output,
-                    kind="command_output",
-                    device_id=device_id,
-                    run_id=context.run_id,
-                    media_type=media_type,
-                )
-                step_results.append(
-                    CommandResult(
-                        node_id=node_id,
-                        command=command,
-                        success=result.success,
-                        output_ref=output_ref,
-                        summary=_build_summary(content=output, use_textfsm=use_textfsm),
-                    )
-                )
-
-            updated_command_results = dict(device.command_results)
-            updated_command_results[node_id] = step_results
-
-            if not result.success:
-                err = DeviceError(
-                    node_id=node_id,
-                    step_id="run-command",
-                    code="command_failed",
-                    message=result.error or "Command execution failed",
-                )
-                failed = device.model_copy(
-                    update={
-                        "status": DeviceStatus.FAILED,
-                        "errors": [*device.errors, err],
-                        "command_results": updated_command_results,
-                    }
-                )
-                return device_id, failed, False
-
-            enriched = device.model_copy(
-                update={
-                    "status": DeviceStatus.OK,
-                    "command_results": updated_command_results,
-                }
-            )
-            return device_id, enriched, True
-        except Exception as exc:
-            err = DeviceError(
-                node_id=node_id,
-                step_id="run-command",
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
-    async def run_on_device_logged(
-        index: int, device_id: str, device: DeviceContext
-    ) -> tuple[str, DeviceContext, bool]:
-        host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-        total = len(context.devices)
-        logger.info(
-            "run-command device %d/%d id=%s host=%s: connecting run_id=%s",
-            index,
-            total,
-            device_id,
-            host,
-            run.id,
-        )
-        result = await run_on_device(device_id, device)
-        _, _, ok = result
-        logger.info(
-            "run-command device %d/%d id=%s host=%s: %s run_id=%s",
-            index,
-            total,
-            device_id,
-            host,
-            "ok" if ok else "failed",
-            run.id,
-        )
-        return result
-
     results = await asyncio.gather(
         *[
-            run_on_device_logged(index, device_id, device)
+            _run_on_device_logged(
+                index=index,
+                device_id=device_id,
+                device=device,
+                total=total,
+                run_id=run.id,
+                node_id=node_id,
+                context_run_id=context.run_id,
+                commands=commands,
+                use_textfsm=use_textfsm,
+                network_driver_override=network_driver_override,
+                username=username,
+                password=password,
+                credential_reference=credential_reference,
+                netmiko=netmiko,
+                artifact_service=artifact_service,
+            )
             for index, (device_id, device) in enumerate(context.devices.items(), start=1)
         ]
     )
 
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
+    success_devices, failed_devices = _partition_device_results(results)
 
     logger.info(
         "run-command returning %d/%d devices run_id=%s",
         len(success_devices),
-        len(context.devices),
+        total,
         run.id,
     )
 
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-            summary=f"ran {len(commands)} command(s) on {len(success_devices)} device(s)",
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-                summary=f"{len(failed_devices)} device(s) failed",
-            )
-        )
-    return outcomes
+    return _build_outcomes(
+        context=context,
+        success_devices=success_devices,
+        failed_devices=failed_devices,
+        command_count=len(commands),
+    )
