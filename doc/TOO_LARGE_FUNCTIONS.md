@@ -7,17 +7,18 @@
 **Related:** `doc/FABLE-ANALYSIS.md` §5.2; plans:
 `doc/refactoring/TOO_LARGE_FUNCTIONS_1_to_10.md` (pass 1, done),
 `doc/refactoring/TOO_LARGE_FUNCTIONS_11_to_20.md` (pass 2, done),
-`doc/refactoring/TOO_LARGE_FUNCTIONS_21_to_30.md` (pass 3, done — rank 23 docstring kept)
+`doc/refactoring/TOO_LARGE_FUNCTIONS_21_to_30.md` (pass 3, done — rank 23 docstring kept),
+`doc/refactoring/TOO_LARGE_FUNCTIONS_31_to_50.md` (pass 4, done — rank 31 skip)
 
 ## Summary
 
-| Metric | Pre-pass | Post pass 1 | Post pass 2 | Post pass 3 |
-|---|---:|---:|---:|---:|
-| Functions ≥80 lines | 76 | 68 | 59 | 50 |
-| Functions 50–79 lines | 87 | 100 | — | — |
-| Distinct files with ≥1 function ≥80 lines | 46 | — | — | — |
+| Metric | Pre-pass | Post pass 1 | Post pass 2 | Post pass 3 | Post pass 4 |
+|---|---:|---:|---:|---:|---:|
+| Functions ≥80 lines | 76 | 68 | 59 | 50 | 31 |
+| Functions 50–79 lines | 87 | 100 | — | — | — |
+| Distinct files with ≥1 function ≥80 lines | 46 | — | — | — | — |
 
-Nested functions (e.g. `execute.deploy_on_device`) are included; they often dominate length inside already-large `execute()` entry points. Passes 1–3 thinned ranks 1–30 entry points below 80 lines (except rank 23 `update_device`, whose docstring was intentionally kept). Some lifted helpers remain ≥80 and are candidates for later passes.
+Nested functions (e.g. `execute.deploy_on_device`) are included; they often dominate length inside already-large `execute()` entry points. Passes 1–4 thinned ranks 1–50 entry points below 80 lines (except ranks 23/31 `update_device`, whose docstring was intentionally kept). Some lifted helpers remain ≥80 and are candidates for later passes.
 
 The **"All functions ≥80 lines"** and **"50–79"** tables below are the **pre-pass** AST snapshot (2026-08-03) used to choose the top 10.
 
@@ -71,6 +72,33 @@ Plan + code before/after: `doc/refactoring/TOO_LARGE_FUNCTIONS_21_to_30.md`.
 | 28 | 139 | 26 | `backend/services/git/debug_service.py` | `GitDebugService.get_diagnostics` |
 | 29 | 139 | 35 | `backend/services/sources/nautobot/live_query_mixin.py` | `_query_devices_by_location` |
 | 30 | 136 | 22 | `backend/services/git/operations.py` | `GitOperationsService.get_repository_status` |
+
+## Ranks 31–50 — pass 4 targets (**✅ refactored**; rank 31 docstring kept)
+
+Plan + code before/after: `doc/refactoring/TOO_LARGE_FUNCTIONS_31_to_50.md`.
+
+| Rank | Before | After | File | Function |
+|---:|---:|---:|---|---|
+| 31 | 151 | 151 | `backend/services/nautobot/devices/update.py` | `DeviceUpdateService.update_device` (docstring kept) |
+| 32 | 136 | 49 | `backend/workflow_steps/parse_cisco_config/executor.py` | `execute` |
+| 33 | 135 | 48 | `backend/services/nautobot/devices/interface_workflow.py` | `InterfaceManagerService._create_or_update_interface` |
+| 34 | 126 | 63 | `backend/workflow_steps/update_nautobot_device/executor.py` | `_update_one_device` |
+| 35 | 125 | 54 | `backend/workflow_steps/get_from_config/executor.py` | `execute` |
+| 36 | 124 | 56 | `backend/services/nautobot/devices/interface_workflow.py` | `InterfaceManagerService._create_ip_addresses` |
+| 37 | 124 | 57 | `backend/services/nautobot/devices/update.py` | `DeviceUpdateService._update_device_properties` |
+| 38 | 123 | 30 | `backend/scripts/database/sync.py` | `_migrate` |
+| 39 | 123 | 37 | `backend/services/git/file_service.py` | `GitFileService.get_directory_files` |
+| 40 | 123 | 53 | `backend/workflow_steps/get_ise_devices/executor.py` | `execute` |
+| 41 | 122 | 70 | `backend/hatchet/workflows/workflow_run.py` | `_run_steps_until_fan_out_or_done` |
+| 42 | 121 | 50 | `backend/services/git/file_service.py` | `GitFileService.get_file_history` |
+| 43 | 120 | 75 | `backend/hatchet/workflows/workflow_run.py` | `_dispatch_with_approval` |
+| 44 | 119 | 65 | `backend/services/nautobot/managers/interface_manager.py` | `InterfaceManager.update_interface_ip` |
+| 45 | 117 | 50 | `backend/services/git/file_service.py` | `GitFileService.search_files` |
+| 46 | 117 | 54 | `backend/services/git/operations.py` | `GitOperationsService.sync_repository` |
+| 47 | 117 | 43 | `backend/services/nautobot/managers/prefix_manager.py` | `PrefixManager.ensure_prefix_exists` |
+| 48 | 116 | 49 | `backend/services/sources/nautobot/evaluator.py` | `NautobotSourceEvaluator._execute_operation` |
+| 49 | 116 | 44 | `backend/workflow_steps/list_contains/executor.py` | `execute` |
+| 50 | 112 | 79 | `backend/services/execution/step_runner.py` | `StepRunner.execute_subgraph` |
 
 ## All functions ≥80 lines
 

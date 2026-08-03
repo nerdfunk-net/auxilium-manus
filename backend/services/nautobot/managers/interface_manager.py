@@ -170,6 +170,26 @@ class InterfaceManager:
         logger.info("Successfully ensured interface %s with IP %s", interface_name, ip_address)
         return ip_id
 
+    async def _fallback_ensure_loopback_with_ip(
+        self,
+        *,
+        device_id: str,
+        new_ip: str,
+        namespace: str,
+        add_prefixes_automatically: bool,
+        use_assigned_ip_if_exists: bool,
+    ) -> str:
+        return await self.ensure_interface_with_ip(
+            device_id=device_id,
+            ip_address=new_ip,
+            interface_name="Loopback",
+            interface_type="virtual",
+            interface_status="active",
+            ip_namespace=namespace,
+            add_prefixes_automatically=add_prefixes_automatically,
+            use_assigned_ip_if_exists=use_assigned_ip_if_exists,
+        )
+
     async def update_interface_ip(
         self,
         device_id: str,
@@ -180,33 +200,7 @@ class InterfaceManager:
         add_prefixes_automatically: bool = False,
         use_assigned_ip_if_exists: bool = False,
     ) -> str:
-        """
-        Update an existing interface's IP address (instead of creating a new interface).
-
-        This is a reusable utility that:
-        1. Finds the interface that currently has the old IP address
-        2. Creates/gets the new IP address in Nautobot
-        3. Assigns the new IP to the existing interface
-
-        This method can be used by both DeviceUpdateService and DeviceImportService.
-
-        Args:
-            device_id: Device UUID
-            device_name: Device name (for GraphQL lookup)
-            old_ip: Current IP address (to find the interface to update)
-            new_ip: New IP address to assign
-            namespace: IP namespace name (will be resolved to UUID)
-            add_prefixes_automatically: Automatically create missing prefix (default: False)
-            use_assigned_ip_if_exists: Use existing IP if it exists with different netmask
-                (default: False)
-
-        Returns:
-            UUID of the new IP address
-
-        Note:
-            - If interface cannot be found, falls back to creating a new interface
-            - Old IP will remain on the interface (Nautobot allows multiple IPs)
-        """
+        """Update an interface IP: find by old_ip, ensure new IP, assign; else create Loopback."""
         from ..resolvers.device_resolver import DeviceResolver
 
         logger.info(
@@ -216,76 +210,48 @@ class InterfaceManager:
             device_name,
         )
 
-        # Import device resolver to find interface with IP
-        device_resolver = DeviceResolver(self.nautobot)
-
-        # Step 1: Find the interface that currently has the old IP
+        interface_info = None
         if old_ip:
-            interface_info = await device_resolver.find_interface_with_ip(
+            interface_info = await DeviceResolver(self.nautobot).find_interface_with_ip(
                 device_name=device_name, ip_address=old_ip
             )
-
-            if interface_info:
-                interface_id, interface_name = interface_info
-                logger.info(
-                    "Found interface '%s' (ID: %s) with IP %s",
-                    interface_name,
-                    interface_id,
-                    old_ip,
-                )
-            else:
+            if not interface_info:
                 logger.warning(
                     "Could not find interface with IP %s, creating new interface",
                     old_ip,
                 )
-                # Fallback: create new interface
-                return await self.ensure_interface_with_ip(
-                    device_id=device_id,
-                    ip_address=new_ip,
-                    interface_name="Loopback",
-                    interface_type="virtual",
-                    interface_status="active",
-                    ip_namespace=namespace,
-                    add_prefixes_automatically=add_prefixes_automatically,
-                    use_assigned_ip_if_exists=use_assigned_ip_if_exists,
-                )
         else:
             logger.warning("No old IP provided, creating new interface with new IP")
-            # Fallback: create new interface
-            return await self.ensure_interface_with_ip(
+
+        if not interface_info:
+            return await self._fallback_ensure_loopback_with_ip(
                 device_id=device_id,
-                ip_address=new_ip,
-                interface_name="Loopback",
-                interface_type="virtual",
-                interface_status="active",
-                ip_namespace=namespace,
+                new_ip=new_ip,
+                namespace=namespace,
                 add_prefixes_automatically=add_prefixes_automatically,
                 use_assigned_ip_if_exists=use_assigned_ip_if_exists,
             )
 
-        # Step 2: Resolve namespace name to UUID
-        logger.info("Resolving namespace '%s'", namespace)
-        namespace_id = await self.network_resolver.resolve_namespace_id(namespace)
+        interface_id, interface_name = interface_info
+        logger.info(
+            "Found interface '%s' (ID: %s) with IP %s",
+            interface_name,
+            interface_id,
+            old_ip,
+        )
 
-        # Step 3: Create or get the new IP address in Nautobot
-        # (with automatic prefix creation if enabled)
-        logger.info("Ensuring IP address %s exists in namespace %s", new_ip, namespace)
+        namespace_id = await self.network_resolver.resolve_namespace_id(namespace)
         new_ip_id = await self.ip_manager.ensure_ip_address_exists(
             ip_address=new_ip,
             namespace_id=namespace_id,
             add_prefixes_automatically=add_prefixes_automatically,
             use_assigned_ip_if_exists=use_assigned_ip_if_exists,
         )
-
-        # Step 4: Assign the new IP to the existing interface
-        logger.info("Assigning IP %s to interface %s", new_ip, interface_name)
         await self.ip_manager.assign_ip_to_interface(ip_id=new_ip_id, interface_id=interface_id)
-
         logger.info(
             "✓ Successfully updated interface %s from %s to %s",
             interface_name,
             old_ip,
             new_ip,
         )
-
         return new_ip_id

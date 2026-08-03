@@ -20,6 +20,81 @@ from services.nautobot.devices.types import InterfaceUpdateResult
 logger = logging.getLogger(__name__)
 
 
+def _normalize_interface_ip_list(interface: dict[str, Any]) -> list[dict[str, Any]]:
+    ip_addresses = interface.get("ip_addresses", [])
+    if not ip_addresses and interface.get("ip_address"):
+        logger.info("Found single ip_address field, converting to array format")
+        return [
+            {
+                "address": interface["ip_address"],
+                "namespace": interface.get("namespace", "Global"),
+                "ip_role": interface.get("ip_role"),
+            }
+        ]
+    return ip_addresses
+
+
+def _ip_map_key(interface_name: str, ip_address: str) -> str:
+    return f"{interface_name}:{ip_address}"
+
+
+def _normalize_interface_type(
+    interface: dict[str, Any],
+    warnings: list[str],
+) -> str | None:
+    # Nautobot interface type slugs are always lowercase (e.g. "virtual", "1000base-t")
+    # Frontend may store the display name (e.g. "Virtual") — normalize to lowercase slug
+    interface_type = (interface.get("type") or "").strip().lower()
+    if not interface_type:
+        warnings.append(
+            f"Interface {interface['name']}: 'type' is required but was not provided — skipping"
+        )
+        logger.warning("Interface '%s' has no type set, skipping creation", interface["name"])
+        return None
+    return interface_type
+
+
+def _build_interface_payload(
+    *,
+    device_id: str,
+    interface: dict[str, Any],
+    interface_type: str,
+    interface_status_id: str,
+) -> dict[str, Any]:
+    interface_payload: dict[str, Any] = {
+        "name": interface["name"],
+        "device": device_id,
+        "type": interface_type,
+        "status": interface_status_id,
+    }
+
+    optional_fields = [
+        "enabled",
+        "mgmt_only",
+        "description",
+        "mac_address",
+        "mtu",
+        "mode",
+    ]
+    for field in optional_fields:
+        if field in interface and interface[field] is not None:
+            # "none" is the UI sentinel for "no mode"; Nautobot rejects it
+            if field == "mode" and interface[field] == "none":
+                continue
+            interface_payload[field] = interface[field]
+
+    # Nautobot REST API requires VLAN references as {"id": uuid}
+    untagged_vlan = interface.get("untagged_vlan")
+    if untagged_vlan and untagged_vlan != "none":
+        interface_payload["untagged_vlan"] = {"id": untagged_vlan}
+
+    tagged_vlans = interface.get("tagged_vlans")
+    if tagged_vlans:
+        interface_payload["tagged_vlans"] = [{"id": vid} for vid in tagged_vlans]
+
+    return interface_payload
+
+
 @dataclass
 class _InterfaceUpdateState:
     created_interfaces: list[str] = dataclass_field(default_factory=list)
@@ -262,6 +337,71 @@ class InterfaceManagerService:
 
         return deleted
 
+    async def _ensure_one_interface_ip(
+        self,
+        *,
+        interface: dict[str, Any],
+        ip_data: dict[str, Any],
+        warnings: list[str],
+        add_prefixes_automatically: bool,
+    ) -> tuple[str, str] | None:
+        ip_address = ip_data.get("address")
+        if not ip_address:
+            logger.warning("  IP data missing 'address' field, skipping")
+            return None
+
+        namespace = ip_data.get("namespace") or interface.get("namespace", "Global")
+        status = interface.get("status", "active")
+        ip_role = ip_data.get("ip_role")
+
+        logger.info(
+            "  Extracted values: ip=%s, namespace=%s, status=%s, ip_role=%s",
+            ip_address,
+            namespace,
+            status,
+            ip_role,
+        )
+
+        if not namespace:
+            warnings.append(
+                f"Interface {interface['name']}: namespace required for IP "
+                f"{ip_address}, skipping IP creation"
+            )
+            return None
+
+        try:
+            namespace_id = await self.common.resolve_namespace_id(namespace)
+
+            ip_kwargs: dict[str, Any] = {}
+            if ip_role and ip_role != "none":
+                ip_kwargs["role"] = ip_role
+                logger.info("  Adding role '%s' to IP creation", ip_role)
+
+            logger.info("  Calling ensure_ip_address_exists for %s", ip_address)
+            ip_id = await self.common.ensure_ip_address_exists(
+                ip_address=ip_address,
+                namespace_id=namespace_id,
+                status_name=status,
+                add_prefixes_automatically=add_prefixes_automatically,
+                **ip_kwargs,
+            )
+
+            map_key = _ip_map_key(interface["name"], ip_address)
+            logger.info("  ✓ SUCCESS: IP address %s ready", ip_address)
+            logger.info("    - IP ID: %s", ip_id)
+            logger.info("    - Map key: %s", map_key)
+            return map_key, ip_id
+
+        except Exception as e:
+            logger.error("  ✗ Error ensuring IP %s: %s", ip_address, str(e))
+            warnings.append(
+                f"Interface {interface['name']}: Failed to ensure IP address "
+                f"{ip_address}: {str(e)}"
+            )
+            if "No suitable parent prefix" in str(e) and not add_prefixes_automatically:
+                raise
+            return None
+
     async def _create_ip_addresses(
         self,
         interfaces: list[dict[str, Any]],
@@ -286,25 +426,12 @@ class InterfaceManagerService:
         logger.info("=" * 80)
         logger.info("==== STEP 1: CREATE IP ADDRESSES ====")
         logger.info("=" * 80)
-        ip_address_map = {}
+        ip_address_map: dict[str, str] = {}
 
         for interface in interfaces:
             logger.info("\n--- Processing interface: %s ---", interface["name"])
             logger.info("Interface data: %s", interface)
-
-            # Handle both formats: ip_addresses (array) and ip_address (string)
-            ip_addresses = interface.get("ip_addresses", [])
-            if not ip_addresses and interface.get("ip_address"):
-                # Backwards compatibility: convert single ip_address to array format
-                logger.info("Found single ip_address field, converting to array format")
-                ip_addresses = [
-                    {
-                        "address": interface["ip_address"],
-                        "namespace": interface.get("namespace", "Global"),
-                        "ip_role": interface.get("ip_role"),
-                    }
-                ]
-
+            ip_addresses = _normalize_interface_ip_list(interface)
             if not ip_addresses:
                 logger.info(
                     "No ip_address or ip_addresses field found for interface %s, skipping",
@@ -313,72 +440,17 @@ class InterfaceManagerService:
                 continue
 
             logger.info("Found %s IP address(es) to process", len(ip_addresses))
-
-            # Process each IP address for this interface
             for idx, ip_data in enumerate(ip_addresses):
                 logger.info("\n  >> Processing IP #%s: %s", idx + 1, ip_data)
-
-                ip_address = ip_data.get("address")
-                if not ip_address:
-                    logger.warning("  IP data missing 'address' field, skipping")
-                    continue
-
-                # Get namespace from IP data or fall back to interface level
-                namespace = ip_data.get("namespace") or interface.get("namespace", "Global")
-                status = interface.get("status", "active")
-                ip_role = ip_data.get("ip_role")
-
-                logger.info(
-                    "  Extracted values: ip=%s, namespace=%s, status=%s, ip_role=%s",
-                    ip_address,
-                    namespace,
-                    status,
-                    ip_role,
+                entry = await self._ensure_one_interface_ip(
+                    interface=interface,
+                    ip_data=ip_data,
+                    warnings=warnings,
+                    add_prefixes_automatically=add_prefixes_automatically,
                 )
-
-                if not namespace:
-                    warnings.append(
-                        f"Interface {interface['name']}: namespace required for IP "
-                        f"{ip_address}, skipping IP creation"
-                    )
-                    continue
-
-                try:
-                    # Resolve namespace to UUID
-                    namespace_id = await self.common.resolve_namespace_id(namespace)
-
-                    # Build kwargs for additional IP fields
-                    ip_kwargs = {}
-                    if ip_role and ip_role != "none":
-                        ip_kwargs["role"] = ip_role
-                        logger.info("  Adding role '%s' to IP creation", ip_role)
-
-                    # Use common service to ensure IP exists (handles all error cases)
-                    logger.info("  Calling ensure_ip_address_exists for %s", ip_address)
-                    ip_id = await self.common.ensure_ip_address_exists(
-                        ip_address=ip_address,
-                        namespace_id=namespace_id,
-                        status_name=status,
-                        add_prefixes_automatically=add_prefixes_automatically,
-                        **ip_kwargs,
-                    )
-
-                    map_key = f"{interface['name']}:{ip_address}"
-                    ip_address_map[map_key] = ip_id
-                    logger.info("  ✓ SUCCESS: IP address %s ready", ip_address)
-                    logger.info("    - IP ID: %s", ip_id)
-                    logger.info("    - Map key: %s", map_key)
-
-                except Exception as e:
-                    logger.error("  ✗ Error ensuring IP %s: %s", ip_address, str(e))
-                    warnings.append(
-                        f"Interface {interface['name']}: Failed to ensure IP address "
-                        f"{ip_address}: {str(e)}"
-                    )
-                    # If this is a missing prefix error and add_prefixes_automatically is False,
-                    # the exception should propagate to stop the device creation
-                    if "No suitable parent prefix" in str(e) and not add_prefixes_automatically:
-                        raise
+                if entry is not None:
+                    key, ip_id = entry
+                    ip_address_map[key] = ip_id
 
         logger.info("\n" + "=" * 80)
         logger.info("==== STEP 1 COMPLETE: IP ADDRESS MAP ====")
@@ -404,15 +476,8 @@ class InterfaceManagerService:
         Returns:
             Tuple of (interface UUID if successful, was_updated flag)
         """
-        # Validate required fields before hitting Nautobot
-        # Nautobot interface type slugs are always lowercase (e.g. "virtual", "1000base-t")
-        # Frontend may store the display name (e.g. "Virtual") — normalize to lowercase slug
-        interface_type = (interface.get("type") or "").strip().lower()
-        if not interface_type:
-            warnings.append(
-                f"Interface {interface['name']}: 'type' is required but was not provided — skipping"
-            )
-            logger.warning("Interface '%s' has no type set, skipping creation", interface["name"])
+        interface_type = _normalize_interface_type(interface, warnings)
+        if interface_type is None:
             return None, False
 
         # Resolve status to UUID — use "or" fallback so empty string also defaults to "active"
@@ -420,58 +485,59 @@ class InterfaceManagerService:
         interface_status_id = await self.common.resolve_status_id(
             interface_status, "dcim.interface"
         )
-
-        interface_payload: dict[str, Any] = {
-            "name": interface["name"],
-            "device": device_id,
-            "type": interface_type,
-            "status": interface_status_id,
-        }
-
-        optional_fields = [
-            "enabled",
-            "mgmt_only",
-            "description",
-            "mac_address",
-            "mtu",
-            "mode",
-        ]
-        for field in optional_fields:
-            if field in interface and interface[field] is not None:
-                # "none" is the UI sentinel for "no mode"; Nautobot rejects it
-                if field == "mode" and interface[field] == "none":
-                    continue
-                interface_payload[field] = interface[field]
-
-        # Nautobot REST API requires VLAN references as {"id": uuid}
-        untagged_vlan = interface.get("untagged_vlan")
-        if untagged_vlan and untagged_vlan != "none":
-            interface_payload["untagged_vlan"] = {"id": untagged_vlan}
-
-        tagged_vlans = interface.get("tagged_vlans")
-        if tagged_vlans:
-            interface_payload["tagged_vlans"] = [{"id": vid} for vid in tagged_vlans]
+        interface_payload = _build_interface_payload(
+            device_id=device_id,
+            interface=interface,
+            interface_type=interface_type,
+            interface_status_id=interface_status_id,
+        )
 
         existing_id = await self.common.resolve_interface_by_name(
             device_id=device_id,
             interface_name=interface["name"],
         )
         if existing_id:
-            patch_payload = {
-                k: v for k, v in interface_payload.items() if k not in ("name", "device")
-            }
-            try:
-                await self.nautobot.rest_request(
-                    endpoint=f"dcim/interfaces/{existing_id}/",
-                    method="PATCH",
-                    data=patch_payload,
-                )
-                logger.info("Updated interface %s with ID: %s", interface["name"], existing_id)
-                return existing_id, True
-            except Exception as patch_error:
-                warnings.append(f"Interface {interface['name']}: Failed to update: {patch_error}")
-                return existing_id, True
+            return await self._patch_existing_interface(
+                existing_id, interface, interface_payload, warnings
+            )
 
+        return await self._create_interface_with_race_fallback(
+            device_id=device_id,
+            interface=interface,
+            interface_payload=interface_payload,
+            warnings=warnings,
+        )
+
+    async def _patch_existing_interface(
+        self,
+        existing_id: str,
+        interface: dict[str, Any],
+        interface_payload: dict[str, Any],
+        warnings: list[str],
+    ) -> tuple[str | None, bool]:
+        patch_payload = {
+            k: v for k, v in interface_payload.items() if k not in ("name", "device")
+        }
+        try:
+            await self.nautobot.rest_request(
+                endpoint=f"dcim/interfaces/{existing_id}/",
+                method="PATCH",
+                data=patch_payload,
+            )
+            logger.info("Updated interface %s with ID: %s", interface["name"], existing_id)
+            return existing_id, True
+        except Exception as patch_error:
+            warnings.append(f"Interface {interface['name']}: Failed to update: {patch_error}")
+            return existing_id, True
+
+    async def _create_interface_with_race_fallback(
+        self,
+        *,
+        device_id: str,
+        interface: dict[str, Any],
+        interface_payload: dict[str, Any],
+        warnings: list[str],
+    ) -> tuple[str | None, bool]:
         logger.debug("Creating interface with payload: %s", interface_payload)
 
         try:

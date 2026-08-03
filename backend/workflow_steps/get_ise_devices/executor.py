@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session, object_session
@@ -176,17 +177,15 @@ async def _resolve_devices_via_nautobot(
     return devices
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del artifact_service  # unused for this step
+@dataclass(frozen=True)
+class _ParsedGetIseDevicesConfig:
+    source_id: str
+    query_mode: str
+    resolve_to_devices: bool
+    nautobot_source_id: str
 
+
+def _parse_get_ise_devices_config(config: dict[str, Any]) -> _ParsedGetIseDevicesConfig:
     source_id = (config.get("ise_source_id") or "").strip()
     if not source_id:
         raise ValueError("get-ise-devices: ise_source_id is not configured")
@@ -202,37 +201,43 @@ async def execute(
             "get-ise-devices: nautobot_source_id is required when resolve_to_devices is enabled"
         )
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("get-ise-devices: WorkflowRun has no active DB session")
+    return _ParsedGetIseDevicesConfig(
+        source_id=source_id,
+        query_mode=query_mode,
+        resolve_to_devices=resolve_to_devices,
+        nautobot_source_id=nautobot_source_id,
+    )
 
+
+def _build_ise_services(
+    db: Session,
+    parsed: _ParsedGetIseDevicesConfig,
+) -> tuple[ISENetworkDeviceService, NautobotSourceService | None]:
     source_config_service = service_factory.build_ise_source_config_service(db)
     try:
-        credentials = source_config_service.resolve_credentials(source_id)
+        credentials = source_config_service.resolve_credentials(parsed.source_id)
     except ISESourceNotFoundError as exc:
-        raise ValueError(f"get-ise-devices: ISE source '{source_id}' not found") from exc
+        raise ValueError(f"get-ise-devices: ISE source '{parsed.source_id}' not found") from exc
     except ISEValidationError as exc:
         raise ValueError(f"get-ise-devices: {exc}") from exc
 
     device_service = service_factory.build_ise_network_device_service(credentials)
 
     nautobot_source_service: NautobotSourceService | None = None
-    if resolve_to_devices:
-        nautobot_source_service = _build_nautobot_source_service(db, nautobot_source_id)
+    if parsed.resolve_to_devices:
+        nautobot_source_service = _build_nautobot_source_service(db, parsed.nautobot_source_id)
 
-    logger.info(
-        "get-ise-devices started run_id=%s node_id=%s query_mode=%s resolve_to_devices=%s",
-        context.run_id,
-        node_id,
-        query_mode,
-        resolve_to_devices,
-    )
+    return device_service, nautobot_source_service
 
-    try:
-        raw_devices = await _fetch_devices(device_service, config)
-    except (ISEValidationError, ISEAPIError) as exc:
-        raise RuntimeError(f"get-ise-devices: ISE request failed: {exc}") from exc
 
+async def _expand_ise_devices(
+    *,
+    raw_devices: list[dict[str, Any]],
+    source_id: str,
+    resolve_to_devices: bool,
+    nautobot_source_id: str,
+    nautobot_source_service: NautobotSourceService | None,
+) -> dict[str, DeviceContext]:
     new_devices: dict[str, DeviceContext] = {}
     cidr_cache: dict[str, list[DeviceInfo]] = {}
 
@@ -269,6 +274,17 @@ async def execute(
 
         new_devices[device_context.id] = device_context
 
+    return new_devices
+
+
+def _build_get_ise_devices_outcome(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    config: dict[str, Any],
+    source_id: str,
+    new_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
     fan_out_metadata = build_fan_out_metadata(config.get("fan_out"), node_id)
 
     metadata_update: dict = {
@@ -286,12 +302,6 @@ async def execute(
         }
     )
 
-    logger.info(
-        "get-ise-devices finished count=%d run_id=%s",
-        len(new_devices),
-        context.run_id,
-    )
-
     return [
         StepOutcome(
             name="success",
@@ -299,3 +309,58 @@ async def execute(
             summary=f"found {len(new_devices)} device(s)",
         )
     ]
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service  # unused for this step
+
+    parsed = _parse_get_ise_devices_config(config)
+
+    db = object_session(run)
+    if db is None:
+        raise RuntimeError("get-ise-devices: WorkflowRun has no active DB session")
+
+    device_service, nautobot_source_service = _build_ise_services(db, parsed)
+
+    logger.info(
+        "get-ise-devices started run_id=%s node_id=%s query_mode=%s resolve_to_devices=%s",
+        context.run_id,
+        node_id,
+        parsed.query_mode,
+        parsed.resolve_to_devices,
+    )
+
+    try:
+        raw_devices = await _fetch_devices(device_service, config)
+    except (ISEValidationError, ISEAPIError) as exc:
+        raise RuntimeError(f"get-ise-devices: ISE request failed: {exc}") from exc
+
+    new_devices = await _expand_ise_devices(
+        raw_devices=raw_devices,
+        source_id=parsed.source_id,
+        resolve_to_devices=parsed.resolve_to_devices,
+        nautobot_source_id=parsed.nautobot_source_id,
+        nautobot_source_service=nautobot_source_service,
+    )
+
+    logger.info(
+        "get-ise-devices finished count=%d run_id=%s",
+        len(new_devices),
+        context.run_id,
+    )
+
+    return _build_get_ise_devices_outcome(
+        context=context,
+        node_id=node_id,
+        config=config,
+        source_id=parsed.source_id,
+        new_devices=new_devices,
+    )

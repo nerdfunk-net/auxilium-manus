@@ -174,6 +174,79 @@ def _build_update_service(
     return nautobot_service, credentials, DeviceUpdateService(bound_client)
 
 
+def _fail_device(
+    *,
+    device_key: str,
+    device: DeviceContext | None,
+    node_id: str,
+    code: str | None = None,
+    message: str | None = None,
+    exc: Exception | None = None,
+) -> tuple[str, DeviceContext | None, bool, str | None]:
+    error_code = code or (type(exc).__name__.lower() if exc is not None else "error")
+    error_message = message or (str(exc) if exc is not None else "Unknown error")
+
+    if device is None:
+        placeholder = DeviceContext(
+            id=device_key,
+            name=device_key,
+            hostname=device_key,
+            source="nautobot",
+            status=DeviceStatus.FAILED,
+            errors=[
+                DeviceError(
+                    node_id=node_id,
+                    step_id=_STEP_ID,
+                    code=error_code,
+                    message=error_message,
+                )
+            ],
+        )
+        return device_key, placeholder, False, None
+
+    err = DeviceError(
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code=error_code,
+        message=error_message,
+    )
+    failed = device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+    return device_key, failed, False, None
+
+
+def _apply_update_result(
+    *,
+    device_key: str,
+    device: DeviceContext | None,
+    result: dict[str, Any],
+) -> tuple[str, DeviceContext | None, bool, str | None]:
+    if device is None:
+        device_name = result.get("device_name") or device_key
+        placeholder = DeviceContext(
+            id=result.get("device_id") or device_key,
+            name=device_name,
+            hostname=device_name,
+            source="nautobot",
+            status=DeviceStatus.OK,
+        )
+        return device_key, placeholder, True, result.get("device_id")
+
+    enriched = device.model_copy(
+        update={
+            "id": str(result.get("device_id") or device.id),
+            "name": result.get("device_name") or device.name,
+            "source": "nautobot",
+            "status": DeviceStatus.OK,
+        }
+    )
+    return device_key, enriched, True, result.get("device_id")
+
+
 async def _update_one_device(
     *,
     device_key: str,
@@ -195,22 +268,16 @@ async def _update_one_device(
                 device=device,
             )
             if nautobot_device_id is None:
-                err = DeviceError(
+                return _fail_device(
+                    device_key=device_key,
+                    device=device,
                     node_id=node_id,
-                    step_id=_STEP_ID,
                     code="not_found",
                     message=(
                         f"No Nautobot device found for workflow device {device_key} "
                         f"(name={device.name!r}, ip={device.primary_ip4!r})"
                     ),
                 )
-                failed = device.model_copy(
-                    update={
-                        "status": DeviceStatus.FAILED,
-                        "errors": [*device.errors, err],
-                    }
-                )
-                return device_key, failed, False, None
 
         device_identifier = _resolve_device_identifier(
             config=config,
@@ -220,86 +287,29 @@ async def _update_one_device(
         if not any(device_identifier.get(k) for k in ("id", "name", "ip_address")):
             raise ValueError("device identifier must include id, name, or ip_address")
 
-        resolved_device = device or DeviceContext(
-            id=device_key,
-            name=device_key,
-            hostname=device_key,
-        )
-        update_data = build_resolved_update_data(
-            device=resolved_device,
-            raw_fields=parsed.raw_update_fields,
-            run_id=str(context.run_id) if context.run_id else None,
-        )
-
+        resolved = device or DeviceContext(id=device_key, name=device_key, hostname=device_key)
         result = await update_service.update_device(
             device_identifier=device_identifier,
-            update_data=update_data,
+            update_data=build_resolved_update_data(
+                device=resolved,
+                raw_fields=parsed.raw_update_fields,
+                run_id=str(context.run_id) if context.run_id else None,
+            ),
             interfaces=parsed.interfaces or None,
             add_prefix=parsed.add_prefix,
             default_prefix_length=parsed.default_prefix_length,
             sync_interfaces=parsed.sync_interfaces,
         )
-
-        interfaces_failed = int(result.get("interfaces_failed") or 0)
-        if interfaces_failed > 0:
+        if int(result.get("interfaces_failed") or 0) > 0:
             raise RuntimeError(
-                f"{interfaces_failed} interface update(s) failed for device "
+                f"{result.get('interfaces_failed')} interface update(s) failed for device "
                 f"{result.get('device_name') or device_key}"
             )
-
-        if device is None:
-            device_name = result.get("device_name") or device_key
-            placeholder = DeviceContext(
-                id=result.get("device_id") or device_key,
-                name=device_name,
-                hostname=device_name,
-                source="nautobot",
-                status=DeviceStatus.OK,
-            )
-            return device_key, placeholder, True, result.get("device_id")
-
-        enriched = device.model_copy(
-            update={
-                "id": str(result.get("device_id") or device.id),
-                "name": result.get("device_name") or device.name,
-                "source": "nautobot",
-                "status": DeviceStatus.OK,
-            }
-        )
-        return device_key, enriched, True, result.get("device_id")
+        return _apply_update_result(device_key=device_key, device=device, result=result)
     except Exception as exc:
-        message = str(exc)
-        if device is None:
-            placeholder = DeviceContext(
-                id=device_key,
-                name=device_key,
-                hostname=device_key,
-                source="nautobot",
-                status=DeviceStatus.FAILED,
-                errors=[
-                    DeviceError(
-                        node_id=node_id,
-                        step_id=_STEP_ID,
-                        code=type(exc).__name__.lower(),
-                        message=message,
-                    )
-                ],
-            )
-            return device_key, placeholder, False, None
-
-        err = DeviceError(
-            node_id=node_id,
-            step_id=_STEP_ID,
-            code=type(exc).__name__.lower(),
-            message=message,
+        return _fail_device(
+            device_key=device_key, device=device, node_id=node_id, exc=exc
         )
-        failed = device.model_copy(
-            update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
-            }
-        )
-        return device_key, failed, False, None
 
 
 def _build_outcomes(

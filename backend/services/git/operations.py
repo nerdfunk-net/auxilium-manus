@@ -119,6 +119,109 @@ def _fill_remote_sync_status(repo: Repo, status_info: dict[str, Any], branch: st
         status_info["is_synced"] = False
 
 
+def _sync_needs_clone(*, force_clone: bool, is_git_repo: bool) -> bool:
+    return force_clone or not is_git_repo
+
+
+def _map_clone_error_message(err: str, repository: dict[str, Any]) -> str:
+    if "authentication" in err.lower():
+        return "Authentication failed. Please check your Git credentials."
+    if "not found" in err.lower():
+        return (
+            f"Repository or branch not found. "
+            f"URL: {repository['url']} Branch: {repository['branch']}"
+        )
+    return f"Git clone failed: {err}"
+
+
+def _cleanup_failed_clone_dir(repo_path: str, success: bool) -> None:
+    try:
+        if not success and os.path.isdir(repo_path) and not os.listdir(repo_path):
+            shutil.rmtree(repo_path)
+            logger.info(
+                "Removed empty directory after failed clone: %s",
+                repo_path,
+            )
+    except Exception as ce:
+        logger.warning("Cleanup after failed clone skipped: %s", ce)
+
+
+def _backup_non_git_directory(
+    repo_path: str, *, repo_dir_exists: bool, is_git_repo: bool
+) -> None:
+    if repo_dir_exists and not is_git_repo:
+        parent_dir = os.path.dirname(repo_path.rstrip(os.sep)) or os.path.dirname(repo_path)
+        base_name = os.path.basename(os.path.normpath(repo_path))
+        backup_path = os.path.join(parent_dir, f"{base_name}_backup_{int(time.time())}")
+        shutil.move(repo_path, backup_path)
+        logger.info("Backed up existing directory to %s", backup_path)
+
+
+def _clone_repository_at_path(
+    *,
+    repository: dict[str, Any],
+    repo_path: str,
+    clone_url: str,
+    repo_dir_exists: bool,
+    is_git_repo: bool,
+) -> tuple[bool, str]:
+    _backup_non_git_directory(
+        repo_path, repo_dir_exists=repo_dir_exists, is_git_repo=is_git_repo
+    )
+    success = False
+    message = ""
+    try:
+        if not repository.get("verify_ssl", True):
+            logger.warning("Git SSL verification disabled - not recommended for production")
+        with set_ssl_env(repository):
+            logger.info("Cloning branch %s into %s", repository["branch"], repo_path)
+            Repo.clone_from(clone_url, repo_path, branch=repository["branch"])
+
+        if not os.path.isdir(os.path.join(repo_path, ".git")):
+            raise GitCommandError("clone", 1, b"", b".git not found after clone")
+
+        success = True
+        message = f"Repository '{repository['name']}' cloned successfully to {repo_path}"
+        logger.info(message)
+    except GitCommandError as gce:
+        err = str(gce)
+        logger.error("Git clone failed: %s", err)
+        message = _map_clone_error_message(err, repository)
+    except Exception as e:
+        logger.error("Unexpected error during Git clone: %s", e)
+        message = f"Unexpected error: {str(e)}"
+    finally:
+        _cleanup_failed_clone_dir(repo_path, success)
+    return success, message
+
+
+def _pull_repository_at_path(
+    *,
+    repository: dict[str, Any],
+    repo_path: str,
+    clone_url: str,
+    resolved_token: str | None,
+) -> tuple[bool, str]:
+    try:
+        repo = Repo(repo_path)
+        origin = repo.remotes.origin
+
+        if resolved_token and "http" in repository["url"]:
+            try:
+                origin.set_url(clone_url)
+            except Exception as e:
+                logger.debug("Skipping remote URL update: %s", e)
+
+        with set_ssl_env(repository):
+            origin.pull(repository["branch"])
+        message = f"Repository '{repository['name']}' updated successfully"
+        logger.info(message)
+        return True, message
+    except Exception as e:
+        logger.error("Error during Git pull: %s", e)
+        return False, f"Pull failed: {str(e)}"
+
+
 def _scan_config_files(repo_path: str) -> list[str]:
     config_files: list[str] = []
     for root, _dirs, files in os.walk(repo_path):
@@ -153,105 +256,42 @@ class GitOperationsService:
         """
         repo_path = str(get_repo_path(repository))
         logger.info("Syncing repository '%s' to path: %s", repository["name"], repo_path)
-
         os.makedirs(os.path.dirname(repo_path), exist_ok=True)
 
-        # Determine action: clone or pull
         repo_dir_exists = os.path.exists(repo_path)
         is_git_repo = os.path.isdir(os.path.join(repo_path, ".git"))
-        needs_clone = force_clone or not is_git_repo
+        needs_clone = _sync_needs_clone(force_clone=force_clone, is_git_repo=is_git_repo)
 
         success = False
         message = ""
 
-        # Use authentication service for all auth operations
         with self._auth.setup_auth_environment(repository) as (
             clone_url,
             resolved_username,
             resolved_token,
             ssh_key_path,
         ):
+            del resolved_username, ssh_key_path  # unused; keep unpack shape
             if needs_clone:
-                # Backup non-repo directory if present
-                if repo_dir_exists and not is_git_repo:
-                    parent_dir = os.path.dirname(repo_path.rstrip(os.sep)) or os.path.dirname(
-                        repo_path
-                    )
-                    base_name = os.path.basename(os.path.normpath(repo_path))
-                    backup_path = os.path.join(parent_dir, f"{base_name}_backup_{int(time.time())}")
-                    shutil.move(repo_path, backup_path)
-                    logger.info("Backed up existing directory to %s", backup_path)
-
-                # Clone repository
-                try:
-                    if not repository.get("verify_ssl", True):
-                        logger.warning(
-                            "Git SSL verification disabled - not recommended for production"
-                        )
-                    with set_ssl_env(repository):
-                        logger.info("Cloning branch %s into %s", repository["branch"], repo_path)
-                        Repo.clone_from(clone_url, repo_path, branch=repository["branch"])
-
-                    if not os.path.isdir(os.path.join(repo_path, ".git")):
-                        raise GitCommandError("clone", 1, b"", b".git not found after clone")
-
-                    success = True
-                    message = (
-                        f"Repository '{repository['name']}' cloned successfully to {repo_path}"
-                    )
-                    logger.info(message)
-                except GitCommandError as gce:
-                    err = str(gce)
-                    logger.error("Git clone failed: %s", err)
-                    if "authentication" in err.lower():
-                        message = "Authentication failed. Please check your Git credentials."
-                    elif "not found" in err.lower():
-                        message = (
-                            f"Repository or branch not found. "
-                            f"URL: {repository['url']} Branch: {repository['branch']}"
-                        )
-                    else:
-                        message = f"Git clone failed: {err}"
-                except Exception as e:
-                    logger.error("Unexpected error during Git clone: %s", e)
-                    message = f"Unexpected error: {str(e)}"
-                finally:
-                    # Cleanup empty directory after failed clone
-                    try:
-                        if not success and os.path.isdir(repo_path) and not os.listdir(repo_path):
-                            shutil.rmtree(repo_path)
-                            logger.info(
-                                "Removed empty directory after failed clone: %s",
-                                repo_path,
-                            )
-                    except Exception as ce:
-                        logger.warning("Cleanup after failed clone skipped: %s", ce)
+                success, message = _clone_repository_at_path(
+                    repository=repository,
+                    repo_path=repo_path,
+                    clone_url=clone_url,
+                    repo_dir_exists=repo_dir_exists,
+                    is_git_repo=is_git_repo,
+                )
             else:
-                # Pull latest
-                try:
-                    repo = Repo(repo_path)
-                    origin = repo.remotes.origin
-
-                    # Update remote URL with authenticated URL if using token auth
-                    if resolved_token and "http" in repository["url"]:
-                        try:
-                            origin.set_url(clone_url)
-                        except Exception as e:
-                            logger.debug("Skipping remote URL update: %s", e)
-
-                    with set_ssl_env(repository):
-                        origin.pull(repository["branch"])
-                        success = True
-                        message = f"Repository '{repository['name']}' updated successfully"
-                        logger.info(message)
-                except Exception as e:
-                    logger.error("Error during Git pull: %s", e)
-                    message = f"Pull failed: {str(e)}"
+                success, message = _pull_repository_at_path(
+                    repository=repository,
+                    repo_path=repo_path,
+                    clone_url=clone_url,
+                    resolved_token=resolved_token,
+                )
 
         return SyncResult(
             success=success,
             message=message,
-            commits_behind=0,  # Could be calculated if needed
+            commits_behind=0,
             commits_ahead=0,
             repository_path=repo_path if success else None,
         )

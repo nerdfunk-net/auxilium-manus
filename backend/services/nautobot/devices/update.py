@@ -55,6 +55,40 @@ def _enforce_rack_position_face(validated: dict[str, Any]) -> None:
         validated.pop("position")
 
 
+def _default_primary_ip_interface_config() -> dict[str, Any]:
+    return {
+        "name": "Loopback",
+        "type": "virtual",
+        "status": "active",
+        "mgmt_interface_create_on_ip_change": False,
+    }
+
+
+def _verify_primary_ip4_applied(
+    *,
+    device_id: str,
+    expected_ip_id: str,
+    result: dict[str, Any],
+) -> None:
+    actual_ip = result.get("primary_ip4", {})
+    actual_ip_id = actual_ip.get("id") if isinstance(actual_ip, dict) else actual_ip
+
+    if actual_ip_id != expected_ip_id:
+        error_msg = (
+            f"Device update verification failed: primary_ip4 mismatch "
+            f"(expected {expected_ip_id}, got {actual_ip_id})"
+        )
+        logger.error(error_msg)
+        logger.error("Full update result: %s", result)
+        raise ValueError(error_msg)
+
+    logger.info(
+        "✓ Successfully verified device %s primary_ip4 is set to %s",
+        device_id,
+        expected_ip_id,
+    )
+
+
 class DeviceUpdateService:
     """
     Service for updating devices in Nautobot.
@@ -574,6 +608,54 @@ class DeviceUpdateService:
         logger.debug("Validated data: %s", validated)
         return validated, ip_namespace
 
+    async def _resolve_primary_ip4_for_patch(
+        self,
+        *,
+        device_id: str,
+        primary_ip4: str,
+        interface_config: dict[str, Any],
+        ip_namespace: str,
+        device_name: str | None,
+        current_primary_ip4: str | None,
+    ) -> str:
+        logger.info("Processing primary_ip4 update: %s", primary_ip4)
+
+        create_new = interface_config.get("mgmt_interface_create_on_ip_change", False)
+        logger.info("Create new interface on IP change: %s", create_new)
+
+        add_prefixes_automatically = interface_config.get("add_prefixes_automatically", False)
+        logger.info("Add prefixes automatically: %s", add_prefixes_automatically)
+
+        use_assigned_ip_if_exists = interface_config.get("use_assigned_ip_if_exists", False)
+        logger.info("Use assigned IP if exists: %s", use_assigned_ip_if_exists)
+
+        if create_new:
+            logger.info("Creating new interface with new IP address")
+            ip_id = await self.common.ensure_interface_with_ip(
+                device_id=device_id,
+                ip_address=primary_ip4,
+                interface_name=interface_config.get("name", "Loopback"),
+                interface_type=interface_config.get("type", "virtual"),
+                interface_status=interface_config.get("status", "active"),
+                ip_namespace=ip_namespace,
+                add_prefixes_automatically=add_prefixes_automatically,
+                use_assigned_ip_if_exists=use_assigned_ip_if_exists,
+            )
+        else:
+            logger.info("Updating existing interface's IP address")
+            ip_id = await self.common.update_interface_ip(
+                device_id=device_id,
+                device_name=device_name,
+                old_ip=current_primary_ip4,
+                new_ip=primary_ip4,
+                namespace=ip_namespace,
+                add_prefixes_automatically=add_prefixes_automatically,
+                use_assigned_ip_if_exists=use_assigned_ip_if_exists,
+            )
+
+        logger.info("Updated primary_ip4 to use IP UUID: %s", ip_id)
+        return ip_id
+
     async def _update_device_properties(
         self,
         device_id: str,
@@ -604,96 +686,29 @@ class DeviceUpdateService:
         logger.info("Updating device %s via REST API", device_id)
         logger.debug("Update data: %s", validated_data)
 
-        # Make a copy so we don't modify the original
         update_payload = validated_data.copy()
         updated_fields = list(update_payload.keys())
 
-        # Special handling for primary_ip4
         if "primary_ip4" in update_payload:
-            primary_ip4 = update_payload["primary_ip4"]
-            logger.info("Processing primary_ip4 update: %s", primary_ip4)
+            update_payload["primary_ip4"] = await self._resolve_primary_ip4_for_patch(
+                device_id=device_id,
+                primary_ip4=update_payload["primary_ip4"],
+                interface_config=interface_config or _default_primary_ip_interface_config(),
+                ip_namespace=ip_namespace or "Global",
+                device_name=device_name,
+                current_primary_ip4=current_primary_ip4,
+            )
 
-            # Use interface config if provided, otherwise use defaults
-            if not interface_config:
-                interface_config = {
-                    "name": "Loopback",
-                    "type": "virtual",
-                    "status": "active",
-                    "mgmt_interface_create_on_ip_change": False,
-                }
-
-            # Use namespace if provided, otherwise default to "Global"
-            namespace = ip_namespace or "Global"
-
-            # Check if we should create a new interface or update existing
-            create_new = interface_config.get("mgmt_interface_create_on_ip_change", False)
-            logger.info("Create new interface on IP change: %s", create_new)
-
-            # Get add_prefixes_automatically flag (default to False for backward compatibility)
-            add_prefixes_automatically = interface_config.get("add_prefixes_automatically", False)
-            logger.info("Add prefixes automatically: %s", add_prefixes_automatically)
-
-            # Get use_assigned_ip_if_exists flag (default to False for backward compatibility)
-            use_assigned_ip_if_exists = interface_config.get("use_assigned_ip_if_exists", False)
-            logger.info("Use assigned IP if exists: %s", use_assigned_ip_if_exists)
-
-            if create_new:
-                # BEHAVIOR 1: Create new interface with new IP (existing behavior)
-                logger.info("Creating new interface with new IP address")
-                ip_id = await self.common.ensure_interface_with_ip(
-                    device_id=device_id,
-                    ip_address=primary_ip4,
-                    interface_name=interface_config.get("name", "Loopback"),
-                    interface_type=interface_config.get("type", "virtual"),
-                    interface_status=interface_config.get("status", "active"),
-                    ip_namespace=namespace,
-                    add_prefixes_automatically=add_prefixes_automatically,
-                    use_assigned_ip_if_exists=use_assigned_ip_if_exists,
-                )
-            else:
-                # BEHAVIOR 2: Update existing interface's IP address
-                logger.info("Updating existing interface's IP address")
-                ip_id = await self.common.update_interface_ip(
-                    device_id=device_id,
-                    device_name=device_name,
-                    old_ip=current_primary_ip4,
-                    new_ip=primary_ip4,
-                    namespace=namespace,
-                    add_prefixes_automatically=add_prefixes_automatically,
-                    use_assigned_ip_if_exists=use_assigned_ip_if_exists,
-                )
-
-            # Update the payload to use the IP UUID instead of the address string
-            update_payload["primary_ip4"] = ip_id
-            logger.info("Updated primary_ip4 to use IP UUID: %s", ip_id)
-
-        # PATCH the device
-        endpoint = f"dcim/devices/{device_id}/"
         result = await self.nautobot.rest_request(
-            endpoint=endpoint,
+            endpoint=f"dcim/devices/{device_id}/",
             method="PATCH",
             data=update_payload,
         )
-
-        # Verify primary_ip4 was set if it was in the update
         if "primary_ip4" in update_payload:
-            expected_ip_id = update_payload["primary_ip4"]
-            actual_ip = result.get("primary_ip4", {})
-            actual_ip_id = actual_ip.get("id") if isinstance(actual_ip, dict) else actual_ip
-
-            if actual_ip_id != expected_ip_id:
-                error_msg = (
-                    f"Device update verification failed: primary_ip4 mismatch "
-                    f"(expected {expected_ip_id}, got {actual_ip_id})"
-                )
-                logger.error(error_msg)
-                logger.error("Full update result: %s", result)
-                raise ValueError(error_msg)
-
-            logger.info(
-                "✓ Successfully verified device %s primary_ip4 is set to %s",
-                device_id,
-                expected_ip_id,
+            _verify_primary_ip4_applied(
+                device_id=device_id,
+                expected_ip_id=update_payload["primary_ip4"],
+                result=result,
             )
 
         logger.info("Successfully updated device %s", device_id)

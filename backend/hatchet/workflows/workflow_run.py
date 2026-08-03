@@ -61,6 +61,92 @@ async def prepare(input: WorkflowRunInput, ctx: Context) -> dict:
     return {"run_id": input.run_id}
 
 
+async def _maybe_debug_pause_before_node(
+    *,
+    run_repo: Any,
+    runner: Any,
+    run: Any,
+    node: dict[str, Any],
+    ctx: DurableContext,
+) -> Any:
+    if run.run_mode != "debug":
+        return run
+
+    node_id: str = node.get("id", "")
+    node_title = (node.get("data", {}) or {}).get("title", node_id)
+    run_repo.update_run_status(
+        run,
+        status="paused",
+        current_node_id=node_id,
+        debug_message=(
+            f"Paused before '{node_title}' (node {node_id}). Click Next Step to continue."
+        ),
+    )
+    event_key = debug_step_event_key(run.uuid, node_id)
+    logger.info("Debug pause run_id=%s node_id=%s", run.id, node_id)
+    # Devices drop idle SSH long before a debug pause can resume — release
+    # live sessions now; the next network step reconnects lazily.
+    await runner.suspend_device_sessions()
+    await ctx.aio_wait_for_event(
+        event_key,
+        scope=event_key,
+        lookback_window=STEP_EVENT_LOOKBACK,
+    )
+
+    # Force a refresh — a "Run to completion" click (a separate DB
+    # session/request) may have flipped run_mode while we waited.
+    # A plain re-select would return this same identity-mapped object
+    # without re-reading already-loaded columns from the DB.
+    run_repo.db.refresh(run)
+    if run.run_mode == "debug":
+        run_repo.update_run_status(
+            run,
+            status="running",
+            debug_message=f"Resumed. Executing '{node_title}'.",
+        )
+    else:
+        run_repo.update_run_status(run, status="running")
+    return run
+
+
+def _fan_out_context_if_requested(
+    *,
+    node_id: str,
+    step_outcomes: dict[str, dict[str, Any]],
+    canvas_nodes: list[dict[str, Any]],
+    canvas_edges: list[dict[str, Any]],
+    run_id: int,
+) -> dict[str, Any] | None:
+    from services.execution.graph import find_join_node_id
+    from services.execution.step_runner import FanOutSignal
+
+    success_ctx = step_outcomes.get(node_id, {}).get("success")
+    if not (success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled")):
+        return None
+
+    fan_out_config = dict(success_ctx.metadata["_fan_out"])
+    join_node_id = find_join_node_id(node_id, canvas_nodes, canvas_edges)
+    logger.info(
+        "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
+        node_id,
+        fan_out_config.get("mode"),
+        join_node_id,
+        run_id,
+    )
+    signal = FanOutSignal(
+        inventory_node_id=node_id,
+        fan_out_config=fan_out_config,
+        inventory_outcome=success_ctx,
+        step_outcomes=dict(step_outcomes),
+        join_node_id=join_node_id,
+    )
+    return {
+        "signal": signal,
+        "canvas_nodes": canvas_nodes,
+        "canvas_edges": canvas_edges,
+    }
+
+
 async def _run_steps_until_fan_out_or_done(
     *,
     run_repo: Any,
@@ -83,9 +169,6 @@ async def _run_steps_until_fan_out_or_done(
     the (possibly reloaded, e.g. after a debug resume) WorkflowRun to keep
     using in the caller.
     """
-    from services.execution.graph import find_join_node_id
-    from services.execution.step_runner import FanOutSignal
-
     canvas_nodes: list[dict[str, Any]] = wf.canvas_nodes or []
     canvas_edges: list[dict[str, Any]] = wf.canvas_edges or []
     ordered_nodes = runner.build_execution_plan(canvas_nodes, canvas_edges)
@@ -104,40 +187,9 @@ async def _run_steps_until_fan_out_or_done(
             run_repo.update_step_result(step_result, status="skipped")
             continue
 
-        if run.run_mode == "debug":
-            node_title = (node.get("data", {}) or {}).get("title", node_id)
-            run_repo.update_run_status(
-                run,
-                status="paused",
-                current_node_id=node_id,
-                debug_message=(
-                    f"Paused before '{node_title}' (node {node_id}). Click Next Step to continue."
-                ),
-            )
-            event_key = debug_step_event_key(run.uuid, node_id)
-            logger.info("Debug pause run_id=%s node_id=%s", run.id, node_id)
-            # Devices drop idle SSH long before a debug pause can resume — release
-            # live sessions now; the next network step reconnects lazily.
-            await runner.suspend_device_sessions()
-            await ctx.aio_wait_for_event(
-                event_key,
-                scope=event_key,
-                lookback_window=STEP_EVENT_LOOKBACK,
-            )
-
-            # Force a refresh — a "Run to completion" click (a separate DB
-            # session/request) may have flipped run_mode while we waited.
-            # A plain re-select would return this same identity-mapped object
-            # without re-reading already-loaded columns from the DB.
-            run_repo.db.refresh(run)
-            if run.run_mode == "debug":
-                run_repo.update_run_status(
-                    run,
-                    status="running",
-                    debug_message=f"Resumed. Executing '{node_title}'.",
-                )
-            else:
-                run_repo.update_run_status(run, status="running")
+        run = await _maybe_debug_pause_before_node(
+            run_repo=run_repo, runner=runner, run=run, node=node, ctx=ctx
+        )
 
         raised, indicates_failure = await runner.run_node_in_sequence(
             node=node,
@@ -154,33 +206,15 @@ async def _run_steps_until_fan_out_or_done(
         if indicates_failure:
             any_reported_failure = True
 
-        success_ctx = step_outcomes.get(node_id, {}).get("success")
-        if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
-            fan_out_config = dict(success_ctx.metadata["_fan_out"])
-            join_node_id = find_join_node_id(node_id, canvas_nodes, canvas_edges)
-            logger.info(
-                "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
-                node_id,
-                fan_out_config.get("mode"),
-                join_node_id,
-                run.id,
-            )
-            signal = FanOutSignal(
-                inventory_node_id=node_id,
-                fan_out_config=fan_out_config,
-                inventory_outcome=success_ctx,
-                step_outcomes=dict(step_outcomes),
-                join_node_id=join_node_id,
-            )
-            return (
-                None,
-                {
-                    "signal": signal,
-                    "canvas_nodes": canvas_nodes,
-                    "canvas_edges": canvas_edges,
-                },
-                run,
-            )
+        fan_out = _fan_out_context_if_requested(
+            node_id=node_id,
+            step_outcomes=step_outcomes,
+            canvas_nodes=canvas_nodes,
+            canvas_edges=canvas_edges,
+            run_id=run.id,
+        )
+        if fan_out is not None:
+            return None, fan_out, run
 
     return ("success" if not (failed or any_reported_failure) else "failed"), None, run
 
@@ -569,6 +603,98 @@ def _tally_batch_failures(
     return batch_device_count, batch_failed_count
 
 
+def _batch_needs_approval_gate(
+    *,
+    batch_index: int,
+    first_batch_auto: bool,
+    auto_approve_remaining: bool,
+) -> bool:
+    return not auto_approve_remaining and not (batch_index == 0 and first_batch_auto)
+
+
+def _device_names_for_groups(
+    plan: _FanOutDispatchPlan,
+    batch_groups: list[list[str]],
+) -> list[str]:
+    return [plan.all_devices[did].name for group in batch_groups for did in group]
+
+
+async def _wait_and_resume_batch_approval(
+    *,
+    signal: Any,
+    parent_run_id: int,
+    ctx: DurableContext,
+    run_uuid: str,
+    batch_index: int,
+    total_batches: int,
+    devices_completed: int,
+    devices_failed: int,
+    batch_device_names: list[str],
+    devices_total: int,
+    SessionLocal: Any,
+    RunRepository: Any,
+) -> bool:
+    state = _build_approval_state(
+        awaiting=True,
+        next_batch_index=batch_index,
+        total_batches=total_batches,
+        batches_completed=batch_index,
+        devices_total=devices_total,
+        devices_completed=devices_completed,
+        devices_failed=devices_failed,
+        next_batch_device_names=batch_device_names,
+    )
+    message = _format_approval_pause_message(
+        batches_completed=batch_index,
+        total_batches=total_batches,
+        devices_completed=devices_completed,
+        devices_failed=devices_failed,
+        next_batch_index=batch_index,
+        next_batch_device_names=batch_device_names,
+    )
+
+    with SessionLocal() as db:
+        run_repo = RunRepository(db)
+        run_result = run_repo.get_run_by_id(parent_run_id)
+        if run_result is None:
+            raise ValueError(f"WorkflowRun {parent_run_id} not found (approval gate)")
+        run, _ = run_result
+        run_repo.update_run_status(
+            run,
+            status="paused",
+            current_node_id=signal.inventory_node_id,
+            debug_message=message,
+            approval_state=state,
+        )
+
+    event_key = batch_approval_event_key(run_uuid, batch_index)
+    logger.info(
+        "Approval pause run_id=%s batch=%d/%d",
+        parent_run_id,
+        batch_index + 1,
+        total_batches,
+    )
+    await ctx.aio_wait_for_event(
+        event_key, scope=event_key, lookback_window=STEP_EVENT_LOOKBACK
+    )
+
+    with SessionLocal() as db:
+        run_repo = RunRepository(db)
+        run_result = run_repo.get_run_by_id(parent_run_id)
+        if run_result is None:
+            raise ValueError(f"WorkflowRun {parent_run_id} not found (approval resume)")
+        run, _ = run_result
+        auto_approve_remaining = bool(
+            (run.approval_state or {}).get("auto_approve_remaining")
+        )
+        run_repo.update_run_status(
+            run,
+            status="running",
+            approval_state={**(run.approval_state or {}), "awaiting": False},
+        )
+    return auto_approve_remaining
+
+
 async def _dispatch_with_approval(
     signal: Any,
     *,
@@ -595,70 +721,25 @@ async def _dispatch_with_approval(
     group_index_offset = 0
 
     for batch_index, batch_groups in enumerate(batches):
-        gate_needed = not auto_approve_remaining and not (batch_index == 0 and first_batch_auto)
-
-        if gate_needed:
-            batch_device_names = [
-                plan.all_devices[did].name for group in batch_groups for did in group
-            ]
-            state = _build_approval_state(
-                awaiting=True,
-                next_batch_index=batch_index,
+        if _batch_needs_approval_gate(
+            batch_index=batch_index,
+            first_batch_auto=first_batch_auto,
+            auto_approve_remaining=auto_approve_remaining,
+        ):
+            auto_approve_remaining = await _wait_and_resume_batch_approval(
+                signal=signal,
+                parent_run_id=parent_run_id,
+                ctx=ctx,
+                run_uuid=run_uuid,
+                batch_index=batch_index,
                 total_batches=total_batches,
-                batches_completed=batch_index,
+                devices_completed=devices_completed,
+                devices_failed=devices_failed,
+                batch_device_names=_device_names_for_groups(plan, batch_groups),
                 devices_total=len(plan.device_ids),
-                devices_completed=devices_completed,
-                devices_failed=devices_failed,
-                next_batch_device_names=batch_device_names,
+                SessionLocal=SessionLocal,
+                RunRepository=RunRepository,
             )
-            message = _format_approval_pause_message(
-                batches_completed=batch_index,
-                total_batches=total_batches,
-                devices_completed=devices_completed,
-                devices_failed=devices_failed,
-                next_batch_index=batch_index,
-                next_batch_device_names=batch_device_names,
-            )
-
-            with SessionLocal() as db:
-                run_repo = RunRepository(db)
-                run_result = run_repo.get_run_by_id(parent_run_id)
-                if run_result is None:
-                    raise ValueError(f"WorkflowRun {parent_run_id} not found (approval gate)")
-                run, _ = run_result
-                run_repo.update_run_status(
-                    run,
-                    status="paused",
-                    current_node_id=signal.inventory_node_id,
-                    debug_message=message,
-                    approval_state=state,
-                )
-
-            event_key = batch_approval_event_key(run_uuid, batch_index)
-            logger.info(
-                "Approval pause run_id=%s batch=%d/%d",
-                parent_run_id,
-                batch_index + 1,
-                total_batches,
-            )
-            await ctx.aio_wait_for_event(
-                event_key, scope=event_key, lookback_window=STEP_EVENT_LOOKBACK
-            )
-
-            with SessionLocal() as db:
-                run_repo = RunRepository(db)
-                run_result = run_repo.get_run_by_id(parent_run_id)
-                if run_result is None:
-                    raise ValueError(f"WorkflowRun {parent_run_id} not found (approval resume)")
-                run, _ = run_result
-                auto_approve_remaining = bool(
-                    (run.approval_state or {}).get("auto_approve_remaining")
-                )
-                run_repo.update_run_status(
-                    run,
-                    status="running",
-                    approval_state={**(run.approval_state or {}), "awaiting": False},
-                )
 
         batch_results = await _run_groups(
             signal,

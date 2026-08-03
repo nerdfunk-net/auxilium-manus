@@ -53,6 +53,139 @@ def _platform_hint(device: DeviceContext) -> str | None:
     return platform_hint_for_network_driver(device.network_driver)
 
 
+def _build_parse_entry(
+    config_source: str,
+    running_model: dict[str, Any] | None,
+    startup_model: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if config_source == "both":
+        return {"running": running_model, "startup": startup_model}
+    if config_source == "running":
+        return running_model
+    return startup_model
+
+
+async def _parse_one_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    artifact_service: ArtifactService,
+    run_id: Any,
+    node_id: str,
+    need_running: bool,
+    need_startup: bool,
+    config_source: str,
+    output_key: str,
+) -> tuple[str, DeviceContext, bool]:
+    platform_hint = _platform_hint(device)
+    try:
+        running_model: dict[str, Any] | None = None
+        startup_model: dict[str, Any] | None = None
+
+        if need_running:
+            if device.running_config_ref is None:
+                raise ValueError(
+                    "running config is not available on this device — add a "
+                    "Get Configs step upstream with running config enabled"
+                )
+            running_text = await artifact_service.resolve(device.running_config_ref)
+            running_model = parse_cisco_config_text(running_text, platform_hint)
+
+        if need_startup:
+            if device.startup_config_ref is None:
+                raise ValueError(
+                    "startup config is not available on this device — add a "
+                    "Get Configs step upstream with startup config enabled"
+                )
+            startup_text = await artifact_service.resolve(device.startup_config_ref)
+            startup_model = parse_cisco_config_text(startup_text, platform_hint)
+
+        entry = _build_parse_entry(config_source, running_model, startup_model)
+        parsed = dict(device.parsed)
+        parsed[output_key] = entry
+        enriched = device.model_copy(
+            update={
+                "parsed": parsed,
+                "capabilities": device.capabilities | {Capability.PARSED},
+                "status": DeviceStatus.OK,
+            }
+        )
+        return device_id, enriched, True
+    except Exception as exc:
+        logger.warning(
+            "parse-cisco-config failed run_id=%s node_id=%s device_id=%s error=%s",
+            run_id,
+            node_id,
+            device_id,
+            exc,
+        )
+        err = DeviceError(
+            node_id=node_id,
+            step_id="parse-cisco-config",
+            code="config_error" if isinstance(exc, ValueError) else type(exc).__name__.lower(),
+            message=str(exc),
+        )
+        failed = device.model_copy(
+            update={
+                "status": DeviceStatus.FAILED,
+                "errors": [*device.errors, err],
+            }
+        )
+        return device_id, failed, False
+
+
+def _partition_parse_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
+    for device_id, updated_device, ok in results:
+        if ok:
+            success_devices[device_id] = updated_device
+        else:
+            failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
+
+
+def _build_parse_outcomes(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    run_id: Any,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
+    metadata = {
+        **context.metadata,
+        f"{node_id}.parse_success_count": len(success_devices),
+        f"{node_id}.parse_failure_count": len(failed_devices),
+    }
+
+    logger.info(
+        "parse-cisco-config finished success=%d failure=%d run_id=%s",
+        len(success_devices),
+        len(failed_devices),
+        run_id,
+    )
+
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
+        )
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(
+                    update={"devices": failed_devices, "metadata": metadata}
+                ),
+            )
+        )
+    return outcomes
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -78,114 +211,27 @@ async def execute(
         output_key,
     )
 
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-
-    async def parse_device(
-        device_id: str,
-        device: DeviceContext,
-    ) -> tuple[str, DeviceContext, bool]:
-        platform_hint = _platform_hint(device)
-        try:
-            running_model: dict[str, Any] | None = None
-            startup_model: dict[str, Any] | None = None
-
-            if need_running:
-                if device.running_config_ref is None:
-                    raise ValueError(
-                        "running config is not available on this device — add a "
-                        "Get Configs step upstream with running config enabled"
-                    )
-                running_text = await artifact_service.resolve(device.running_config_ref)
-                running_model = parse_cisco_config_text(running_text, platform_hint)
-
-            if need_startup:
-                if device.startup_config_ref is None:
-                    raise ValueError(
-                        "startup config is not available on this device — add a "
-                        "Get Configs step upstream with startup config enabled"
-                    )
-                startup_text = await artifact_service.resolve(device.startup_config_ref)
-                startup_model = parse_cisco_config_text(startup_text, platform_hint)
-
-            if config_source == "both":
-                entry: dict[str, Any] | None = {
-                    "running": running_model,
-                    "startup": startup_model,
-                }
-            elif config_source == "running":
-                entry = running_model
-            else:
-                entry = startup_model
-
-            parsed = dict(device.parsed)
-            parsed[output_key] = entry
-            enriched = device.model_copy(
-                update={
-                    "parsed": parsed,
-                    "capabilities": device.capabilities | {Capability.PARSED},
-                    "status": DeviceStatus.OK,
-                }
-            )
-            return device_id, enriched, True
-        except Exception as exc:
-            logger.warning(
-                "parse-cisco-config failed run_id=%s node_id=%s device_id=%s error=%s",
-                run.id,
-                node_id,
-                device_id,
-                exc,
-            )
-            err = DeviceError(
-                node_id=node_id,
-                step_id="parse-cisco-config",
-                code="config_error" if isinstance(exc, ValueError) else type(exc).__name__.lower(),
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
     results = await asyncio.gather(
-        *[parse_device(device_id, device) for device_id, device in context.devices.items()]
-    )
-
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-
-    metadata = {
-        **context.metadata,
-        f"{node_id}.parse_success_count": len(success_devices),
-        f"{node_id}.parse_failure_count": len(failed_devices),
-    }
-
-    logger.info(
-        "parse-cisco-config finished success=%d failure=%d run_id=%s",
-        len(success_devices),
-        len(failed_devices),
-        run.id,
-    )
-
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
+        *[
+            _parse_one_device(
+                device_id=device_id,
+                device=device,
+                artifact_service=artifact_service,
+                run_id=run.id,
+                node_id=node_id,
+                need_running=need_running,
+                need_startup=need_startup,
+                config_source=config_source,
+                output_key=output_key,
             )
-        )
-    return outcomes
+            for device_id, device in context.devices.items()
+        ]
+    )
+    success_devices, failed_devices = _partition_parse_results(results)
+    return _build_parse_outcomes(
+        context=context,
+        node_id=node_id,
+        run_id=run.id,
+        success_devices=success_devices,
+        failed_devices=failed_devices,
+    )

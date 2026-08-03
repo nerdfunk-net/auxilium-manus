@@ -40,6 +40,52 @@ def _pack_devices(
     return device_ids, operations_count, devices_dict
 
 
+def _subtract_not_results(result: set[str], not_results: list[set[str]]) -> set[str]:
+    for i, not_set in enumerate(not_results):
+        old_count = len(result)
+        result = result.difference(not_set)
+        logger.info(
+            "  Subtracted NOT operation %s: %s - %s = %s devices",
+            i,
+            old_count,
+            len(not_set),
+            len(result),
+        )
+    return result
+
+
+def _combine_logical_results(
+    *,
+    operation_type: str,
+    condition_results: list[set[str]],
+    not_results: list[set[str]],
+    intersect: Callable[[list[set[str]]], set[str]],
+    union: Callable[[list[set[str]]], set[str]],
+) -> set[str]:
+    op_type = operation_type.upper()
+    if op_type == "AND":
+        result = intersect(condition_results)
+        logger.info("  AND operation result (before NOT): %s devices", len(result))
+        result = _subtract_not_results(result, not_results)
+        logger.info("  AND operation final result: %s devices", len(result))
+        return result
+    if op_type == "OR":
+        result = union(condition_results)
+        logger.info("  OR operation result (before NOT): %s devices", len(result))
+        result = _subtract_not_results(result, not_results)
+        logger.info("  OR operation final result: %s devices", len(result))
+        return result
+    if op_type == "NOT":
+        if condition_results:
+            result = union(condition_results)
+        else:
+            result = set()
+        logger.info("  NOT operation devices to exclude: %s devices", len(result))
+        return result
+    logger.warning("Unknown operation type: %s", operation_type)
+    return set()
+
+
 class NautobotSourceEvaluator:
     """Executes logical operations for inventory device filtering."""
 
@@ -56,6 +102,58 @@ class NautobotSourceEvaluator:
             "platform": query_service._query_devices_by_platform,
             "has_primary": query_service._query_devices_by_has_primary,
         }
+
+    async def _execute_operation_conditions(
+        self, conditions: list[LogicalCondition]
+    ) -> tuple[list[set[str]], int, dict[str, DeviceInfo]]:
+        condition_results: list[set[str]] = []
+        operations_count = 0
+        all_devices_data: dict[str, DeviceInfo] = {}
+
+        for i, condition in enumerate(conditions):
+            logger.info(
+                "  Executing condition %s: %s %s '%s'",
+                i,
+                condition.field,
+                condition.operator,
+                condition.value,
+            )
+            devices, op_count, devices_data = await self._execute_condition(condition)
+            condition_results.append(devices)
+            operations_count += op_count
+            all_devices_data.update(devices_data)
+            logger.info("  Condition %s result: %s devices", i, len(devices))
+
+        return condition_results, operations_count, all_devices_data
+
+    async def _execute_nested_operations(
+        self, nested_operations: list[LogicalOperation]
+    ) -> tuple[list[set[str]], list[set[str]], int, dict[str, DeviceInfo]]:
+        nested_results: list[set[str]] = []
+        not_results: list[set[str]] = []
+        operations_count = 0
+        all_devices_data: dict[str, DeviceInfo] = {}
+
+        for i, nested_op in enumerate(nested_operations):
+            logger.info("  Executing nested operation %s: type=%s", i, nested_op.operation_type)
+            nested_result, nested_count, nested_data = await self._execute_operation(nested_op)
+            operations_count += nested_count
+            all_devices_data.update(nested_data)
+            logger.info(
+                "  Nested operation %s result: %s devices, type=%s",
+                i,
+                len(nested_result),
+                nested_op.operation_type,
+            )
+
+            if nested_op.operation_type.upper() == "NOT":
+                not_results.append(nested_result)
+                logger.info("  Added to NOT results for subtraction")
+            else:
+                nested_results.append(nested_result)
+                logger.info("  Added to regular results for combination")
+
+        return nested_results, not_results, operations_count, all_devices_data
 
     async def _execute_operation(
         self, operation: LogicalOperation
@@ -79,93 +177,26 @@ class NautobotSourceEvaluator:
         operations_count = 0
         all_devices_data: dict[str, DeviceInfo] = {}
 
-        # Execute all conditions in this operation
-        condition_results: list[set[str]] = []
-        not_results: list[set[str]] = []  # Separate list for NOT operations
+        condition_results, cond_count, cond_data = await self._execute_operation_conditions(
+            operation.conditions
+        )
+        operations_count += cond_count
+        all_devices_data.update(cond_data)
 
-        for i, condition in enumerate(operation.conditions):
-            logger.info(
-                "  Executing condition %s: %s %s '%s'",
-                i,
-                condition.field,
-                condition.operator,
-                condition.value,
-            )
-            devices, op_count, devices_data = await self._execute_condition(condition)
-            condition_results.append(devices)
-            operations_count += op_count
-            all_devices_data.update(devices_data)
-            logger.info("  Condition %s result: %s devices", i, len(devices))
+        nested_results, not_results, nested_count, nested_data = (
+            await self._execute_nested_operations(operation.nested_operations)
+        )
+        operations_count += nested_count
+        all_devices_data.update(nested_data)
+        condition_results.extend(nested_results)
 
-        # Execute nested operations
-        for i, nested_op in enumerate(operation.nested_operations):
-            logger.info("  Executing nested operation %s: type=%s", i, nested_op.operation_type)
-            nested_result, nested_count, nested_data = await self._execute_operation(nested_op)
-            operations_count += nested_count
-            all_devices_data.update(nested_data)
-            logger.info(
-                "  Nested operation %s result: %s devices, type=%s",
-                i,
-                len(nested_result),
-                nested_op.operation_type,
-            )
-
-            # Separate NOT operations from regular operations
-            if nested_op.operation_type.upper() == "NOT":
-                not_results.append(nested_result)
-                logger.info("  Added to NOT results for subtraction")
-            else:
-                condition_results.append(nested_result)
-                logger.info("  Added to regular results for combination")
-
-        # Combine results based on operation type
-        if operation.operation_type.upper() == "AND":
-            result = self._intersect_sets(condition_results)
-            logger.info("  AND operation result (before NOT): %s devices", len(result))
-
-            # Subtract all NOT results
-            for i, not_set in enumerate(not_results):
-                old_count = len(result)
-                result = result.difference(not_set)
-                logger.info(
-                    "  Subtracted NOT operation %s: %s - %s = %s devices",
-                    i,
-                    old_count,
-                    len(not_set),
-                    len(result),
-                )
-
-            logger.info("  AND operation final result: %s devices", len(result))
-        elif operation.operation_type.upper() == "OR":
-            result = self._union_sets(condition_results)
-            logger.info("  OR operation result (before NOT): %s devices", len(result))
-
-            # Subtract all NOT results
-            for i, not_set in enumerate(not_results):
-                old_count = len(result)
-                result = result.difference(not_set)
-                logger.info(
-                    "  Subtracted NOT operation %s: %s - %s = %s devices",
-                    i,
-                    old_count,
-                    len(not_set),
-                    len(result),
-                )
-
-            logger.info("  OR operation final result: %s devices", len(result))
-        elif operation.operation_type.upper() == "NOT":
-            # For NOT operations, return the devices that match the conditions
-            # The actual NOT logic will be applied in the main preview_inventory method
-            if condition_results:
-                result = self._union_sets(
-                    condition_results
-                )  # Get all devices that match the NOT conditions
-            else:
-                result = set()
-            logger.info("  NOT operation devices to exclude: %s devices", len(result))
-        else:
-            logger.warning("Unknown operation type: %s", operation.operation_type)
-            result = set()
+        result = _combine_logical_results(
+            operation_type=operation.operation_type,
+            condition_results=condition_results,
+            not_results=not_results,
+            intersect=self._intersect_sets,
+            union=self._union_sets,
+        )
 
         logger.info(
             "Operation completed: %s devices, %s total queries",

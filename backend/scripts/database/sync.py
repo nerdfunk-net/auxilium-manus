@@ -119,38 +119,36 @@ def _report(diff: SchemaDiff, table_filter: str | None = None) -> None:
     print("=" * _WIDTH)
 
 
-def _migrate(
-    diff: SchemaDiff,
-    auto: AutoSchemaMigration,
-    force: bool,
-    drop: bool = False,
-    drop_columns: bool = False,
-) -> None:
-    tables_created = columns_added = types_changed = indexes_created = skipped = 0
-    tables_dropped = columns_dropped = 0
+def _drop_extra_tables(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
+    tables_dropped = 0
+    for table_name in diff.extra_tables:
+        try:
+            with auto.engine.connect() as conn:
+                conn.execute(text(f"DROP TABLE {table_name}"))
+                conn.commit()
+            print(f"  Dropped table: {table_name}")
+            tables_dropped += 1
+        except Exception as e:
+            print(f"  Failed to drop table {table_name}: {e}")
+    return tables_dropped
 
-    if drop:
-        for table_name in diff.extra_tables:
-            try:
-                with auto.engine.connect() as conn:
-                    conn.execute(text(f"DROP TABLE {table_name}"))
-                    conn.commit()
-                print(f"  Dropped table: {table_name}")
-                tables_dropped += 1
-            except Exception as e:
-                print(f"  Failed to drop table {table_name}: {e}")
 
-    if drop_columns:
-        for table_name, col_name in diff.extra_columns:
-            try:
-                with auto.engine.connect() as conn:
-                    conn.execute(text(f"ALTER TABLE {table_name} DROP COLUMN {col_name}"))
-                    conn.commit()
-                print(f"  Dropped column: {table_name}.{col_name}")
-                columns_dropped += 1
-            except Exception as e:
-                print(f"  Failed to drop column {table_name}.{col_name}: {e}")
+def _drop_extra_columns(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
+    columns_dropped = 0
+    for table_name, col_name in diff.extra_columns:
+        try:
+            with auto.engine.connect() as conn:
+                conn.execute(text(f"ALTER TABLE {table_name} DROP COLUMN {col_name}"))
+                conn.commit()
+            print(f"  Dropped column: {table_name}.{col_name}")
+            columns_dropped += 1
+        except Exception as e:
+            print(f"  Failed to drop column {table_name}.{col_name}: {e}")
+    return columns_dropped
 
+
+def _create_missing_tables(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
+    tables_created = 0
     for table_name in diff.missing_tables:
         try:
             table = auto.base.metadata.tables[table_name]
@@ -159,11 +157,11 @@ def _migrate(
             tables_created += 1
         except Exception as e:
             print(f"  Failed to create table {table_name}: {e}")
+    return tables_created
 
-    # Re-inspect so subsequent steps see newly created tables.
-    if diff.missing_tables:
-        auto.inspector = sa_inspect(auto.engine)
 
+def _add_missing_columns(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
+    columns_added = 0
     for table_name, col_name in diff.missing_columns:
         try:
             table = auto.base.metadata.tables[table_name]
@@ -176,7 +174,13 @@ def _migrate(
             columns_added += 1
         except Exception as e:
             print(f"  Failed to add column {table_name}.{col_name}: {e}")
+    return columns_added
 
+
+def _apply_column_diffs(
+    diff: SchemaDiff, auto: AutoSchemaMigration, *, force: bool
+) -> tuple[int, int]:
+    types_changed = skipped = 0
     for cd in diff.column_diffs:
         if not cd.safe and not force:
             risky_desc = (
@@ -209,7 +213,11 @@ def _migrate(
             types_changed += 1
         except Exception as e:
             print(f"  Failed to change {cd.table}.{cd.column}: {e}")
+    return types_changed, skipped
 
+
+def _create_missing_indexes(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
+    indexes_created = 0
     for table_name, idx_name in diff.missing_indexes:
         try:
             table = auto.base.metadata.tables.get(table_name)
@@ -222,7 +230,19 @@ def _migrate(
                 indexes_created += 1
         except Exception as e:
             print(f"  Failed to create index {idx_name}: {e}")
+    return indexes_created
 
+
+def _print_migrate_summary(
+    *,
+    tables_dropped: int,
+    columns_dropped: int,
+    tables_created: int,
+    columns_added: int,
+    types_changed: int,
+    indexes_created: int,
+    skipped: int,
+) -> None:
     print()
     print("=" * _WIDTH)
     applied = []
@@ -242,6 +262,38 @@ def _migrate(
         applied.append(f"{skipped} risky change(s) skipped")
     print("Summary: " + (", ".join(applied) if applied else "No changes applied."))
     print("=" * _WIDTH)
+
+
+def _migrate(
+    diff: SchemaDiff,
+    auto: AutoSchemaMigration,
+    force: bool,
+    drop: bool = False,
+    drop_columns: bool = False,
+) -> None:
+    tables_dropped = columns_dropped = 0
+    if drop:
+        tables_dropped = _drop_extra_tables(diff, auto)
+    if drop_columns:
+        columns_dropped = _drop_extra_columns(diff, auto)
+
+    tables_created = _create_missing_tables(diff, auto)
+    if diff.missing_tables:
+        auto.inspector = sa_inspect(auto.engine)
+
+    columns_added = _add_missing_columns(diff, auto)
+    types_changed, skipped = _apply_column_diffs(diff, auto, force=force)
+    indexes_created = _create_missing_indexes(diff, auto)
+
+    _print_migrate_summary(
+        tables_dropped=tables_dropped,
+        columns_dropped=columns_dropped,
+        tables_created=tables_created,
+        columns_added=columns_added,
+        types_changed=types_changed,
+        indexes_created=indexes_created,
+        skipped=skipped,
+    )
 
 
 def main() -> None:
