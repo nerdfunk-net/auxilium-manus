@@ -8,9 +8,10 @@ from pydantic import BaseModel
 class HatchetConfigResponse(BaseModel):
     """Read-only snapshot of the live Hatchet client configuration.
 
-    All values are resolved from HATCHET_CLIENT_* environment variables (see
-    hatchet/client.py) — there is no app-side override, so this endpoint is
-    purely informational.
+    Most values are resolved from HATCHET_CLIENT_* environment variables (see
+    hatchet/client.py); worker_name/worker_slots come from HATCHET_WORKER_*
+    environment variables (see hatchet/worker_config.py). There is no app-side
+    override for any of these — this endpoint is purely informational.
     """
 
     server_url: str

@@ -34,14 +34,17 @@ export function HatchetSettingsCanvas() {
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto bg-slate-50 p-8">
       <div className="mx-auto w-full max-w-2xl space-y-6">
-        <p className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <div className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
-          Hatchet is configured entirely via <code>HATCHET_CLIENT_*</code> environment
-          variables (in <code>backend/.env</code> or your docker environment) — this
-          page is read-only and reflects the values the backend process actually
-          resolved at startup. Changing an env var requires restarting the backend
-          and the Hatchet worker process.
-        </p>
+          <p>
+            Hatchet is configured entirely via <code>HATCHET_CLIENT_*</code> and{" "}
+            <code>HATCHET_WORKER_*</code> environment variables (in{" "}
+            <code>backend/.env</code> or your docker environment) — this page is
+            read-only and reflects the values the backend process actually resolved
+            at startup. Changing an env var requires restarting the backend and the
+            Hatchet worker process.
+          </p>
+        </div>
 
         <Card>
           <CardHeader className="pb-3">

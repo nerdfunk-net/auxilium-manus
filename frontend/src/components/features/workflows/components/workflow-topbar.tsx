@@ -12,7 +12,6 @@ import {
   StepForward,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -28,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAuthStore } from "@/lib/auth-store";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 import {
   useApproveAllMutation,
@@ -56,12 +54,8 @@ export function WorkflowTopbar({
   onSaveAs,
   onRun,
 }: WorkflowTopbarProps) {
-  const user = useAuthStore((state) => state.user);
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
-  const workflowStatus = useWorkflowBuilderStore(
-    (state) => state.workflowStatus,
-  );
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
   const runMode = useWorkflowBuilderStore((state) => state.runMode);
   const setRunMode = useWorkflowBuilderStore((state) => state.setRunMode);
@@ -89,23 +83,9 @@ export function WorkflowTopbar({
             Select devices, run commands, and store artifacts.
           </p>
         </div>
-        <Badge
-          variant={
-            workflowStatus === "Error"
-              ? "destructive"
-              : workflowStatus === "Running"
-                ? "default"
-                : "outline"
-          }
-        >
-          {workflowStatus}
-        </Badge>
       </div>
 
       <div className="flex items-center gap-3">
-        {user ? (
-          <span className="text-xs text-muted-foreground">{user.username}</span>
-        ) : null}
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-muted-foreground">Run as</span>
           <Select
