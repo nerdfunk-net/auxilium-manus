@@ -9,6 +9,12 @@ Invariant (see doc/DURABLE_SSH_SESSION.md §3.4): every ``op`` passed to
 ``run_on_device`` must leave the session in privileged-exec base state
 (config mode always exited, no pending interactive prompts) before
 returning, since a later call may reuse the same live session.
+
+Login probes (``probe_login``) are a separate, disposable code path: they
+never read, lock, or mutate an existing pooled entry, and the probe session
+is never inserted into ``_sessions``. This lets a step confirm a fresh SSH
+login without tearing down a pooled session a later rollback step may still
+need — see doc/refactoring/FORCE_SSH_LOGIN.md.
 """
 
 from __future__ import annotations
@@ -127,6 +133,40 @@ class DeviceSessionPool:
             result = await loop.run_in_executor(self._executor, _run)
             entry.last_used = time.monotonic()
             return result
+
+    async def probe_login(
+        self,
+        *,
+        host: str,
+        device_type: str,
+        username: str,
+        password: str,
+    ) -> bool:
+        """Open a disposable SSH session, confirm it is alive, disconnect.
+
+        Does not read, lock, mutate, or replace any pooled session for this
+        host — the probe session is never stored in ``_sessions``. Used by
+        ``login-successful`` to guarantee a real new authentication even when
+        a live pooled session already exists for the same key (see
+        doc/DURABLE_SSH_SESSION.md §11 and doc/refactoring/FORCE_SSH_LOGIN.md).
+        """
+        loop = asyncio.get_running_loop()
+        session = NetmikoDeviceSession(
+            host=host,
+            device_type=device_type,
+            username=username,
+            password=password,
+            keepalive=settings.netmiko_keepalive_seconds,
+        )
+
+        def _probe() -> bool:
+            try:
+                session.connect()
+                return session.is_alive()
+            finally:
+                session.disconnect()
+
+        return await loop.run_in_executor(self._executor, _probe)
 
     async def _get_or_create_entry(
         self,

@@ -1151,8 +1151,10 @@ plugins:
     name: Login Successful
     overview: Verify SSH login with a configured credential.
     description: >
-      Attempt an SSH login to each device with a configured credential and route
-      to success or failure based on whether authentication succeeds.
+      Performs a new SSH login attempt without closing any existing workflow
+      device session, and routes to success or failure based on whether
+      authentication succeeds. Any existing session for the same device
+      remains available to undo changes.
     artifact_type: control_flow
     palette_category: routing
     directory: login_successful

@@ -201,27 +201,24 @@ class NetmikoService:
         credential_reference: str,
         device_type: str | None = None,
     ) -> bool:
-        """Open (or reuse) an SSH session and confirm it is alive.
+        """Always opens a disposable SSH session to verify authentication.
 
-        Raises ``NetmikoConnectionError`` (or other Netmiko errors) when the
-        login fails. On success the pooled session remains available for later
-        steps that share the same host + credential key.
+        Existing pooled sessions for the same host are left untouched so a
+        failed probe can still use them to roll back config. The probe
+        session is disconnected before this method returns and is never
+        reused. ``credential_reference`` is kept for call-site compatibility
+        / logging only; the probe is not keyed and never enters the pool.
         """
         resolved_device_type = device_type or resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
 
-        def _op(session: NetmikoDeviceSession) -> bool:
-            return session.is_alive()
-
-        return await self._pool.run_on_device(
+        return await self._pool.probe_login(
             host=host,
             device_type=resolved_device_type,
-            credential_reference=credential_reference,
             username=username,
             password=password,
-            op=_op,
         )
 
     async def get_configs(

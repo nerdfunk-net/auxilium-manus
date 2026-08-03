@@ -17,6 +17,9 @@ from services.network.netmiko.session_pool import DeviceSessionPool
 class FakeSession:
     """Records connect/disconnect/op calls; no real network I/O."""
 
+    instances: list[FakeSession] = []
+    connect_error: Exception | None = None
+
     def __init__(
         self,
         *,
@@ -33,16 +36,21 @@ class FakeSession:
         self.connected = False
         self.connect_calls = 0
         self.disconnect_calls = 0
+        self.disconnect_attempts = 0
         self.alive = True
         self.disconnect_error: Exception | None = None
         self.config_mode_after_op = False
         self.check_config_mode_calls = 0
+        FakeSession.instances.append(self)
 
     def connect(self, *, privileged: bool = True) -> None:
         self.connect_calls += 1
+        if FakeSession.connect_error is not None:
+            raise FakeSession.connect_error
         self.connected = True
 
     def disconnect(self) -> None:
+        self.disconnect_attempts += 1
         if not self.connected:
             return
         self.disconnect_calls += 1
@@ -63,6 +71,10 @@ def _patch_session_cls():
 
 
 class DeviceSessionPoolTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        FakeSession.instances = []
+        FakeSession.connect_error = None
+
     async def test_reuses_session_for_same_key(self) -> None:
         with _patch_session_cls():
             pool = DeviceSessionPool(max_workers=2)
@@ -262,6 +274,101 @@ class DeviceSessionPoolTests(unittest.IsolatedAsyncioTestCase):
 
             await pool.run_on_device(**kwargs, debug=True)
             self.assertEqual(entry.session.check_config_mode_calls, 1)
+            await pool.close()
+
+    async def test_probe_login_does_not_touch_existing_pooled_session(self) -> None:
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+            kwargs = {
+                "host": "10.0.0.1",
+                "device_type": "cisco_ios",
+                "credential_reference": "admin-cred",
+                "username": "admin",
+                "password": "secret",
+            }
+            await pool.run_on_device(**kwargs, op=lambda session: None)
+            pooled_entry = next(iter(pool._sessions.values()))
+            self.assertEqual(pooled_entry.session.connect_calls, 1)
+
+            alive = await pool.probe_login(
+                host="10.0.0.1",
+                device_type="cisco_ios",
+                username="admin",
+                password="secret",
+            )
+
+            self.assertTrue(alive)
+            self.assertEqual(len(FakeSession.instances), 2)
+            probe_session = FakeSession.instances[-1]
+            self.assertIsNot(probe_session, pooled_entry.session)
+            self.assertEqual(probe_session.connect_calls, 1)
+            self.assertEqual(probe_session.disconnect_calls, 1)
+
+            self.assertTrue(pooled_entry.session.connected)
+            self.assertEqual(pooled_entry.session.connect_calls, 1)
+            self.assertEqual(pooled_entry.session.disconnect_calls, 0)
+            self.assertEqual(len(pool._sessions), 1)
+            await pool.close()
+
+    async def test_probe_login_disconnects_on_success(self) -> None:
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+
+            alive = await pool.probe_login(
+                host="10.0.0.1",
+                device_type="cisco_ios",
+                username="admin",
+                password="secret",
+            )
+
+            self.assertTrue(alive)
+            probe_session = FakeSession.instances[-1]
+            self.assertFalse(probe_session.connected)
+            self.assertEqual(probe_session.disconnect_calls, 1)
+            await pool.close()
+
+    async def test_probe_login_disconnects_on_connect_failure(self) -> None:
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+            FakeSession.connect_error = RuntimeError("auth failed")
+
+            with self.assertRaises(RuntimeError):
+                await pool.probe_login(
+                    host="10.0.0.1",
+                    device_type="cisco_ios",
+                    username="admin",
+                    password="secret",
+                )
+
+            probe_session = FakeSession.instances[-1]
+            self.assertEqual(probe_session.disconnect_attempts, 1)
+            self.assertEqual(len(pool._sessions), 0)
+            await pool.close()
+
+    async def test_run_on_device_after_probe_reuses_original_session(self) -> None:
+        with _patch_session_cls():
+            pool = DeviceSessionPool(max_workers=2)
+            kwargs = {
+                "host": "10.0.0.1",
+                "device_type": "cisco_ios",
+                "credential_reference": "admin-cred",
+                "username": "admin",
+                "password": "secret",
+            }
+            await pool.run_on_device(**kwargs, op=lambda session: None)
+            pooled_entry = next(iter(pool._sessions.values()))
+
+            await pool.probe_login(
+                host="10.0.0.1",
+                device_type="cisco_ios",
+                username="admin",
+                password="secret",
+            )
+
+            await pool.run_on_device(**kwargs, op=lambda session: None)
+
+            self.assertEqual(pooled_entry.session.connect_calls, 1)
+            self.assertEqual(len(FakeSession.instances), 2)
             await pool.close()
 
 

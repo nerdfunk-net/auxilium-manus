@@ -324,6 +324,12 @@ Key points for step authors:
 - Never store `device_sessions` or a session object beyond the `execute()` call
   — the pool is scoped to the segment and closed by its owner in a `finally`
   once the segment ends.
+- `login-successful` is the one exception to transparent reuse: it always
+  opens a disposable side connection (`DeviceSessionPool.probe_login`) to
+  force a real new authentication, and never reads, locks, or mutates a
+  pooled session — see `doc/refactoring/FORCE_SSH_LOGIN.md`. Pooled sessions
+  for the same device stay open throughout, so a failed probe still leaves a
+  live session available for a rollback step.
 - Emergency rollback: `settings.netmiko_session_pooling = False` restores the
   legacy fresh-session-per-call behavior without a code change.
 

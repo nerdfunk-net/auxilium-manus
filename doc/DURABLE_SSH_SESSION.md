@@ -501,6 +501,11 @@ netmiko_keepalive_seconds: int = 30    # paramiko transport keepalive
 | Executor exception mid-command | Session lock released; `is_alive()` decides reuse vs reconnect on next acquire |
 | `netmiko_session_pooling=False` | Behavior byte-for-byte like today (fresh session per call) |
 | Worker process exits | OS closes sockets; nothing to do (verify no atexit hangs from executor threads — use `thread_name_prefix`, daemon semantics of `ThreadPoolExecutor.shutdown(wait=False, cancel_futures=True)` in `close()`) |
+| `get-device-configs` then `login-successful` (same key) | Pooled session stays open; `probe_login` opens a second, disposable SSH session, then closes it; pool still holds the original |
+| `login-successful` probe fails after a deploy step | Pooled session stays alive for a following rollback step |
+| `login-successful` probe succeeds, then `run-command` (same key) | Probe already closed; `run-command` reuses the original pooled session, not the probe |
+
+See `doc/refactoring/FORCE_SSH_LOGIN.md` §6 for the full `login-successful` probe lifecycle matrix.
 
 ---
 
@@ -601,8 +606,15 @@ replay.
 - **scrapli-asyncio** as the driver: native asyncio removes the thread executor
   entirely; the pool interface (`run_on_device`) is designed so the Netmiko-backed
   implementation can be swapped without touching executors.
-- Per-step "requires fresh session" flag if a future step needs guaranteed clean
-  session state.
+- ~~Per-step "requires fresh session" flag if a future step needs guaranteed
+  clean session state.~~ Implemented for the login probe path via
+  `DeviceSessionPool.probe_login` — a disposable side connection that never
+  reads, locks, or mutates a pooled session. See
+  `doc/refactoring/FORCE_SSH_LOGIN.md`. Reconnect-into-pool (disconnecting and
+  replacing the pooled entry) was explicitly rejected for this use case
+  because it destroys the pooled session a rollback step needs after a failed
+  probe. A general registry-level `requires_fresh_session` flag remains
+  deferred — no other step has needed it yet.
 - `reachable` step: optional SSH reachability probe via the pool (doubles as
   session pre-warming). Deferred from v1 (§13.3).
 - Fan-out refinements (independent of sessions, recorded here from the same

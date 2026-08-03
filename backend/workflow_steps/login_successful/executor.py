@@ -129,6 +129,8 @@ async def execute(
         )
 
         try:
+            # Disposable probe login — does not touch any pooled session, so a
+            # prior deploy session remains available for rollback on failure.
             alive = await netmiko.test_login(
                 host=host,
                 network_driver=device.network_driver,
