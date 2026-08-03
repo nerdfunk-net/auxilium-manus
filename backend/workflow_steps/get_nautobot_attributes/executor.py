@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -35,6 +36,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STEP_ID = "get-nautobot-attributes"
+
+
+@dataclass(frozen=True)
+class _ParsedConfig:
+    source_id: str
+    list_of_attributes: list[str]
+
 
 async def _fetch_device(
     nautobot_service: NautobotService,
@@ -56,26 +65,17 @@ async def _fetch_device(
     return device
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del artifact_service  # unused for this step
-
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
+def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     source_id = config.get("nautobot_source_id", "").strip()
     if not source_id:
         raise ValueError("get-nautobot-attributes: nautobot_source_id is not configured")
-
     list_of_attributes: list[str] = config.get("list_of_attributes") or []
+    return _ParsedConfig(source_id=source_id, list_of_attributes=list_of_attributes)
 
+
+def _bind_nautobot(
+    run: WorkflowRun, source_id: str
+) -> tuple[NautobotCredentials, NautobotService]:
     db = object_session(run)
     if db is None:
         raise RuntimeError("get-nautobot-attributes: WorkflowRun has no active DB session")
@@ -99,112 +99,113 @@ async def execute(
         nautobot_url, nautobot_token, verify_ssl=nautobot_verify_ssl
     )
     nautobot_service = service_factory.get_nautobot_app_service()
+    return credentials, nautobot_service
 
-    variables = build_attribute_variables(list_of_attributes)
 
-    logger.info(
-        "get-nautobot-attributes run_id=%s source_id=%s devices=%d attributes=%s",
-        run.id,
-        source_id,
-        len(context.devices),
-        list_of_attributes,
+def _fail_device(
+    *,
+    device: DeviceContext,
+    device_id: str,
+    node_id: str,
+    code: str,
+    message: str,
+) -> tuple[str, DeviceContext, bool]:
+    err = DeviceError(
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code=code,
+        message=message,
     )
+    failed = device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+    return device_id, failed, False
 
+
+async def _enrich_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    nautobot_service: NautobotService,
+    credentials: NautobotCredentials,
+    variables: dict[str, Any],
+) -> tuple[str, DeviceContext, bool]:
+    try:
+        nautobot_device_id = await resolve_nautobot_device_id(
+            nautobot_service=nautobot_service,
+            credentials=credentials,
+            device=device,
+        )
+        if nautobot_device_id is None:
+            return _fail_device(
+                device=device,
+                device_id=device_id,
+                node_id=node_id,
+                code="not_found",
+                message=(
+                    f"No Nautobot device found for workflow device {device_id} "
+                    f"(name={device.name!r}, ip={device.primary_ip4!r})"
+                ),
+            )
+
+        detail = await _fetch_device(
+            nautobot_service, credentials, nautobot_device_id, variables
+        )
+        if detail is None:
+            return _fail_device(
+                device=device,
+                device_id=device_id,
+                node_id=node_id,
+                code="not_found",
+                message=f"No Nautobot data returned for device {device_id}",
+            )
+
+        platform_raw = detail.get("platform")
+        platform = platform_raw if isinstance(platform_raw, dict) else {}
+        attribute_bags = dict(device.attribute_bags)
+        attribute_bags["nautobot"] = attributes_from_detail(detail)
+        enriched = device.model_copy(
+            update={
+                "attribute_bags": attribute_bags,
+                "platform": platform.get("name") or device.platform,
+                "network_driver": platform.get("network_driver") or device.network_driver,
+                "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+                "status": DeviceStatus.OK,
+            }
+        )
+        return device_id, enriched, True
+    except Exception as exc:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code=type(exc).__name__.lower(),
+            message=str(exc),
+        )
+
+
+def _partition_device_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-
-    async def enrich_device(
-        device_id: str,
-        device: DeviceContext,
-    ) -> tuple[str, DeviceContext, bool]:
-        try:
-            nautobot_device_id = await resolve_nautobot_device_id(
-                nautobot_service=nautobot_service,
-                credentials=credentials,
-                device=device,
-            )
-            if nautobot_device_id is None:
-                err = DeviceError(
-                    node_id=node_id,
-                    step_id="get-nautobot-attributes",
-                    code="not_found",
-                    message=(
-                        f"No Nautobot device found for workflow device {device_id} "
-                        f"(name={device.name!r}, ip={device.primary_ip4!r})"
-                    ),
-                )
-                failed = device.model_copy(
-                    update={
-                        "status": DeviceStatus.FAILED,
-                        "errors": [*device.errors, err],
-                    }
-                )
-                return device_id, failed, False
-
-            detail = await _fetch_device(
-                nautobot_service, credentials, nautobot_device_id, variables
-            )
-            if detail is None:
-                err = DeviceError(
-                    node_id=node_id,
-                    step_id="get-nautobot-attributes",
-                    code="not_found",
-                    message=f"No Nautobot data returned for device {device_id}",
-                )
-                failed = device.model_copy(
-                    update={
-                        "status": DeviceStatus.FAILED,
-                        "errors": [*device.errors, err],
-                    }
-                )
-                return device_id, failed, False
-
-            platform_raw = detail.get("platform")
-            platform = platform_raw if isinstance(platform_raw, dict) else {}
-            attribute_bags = dict(device.attribute_bags)
-            attribute_bags["nautobot"] = attributes_from_detail(detail)
-            enriched = device.model_copy(
-                update={
-                    "attribute_bags": attribute_bags,
-                    "platform": platform.get("name") or device.platform,
-                    "network_driver": platform.get("network_driver") or device.network_driver,
-                    "capabilities": device.capabilities | {Capability.ATTRIBUTES},
-                    "status": DeviceStatus.OK,
-                }
-            )
-            return device_id, enriched, True
-        except Exception as exc:
-            err = DeviceError(
-                node_id=node_id,
-                step_id="get-nautobot-attributes",
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
-    results = await asyncio.gather(
-        *[enrich_device(device_id, device) for device_id, device in context.devices.items()]
-    )
-
     for device_id, updated_device, ok in results:
         if ok:
             success_devices[device_id] = updated_device
         else:
             failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
 
-    logger.info(
-        "get-nautobot-attributes returning %d/%d devices run_id=%s",
-        len(success_devices),
-        len(context.devices),
-        run.id,
-    )
 
+def _build_outcomes(
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
     outcomes = [
         StepOutcome(
             name="success",
@@ -219,3 +220,52 @@ async def execute(
             )
         )
     return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    parsed = _parse_config(config)
+    credentials, nautobot_service = _bind_nautobot(run, parsed.source_id)
+    variables = build_attribute_variables(parsed.list_of_attributes)
+
+    logger.info(
+        "get-nautobot-attributes run_id=%s source_id=%s devices=%d attributes=%s",
+        run.id,
+        parsed.source_id,
+        len(context.devices),
+        parsed.list_of_attributes,
+    )
+
+    results = await asyncio.gather(
+        *[
+            _enrich_device(
+                device_id=device_id,
+                device=device,
+                node_id=node_id,
+                nautobot_service=nautobot_service,
+                credentials=credentials,
+                variables=variables,
+            )
+            for device_id, device in context.devices.items()
+        ]
+    )
+    success_devices, failed_devices = _partition_device_results(results)
+    logger.info(
+        "get-nautobot-attributes returning %d/%d devices run_id=%s",
+        len(success_devices),
+        len(context.devices),
+        run.id,
+    )
+    return _build_outcomes(context, success_devices, failed_devices)

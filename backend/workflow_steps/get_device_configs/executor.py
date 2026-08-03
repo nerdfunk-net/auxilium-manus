@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import object_session
@@ -25,7 +26,14 @@ from workflow_steps.common.credential_resolver import resolve_ssh_credential
 
 logger = logging.getLogger(__name__)
 
+_STEP_ID = "get-device-configs"
 _CONFIG_FORMATS = frozenset({"running", "startup", "both"})
+
+
+@dataclass(frozen=True)
+class _ParsedConfig:
+    credential_reference: str
+    config_format: str
 
 
 def _config_targets(config_format: str) -> tuple[bool, bool]:
@@ -37,168 +45,187 @@ def _config_targets(config_format: str) -> tuple[bool, bool]:
     return True, True
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
+def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     credential_reference = str(config.get("credential_reference") or "").strip()
     config_format = str(config.get("config_format") or "both").strip().lower()
     if config_format not in _CONFIG_FORMATS:
         raise ValueError(
             f"get-device-configs: config_format must be one of {sorted(_CONFIG_FORMATS)}"
         )
-
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError("get-device-configs: WorkflowRun has no active DB session")
-
-    username, password = resolve_ssh_credential(
-        db, credential_reference, acting_user_id=run.triggered_by_id
+    return _ParsedConfig(
+        credential_reference=credential_reference,
+        config_format=config_format,
     )
-    include_running, include_startup = _config_targets(config_format)
-    netmiko = NetmikoService(pool=device_sessions)
 
+
+def _fail_device(
+    *,
+    device: DeviceContext,
+    device_id: str,
+    node_id: str,
+    code: str,
+    message: str,
+) -> tuple[str, DeviceContext, bool]:
+    err = DeviceError(
+        node_id=node_id,
+        step_id=_STEP_ID,
+        code=code,
+        message=message,
+    )
+    failed = device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+    return device_id, failed, False
+
+
+async def _fetch_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    context_run_id: str | None,
+    parsed: _ParsedConfig,
+    username: str,
+    password: str,
+    include_running: bool,
+    include_startup: bool,
+    netmiko: NetmikoService,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    host = bare_hostname(device.primary_ip4, device.hostname)
+    if not host:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code="missing_host",
+            message=f"Device {device_id} has no hostname or primary IP",
+        )
+
+    try:
+        result = await netmiko.get_configs(
+            host=host,
+            network_driver=device.network_driver,
+            platform=device.platform,
+            username=username,
+            password=password,
+            include_running=include_running,
+            include_startup=include_startup,
+            credential_reference=parsed.credential_reference,
+        )
+        if not result.success:
+            raise RuntimeError(result.error or "Config retrieval failed")
+
+        updates: dict[str, Any] = {
+            "status": DeviceStatus.OK,
+            "capabilities": set(device.capabilities),
+        }
+
+        if include_running and result.running_config is not None:
+            running_ref = await artifact_service.store(
+                content=result.running_config,
+                kind="running_config",
+                device_id=device_id,
+                run_id=context_run_id,
+            )
+            updates["running_config_ref"] = running_ref
+            updates["capabilities"] = updates["capabilities"] | {Capability.RUNNING_CONFIG}
+
+        if include_startup and result.startup_config is not None:
+            startup_ref = await artifact_service.store(
+                content=result.startup_config,
+                kind="startup_config",
+                device_id=device_id,
+                run_id=context_run_id,
+            )
+            updates["startup_config_ref"] = startup_ref
+            updates["capabilities"] = updates["capabilities"] | {Capability.STARTUP_CONFIG}
+
+        enriched = device.model_copy(update=updates)
+        return device_id, enriched, True
+    except Exception as exc:
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code=type(exc).__name__.lower(),
+            message=str(exc),
+        )
+
+
+async def _fetch_device_logged(
+    *,
+    index: int,
+    device_id: str,
+    device: DeviceContext,
+    total: int,
+    run_id: Any,
+    node_id: str,
+    context_run_id: str | None,
+    parsed: _ParsedConfig,
+    username: str,
+    password: str,
+    include_running: bool,
+    include_startup: bool,
+    netmiko: NetmikoService,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
     logger.info(
-        "get-device-configs run_id=%s devices=%d credential=%s format=%s",
-        run.id,
-        len(context.devices),
-        credential_reference,
-        config_format,
+        "get-device-configs device %d/%d id=%s host=%s: connecting run_id=%s",
+        index,
+        total,
+        device_id,
+        host,
+        run_id,
     )
+    result = await _fetch_device(
+        device_id=device_id,
+        device=device,
+        node_id=node_id,
+        context_run_id=context_run_id,
+        parsed=parsed,
+        username=username,
+        password=password,
+        include_running=include_running,
+        include_startup=include_startup,
+        netmiko=netmiko,
+        artifact_service=artifact_service,
+    )
+    _, _, ok = result
+    logger.info(
+        "get-device-configs device %d/%d id=%s host=%s: %s run_id=%s",
+        index,
+        total,
+        device_id,
+        host,
+        "ok" if ok else "failed",
+        run_id,
+    )
+    return result
 
+
+def _partition_device_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-
-    async def fetch_device(
-        device_id: str,
-        device: DeviceContext,
-    ) -> tuple[str, DeviceContext, bool]:
-        host = bare_hostname(device.primary_ip4, device.hostname)
-        if not host:
-            err = DeviceError(
-                node_id=node_id,
-                step_id="get-device-configs",
-                code="missing_host",
-                message=f"Device {device_id} has no hostname or primary IP",
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
-        try:
-            result = await netmiko.get_configs(
-                host=host,
-                network_driver=device.network_driver,
-                platform=device.platform,
-                username=username,
-                password=password,
-                include_running=include_running,
-                include_startup=include_startup,
-                credential_reference=credential_reference,
-            )
-            if not result.success:
-                raise RuntimeError(result.error or "Config retrieval failed")
-
-            updates: dict[str, Any] = {
-                "status": DeviceStatus.OK,
-                "capabilities": set(device.capabilities),
-            }
-
-            if include_running and result.running_config is not None:
-                running_ref = await artifact_service.store(
-                    content=result.running_config,
-                    kind="running_config",
-                    device_id=device_id,
-                    run_id=context.run_id,
-                )
-                updates["running_config_ref"] = running_ref
-                updates["capabilities"] = updates["capabilities"] | {Capability.RUNNING_CONFIG}
-
-            if include_startup and result.startup_config is not None:
-                startup_ref = await artifact_service.store(
-                    content=result.startup_config,
-                    kind="startup_config",
-                    device_id=device_id,
-                    run_id=context.run_id,
-                )
-                updates["startup_config_ref"] = startup_ref
-                updates["capabilities"] = updates["capabilities"] | {Capability.STARTUP_CONFIG}
-
-            enriched = device.model_copy(update=updates)
-            return device_id, enriched, True
-        except Exception as exc:
-            err = DeviceError(
-                node_id=node_id,
-                step_id="get-device-configs",
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
-    async def fetch_device_logged(
-        index: int, device_id: str, device: DeviceContext
-    ) -> tuple[str, DeviceContext, bool]:
-        host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
-        total = len(context.devices)
-        logger.info(
-            "get-device-configs device %d/%d id=%s host=%s: connecting run_id=%s",
-            index,
-            total,
-            device_id,
-            host,
-            run.id,
-        )
-        result = await fetch_device(device_id, device)
-        _, _, ok = result
-        logger.info(
-            "get-device-configs device %d/%d id=%s host=%s: %s run_id=%s",
-            index,
-            total,
-            device_id,
-            host,
-            "ok" if ok else "failed",
-            run.id,
-        )
-        return result
-
-    results = await asyncio.gather(
-        *[
-            fetch_device_logged(index, device_id, device)
-            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
-        ]
-    )
-
     for device_id, updated_device, ok in results:
         if ok:
             success_devices[device_id] = updated_device
         else:
             failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
 
-    logger.info(
-        "get-device-configs returning %d/%d devices run_id=%s",
-        len(success_devices),
-        len(context.devices),
-        run.id,
-    )
 
+def _build_outcomes(
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
     outcomes = [
         StepOutcome(
             name="success",
@@ -213,3 +240,66 @@ async def execute(
             )
         )
     return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    parsed = _parse_config(config)
+    db = object_session(run)
+    if db is None:
+        raise RuntimeError("get-device-configs: WorkflowRun has no active DB session")
+
+    username, password = resolve_ssh_credential(
+        db, parsed.credential_reference, acting_user_id=run.triggered_by_id
+    )
+    include_running, include_startup = _config_targets(parsed.config_format)
+    netmiko = NetmikoService(pool=device_sessions)
+    total = len(context.devices)
+
+    logger.info(
+        "get-device-configs run_id=%s devices=%d credential=%s format=%s",
+        run.id,
+        total,
+        parsed.credential_reference,
+        parsed.config_format,
+    )
+
+    results = await asyncio.gather(
+        *[
+            _fetch_device_logged(
+                index=index,
+                device_id=device_id,
+                device=device,
+                total=total,
+                run_id=run.id,
+                node_id=node_id,
+                context_run_id=context.run_id,
+                parsed=parsed,
+                username=username,
+                password=password,
+                include_running=include_running,
+                include_startup=include_startup,
+                netmiko=netmiko,
+                artifact_service=artifact_service,
+            )
+            for index, (device_id, device) in enumerate(context.devices.items(), start=1)
+        ]
+    )
+    success_devices, failed_devices = _partition_device_results(results)
+    logger.info(
+        "get-device-configs returning %d/%d devices run_id=%s",
+        len(success_devices),
+        total,
+        run.id,
+    )
+    return _build_outcomes(context, success_devices, failed_devices)

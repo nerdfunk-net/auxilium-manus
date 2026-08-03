@@ -7,10 +7,93 @@ the project file-size limit. Mixed into NautobotSourceQueryService.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from models.sources_nautobot import DeviceInfo
 
 logger = logging.getLogger(__name__)
+
+_DEVICE_SELECTION_FIELDS = """
+                    id
+                    name
+                    serial
+                    role {
+                        name
+                    }
+                    location {
+                        name
+                    }
+                    primary_ip4 {
+                        address
+                    }
+                    status {
+                        name
+                    }
+                    device_type {
+                        model
+                        manufacturer {
+                            name
+                        }
+                    }
+                    tags {
+                        name
+                    }
+                    platform {
+                        name
+                        network_driver
+                    }
+"""
+
+
+def _resolve_location_filter_arg(use_contains: bool, use_negation: bool) -> str:
+    if use_negation:
+        return "location__n: $location_filter"
+    if use_contains:
+        return "location__name__ic: $location_filter"
+    return "location: $location_filter"
+
+
+def _location_devices_query(filter_arg: str) -> str:
+    return f"""
+            query devices_by_location ($location_filter: [String]) {{
+                devices ({filter_arg}) {{
+                    {_DEVICE_SELECTION_FIELDS}
+                }}
+            }}
+            """
+
+
+def _custom_field_graphql_var_type(cf_type: str | None, use_contains: bool) -> str:
+    if cf_type == "select":
+        return "[String]"
+    if use_contains:
+        return "[String]"
+    return "String"
+
+
+def _build_custom_field_devices_query(
+    filter_field: str,
+    graphql_var_type: str,
+    *,
+    use_contains: bool,
+) -> str:
+    if use_contains:
+        filter_arg = f"{filter_field}__ic: $field_value"
+    else:
+        filter_arg = f"{filter_field}: $field_value"
+    return f"""
+                query devices_by_custom_field($field_value: {graphql_var_type}) {{
+                  devices({filter_arg}) {{
+                    {_DEVICE_SELECTION_FIELDS}
+                  }}
+                }}
+                """
+
+
+def _custom_field_query_variables(graphql_var_type: str, value: str) -> dict[str, Any]:
+    if graphql_var_type == "[String]":
+        return {"field_value": [value]}
+    return {"field_value": value}
 
 
 class NautobotLiveQueryMixin:
@@ -38,112 +121,8 @@ class NautobotLiveQueryMixin:
             logger.warning("Empty location_filter provided, returning empty result")
             return []
 
-        if use_negation:
-            query = """
-            query devices_by_location ($location_filter: [String]) {
-                devices (location__n: $location_filter) {
-                    id
-                    name
-                    serial
-                    role {
-                        name
-                    }
-                    location {
-                        name
-                    }
-                    primary_ip4 {
-                        address
-                    }
-                    status {
-                        name
-                    }
-                    device_type {
-                        model
-                        manufacturer {
-                            name
-                        }
-                    }
-                    tags {
-                        name
-                    }
-                    platform {
-                        name
-                        network_driver
-                    }
-                }
-            }
-            """
-        elif use_contains:
-            query = """
-            query devices_by_location ($location_filter: [String]) {
-                devices (location__name__ic: $location_filter) {
-                    id
-                    name
-                    serial
-                    role {
-                        name
-                    }
-                    location {
-                        name
-                    }
-                    primary_ip4 {
-                        address
-                    }
-                    status {
-                        name
-                    }
-                    device_type {
-                        model
-                        manufacturer {
-                            name
-                        }
-                    }
-                    tags {
-                        name
-                    }
-                    platform {
-                        name
-                        network_driver
-                    }
-                }
-            }
-            """
-        else:
-            query = """
-            query devices_by_location ($location_filter: [String]) {
-                devices (location: $location_filter) {
-                    id
-                    name
-                    serial
-                    role {
-                        name
-                    }
-                    location {
-                        name
-                    }
-                    primary_ip4 {
-                        address
-                    }
-                    status {
-                        name
-                    }
-                    device_type {
-                        model
-                        manufacturer {
-                            name
-                        }
-                    }
-                    tags {
-                        name
-                    }
-                    platform {
-                        name
-                        network_driver
-                    }
-                }
-            }
-            """
-
+        filter_arg = _resolve_location_filter_arg(use_contains, use_negation)
+        query = _location_devices_query(filter_arg)
         variables = {"location_filter": [location_filter]}
         result = await self._nautobot.graphql_query(query, variables, self._credentials)
 
@@ -377,13 +356,7 @@ class NautobotLiveQueryMixin:
 
             cf_key = custom_field_name.replace("cf_", "")
             cf_type = custom_field_types.get(cf_key)
-
-            if cf_type == "select":
-                graphql_var_type = "[String]"
-            elif use_contains:
-                graphql_var_type = "[String]"
-            else:
-                graphql_var_type = "String"
+            graphql_var_type = _custom_field_graphql_var_type(cf_type, use_contains)
 
             logger.info(
                 "Custom field '%s' type='%s', use_contains=%s, GraphQL type='%s'",
@@ -393,90 +366,17 @@ class NautobotLiveQueryMixin:
                 graphql_var_type,
             )
 
-            filter_field = custom_field_name
-
-            if use_contains:
-                query = f"""
-                query devices_by_custom_field($field_value: {graphql_var_type}) {{
-                  devices({filter_field}__ic: $field_value) {{
-                    id
-                    name
-                    serial
-                    role {{
-                      name
-                    }}
-                    location {{
-                      name
-                    }}
-                    primary_ip4 {{
-                      address
-                    }}
-                    status {{
-                      name
-                    }}
-                    device_type {{
-                      model
-                      manufacturer {{
-                        name
-                      }}
-                    }}
-                    tags {{
-                      name
-                    }}
-                    platform {{
-                      name
-                      network_driver
-                    }}
-                  }}
-                }}
-                """
-            else:
-                query = f"""
-                query devices_by_custom_field($field_value: {graphql_var_type}) {{
-                  devices({filter_field}: $field_value) {{
-                    id
-                    name
-                    serial
-                    role {{
-                      name
-                    }}
-                    location {{
-                      name
-                    }}
-                    primary_ip4 {{
-                      address
-                    }}
-                    status {{
-                      name
-                    }}
-                    device_type {{
-                      model
-                      manufacturer {{
-                        name
-                      }}
-                    }}
-                    tags {{
-                      name
-                    }}
-                    platform {{
-                      name
-                      network_driver
-                    }}
-                  }}
-                }}
-                """
-
-            if graphql_var_type == "[String]":
-                variables = {"field_value": [custom_field_value]}
-            else:
-                variables = {"field_value": custom_field_value}
+            query = _build_custom_field_devices_query(
+                custom_field_name, graphql_var_type, use_contains=use_contains
+            )
+            variables = _custom_field_query_variables(graphql_var_type, custom_field_value)
 
             logger.debug("Custom field '%s' GraphQL query:\n%s", cf_key, query)
             logger.debug("Custom field '%s' variables: %s", cf_key, variables)
             logger.info(
                 "Custom field '%s' filter: %s, type: %s, graphql_var_type: %s",
                 cf_key,
-                filter_field,
+                custom_field_name,
                 cf_type,
                 graphql_var_type,
             )

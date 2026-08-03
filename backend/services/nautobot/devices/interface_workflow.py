@@ -9,6 +9,8 @@ by DeviceUpdateService and other services that need to manipulate device interfa
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any
 
 from services.nautobot import NautobotService
@@ -16,6 +18,29 @@ from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.types import InterfaceUpdateResult
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _InterfaceUpdateState:
+    created_interfaces: list[str] = dataclass_field(default_factory=list)
+    updated_interfaces: list[str] = dataclass_field(default_factory=list)
+    failed_interfaces: list[str] = dataclass_field(default_factory=list)
+    ip_address_map: dict[str, Any] = dataclass_field(default_factory=dict)
+    primary_ipv4_id: str | None = None
+    warnings: list[str] = dataclass_field(default_factory=list)
+    cleaned_interfaces: set[str] = dataclass_field(default_factory=set)
+    interfaces_deleted: int = 0
+
+    def to_result(self) -> InterfaceUpdateResult:
+        return InterfaceUpdateResult(
+            interfaces_created=len(self.created_interfaces),
+            interfaces_updated=len(self.updated_interfaces),
+            interfaces_failed=len(self.failed_interfaces),
+            interfaces_deleted=self.interfaces_deleted,
+            ip_addresses_created=len(self.ip_address_map),
+            primary_ip4_id=self.primary_ipv4_id,
+            warnings=self.warnings,
+        )
 
 
 class InterfaceManagerService:
@@ -47,39 +72,14 @@ class InterfaceManagerService:
         add_prefixes_automatically: bool = False,
         sync_interfaces: bool = False,
     ) -> InterfaceUpdateResult:
-        """
-        Create or update multiple interfaces for a device.
-
-        This method handles:
-        1. Creating IP addresses in IPAM
-        2. Creating interfaces on the device
-        3. Assigning IP addresses to interfaces
-        4. Setting primary IPv4 if specified
-
-        Args:
-            device_id: Device UUID
-            interfaces: List of interface dicts (can be InterfaceSpec or plain dicts)
-            add_prefixes_automatically: Auto-create missing prefix if IP creation fails
-                (default: False)
-
-        Returns:
-            InterfaceUpdateResult with operation statistics and warnings
-        """
+        """Create or update interfaces: IPs → interfaces → assign → optional primary."""
         logger.info(
             "Creating/updating %s interface(s) for device %s",
             len(interfaces),
             device_id,
         )
 
-        created_interfaces: list[str] = []
-        updated_interfaces: list[str] = []
-        failed_interfaces: list[str] = []
-        ip_address_map = {}
-        primary_ipv4_id = None
-        warnings = []
-        cleaned_interfaces: set[str] = set()
-        interfaces_deleted = 0
-
+        state = _InterfaceUpdateState()
         desired_names = {
             (iface.get("name") or "").strip()
             for iface in interfaces
@@ -87,139 +87,143 @@ class InterfaceManagerService:
         }
 
         if sync_interfaces:
-            interfaces_deleted = await self._delete_orphan_device_interfaces(
+            state.interfaces_deleted = await self._delete_orphan_device_interfaces(
                 device_id=device_id,
                 desired_names=desired_names,
-                warnings=warnings,
+                warnings=state.warnings,
             )
 
-        # Step 1: Create IP addresses first
-        ip_address_map = await self._create_ip_addresses(
+        state.ip_address_map = await self._create_ip_addresses(
             interfaces=interfaces,
-            warnings=warnings,
+            warnings=state.warnings,
             add_prefixes_automatically=add_prefixes_automatically,
         )
 
-        # Step 2: Create or update interfaces
         logger.info("\n" + "=" * 80)
         logger.info("==== STEP 2: CREATE OR UPDATE INTERFACES ====")
         logger.info("=" * 80)
         for interface in interfaces:
-            try:
-                logger.info("\n--- Processing interface: %s ---", interface["name"])
-                interface_id, was_updated = await self._create_or_update_interface(
-                    device_id=device_id,
-                    interface=interface,
-                    warnings=warnings,
-                )
-                logger.info("Interface ID returned: %s", interface_id)
-
-                if interface_id:
-                    iface_name = interface["name"]
-                    if was_updated:
-                        if iface_name not in updated_interfaces:
-                            updated_interfaces.append(iface_name)
-                    elif iface_name not in created_interfaces:
-                        created_interfaces.append(iface_name)
-
-                    # Clean existing IP assignments (once per interface)
-                    if interface_id not in cleaned_interfaces:
-                        logger.info("Cleaning existing IPs from interface %s", interface["name"])
-                        await self._clean_interface_ips(
-                            interface_id=interface_id,
-                            interface_name=interface["name"],
-                            warnings=warnings,
-                        )
-                        cleaned_interfaces.add(interface_id)
-                    else:
-                        logger.info("Interface %s already cleaned", interface["name"])
-
-                    # Assign IP addresses - handle both array and single formats
-                    logger.info(
-                        "\n==== STEP 3: ASSIGN IP(S) TO INTERFACE %s ====",
-                        interface["name"],
-                    )
-                    logger.info("Interface ID: %s", interface_id)
-
-                    # Get IP addresses in array format
-                    ip_addresses = interface.get("ip_addresses", [])
-                    if not ip_addresses and interface.get("ip_address"):
-                        # Backwards compatibility: single ip_address
-                        ip_addresses = [
-                            {
-                                "address": interface["ip_address"],
-                                "is_primary": interface.get("is_primary_ipv4", False),
-                            }
-                        ]
-
-                    logger.info("Found %s IP(s) to assign", len(ip_addresses))
-
-                    # Assign each IP address
-                    for idx, ip_data in enumerate(ip_addresses):
-                        ip_address = ip_data.get("address")
-                        if not ip_address:
-                            continue
-
-                        logger.info("\n  >> Assigning IP #%s: %s", idx + 1, ip_address)
-
-                        # Create a temporary interface dict for the assignment call
-                        temp_interface = interface.copy()
-                        temp_interface["ip_address"] = ip_address
-
-                        ip_assigned = await self._assign_ip_to_interface(
-                            interface=temp_interface,
-                            interface_id=interface_id,
-                            ip_address_map=ip_address_map,
-                            warnings=warnings,
-                        )
-                        logger.info("  IP assignment result: %s", ip_assigned)
-
-                        # Track if this should be primary IPv4
-                        if ip_assigned:
-                            is_ipv4 = ip_address and ":" not in ip_address
-                            if is_ipv4:
-                                # Check if this IP is marked as primary
-                                if ip_data.get("is_primary"):
-                                    primary_ipv4_id = ip_assigned
-                                    logger.info(
-                                        "  ✓ Interface %s IP %s marked as primary IPv4 (explicit)",
-                                        interface["name"],
-                                        ip_address,
-                                    )
-                                elif primary_ipv4_id is None:
-                                    primary_ipv4_id = ip_assigned
-                                    logger.info(
-                                        "  ✓ Interface %s IP %s set as primary IPv4"
-                                        " (first IPv4 found)",
-                                        interface["name"],
-                                        ip_address,
-                                    )
-
-            except Exception as e:
-                error_msg = str(e)
-                failed_interfaces.append(interface["name"])
-                warnings.append(
-                    f"Interface {interface['name']}: Failed to process interface: {error_msg}"
-                )
-                logger.error("Error processing interface %s: %s", interface["name"], error_msg)
-
-        # Step 3: Set primary IPv4 if found
-        if primary_ipv4_id:
-            await self._set_primary_ipv4(
+            await self._process_one_interface(
                 device_id=device_id,
-                primary_ipv4_id=primary_ipv4_id,
-                warnings=warnings,
+                interface=interface,
+                state=state,
             )
 
-        return InterfaceUpdateResult(
-            interfaces_created=len(created_interfaces),
-            interfaces_updated=len(updated_interfaces),
-            interfaces_failed=len(failed_interfaces),
-            interfaces_deleted=interfaces_deleted,
-            ip_addresses_created=len(ip_address_map),
-            primary_ip4_id=primary_ipv4_id,
-            warnings=warnings,
-        )
+        if state.primary_ipv4_id:
+            await self._set_primary_ipv4(
+                device_id=device_id,
+                primary_ipv4_id=state.primary_ipv4_id,
+                warnings=state.warnings,
+            )
+
+        return state.to_result()
+
+    async def _process_one_interface(
+        self,
+        *,
+        device_id: str,
+        interface: dict[str, Any],
+        state: _InterfaceUpdateState,
+    ) -> None:
+        try:
+            logger.info("\n--- Processing interface: %s ---", interface["name"])
+            interface_id, was_updated = await self._create_or_update_interface(
+                device_id=device_id,
+                interface=interface,
+                warnings=state.warnings,
+            )
+            logger.info("Interface ID returned: %s", interface_id)
+
+            if not interface_id:
+                return
+
+            iface_name = interface["name"]
+            if was_updated:
+                if iface_name not in state.updated_interfaces:
+                    state.updated_interfaces.append(iface_name)
+            elif iface_name not in state.created_interfaces:
+                state.created_interfaces.append(iface_name)
+
+            if interface_id not in state.cleaned_interfaces:
+                logger.info("Cleaning existing IPs from interface %s", iface_name)
+                await self._clean_interface_ips(
+                    interface_id=interface_id,
+                    interface_name=iface_name,
+                    warnings=state.warnings,
+                )
+                state.cleaned_interfaces.add(interface_id)
+            else:
+                logger.info("Interface %s already cleaned", iface_name)
+
+            logger.info(
+                "\n==== STEP 3: ASSIGN IP(S) TO INTERFACE %s ====",
+                iface_name,
+            )
+            logger.info("Interface ID: %s", interface_id)
+            await self._assign_ips_for_interface(
+                interface=interface,
+                interface_id=interface_id,
+                state=state,
+            )
+        except Exception as e:
+            error_msg = str(e)
+            state.failed_interfaces.append(interface["name"])
+            state.warnings.append(
+                f"Interface {interface['name']}: Failed to process interface: {error_msg}"
+            )
+            logger.error("Error processing interface %s: %s", interface["name"], error_msg)
+
+    async def _assign_ips_for_interface(
+        self,
+        *,
+        interface: dict[str, Any],
+        interface_id: str,
+        state: _InterfaceUpdateState,
+    ) -> None:
+        ip_addresses = interface.get("ip_addresses", [])
+        if not ip_addresses and interface.get("ip_address"):
+            ip_addresses = [
+                {
+                    "address": interface["ip_address"],
+                    "is_primary": interface.get("is_primary_ipv4", False),
+                }
+            ]
+
+        logger.info("Found %s IP(s) to assign", len(ip_addresses))
+
+        for idx, ip_data in enumerate(ip_addresses):
+            ip_address = ip_data.get("address")
+            if not ip_address:
+                continue
+
+            logger.info("\n  >> Assigning IP #%s: %s", idx + 1, ip_address)
+
+            temp_interface = interface.copy()
+            temp_interface["ip_address"] = ip_address
+
+            ip_assigned = await self._assign_ip_to_interface(
+                interface=temp_interface,
+                interface_id=interface_id,
+                ip_address_map=state.ip_address_map,
+                warnings=state.warnings,
+            )
+            logger.info("  IP assignment result: %s", ip_assigned)
+
+            if ip_assigned and ":" not in ip_address:
+                if ip_data.get("is_primary"):
+                    state.primary_ipv4_id = ip_assigned
+                    logger.info(
+                        "  ✓ Interface %s IP %s marked as primary IPv4 (explicit)",
+                        interface["name"],
+                        ip_address,
+                    )
+                elif state.primary_ipv4_id is None:
+                    state.primary_ipv4_id = ip_assigned
+                    logger.info(
+                        "  ✓ Interface %s IP %s set as primary IPv4 (first IPv4 found)",
+                        interface["name"],
+                        ip_address,
+                    )
 
     async def _delete_orphan_device_interfaces(
         self,

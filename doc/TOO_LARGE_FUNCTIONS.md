@@ -4,17 +4,20 @@
 **Scope:** `backend/` Python (excluding `tests/`, `migrations/`, caches)
 **Method:** AST scan of `FunctionDef` / `AsyncFunctionDef` bodies (`end_lineno - lineno + 1`)
 **Rules:** `coding-style.md` / `FABLE-ANALYSIS.md` §5.2 — prefer functions **<50 lines**; flag **≥80 lines** as systematic offenders
-**Related:** `doc/FABLE-ANALYSIS.md` §5.2; plan for top 10: `doc/refactoring/TOO_LARGE_FUNCTIONS_1_to_10.md`
+**Related:** `doc/FABLE-ANALYSIS.md` §5.2; plans:
+`doc/refactoring/TOO_LARGE_FUNCTIONS_1_to_10.md` (pass 1, done),
+`doc/refactoring/TOO_LARGE_FUNCTIONS_11_to_20.md` (pass 2, done),
+`doc/refactoring/TOO_LARGE_FUNCTIONS_21_to_30.md` (pass 3, done — rank 23 docstring kept)
 
 ## Summary
 
-| Metric | Pre-pass | Post pass 1 |
-|---|---:|---:|
-| Functions ≥80 lines | 76 | 68 |
-| Functions 50–79 lines | 87 | 100 |
-| Distinct files with ≥1 function ≥80 lines | 46 | — |
+| Metric | Pre-pass | Post pass 1 | Post pass 2 | Post pass 3 |
+|---|---:|---:|---:|---:|
+| Functions ≥80 lines | 76 | 68 | 59 | 50 |
+| Functions 50–79 lines | 87 | 100 | — | — |
+| Distinct files with ≥1 function ≥80 lines | 46 | — | — | — |
 
-Nested functions (e.g. `execute.deploy_on_device`) are included; they often dominate length inside already-large `execute()` entry points. Pass 1 thinned the 10 entry points below 80 lines; some lifted helpers (e.g. `_deploy_on_device` at 174) remain ≥80 and are candidates for a later pass.
+Nested functions (e.g. `execute.deploy_on_device`) are included; they often dominate length inside already-large `execute()` entry points. Passes 1–3 thinned ranks 1–30 entry points below 80 lines (except rank 23 `update_device`, whose docstring was intentionally kept). Some lifted helpers remain ≥80 and are candidates for later passes.
 
 The **"All functions ≥80 lines"** and **"50–79"** tables below are the **pre-pass** AST snapshot (2026-08-03) used to choose the top 10.
 
@@ -34,6 +37,40 @@ Plan + code before/after: `doc/refactoring/TOO_LARGE_FUNCTIONS_1_to_10.md`.
 | 8 | 197 | 63 | `backend/workflow_steps/add_to_nautobot/executor.py` | `execute` |
 | 9 | 196 | 55 | `backend/hatchet/workflows/workflow_run.py` | `_dispatch_children` |
 | 10 | 186 | 75 | `backend/services/sources/nautobot/evaluator.py` | `NautobotSourceEvaluator._execute_condition` |
+
+## Ranks 11–20 — pass 2 targets (**✅ refactored**)
+
+Plan + code before/after: `doc/refactoring/TOO_LARGE_FUNCTIONS_11_to_20.md`.
+
+| Rank | Before | After | File | Function |
+|---:|---:|---:|---|---|
+| 11 | 180 | 52 | `backend/services/nautobot/devices/interface_workflow.py` | `InterfaceManagerService.update_device_interfaces` |
+| 12 | 176 | 61 | `backend/workflow_steps/get_device_configs/executor.py` | `execute` |
+| 13 | 176 | 49 | `backend/workflow_steps/merge_content/executor.py` | `execute` |
+| 14 | 176 | 75 | `backend/workflow_steps/store_artifact/executor.py` | `execute` |
+| 15 | 174 | 70 | `backend/workflow_steps/deploy_rendered_template/executor.py` | `_deploy_on_device` |
+| 16 | 169 | 60 | `backend/workflow_steps/login_successful/executor.py` | `execute` |
+| 17 | 168 | 49 | `backend/workflow_steps/filter_output/executor.py` | `execute` |
+| 18 | 166 | 36 | `backend/workflow_steps/route_on_content/executor.py` | `execute` |
+| 19 | 164 | 63 | `backend/workflow_steps/update_ise_tacacs_key/executor.py` | `execute` |
+| 20 | 163 | 47 | `backend/workflow_steps/get_nautobot_attributes/executor.py` | `execute` |
+
+## Ranks 21–30 — pass 3 targets (**✅ refactored**; rank 23 docstring kept)
+
+Plan + code before/after: `doc/refactoring/TOO_LARGE_FUNCTIONS_21_to_30.md`.
+
+| Rank | Before | After | File | Function |
+|---:|---:|---:|---|---|
+| 21 | 152 | 49 | `backend/hatchet/workflows/workflow_run.py` | `execute_steps` |
+| 22 | 152 | 33 | `backend/services/nautobot/devices/update.py` | `DeviceUpdateService.validate_update_data` |
+| 23 | 151 | 151 | `backend/services/nautobot/devices/update.py` | `DeviceUpdateService.update_device` (docstring kept) |
+| 24 | 150 | 71 | `backend/services/sources/nautobot/live_query_mixin.py` | `_query_devices_by_custom_field` |
+| 25 | 143 | 69 | `backend/workflow_steps/compare_data/executor.py` | `_compare_for_device` |
+| 26 | 141 | 76 | `backend/workflow_steps/get_ise_tacacs_key/executor.py` | `execute` |
+| 27 | 141 | 54 | `backend/workflow_steps/render_jinja_template/executor.py` | `execute` |
+| 28 | 139 | 26 | `backend/services/git/debug_service.py` | `GitDebugService.get_diagnostics` |
+| 29 | 139 | 35 | `backend/services/sources/nautobot/live_query_mixin.py` | `_query_devices_by_location` |
+| 30 | 136 | 22 | `backend/services/git/operations.py` | `GitOperationsService.get_repository_status` |
 
 ## All functions ≥80 lines
 

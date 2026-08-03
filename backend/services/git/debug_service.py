@@ -16,6 +16,153 @@ from services.git.shared_utils import get_git_repo_by_id, git_repo_manager
 logger = logging.getLogger(__name__)
 
 
+def _repository_info_section(repository: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": repository["id"],
+        "name": repository["name"],
+        "url": repository["url"],
+        "branch": repository["branch"],
+        "is_active": repository["is_active"],
+        "verify_ssl": repository.get("verify_ssl", True),
+    }
+
+
+def _collect_local_repo_diagnostics(repo_id: int) -> dict[str, Any]:
+    sections: dict[str, Any] = {
+        "access_test": {},
+        "file_system": {},
+        "git_status": {},
+    }
+
+    try:
+        repo = get_git_repo_by_id(repo_id)
+        repo_path = Path(repo.working_dir)
+
+        sections["access_test"] = {
+            "accessible": True,
+            "path": str(repo_path),
+            "exists": repo_path.exists(),
+        }
+
+        try:
+            sections["file_system"] = {
+                "readable": os.access(str(repo_path), os.R_OK),
+                "writable": os.access(str(repo_path), os.W_OK),
+                "executable": os.access(str(repo_path), os.X_OK),
+                "path": str(repo_path),
+            }
+        except Exception as e:
+            sections["file_system"] = {"error": str(e), "error_type": type(e).__name__}
+
+        try:
+            sections["git_status"] = {
+                "is_dirty": repo.is_dirty(untracked_files=True),
+                "active_branch": repo.active_branch.name,
+                "head_commit": (
+                    repo.head.commit.hexsha[:8] if repo.head.is_valid() else "no commits"
+                ),
+                "remotes": [r.name for r in repo.remotes],
+                "has_origin": "origin" in [r.name for r in repo.remotes],
+            }
+        except Exception as e:
+            sections["git_status"] = {"error": str(e), "error_type": type(e).__name__}
+
+    except Exception as e:
+        sections["access_test"] = {
+            "accessible": False,
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }
+
+    return sections
+
+
+def _collect_ssl_diagnostics(repository: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if not repository.get("verify_ssl", True):
+            return {
+                "verification": "disabled",
+                "note": "SSL verification is disabled for this repository",
+            }
+        return {
+            "verification": "enabled",
+            "ssl_version": ssl.OPENSSL_VERSION,
+        }
+    except Exception as e:
+        return {"error": str(e), "error_type": type(e).__name__}
+
+
+def _collect_auth_and_push_diagnostics(
+    repo_id: int,
+    repository: dict[str, Any],
+    git_auth_service: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        username, token, ssh_key_path = git_auth_service.resolve_credentials(repository)
+        auth_type = repository.get("auth_type", "token")
+
+        credentials = {
+            "credential_name": repository.get("credential_name", "none"),
+            "auth_type": auth_type,
+            "has_username": bool(username),
+            "has_token": bool(token),
+            "has_ssh_key": bool(ssh_key_path),
+            "token_length": len(token) if token else 0,
+            "authentication": "configured" if (username and token) or ssh_key_path else "none",
+        }
+
+        if auth_type == "ssh_key":
+            has_credentials = bool(ssh_key_path)
+        elif auth_type == "token":
+            has_credentials = bool(username and token)
+        else:
+            has_credentials = False
+
+        has_remote = False
+        remote_url = "unknown"
+        try:
+            repo = get_git_repo_by_id(repo_id)
+            if "origin" in [r.name for r in repo.remotes]:
+                has_remote = True
+                origin = repo.remote("origin")
+                remote_url = list(origin.urls)[0] if origin.urls else "unknown"
+        except Exception:
+            pass
+
+        if has_credentials and has_remote:
+            push_status, push_message = "ready", "Push capability is configured and ready"
+        elif not has_credentials:
+            push_status, push_message = (
+                "no_credentials",
+                "Push requires authentication credentials",
+            )
+        elif not has_remote:
+            push_status, push_message = "no_remote", "No remote 'origin' configured"
+        else:
+            push_status, push_message = "unknown", "Push capability status unclear"
+
+        push_capability = {
+            "status": push_status,
+            "message": push_message,
+            "has_credentials": has_credentials,
+            "has_remote": has_remote,
+            "remote_url": remote_url,
+            "can_push": has_credentials and has_remote,
+        }
+
+        return credentials, push_capability
+
+    except Exception as e:
+        return (
+            {"error": str(e), "error_type": type(e).__name__},
+            {
+                "status": "error",
+                "message": f"Failed to assess push capability: {str(e)}",
+                "can_push": False,
+            },
+        )
+
+
 def _debug_result(success: bool, message: str, **details: Any) -> dict[str, Any]:
     return {"success": success, "message": message, "details": details}
 
@@ -515,14 +662,7 @@ class GitDebugService:
             raise ValueError(f"Repository {repo_id} not found")
 
         diagnostics: dict[str, Any] = {
-            "repository_info": {
-                "id": repository["id"],
-                "name": repository["name"],
-                "url": repository["url"],
-                "branch": repository["branch"],
-                "is_active": repository["is_active"],
-                "verify_ssl": repository.get("verify_ssl", True),
-            },
+            "repository_info": _repository_info_section(repository),
             "access_test": {},
             "file_system": {},
             "git_status": {},
@@ -531,119 +671,13 @@ class GitDebugService:
             "push_capability": {},
         }
 
-        try:
-            repo = get_git_repo_by_id(repo_id)
-            repo_path = Path(repo.working_dir)
+        diagnostics.update(_collect_local_repo_diagnostics(repo_id))
+        diagnostics["ssl_info"] = _collect_ssl_diagnostics(repository)
 
-            diagnostics["access_test"] = {
-                "accessible": True,
-                "path": str(repo_path),
-                "exists": repo_path.exists(),
-            }
-
-            try:
-                diagnostics["file_system"] = {
-                    "readable": os.access(str(repo_path), os.R_OK),
-                    "writable": os.access(str(repo_path), os.W_OK),
-                    "executable": os.access(str(repo_path), os.X_OK),
-                    "path": str(repo_path),
-                }
-            except Exception as e:
-                diagnostics["file_system"] = {"error": str(e), "error_type": type(e).__name__}
-
-            try:
-                diagnostics["git_status"] = {
-                    "is_dirty": repo.is_dirty(untracked_files=True),
-                    "active_branch": repo.active_branch.name,
-                    "head_commit": (
-                        repo.head.commit.hexsha[:8] if repo.head.is_valid() else "no commits"
-                    ),
-                    "remotes": [r.name for r in repo.remotes],
-                    "has_origin": "origin" in [r.name for r in repo.remotes],
-                }
-            except Exception as e:
-                diagnostics["git_status"] = {"error": str(e), "error_type": type(e).__name__}
-
-        except Exception as e:
-            diagnostics["access_test"] = {
-                "accessible": False,
-                "error": str(e),
-                "error_type": type(e).__name__,
-            }
-
-        try:
-            if not repository.get("verify_ssl", True):
-                diagnostics["ssl_info"] = {
-                    "verification": "disabled",
-                    "note": "SSL verification is disabled for this repository",
-                }
-            else:
-                diagnostics["ssl_info"] = {
-                    "verification": "enabled",
-                    "ssl_version": ssl.OPENSSL_VERSION,
-                }
-        except Exception as e:
-            diagnostics["ssl_info"] = {"error": str(e), "error_type": type(e).__name__}
-
-        try:
-            username, token, ssh_key_path = git_auth_service.resolve_credentials(repository)
-            auth_type = repository.get("auth_type", "token")
-
-            diagnostics["credentials"] = {
-                "credential_name": repository.get("credential_name", "none"),
-                "auth_type": auth_type,
-                "has_username": bool(username),
-                "has_token": bool(token),
-                "has_ssh_key": bool(ssh_key_path),
-                "token_length": len(token) if token else 0,
-                "authentication": "configured" if (username and token) or ssh_key_path else "none",
-            }
-
-            if auth_type == "ssh_key":
-                has_credentials = bool(ssh_key_path)
-            elif auth_type == "token":
-                has_credentials = bool(username and token)
-            else:
-                has_credentials = False
-
-            has_remote = False
-            remote_url = "unknown"
-            try:
-                repo = get_git_repo_by_id(repo_id)
-                if "origin" in [r.name for r in repo.remotes]:
-                    has_remote = True
-                    origin = repo.remote("origin")
-                    remote_url = list(origin.urls)[0] if origin.urls else "unknown"
-            except Exception:
-                pass
-
-            if has_credentials and has_remote:
-                push_status, push_message = "ready", "Push capability is configured and ready"
-            elif not has_credentials:
-                push_status, push_message = (
-                    "no_credentials",
-                    "Push requires authentication credentials",
-                )
-            elif not has_remote:
-                push_status, push_message = "no_remote", "No remote 'origin' configured"
-            else:
-                push_status, push_message = "unknown", "Push capability status unclear"
-
-            diagnostics["push_capability"] = {
-                "status": push_status,
-                "message": push_message,
-                "has_credentials": has_credentials,
-                "has_remote": has_remote,
-                "remote_url": remote_url,
-                "can_push": has_credentials and has_remote,
-            }
-
-        except Exception as e:
-            diagnostics["credentials"] = {"error": str(e), "error_type": type(e).__name__}
-            diagnostics["push_capability"] = {
-                "status": "error",
-                "message": f"Failed to assess push capability: {str(e)}",
-                "can_push": False,
-            }
+        creds_section, push_section = _collect_auth_and_push_diagnostics(
+            repo_id, repository, git_auth_service
+        )
+        diagnostics["credentials"] = creds_section
+        diagnostics["push_capability"] = push_section
 
         return {"success": True, "repository_id": repo_id, "diagnostics": diagnostics}

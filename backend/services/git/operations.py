@@ -24,6 +24,114 @@ from services.git.paths import repo_path as get_repo_path
 logger = logging.getLogger(__name__)
 
 
+def _empty_repository_status(repository: dict[str, Any], repo_path: str) -> dict[str, Any]:
+    return {
+        "repository_name": repository["name"],
+        "repository_url": repository["url"],
+        "repository_branch": repository["branch"],
+        "sync_status": repository.get("sync_status", "unknown"),
+        "exists": os.path.exists(repo_path),
+        "is_git_repo": False,
+        "is_synced": False,
+        "behind_count": 0,
+        "ahead_count": 0,
+        "current_commit": None,
+        "current_branch": None,
+        "last_commit_message": None,
+        "last_commit_date": None,
+        "branches": [],
+        "commits": [],
+        "config_files": [],
+    }
+
+
+def _fill_local_git_metadata(repo: Repo, status_info: dict[str, Any]) -> None:
+    try:
+        status_info["current_branch"] = repo.active_branch.name
+    except Exception as e:
+        logger.warning("Could not get current branch: %s", e)
+        status_info["current_branch"] = "HEAD"
+
+    try:
+        if repo.head.is_valid():
+            commit = repo.head.commit
+            status_info["current_commit"] = commit.hexsha[:8]
+            status_info["last_commit_message"] = commit.message.strip()
+            status_info["last_commit_date"] = commit.committed_datetime.isoformat()
+            status_info["last_commit_author"] = commit.author.name
+            status_info["last_commit_author_email"] = commit.author.email
+    except Exception as e:
+        logger.warning("Could not get commit info: %s", e)
+
+    try:
+        status_info["branches"] = [branch.name for branch in repo.branches]
+    except Exception as e:
+        logger.warning("Could not list branches: %s", e)
+
+
+def _fill_cached_commits(
+    status_info: dict[str, Any],
+    repo_id: int,
+    repo_path: str,
+    branch: str,
+) -> None:
+    try:
+        import service_factory
+
+        git_cache_service = service_factory.build_git_cache_service()
+        status_info["commits"] = git_cache_service.get_commits(
+            repo_id=repo_id,
+            repo_path=repo_path,
+            branch_name=branch,
+            limit=50,
+            use_models=False,
+        )
+    except Exception as e:
+        logger.warning("Could not get recent commits: %s", e)
+        status_info["commits"] = []
+
+
+def _fill_remote_sync_status(repo: Repo, status_info: dict[str, Any], branch: str) -> None:
+    try:
+        if "origin" not in [r.name for r in repo.remotes]:
+            return
+
+        origin = repo.remote("origin")
+        try:
+            origin.fetch()
+        except Exception as fetch_error:
+            logger.debug("Fetch failed: %s", fetch_error)
+
+        try:
+            remote_branch = f"origin/{branch}"
+            if remote_branch in [ref.name for ref in repo.refs]:
+                behind = list(repo.iter_commits(f"HEAD..{remote_branch}", max_count=100))
+                status_info["behind_count"] = len(behind)
+
+                ahead = list(repo.iter_commits(f"{remote_branch}..HEAD", max_count=100))
+                status_info["ahead_count"] = len(ahead)
+
+                status_info["is_synced"] = status_info["behind_count"] == 0
+        except Exception as rev_error:
+            logger.debug("Could not calculate ahead/behind: %s", rev_error)
+    except Exception as e:
+        logger.warning("Could not check sync status: %s", e)
+        status_info["is_synced"] = False
+
+
+def _scan_config_files(repo_path: str) -> list[str]:
+    config_files: list[str] = []
+    for root, _dirs, files in os.walk(repo_path):
+        if ".git" in root:
+            continue
+        for file in files:
+            if not file.startswith("."):
+                rel_path = os.path.relpath(os.path.join(root, file), repo_path)
+                config_files.append(rel_path)
+    config_files.sort()
+    return config_files
+
+
 class GitOperationsService:
     """Service for git repository operations like sync, clone, pull, and status."""
 
@@ -280,137 +388,23 @@ class GitOperationsService:
         return CloneResult(success=success, message=message, repo_path=repo_path)
 
     def get_repository_status(self, repository: dict[str, Any], repo_id: int) -> dict[str, Any]:
-        """Get comprehensive repository status using GitPython.
-
-        This replaces the old implementation that used 7 subprocess calls
-        with a single GitPython Repo instance for ~50% performance improvement.
-
-        Args:
-            repository: Repository metadata dict
-            repo_id: Repository ID for cache access
-
-        Returns:
-            Dictionary with comprehensive status information
-        """
+        """Get comprehensive repository status using GitPython."""
         repo_path = str(get_repo_path(repository))
-
-        status_info = {
-            "repository_name": repository["name"],
-            "repository_url": repository["url"],
-            "repository_branch": repository["branch"],
-            "sync_status": repository.get("sync_status", "unknown"),
-            "exists": os.path.exists(repo_path),
-            "is_git_repo": False,
-            "is_synced": False,
-            "behind_count": 0,
-            "ahead_count": 0,
-            "current_commit": None,
-            "current_branch": None,
-            "last_commit_message": None,
-            "last_commit_date": None,
-            "branches": [],
-            "commits": [],
-            "config_files": [],
-        }
+        status_info = _empty_repository_status(repository, repo_path)
 
         if not status_info["exists"]:
             return status_info
 
-        # Use GitPython for all git operations (replaces 7 subprocess calls)
         try:
             repo = Repo(repo_path)
             status_info["is_git_repo"] = True
-
-            # Get current branch (replaces subprocess git rev-parse)
+            _fill_local_git_metadata(repo, status_info)
+            _fill_cached_commits(status_info, repo_id, repo_path, repository["branch"])
+            _fill_remote_sync_status(repo, status_info, repository["branch"])
             try:
-                status_info["current_branch"] = repo.active_branch.name
-            except Exception as e:
-                logger.warning("Could not get current branch: %s", e)
-                status_info["current_branch"] = "HEAD"
-
-            # Get current commit info (replaces subprocess git log)
-            try:
-                if repo.head.is_valid():
-                    commit = repo.head.commit
-                    status_info["current_commit"] = commit.hexsha[:8]
-                    status_info["last_commit_message"] = commit.message.strip()
-                    status_info["last_commit_date"] = commit.committed_datetime.isoformat()
-                    status_info["last_commit_author"] = commit.author.name
-                    status_info["last_commit_author_email"] = commit.author.email
-            except Exception as e:
-                logger.warning("Could not get commit info: %s", e)
-
-            # Get list of branches (replaces subprocess git branch)
-            try:
-                status_info["branches"] = [branch.name for branch in repo.branches]
-            except Exception as e:
-                logger.warning("Could not list branches: %s", e)
-
-            # Get recent commits using cache service
-            try:
-                import service_factory
-
-                git_cache_service = service_factory.build_git_cache_service()
-
-                status_info["commits"] = git_cache_service.get_commits(
-                    repo_id=repo_id,
-                    repo_path=repo_path,
-                    branch_name=repository["branch"],
-                    limit=50,
-                    use_models=False,
-                )
-            except Exception as e:
-                logger.warning("Could not get recent commits: %s", e)
-                status_info["commits"] = []
-
-            # Check if repository is synced with remote (replaces subprocess git fetch/rev-list)
-            try:
-                if "origin" in [r.name for r in repo.remotes]:
-                    origin = repo.remote("origin")
-
-                    # Fetch to update remote refs
-                    try:
-                        origin.fetch()
-                    except Exception as fetch_error:
-                        logger.debug("Fetch failed: %s", fetch_error)
-
-                    # Calculate commits behind/ahead using GitPython
-                    try:
-                        remote_branch = f"origin/{repository['branch']}"
-                        if remote_branch in [ref.name for ref in repo.refs]:
-                            # Commits behind (replaces git rev-list HEAD..origin/branch)
-                            behind = list(
-                                repo.iter_commits(f"HEAD..{remote_branch}", max_count=100)
-                            )
-                            status_info["behind_count"] = len(behind)
-
-                            # Commits ahead (replaces git rev-list origin/branch..HEAD)
-                            ahead = list(repo.iter_commits(f"{remote_branch}..HEAD", max_count=100))
-                            status_info["ahead_count"] = len(ahead)
-
-                            status_info["is_synced"] = status_info["behind_count"] == 0
-                    except Exception as rev_error:
-                        logger.debug("Could not calculate ahead/behind: %s", rev_error)
-            except Exception as e:
-                logger.warning("Could not check sync status: %s", e)
-                status_info["is_synced"] = False
-
-            # Get list of configuration files (filesystem operation)
-            try:
-                for root, _dirs, files in os.walk(repo_path):
-                    # Skip .git directory
-                    if ".git" in root:
-                        continue
-
-                    for file in files:
-                        if not file.startswith("."):
-                            rel_path = os.path.relpath(os.path.join(root, file), repo_path)
-                            status_info["config_files"].append(rel_path)
-
-                status_info["config_files"].sort()
+                status_info["config_files"] = _scan_config_files(repo_path)
             except Exception as e:
                 logger.warning("Could not scan config files: %s", e)
-
         except Exception as e:
             logger.warning("Error checking Git repository status: %s", e)
 

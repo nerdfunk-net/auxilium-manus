@@ -185,25 +185,51 @@ async def _run_steps_until_fan_out_or_done(
     return ("success" if not (failed or any_reported_failure) else "failed"), None, run
 
 
-@workflow.durable_task(
-    name="execute_steps", parents=[prepare], execution_timeout=timedelta(hours=24)
-)
-async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
-    logger.info("Executing steps for run_id=%s", input.run_id)
+async def _debug_pause_before_fan_out(
+    *,
+    run: Any,
+    run_repo: Any,
+    signal: Any,
+    ctx: DurableContext,
+) -> None:
+    fan_out_label = signal.join_node_id or signal.inventory_node_id
+    run_repo.update_run_status(
+        run,
+        status="paused",
+        current_node_id=fan_out_label,
+        debug_message=(
+            "Paused before fan-out dispatch. Click Next Step to run all "
+            "device groups and the fan-in join as one block."
+        ),
+    )
+    event_key = debug_step_event_key(run.uuid, fan_out_label)
+    logger.info("Debug pause (fan-out) run_id=%s node_id=%s", run.id, fan_out_label)
+    await ctx.aio_wait_for_event(
+        event_key,
+        scope=event_key,
+        lookback_window=STEP_EVENT_LOOKBACK,
+    )
 
-    from core.database import SessionLocal
-    from repositories.run_repository import RunRepository
-    from repositories.workflow_repository import WorkflowRepository
-    from services.execution.step_runner import StepRunner
+    run_repo.db.refresh(run)
+    run_repo.update_run_status(run, status="running")
 
-    # Phase 1: run in topological order until completion or a fan-out signal
+
+async def _phase1_run_or_early_finish(
+    *,
+    run_id: int,
+    ctx: DurableContext,
+    SessionLocal: Any,
+    RunRepository: Any,
+    WorkflowRepository: Any,
+    StepRunner: Any,
+) -> dict[str, Any] | tuple[str, Any, list[dict[str, Any]], list[dict[str, Any]]]:
     with SessionLocal() as db:
         run_repo = RunRepository(db)
         wf_repo = WorkflowRepository(db)
 
-        run_result = run_repo.get_run_by_id(input.run_id)
+        run_result = run_repo.get_run_by_id(run_id)
         if run_result is None:
-            raise ValueError(f"WorkflowRun {input.run_id} not found")
+            raise ValueError(f"WorkflowRun {run_id} not found")
         run, _ = run_result
         # Captured now — the phase-1 DB session closes before phase 2 dispatch.
         run_uuid = run.uuid
@@ -230,8 +256,8 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
                 status=final_status,
                 finished_at=datetime.now(UTC),
             )
-            logger.info("Run finished run_id=%s status=%s", input.run_id, final_status)
-            return {"run_id": input.run_id, "status": final_status}
+            logger.info("Run finished run_id=%s status=%s", run_id, final_status)
+            return {"run_id": run_id, "status": final_status}
 
         signal = fan_out["signal"]
         canvas_nodes: list[dict[str, Any]] = fan_out["canvas_nodes"]
@@ -243,51 +269,35 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
         # or per-post-join-node pausing — see doc/WORKFLOW-STEPS.md fan-out
         # notes on why children can't be stepped individually).
         if run.run_mode == "debug":
-            fan_out_label = signal.join_node_id or signal.inventory_node_id
-            run_repo.update_run_status(
-                run,
-                status="paused",
-                current_node_id=fan_out_label,
-                debug_message=(
-                    "Paused before fan-out dispatch. Click Next Step to run all "
-                    "device groups and the fan-in join as one block."
-                ),
-            )
-            event_key = debug_step_event_key(run.uuid, fan_out_label)
-            logger.info("Debug pause (fan-out) run_id=%s node_id=%s", run.id, fan_out_label)
-            await ctx.aio_wait_for_event(
-                event_key,
-                scope=event_key,
-                lookback_window=STEP_EVENT_LOOKBACK,
+            await _debug_pause_before_fan_out(
+                run=run,
+                run_repo=run_repo,
+                signal=signal,
+                ctx=ctx,
             )
 
-            run_repo.db.refresh(run)
-            run_repo.update_run_status(run, status="running")
+    return run_uuid, signal, canvas_nodes, canvas_edges
 
-    # Phase 2: dispatch child workflows (DB session intentionally closed)
-    logger.info(
-        "Fan-out started run_id=%s mode=%s max_concurrency=%s",
-        input.run_id,
-        signal.fan_out_config.get("mode"),
-        signal.fan_out_config.get("max_concurrency"),
-    )
-    child_results = await _dispatch_children(
-        signal,
-        input.run_id,
-        ctx=ctx,
-        run_uuid=run_uuid,
-        canvas_nodes=canvas_nodes,
-        canvas_edges=canvas_edges,
-    )
 
-    # Phase 3: aggregate child outcomes and persist to parent run step results
+async def _finalize_fan_out_parent(
+    *,
+    run_id: int,
+    signal: Any,
+    canvas_nodes: list[dict[str, Any]],
+    canvas_edges: list[dict[str, Any]],
+    child_results: list[dict[str, Any] | BaseException],
+    SessionLocal: Any,
+    RunRepository: Any,
+    WorkflowRepository: Any,
+    StepRunner: Any,
+) -> str:
     with SessionLocal() as db:
         run_repo = RunRepository(db)
         wf_repo = WorkflowRepository(db)
 
-        run_result = run_repo.get_run_by_id(input.run_id)
+        run_result = run_repo.get_run_by_id(run_id)
         if run_result is None:
-            raise ValueError(f"WorkflowRun {input.run_id} not found (phase 3)")
+            raise ValueError(f"WorkflowRun {run_id} not found (phase 3)")
         run, _ = run_result
 
         success, child_merged = _aggregate_and_persist(
@@ -316,7 +326,7 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
 
             logger.info(
                 "Fan-in resume run_id=%s join_node_id=%s",
-                input.run_id,
+                run_id,
                 signal.join_node_id,
             )
             post_join_runner = StepRunner(db)
@@ -338,6 +348,59 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
             finished_at=datetime.now(UTC),
         )
 
+    return final_status
+
+
+@workflow.durable_task(
+    name="execute_steps", parents=[prepare], execution_timeout=timedelta(hours=24)
+)
+async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
+    logger.info("Executing steps for run_id=%s", input.run_id)
+
+    from core.database import SessionLocal
+    from repositories.run_repository import RunRepository
+    from repositories.workflow_repository import WorkflowRepository
+    from services.execution.step_runner import StepRunner
+
+    early = await _phase1_run_or_early_finish(
+        run_id=input.run_id,
+        ctx=ctx,
+        SessionLocal=SessionLocal,
+        RunRepository=RunRepository,
+        WorkflowRepository=WorkflowRepository,
+        StepRunner=StepRunner,
+    )
+    if isinstance(early, dict):
+        return early
+
+    run_uuid, signal, canvas_nodes, canvas_edges = early
+
+    logger.info(
+        "Fan-out started run_id=%s mode=%s max_concurrency=%s",
+        input.run_id,
+        signal.fan_out_config.get("mode"),
+        signal.fan_out_config.get("max_concurrency"),
+    )
+    child_results = await _dispatch_children(
+        signal,
+        input.run_id,
+        ctx=ctx,
+        run_uuid=run_uuid,
+        canvas_nodes=canvas_nodes,
+        canvas_edges=canvas_edges,
+    )
+
+    final_status = await _finalize_fan_out_parent(
+        run_id=input.run_id,
+        signal=signal,
+        canvas_nodes=canvas_nodes,
+        canvas_edges=canvas_edges,
+        child_results=child_results,
+        SessionLocal=SessionLocal,
+        RunRepository=RunRepository,
+        WorkflowRepository=WorkflowRepository,
+        StepRunner=StepRunner,
+    )
     logger.info("Run finished (fan-out) run_id=%s status=%s", input.run_id, final_status)
     return {"run_id": input.run_id, "status": final_status}
 

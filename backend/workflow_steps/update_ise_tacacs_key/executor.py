@@ -31,7 +31,8 @@ preserves sibling settings such as ``enableKeyWrap``/``connectModeOptions``.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy.orm import object_session
 
@@ -60,6 +61,23 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "update-ise-tacacs-key"
 
 
+@dataclass(frozen=True)
+class _ParsedConfig:
+    source_id: str
+    raw_new_key: str
+
+
+@dataclass(frozen=True)
+class _UpdateOneResult:
+    kind: Literal["ok", "fail", "abort"]
+    device: DeviceContext | None = None
+    outcome: StepOutcome | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.kind == "ok"
+
+
 def _mark_failed(device: DeviceContext, *, node_id: str, code: str, message: str) -> DeviceContext:
     error = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
     return device.model_copy(
@@ -81,17 +99,7 @@ async def _resolve_ise_device_id(
     return str(device_id) if device_id else None
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del artifact_service  # unused for this step
-
+def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     source_id = (config.get("ise_source_id") or "").strip()
     if not source_id:
         raise ValueError(f"{_STEP_ID}: ise_source_id is not configured")
@@ -100,9 +108,10 @@ async def execute(
     if not raw_new_key:
         raise ValueError(f"{_STEP_ID}: new_key is not configured")
 
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
+    return _ParsedConfig(source_id=source_id, raw_new_key=raw_new_key)
 
+
+def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
     db = object_session(run)
     if db is None:
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
@@ -115,16 +124,14 @@ async def execute(
     except ISEValidationError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
-    device_service = service_factory.build_ise_network_device_service(credentials)
+    return service_factory.build_ise_network_device_service(credentials)
 
-    logger.info(
-        "%s started run_id=%s node_id=%s devices=%d",
-        _STEP_ID,
-        context.run_id,
-        node_id,
-        len(context.devices),
-    )
 
+async def _preflight_ise(
+    device_service: ISENetworkDeviceService,
+    source_id: str,
+    context: WorkflowContext,
+) -> list[StepOutcome] | None:
     try:
         await device_service.test_connection()
     except ISEAPIError as exc:
@@ -136,92 +143,116 @@ async def execute(
                 summary=f"could not reach ISE source '{source_id}': {exc}",
             )
         ]
+    return None
 
-    updated_devices: dict[str, DeviceContext] = {}
-    updated_count = 0
-    failed_count = 0
 
-    for device_id, device in context.devices.items():
-        new_key_value = resolve_update_field_expression(
-            device=device,
-            field_key="new_key",
-            raw_value=raw_new_key,
-            run_id=context.run_id,
-        )
-        if not new_key_value:
-            updated_devices[device_id] = _mark_failed(
+async def _update_one_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    device_service: ISENetworkDeviceService,
+    parsed: _ParsedConfig,
+    node_id: str,
+    run_id: str | None,
+    context: WorkflowContext,
+) -> _UpdateOneResult:
+    del device_id
+
+    new_key_value = resolve_update_field_expression(
+        device=device,
+        field_key="new_key",
+        raw_value=parsed.raw_new_key,
+        run_id=run_id,
+    )
+    if not new_key_value:
+        return _UpdateOneResult(
+            kind="fail",
+            device=_mark_failed(
                 device,
                 node_id=node_id,
                 code="tacacs_key_unresolved",
                 message=f"new_key expression did not resolve to a value for '{device.name}'",
-            )
-            failed_count += 1
-            continue
+            ),
+        )
 
-        try:
-            ise_device_id = await _resolve_ise_device_id(device, device_service)
-        except ISEAPIError as exc:
-            logger.warning(
-                "%s: lost connection to ISE source '%s' while resolving device '%s': %s",
-                _STEP_ID,
-                source_id,
-                device.name,
-                exc,
-            )
-            return [
-                StepOutcome(
-                    name="failure",
-                    context=context,
-                    summary=f"lost connection to ISE source '{source_id}': {exc}",
-                )
-            ]
+    try:
+        ise_device_id = await _resolve_ise_device_id(device, device_service)
+    except ISEAPIError as exc:
+        logger.warning(
+            "%s: lost connection to ISE source '%s' while resolving device '%s': %s",
+            _STEP_ID,
+            parsed.source_id,
+            device.name,
+            exc,
+        )
+        return _UpdateOneResult(
+            kind="abort",
+            outcome=StepOutcome(
+                name="failure",
+                context=context,
+                summary=f"lost connection to ISE source '{parsed.source_id}': {exc}",
+            ),
+        )
 
-        if not ise_device_id:
-            updated_devices[device_id] = _mark_failed(
+    if not ise_device_id:
+        return _UpdateOneResult(
+            kind="fail",
+            device=_mark_failed(
                 device,
                 node_id=node_id,
                 code="ise_device_not_found",
-                message=f"could not locate device '{device.name}' in ISE source '{source_id}'",
-            )
-            failed_count += 1
-            continue
+                message=(
+                    f"could not locate device '{device.name}' in ISE source "
+                    f"'{parsed.source_id}'"
+                ),
+            ),
+        )
 
-        try:
-            current = await device_service.get_device(ise_device_id)
-            current_tacacs = current.get("NetworkDevice", {}).get("tacacsSettings") or {}
-            merged_tacacs = {**current_tacacs, "sharedSecret": new_key_value}
-            await device_service.update_device(ise_device_id, {"tacacsSettings": merged_tacacs})
-        except (ISENotFoundError, ISEValidationError) as exc:
-            updated_devices[device_id] = _mark_failed(
+    try:
+        current = await device_service.get_device(ise_device_id)
+        current_tacacs = current.get("NetworkDevice", {}).get("tacacsSettings") or {}
+        merged_tacacs = {**current_tacacs, "sharedSecret": new_key_value}
+        await device_service.update_device(ise_device_id, {"tacacsSettings": merged_tacacs})
+    except (ISENotFoundError, ISEValidationError) as exc:
+        return _UpdateOneResult(
+            kind="fail",
+            device=_mark_failed(
                 device,
                 node_id=node_id,
                 code="tacacs_key_update_rejected",
                 message=f"ISE rejected the TACACS+ key update for '{device.name}': {exc}",
-            )
-            failed_count += 1
-            continue
-        except ISEAPIError as exc:
-            logger.warning(
-                "%s: lost connection to ISE source '%s' while updating device '%s': %s",
-                _STEP_ID,
-                source_id,
-                device.name,
-                exc,
-            )
-            return [
-                StepOutcome(
-                    name="failure",
-                    context=context,
-                    summary=f"lost connection to ISE source '{source_id}': {exc}",
-                )
-            ]
-
-        updated_devices[device_id] = set_device_attribute(
-            device, "tacacs.shared_secret", seal_secret(new_key_value)
+            ),
         )
-        updated_count += 1
-        logger.info("%s: updated tacacs key for device=%s", _STEP_ID, device.name)
+    except ISEAPIError as exc:
+        logger.warning(
+            "%s: lost connection to ISE source '%s' while updating device '%s': %s",
+            _STEP_ID,
+            parsed.source_id,
+            device.name,
+            exc,
+        )
+        return _UpdateOneResult(
+            kind="abort",
+            outcome=StepOutcome(
+                name="failure",
+                context=context,
+                summary=f"lost connection to ISE source '{parsed.source_id}': {exc}",
+            ),
+        )
 
+    updated = set_device_attribute(device, "tacacs.shared_secret", seal_secret(new_key_value))
+    logger.info("%s: updated tacacs key for device=%s", _STEP_ID, device.name)
+    return _UpdateOneResult(kind="ok", device=updated)
+
+
+def _build_success_outcome(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    updated_devices: dict[str, DeviceContext],
+    updated_count: int,
+    failed_count: int,
+) -> StepOutcome:
     metadata = {
         **context.metadata,
         f"{node_id}.total": len(context.devices),
@@ -238,10 +269,73 @@ async def execute(
         context.run_id,
     )
 
+    return StepOutcome(
+        name="success",
+        context=context.model_copy(update={"devices": updated_devices, "metadata": metadata}),
+        summary=f"updated {updated_count}, failed {failed_count}",
+    )
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service  # unused for this step
+
+    parsed = _parse_config(config)
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    device_service = _build_ise_device_service(run, parsed.source_id)
+
+    logger.info(
+        "%s started run_id=%s node_id=%s devices=%d",
+        _STEP_ID,
+        context.run_id,
+        node_id,
+        len(context.devices),
+    )
+
+    preflight = await _preflight_ise(device_service, parsed.source_id, context)
+    if preflight is not None:
+        return preflight
+
+    updated_devices: dict[str, DeviceContext] = {}
+    updated_count = 0
+    failed_count = 0
+
+    for device_id, device in context.devices.items():
+        result = await _update_one_device(
+            device_id=device_id,
+            device=device,
+            device_service=device_service,
+            parsed=parsed,
+            node_id=node_id,
+            run_id=context.run_id,
+            context=context,
+        )
+        if result.kind == "abort":
+            assert result.outcome is not None
+            return [result.outcome]
+
+        assert result.device is not None
+        updated_devices[device_id] = result.device
+        if result.ok:
+            updated_count += 1
+        else:
+            failed_count += 1
+
     return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": updated_devices, "metadata": metadata}),
-            summary=f"updated {updated_count}, failed {failed_count}",
+        _build_success_outcome(
+            context=context,
+            node_id=node_id,
+            updated_devices=updated_devices,
+            updated_count=updated_count,
+            failed_count=failed_count,
         )
     ]

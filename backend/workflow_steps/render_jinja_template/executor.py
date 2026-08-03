@@ -148,6 +148,133 @@ def _parsed_template_entry(
     }
 
 
+def _mark_render_failed(
+    device: DeviceContext,
+    node_id: str,
+    *,
+    code: str,
+    message: str,
+) -> DeviceContext:
+    err = DeviceError(
+        node_id=node_id,
+        step_id="render-jinja-template",
+        code=code,
+        message=message,
+    )
+    return device.model_copy(
+        update={
+            "status": DeviceStatus.FAILED,
+            "errors": [*device.errors, err],
+        }
+    )
+
+
+async def _render_and_store_device(
+    device_id: str,
+    device: DeviceContext,
+    *,
+    template: str,
+    output_key: str,
+    node_id: str,
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    try:
+        jinja_context = build_jinja_context(
+            device,
+            run_id=context.run_id,
+            workflow_id=context.workflow_id,
+        )
+        jinja_context.update(await _build_command_context(device, artifact_service))
+        rendered = render_jinja_template(template, jinja_context)
+        artifact_ref = await artifact_service.store(
+            content=rendered,
+            kind="rendered_template",
+            device_id=device_id,
+            run_id=context.run_id,
+        )
+        parsed = dict(device.parsed)
+        parsed[output_key] = _parsed_template_entry(
+            artifact_ref=artifact_ref,
+            node_id=node_id,
+            output_key=output_key,
+            size_bytes=len(rendered.encode("utf-8")),
+        )
+        enriched = device.model_copy(
+            update={
+                "parsed": parsed,
+                "capabilities": device.capabilities | {Capability.PARSED},
+                "status": DeviceStatus.OK,
+            }
+        )
+        return device_id, enriched, True
+    except (JinjaTemplateError, ValueError) as exc:
+        logger.warning(
+            "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
+            run.id,
+            node_id,
+            device_id,
+            exc,
+        )
+        failed = _mark_render_failed(
+            device, node_id, code="template_error", message=str(exc)
+        )
+        return device_id, failed, False
+    except Exception as exc:
+        logger.warning(
+            "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
+            run.id,
+            node_id,
+            device_id,
+            exc,
+        )
+        failed = _mark_render_failed(
+            device,
+            node_id,
+            code=type(exc).__name__.lower(),
+            message=str(exc),
+        )
+        return device_id, failed, False
+
+
+def _partition_render_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
+    for device_id, updated_device, ok in results:
+        if ok:
+            success_devices[device_id] = updated_device
+        else:
+            failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
+
+
+def _build_render_outcomes(
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+    metadata: dict[str, Any],
+) -> list[StepOutcome]:
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
+        )
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(
+                    update={"devices": failed_devices, "metadata": metadata}
+                ),
+            )
+        )
+    return outcomes
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -170,95 +297,23 @@ async def execute(
         output_key,
     )
 
-    success_devices: dict[str, DeviceContext] = {}
-    failed_devices: dict[str, DeviceContext] = {}
-
-    async def render_device(
-        device_id: str,
-        device: DeviceContext,
-    ) -> tuple[str, DeviceContext, bool]:
-        try:
-            jinja_context = build_jinja_context(
-                device,
-                run_id=context.run_id,
-                workflow_id=context.workflow_id,
-            )
-            jinja_context.update(await _build_command_context(device, artifact_service))
-            rendered = render_jinja_template(template, jinja_context)
-            artifact_ref = await artifact_service.store(
-                content=rendered,
-                kind="rendered_template",
-                device_id=device_id,
-                run_id=context.run_id,
-            )
-            parsed = dict(device.parsed)
-            parsed[output_key] = _parsed_template_entry(
-                artifact_ref=artifact_ref,
-                node_id=node_id,
-                output_key=output_key,
-                size_bytes=len(rendered.encode("utf-8")),
-            )
-            enriched = device.model_copy(
-                update={
-                    "parsed": parsed,
-                    "capabilities": device.capabilities | {Capability.PARSED},
-                    "status": DeviceStatus.OK,
-                }
-            )
-            return device_id, enriched, True
-        except (JinjaTemplateError, ValueError) as exc:
-            logger.warning(
-                "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
-                run.id,
-                node_id,
-                device_id,
-                exc,
-            )
-            err = DeviceError(
-                node_id=node_id,
-                step_id="render-jinja-template",
-                code="template_error",
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-        except Exception as exc:
-            logger.warning(
-                "render-jinja-template failed run_id=%s node_id=%s device_id=%s error=%s",
-                run.id,
-                node_id,
-                device_id,
-                exc,
-            )
-            err = DeviceError(
-                node_id=node_id,
-                step_id="render-jinja-template",
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
     results = await asyncio.gather(
-        *[render_device(device_id, device) for device_id, device in context.devices.items()]
+        *[
+            _render_and_store_device(
+                device_id,
+                device,
+                template=template,
+                output_key=output_key,
+                node_id=node_id,
+                context=context,
+                run=run,
+                artifact_service=artifact_service,
+            )
+            for device_id, device in context.devices.items()
+        ]
     )
 
-    for device_id, updated_device, ok in results:
-        if ok:
-            success_devices[device_id] = updated_device
-        else:
-            failed_devices[device_id] = updated_device
-
+    success_devices, failed_devices = _partition_render_results(results)
     metadata = {
         **context.metadata,
         f"{node_id}.rendered_template_key": output_key,
@@ -273,19 +328,4 @@ async def execute(
         run.id,
     )
 
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            )
-        )
-    return outcomes
+    return _build_render_outcomes(context, success_devices, failed_devices, metadata)

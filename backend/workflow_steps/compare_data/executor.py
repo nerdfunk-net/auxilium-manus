@@ -191,17 +191,11 @@ def _render_reference_path(
     )
 
 
-async def _compare_for_device(
-    *,
-    device_id: str,
+def _resolve_compare_export_item(
     device: DeviceContext,
-    node_id: str,
-    config: dict[str, Any],
-    context_run_id: str | None,
+    device_id: str,
     parsed: _ParsedCompareConfig,
-    artifact_service: ArtifactService,
-    diff_service: GitDiffService,
-) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
+) -> ExportableContent | None:
     export_items = list_exportable_content(
         device,
         content_source=parsed.content_source,
@@ -209,16 +203,7 @@ async def _compare_for_device(
         parsed_output_key=parsed.parsed_output_key,
     )
     if not export_items:
-        failed = _device_failure(
-            device=device,
-            node_id=node_id,
-            code="missing_content",
-            message=(
-                f"No {parsed.content_source!r} content available for device {device_id}. "
-                "Ensure an upstream step produced the selected data."
-            ),
-        )
-        return device_id, failed, "failure", None
+        return None
 
     item = export_items[0]
     if len(export_items) > 1:
@@ -228,35 +213,40 @@ async def _compare_for_device(
             parsed.content_source,
             len(export_items),
         )
+    return item
 
-    try:
-        source_content = await artifact_service.resolve(item.artifact_ref)
-        reference_path = _render_reference_path(
-            device=device,
-            item=item,
-            config=config,
-            run_id=context_run_id,
-        )
-        reference_content = await read_reference_text(
-            config=config,
-            relative_path=reference_path,
-        )
-    except Exception as exc:
-        failed = _device_failure(device=device, node_id=node_id, message=str(exc))
-        return device_id, failed, "failure", None
 
-    normalized_source = _normalize_text(
-        source_content,
-        normalize_line_endings=parsed.normalize_line_endings,
-        ignore_trailing_whitespace=parsed.ignore_trailing_whitespace,
+async def _load_compare_texts(
+    *,
+    device: DeviceContext,
+    item: ExportableContent,
+    config: dict[str, Any],
+    run_id: str | None,
+    artifact_service: ArtifactService,
+) -> tuple[str, str, str]:
+    source_content = await artifact_service.resolve(item.artifact_ref)
+    reference_path = _render_reference_path(
+        device=device,
+        item=item,
+        config=config,
+        run_id=run_id,
     )
-    normalized_reference = _normalize_text(
-        reference_content,
-        normalize_line_endings=parsed.normalize_line_endings,
-        ignore_trailing_whitespace=parsed.ignore_trailing_whitespace,
+    reference_content = await read_reference_text(
+        config=config,
+        relative_path=reference_path,
     )
-    matched = normalized_source == normalized_reference
+    return source_content, reference_content, reference_path
 
+
+def _build_compare_match_result(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    parsed: _ParsedCompareConfig,
+    item: ExportableContent,
+    reference_path: str,
+) -> tuple[str, DeviceContext, str, dict[str, Any]]:
     device_parsed = dict(device.parsed)
     capabilities = set(device.capabilities)
     record: dict[str, Any] = {
@@ -264,28 +254,52 @@ async def _compare_for_device(
         "content_source": parsed.content_source,
         "reference_location": parsed.reference_location,
         "reference_path": reference_path,
-        "matched": matched,
+        "matched": True,
         **item.extra,
     }
+    device_parsed[f"{node_id}.comparison"] = _comparison_result_entry(
+        matched=True,
+        content_source=parsed.content_source,
+        reference_path=reference_path,
+        reference_location=parsed.reference_location,
+        node_id=node_id,
+        item_extra=item.extra,
+    )
+    capabilities.add(Capability.PARSED)
+    enriched = device.model_copy(
+        update={
+            "parsed": device_parsed,
+            "capabilities": capabilities,
+            "status": DeviceStatus.OK,
+        }
+    )
+    return device_id, enriched, "match", record
 
-    if matched:
-        device_parsed[f"{node_id}.comparison"] = _comparison_result_entry(
-            matched=True,
-            content_source=parsed.content_source,
-            reference_path=reference_path,
-            reference_location=parsed.reference_location,
-            node_id=node_id,
-            item_extra=item.extra,
-        )
-        capabilities.add(Capability.PARSED)
-        enriched = device.model_copy(
-            update={
-                "parsed": device_parsed,
-                "capabilities": capabilities,
-                "status": DeviceStatus.OK,
-            }
-        )
-        return device_id, enriched, "match", record
+
+async def _build_compare_mismatch_result(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    parsed: _ParsedCompareConfig,
+    item: ExportableContent,
+    reference_path: str,
+    normalized_source: str,
+    normalized_reference: str,
+    context_run_id: str | None,
+    artifact_service: ArtifactService,
+    diff_service: GitDiffService,
+) -> tuple[str, DeviceContext, str, dict[str, Any]]:
+    device_parsed = dict(device.parsed)
+    capabilities = set(device.capabilities)
+    record: dict[str, Any] = {
+        "device_id": device_id,
+        "content_source": parsed.content_source,
+        "reference_location": parsed.reference_location,
+        "reference_path": reference_path,
+        "matched": False,
+        **item.extra,
+    }
 
     diff_result = diff_service.compare_text_content(
         normalized_source,
@@ -334,6 +348,77 @@ async def _compare_for_device(
         }
     )
     return device_id, enriched, "mismatch", record
+
+
+async def _compare_for_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    node_id: str,
+    config: dict[str, Any],
+    context_run_id: str | None,
+    parsed: _ParsedCompareConfig,
+    artifact_service: ArtifactService,
+    diff_service: GitDiffService,
+) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
+    item = _resolve_compare_export_item(device, device_id, parsed)
+    if item is None:
+        failed = _device_failure(
+            device=device,
+            node_id=node_id,
+            code="missing_content",
+            message=(
+                f"No {parsed.content_source!r} content available for device {device_id}. "
+                "Ensure an upstream step produced the selected data."
+            ),
+        )
+        return device_id, failed, "failure", None
+
+    try:
+        source_content, reference_content, reference_path = await _load_compare_texts(
+            device=device,
+            item=item,
+            config=config,
+            run_id=context_run_id,
+            artifact_service=artifact_service,
+        )
+    except Exception as exc:
+        failed = _device_failure(device=device, node_id=node_id, message=str(exc))
+        return device_id, failed, "failure", None
+
+    normalized_source = _normalize_text(
+        source_content,
+        normalize_line_endings=parsed.normalize_line_endings,
+        ignore_trailing_whitespace=parsed.ignore_trailing_whitespace,
+    )
+    normalized_reference = _normalize_text(
+        reference_content,
+        normalize_line_endings=parsed.normalize_line_endings,
+        ignore_trailing_whitespace=parsed.ignore_trailing_whitespace,
+    )
+    if normalized_source == normalized_reference:
+        return _build_compare_match_result(
+            device_id=device_id,
+            device=device,
+            node_id=node_id,
+            parsed=parsed,
+            item=item,
+            reference_path=reference_path,
+        )
+
+    return await _build_compare_mismatch_result(
+        device_id=device_id,
+        device=device,
+        node_id=node_id,
+        parsed=parsed,
+        item=item,
+        reference_path=reference_path,
+        normalized_source=normalized_source,
+        normalized_reference=normalized_reference,
+        context_run_id=context_run_id,
+        artifact_service=artifact_service,
+        diff_service=diff_service,
+    )
 
 
 def _build_compare_outcomes(

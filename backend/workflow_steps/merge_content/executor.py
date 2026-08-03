@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
@@ -27,6 +28,15 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SEPARATOR = "\n"
 _MERGE_MODES = frozenset({"text_sectioned", "text_plain", "json_merged"})
 _CONTENT_SOURCES = frozenset({"command_output", "filtered_output", "merged_content"})
+
+
+@dataclass(frozen=True)
+class _ParsedMergeConfig:
+    content_source: str
+    source_node_ids: list[str]
+    merge_mode: str
+    section_separator: str
+    include_command_header: bool
 
 
 def _parse_content_source(config: dict[str, Any]) -> str:
@@ -73,6 +83,23 @@ def _parse_include_command_header(config: dict[str, Any]) -> bool:
     return bool(value)
 
 
+def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
+    content_source = _parse_content_source(config)
+    source_node_ids = _parse_source_step_node_ids(config)
+    if content_source != "command_output" and not source_node_ids:
+        raise ValueError(
+            "merge-content: source_step_node_ids is required when "
+            f"content_source={content_source!r}"
+        )
+    return _ParsedMergeConfig(
+        content_source=content_source,
+        source_node_ids=source_node_ids,
+        merge_mode=_parse_merge_mode(config),
+        section_separator=str(config.get("section_separator") or _DEFAULT_SEPARATOR),
+        include_command_header=_parse_include_command_header(config),
+    )
+
+
 def _merged_content_entry(
     *,
     artifact_ref: Any,
@@ -88,159 +115,157 @@ def _merged_content_entry(
     }
 
 
-async def execute(
+async def _collect_merge_items(
     *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
+    device: DeviceContext,
+    parsed: _ParsedMergeConfig,
     artifact_service: ArtifactService,
+) -> list[tuple[str, str, str]]:
+    items: list[tuple[str, str, str]] = []
+
+    if parsed.content_source == "command_output":
+        if parsed.source_node_ids:
+            node_ids_to_use = [n for n in parsed.source_node_ids if n in device.command_results]
+        else:
+            node_ids_to_use = list(device.command_results.keys())
+
+        for src_node_id in node_ids_to_use:
+            for result in device.command_results.get(src_node_id, []):
+                if result.output_ref is None:
+                    continue
+                text = await artifact_service.resolve(result.output_ref)
+                items.append((result.command, text, result.output_ref.media_type))
+    else:
+        for src_node_id in parsed.source_node_ids:
+            export_items = list_exportable_content(
+                device,
+                content_source=parsed.content_source,
+                source_step_node_id=src_node_id,
+            )
+            for export_item in export_items:
+                text = await artifact_service.resolve(export_item.artifact_ref)
+                items.append((src_node_id, text, export_item.media_type))
+
+    return items
+
+
+def _merge_items_to_string(
+    *,
+    items: list[tuple[str, str, str]],
+    parsed: _ParsedMergeConfig,
+) -> tuple[str, str]:
+    if parsed.merge_mode == "text_sectioned":
+        blocks: list[str] = []
+        for command, text, _ in items:
+            if parsed.include_command_header:
+                blocks.append(f"=== {command} ===\n{text}")
+            else:
+                blocks.append(text)
+        merged_str = parsed.section_separator.join(blocks)
+        merged_media_type = "text/plain"
+
+    elif parsed.merge_mode == "text_plain":
+        merged_str = parsed.section_separator.join(text for _, text, _ in items)
+        merged_media_type = "text/plain"
+
+    else:  # json_merged
+        merged_obj: dict[str, Any] = {}
+        for command, text, media_type in items:
+            if media_type == "application/json":
+                try:
+                    merged_obj[command] = json.loads(text)
+                except json.JSONDecodeError:
+                    merged_obj[command] = text
+            else:
+                merged_obj[command] = text
+        merged_str = json.dumps(merged_obj, indent=2)
+        merged_media_type = "application/json"
+
+    if not merged_str.endswith("\n"):
+        merged_str += "\n"
+
+    return merged_str, merged_media_type
+
+
+async def _merge_device(
+    *,
+    device_id: str,
+    device: DeviceContext,
+    parsed: _ParsedMergeConfig,
     node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
+    run_id: str | None,
+    artifact_service: ArtifactService,
+) -> tuple[str, DeviceContext, bool]:
+    try:
+        items = await _collect_merge_items(
+            device=device,
+            parsed=parsed,
+            artifact_service=artifact_service,
+        )
+        merged_str, merged_media_type = _merge_items_to_string(items=items, parsed=parsed)
 
-    content_source = _parse_content_source(config)
-    source_node_ids = _parse_source_step_node_ids(config)
-    merge_mode = _parse_merge_mode(config)
-    section_separator = str(config.get("section_separator") or _DEFAULT_SEPARATOR)
-    include_command_header = _parse_include_command_header(config)
-
-    if content_source != "command_output" and not source_node_ids:
-        raise ValueError(
-            "merge-content: source_step_node_ids is required when "
-            f"content_source={content_source!r}"
+        artifact_ref = await artifact_service.store(
+            content=merged_str,
+            kind="merged_content",
+            device_id=device_id,
+            run_id=run_id,
+            media_type=merged_media_type,
         )
 
-    logger.info(
-        "merge-content run_id=%s devices=%d mode=%s content_source=%s sources=%r",
-        run.id,
-        len(context.devices),
-        merge_mode,
-        content_source,
-        source_node_ids or "all",
-    )
+        size_bytes = len(merged_str.encode("utf-8"))
+        updated_parsed = dict(device.parsed)
+        updated_parsed[f"{node_id}.merged_content"] = _merged_content_entry(
+            artifact_ref=artifact_ref,
+            node_id=node_id,
+            size_bytes=size_bytes,
+        )
 
+        enriched = device.model_copy(
+            update={
+                "parsed": updated_parsed,
+                "capabilities": device.capabilities | {Capability.PARSED},
+                "status": DeviceStatus.OK,
+            }
+        )
+        return device_id, enriched, True
+
+    except Exception as exc:
+        err = DeviceError(
+            node_id=node_id,
+            step_id="merge-content",
+            code=type(exc).__name__.lower(),
+            message=str(exc),
+        )
+        failed = device.model_copy(
+            update={
+                "status": DeviceStatus.FAILED,
+                "errors": [*device.errors, err],
+            }
+        )
+        return device_id, failed, False
+
+
+def _partition_device_results(
+    results: list[tuple[str, DeviceContext, bool]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-
-    async def merge_device(
-        device_id: str,
-        device: DeviceContext,
-    ) -> tuple[str, DeviceContext, bool]:
-        try:
-            items: list[tuple[str, str, str]] = []
-
-            if content_source == "command_output":
-                if source_node_ids:
-                    node_ids_to_use = [n for n in source_node_ids if n in device.command_results]
-                else:
-                    node_ids_to_use = list(device.command_results.keys())
-
-                for src_node_id in node_ids_to_use:
-                    for result in device.command_results.get(src_node_id, []):
-                        if result.output_ref is None:
-                            continue
-                        text = await artifact_service.resolve(result.output_ref)
-                        items.append((result.command, text, result.output_ref.media_type))
-            else:
-                for src_node_id in source_node_ids:
-                    export_items = list_exportable_content(
-                        device,
-                        content_source=content_source,
-                        source_step_node_id=src_node_id,
-                    )
-                    for export_item in export_items:
-                        text = await artifact_service.resolve(export_item.artifact_ref)
-                        items.append((src_node_id, text, export_item.media_type))
-
-            if merge_mode == "text_sectioned":
-                blocks: list[str] = []
-                for command, text, _ in items:
-                    if include_command_header:
-                        blocks.append(f"=== {command} ===\n{text}")
-                    else:
-                        blocks.append(text)
-                merged_str = section_separator.join(blocks)
-                merged_media_type = "text/plain"
-
-            elif merge_mode == "text_plain":
-                merged_str = section_separator.join(text for _, text, _ in items)
-                merged_media_type = "text/plain"
-
-            else:  # json_merged
-                merged_obj: dict[str, Any] = {}
-                for command, text, media_type in items:
-                    if media_type == "application/json":
-                        try:
-                            merged_obj[command] = json.loads(text)
-                        except json.JSONDecodeError:
-                            merged_obj[command] = text
-                    else:
-                        merged_obj[command] = text
-                merged_str = json.dumps(merged_obj, indent=2)
-                merged_media_type = "application/json"
-
-            if not merged_str.endswith("\n"):
-                merged_str += "\n"
-
-            artifact_ref = await artifact_service.store(
-                content=merged_str,
-                kind="merged_content",
-                device_id=device_id,
-                run_id=context.run_id,
-                media_type=merged_media_type,
-            )
-
-            size_bytes = len(merged_str.encode("utf-8"))
-            updated_parsed = dict(device.parsed)
-            updated_parsed[f"{node_id}.merged_content"] = _merged_content_entry(
-                artifact_ref=artifact_ref,
-                node_id=node_id,
-                size_bytes=size_bytes,
-            )
-
-            enriched = device.model_copy(
-                update={
-                    "parsed": updated_parsed,
-                    "capabilities": device.capabilities | {Capability.PARSED},
-                    "status": DeviceStatus.OK,
-                }
-            )
-            return device_id, enriched, True
-
-        except Exception as exc:
-            err = DeviceError(
-                node_id=node_id,
-                step_id="merge-content",
-                code=type(exc).__name__.lower(),
-                message=str(exc),
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_id, failed, False
-
-    results = await asyncio.gather(
-        *[merge_device(device_id, device) for device_id, device in context.devices.items()]
-    )
-
     for device_id, updated_device, ok in results:
         if ok:
             success_devices[device_id] = updated_device
         else:
             failed_devices[device_id] = updated_device
+    return success_devices, failed_devices
 
-    logger.info(
-        "merge-content returning %d/%d devices run_id=%s",
-        len(success_devices),
-        len(context.devices),
-        run.id,
-    )
 
+def _build_merge_outcomes(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    merge_mode: str,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
     metadata = {
         **context.metadata,
         f"{node_id}.merged_content_mode": merge_mode,
@@ -264,3 +289,54 @@ async def execute(
             )
         )
     return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    parsed = _parse_merge_config(config)
+    logger.info(
+        "merge-content run_id=%s devices=%d mode=%s content_source=%s sources=%r",
+        run.id,
+        len(context.devices),
+        parsed.merge_mode,
+        parsed.content_source,
+        parsed.source_node_ids or "all",
+    )
+
+    results = await asyncio.gather(
+        *[
+            _merge_device(
+                device_id=device_id,
+                device=device,
+                parsed=parsed,
+                node_id=node_id,
+                run_id=context.run_id,
+                artifact_service=artifact_service,
+            )
+            for device_id, device in context.devices.items()
+        ]
+    )
+    success_devices, failed_devices = _partition_device_results(results)
+    logger.info(
+        "merge-content returning %d/%d devices run_id=%s",
+        len(success_devices),
+        len(context.devices),
+        run.id,
+    )
+    return _build_merge_outcomes(
+        context=context,
+        node_id=node_id,
+        merge_mode=parsed.merge_mode,
+        success_devices=success_devices,
+        failed_devices=failed_devices,
+    )

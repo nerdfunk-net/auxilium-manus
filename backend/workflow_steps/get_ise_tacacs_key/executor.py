@@ -296,27 +296,7 @@ def _mark_not_found(device: DeviceContext, *, node_id: str, source_id: str) -> D
     )
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del artifact_service  # unused for this step
-
-    source_id = (config.get("ise_source_id") or "").strip()
-    if not source_id:
-        raise ValueError(f"{_STEP_ID}: ise_source_id is not configured")
-
-    priority = _parse_priority(config)
-    location_group_prefix = _parse_location_group_prefix(config)
-
-    if not context.devices:
-        return [StepOutcome(name="success", context=context)]
-
+def _resolve_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
     db = object_session(run)
     if db is None:
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
@@ -329,34 +309,42 @@ async def execute(
     except ISEValidationError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
-    device_service = service_factory.build_ise_network_device_service(credentials)
+    return service_factory.build_ise_network_device_service(credentials)
 
-    logger.info(
-        "%s started run_id=%s node_id=%s devices=%d",
-        _STEP_ID,
-        context.run_id,
-        node_id,
-        len(context.devices),
+
+def _ise_unreachable_outcome(
+    context: WorkflowContext,
+    source_id: str,
+    exc: ISEAPIError,
+    *,
+    prefix: str,
+) -> StepOutcome:
+    return StepOutcome(
+        name="failure",
+        context=context,
+        summary=f"{prefix} ISE source '{source_id}': {exc}",
     )
 
-    try:
-        await device_service.test_connection()
-    except ISEAPIError as exc:
-        logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, source_id, exc)
-        return [
-            StepOutcome(
-                name="failure",
-                context=context,
-                summary=f"could not reach ISE source '{source_id}': {exc}",
-            )
-        ]
 
+async def _process_devices_for_tacacs_key(
+    *,
+    devices: dict[str, DeviceContext],
+    device_service: ISENetworkDeviceService,
+    priority: list[dict[str, Any]],
+    location_group_prefix: str,
+    node_id: str,
+    source_id: str,
+    context: WorkflowContext,
+) -> (
+    tuple[dict[str, DeviceContext], int, int, int]
+    | list[StepOutcome]
+):
     updated_devices: dict[str, DeviceContext] = {}
     found_count = 0
     already_present_count = 0
     not_found_count = 0
 
-    for device_id, device in context.devices.items():
+    for device_id, device in devices.items():
         existing_secret = (device.attribute_bags.get("tacacs") or {}).get("shared_secret")
         if secret_is_present(existing_secret):
             updated_devices[device_id] = device
@@ -371,11 +359,6 @@ async def execute(
                 location_group_prefix=location_group_prefix,
             )
         except ISEAPIError as exc:
-            # Connectivity/auth failure discovered mid-run (ISE was reachable
-            # for the pre-flight check but has since dropped, or a login
-            # eventually got rejected). Every remaining device would fail the
-            # same way, so abort the whole step as a "failure" outcome rather
-            # than mislabeling every device "key not found".
             logger.warning(
                 "%s: lost connection to ISE source '%s' while processing device '%s': %s",
                 _STEP_ID,
@@ -384,10 +367,11 @@ async def execute(
                 exc,
             )
             return [
-                StepOutcome(
-                    name="failure",
-                    context=context,
-                    summary=f"lost connection to ISE source '{source_id}': {exc}",
+                _ise_unreachable_outcome(
+                    context,
+                    source_id,
+                    exc,
+                    prefix="lost connection to",
                 )
             ]
         except ValueError:
@@ -409,13 +393,78 @@ async def execute(
             )
             not_found_count += 1
 
-    metadata = {
+    return updated_devices, found_count, already_present_count, not_found_count
+
+
+def _build_tacacs_result_metadata(
+    context: WorkflowContext,
+    node_id: str,
+    found_count: int,
+    already_present_count: int,
+    not_found_count: int,
+) -> dict[str, Any]:
+    return {
         **context.metadata,
         f"{node_id}.total": len(context.devices),
         f"{node_id}.found_count": found_count,
         f"{node_id}.already_present_count": already_present_count,
         f"{node_id}.not_found_count": not_found_count,
     }
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service  # unused for this step
+
+    source_id = (config.get("ise_source_id") or "").strip()
+    if not source_id:
+        raise ValueError(f"{_STEP_ID}: ise_source_id is not configured")
+
+    priority = _parse_priority(config)
+    location_group_prefix = _parse_location_group_prefix(config)
+
+    if not context.devices:
+        return [StepOutcome(name="success", context=context)]
+
+    device_service = _resolve_ise_device_service(run, source_id)
+
+    logger.info(
+        "%s started run_id=%s node_id=%s devices=%d",
+        _STEP_ID,
+        context.run_id,
+        node_id,
+        len(context.devices),
+    )
+
+    try:
+        await device_service.test_connection()
+    except ISEAPIError as exc:
+        logger.warning("%s: could not reach ISE source '%s': %s", _STEP_ID, source_id, exc)
+        return [_ise_unreachable_outcome(context, source_id, exc, prefix="could not reach")]
+
+    loop_result = await _process_devices_for_tacacs_key(
+        devices=context.devices,
+        device_service=device_service,
+        priority=priority,
+        location_group_prefix=location_group_prefix,
+        node_id=node_id,
+        source_id=source_id,
+        context=context,
+    )
+    if isinstance(loop_result, list):
+        return loop_result
+
+    updated_devices, found_count, already_present_count, not_found_count = loop_result
+    metadata = _build_tacacs_result_metadata(
+        context, node_id, found_count, already_present_count, not_found_count
+    )
 
     logger.info(
         "%s finished node_id=%s found=%d already_present=%d not_found=%d run_id=%s",
@@ -430,7 +479,9 @@ async def execute(
     return [
         StepOutcome(
             name="success",
-            context=context.model_copy(update={"devices": updated_devices, "metadata": metadata}),
+            context=context.model_copy(
+                update={"devices": updated_devices, "metadata": metadata}
+            ),
             summary=(
                 f"found {found_count}, already had key {already_present_count}, "
                 f"not found {not_found_count}"

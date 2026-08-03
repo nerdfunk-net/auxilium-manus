@@ -22,6 +22,38 @@ from services.nautobot.devices.interface_workflow import InterfaceManagerService
 
 logger = logging.getLogger(__name__)
 
+_RACK_CLEARABLE_FIELDS = frozenset({"rack", "position", "face"})
+
+
+def _prepare_update_field(field: str, value: Any) -> tuple[str, Any] | None:
+    if value is None and field not in _RACK_CLEARABLE_FIELDS:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+
+    if "." in field:
+        base_field, nested_field = field.rsplit(".", 1)
+        field = base_field
+        logger.debug("Flattened nested field: %s.%s → %s", field, nested_field, field)
+
+    if isinstance(value, str):
+        value = value.strip()
+
+    return field, value
+
+
+def _enforce_rack_position_face(validated: dict[str, Any]) -> None:
+    if (
+        "position" in validated
+        and validated.get("position") is not None
+        and not validated.get("face")
+    ):
+        logger.warning(
+            "Dropping 'position' from update data because 'face' is not set — "
+            "Nautobot requires both fields when specifying a rack position."
+        )
+        validated.pop("position")
+
 
 class DeviceUpdateService:
     """
@@ -435,6 +467,79 @@ class DeviceUpdateService:
         logger.info("Resolved device: %s (%s)", device_name, resolved_id)
         return resolved_id, device_name
 
+    async def _resolve_update_field(
+        self,
+        field: str,
+        value: Any,
+        *,
+        rack_location: str | None,
+    ) -> tuple[str, ...]:
+        if field == "status":
+            if not self.common._is_valid_uuid(value):
+                resolved = await self.common.resolve_status_id(value, "dcim.device")
+                return ("set", field, resolved)
+            return ("set", field, value)
+
+        if field == "platform":
+            return await self._resolve_named_id_field(
+                field, value, self.common.resolve_platform_id, "Platform"
+            )
+
+        if field == "role":
+            return await self._resolve_named_id_field(
+                field, value, self.common.resolve_role_id, "Role"
+            )
+
+        if field == "location":
+            return await self._resolve_named_id_field(
+                field, value, self.common.resolve_location_id, "Location"
+            )
+
+        if field == "rack":
+            if value is None:
+                return ("set", field, None)
+            if not self.common._is_valid_uuid(value):
+                rack_id = await self.common.resolve_rack_id(value, location=rack_location)
+                if rack_id:
+                    return ("set", field, rack_id)
+                logger.warning("Rack '%s' not found, will be omitted", value)
+                return ("omit",)
+            return ("set", field, value)
+
+        if field == "device_type":
+            return await self._resolve_named_id_field(
+                field, value, self.common.resolve_device_type_id, "Device type"
+            )
+
+        if field == "tags":
+            return ("set", field, self.common.normalize_tags(value))
+
+        if field == "ip_namespace":
+            return ("namespace", value)
+
+        if field == "custom_fields":
+            if isinstance(value, dict):
+                return ("set", field, value)
+            logger.warning("Invalid custom_fields format: %s, expected dict", type(value))
+            return ("omit",)
+
+        return ("set", field, value)
+
+    async def _resolve_named_id_field(
+        self,
+        field: str,
+        value: Any,
+        resolver,
+        label: str,
+    ) -> tuple[str, ...]:
+        if not self.common._is_valid_uuid(value):
+            resolved_id = await resolver(value)
+            if resolved_id:
+                return ("set", field, resolved_id)
+            logger.warning("%s '%s' not found, will be omitted", label, value)
+            return ("omit",)
+        return ("set", field, value)
+
     async def validate_update_data(
         self,
         device_id: str,
@@ -442,150 +547,31 @@ class DeviceUpdateService:
         interface_config: dict[str, str] | None = None,
         rack_location: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
-        """
-        Validate update data and resolve all resource names to UUIDs.
-
-        Args:
-            device_id: Device UUID (for context)
-            update_data: Raw update data dictionary
-            interface_config: Optional interface config for primary_ip4
-
-        Returns:
-            Tuple of (validated_data dict, ip_namespace str or None)
-
-        Note:
-            - Filters out empty values
-            - Handles nested fields like "platform.name" → "platform"
-            - Resolves all names to UUIDs
-            - Normalizes tags to list format
-        """
+        """Validate update data and resolve resource names to UUIDs."""
         logger.debug("Validating update data for device %s: %s", device_id, update_data)
 
-        validated = {}
-        ip_namespace = None
+        validated: dict[str, Any] = {}
+        ip_namespace: str | None = None
 
-        for field, value in update_data.items():
-            # Skip empty values, but allow explicit None for rack-assignment fields
-            # so they can be sent as JSON null to Nautobot (clearing the assignment).
-            if value is None and field not in ("rack", "position", "face"):
+        for raw_field, raw_value in update_data.items():
+            prepared = _prepare_update_field(raw_field, raw_value)
+            if prepared is None:
                 continue
-            if isinstance(value, str) and not value.strip():
-                continue
+            field, value = prepared
 
-            # Handle nested fields (e.g., "platform.name" → "platform")
-            if "." in field:
-                base_field, nested_field = field.rsplit(".", 1)
-                field = base_field
-                logger.debug("Flattened nested field: %s.%s → %s", field, nested_field, field)
-
-            # Clean string values
-            if isinstance(value, str):
-                value = value.strip()
-
-            # Handle special fields that need resolution
-            if field == "status":
-                # Resolve status name to UUID
-                if not self.common._is_valid_uuid(value):
-                    validated[field] = await self.common.resolve_status_id(value, "dcim.device")
-                else:
-                    validated[field] = value
-
-            elif field == "platform":
-                # Resolve platform name to UUID
-                if not self.common._is_valid_uuid(value):
-                    platform_id = await self.common.resolve_platform_id(value)
-                    if platform_id:
-                        validated[field] = platform_id
-                    else:
-                        logger.warning("Platform '%s' not found, will be omitted", value)
-                else:
-                    validated[field] = value
-
-            elif field == "role":
-                # Resolve role name to UUID
-                if not self.common._is_valid_uuid(value):
-                    role_id = await self.common.resolve_role_id(value)
-                    if role_id:
-                        validated[field] = role_id
-                    else:
-                        logger.warning("Role '%s' not found, will be omitted", value)
-                else:
-                    validated[field] = value
-
-            elif field == "location":
-                # Resolve location name to UUID
-                if not self.common._is_valid_uuid(value):
-                    location_id = await self.common.resolve_location_id(value)
-                    if location_id:
-                        validated[field] = location_id
-                    else:
-                        logger.warning("Location '%s' not found, will be omitted", value)
-                else:
-                    validated[field] = value
-
-            elif field == "rack":
-                # Resolve rack name to UUID, optionally filtered by location.
-                # None means explicit clear (send null to Nautobot).
-                if value is None:
-                    validated[field] = None
-                elif not self.common._is_valid_uuid(value):
-                    rack_id = await self.common.resolve_rack_id(value, location=rack_location)
-                    if rack_id:
-                        validated[field] = rack_id
-                    else:
-                        logger.warning("Rack '%s' not found, will be omitted", value)
-                else:
-                    validated[field] = value
-
-            elif field == "device_type":
-                # Resolve device type name to UUID
-                if not self.common._is_valid_uuid(value):
-                    device_type_id = await self.common.resolve_device_type_id(value)
-                    if device_type_id:
-                        validated[field] = device_type_id
-                    else:
-                        logger.warning("Device type '%s' not found, will be omitted", value)
-                else:
-                    validated[field] = value
-
-            elif field == "tags":
-                # Normalize tags to list
-                validated[field] = self.common.normalize_tags(value)
-
-            elif field == "ip_namespace":
-                # Store for later use with primary_ip4
-                ip_namespace = value
-
-            elif field == "custom_fields":
-                # Ensure custom_fields is a simple dict (Nautobot expects {"field_name": "value"})
-                if isinstance(value, dict):
-                    validated[field] = value
-                else:
-                    logger.warning("Invalid custom_fields format: %s, expected dict", type(value))
-
-            else:
-                # Copy other fields as-is (including primary_ip4, etc.)
-                validated[field] = value
-
-        # Rack / position / face consistency check.
-        # Nautobot requires "face" whenever "position" is set.  If "position" arrived
-        # in the update data but "face" did not (or is empty), clear "position" to
-        # avoid the "Must specify rack face when defining rack position" error.
-        # Exception: when position is None (explicit clear), both None is intentional.
-        if (
-            "position" in validated
-            and validated.get("position") is not None
-            and not validated.get("face")
-        ):
-            logger.warning(
-                "Dropping 'position' from update data because 'face' is not set — "
-                "Nautobot requires both fields when specifying a rack position."
+            outcome = await self._resolve_update_field(
+                field, value, rack_location=rack_location
             )
-            validated.pop("position")
+            kind = outcome[0]
+            if kind == "set":
+                validated[outcome[1]] = outcome[2]
+            elif kind == "namespace":
+                ip_namespace = outcome[1]
+
+        _enforce_rack_position_face(validated)
 
         logger.info("Validation complete, %s fields to update", len(validated))
         logger.debug("Validated data: %s", validated)
-
         return validated, ip_namespace
 
     async def _update_device_properties(
