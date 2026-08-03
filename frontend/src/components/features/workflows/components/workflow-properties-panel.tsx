@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 import { MultiStepLayoutPanel } from "./multi-step-layout-panel";
 import { StepCatalog } from "./step-catalog";
+import { WorkflowSchedulePanel } from "./workflow-schedule-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "../types/plugin-registry";
 import {
@@ -170,7 +171,7 @@ export function WorkflowPropertiesPanel({
           ? `${selectedCanvasNodes.length} steps selected on the canvas.`
           : singleNode
             ? "Step settings and configuration."
-            : "Select an edge or multiple steps.";
+            : "Schedule this workflow, or select a step, an edge, or multiple steps.";
 
   if (isCollapsed) {
     return (
@@ -536,12 +537,7 @@ export function WorkflowPropertiesPanel({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center px-3 py-11 text-center text-muted-foreground">
-              <Sliders className="mb-3.5 size-[30px] text-border" aria-hidden />
-              <p className="max-w-[220px] text-[13px] leading-[1.5]">
-                Select a step, an edge, or multiple steps on the canvas to see controls here.
-              </p>
-            </div>
+            <WorkflowSchedulePanel />
           )}
         </div>
       )}

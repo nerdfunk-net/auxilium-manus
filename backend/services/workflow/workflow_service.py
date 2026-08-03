@@ -16,6 +16,7 @@ from models.workflows import (
 )
 from repositories.workflow_repository import WorkflowRepository
 from services.execution.graph import GraphCycleError, topological_order
+from services.execution.schedule_service import ScheduleService
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ def _to_response(workflow: Workflow, creator_username: str | None) -> WorkflowRe
 
 class WorkflowService:
     def __init__(self, db: Session) -> None:
+        self.db = db
         self.repo = WorkflowRepository(db)
 
     def list_workflows(self, user_id: int) -> WorkflowListResponse:
@@ -178,4 +180,5 @@ class WorkflowService:
         workflow, _ = result
         if workflow.creator_id != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        ScheduleService(self.db).delete_schedule_for_workflow_unchecked(workflow_id)
         self.repo.delete(workflow)

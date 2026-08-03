@@ -85,6 +85,7 @@ function WorkflowCanvasInner({
 }: WorkflowCanvasProps) {
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
   const selectEdge = useWorkflowBuilderStore((state) => state.selectEdge);
+  const selectCanvasBackground = useWorkflowBuilderStore((state) => state.selectCanvasBackground);
   const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
   const { toast } = useToast();
   const { screenToFlowPosition } = useReactFlow();
@@ -168,8 +169,8 @@ function WorkflowCanvasInner({
     [selectEdge],
   );
   const handlePaneClick = useCallback(() => {
-    selectNode(null);
-  }, [selectNode]);
+    selectCanvasBackground();
+  }, [selectCanvasBackground]);
 
   // Box-select (drag rubber-band) doesn't fire onNodeClick, so multi-select needs its
   // own hook into the Steps/Properties auto-switch behaviour.

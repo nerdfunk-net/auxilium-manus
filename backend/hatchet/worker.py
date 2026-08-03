@@ -27,10 +27,12 @@ import service_factory  # noqa: E402
 from core.database import SessionLocal  # noqa: E402
 from core.logging_config import configure_logging  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
+from hatchet.worker_config import WORKER_NAME, WORKER_SLOTS  # noqa: E402
 from hatchet.workflows.cache_devices import workflow as cache_devices_workflow  # noqa: E402
 from hatchet.workflows.device_group_execution import (  # noqa: E402
     child_workflow as device_group_workflow,
 )
+from hatchet.workflows.scheduled_trigger import workflow as scheduled_trigger_workflow  # noqa: E402
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
 from services.ise.client import ISEService  # noqa: E402
 from services.logging.logging_settings_service import LoggingSettingsService  # noqa: E402
@@ -64,9 +66,14 @@ async def lifespan() -> AsyncGenerator[None, None]:
 
 def main() -> None:
     worker = hatchet.worker(
-        "auxilium-manus-worker",
-        slots=10,
-        workflows=[workflow_execution, device_group_workflow, cache_devices_workflow],
+        WORKER_NAME,
+        slots=WORKER_SLOTS,
+        workflows=[
+            workflow_execution,
+            device_group_workflow,
+            cache_devices_workflow,
+            scheduled_trigger_workflow,
+        ],
         lifespan=lifespan,
     )
     logger.info("Starting Hatchet worker — listening for workflow:run events")

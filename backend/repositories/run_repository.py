@@ -22,7 +22,7 @@ class RunRepository:
         self,
         *,
         workflow_id: int,
-        triggered_by_id: int,
+        triggered_by_id: int | None,
         trigger_type: str,
         device_ids: list[str],
         run_mode: str = "normal",

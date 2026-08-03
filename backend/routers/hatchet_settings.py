@@ -1,15 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
-from core.database import get_db
-from models.hatchet import (
-    HatchetSettingsResponse,
-    HatchetSettingsUpdate,
-    HatchetStatusResponse,
-)
+from models.hatchet import HatchetConfigResponse, HatchetStatusResponse
 from services.hatchet.hatchet_settings_service import HatchetSettingsService
 
 router = APIRouter(
@@ -19,31 +13,19 @@ router = APIRouter(
 )
 
 
-def _service(db: Session = Depends(get_db)) -> HatchetSettingsService:
-    return HatchetSettingsService(db)
+def _service() -> HatchetSettingsService:
+    return HatchetSettingsService()
 
 
 @router.get(
     "/settings",
-    response_model=HatchetSettingsResponse,
+    response_model=HatchetConfigResponse,
     dependencies=[Depends(require_permission("hatchet_settings", "read"))],
 )
 async def get_hatchet_settings(
     service: HatchetSettingsService = Depends(_service),
-) -> HatchetSettingsResponse:
-    return service.get_settings()
-
-
-@router.put(
-    "/settings",
-    response_model=HatchetSettingsResponse,
-    dependencies=[Depends(require_permission("hatchet_settings", "write"))],
-)
-async def update_hatchet_settings(
-    body: HatchetSettingsUpdate,
-    service: HatchetSettingsService = Depends(_service),
-) -> HatchetSettingsResponse:
-    return service.update_settings(body)
+) -> HatchetConfigResponse:
+    return service.get_config()
 
 
 @router.post(
@@ -54,4 +36,4 @@ async def update_hatchet_settings(
 async def test_hatchet_connection(
     service: HatchetSettingsService = Depends(_service),
 ) -> HatchetStatusResponse:
-    return await service.get_status()
+    return await service.check_connection()

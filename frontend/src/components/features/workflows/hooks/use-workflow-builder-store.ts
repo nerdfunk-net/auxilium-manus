@@ -38,6 +38,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   setRightPanelTab: (tab: RightPanelTab) => void;
   selectNode: (nodeId: string | null) => void;
   selectEdge: (edgeId: string | null) => void;
+  selectCanvasBackground: () => void;
   openConfigModal: (nodeId: string) => void;
   closeConfigModal: () => void;
   toggleStepCatalogCategory: (artifactType: string) => void;
@@ -109,6 +110,11 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       selectedNodeId: null,
       rightPanelTab: selectedEdgeId ? "properties" : "steps",
     }),
+  // Explicit "user clicked the empty canvas" interaction — unlike selectNode(null)
+  // (also used for rubber-band deselect), this always surfaces the Properties tab
+  // since the nothing-selected state now hosts the workflow's schedule panel.
+  selectCanvasBackground: () =>
+    set({ selectedNodeId: null, selectedEdgeId: null, rightPanelTab: "properties" }),
   openConfigModal: (configModalNodeId) => set({ configModalNodeId }),
   closeConfigModal: () => set({ configModalNodeId: null }),
   toggleStepCatalogCategory: (artifactType) =>

@@ -7,6 +7,7 @@ export const queryKeys = {
     all: ["workflows"] as const,
     list: () => [...queryKeys.workflows.all, "list"] as const,
     detail: (id: number) => [...queryKeys.workflows.all, "detail", id] as const,
+    schedule: (id: number) => [...queryKeys.workflows.all, "schedule", id] as const,
   },
   pluginConfig: {
     all: ["plugin-config"] as const,

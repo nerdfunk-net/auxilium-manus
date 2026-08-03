@@ -2,137 +2,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import UTC, datetime
-from typing import Any
 
-from sqlalchemy.orm import Session
-
-from models.hatchet import (
-    HatchetSettingsResponse,
-    HatchetSettingsUpdate,
-    HatchetStatusResponse,
-)
-from repositories.settings_repository import SettingsRepository
+from hatchet.client import hatchet
+from hatchet.worker_config import WORKER_NAME, WORKER_SLOTS
+from models.hatchet import HatchetConfigResponse, HatchetStatusResponse
 
 logger = logging.getLogger(__name__)
 
-_SETTINGS_KEY = "hatchet.config"
-_DEFAULTS: dict[str, Any] = {
-    "host_port": "localhost:7077",
-    "dashboard_url": "http://localhost:8888",
-    "debug": False,
-    "worker_name": "auxilium-manus-worker",
-    "worker_slots": 10,
-}
 
-
-def _env_defaults() -> dict[str, Any]:
-    """Return config values from env vars that override hard-coded defaults."""
-    result: dict[str, Any] = {}
-    host_port = os.environ.get("HATCHET_CLIENT_HOST_PORT")
-    if host_port:
-        result["host_port"] = host_port
-    token = os.environ.get("HATCHET_CLIENT_TOKEN")
-    if token:
-        result["token"] = token
-    debug_raw = os.environ.get("HATCHET_CLIENT_DEBUG")
-    if debug_raw is not None:
-        result["debug"] = debug_raw.lower() in {"1", "true", "yes", "on"}
-    return result
-
-
-def _merge(stored: dict[str, Any]) -> dict[str, Any]:
-    """Merge hard-coded defaults → env vars → stored DB values."""
-    merged = {**_DEFAULTS, **_env_defaults(), **stored}
-    return merged
-
-
-class HatchetSettingsService:
-    def __init__(self, db: Session) -> None:
-        self._repo = SettingsRepository(db)
-
-    def get_settings(self) -> HatchetSettingsResponse:
-        row = self._repo.get_by_key(_SETTINGS_KEY)
-        stored: dict[str, Any] = row.value if row else {}
-        cfg = _merge(stored)
-        return HatchetSettingsResponse(
-            host_port=cfg.get("host_port", _DEFAULTS["host_port"]),
-            dashboard_url=cfg.get("dashboard_url", _DEFAULTS["dashboard_url"]),
-            debug=bool(cfg.get("debug", _DEFAULTS["debug"])),
-            worker_name=cfg.get("worker_name", _DEFAULTS["worker_name"]),
-            worker_slots=int(cfg.get("worker_slots", _DEFAULTS["worker_slots"])),
-            token_configured=bool(cfg.get("token", "")),
-        )
-
-    def update_settings(self, data: HatchetSettingsUpdate) -> HatchetSettingsResponse:
-        row = self._repo.get_by_key(_SETTINGS_KEY)
-        stored: dict[str, Any] = dict(row.value) if row else {}
-
-        if data.host_port is not None:
-            stored["host_port"] = data.host_port
-        if data.token is not None and data.token.strip():
-            stored["token"] = data.token.strip()
-        if data.dashboard_url is not None:
-            stored["dashboard_url"] = data.dashboard_url
-        if data.debug is not None:
-            stored["debug"] = data.debug
-        if data.worker_name is not None:
-            stored["worker_name"] = data.worker_name
-        if data.worker_slots is not None:
-            stored["worker_slots"] = data.worker_slots
-
-        if row is None:
-            logger.info("Creating Hatchet settings")
-            self._repo.create(
-                key=_SETTINGS_KEY,
-                value=stored,
-                description="Hatchet engine configuration",
-            )
-        else:
-            logger.info("Updating Hatchet settings")
-            self._repo.update(row, {"value": stored})
-
-        cfg = _merge(stored)
-        return HatchetSettingsResponse(
-            host_port=cfg.get("host_port", _DEFAULTS["host_port"]),
-            dashboard_url=cfg.get("dashboard_url", _DEFAULTS["dashboard_url"]),
-            debug=bool(cfg.get("debug", _DEFAULTS["debug"])),
-            worker_name=cfg.get("worker_name", _DEFAULTS["worker_name"]),
-            worker_slots=int(cfg.get("worker_slots", _DEFAULTS["worker_slots"])),
-            token_configured=bool(cfg.get("token", "")),
-        )
-
-    async def get_status(self) -> HatchetStatusResponse:
-        row = self._repo.get_by_key(_SETTINGS_KEY)
-        stored: dict[str, Any] = row.value if row else {}
-        cfg = _merge(stored)
-
-        host_port: str = cfg.get("host_port", _DEFAULTS["host_port"])
-        dashboard_url: str = cfg.get("dashboard_url", _DEFAULTS["dashboard_url"])
-        token_configured = bool(cfg.get("token", ""))
-
-        reachable, message = await _check_grpc_reachable(host_port)
-
-        return HatchetStatusResponse(
-            reachable=reachable,
-            token_configured=token_configured,
-            host_port=host_port,
-            dashboard_url=dashboard_url,
-            message=message,
-            checked_at=datetime.now(UTC),
-        )
+def _build_config() -> HatchetConfigResponse:
+    config = hatchet.config
+    return HatchetConfigResponse(
+        server_url=config.server_url,
+        host_port=config.host_port,
+        tenant_id=config.tenant_id,
+        namespace=config.namespace,
+        tls_strategy=config.tls_config.strategy,
+        debug=config.debug,
+        token_configured=bool(config.token),
+        worker_name=WORKER_NAME,
+        worker_slots=WORKER_SLOTS,
+    )
 
 
 async def _check_grpc_reachable(host_port: str) -> tuple[bool, str]:
     try:
-        parts = host_port.rsplit(":", 1)
-        if len(parts) != 2:
-            return False, f"Invalid host_port format: {host_port!r}"
-        host, port_str = parts
+        host, port_str = host_port.rsplit(":", 1)
         port = int(port_str)
     except ValueError:
-        return False, f"Invalid port in host_port: {host_port!r}"
+        return False, f"Invalid host_port format: {host_port!r}"
 
     try:
         _, writer = await asyncio.wait_for(
@@ -141,8 +40,43 @@ async def _check_grpc_reachable(host_port: str) -> tuple[bool, str]:
         )
         writer.close()
         await writer.wait_closed()
-        return True, f"Reachable at {host_port}"
+        return True, ""
     except TimeoutError:
-        return False, f"Timed out connecting to {host_port}"
+        return False, f"Timed out connecting to {host_port} (gRPC)"
     except (ConnectionRefusedError, OSError) as exc:
-        return False, f"Cannot reach {host_port}: {exc}"
+        return False, f"Cannot reach {host_port} (gRPC): {exc}"
+
+
+async def _check_rest_reachable() -> tuple[bool, str]:
+    """Exercise the REST client, not just a raw socket — this is what actually
+    catches a misconfigured/stale `server_url` (e.g. a token whose embedded
+    server_url claim no longer matches where the Hatchet API is deployed).
+    """
+    try:
+        await hatchet.cron.aio_list(limit=1)
+        return True, ""
+    except Exception as exc:
+        return False, f"REST API unreachable at {hatchet.config.server_url}: {exc}"
+
+
+class HatchetSettingsService:
+    def get_config(self) -> HatchetConfigResponse:
+        return _build_config()
+
+    async def check_connection(self) -> HatchetStatusResponse:
+        config = _build_config()
+        grpc_ok, grpc_message = await _check_grpc_reachable(config.host_port)
+        rest_ok, rest_message = await _check_rest_reachable()
+
+        reachable = grpc_ok and rest_ok
+        if reachable:
+            message = f"Connected — gRPC at {config.host_port}, REST at {config.server_url}"
+        else:
+            message = " / ".join(m for m in (grpc_message, rest_message) if m)
+
+        return HatchetStatusResponse(
+            **config.model_dump(),
+            reachable=reachable,
+            message=message,
+            checked_at=datetime.now(UTC),
+        )
