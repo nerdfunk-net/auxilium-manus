@@ -15,6 +15,7 @@ export interface HatchetConfigData {
   token_configured: boolean;
   worker_name: string;
   worker_slots: number;
+  sdk_version: string;
 }
 
 export function useHatchetSettingsQuery() {

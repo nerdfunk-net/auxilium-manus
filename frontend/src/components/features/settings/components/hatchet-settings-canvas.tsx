@@ -135,6 +135,7 @@ export function HatchetSettingsCanvas() {
                 />
                 <InfoRow label="Worker Name" value={data.worker_name} />
                 <InfoRow label="Worker Slots" value={data.worker_slots} />
+                <InfoRow label="SDK Version" value={data.sdk_version} />
               </div>
             )}
           </CardContent>

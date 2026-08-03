@@ -60,7 +60,7 @@ services:
 
   # Step 1: run DB migrations
   hatchet-migrate:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.94.10
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-migrate:v0.98.9
     command: /hatchet/hatchet-migrate
     depends_on:
       hatchet-postgres:
@@ -72,7 +72,7 @@ services:
 
   # Step 2: generate encryption keys, seed admin user (skips cert generation)
   hatchet-setup-config:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.94.10
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-admin:v0.98.9
     command: /hatchet/hatchet-admin quickstart --skip certs --generated-config-dir /hatchet/config --overwrite=false
     depends_on:
       hatchet-migrate:
@@ -100,7 +100,7 @@ services:
 
   # Step 3: engine (gRPC on :7070 via the isolated hatchet network; host :7077 for bare-metal clients)
   hatchet-engine:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.94.10
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-engine:v0.98.9
     command: /hatchet/hatchet-engine --config /hatchet/config
     restart: on-failure
     depends_on:
@@ -124,7 +124,7 @@ services:
 
   # Step 4: dashboard (API + UI combined, port 8888)
   hatchet-dashboard:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.94.10
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-dashboard:v0.98.9
     command: sh ./entrypoint.sh --config /hatchet/config
     restart: on-failure
     depends_on:

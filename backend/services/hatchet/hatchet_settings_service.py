@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
+from importlib.metadata import version as package_version
 
 from hatchet.client import hatchet
 from hatchet.worker_config import WORKER_NAME, WORKER_SLOTS
@@ -23,6 +24,7 @@ def _build_config() -> HatchetConfigResponse:
         token_configured=bool(config.token),
         worker_name=WORKER_NAME,
         worker_slots=WORKER_SLOTS,
+        sdk_version=package_version("hatchet-sdk"),
     )
 
 

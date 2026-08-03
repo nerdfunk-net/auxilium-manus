@@ -10,8 +10,10 @@ class HatchetConfigResponse(BaseModel):
 
     Most values are resolved from HATCHET_CLIENT_* environment variables (see
     hatchet/client.py); worker_name/worker_slots come from HATCHET_WORKER_*
-    environment variables (see hatchet/worker_config.py). There is no app-side
-    override for any of these — this endpoint is purely informational.
+    environment variables (see hatchet/worker_config.py). sdk_version is the
+    installed hatchet-sdk package version (client-side only — the Hatchet
+    engine/server does not expose its version over the REST API). There is no
+    app-side override for any of these — this endpoint is purely informational.
     """
 
     server_url: str
@@ -23,6 +25,7 @@ class HatchetConfigResponse(BaseModel):
     token_configured: bool
     worker_name: str
     worker_slots: int
+    sdk_version: str
 
 
 class HatchetStatusResponse(HatchetConfigResponse):
