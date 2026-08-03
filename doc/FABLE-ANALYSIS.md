@@ -10,6 +10,17 @@
 > length beyond the graph-utility extraction), and §7 (testing debt) remain open — they are sustained
 > or opportunistic work per the plan's Steps 12–13, intentionally not addressed in this pass.
 
+> **Update (2026-08-03):** Steps 1–3 of `doc/refactoring/FABLE_REST.md` have been implemented, closing
+> §4.5 and §4.6 below (marked **✅ FINISHED**). §4.7's four informational items were reviewed and
+> recorded as accepted risk in the new `doc/SECURITY-NOTES.md` rather than changed in code — one
+> correction surfaced during that review: the `verify_ssl=False` logging gap the wording below could be
+> read to imply does not actually exist (all three call sites already log it). §5.2 and §7 are **still
+> open** — `FABLE_REST.md` Step 4 decomposed exactly one function (`update_nautobot_device/executor.py`,
+> 245→67 lines) as a worked example and added direct tests for its extracted helpers (Step 5), which
+> nudged the numbers (75→74 functions still over 80 lines; coverage 53%→54%) but did not close either
+> finding — both remain sustained/opportunistic multi-pass work, exactly as `FABLE_REST.md` scoped them.
+> Full test suite (677 passed) and all four regression guards pass after each step.
+
 ---
 
 ## 1. Executive Summary
@@ -21,10 +32,10 @@ The fussy findings cluster in five areas:
 | Area | Verdict |
 |---|---|
 | CLAUDE.md architectural conformance | **Good**, with 4 concrete violations (§3) — **✅ ALL FINISHED** |
-| Security | **Solid foundation**, 1 high finding (unbounded token refresh), several medium/low (§4) — **✅ high + both mediums + the low UUID finding FINISHED**; §4.5/§4.6/§4.7 still open |
-| Python best practices | **Good**, but deprecated APIs (`asyncio.get_event_loop`, `datetime.utcnow`) and 77 functions over 80 lines (§5) — **✅ deprecated APIs and the `step_runner.py` file-size violation FINISHED**; the 77-function decomposition (§5.2) is still open (opportunistic) |
+| Security | **Solid foundation**, 1 high finding (unbounded token refresh), several medium/low (§4) — **✅ ALL FINISHED** (high, both mediums, the low UUID finding, and now §4.5/§4.6); §4.7's informational items are reviewed and recorded as accepted risk, not code changes |
+| Python best practices | **Good**, but deprecated APIs (`asyncio.get_event_loop`, `datetime.utcnow`) and 74 functions over 80 lines (§5) — **✅ deprecated APIs and the `step_runner.py` file-size violation FINISHED**; one function decomposed as a worked example, but the remaining 74-function decomposition (§5.2) is still open (opportunistic) |
 | Dead code | ~1,000+ lines of confirmed-dead Nautobot manager/resolver code (§6) — **✅ FINISHED** |
-| Testing | 641 green unit tests, but **53% coverage vs. the 80% target** and an **empty integration-test suite** (§7) — still open (sustained effort, out of scope for a single patch) |
+| Testing | 677 green unit tests, but **54% coverage vs. the 80% target** and an **empty integration-test suite** (§7) — still open (sustained effort, out of scope for a single patch) |
 
 No God Objects were found. `step_runner.py` (813 lines, marginally over the 800-line limit) has been brought back under the limit — **✅ FINISHED**, see §5.3.
 
@@ -150,15 +161,36 @@ just at `get_current_user`.
 
 `FilesystemArtifactService._content_path` (`filesystem_artifact_service.py:31-35`) does `self._artifacts_dir / f"{artifact_id}.content"` where `artifact_id` arrives as a raw `str` path parameter (`routers/workflow_runs.py:91-105`). Traversal is *currently* impractical (path segments can't contain `/` through Starlette routing, and `get_for_run` requires a matching `run_id` in the meta file), but this is accidental safety, not designed safety. Artifact IDs are always `uuid4()` — validate the format at the router (`artifact_id: UUID`) or in the service.
 
-### 4.5 LOW — Test-connection endpoints are server-side request primitives
+### 4.5 LOW — Test-connection endpoints are server-side request primitives — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_REST.md` Step 1:** both endpoints now additionally require the
+`write` permission of the respective source (`sources.nautobot:write` / `sources.ise:write`, both
+pre-existing tuples), and a failed connection returns a correlatable `error_id` reference instead of the
+raw exception text; the full exception is still logged server-side. Note: an SSRF guard
+(`core/safe_urls.py::validate_outbound_http_url`, blocking loopback/link-local/cloud-metadata addresses)
+was added to both clients after this analysis's date, which had already narrowed the residual risk from
+raw SSRF to on-prem-network port/service probing — RFC 1918 addresses are intentionally still allowed,
+by design, for on-prem Nautobot/ISE.
 
 `POST /sources/nautobot/test-connection` (`routers/sources/nautobot/ops.py:61`) and the ISE equivalent (`routers/sources/ise/ops.py:261`) accept an **arbitrary URL + token** and make the backend connect to it, gated only by the *read* permission of the respective source. Combined with response detail (`Connection failed: {exc}`), this is a modest SSRF/port-probing primitive against the backend's network position — which in this product is precisely the management network. Suggest gating these on `write` (they exist to configure sources) and normalizing error responses.
 
-### 4.6 LOW — In-memory login rate limiting
+### 4.6 LOW — In-memory login rate limiting — ✅ FINISHED
+
+**Fixed by `doc/refactoring/FABLE_REST.md` Step 2:** new `services/auth/login_rate_limiter.py` —
+a Redis sorted-set sliding-window limiter shared across worker processes, with an in-process fallback if
+Redis is briefly unreachable. `EXPIRE` on the Redis key means an abandoned key disappears on its own
+after the window elapses, closing the unbounded-growth issue described below without a background sweep.
 
 `routers/auth.py:19-21` — `login_attempts` is a per-process dict. Under multiple uvicorn workers or a restart, limits reset/multiply; Redis is already a dependency and would make this real. Also, keys for failed attempts are never pruned except on success (`login_attempts.pop` at line 44), so the dict grows slowly without bound.
 
-### 4.7 Informational
+### 4.7 Informational — ✅ REVIEWED, recorded as accepted risk (see `doc/SECURITY-NOTES.md`)
+
+**Reviewed by `doc/refactoring/FABLE_REST.md` Step 3:** all four items below were re-verified against
+the live code and written up in the new `doc/SECURITY-NOTES.md`, with rationale, as intentionally
+accepted risk rather than code defects. One correction to this analysis surfaced during that review: the
+`verify_ssl=False` logging described in the first bullet is **already complete** — confirmed present at
+all three call sites (`nautobot/client.py` `graphql_query` and `rest_request`, `ise/client.py`
+`ers_request`), not just "at least" one of them.
 
 - `verify_ssl=False` is supported as a persistent no-verify `httpx.AsyncClient` in both Nautobot (`services/nautobot/client.py:36`) and ISE (`services/ise/client.py:36`) clients. Defensible for lab gear with self-signed certs, and it is at least logged per request — but there is no UI/scope guard preventing it in production configurations.
 - Netmiko (`services/network/netmiko/connection.py`) performs no SSH host-key verification (Netmiko default auto-accepts). Standard for NetDevOps tooling, but worth stating in the security docs.
@@ -179,17 +211,21 @@ just at `get_current_user`.
 - **`datetime.utcnow()`** — deprecated in 3.12: `routers/sources/nautobot/crud.py:168` (also hand-appends `"Z"`). Use `datetime.now(UTC)` as the rest of the codebase does.
 - **Naive `datetime.now()`** in `services/git/debug_service.py:90,298,318` — inconsistent with the codebase's otherwise-strict `datetime.now(UTC)` convention.
 
-### 5.2 Function length (rule: <50 lines; 77 functions exceed 80) — ⏳ OPEN
+### 5.2 Function length (rule: <50 lines; 74 functions exceed 80) — ⏳ OPEN (1 of 75 decomposed)
 
-Not addressed by the current pass — `doc/refactoring/FABLE_PRIO.md` Step 13 explicitly defers this as
-opportunistic, do-last work rather than a single patch. The table below is unchanged.
+`doc/refactoring/FABLE_REST.md` Step 4 decomposed one function as a worked example —
+`update_nautobot_device/executor.py`'s `execute` (245 lines → 67 lines, split into `_parse_config`,
+`_resolve_device_items`, `_count_enabled_fields`, `_build_update_service`, `_update_one_device`,
+`_build_outcomes`) — dropping the count from 77 to 74 (2 were also fixed incidentally by unrelated work
+between the original analysis and this pass). The table below reflects that rescan; the remaining 74
+are unchanged and still open — this remains opportunistic, do-last work per `FABLE_PRIO.md` Step 13 /
+`FABLE_REST.md` Step 4, not a single patch.
 
 The executor entry points are the systematic offenders — `execute()` monoliths that inline config parsing, per-device iteration, outcome assembly, and summary building:
 
 | Lines | Location |
 |---|---|
 | 288 | `workflow_steps/deploy_rendered_template/executor.py:84` `execute` |
-| 245 | `workflow_steps/update_nautobot_device/executor.py:83` `execute` |
 | 243 | `services/git/debug_service.py:242` `test_push` |
 | 240 | `services/nautobot/devices/update.py:49` `update_device` |
 | 238 | `workflow_steps/add_to_ise/executor.py:122` `execute` |
@@ -197,7 +233,13 @@ The executor entry points are the systematic offenders — `execute()` monoliths
 | 216 | `services/nautobot/managers/ip_manager.py:43` `ensure_ip_address_exists` |
 | 202 | `workflow_steps/run_command/executor.py:78` `execute` |
 | 197 | `workflow_steps/add_to_nautobot/executor.py:109` `execute` |
-| 196 | `hatchet/workflows/workflow_run.py:399` `_dispatch_children` |
+| 196 | `hatchet/workflows/workflow_run.py:400` `_dispatch_children` |
+| 186 | `services/sources/nautobot/evaluator.py:155` `_execute_condition` |
+
+`workflow_steps/update_nautobot_device/executor.py`'s `execute` (previously 245 lines, rank 2 in this
+table) was decomposed by `doc/refactoring/FABLE_REST.md` Step 4 and has dropped off this list — it's now
+67 lines, with the extracted `_update_one_device` helper (126 lines) the largest remaining unit in that
+file. That's the worked example for the rest of this table.
 
 Contrast with `get_ise_tacacs_key/executor.py`, which decomposes its 439 lines into small `_tier_*` helpers — that is the pattern the big executors should follow (extract `_parse_config`, `_run_for_device`, `_build_outcomes`).
 
@@ -240,21 +282,23 @@ No God Objects found: `DeviceCommonService` is the sanctioned facade; `GitServic
 
 ## 7. Testing — ⏳ OPEN
 
-Not addressed by the current pass — `doc/refactoring/FABLE_PRIO.md` Step 12 explicitly frames this as
-sustained, multi-day test-authoring effort rather than a single patch. The findings below are
-unchanged (some counts may have shifted slightly given the new files added by Steps 1–11, e.g.
-`services/execution/graph.py`, but the overall picture — git write path and Nautobot mutation path are
-the highest-risk, lowest-coverage areas, and the integration suite is still empty — still holds).
+Not addressed as a full pass — `doc/refactoring/FABLE_PRIO.md` Step 12 and `doc/refactoring/FABLE_REST.md`
+Step 5 both frame this as sustained, multi-day test-authoring effort rather than a single patch.
+`FABLE_REST.md` Step 5 did add one concrete slice: 14 new tests (4 for the new `LoginRateLimiter`, 10 for
+the pure helpers `update_nautobot_device/executor.py` was decomposed into in §5.2), moving that one
+executor's own coverage from 15% to 43% and the suite from 641 to 677 passing tests — but the overall
+picture is unchanged: git write path and Nautobot mutation path are still the highest-risk,
+lowest-coverage areas, and the integration suite is still empty.
 
-- **641 unit tests, all passing, 6.3s** — fast, deterministic, well-named, with dedicated files per executor and per common helper. The step subsystem is genuinely well-tested (most executors 80–100% covered).
-- **Total coverage: 53% vs. the 80% mandate.** The gap is concentrated in:
-  - Git services: `debug_service.py` 0%, `operations.py` 0%, `cache.py` 0%, `file_service.py` 7%, `service.py` 21%
+- **677 unit tests, all passing, ~5.2s** — fast, deterministic, well-named, with dedicated files per executor and per common helper. The step subsystem is genuinely well-tested (most executors 80–100% covered).
+- **Total coverage: 54% vs. the 80% mandate** (was 53%; the 14 new tests are a rounding error against ~18,300 statements). The gap is concentrated in:
+  - Git services: `debug_service.py` 0%, `operations.py` 0%, `cache.py` 0%, `connection.py` 0%, `version_control_service.py` 0% (both newly confirmed at 0% in this rescan), `file_service.py` 7%, `service.py` 21%
   - Nautobot write path: `devices/update.py` 7%, `devices/interface_workflow.py` 6%, `devices/creation.py` 14%, resolvers 7–9%
   - `services/cache/redis_cache_service.py` 11%
-  - Routers for sources (`sources/ise/ops.py` 25%, `sources/nautobot/ops.py` 24%, `sources/nautobot/crud.py` 21%)
-  - Under-tested executors: `update_nautobot_device` 15%, `merge_content` 16%, `filter_output` 14%
+  - Routers for sources (`sources/ise/ops.py` 25%, `sources/nautobot/ops.py` 24%, `sources/nautobot/crud.py` 21%) — note `test_connection` in two of these files changed behavior under §4.5's fix; a router-level permission test for it is still outstanding
+  - Under-tested executors: `update_nautobot_device` improved 15%→43% (its pure helpers are now covered; the async per-device I/O path in `_update_one_device`/`execute` is not), `merge_content` 16%, `filter_output` 14%
 - **`tests/integration/` contains only a README — zero integration tests.** The testing rules require unit *and* integration *and* E2E coverage; the PostgreSQL-specific behavior the raw-SQL policy explicitly demands integration coverage for has none.
-- The worst-covered code overlaps heavily with the highest-risk code (git write operations, Nautobot mutations) — the untested 47% is not the harmless half.
+- The worst-covered code overlaps heavily with the highest-risk code (git write operations, Nautobot mutations) — the untested 46% is not the harmless half.
 
 ---
 
@@ -266,8 +310,13 @@ the highest-risk, lowest-coverage areas, and the integration suite is still empt
 4. **(Cleanup, mechanical)** Delete `vm_manager.py`, `cluster_manager.py`, `cluster_resolver.py`, `interface_types.py`, `services/validation/`, and their re-exports (§6). — **✅ FINISHED** (`FABLE_PRIO.md` Step 1)
 5. **(Architecture, incremental)** Introduce domain exceptions for `SettingsService` (and any service the worker touches); drop the `fastapi` import from `get_from_config` (§3.1). Move router-consumed `workflow_steps/common` helpers into `services/` (§3.2). — **✅ FINISHED** (`FABLE_PRIO.md` Steps 8, 9)
 6. **(Modernization, mechanical)** Replace the 8 `get_event_loop()` call sites and the `utcnow()`/naive-`now()` stragglers (§5.1). — **✅ FINISHED** (`FABLE_PRIO.md` Step 3)
-7. **(Testing, sustained)** Target the git write path and Nautobot mutation services first — highest risk, lowest coverage; stand up the integration suite against real PostgreSQL (§7). — **⏳ OPEN** (`FABLE_PRIO.md` Step 12 — sustained effort, intentionally deferred)
+7. **(Testing, sustained)** Target the git write path and Nautobot mutation services first — highest risk, lowest coverage; stand up the integration suite against real PostgreSQL (§7). — **⏳ OPEN** (`FABLE_PRIO.md` Step 12 / `FABLE_REST.md` Step 5 — sustained effort; one slice done, coverage still 54% and the integration suite is still empty)
 8. **(Docs, trivial)** Fix CLAUDE.md drift: Python version, Nautobot file listing (§3.5). — **✅ FINISHED** (`FABLE_PRIO.md` Step 2)
-9. **(Refactor, opportunistic)** Extract graph utilities from `step_runner.py`; decompose the five largest `execute()` functions following the `get_ise_tacacs_key` tier-helper pattern (§5.2, §5.3). — **PARTIALLY FINISHED**: graph-utility extraction done (`FABLE_PRIO.md` Step 7, §5.3); decomposing the largest `execute()` functions remains **⏳ OPEN** (`FABLE_PRIO.md` Step 13 — opportunistic, do last)
+9. **(Refactor, opportunistic)** Extract graph utilities from `step_runner.py`; decompose the five largest `execute()` functions following the `get_ise_tacacs_key` tier-helper pattern (§5.2, §5.3). — **PARTIALLY FINISHED**: graph-utility extraction done (`FABLE_PRIO.md` Step 7, §5.3); one function (`update_nautobot_device/executor.py`) decomposed as a worked example (`FABLE_REST.md` Step 4); decomposing the remaining largest `execute()` functions stays **⏳ OPEN** (opportunistic, do last)
+10. **(Security, small)** Gate the Nautobot/ISE `test-connection` endpoints on `write`, not `read`, and stop echoing raw exception text (§4.5). — **✅ FINISHED** (`FABLE_REST.md` Step 1)
+11. **(Security, small)** Move login rate limiting to Redis so it's shared across worker processes and its memory is bounded (§4.6). — **✅ FINISHED** (`FABLE_REST.md` Step 2)
 
-Two items not in the original recommendation list also remain open: §4.5 (SSRF-adjacent test-connection endpoints) and §4.6 (in-memory login rate limiting) were not part of `FABLE_PRIO.md`'s scope.
+§4.7's informational items (verify_ssl, Netmiko host-key verification, git argv-visible credentials,
+git debug write endpoints) were reviewed and recorded as accepted risk in `doc/SECURITY-NOTES.md`
+(`FABLE_REST.md` Step 3) — by design these are documented decisions, not code changes, so they don't get
+a "FINISHED" marker of their own.

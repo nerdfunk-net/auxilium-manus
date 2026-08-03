@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict, deque
 from ipaddress import ip_address
-from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -11,14 +9,13 @@ from core.auth import AUTHENTICATE_HEADER, get_current_user
 from core.config import settings
 from core.database import get_db
 from core.models.users import User
+from dependencies import get_login_rate_limiter
 from models.auth import LoginRequest, SessionResponse, TokenResponse, UserResponse
 from services.auth.auth_service import AuthenticationError, AuthService
+from services.auth.login_rate_limiter import LoginRateLimiter, RateLimitExceededError
 from services.auth.rbac_service import RBACService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-LOGIN_RATE_LIMIT_ATTEMPTS = 5
-LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60
-login_attempts: defaultdict[str, deque[float]] = defaultdict(deque)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -26,9 +23,17 @@ async def login(
     request: Request,
     credentials: LoginRequest,
     db: Session = Depends(get_db),
+    rate_limiter: LoginRateLimiter = Depends(get_login_rate_limiter),
 ) -> TokenResponse:
     rate_limit_key = _get_rate_limit_key(request, credentials.username)
-    _check_login_rate_limit(rate_limit_key)
+    try:
+        rate_limiter.check(rate_limit_key)
+    except RateLimitExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts",
+        ) from exc
+
     auth_service = AuthService(db)
 
     try:
@@ -41,7 +46,7 @@ async def login(
         ) from exc
 
     access_token, expires_in = auth_service.create_access_token(user)
-    login_attempts.pop(rate_limit_key, None)
+    rate_limiter.clear(rate_limit_key)
 
     return TokenResponse(access_token=access_token, expires_in=expires_in)
 
@@ -134,19 +139,3 @@ def _get_client_host(request: Request) -> str:
         return direct_client_host
 
     return forwarded_client
-
-
-def _check_login_rate_limit(rate_limit_key: str) -> None:
-    now = monotonic()
-    attempts = login_attempts[rate_limit_key]
-
-    while attempts and now - attempts[0] > LOGIN_RATE_LIMIT_WINDOW_SECONDS:
-        attempts.popleft()
-
-    if len(attempts) >= LOGIN_RATE_LIMIT_ATTEMPTS:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts",
-        )
-
-    attempts.append(now)

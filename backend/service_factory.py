@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from repositories.inventory_repository import InventoryRepository
+from services.auth.login_rate_limiter import LoginRateLimiter
 from services.cache.redis_cache_service import RedisCacheService
 from services.ise.client import ISEService
 from services.ise.credentials import ISECredentials
@@ -21,6 +22,7 @@ from services.sources.nautobot.source_service import NautobotSourceService
 _cache_service: RedisCacheService | None = None
 _nautobot_service: NautobotService | None = None
 _ise_service: ISEService | None = None
+_login_rate_limiter: LoginRateLimiter | None = None
 
 
 def get_nautobot_app_service() -> NautobotService:
@@ -73,6 +75,13 @@ def build_cache_service() -> RedisCacheService | None:
         return _cache_service
     except Exception:
         return None
+
+
+def build_login_rate_limiter() -> LoginRateLimiter:
+    global _login_rate_limiter
+    if _login_rate_limiter is None:
+        _login_rate_limiter = LoginRateLimiter(redis_url=settings.redis_url)
+    return _login_rate_limiter
 
 
 def credentials_from_connection(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -19,6 +20,8 @@ from models.workflow_context import (
 )
 from repositories.settings_repository import SettingsRepository
 from services.artifacts import ArtifactService
+from services.nautobot.client import NautobotService
+from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
 from services.settings.source_keys import build_source_key
@@ -39,6 +42,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "update-nautobot-device"
+
+
+@dataclass(frozen=True)
+class _ParsedConfig:
+    source_id: str
+    raw_update_fields: dict[str, Any]
+    interfaces: list[dict[str, Any]]
+    add_prefix: bool
+    default_prefix_length: str
+    sync_interfaces: bool
+    identifier_mode: str
 
 
 def _strip_empty(value: Any) -> Any:
@@ -80,17 +94,7 @@ def _resolve_device_identifier(
     return identifier
 
 
-async def execute(
-    *,
-    config: dict[str, Any],
-    context: WorkflowContext,
-    run: WorkflowRun,
-    artifact_service: ArtifactService,
-    node_id: str,
-    device_sessions: DeviceSessionPool,
-) -> list[StepOutcome]:
-    del artifact_service
-
+def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     source_id = str(config.get("nautobot_source_id") or "").strip()
     if not source_id:
         raise ValueError(f"{_STEP_ID}: nautobot_source_id is not configured")
@@ -108,14 +112,49 @@ async def execute(
             f"{_STEP_ID}: configure at least one enabled device field or interface to update"
         )
 
-    add_prefix = bool(config.get("add_prefix", True))
-    default_prefix_length = str(config.get("default_prefix_length") or "/24")
-    sync_interfaces = bool(config.get("sync_interfaces", False))
+    raw_identifier = config.get("device_identifier") or {}
+    identifier_mode = "from_context"
+    if isinstance(raw_identifier, dict):
+        identifier_mode = str(raw_identifier.get("mode") or "from_context")
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    return _ParsedConfig(
+        source_id=source_id,
+        raw_update_fields=raw_update_fields,
+        interfaces=interfaces,
+        add_prefix=bool(config.get("add_prefix", True)),
+        default_prefix_length=str(config.get("default_prefix_length") or "/24"),
+        sync_interfaces=bool(config.get("sync_interfaces", False)),
+        identifier_mode=identifier_mode,
+    )
 
+
+def _resolve_device_items(
+    identifier_mode: str, context: WorkflowContext
+) -> list[tuple[str, DeviceContext | None]]:
+    if identifier_mode == "explicit":
+        return [("explicit", None)]
+    if not context.devices:
+        raise ValueError(
+            f"{_STEP_ID}: no devices in workflow context; "
+            "connect an inventory step or use explicit device identifier"
+        )
+    return list(context.devices.items())
+
+
+def _count_enabled_fields(raw_update_fields: dict[str, Any]) -> int:
+    enabled_field_count = 0
+    for key, raw in raw_update_fields.items():
+        if key == "custom_fields" and isinstance(raw, dict):
+            enabled_field_count += sum(1 for item in raw.values() if normalize_field_spec(item)[0])
+            continue
+        if normalize_field_spec(raw)[0]:
+            enabled_field_count += 1
+    return enabled_field_count
+
+
+def _build_update_service(
+    db: Any, source_id: str
+) -> tuple[NautobotService, NautobotCredentials, DeviceUpdateService]:
     setting_key = build_source_key("nautobot", source_id)
     setting = SettingsRepository(db).get_by_key(setting_key)
     if setting is None:
@@ -132,169 +171,208 @@ async def execute(
     )
     nautobot_service = service_factory.get_nautobot_app_service()
     bound_client = CredentialsBoundNautobotClient(nautobot_service, credentials)
-    update_service = DeviceUpdateService(bound_client)
+    return nautobot_service, credentials, DeviceUpdateService(bound_client)
 
-    identifier_mode = "from_context"
-    raw_identifier = config.get("device_identifier") or {}
-    if isinstance(raw_identifier, dict):
-        identifier_mode = str(raw_identifier.get("mode") or "from_context")
 
-    if identifier_mode == "explicit":
-        device_items: list[tuple[str, DeviceContext | None]] = [
-            ("explicit", None),
-        ]
-    elif not context.devices:
-        raise ValueError(
-            f"{_STEP_ID}: no devices in workflow context; "
-            "connect an inventory step or use explicit device identifier"
+async def _update_one_device(
+    *,
+    device_key: str,
+    device: DeviceContext | None,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    node_id: str,
+    nautobot_service: NautobotService,
+    credentials: NautobotCredentials,
+    update_service: DeviceUpdateService,
+    parsed: _ParsedConfig,
+) -> tuple[str, DeviceContext | None, bool, str | None]:
+    try:
+        nautobot_device_id: str | None = None
+        if device is not None:
+            nautobot_device_id = await resolve_nautobot_device_id(
+                nautobot_service=nautobot_service,
+                credentials=credentials,
+                device=device,
+            )
+            if nautobot_device_id is None:
+                err = DeviceError(
+                    node_id=node_id,
+                    step_id=_STEP_ID,
+                    code="not_found",
+                    message=(
+                        f"No Nautobot device found for workflow device {device_key} "
+                        f"(name={device.name!r}, ip={device.primary_ip4!r})"
+                    ),
+                )
+                failed = device.model_copy(
+                    update={
+                        "status": DeviceStatus.FAILED,
+                        "errors": [*device.errors, err],
+                    }
+                )
+                return device_key, failed, False, None
+
+        device_identifier = _resolve_device_identifier(
+            config=config,
+            device=device or DeviceContext(id=device_key, name=device_key, hostname=device_key),
+            nautobot_device_id=nautobot_device_id,
         )
-    else:
-        device_items = list(context.devices.items())
+        if not any(device_identifier.get(k) for k in ("id", "name", "ip_address")):
+            raise ValueError("device identifier must include id, name, or ip_address")
 
-    enabled_field_count = 0
-    for key, raw in raw_update_fields.items():
-        if key == "custom_fields" and isinstance(raw, dict):
-            enabled_field_count += sum(1 for item in raw.values() if normalize_field_spec(item)[0])
-            continue
-        if normalize_field_spec(raw)[0]:
-            enabled_field_count += 1
+        resolved_device = device or DeviceContext(
+            id=device_key,
+            name=device_key,
+            hostname=device_key,
+        )
+        update_data = build_resolved_update_data(
+            device=resolved_device,
+            raw_fields=parsed.raw_update_fields,
+            run_id=str(context.run_id) if context.run_id else None,
+        )
+
+        result = await update_service.update_device(
+            device_identifier=device_identifier,
+            update_data=update_data,
+            interfaces=parsed.interfaces or None,
+            add_prefix=parsed.add_prefix,
+            default_prefix_length=parsed.default_prefix_length,
+            sync_interfaces=parsed.sync_interfaces,
+        )
+
+        interfaces_failed = int(result.get("interfaces_failed") or 0)
+        if interfaces_failed > 0:
+            raise RuntimeError(
+                f"{interfaces_failed} interface update(s) failed for device "
+                f"{result.get('device_name') or device_key}"
+            )
+
+        if device is None:
+            device_name = result.get("device_name") or device_key
+            placeholder = DeviceContext(
+                id=result.get("device_id") or device_key,
+                name=device_name,
+                hostname=device_name,
+                source="nautobot",
+                status=DeviceStatus.OK,
+            )
+            return device_key, placeholder, True, result.get("device_id")
+
+        enriched = device.model_copy(
+            update={
+                "id": str(result.get("device_id") or device.id),
+                "name": result.get("device_name") or device.name,
+                "source": "nautobot",
+                "status": DeviceStatus.OK,
+            }
+        )
+        return device_key, enriched, True, result.get("device_id")
+    except Exception as exc:
+        message = str(exc)
+        if device is None:
+            placeholder = DeviceContext(
+                id=device_key,
+                name=device_key,
+                hostname=device_key,
+                source="nautobot",
+                status=DeviceStatus.FAILED,
+                errors=[
+                    DeviceError(
+                        node_id=node_id,
+                        step_id=_STEP_ID,
+                        code=type(exc).__name__.lower(),
+                        message=message,
+                    )
+                ],
+            )
+            return device_key, placeholder, False, None
+
+        err = DeviceError(
+            node_id=node_id,
+            step_id=_STEP_ID,
+            code=type(exc).__name__.lower(),
+            message=message,
+        )
+        failed = device.model_copy(
+            update={
+                "status": DeviceStatus.FAILED,
+                "errors": [*device.errors, err],
+            }
+        )
+        return device_key, failed, False, None
+
+
+def _build_outcomes(
+    context: WorkflowContext,
+    success_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
+) -> list[StepOutcome]:
+    outcomes = [
+        StepOutcome(
+            name="success",
+            context=context.model_copy(update={"devices": success_devices}),
+        )
+    ]
+    if failed_devices:
+        outcomes.append(
+            StepOutcome(
+                name="failure",
+                context=context.model_copy(update={"devices": failed_devices}),
+            )
+        )
+    return outcomes
+
+
+async def execute(
+    *,
+    config: dict[str, Any],
+    context: WorkflowContext,
+    run: WorkflowRun,
+    artifact_service: ArtifactService,
+    node_id: str,
+    device_sessions: DeviceSessionPool,
+) -> list[StepOutcome]:
+    del artifact_service
+
+    parsed = _parse_config(config)
+
+    db = object_session(run)
+    if db is None:
+        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+
+    nautobot_service, credentials, update_service = _build_update_service(db, parsed.source_id)
+    device_items = _resolve_device_items(parsed.identifier_mode, context)
+    enabled_field_count = _count_enabled_fields(parsed.raw_update_fields)
 
     logger.info(
         "%s started run_id=%s source_id=%s devices=%d enabled_fields=%d interfaces=%d",
         _STEP_ID,
         run.id,
-        source_id,
+        parsed.source_id,
         len(device_items),
         enabled_field_count,
-        len(interfaces),
+        len(parsed.interfaces),
+    )
+
+    results = await asyncio.gather(
+        *[
+            _update_one_device(
+                device_key=device_key,
+                device=device,
+                config=config,
+                context=context,
+                node_id=node_id,
+                nautobot_service=nautobot_service,
+                credentials=credentials,
+                update_service=update_service,
+                parsed=parsed,
+            )
+            for device_key, device in device_items
+        ]
     )
 
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-
-    async def update_one(
-        device_key: str,
-        device: DeviceContext | None,
-    ) -> tuple[str, DeviceContext | None, bool, str | None]:
-        try:
-            nautobot_device_id: str | None = None
-            if device is not None:
-                nautobot_device_id = await resolve_nautobot_device_id(
-                    nautobot_service=nautobot_service,
-                    credentials=credentials,
-                    device=device,
-                )
-                if nautobot_device_id is None:
-                    err = DeviceError(
-                        node_id=node_id,
-                        step_id=_STEP_ID,
-                        code="not_found",
-                        message=(
-                            f"No Nautobot device found for workflow device {device_key} "
-                            f"(name={device.name!r}, ip={device.primary_ip4!r})"
-                        ),
-                    )
-                    failed = device.model_copy(
-                        update={
-                            "status": DeviceStatus.FAILED,
-                            "errors": [*device.errors, err],
-                        }
-                    )
-                    return device_key, failed, False, None
-
-            device_identifier = _resolve_device_identifier(
-                config=config,
-                device=device or DeviceContext(id=device_key, name=device_key, hostname=device_key),
-                nautobot_device_id=nautobot_device_id,
-            )
-            if not any(device_identifier.get(k) for k in ("id", "name", "ip_address")):
-                raise ValueError("device identifier must include id, name, or ip_address")
-
-            resolved_device = device or DeviceContext(
-                id=device_key,
-                name=device_key,
-                hostname=device_key,
-            )
-            update_data = build_resolved_update_data(
-                device=resolved_device,
-                raw_fields=raw_update_fields,
-                run_id=str(context.run_id) if context.run_id else None,
-            )
-
-            result = await update_service.update_device(
-                device_identifier=device_identifier,
-                update_data=update_data,
-                interfaces=interfaces or None,
-                add_prefix=add_prefix,
-                default_prefix_length=default_prefix_length,
-                sync_interfaces=sync_interfaces,
-            )
-
-            interfaces_failed = int(result.get("interfaces_failed") or 0)
-            if interfaces_failed > 0:
-                raise RuntimeError(
-                    f"{interfaces_failed} interface update(s) failed for device "
-                    f"{result.get('device_name') or device_key}"
-                )
-
-            if device is None:
-                device_name = result.get("device_name") or device_key
-                placeholder = DeviceContext(
-                    id=result.get("device_id") or device_key,
-                    name=device_name,
-                    hostname=device_name,
-                    source="nautobot",
-                    status=DeviceStatus.OK,
-                )
-                return device_key, placeholder, True, result.get("device_id")
-
-            enriched = device.model_copy(
-                update={
-                    "id": str(result.get("device_id") or device.id),
-                    "name": result.get("device_name") or device.name,
-                    "source": "nautobot",
-                    "status": DeviceStatus.OK,
-                }
-            )
-            return device_key, enriched, True, result.get("device_id")
-        except Exception as exc:
-            message = str(exc)
-            if device is None:
-                placeholder = DeviceContext(
-                    id=device_key,
-                    name=device_key,
-                    hostname=device_key,
-                    source="nautobot",
-                    status=DeviceStatus.FAILED,
-                    errors=[
-                        DeviceError(
-                            node_id=node_id,
-                            step_id=_STEP_ID,
-                            code=type(exc).__name__.lower(),
-                            message=message,
-                        )
-                    ],
-                )
-                return device_key, placeholder, False, None
-
-            err = DeviceError(
-                node_id=node_id,
-                step_id=_STEP_ID,
-                code=type(exc).__name__.lower(),
-                message=message,
-            )
-            failed = device.model_copy(
-                update={
-                    "status": DeviceStatus.FAILED,
-                    "errors": [*device.errors, err],
-                }
-            )
-            return device_key, failed, False, None
-
-    results = await asyncio.gather(
-        *[update_one(device_key, device) for device_key, device in device_items]
-    )
-
     for device_key, updated_device, ok, _resolved_id in results:
         if updated_device is None:
             continue
@@ -311,17 +389,4 @@ async def execute(
         run.id,
     )
 
-    outcomes = [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": success_devices}),
-        )
-    ]
-    if failed_devices:
-        outcomes.append(
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(update={"devices": failed_devices}),
-            )
-        )
-    return outcomes
+    return _build_outcomes(context, success_devices, failed_devices)

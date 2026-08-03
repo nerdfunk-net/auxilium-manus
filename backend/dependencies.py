@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.database import get_db
 from models.sources_nautobot import NautobotConnection
+from services.auth.login_rate_limiter import LoginRateLimiter
 from services.ise.source_config_service import ISESourceConfigService
 from services.nautobot.credentials import NautobotCredentials
 from services.sources.nautobot.persistence_service import InventoryService
@@ -86,3 +87,7 @@ def get_oidc_config_service():
 
 def get_oidc_service():
     return service_factory.build_oidc_service()
+
+
+def get_login_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_login_rate_limiter()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -258,7 +259,11 @@ async def delete_device(
         raise_internal_server_error(logger, "Failed to delete ISE device: ", exc)
 
 
-@router.post("/test-connection", response_model=ISETestConnectionResponse)
+@router.post(
+    "/test-connection",
+    response_model=ISETestConnectionResponse,
+    dependencies=[Depends(require_permission("sources.ise", "write"))],
+)
 async def test_connection(
     source_id: str,
     _: User = Depends(get_current_user),
@@ -271,7 +276,15 @@ async def test_connection(
     except ISEValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except ISEAPIError as exc:
-        return ISETestConnectionResponse(success=False, message=f"Connection failed: {exc}")
+        error_id = uuid.uuid4()
+        logger.warning("ISE test connection failed (error_id=%s): %s", error_id, exc)
+        return ISETestConnectionResponse(
+            success=False,
+            message=(
+                f"Connection failed (ref: {error_id}). "
+                "Check the source configuration and network reachability."
+            ),
+        )
     except HTTPException:
         raise
     except Exception as exc:
