@@ -20,6 +20,7 @@ from routers.auth import router as auth_router
 from routers.cache_settings import router as cache_settings_router
 from routers.certificates import router as certificates_router
 from routers.credentials import router as credentials_router
+from routers.general_settings import router as general_settings_router
 from routers.git import router as git_router
 from routers.hatchet_settings import router as hatchet_settings_router
 from routers.logging_settings import router as logging_settings_router
@@ -113,6 +114,7 @@ app.include_router(netmiko_router, prefix=settings.api_prefix)
 app.include_router(hatchet_settings_router, prefix=settings.api_prefix)
 app.include_router(cache_settings_router, prefix=settings.api_prefix)
 app.include_router(logging_settings_router, prefix=settings.api_prefix)
+app.include_router(general_settings_router, prefix=settings.api_prefix)
 app.include_router(rbac_router, prefix=settings.api_prefix)
 app.include_router(users_router, prefix=settings.api_prefix)
 app.include_router(system_router, prefix=settings.api_prefix)

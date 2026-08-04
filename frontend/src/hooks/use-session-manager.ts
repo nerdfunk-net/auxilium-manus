@@ -7,13 +7,13 @@ import { useAuthStore } from "@/lib/auth-store";
 
 interface SessionConfig {
   refreshInterval?: number;
-  activityTimeout?: number;
+  idleLogoutTimeout?: number;
   checkInterval?: number;
 }
 
 const DEFAULT_CONFIG: Required<SessionConfig> = {
-  refreshInterval: 20 * 60 * 1000, // Refresh every 20 minutes when active
-  activityTimeout: 25 * 60 * 1000, // Consider inactive after 25 minutes
+  refreshInterval: 15 * 60 * 1000, // Renew the session every 15 minutes while active
+  idleLogoutTimeout: 20 * 60 * 1000, // Log out after 20 minutes of inactivity
   checkInterval: 60 * 1000, // Check every minute
 };
 
@@ -64,8 +64,26 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
   }, [updateActivity, activityEvents]);
 
   const isUserActive = useCallback((): boolean => {
-    return Date.now() - lastActivityRef.current < finalConfig.activityTimeout;
-  }, [finalConfig.activityTimeout]);
+    return Date.now() - lastActivityRef.current < finalConfig.idleLogoutTimeout;
+  }, [finalConfig.idleLogoutTimeout]);
+
+  const forceLogout = useCallback(
+    async (reason: "idle" | "expired"): Promise<void> => {
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+      try {
+        await logout();
+      } catch {
+        // Cookie may already be cleared; still leave the app.
+      }
+      if (typeof window !== "undefined") {
+        window.location.replace(`/login?reason=${reason}`);
+      }
+    },
+    [logout],
+  );
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
     if (isRefreshingRef.current) return false;
@@ -79,14 +97,7 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
 
       if (!response.ok) {
         if (response.status === 401) {
-          try {
-            await logout();
-          } catch {
-            // Cookie may already be cleared; still leave the app.
-          }
-          if (typeof window !== "undefined") {
-            window.location.replace("/login");
-          }
+          await forceLogout("expired");
         }
         return false;
       }
@@ -103,7 +114,7 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [logout, setUser]);
+  }, [forceLogout, setUser]);
 
   useEffect(() => {
     if (!user) {
@@ -115,7 +126,10 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
     }
 
     checkIntervalRef.current = setInterval(() => {
-      if (!isUserActive()) return;
+      if (!isUserActive()) {
+        void forceLogout("idle");
+        return;
+      }
 
       const timeSinceRefresh = Date.now() - lastRefreshRef.current;
       if (timeSinceRefresh >= finalConfig.refreshInterval && !isRefreshingRef.current) {
@@ -132,6 +146,7 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
   }, [
     user,
     isUserActive,
+    forceLogout,
     refreshSession,
     finalConfig.refreshInterval,
     finalConfig.checkInterval,

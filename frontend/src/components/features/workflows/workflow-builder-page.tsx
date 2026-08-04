@@ -10,6 +10,7 @@ import type {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useGeneralSettingsQuery } from "@/hooks/queries/use-general-settings-query";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
 import { useTriggerRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
@@ -78,6 +79,7 @@ const EMPTY_GROUPS: CanvasGroup[] = [];
 
 export function WorkflowBuilderPage() {
   const router = useRouter();
+  const { data: generalSettings } = useGeneralSettingsQuery();
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
   const workflowDescription = useWorkflowBuilderStore(
@@ -429,8 +431,9 @@ export function WorkflowBuilderPage() {
         setActiveRunId(run.id);
         markRunning(runMode === "debug" ? "Debug run queued" : "Run queued");
         // Debug mode keeps the canvas visible so the paused-node highlight is
-        // visible; normal runs jump straight to the executions list as before.
-        if (runMode !== "debug") {
+        // visible; normal runs jump to the executions list only when the
+        // "Switch to Runs" setting (Settings → General) is enabled.
+        if (runMode !== "debug" && (generalSettings?.switch_to_runs_on_start ?? true)) {
           router.push("/workflows/runs");
         }
       } catch {
@@ -448,6 +451,7 @@ export function WorkflowBuilderPage() {
       markRunning,
       markError,
       router,
+      generalSettings,
     ],
   );
 

@@ -50,6 +50,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("cache_settings", "write", "Update or clear cache/Redis settings"),
     ("logging_settings", "read", "View application logging configuration"),
     ("logging_settings", "write", "Update application logging configuration"),
+    ("general_settings", "read", "View application general configuration"),
+    ("general_settings", "write", "Update application general configuration"),
     ("rbac.permissions", "read", "View the permission catalog"),
     ("rbac.permissions", "write", "Create permissions"),
     ("rbac.permissions", "delete", "Delete permissions"),

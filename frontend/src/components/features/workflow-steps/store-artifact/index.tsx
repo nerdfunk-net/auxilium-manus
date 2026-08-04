@@ -78,7 +78,7 @@ const DESTINATION_OPTIONS = [
   {
     value: "filesystem",
     label: "Filesystem",
-    hint: "Write under DATA_DIRECTORY/exports/<workflow_id>/<run_id>/.",
+    hint: "Write under the default export directory (Settings → General) → exports/<workflow_id>/<run_id>/.",
   },
   {
     value: "git",
@@ -720,7 +720,8 @@ function StoreArtifactConfigPanel({
             className="h-8 font-mono text-xs"
           />
           <p className="text-[11px] text-muted-foreground">
-            Files are written under DATA_DIRECTORY/exports/&lt;workflow_id&gt;/&lt;run_id&gt;/.
+            Files are written under the default export directory (Settings → General) →
+            exports/&lt;workflow_id&gt;/&lt;run_id&gt;/.
           </p>
         </div>
       ) : null}

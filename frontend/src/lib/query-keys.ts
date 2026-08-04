@@ -35,6 +35,10 @@ export const queryKeys = {
     all: ["logging"] as const,
     settings: () => [...queryKeys.logging.all, "settings"] as const,
   },
+  general: {
+    all: ["general"] as const,
+    settings: () => [...queryKeys.general.all, "settings"] as const,
+  },
   workflowRuns: {
     all: ["workflow-runs"] as const,
     list: (workflowId: number, filtersKey?: string) =>

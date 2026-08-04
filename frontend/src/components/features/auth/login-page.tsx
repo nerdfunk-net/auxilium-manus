@@ -54,6 +54,13 @@ export function LoginPage() {
   const [allowTraditionalLogin, setAllowTraditionalLogin] = useState(true);
   const [oidcError, setOidcError] = useState("");
   const [oidcLoadingProvider, setOidcLoadingProvider] = useState<string | null>(null);
+  const [notice] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "idle") return "You were signed out due to inactivity.";
+    if (reason === "expired") return "Your session expired. Please sign in again.";
+    return "";
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +133,15 @@ export function LoginPage() {
             </p>
           </div>
         </div>
+
+        {notice ? (
+          <p
+            className="mb-5 rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+            role="status"
+          >
+            {notice}
+          </p>
+        ) : null}
 
         {oidcError ? (
           <p

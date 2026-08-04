@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core.config import settings
+from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     DeviceContext,
@@ -23,6 +24,7 @@ from services.artifacts.sinks import (
     GitArtifactSink,
     StoredExport,
 )
+from services.general.general_settings_service import GeneralSettingsService
 from workflow_steps.common.content_resolver import (
     ExportableContent,
     list_exportable_content,
@@ -78,7 +80,7 @@ def _load_git_repository(git_source_id: str) -> dict[str, Any]:
     return load_git_source_repository(git_source_id)
 
 
-def _build_sink(config: dict[str, Any]) -> ArtifactSink:
+def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
     destination = str(config.get("destination") or "filesystem").strip().lower()
     if destination not in _DESTINATIONS:
         raise ValueError(f"store-artifact: destination must be one of {sorted(_DESTINATIONS)}")
@@ -89,7 +91,7 @@ def _build_sink(config: dict[str, Any]) -> ArtifactSink:
             or "exports"
         ).strip()
         return FilesystemArtifactSink(
-            settings.data_directory,
+            base_dir,
             output_subdirectory=output_subdirectory,
         )
     if destination == "git":
@@ -368,7 +370,12 @@ async def execute(
         return [StepOutcome(name="success", context=context)]
 
     parsed = _parse_store_config(config)
-    sink = _build_sink(config)
+    db = get_db_session()
+    try:
+        base_dir = GeneralSettingsService(db).resolved_export_directory()
+    finally:
+        db.close()
+    sink = _build_sink(config, base_dir=base_dir)
     git_sink = sink if isinstance(sink, GitArtifactSink) else None
     metadata = dict(context.metadata)
 

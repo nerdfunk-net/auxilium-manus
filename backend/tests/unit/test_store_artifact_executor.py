@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
@@ -17,6 +18,21 @@ from models.workflow_context import (
 from services.artifacts import InMemoryArtifactService
 from services.artifacts.sinks import GitArtifactSink
 from workflow_steps.store_artifact.executor import execute
+
+
+@contextmanager
+def _mock_export_directory(export_dir: Path):
+    """Patch the general-settings lookup `execute()` performs before building a sink."""
+    service_mock = MagicMock()
+    service_mock.resolved_export_directory.return_value = export_dir
+    with (
+        patch("workflow_steps.store_artifact.executor.get_db_session", return_value=MagicMock()),
+        patch(
+            "workflow_steps.store_artifact.executor.GeneralSettingsService",
+            return_value=service_mock,
+        ),
+    ):
+        yield
 
 
 def _device_with_running_config() -> DeviceContext:
@@ -75,15 +91,13 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+                _mock_export_directory(Path(tmp)),
                 patch.object(
                     artifact_service,
                     "resolve",
                     new=AsyncMock(return_value="hostname lab"),
                 ),
             ):
-                settings_mock.data_directory = Path(tmp)
-
                 outcomes = await execute(
                     config={
                         "content_source": "running_config",
@@ -125,15 +139,13 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+                _mock_export_directory(Path(tmp)),
                 patch.object(
                     artifact_service,
                     "resolve",
                     new=AsyncMock(return_value="hostname lab"),
                 ),
             ):
-                settings_mock.data_directory = Path(tmp)
-
                 outcomes = await execute(
                     config={
                         "content_source": "running_config",
@@ -176,15 +188,13 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with (
-                patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+                _mock_export_directory(Path(tmp)),
                 patch.object(
                     artifact_service,
                     "resolve",
                     new=AsyncMock(return_value="hostname lab\ninterface Gi0/0"),
                 ),
             ):
-                settings_mock.data_directory = Path(tmp)
-
                 outcomes = await execute(
                     config={
                         "content_source": "rendered_template",
@@ -233,9 +243,8 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value="hostname lab"),
             ),
             tempfile.TemporaryDirectory() as tmp,
-            patch("workflow_steps.store_artifact.executor.settings") as settings_mock,
+            _mock_export_directory(Path(tmp)),
         ):
-            settings_mock.data_directory = Path(tmp)
             outcomes = await execute(
                 config={
                     "content_source": "running_config",
@@ -271,8 +280,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("workflow_steps.store_artifact.executor.settings") as settings_mock:
-                settings_mock.data_directory = Path(tmp)
+            with _mock_export_directory(Path(tmp)):
                 outcomes = await execute(
                     config={"content_source": "running_config"},
                     context=WorkflowContext(
@@ -302,9 +310,12 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         mock_sink.prepare = AsyncMock(side_effect=RuntimeError("pull failed"))
         mock_sink.has_writes = False
 
-        with patch(
-            "workflow_steps.store_artifact.executor._build_sink",
-            return_value=mock_sink,
+        with (
+            patch(
+                "workflow_steps.store_artifact.executor._build_sink",
+                return_value=mock_sink,
+            ),
+            _mock_export_directory(Path("/unused")),
         ):
             outcomes = await execute(
                 config={
@@ -365,6 +376,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "resolve",
                 new=AsyncMock(return_value="hostname lab"),
             ),
+            _mock_export_directory(Path("/unused")),
         ):
             outcomes = await execute(
                 config={
@@ -395,8 +407,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = _device_with_running_config()
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("workflow_steps.store_artifact.executor.settings") as settings_mock:
-                settings_mock.data_directory = Path(tmp)
+            with _mock_export_directory(Path(tmp)):
                 with self.assertRaises(ValueError) as ctx:
                     await execute(
                         config={
