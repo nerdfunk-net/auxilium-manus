@@ -37,7 +37,7 @@ x-manus-app-env: &manus-app-env
   KDF_ITERATIONS: 100000
 
   # PostgreSQL (host/port point at the compose postgres service)
-  DATABASE_HOST: postgres
+  DATABASE_HOST: manus-postgres
   DATABASE_PORT: 5432
   DATABASE_NAME: manus
   DATABASE_MAINTENANCE_NAME: postgres
@@ -45,14 +45,14 @@ x-manus-app-env: &manus-app-env
   DATABASE_PASSWORD: postgres
 
   # Redis (host/port point at the compose redis service)
-  MANUS_REDIS_HOST: redis
+  MANUS_REDIS_HOST: manus-redis
   MANUS_REDIS_PORT: 6379
   MANUS_REDIS_PASSWORD: changeme
   MANUS_REDIS_KEY_PREFIX: manus-cache
 
   # Hatchet workflow engine (reached on the isolated hatchet network)
   # Create a token at http://localhost:8888 → Settings → API Tokens
-  HATCHET_CLIENT_TOKEN: ""
+  HATCHET_CLIENT_TOKEN: "get-from-your-hatchet-dashboard"
   HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
   HATCHET_CLIENT_TLS_STRATEGY: none
   HATCHET_CLIENT_DEBUG: "false"
@@ -74,9 +74,10 @@ x-manus-app-env: &manus-app-env
   APPLY_RISKY_DATABASE_MIGRATION: "false"
 
 services:
-  postgres:
+  manus-postgres:
     image: postgres:17
     container_name: manus-postgres
+    hostname: manus-postgres
     environment:
       POSTGRES_DB: manus
       POSTGRES_USER: postgres
@@ -91,11 +92,12 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - frontend
+      - backend
 
-  redis:
+  manus-redis:
     image: redis:8-alpine
     container_name: manus-redis
+    hostname: manud-redis
     command: redis-server --appendonly yes --requirepass changeme
     volumes:
       - redis_data:/data
@@ -106,7 +108,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - frontend
+      - backend
 
   manus-web:
     build:
@@ -127,9 +129,9 @@ services:
       - ./config:/app/config
       - ./logs:/app/data/logs
     depends_on:
-      postgres:
+      manus-postgres:
         condition: service_healthy
-      redis:
+      manus-redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -139,8 +141,7 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - frontend
-      - hatchet
+      - backend
     command: ["/app/start.sh"]
 
   manus-worker:
@@ -156,17 +157,16 @@ services:
       - manus_data:/app/data
       - ./logs:/app/data/logs
     depends_on:
-      postgres:
+      manus-postgres:
         condition: service_healthy
-      redis:
+      manus-redis:
         condition: service_healthy
       # Wait for web so init_db / admin seed finish before the worker accepts jobs.
       manus-web:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - frontend
-      - hatchet
+      - backend
     command: ["/app/start.sh"]
 
 volumes:
@@ -175,7 +175,6 @@ volumes:
   redis_data:
 
 networks:
-  frontend:
-    driver: bridge
-  hatchet:
+  backend:
     external: true
+    

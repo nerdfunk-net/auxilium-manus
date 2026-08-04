@@ -32,7 +32,7 @@ RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
 
 RUN npm install -g npm@latest || true
 
-FROM node:24-alpine AS frontend-builder
+FROM node:24-slim AS frontend-builder
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY

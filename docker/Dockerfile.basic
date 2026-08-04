@@ -1,5 +1,5 @@
 # Multi-stage Docker build for Auxilium Manus (development / online builds)
-FROM node:24-alpine AS frontend-builder
+FROM node:24-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
