@@ -56,6 +56,11 @@ x-manus-app-env: &manus-app-env
   HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
   HATCHET_CLIENT_TLS_STRATEGY: none
   HATCHET_CLIENT_DEBUG: "false"
+  # Browser-reachable dashboard URL for Settings → Hatchet's "Open Dashboard"
+  # link. Needed behind a reverse proxy (e.g. Traefik) where HATCHET_CLIENT_SERVER_URL
+  # points at a Docker-internal address the browser can't resolve. Leave unset
+  # to fall back to HATCHET_CLIENT_SERVER_URL.
+  # HATCHET_DASHBOARD_URL: "https://hatchet.example.com"
 
   # Logging
   LOG_LEVEL: INFO

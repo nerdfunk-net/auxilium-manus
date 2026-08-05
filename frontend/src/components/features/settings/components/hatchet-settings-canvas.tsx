@@ -96,9 +96,9 @@ export function HatchetSettingsCanvas() {
                 )}
                 Test Connection
               </Button>
-              {data?.server_url && (
+              {data?.dashboard_url && (
                 <Button type="button" variant="outline" size="sm" asChild>
-                  <a href={data.server_url} target="_blank" rel="noopener noreferrer">
+                  <a href={data.dashboard_url} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="mr-2 size-4" />
                     Open Dashboard
                   </a>
@@ -118,6 +118,7 @@ export function HatchetSettingsCanvas() {
             ) : (
               <div className="divide-y">
                 <InfoRow label="Server URL (REST)" value={data.server_url} />
+                <InfoRow label="Dashboard URL (browser)" value={data.dashboard_url} />
                 <InfoRow label="Host:Port (gRPC)" value={data.host_port} />
                 <InfoRow label="Tenant ID" value={data.tenant_id || "—"} />
                 <InfoRow label="Namespace" value={data.namespace || "—"} />

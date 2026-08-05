@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import UTC, datetime
 from importlib.metadata import version as package_version
 
@@ -14,8 +15,10 @@ logger = logging.getLogger(__name__)
 
 def _build_config() -> HatchetConfigResponse:
     config = hatchet.config
+    dashboard_url = os.environ.get("HATCHET_DASHBOARD_URL") or config.server_url
     return HatchetConfigResponse(
         server_url=config.server_url,
+        dashboard_url=dashboard_url,
         host_port=config.host_port,
         tenant_id=config.tenant_id,
         namespace=config.namespace,

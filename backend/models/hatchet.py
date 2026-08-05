@@ -14,9 +14,17 @@ class HatchetConfigResponse(BaseModel):
     installed hatchet-sdk package version (client-side only — the Hatchet
     engine/server does not expose its version over the REST API). There is no
     app-side override for any of these — this endpoint is purely informational.
+
+    dashboard_url is the one exception: it is the browser-reachable URL used by
+    the "Open Dashboard" link in the UI. server_url is what the backend process
+    itself uses to reach the Hatchet REST API, which in a reverse-proxied/Docker
+    setup (e.g. Traefik) is often a network-internal address the browser cannot
+    resolve. dashboard_url defaults to server_url but can be overridden with
+    HATCHET_DASHBOARD_URL when the two must differ.
     """
 
     server_url: str
+    dashboard_url: str
     host_port: str
     tenant_id: str
     namespace: str

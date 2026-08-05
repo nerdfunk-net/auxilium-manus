@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export interface HatchetStatusData {
   server_url: string;
+  dashboard_url: string;
   host_port: string;
   tenant_id: string;
   namespace: string;

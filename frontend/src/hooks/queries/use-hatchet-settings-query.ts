@@ -7,6 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 
 export interface HatchetConfigData {
   server_url: string;
+  dashboard_url: string;
   host_port: string;
   tenant_id: string;
   namespace: string;
