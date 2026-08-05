@@ -125,7 +125,7 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
       SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-web.conf
     volumes:
-      - manus_data:/app/data
+      - ./data:/app/data
       - ./config:/app/config
       - ./logs:/app/data/logs
     depends_on:
@@ -154,7 +154,7 @@ services:
       # Worker runs python -m hatchet.worker only (no API bootstrap / frontend).
       SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-worker.conf
     volumes:
-      - manus_data:/app/data
+      - ./data:/app/data
       - ./logs:/app/data/logs
     depends_on:
       manus-postgres:
@@ -170,7 +170,6 @@ services:
     command: ["/app/start.sh"]
 
 volumes:
-  manus_data:
   postgres_data:
   redis_data:
 
