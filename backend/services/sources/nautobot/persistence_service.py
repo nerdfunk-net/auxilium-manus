@@ -49,7 +49,11 @@ class InventoryService:
             if not inventory_data.get("created_by"):
                 raise ValueError("Creator username is required")
 
-            if not inventory_data.get("conditions"):
+            inventory_type = inventory_data.get("inventory_type", "filter")
+            if inventory_type == "static":
+                if not inventory_data.get("device_ids"):
+                    raise ValueError("Device IDs are required for a static inventory")
+            elif not inventory_data.get("conditions"):
                 raise ValueError("Conditions are required")
 
             # Check for existing active inventory with same name and creator
@@ -61,12 +65,14 @@ class InventoryService:
                     f"Inventory with name '{inventory_data['name']}' already exists for this user"
                 )
 
-            conditions_json = json.dumps(inventory_data["conditions"])
+            conditions_json = json.dumps(inventory_data.get("conditions") or [])
 
             inventory = self.repository.create(
                 name=inventory_data["name"],
                 description=inventory_data.get("description"),
                 conditions=conditions_json,
+                inventory_type=inventory_type,
+                device_ids=inventory_data.get("device_ids"),
                 template_category=inventory_data.get("template_category"),
                 template_name=inventory_data.get("template_name"),
                 scope=inventory_data.get("scope", "global"),
@@ -251,6 +257,14 @@ class InventoryService:
                 "name": inventory_data.get("name", current["name"]),
                 "description": inventory_data.get("description", current["description"]),
                 "conditions": conditions_json,
+                "inventory_type": inventory_data.get(
+                    "inventory_type", current.get("inventory_type", "filter")
+                ),
+                "device_ids": (
+                    inventory_data["device_ids"]
+                    if "device_ids" in inventory_data
+                    else current.get("device_ids")
+                ),
                 "template_category": inventory_data.get(
                     "template_category", current["template_category"]
                 ),
@@ -344,6 +358,8 @@ class InventoryService:
             "id": inventory.id,
             "name": inventory.name,
             "description": inventory.description,
+            "inventory_type": inventory.inventory_type,
+            "device_ids": inventory.device_ids or [],
             "template_category": inventory.template_category,
             "template_name": inventory.template_name,
             "scope": inventory.scope,

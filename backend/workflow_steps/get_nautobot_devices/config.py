@@ -6,7 +6,9 @@ def get_config() -> dict:
         "nautobot_source_id": "",
         "inventory_id": None,
         "inventory_name": "",
+        "inventory_type": "filter",
         "device_filter": {"logic": "AND", "negate": False, "id": "root", "items": []},
+        "device_ids": [],
         "fan_out": {
             "enabled": False,
             "mode": "per_device",

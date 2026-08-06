@@ -43,6 +43,8 @@ async def create_inventory(
                 "name": request.name,
                 "description": request.description,
                 "conditions": request.conditions,
+                "inventory_type": request.inventory_type,
+                "device_ids": request.device_ids,
                 "template_category": request.template_category,
                 "template_name": request.template_name,
                 "scope": request.scope,
@@ -314,6 +316,10 @@ async def update_inventory(
             update_data["description"] = request.description
         if request.conditions is not None:
             update_data["conditions"] = request.conditions
+        if request.inventory_type is not None:
+            update_data["inventory_type"] = request.inventory_type
+        if "device_ids" in request.model_fields_set:
+            update_data["device_ids"] = request.device_ids
         if request.template_category is not None:
             update_data["template_category"] = request.template_category
         if request.template_name is not None:

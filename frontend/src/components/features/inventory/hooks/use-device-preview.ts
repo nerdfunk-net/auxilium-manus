@@ -21,21 +21,21 @@ interface UseDevicePreviewOptions {
   sourceReady: boolean;
 }
 
-function mapPreviewDevices(
-  devices: Array<{
-    id: string;
-    name: string | null;
-    serial: string | null;
-    location: string | null;
-    role: string | null;
-    tags: string[];
-    device_type: string | null;
-    manufacturer: string | null;
-    platform: string | null;
-    primary_ip4: string | null;
-    status: string | null;
-  }>,
-): DeviceInfo[] {
+export interface RawPreviewDevice {
+  id: string;
+  name: string | null;
+  serial: string | null;
+  location: string | null;
+  role: string | null;
+  tags: string[];
+  device_type: string | null;
+  manufacturer: string | null;
+  platform: string | null;
+  primary_ip4: string | null;
+  status: string | null;
+}
+
+export function mapPreviewDevices(devices: RawPreviewDevice[]): DeviceInfo[] {
   return devices.map((device) => ({
     id: device.id,
     name: device.name,

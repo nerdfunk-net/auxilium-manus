@@ -44,6 +44,15 @@ function filterFromConfig(config: Record<string, unknown>): FilterTree {
   return emptyTree();
 }
 
+function deviceIdsFromConfig(config: Record<string, unknown>): string[] {
+  const raw = config.device_ids;
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
+}
+
+function inventoryTypeFromConfig(config: Record<string, unknown>): "filter" | "static" {
+  return config.inventory_type === "static" ? "static" : "filter";
+}
+
 function inventoryMetaFromConfig(config: Record<string, unknown>) {
   const id = typeof config.inventory_id === "number" ? config.inventory_id : null;
   const name =
@@ -59,6 +68,8 @@ function DeviceSelectionConfigPanel({
 }: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const filterTree = useMemo(() => filterFromConfig(config), [config]);
+  const deviceIds = useMemo(() => deviceIdsFromConfig(config), [config]);
+  const inventoryType = useMemo(() => inventoryTypeFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
   const inventoryMeta = useMemo(() => inventoryMetaFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
@@ -78,12 +89,25 @@ function DeviceSelectionConfigPanel({
 
   const handleInventorySelect = useCallback(
     (inventory: SavedInventory) => {
-      onChange({
-        ...config,
-        inventory_id: inventory.id,
-        inventory_name: inventory.name,
-        device_filter: savedConditionsToFilterTree(inventory.conditions),
-      });
+      if (inventory.inventory_type === "static") {
+        onChange({
+          ...config,
+          inventory_id: inventory.id,
+          inventory_name: inventory.name,
+          inventory_type: "static",
+          device_filter: emptyTree(),
+          device_ids: inventory.device_ids ?? [],
+        });
+      } else {
+        onChange({
+          ...config,
+          inventory_id: inventory.id,
+          inventory_name: inventory.name,
+          inventory_type: "filter",
+          device_filter: savedConditionsToFilterTree(inventory.conditions),
+          device_ids: [],
+        });
+      }
     },
     [config, onChange],
   );
@@ -93,7 +117,9 @@ function DeviceSelectionConfigPanel({
     const { inventory_id, inventory_name, ...rest } = config;
     onChange({
       ...rest,
+      inventory_type: "filter",
       device_filter: emptyTree(),
+      device_ids: [],
     });
   }, [config, onChange]);
 
@@ -106,7 +132,7 @@ function DeviceSelectionConfigPanel({
 
   const conditionCount = useMemo(() => countConditions(filterTree), [filterTree]);
   const isSourceConfigured = isNautobotSourceConfigured(config);
-  const hasInventory = inventoryMeta.id !== null || conditionCount > 0;
+  const hasInventory = inventoryMeta.id !== null || conditionCount > 0 || deviceIds.length > 0;
   const canPreview =
     hasInventory && credentials.isReady && Boolean(credentials.url && credentials.token);
 
@@ -114,7 +140,9 @@ function DeviceSelectionConfigPanel({
     ? inventoryMeta.name
     : conditionCount > 0
       ? `${conditionCount} condition${conditionCount !== 1 ? "s" : ""} (legacy filter)`
-      : null;
+      : deviceIds.length > 0
+        ? `${deviceIds.length} device${deviceIds.length !== 1 ? "s" : ""} (selection)`
+        : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -239,7 +267,9 @@ function DeviceSelectionConfigPanel({
         config={{
           nautobot_url: credentials.url,
           nautobot_token: credentials.token,
+          inventory_type: inventoryType,
           device_filter: filterTree,
+          device_ids: deviceIds,
         }}
         inventoryName={inventoryMeta.name}
         onClose={() => setPreviewOpen(false)}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base
@@ -17,6 +17,10 @@ class Inventory(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     conditions: Mapped[str] = mapped_column(Text, nullable=False)
+    inventory_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="filter", server_default="filter"
+    )
+    device_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     template_category: Mapped[str | None] = mapped_column(String(255))
     template_name: Mapped[str | None] = mapped_column(String(255))
     scope: Mapped[str] = mapped_column(String(50), nullable=False, default="global")

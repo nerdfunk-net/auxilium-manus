@@ -4,6 +4,7 @@ import type {
   SavedConditionPayload,
   SavedInventory,
 } from "@/components/features/workflow-steps/get-nautobot-devices/types/saved-inventory";
+import type { InventoryType } from "@/components/features/inventory/types/device-selector";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { queryKeys } from "@/lib/query-keys";
@@ -13,7 +14,9 @@ export interface CreateInventoryInput {
   description?: string | null;
   scope: string;
   group_path?: string | null;
-  conditions: SavedConditionPayload[];
+  conditions?: SavedConditionPayload[];
+  inventory_type?: InventoryType;
+  device_ids?: string[];
 }
 
 export interface UpdateInventoryInput {
@@ -23,6 +26,8 @@ export interface UpdateInventoryInput {
   scope?: string;
   group_path?: string | null;
   conditions?: SavedConditionPayload[];
+  inventory_type?: InventoryType;
+  device_ids?: string[];
 }
 
 export function useCreateInventoryMutation() {

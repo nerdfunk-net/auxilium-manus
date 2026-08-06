@@ -51,11 +51,33 @@ export interface CustomField {
   type: string;
 }
 
+export type InventoryType = "filter" | "static";
+
+export interface InventoryPreviewApiResponse {
+  devices: Array<{
+    id: string;
+    name: string | null;
+    serial: string | null;
+    location: string | null;
+    role: string | null;
+    tags: string[];
+    device_type: string | null;
+    manufacturer: string | null;
+    platform: string | null;
+    primary_ip4: string | null;
+    status: string | null;
+  }>;
+  total_count: number;
+  operations_executed: number;
+}
+
 export interface BackendConditionsResponse {
   id: number;
   name: string;
   description?: string;
   conditions: Array<LogicalCondition | { version: number; tree: ConditionTree | Record<string, unknown> }>;
+  inventory_type?: InventoryType;
+  device_ids?: string[];
   scope: string;
   group_path?: string | null;
   created_by: string;
@@ -99,4 +121,6 @@ export interface SavedInventorySummary {
   group_path?: string | null;
   created_by: string;
   conditions?: unknown[];
+  inventory_type?: InventoryType;
+  device_ids?: string[];
 }

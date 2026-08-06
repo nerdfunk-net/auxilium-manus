@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 
 import type { DeviceInfo } from "../types/device-selector";
+import { formatDeviceValue, getStatusColor } from "../utils/device-format";
 
 interface DeviceTableProps {
   devices: DeviceInfo[];
@@ -51,33 +52,6 @@ export function DeviceTable({
 }: DeviceTableProps) {
   if (!showPreviewResults && devices.length === 0) return null;
 
-  const formatDeviceValue = (
-    value: string | { name?: string; address?: string } | null | undefined,
-  ) => {
-    if (!value) return "N/A";
-    if (typeof value === "object") {
-      return value.name || value.address?.split("/")[0] || "N/A";
-    }
-    return value;
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case "active":
-        return "bg-green-100 text-green-800";
-      case "planned":
-        return "bg-blue-100 text-blue-800";
-      case "staged":
-        return "bg-yellow-100 text-yellow-800";
-      case "failed":
-        return "bg-red-100 text-red-800";
-      case "offline":
-        return "bg-gray-100 text-gray-800";
-      default:
-        return "bg-blue-100 text-blue-800";
-    }
-  };
-
   return (
     <div className="rounded-lg border-0 bg-white p-0 shadow-lg">
       <div className="flex items-center justify-between rounded-t-lg bg-gradient-to-r from-blue-400/80 to-blue-500/80 px-4 py-2 text-white">
@@ -94,7 +68,7 @@ export function DeviceTable({
           <div className="mb-4 flex items-center justify-between rounded-md border border-purple-200 bg-purple-50 p-3">
             <p className="text-sm text-purple-800">
               <strong>{selectedIds.size}</strong> device
-              {selectedIds.size !== 1 ? "s" : ""} selected for command execution
+              {selectedIds.size !== 1 ? "s" : ""} selected
             </p>
             <Button
               className="text-purple-600 hover:text-purple-800"

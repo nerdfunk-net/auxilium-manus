@@ -35,12 +35,29 @@ plugins:
           data_type: string
           required: false
           example: Core routers
+        - name: inventory_type
+          description: >
+            Type of the selected saved inventory at configuration time — "filter"
+            (logical expression, resolved via device_filter) or "static" (an explicit,
+            hand-picked device list built with Selection Mode, resolved via device_ids).
+            Missing/omitted is treated as "filter" for backward compatibility.
+          data_type: string
+          required: false
+          default: filter
+          example: filter
         - name: device_filter
           description: >
             Filter tree snapshot derived from the selected inventory at configuration time.
-            Used at runtime to resolve devices from Nautobot.
+            Used at runtime to resolve devices from Nautobot when inventory_type is "filter".
           data_type: object
-          required: true
+          required: false
+        - name: device_ids
+          description: >
+            Explicit Nautobot device UUID list snapshot derived from the selected inventory
+            at configuration time. Used at runtime to resolve devices directly (no logical
+            expression) when inventory_type is "static".
+          data_type: array
+          required: false
         - name: fan_out
           description: >
             Fan-out configuration. When enabled, each device (or chunk) is processed

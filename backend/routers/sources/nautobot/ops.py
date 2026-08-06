@@ -19,6 +19,7 @@ from dependencies import (
 from models.sources_nautobot import (
     DeviceAttributesRequest,
     DeviceDetailsRequest,
+    DeviceIdsPreviewRequest,
     DeviceSearchRequest,
     DeviceSearchResponse,
     DeviceSummary,
@@ -169,6 +170,27 @@ async def preview_inventory(
         raise_internal_server_error(logger, "Failed to preview Nautobot source: ", exc)
 
 
+@router.post("/preview-device-ids", response_model=InventoryPreviewResponse)
+async def preview_device_ids(
+    request: DeviceIdsPreviewRequest,
+    _: User = Depends(get_current_user),
+) -> InventoryPreviewResponse:
+    """Preview an explicit, static list of device IDs (Selection Mode inventories)."""
+    credentials = nautobot_credentials_from_body(request)
+    source_service = _build_source_service(credentials)
+    try:
+        if not request.device_ids:
+            return InventoryPreviewResponse(devices=[], total_count=0, operations_executed=0)
+        devices = await source_service.resolve_devices_by_ids(request.device_ids)
+        return InventoryPreviewResponse(
+            devices=devices,
+            total_count=len(devices),
+            operations_executed=0,
+        )
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to preview device IDs: ", exc)
+
+
 @router.post("/devices/search", response_model=DeviceSearchResponse)
 async def search_devices(
     request: DeviceSearchRequest,
@@ -303,6 +325,26 @@ async def resolve_inventory_to_devices(
                 detail=f"Inventory with ID {inventory_id} not found",
             )
 
+        source_service = _build_source_service(credentials, persistence)
+
+        if inventory.get("inventory_type") == "static":
+            static_ids = inventory.get("device_ids") or []
+            if not static_ids:
+                return {
+                    "device_ids": [],
+                    "device_count": 0,
+                    "inventory_id": inventory_id,
+                    "inventory_name": inventory.get("name", ""),
+                }
+            devices = await source_service.resolve_devices_by_ids(static_ids)
+            device_ids = [device.id for device in devices]
+            return {
+                "device_ids": device_ids,
+                "device_count": len(device_ids),
+                "inventory_id": inventory_id,
+                "inventory_name": inventory.get("name", ""),
+            }
+
         conditions = inventory.get("conditions", [])
         if not conditions:
             return {
@@ -312,7 +354,6 @@ async def resolve_inventory_to_devices(
                 "inventory_name": inventory.get("name", ""),
             }
 
-        source_service = _build_source_service(credentials, persistence)
         operations = convert_saved_inventory_to_operations(conditions)
         devices, _ = await source_service.preview_inventory(operations)
         device_ids = [device.id for device in devices]
@@ -350,19 +391,32 @@ async def resolve_inventory_to_devices_detailed(
                 detail=f"Inventory with ID {inventory_id} not found",
             )
 
-        conditions = inventory.get("conditions", [])
-        if not conditions:
-            return {
-                "devices": [],
-                "device_details": [],
-                "device_count": 0,
-                "inventory_id": inventory_id,
-                "inventory_name": inventory.get("name", ""),
-            }
-
         source_service = _build_source_service(credentials, persistence)
-        operations = convert_saved_inventory_to_operations(conditions)
-        devices, _ = await source_service.preview_inventory(operations)
+
+        if inventory.get("inventory_type") == "static":
+            static_ids = inventory.get("device_ids") or []
+            if not static_ids:
+                return {
+                    "devices": [],
+                    "device_details": [],
+                    "device_count": 0,
+                    "inventory_id": inventory_id,
+                    "inventory_name": inventory.get("name", ""),
+                }
+            devices = await source_service.resolve_devices_by_ids(static_ids)
+        else:
+            conditions = inventory.get("conditions", [])
+            if not conditions:
+                return {
+                    "devices": [],
+                    "device_details": [],
+                    "device_count": 0,
+                    "inventory_id": inventory_id,
+                    "inventory_name": inventory.get("name", ""),
+                }
+
+            operations = convert_saved_inventory_to_operations(conditions)
+            devices, _ = await source_service.preview_inventory(operations)
 
         device_details = []
         device_list = []
@@ -401,6 +455,56 @@ async def resolve_inventory_to_devices_detailed(
         raise_internal_server_error(
             logger,
             "Failed to resolve detailed inventory",
+            exc,
+            extra={"inventory_id": inventory_id},
+        )
+
+
+@router.get("/{inventory_id}/devices", response_model=InventoryPreviewResponse)
+async def get_inventory_devices(
+    inventory_id: int,
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    current_user: User = Depends(get_current_user),
+    persistence: InventoryService = Depends(get_inventory_service),
+) -> InventoryPreviewResponse:
+    """Resolve a saved inventory (either type) to full DeviceInfo records."""
+    try:
+        inventory = persistence.get_inventory(inventory_id, username=current_user.username)
+        if not inventory:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Inventory with ID {inventory_id} not found",
+            )
+
+        source_service = _build_source_service(credentials, persistence)
+
+        if inventory.get("inventory_type") == "static":
+            devices = await source_service.resolve_devices_by_ids(
+                inventory.get("device_ids") or []
+            )
+            return InventoryPreviewResponse(
+                devices=devices, total_count=len(devices), operations_executed=0
+            )
+
+        conditions = inventory.get("conditions", [])
+        if not conditions:
+            return InventoryPreviewResponse(devices=[], total_count=0, operations_executed=0)
+
+        operations = convert_saved_inventory_to_operations(conditions)
+        devices, operations_executed = await source_service.preview_inventory(operations)
+        return InventoryPreviewResponse(
+            devices=devices,
+            total_count=len(devices),
+            operations_executed=operations_executed,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(
+            logger,
+            "Failed to resolve inventory devices",
             exc,
             extra={"inventory_id": inventory_id},
         )

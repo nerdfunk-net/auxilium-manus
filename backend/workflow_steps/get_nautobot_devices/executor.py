@@ -77,6 +77,8 @@ async def execute(
 
     source_id = config.get("nautobot_source_id", "").strip()
     device_filter = config.get("device_filter", {})
+    inventory_type = config.get("inventory_type", "filter")
+    device_ids = config.get("device_ids") or []
 
     if not source_id:
         raise ValueError("get-nautobot-devices: nautobot_source_id is not configured")
@@ -104,16 +106,24 @@ async def execute(
         nautobot_url, nautobot_token, verify_ssl=nautobot_verify_ssl
     )
     source_service = service_factory.build_nautobot_source_service(credentials, db)
-    operations = _filter_tree_to_operations(device_filter)
 
-    logger.info(
-        "get-nautobot-devices run_id=%s source_id=%s operations=%d",
-        run.id,
-        source_id,
-        len(operations),
-    )
-
-    devices, _ = await source_service.preview_inventory(operations)
+    if inventory_type == "static":
+        logger.info(
+            "get-nautobot-devices run_id=%s source_id=%s inventory_type=static device_ids=%d",
+            run.id,
+            source_id,
+            len(device_ids),
+        )
+        devices = await source_service.resolve_devices_by_ids(device_ids)
+    else:
+        operations = _filter_tree_to_operations(device_filter)
+        logger.info(
+            "get-nautobot-devices run_id=%s source_id=%s inventory_type=filter operations=%d",
+            run.id,
+            source_id,
+            len(operations),
+        )
+        devices, _ = await source_service.preview_inventory(operations)
 
     logger.info(
         "get-nautobot-devices returning %d devices run_id=%s",

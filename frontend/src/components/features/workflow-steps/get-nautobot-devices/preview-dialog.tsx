@@ -15,7 +15,9 @@ import { queryKeys } from "@/lib/query-keys";
 interface PreviewConfig {
   nautobot_url: string;
   nautobot_token: string;
+  inventory_type: "filter" | "static";
   device_filter: FilterTree;
+  device_ids: string[];
 }
 
 interface PreviewDialogProps {
@@ -34,6 +36,19 @@ async function fetchDevicePreview(
   apiCall: ReturnType<typeof useApi>["apiCall"],
   config: PreviewConfig,
 ): Promise<{ devices: DevicePreview[]; total: number }> {
+  if (config.inventory_type === "static") {
+    const response = await apiCall<PreviewApiResponse>("sources/nautobot/preview-device-ids", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nautobot_url: config.nautobot_url,
+        nautobot_token: config.nautobot_token,
+        device_ids: config.device_ids,
+      }),
+    });
+    return { devices: response.devices, total: response.total_count };
+  }
+
   const operations = treeToOperations(config.device_filter);
   const response = await apiCall<PreviewApiResponse>("sources/nautobot/preview", {
     method: "POST",
@@ -55,8 +70,11 @@ export function DeviceSelectionPreviewDialog({
 }: PreviewDialogProps) {
   const { apiCall } = useApi();
   const operationsKey = useMemo(
-    () => JSON.stringify(treeToOperations(config.device_filter)),
-    [config.device_filter],
+    () =>
+      config.inventory_type === "static"
+        ? JSON.stringify({ static: config.device_ids })
+        : JSON.stringify(treeToOperations(config.device_filter)),
+    [config.inventory_type, config.device_filter, config.device_ids],
   );
 
   const { data, isLoading, isError, error, refetch } = useQuery({

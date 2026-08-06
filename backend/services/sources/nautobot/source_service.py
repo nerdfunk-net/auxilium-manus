@@ -71,6 +71,12 @@ class NautobotSourceService:
         ]
         return result_list, operations_count
 
+    async def resolve_devices_by_ids(self, device_ids: list[str]) -> list[DeviceInfo]:
+        """Resolve an explicit list of Nautobot device IDs (static inventory) to DeviceInfo."""
+        all_devices = await self.query_service._query_all_devices()
+        wanted = set(device_ids)
+        return [device for device in all_devices if device.id in wanted]
+
     async def analyze_inventory(self, inventory_id: int, username: str) -> dict[str, Any]:
         from utils.inventory_converter import convert_saved_inventory_to_operations
 
@@ -81,16 +87,25 @@ class NautobotSourceService:
         if not inventory:
             raise ValueError(f"Inventory with ID {inventory_id} not found")
 
+        empty_analysis = {
+            "locations": [],
+            "tags": [],
+            "custom_fields": {},
+            "statuses": [],
+            "roles": [],
+            "device_count": 0,
+        }
+
+        if inventory.get("inventory_type") == "static":
+            device_ids = inventory.get("device_ids") or []
+            if not device_ids:
+                return empty_analysis
+            devices = await self.resolve_devices_by_ids(device_ids)
+            return await self.export_service.analyze_devices(devices)
+
         conditions = inventory.get("conditions", [])
         if not conditions:
-            return {
-                "locations": [],
-                "tags": [],
-                "custom_fields": {},
-                "statuses": [],
-                "roles": [],
-                "device_count": 0,
-            }
+            return empty_analysis
 
         operations = convert_saved_inventory_to_operations(conditions)
         devices, _ = await self.preview_inventory(operations)

@@ -5,6 +5,7 @@ import {
   Filter,
   FolderOpen,
   HelpCircle,
+  ListChecks,
   Play,
   Plus,
   RotateCcw,
@@ -81,6 +82,8 @@ interface ConditionTreeBuilderProps {
   onOpenManageModal: () => void;
   onShowHelp: () => void;
   onShowLogicalTree: () => void;
+  selectionMode: boolean;
+  onToggleSelectionMode: () => void;
 }
 
 export function ConditionTreeBuilder({
@@ -124,6 +127,8 @@ export function ConditionTreeBuilder({
   onOpenManageModal,
   onShowHelp,
   onShowLogicalTree,
+  selectionMode,
+  onToggleSelectionMode,
 }: ConditionTreeBuilderProps) {
   const getFieldLabel = (field: string) => {
     const option = fieldOptions.find((opt) => opt.value === field);
@@ -456,66 +461,78 @@ export function ConditionTreeBuilder({
         </div>
 
         {showActions ? (
-          <div className="mt-4 flex justify-start gap-2">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                className="flex items-center space-x-2 border-0 bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-400"
+                disabled={conditionTree.items.length === 0 || isLoadingPreview || !sourceReady}
+                onClick={onPreview}
+                type="button"
+              >
+                <Play className="h-4 w-4" />
+                <span>{isLoadingPreview ? "Loading..." : "Preview Results"}</span>
+              </Button>
+              {showSaveLoad ? (
+                <>
+                  <Button
+                    className="flex items-center space-x-2 border-0 bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400"
+                    disabled={
+                      !loadedInventoryName ||
+                      conditionTree.items.length === 0 ||
+                      isSavingCurrent
+                    }
+                    onClick={onSaveCurrent}
+                    title={
+                      !loadedInventoryName
+                        ? "Load an inventory first to use Save"
+                        : "Overwrite the loaded inventory"
+                    }
+                    type="button"
+                  >
+                    <Save className="h-4 w-4" />
+                    <span>{isSavingCurrent ? "Saving..." : "Save"}</span>
+                  </Button>
+                  <Button
+                    className="flex items-center space-x-2 border-0 bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-400"
+                    disabled={conditionTree.items.length === 0}
+                    onClick={onOpenSaveAsModal}
+                    title="Save as a new inventory"
+                    type="button"
+                  >
+                    <Save className="h-4 w-4" />
+                    <span>Save as</span>
+                  </Button>
+                  <Button
+                    className="flex items-center space-x-2"
+                    onClick={onOpenLoadModal}
+                    type="button"
+                    variant="outline"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    <span>Load</span>
+                  </Button>
+                  <Button
+                    className="flex items-center space-x-2 border-purple-300 text-purple-600 hover:bg-purple-50 hover:text-purple-700"
+                    onClick={onOpenManageModal}
+                    type="button"
+                    variant="outline"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span>Manage Inventory</span>
+                  </Button>
+                </>
+              ) : null}
+            </div>
             <Button
-              className="flex items-center space-x-2 border-0 bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-400"
-              disabled={conditionTree.items.length === 0 || isLoadingPreview || !sourceReady}
-              onClick={onPreview}
+              className="flex items-center space-x-2"
+              onClick={onToggleSelectionMode}
+              title="Build an inventory by checking off individual devices instead of a logical expression"
               type="button"
+              variant={selectionMode ? "default" : "outline"}
             >
-              <Play className="h-4 w-4" />
-              <span>{isLoadingPreview ? "Loading..." : "Preview Results"}</span>
+              <ListChecks className="h-4 w-4" />
+              <span>Selection Mode</span>
             </Button>
-            {showSaveLoad ? (
-              <>
-                <Button
-                  className="flex items-center space-x-2 border-0 bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400"
-                  disabled={
-                    !loadedInventoryName ||
-                    conditionTree.items.length === 0 ||
-                    isSavingCurrent
-                  }
-                  onClick={onSaveCurrent}
-                  title={
-                    !loadedInventoryName
-                      ? "Load an inventory first to use Save"
-                      : "Overwrite the loaded inventory"
-                  }
-                  type="button"
-                >
-                  <Save className="h-4 w-4" />
-                  <span>{isSavingCurrent ? "Saving..." : "Save"}</span>
-                </Button>
-                <Button
-                  className="flex items-center space-x-2 border-0 bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-400"
-                  disabled={conditionTree.items.length === 0}
-                  onClick={onOpenSaveAsModal}
-                  title="Save as a new inventory"
-                  type="button"
-                >
-                  <Save className="h-4 w-4" />
-                  <span>Save as</span>
-                </Button>
-                <Button
-                  className="flex items-center space-x-2"
-                  onClick={onOpenLoadModal}
-                  type="button"
-                  variant="outline"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  <span>Load</span>
-                </Button>
-                <Button
-                  className="flex items-center space-x-2 border-purple-300 text-purple-600 hover:bg-purple-50 hover:text-purple-700"
-                  onClick={onOpenManageModal}
-                  type="button"
-                  variant="outline"
-                >
-                  <Settings className="h-4 w-4" />
-                  <span>Manage Inventory</span>
-                </Button>
-              </>
-            ) : null}
           </div>
         ) : null}
       </div>

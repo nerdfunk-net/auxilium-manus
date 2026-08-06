@@ -10,12 +10,18 @@ import { useInventoryExportMutation } from "@/hooks/queries/use-inventory-export
 import { useInventoryImportMutation } from "@/hooks/queries/use-inventory-import-mutation";
 import { useSavedInventoriesQuery } from "@/hooks/queries/use-saved-inventories-query";
 
-import type { ConditionTree, LogicalCondition } from "../types/device-selector";
+import type {
+  ConditionTree,
+  InventoryType,
+  LogicalCondition,
+} from "../types/device-selector";
 import { generateId } from "./use-condition-tree";
 import { conditionTreeToSavedConditions, savedTreeToConditionTree } from "../utils/tree-format-converters";
 
 export interface LoadedInventoryData {
-  tree: ConditionTree;
+  inventory_type: InventoryType;
+  tree?: ConditionTree;
+  device_ids?: string[];
   id: number;
   name: string;
   description?: string;
@@ -80,6 +86,7 @@ export function useSavedInventories() {
           id: existingId,
           description: description || null,
           conditions,
+          inventory_type: "filter",
           group_path: group_path ?? null,
         });
       } else {
@@ -87,6 +94,44 @@ export function useSavedInventories() {
           name,
           description: description || null,
           conditions,
+          inventory_type: "filter",
+          scope,
+          group_path: group_path ?? null,
+        });
+      }
+
+      return true;
+    } finally {
+      setIsSavingInventory(false);
+    }
+  };
+
+  const saveDeviceList = async (
+    name: string,
+    description: string,
+    scope: string,
+    deviceIds: string[],
+    isUpdate: boolean = false,
+    existingId?: number,
+    group_path?: string | null,
+  ) => {
+    setIsSavingInventory(true);
+    try {
+      if (isUpdate && existingId) {
+        await updateMutation.mutateAsync({
+          id: existingId,
+          description: description || null,
+          inventory_type: "static",
+          device_ids: deviceIds,
+          group_path: group_path ?? null,
+        });
+      } else {
+        await createMutation.mutateAsync({
+          name,
+          description: description || null,
+          inventory_type: "static",
+          device_ids: deviceIds,
+          conditions: [],
           scope,
           group_path: group_path ?? null,
         });
@@ -106,10 +151,24 @@ export function useSavedInventories() {
       scope: string;
       group_path?: string | null;
       conditions: unknown[];
+      inventory_type?: InventoryType;
+      device_ids?: string[];
     }>(`sources/nautobot/${inventoryId}`);
 
     if (!response) {
       return null;
+    }
+
+    if (response.inventory_type === "static") {
+      return {
+        inventory_type: "static",
+        device_ids: response.device_ids ?? [],
+        id: response.id,
+        name: response.name,
+        description: response.description,
+        scope: response.scope,
+        group_path: response.group_path ?? null,
+      };
     }
 
     let tree: ConditionTree | null = null;
@@ -134,6 +193,7 @@ export function useSavedInventories() {
     }
 
     return {
+      inventory_type: "filter",
       tree,
       id: response.id,
       name: response.name,
@@ -178,6 +238,7 @@ export function useSavedInventories() {
     isSavingInventory,
     loadSavedInventories,
     saveInventory,
+    saveDeviceList,
     loadInventory,
     updateInventoryDetails,
     deleteInventory,

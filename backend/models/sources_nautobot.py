@@ -32,7 +32,9 @@ class NautobotTestConnectionResponse(BaseModel):
 class CreateInventoryRequest(BaseModel):
     name: str
     description: str | None = None
-    conditions: list[dict[str, Any]]
+    conditions: list[dict[str, Any]] | None = None
+    inventory_type: str = "filter"
+    device_ids: list[str] | None = None
     template_category: str | None = None
     template_name: str | None = None
     scope: str = "global"
@@ -43,6 +45,8 @@ class UpdateInventoryRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     conditions: list[dict[str, Any]] | None = None
+    inventory_type: str | None = None
+    device_ids: list[str] | None = None
     template_category: str | None = None
     template_name: str | None = None
     scope: str | None = None
@@ -54,6 +58,8 @@ class InventoryResponse(BaseModel):
     name: str
     description: str | None
     conditions: list[dict[str, Any]]
+    inventory_type: str = "filter"
+    device_ids: list[str] | None = None
     template_category: str | None
     template_name: str | None
     scope: str
@@ -99,6 +105,12 @@ LogicalOperation.model_rebuild()
 
 class InventoryPreviewRequest(NautobotConnection):
     operations: list[LogicalOperation] = Field(default_factory=list)
+
+
+class DeviceIdsPreviewRequest(NautobotConnection):
+    """Preview an explicit, static list of Nautobot device IDs (no logical expression)."""
+
+    device_ids: list[str] = Field(default_factory=list)
 
 
 class DeviceInfo(BaseModel):
