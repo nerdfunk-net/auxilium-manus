@@ -21,8 +21,10 @@ import { cn } from "@/lib/utils";
 import { MultiStepLayoutPanel } from "./multi-step-layout-panel";
 import { StepCatalog } from "./step-catalog";
 import { WorkflowSchedulePanel } from "./workflow-schedule-panel";
+import { WorkflowStaticAttributesPanel } from "./workflow-static-attributes-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "../types/plugin-registry";
+import type { StaticAttributeDef } from "../types/workflow-persistence";
 import {
   DEFAULT_EDGE_LABEL_FONT_SIZE,
   DEFAULT_EDGE_STYLE,
@@ -83,6 +85,8 @@ interface WorkflowPropertiesPanelProps {
   onRenameGroup?: (groupId: string, title: string) => void;
   onUngroupGroup?: (groupId: string) => void;
   onOpenGroup?: (groupId: string) => void;
+  staticAttributes: StaticAttributeDef[];
+  onStaticAttributesChange: (next: StaticAttributeDef[]) => void;
 }
 
 function DataContractChips({ capabilities, emptyLabel }: { capabilities: string[]; emptyLabel: string }) {
@@ -126,6 +130,8 @@ export function WorkflowPropertiesPanel({
   onRenameGroup,
   onUngroupGroup,
   onOpenGroup,
+  staticAttributes,
+  onStaticAttributesChange,
 }: WorkflowPropertiesPanelProps) {
   const rightPanelTab = useWorkflowBuilderStore((state) => state.rightPanelTab);
   const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
@@ -537,7 +543,13 @@ export function WorkflowPropertiesPanel({
               </div>
             </div>
           ) : (
-            <WorkflowSchedulePanel />
+            <div className="space-y-6">
+              <WorkflowSchedulePanel />
+              <WorkflowStaticAttributesPanel
+                value={staticAttributes}
+                onChange={onStaticAttributesChange}
+              />
+            </div>
           )}
         </div>
       )}

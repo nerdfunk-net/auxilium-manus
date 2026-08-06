@@ -8,11 +8,21 @@ import {
   PARSED_CONFIG_VARIABLE,
 } from "../constants";
 import type { CommandEntry, EditorVariable, TemplateVariableRecord } from "../types";
+import type { StaticAttributeDef } from "@/components/features/workflows/types/workflow-persistence";
 
 let customVariableCounter = 0;
 
 const COMMAND_VARIABLE_IDS = COMMAND_VARIABLES.map((variable) => `auto:${variable.name}`);
 const PARSED_CONFIG_VARIABLE_ID = `auto:${PARSED_CONFIG_VARIABLE.name}`;
+const RUN_INPUT_VARIABLE_ID = "auto:run_input";
+
+/** Reference workflow whose static_attributes are previewed in the "run_input"
+ * variable — see workflow-static-attributes-panel.tsx. Not persisted with the
+ * template; a per-session discovery aid only. */
+export interface RunInputSource {
+  workflowName: string;
+  attributes: StaticAttributeDef[];
+}
 
 function createAutoVariables(): EditorVariable[] {
   return NETMIKO_AUTO_VARIABLES.map((variable) => ({
@@ -171,6 +181,30 @@ export function useTemplateVariables() {
     );
   }, []);
 
+  const setRunInputSource = useCallback((source: RunInputSource | null) => {
+    setVariables((current) => {
+      const withoutRunInput = current.filter((variable) => variable.id !== RUN_INPUT_VARIABLE_ID);
+      if (!source) return withoutRunInput;
+
+      const preview = Object.fromEntries(
+        source.attributes.map((attr) => [attr.name, attr.default ?? null]),
+      );
+      return [
+        ...withoutRunInput,
+        {
+          id: RUN_INPUT_VARIABLE_ID,
+          name: "run_input",
+          value: JSON.stringify(preview, null, 2),
+          type: "auto",
+          isAutoFilled: true,
+          description:
+            `Values supplied when workflow "${source.workflowName}" is triggered ` +
+            "manually (Properties panel → Static Attributes). Access as {{ run_input.<name> }}.",
+        },
+      ];
+    });
+  }, []);
+
   const loadCustomVariables = useCallback(
     (record: Record<string, TemplateVariableRecord>) => {
       const custom: EditorVariable[] = Object.entries(record).map(([name, entry]) => {
@@ -200,6 +234,7 @@ export function useTemplateVariables() {
       setCommandResults,
       toggleParsedConfigVariable,
       setParsedConfig,
+      setRunInputSource,
       loadCustomVariables,
     }),
     [
@@ -213,6 +248,7 @@ export function useTemplateVariables() {
       setCommandResults,
       toggleParsedConfigVariable,
       setParsedConfig,
+      setRunInputSource,
       loadCustomVariables,
     ],
   );

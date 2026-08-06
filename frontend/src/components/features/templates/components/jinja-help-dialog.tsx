@@ -79,6 +79,48 @@ tacacs.*     — from "Get from ISE" (only when that device has a
                TACACS shared secret configured in ISE)`}</CodeBlock>
           </Section>
 
+          <Section title="Static attributes (run_input)">
+            <p>
+              A workflow can declare <strong>static attributes</strong> — named
+              values an operator types in when starting that workflow
+              manually (workflow builder → Properties panel → Static
+              Attributes, with a name, type, optional default, and whether a
+              value is required). Whatever the operator supplies (or the
+              declared default, if they leave it blank) is available to every
+              device in the run as <code>run_input</code>:
+            </p>
+            <CodeBlock>{`run_input.vlan_id
+run_input.note
+run_input.confirm`}</CodeBlock>
+            <p>
+              Unlike <code>nautobot</code>, <code>ise</code> or{" "}
+              <code>parsed</code>, this isn&apos;t populated by a step running
+              earlier in the canvas — it comes from the workflow itself, so
+              it&apos;s available to every device from the very first step
+              onward. The tradeoff: a given <code>run_input.&lt;name&gt;</code>{" "}
+              only exists for workflows that actually declare that attribute.
+              If this template is reused by more than one workflow, only
+              reference names every one of those workflows declares — or
+              guard with <code>{"{% if run_input is defined %}"}</code>.
+            </p>
+            <p>
+              Example — apply a VLAN supplied at trigger time, with a
+              confirmation flag:
+            </p>
+            <CodeBlock>{`{% if run_input.confirm %}
+vlan {{ run_input.vlan_id }}
+ name {{ run_input.note }}
+{% else %}
+! Skipping VLAN {{ run_input.vlan_id }} — confirm was not set
+{% endif %}`}</CodeBlock>
+            <p>
+              A boolean-typed attribute renders through <code>{"{{ }}"}</code>{" "}
+              the same way any Python boolean does in Jinja —{" "}
+              <code>True</code>/<code>False</code>, capitalized — even though
+              <code>{"{% if %}"}</code> checks work as expected either way.
+            </p>
+          </Section>
+
           <Section title="Nautobot attributes">
             <p>
               After <strong>Get Nautobot Attributes</strong> (or when you select
@@ -290,6 +332,18 @@ Version: {{ version.parsed[0].version if version.parsed else version.raw }}`}</C
               the <strong>Parse Cisco Config</strong> step, populating{" "}
               <code>parsed.cisco_config</code>. It re-fetches automatically if
               you change the test device while the checkbox stays checked.
+            </p>
+            <p>
+              Because a template isn&apos;t tied to one specific workflow,{" "}
+              <code>run_input</code> has no live device to fetch real values
+              from here. Instead, click the link icon next to this help
+              button (<strong>Link a workflow&apos;s static attributes</strong>
+              ) and pick a workflow — its declared static attributes appear as
+              a <code>run_input</code> variable showing each name and its
+              default (or <code>null</code> when required with no default),
+              so you can see the exact keys to reference. This link is only a
+              preview for writing the template: it is <strong>not</strong>{" "}
+              saved with it, and resets the next time you open the editor.
             </p>
           </Section>
 

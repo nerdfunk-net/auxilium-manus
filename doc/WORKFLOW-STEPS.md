@@ -439,6 +439,72 @@ Full rules (title wrapping, outcome palette, fan-out badge, anti-patterns): see
 
 ---
 
+## Static attributes (run-scoped trigger inputs)
+
+Some workflows need a value supplied fresh each time an operator triggers a run
+manually — a TACACS+ key for a rollout, a VLAN ID, a one-off note — rather than a
+value baked into the canvas at design time. This is **not** a canvas step:
+
+- **Declaration**: a workflow-level schema (`Workflow.static_attributes`, a list
+  of `{name, type, default, required}` — `type` is `string` | `number` | `boolean`)
+  edited in the properties panel's "nothing selected" state
+  (`WorkflowStaticAttributesPanel`, alongside `WorkflowSchedulePanel`), and saved
+  as part of the normal workflow Save action — the same way `canvas_nodes` /
+  `canvas_edges` are.
+- **Why not a canvas step**: a "request input" step feeding a downstream node
+  alongside `get-nautobot-devices` doesn't work under today's connection rules.
+  `frontend/src/lib/capability-types.ts`'s `isValidConnection` requires a
+  **single edge's source** to satisfy a target node's **entire** `requires`
+  list, so a node needing both `identity` (from an inventory step) and a new
+  input capability could never be wired from two independent root nodes.
+  Making the schema workflow-level instead of node-level sidesteps this.
+- **Collection**: once a workflow is dispatched to Hatchet, only `run_id`
+  crosses into `WorkflowRunInput` — nothing can be injected mid-run outside the
+  existing durable-wait/event mechanisms (see "Wait & Run" under
+  [Fan-out execution](#fan-out-execution) below). So values must be collected
+  *before* dispatch:
+  - **Manual trigger**: the builder's Run flow (`requestRun` /
+    `WorkflowRunInputsDialog` in `workflow-builder-page.tsx`) prompts for
+    values when `static_attributes` is non-empty, then passes them as
+    `run_inputs` on `WorkflowRunCreate`.
+  - **Scheduled (cron) trigger**: `hatchet/workflows/scheduled_trigger.py::dispatch`
+    has no operator to prompt, so only declared defaults are available. **A
+    workflow with a required, default-less static attribute is manual-trigger
+    only** — every scheduled run for it fails immediately
+    (`status="failed"`, `error_category="configuration"`) rather than
+    dispatching with an incomplete `run_input` bag.
+  - Both paths validate/default-fill through the same pure helper —
+    `services/execution/run_input_validation.py::resolve_run_inputs` — so a
+    manual 400 and a scheduled run failure never disagree on what's valid.
+- **Storage**: resolved values are persisted on `WorkflowRun.run_inputs`.
+- **Making values usable by steps**: device-attribute resolution
+  (`services/workflow_context/attribute_path.py::resolve_device_attribute`)
+  and Jinja rendering (`workflow_steps/common/jinja_render.py::build_jinja_context`)
+  are entirely device-scoped — they read `DeviceContext.attribute_bags`, not
+  `WorkflowContext.metadata`. So `run_inputs` is seeded into a reserved bag,
+  `run_input`, on **every device** by `StepRunner`
+  (`services/workflow_context/run_inputs.py::seed_run_input_bag`, called from
+  `StepRunner._seed_run_inputs` right after `_execute_and_persist_node` and
+  `_execute_one_subgraph_node` — the two, and only two, places a step's
+  outcomes are produced on the live Hatchet path; fan-out children inherit the
+  bag for free since their initial context is a copy of the already-seeded
+  inventory outcome). Once present, any existing `{bag.field}` expression
+  reads it like any other bag — `{run_input.vlan_id}` in a Jinja template,
+  `route-on-attribute`, `update-attribute`, etc. — with **no per-step wiring**.
+- **`run_input` is a reserved bag name**, the same way `parsed` is: attempting
+  to write to it via `update-attribute` raises a `ValueError`
+  (`workflow_steps/common/attribute_write.py::_RESERVED_BAG_NAMES`), so a
+  generic write can't silently overwrite what the operator supplied for the
+  rest of the run.
+- **Boolean values** are stored as native JSON booleans (not pre-stringified),
+  so Jinja gets a real boolean for truthy checks. `resolve_device_attribute`
+  still stringifies it the same way it does any other bag scalar — a Python
+  `bool` renders as `"True"`/`"False"` (capitalized) — so a
+  `route-on-attribute` condition matching a boolean-typed run input must
+  compare against `True`/`False`, same as any other bag value today.
+
+---
+
 ## Secret-valued attributes
 
 Some attribute bag leaves — currently `tacacs.shared_secret` and the nested

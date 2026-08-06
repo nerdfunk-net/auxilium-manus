@@ -6,6 +6,7 @@ import type {
 import { parseTemplateExportPayload } from "@/components/features/templates/utils/template-import";
 import { templateExportToCreatePayload } from "@/components/features/templates/utils/template-export";
 
+import type { StaticAttributeDef } from "../types/workflow-persistence";
 import {
   WORKFLOW_EXPORT_FORMAT,
   type WorkflowExportCredentialRef,
@@ -112,6 +113,11 @@ export function parseWorkflowExportFile(raw: unknown): WorkflowExportFile {
     canvas_nodes: obj.canvas_nodes as Record<string, unknown>[],
     canvas_edges: obj.canvas_edges as Record<string, unknown>[],
     canvas_groups: obj.canvas_groups as Record<string, unknown>[],
+    // Legacy export files predate static_attributes — default to none rather
+    // than rejecting the whole import.
+    static_attributes: Array.isArray(obj.static_attributes)
+      ? (obj.static_attributes as StaticAttributeDef[])
+      : [],
     credential_references: parseCredentialReferences(obj.credential_references),
     templates: parseWorkflowTemplates(obj.templates),
   };

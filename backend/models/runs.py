@@ -35,6 +35,9 @@ class WorkflowRunCreate(BaseModel):
     device_ids: list[str] = []
     trigger_type: TriggerType = "manual"
     run_mode: RunMode = "normal"
+    # Values supplied for the workflow's declared static_attributes.
+    # Validated/defaulted server-side — see run_input_validation.resolve_run_inputs.
+    run_inputs: dict[str, Any] = {}
 
 
 class WorkflowStepResultResponse(BaseModel):
@@ -69,6 +72,7 @@ class WorkflowRunSummary(BaseModel):
     debug_message: str | None
     approval_state: dict[str, Any] | None = None
     device_ids: list[str] | None
+    run_inputs: dict[str, Any] | None = None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

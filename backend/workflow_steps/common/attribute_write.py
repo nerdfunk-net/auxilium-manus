@@ -15,7 +15,13 @@ _READ_ONLY_DEVICE_FIELDS = frozenset({"id", "source", "source_id"})
 # writes. Writing "parsed.foo" here would land in attribute_bags["parsed"]
 # instead, which the read side ignores entirely (it always reads
 # DeviceContext.parsed for this name), making the write silently unreadable.
-_RESERVED_BAG_NAMES = frozenset({"parsed"})
+#
+# "run_input" is reserved for the same reason as "parsed" is precious but for
+# the opposite direction: StepRunner stamps it onto every device from
+# WorkflowRun.run_inputs (see services/workflow_context/run_inputs.py) and a
+# generic write here could silently overwrite what the operator supplied at
+# trigger time for the rest of the run.
+_RESERVED_BAG_NAMES = frozenset({"parsed", "run_input"})
 
 
 def _set_nested(root: dict[str, Any], path: str, value: Any) -> None:
@@ -78,9 +84,8 @@ def set_device_attribute(device: DeviceContext, attribute_path: str, value: Any)
         raise ValueError("use device.* prefix for device scalar fields")
     if bag_name in _RESERVED_BAG_NAMES:
         raise ValueError(
-            f"{bag_name!r} is a reserved namespace populated by workflow steps "
-            "(e.g. parse-cisco-config, render-jinja-template) and cannot be "
-            "written via update-attribute"
+            f"{bag_name!r} is a reserved namespace (populated by the workflow engine, "
+            "not by update-attribute) and cannot be written to"
         )
 
     attribute_bags = {name: dict(bag) for name, bag in device.attribute_bags.items()}

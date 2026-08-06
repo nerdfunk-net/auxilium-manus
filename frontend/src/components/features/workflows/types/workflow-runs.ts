@@ -62,6 +62,7 @@ export interface WorkflowRunSummary {
   debug_message: string | null;
   approval_state: ApprovalState | null;
   device_ids: string[] | null;
+  run_inputs: Record<string, string | number | boolean> | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -85,4 +86,5 @@ export interface TriggerRunRequest {
   device_ids: string[];
   trigger_type: "manual";
   run_mode: WorkflowRunMode;
+  run_inputs?: Record<string, string | number | boolean>;
 }

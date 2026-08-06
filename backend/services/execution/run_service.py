@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from core.models.runs import WorkflowRun, WorkflowStepResult
+from core.models.workflows import Workflow
 from core.safe_http_errors import raise_internal_server_error
 from models.artifacts import ArtifactContentResponse
 from models.runs import (
@@ -23,6 +24,7 @@ from models.runs import (
 from repositories.run_repository import RunRepository
 from repositories.workflow_repository import WorkflowRepository
 from services.artifacts import ArtifactNotFoundError, FilesystemArtifactService
+from services.execution.run_input_validation import RunInputValidationError, resolve_run_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,7 @@ def _run_to_summary(run: WorkflowRun, username: str | None) -> WorkflowRunSummar
         debug_message=run.debug_message,
         approval_state=run.approval_state,
         device_ids=run.device_ids,
+        run_inputs=run.run_inputs,
         started_at=run.started_at,
         finished_at=run.finished_at,
         created_at=run.created_at,
@@ -85,6 +88,7 @@ def _run_to_response(
         debug_message=run.debug_message,
         approval_state=run.approval_state,
         device_ids=run.device_ids,
+        run_inputs=run.run_inputs,
         hatchet_run_id=run.hatchet_run_id,
         error_message=run.error_message,
         error_category=run.error_category,
@@ -104,13 +108,14 @@ class RunService:
         self.wf_repo = WorkflowRepository(db)
         self.artifact_service = FilesystemArtifactService(settings.data_directory)
 
-    def _assert_workflow_access(self, workflow_id: int, user_id: int) -> None:
+    def _assert_workflow_access(self, workflow_id: int, user_id: int) -> Workflow:
         wf_result = self.wf_repo.get_by_id(workflow_id)
         if wf_result is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
         workflow, _ = wf_result
         if workflow.visibility == "private" and workflow.creator_id != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        return workflow
 
     def trigger_run(
         self,
@@ -118,7 +123,12 @@ class RunService:
         data: WorkflowRunCreate,
         user_id: int,
     ) -> WorkflowRunResponse:
-        self._assert_workflow_access(workflow_id, user_id)
+        workflow = self._assert_workflow_access(workflow_id, user_id)
+
+        try:
+            run_inputs = resolve_run_inputs(workflow.static_attributes, data.run_inputs)
+        except RunInputValidationError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
         run = self.run_repo.create_run(
             workflow_id=workflow_id,
@@ -126,6 +136,7 @@ class RunService:
             trigger_type=data.trigger_type,
             device_ids=data.device_ids,
             run_mode=data.run_mode,
+            run_inputs=run_inputs,
         )
         logger.info("Created run id=%s workflow_id=%s user_id=%s", run.id, workflow_id, user_id)
 

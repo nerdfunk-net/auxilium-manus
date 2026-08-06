@@ -59,6 +59,7 @@ export function useWorkflowExportMutation() {
         canvas_nodes: canvasNodes,
         canvas_edges: wf.canvas_edges ?? [],
         canvas_groups: wf.canvas_groups ?? [],
+        static_attributes: wf.static_attributes ?? [],
         credential_references: credentialReferences,
         templates: buildWorkflowExportTemplates(templateIds, templates),
       };

@@ -50,6 +50,7 @@ class WorkflowRepository:
         canvas_nodes: list[dict[str, Any]] | None,
         canvas_edges: list[dict[str, Any]] | None,
         canvas_groups: list[dict[str, Any]] | None = None,
+        static_attributes: list[dict[str, Any]] | None = None,
     ) -> Workflow:
         workflow = Workflow(
             uuid=str(uuid_mod.uuid4()),
@@ -61,6 +62,7 @@ class WorkflowRepository:
             canvas_nodes=canvas_nodes or [],
             canvas_edges=canvas_edges or [],
             canvas_groups=canvas_groups or [],
+            static_attributes=static_attributes or [],
         )
         self.db.add(workflow)
         self.db.commit()

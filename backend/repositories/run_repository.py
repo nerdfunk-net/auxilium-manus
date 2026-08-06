@@ -26,6 +26,7 @@ class RunRepository:
         trigger_type: str,
         device_ids: list[str],
         run_mode: str = "normal",
+        run_inputs: dict[str, Any] | None = None,
     ) -> WorkflowRun:
         run = WorkflowRun(
             uuid=str(uuid_mod.uuid4()),
@@ -35,6 +36,7 @@ class RunRepository:
             device_ids=device_ids,
             status="pending",
             run_mode=run_mode,
+            run_inputs=run_inputs or {},
         )
         self.db.add(run)
         self.db.commit()

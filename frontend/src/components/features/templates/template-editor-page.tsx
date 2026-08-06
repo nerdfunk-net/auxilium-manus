@@ -6,6 +6,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { Button } from "@/components/ui/button";
 import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
+import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
+import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -15,6 +17,7 @@ import { AttributesDialog } from "./components/attributes-dialog";
 import { ConfigureCommandsDialog } from "./components/configure-commands-dialog";
 import { GeneralPanel } from "./components/general-panel";
 import { JinjaHelpDialog } from "./components/jinja-help-dialog";
+import { LinkWorkflowDialog } from "./components/link-workflow-dialog";
 import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
 import { VariablesPanel } from "./components/variables-panel";
@@ -71,11 +74,18 @@ function TemplateEditorContent() {
   const [isExecutingCommands, setIsExecutingCommands] = useState(false);
   const [getDeviceConfigs, setGetDeviceConfigs] = useState(false);
   const [isFetchingConfigs, setIsFetchingConfigs] = useState(false);
+  // Reference workflow whose static attributes are previewed as the
+  // `run_input` variable — a per-session discovery aid, never persisted with
+  // the template (see doc/WORKFLOW-STEPS.md "Static attributes").
+  const [referenceWorkflowId, setReferenceWorkflowId] = useState<number | null>(null);
+  const [linkWorkflowDialogOpen, setLinkWorkflowDialogOpen] = useState(false);
 
   const variableManager = useTemplateVariables();
   const renderer = useTemplateRender();
   const { createTemplate, updateTemplate } = useTemplateMutations();
   const { sources } = useNautobotSources();
+  const workflowsQuery = useWorkflowsQuery();
+  const referenceWorkflowQuery = useWorkflowQuery(referenceWorkflowId);
 
   // Fall back to the first configured source until the user picks another.
   const effectiveSourceId = sourceId || sources[0]?.sourceId || "";
@@ -95,6 +105,7 @@ function TemplateEditorContent() {
     setCommandResults,
     toggleParsedConfigVariable,
     setParsedConfig,
+    setRunInputSource,
     loadCustomVariables,
   } = variableManager;
 
@@ -274,6 +285,24 @@ function TemplateEditorContent() {
       active = false;
     };
   }, [getDeviceConfigs, selectedDevice, credentialId, apiCall, toast, setParsedConfig]);
+
+  // Preview the linked reference workflow's static_attributes as the
+  // `run_input` variable. Purely a discovery aid — never saved with the
+  // template (see doc/WORKFLOW-STEPS.md "Static attributes").
+  useEffect(() => {
+    if (referenceWorkflowId === null) {
+      setRunInputSource(null);
+      return;
+    }
+    const workflow = referenceWorkflowQuery.data;
+    if (!workflow) {
+      return;
+    }
+    setRunInputSource({
+      workflowName: workflow.name,
+      attributes: workflow.static_attributes ?? [],
+    });
+  }, [referenceWorkflowId, referenceWorkflowQuery.data, setRunInputSource]);
 
   const existingVariableNames = useMemo(
     () => variableManager.variables.map((variable) => variable.name),
@@ -549,6 +578,7 @@ function TemplateEditorContent() {
               onHelp={() => setVariablesHelpOpen(true)}
               onRemove={variableManager.removeVariable}
               onUpdateValue={variableManager.updateVariableValue}
+              onLinkWorkflow={() => setLinkWorkflowDialogOpen(true)}
             />
           </div>
 
@@ -626,6 +656,14 @@ function TemplateEditorContent() {
         value={attributes}
         onOpenChange={setAttributesDialogOpen}
         onChange={setAttributes}
+      />
+
+      <LinkWorkflowDialog
+        open={linkWorkflowDialogOpen}
+        workflows={workflowsQuery.data?.workflows ?? []}
+        selectedId={referenceWorkflowId}
+        onSelect={setReferenceWorkflowId}
+        onClose={() => setLinkWorkflowDialogOpen(false)}
       />
     </div>
   );

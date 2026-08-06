@@ -1,6 +1,6 @@
 "use client";
 
-import { HelpCircle, Lock, Plus, X } from "lucide-react";
+import { HelpCircle, Link2, Lock, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,6 +21,7 @@ interface VariablesPanelProps {
   onHelp: () => void;
   onRemove: (id: string) => void;
   onUpdateValue: (id: string, value: string) => void;
+  onLinkWorkflow?: () => void;
 }
 
 export function VariablesPanel({
@@ -31,6 +32,7 @@ export function VariablesPanel({
   onHelp,
   onRemove,
   onUpdateValue,
+  onLinkWorkflow,
 }: VariablesPanelProps) {
   const selected = variables.find((variable) => variable.id === selectedId) ?? null;
 
@@ -56,6 +58,23 @@ export function VariablesPanel({
             </TooltipTrigger>
             <TooltipContent>How to use template variables</TooltipContent>
           </Tooltip>
+          {onLinkWorkflow ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  type="button"
+                  variant="ghost"
+                  className="size-5"
+                  aria-label="Link a workflow's static attributes"
+                  onClick={onLinkWorkflow}
+                >
+                  <Link2 className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Link a workflow&apos;s static attributes</TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
         <Button size="sm" type="button" variant="ghost" onClick={onAdd}>
           <Plus className="size-4" />

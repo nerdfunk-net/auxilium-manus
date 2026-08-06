@@ -1,6 +1,6 @@
 import type { TemplateExportPayload } from "@/components/features/templates/types/template-export";
 
-import type { WorkflowVisibility } from "./workflow-persistence";
+import type { StaticAttributeDef, WorkflowVisibility } from "./workflow-persistence";
 
 export const WORKFLOW_EXPORT_FORMAT = "auxilium-workflow-v1" as const;
 
@@ -28,6 +28,7 @@ export interface WorkflowExportFile {
   canvas_nodes: Record<string, unknown>[];
   canvas_edges: Record<string, unknown>[];
   canvas_groups: Record<string, unknown>[];
+  static_attributes: StaticAttributeDef[];
   credential_references: WorkflowExportCredentialRef[];
   templates: WorkflowExportTemplate[];
 }

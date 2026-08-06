@@ -32,10 +32,15 @@ import { WorkflowRunControls } from "./components/workflow-run-controls";
 import { WorkflowTopbar } from "./components/workflow-topbar";
 import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
 import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
+import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
 import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "./types/plugin-registry";
-import type { WorkflowSummary, WorkflowVisibility } from "./types/workflow-persistence";
+import type {
+  StaticAttributeDef,
+  WorkflowSummary,
+  WorkflowVisibility,
+} from "./types/workflow-persistence";
 import {
   BACKGROUND_Z_INDEX,
   DEFAULT_BACKGROUND_CONFIG,
@@ -76,6 +81,7 @@ const EMPTY_PLUGINS: PluginDefinition[] = [];
 const EMPTY_NODES: PersistedCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 const EMPTY_GROUPS: CanvasGroup[] = [];
+const EMPTY_STATIC_ATTRIBUTES: StaticAttributeDef[] = [];
 
 export function WorkflowBuilderPage() {
   const router = useRouter();
@@ -133,6 +139,12 @@ export function WorkflowBuilderPage() {
   const [allNodes, setAllNodes] = useState<PersistedCanvasNode[]>(EMPTY_NODES);
   const [allEdges, setAllEdges] = useState<WorkflowCanvasEdge[]>(EMPTY_EDGES);
   const [groups, setGroups] = useState<CanvasGroup[]>(EMPTY_GROUPS);
+  // Workflow-level, not canvas-scoped, but persisted the same way (rides
+  // along with the canvas arrays in every save call) — see doc/WORKFLOW-STEPS.md
+  // "Static attributes".
+  const [staticAttributes, setStaticAttributes] = useState<StaticAttributeDef[]>(
+    EMPTY_STATIC_ATTRIBUTES,
+  );
 
   const projected = useMemo(
     () => projectCanvasView(allNodes, allEdges, groups, activeGroupId),
@@ -161,12 +173,15 @@ export function WorkflowBuilderPage() {
         const loadedNodes = (full.canvas_nodes ?? []) as PersistedCanvasNode[];
         const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
         const loadedGroups = (full.canvas_groups ?? []) as CanvasGroup[];
+        const loadedStaticAttributes = (full.static_attributes ??
+          []) as StaticAttributeDef[];
         const { nodes: migratedNodes, edges: migratedEdges, migrated } =
           migrateCanvasState(loadedNodes, loadedEdges, plugins);
         const repairedGroups = repairOrphanGroups(migratedNodes, loadedGroups);
         setAllNodes(migratedNodes);
         setAllEdges(migratedEdges);
         setGroups(repairedGroups);
+        setStaticAttributes(loadedStaticAttributes);
         if (migrated || repairedGroups.length !== loadedGroups.length) markDirty();
       })
       .catch(() => markError("Failed to restore workflow canvas"));
@@ -393,6 +408,7 @@ export function WorkflowBuilderPage() {
     setAllNodes(EMPTY_NODES);
     setAllEdges(EMPTY_EDGES);
     setGroups(EMPTY_GROUPS);
+    setStaticAttributes(EMPTY_STATIC_ATTRIBUTES);
     setIsNewConfirmOpen(false);
   }, [resetToNew]);
 
@@ -404,29 +420,23 @@ export function WorkflowBuilderPage() {
     }
   }, [isDirty, confirmNew]);
 
-  const executeRun = useCallback(
-    async (
-      overrideWorkflowId?: number,
-      options?: { skipValidation?: boolean },
-    ) => {
-      const targetId = overrideWorkflowId ?? workflowId;
-      if (!targetId) {
-        markError("Save the workflow before running");
-        return;
-      }
-      if (!options?.skipValidation) {
-        const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
-        if (!validation.isValid) {
-          markError(`Cannot run: ${validation.issues[0]}`);
-          return;
-        }
-      }
+  const [isRunInputsDialogOpen, setIsRunInputsDialogOpen] = useState(false);
+  const [pendingRunTargetId, setPendingRunTargetId] = useState<number | null>(null);
+
+  // Dispatches the run once a target workflow id and (if declared) the
+  // static-attribute values are known. Split out of the old executeRun so a
+  // workflow with declared static attributes can pause for a values dialog
+  // between target resolution and dispatch — see doc/WORKFLOW-STEPS.md
+  // "Static attributes".
+  const dispatchRun = useCallback(
+    async (targetId: number, runInputs: Record<string, string | number | boolean>) => {
       try {
         const run = await triggerRun.mutateAsync({
           device_ids: [],
           trigger_type: "manual",
           run_mode: runMode,
           workflowId: targetId,
+          run_inputs: runInputs,
         });
         setActiveRunId(run.id);
         markRunning(runMode === "debug" ? "Debug run queued" : "Run queued");
@@ -440,19 +450,44 @@ export function WorkflowBuilderPage() {
         markError("Failed to trigger run");
       }
     },
-    [
-      workflowId,
-      allNodes,
-      allEdges,
-      groups,
-      triggerRun,
-      runMode,
-      setActiveRunId,
-      markRunning,
-      markError,
-      router,
-      generalSettings,
-    ],
+    [triggerRun, runMode, setActiveRunId, markRunning, markError, router, generalSettings],
+  );
+
+  const requestRun = useCallback(
+    async (
+      overrideWorkflowId?: number,
+      options?: { skipValidation?: boolean },
+    ) => {
+      const targetId = overrideWorkflowId ?? workflowId;
+      if (!targetId) {
+        markError("Save the workflow before running");
+        return;
+      }
+      if (!options?.skipValidation) {
+        const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
+        if (!validation.isValid) {
+          markError(`Cannot run: ${validation.issues[0]}`);
+          return;
+        }
+      }
+      if (staticAttributes.length === 0) {
+        await dispatchRun(targetId, {});
+        return;
+      }
+      setPendingRunTargetId(targetId);
+      setIsRunInputsDialogOpen(true);
+    },
+    [workflowId, allNodes, allEdges, groups, staticAttributes, dispatchRun, markError],
+  );
+
+  const handleRunInputsSubmit = useCallback(
+    async (values: Record<string, string | number | boolean>) => {
+      if (pendingRunTargetId == null) return;
+      setIsRunInputsDialogOpen(false);
+      await dispatchRun(pendingRunTargetId, values);
+      setPendingRunTargetId(null);
+    },
+    [pendingRunTargetId, dispatchRun],
   );
 
   const handleSaveAs = useCallback(
@@ -462,7 +497,7 @@ export function WorkflowBuilderPage() {
       folder?: string;
       visibility: WorkflowVisibility;
     }) => {
-      const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
+      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
       if (!validation.isValid) {
         markError(`Cannot save: ${validation.issues[0]}`);
         return;
@@ -476,6 +511,7 @@ export function WorkflowBuilderPage() {
           canvas_nodes: allNodes as unknown as Record<string, unknown>[],
           canvas_edges: allEdges as unknown as Record<string, unknown>[],
           canvas_groups: groups as unknown as Record<string, unknown>[],
+          static_attributes: staticAttributes,
         });
         loadWorkflow({
           workflowId: saved.id,
@@ -493,7 +529,7 @@ export function WorkflowBuilderPage() {
         }
         if (runAfterSave) {
           setRunAfterSave(false);
-          void executeRun(saved.id);
+          void requestRun(saved.id);
         }
       } catch {
         markError("Failed to save workflow");
@@ -503,13 +539,14 @@ export function WorkflowBuilderPage() {
       allNodes,
       allEdges,
       groups,
+      staticAttributes,
       createWorkflow,
       loadWorkflow,
       markSaved,
       markError,
       openAfterSave,
       runAfterSave,
-      executeRun,
+      requestRun,
     ],
   );
 
@@ -523,7 +560,7 @@ export function WorkflowBuilderPage() {
       },
       existingId: number,
     ) => {
-      const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
+      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
       if (!validation.isValid) {
         markError(`Cannot save: ${validation.issues[0]}`);
         return;
@@ -539,6 +576,7 @@ export function WorkflowBuilderPage() {
             canvas_nodes: allNodes as unknown as Record<string, unknown>[],
             canvas_edges: allEdges as unknown as Record<string, unknown>[],
             canvas_groups: groups as unknown as Record<string, unknown>[],
+            static_attributes: staticAttributes,
           },
         });
         loadWorkflow({
@@ -555,7 +593,16 @@ export function WorkflowBuilderPage() {
         markError("Failed to overwrite workflow");
       }
     },
-    [allNodes, allEdges, groups, updateWorkflow, loadWorkflow, markSaved, markError],
+    [
+      allNodes,
+      allEdges,
+      groups,
+      staticAttributes,
+      updateWorkflow,
+      loadWorkflow,
+      markSaved,
+      markError,
+    ],
   );
 
   const handleSave = useCallback(() => {
@@ -563,7 +610,7 @@ export function WorkflowBuilderPage() {
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;
@@ -575,6 +622,7 @@ export function WorkflowBuilderPage() {
           canvas_nodes: allNodes as unknown as Record<string, unknown>[],
           canvas_edges: allEdges as unknown as Record<string, unknown>[],
           canvas_groups: groups as unknown as Record<string, unknown>[],
+          static_attributes: staticAttributes,
         },
       },
       {
@@ -587,6 +635,7 @@ export function WorkflowBuilderPage() {
     allNodes,
     allEdges,
     groups,
+    staticAttributes,
     updateWorkflow,
     markSaved,
     markError,
@@ -609,7 +658,7 @@ export function WorkflowBuilderPage() {
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;
@@ -621,6 +670,7 @@ export function WorkflowBuilderPage() {
           canvas_nodes: allNodes as unknown as Record<string, unknown>[],
           canvas_edges: allEdges as unknown as Record<string, unknown>[],
           canvas_groups: groups as unknown as Record<string, unknown>[],
+          static_attributes: staticAttributes,
         },
       });
       markSaved(`Saved "${workflowName}"`);
@@ -628,7 +678,17 @@ export function WorkflowBuilderPage() {
     } catch {
       markError("Failed to save workflow");
     }
-  }, [workflowId, allNodes, allEdges, groups, updateWorkflow, markSaved, markError, workflowName]);
+  }, [
+    workflowId,
+    allNodes,
+    allEdges,
+    groups,
+    staticAttributes,
+    updateWorkflow,
+    markSaved,
+    markError,
+    workflowName,
+  ]);
 
   const handleDiscardAndOpen = useCallback(() => {
     setIsOpenConfirmOpen(false);
@@ -646,12 +706,15 @@ export function WorkflowBuilderPage() {
           const loadedNodes = (full.canvas_nodes ?? []) as PersistedCanvasNode[];
           const loadedEdges = (full.canvas_edges ?? []) as WorkflowCanvasEdge[];
           const loadedGroups = (full.canvas_groups ?? []) as CanvasGroup[];
+          const loadedStaticAttributes = (full.static_attributes ??
+            []) as StaticAttributeDef[];
           const { nodes: migratedNodes, edges: migratedEdges, migrated } =
             migrateCanvasState(loadedNodes, loadedEdges, plugins);
           const repairedGroups = repairOrphanGroups(migratedNodes, loadedGroups);
           setAllNodes(migratedNodes);
           setAllEdges(migratedEdges);
           setGroups(repairedGroups);
+          setStaticAttributes(loadedStaticAttributes);
           loadWorkflow({
             workflowId: full.id,
             workflowUuid: full.uuid ?? null,
@@ -674,8 +737,8 @@ export function WorkflowBuilderPage() {
       setIsRunConfirmOpen(true);
       return;
     }
-    void executeRun();
-  }, [workflowId, isDirty, executeRun]);
+    void requestRun();
+  }, [workflowId, isDirty, requestRun]);
 
   const handleSaveAndRun = useCallback(async () => {
     setIsRunConfirmOpen(false);
@@ -684,7 +747,7 @@ export function WorkflowBuilderPage() {
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(allNodes, allEdges, groups);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;
@@ -696,10 +759,11 @@ export function WorkflowBuilderPage() {
           canvas_nodes: allNodes as unknown as Record<string, unknown>[],
           canvas_edges: allEdges as unknown as Record<string, unknown>[],
           canvas_groups: groups as unknown as Record<string, unknown>[],
+          static_attributes: staticAttributes,
         },
       });
       markSaved(`Saved "${workflowName}"`);
-      await executeRun();
+      await requestRun();
     } catch {
       markError("Failed to save workflow");
     }
@@ -708,17 +772,18 @@ export function WorkflowBuilderPage() {
     allNodes,
     allEdges,
     groups,
+    staticAttributes,
     updateWorkflow,
     markSaved,
     markError,
     workflowName,
-    executeRun,
+    requestRun,
   ]);
 
   const handleRunSavedVersion = useCallback(() => {
     setIsRunConfirmOpen(false);
-    void executeRun(workflowId ?? undefined, { skipValidation: true });
-  }, [executeRun, workflowId]);
+    void requestRun(workflowId ?? undefined, { skipValidation: true });
+  }, [requestRun, workflowId]);
 
   const handleEdgeStyleChange = useCallback(
     (edgeId: string, style: EdgeStyle) => {
@@ -1095,6 +1160,14 @@ export function WorkflowBuilderPage() {
     [enterGroup],
   );
 
+  const handleStaticAttributesChange = useCallback(
+    (next: StaticAttributeDef[]) => {
+      setStaticAttributes(next);
+      markDirty();
+    },
+    [markDirty],
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <WorkflowTopbar
@@ -1143,6 +1216,8 @@ export function WorkflowBuilderPage() {
           pluginErrorMessage={pluginError?.message}
           plugins={plugins}
           isInsideGroup={activeGroupId !== null}
+          staticAttributes={staticAttributes}
+          onStaticAttributesChange={handleStaticAttributesChange}
         />
         <NodeConfigModal
           nodes={allNodes}
@@ -1275,6 +1350,14 @@ export function WorkflowBuilderPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <WorkflowRunInputsDialog
+        open={isRunInputsDialogOpen}
+        staticAttributes={staticAttributes}
+        isSubmitting={triggerRun.isPending}
+        onOpenChange={setIsRunInputsDialogOpen}
+        onSubmit={handleRunInputsSubmit}
+      />
     </div>
   );
 }

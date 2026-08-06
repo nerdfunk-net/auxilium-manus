@@ -280,6 +280,7 @@ export function WorkflowImportDialog({
           canvas_nodes: canvasNodes,
           canvas_edges: importFile.canvas_edges,
           canvas_groups: importFile.canvas_groups,
+          static_attributes: importFile.static_attributes,
         };
 
         if (overwriteId !== undefined) {

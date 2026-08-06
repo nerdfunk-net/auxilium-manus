@@ -1,4 +1,15 @@
 export type WorkflowVisibility = "public" | "private";
+export type StaticAttributeType = "string" | "number" | "boolean";
+
+/** A run-scoped trigger input declared on a workflow. Resolved values are
+ * seeded into every device's attribute_bags["run_input"] at run time — see
+ * doc/WORKFLOW-STEPS.md "Static attributes". */
+export interface StaticAttributeDef {
+  name: string;
+  type: StaticAttributeType;
+  default?: string | number | boolean;
+  required: boolean;
+}
 
 export interface WorkflowCreate {
   name: string;
@@ -8,6 +19,7 @@ export interface WorkflowCreate {
   canvas_nodes: Record<string, unknown>[];
   canvas_edges: Record<string, unknown>[];
   canvas_groups: Record<string, unknown>[];
+  static_attributes: StaticAttributeDef[];
 }
 
 export interface WorkflowUpdate {
@@ -18,6 +30,7 @@ export interface WorkflowUpdate {
   canvas_nodes?: Record<string, unknown>[];
   canvas_edges?: Record<string, unknown>[];
   canvas_groups?: Record<string, unknown>[];
+  static_attributes?: StaticAttributeDef[];
 }
 
 export interface WorkflowSummary {
@@ -37,6 +50,7 @@ export interface WorkflowResponse extends WorkflowSummary {
   canvas_nodes: Record<string, unknown>[] | null;
   canvas_edges: Record<string, unknown>[] | null;
   canvas_groups: Record<string, unknown>[] | null;
+  static_attributes: StaticAttributeDef[] | null;
 }
 
 export interface WorkflowListResponse {

@@ -36,6 +36,11 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
     from hatchet.workflows.workflow_run import workflow as workflow_execution
     from repositories.run_repository import RunRepository
     from repositories.schedule_repository import ScheduleRepository
+    from repositories.workflow_repository import WorkflowRepository
+    from services.execution.run_input_validation import (
+        RunInputValidationError,
+        resolve_run_inputs,
+    )
 
     with SessionLocal() as db:
         schedule_repo = ScheduleRepository(db)
@@ -49,6 +54,9 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
             )
             return {"skipped": True}
 
+        wf_result = WorkflowRepository(db).get_by_id(input.workflow_id)
+        static_attributes = wf_result[0].static_attributes if wf_result else None
+
         run_repo = RunRepository(db)
         run = run_repo.create_run(
             workflow_id=input.workflow_id,
@@ -57,13 +65,42 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
             device_ids=[],
             run_mode="normal",
         )
+
+        # A one-time trigger is consumed on fire; a cron keeps repeating —
+        # mark it triggered regardless of whether dispatch below succeeds,
+        # so a workflow permanently missing a required input doesn't spin.
+        schedule_repo.mark_triggered(schedule, disable=(schedule.schedule_type == "once"))
+
+        # Scheduled runs never have an operator to prompt, so only declared
+        # defaults are available — a required attribute with no default can
+        # never be satisfied here and fails this run immediately rather than
+        # dispatching into Hatchet with an incomplete run_input bag.
+        try:
+            run_inputs = resolve_run_inputs(static_attributes, {})
+        except RunInputValidationError as exc:
+            run_repo.update_run_status(
+                run,
+                status="failed",
+                error_message=str(exc),
+                error_category="configuration",
+            )
+            logger.info(
+                "Scheduled trigger failed run input validation run_id=%s workflow_id=%s "
+                "schedule_id=%s error=%s",
+                run.id,
+                input.workflow_id,
+                input.schedule_id,
+                exc,
+            )
+            return {"run_id": run.id, "status": "failed"}
+
+        run.run_inputs = run_inputs
+        db.commit()
+
         ref = workflow_execution.run_no_wait(WorkflowRunInput(run_id=run.id))
         run_repo.update_run_status(
             run, status="pending", hatchet_run_id=str(ref.workflow_run_id or "")
         )
-
-        # A one-time trigger is consumed on fire; a cron keeps repeating.
-        schedule_repo.mark_triggered(schedule, disable=(schedule.schedule_type == "once"))
 
         logger.info(
             "Scheduled trigger dispatched run_id=%s workflow_id=%s schedule_id=%s",

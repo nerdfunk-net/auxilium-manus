@@ -6,6 +6,20 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 WorkflowVisibility = Literal["public", "private"]
+StaticAttributeType = Literal["string", "number", "boolean"]
+
+
+class StaticAttributeDef(BaseModel):
+    """One run-scoped trigger input the operator supplies when starting a run
+    manually. Resolved values are seeded into every device's attribute_bags
+    under the reserved "run_input" bag — see
+    services/execution/run_input_validation.py and
+    services/workflow_context/run_inputs.py."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    type: StaticAttributeType
+    default: Any | None = None
+    required: bool = False
 
 
 class WorkflowCreate(BaseModel):
@@ -16,6 +30,7 @@ class WorkflowCreate(BaseModel):
     canvas_nodes: list[dict[str, Any]] = Field(default_factory=list)
     canvas_edges: list[dict[str, Any]] = Field(default_factory=list)
     canvas_groups: list[dict[str, Any]] = Field(default_factory=list)
+    static_attributes: list[StaticAttributeDef] = Field(default_factory=list)
 
 
 class WorkflowUpdate(BaseModel):
@@ -26,6 +41,7 @@ class WorkflowUpdate(BaseModel):
     canvas_nodes: list[dict[str, Any]] | None = None
     canvas_edges: list[dict[str, Any]] | None = None
     canvas_groups: list[dict[str, Any]] | None = None
+    static_attributes: list[StaticAttributeDef] | None = None
 
 
 class WorkflowSummary(BaseModel):
@@ -45,6 +61,7 @@ class WorkflowResponse(WorkflowSummary):
     canvas_nodes: list[dict[str, Any]] | None
     canvas_edges: list[dict[str, Any]] | None
     canvas_groups: list[dict[str, Any]] | None
+    static_attributes: list[StaticAttributeDef] | None
 
 
 class WorkflowListResponse(BaseModel):

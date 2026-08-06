@@ -23,6 +23,10 @@ class Workflow(Base):
     canvas_nodes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     canvas_edges: Mapped[list | None] = mapped_column(JSON, nullable=True)
     canvas_groups: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # Schema of run-scoped trigger inputs (name/type/default/required); values
+    # supplied at trigger time are seeded into every device's attribute_bags
+    # under the "run_input" bag — see services/workflow_context/run_inputs.py.
+    static_attributes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

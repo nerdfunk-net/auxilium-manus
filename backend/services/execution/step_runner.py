@@ -39,6 +39,7 @@ from services.workflow_context.guards import (
 )
 from services.workflow_context.merge import merge_workflow_contexts
 from services.workflow_context.registry import capability_spec_from_plugin
+from services.workflow_context.run_inputs import seed_run_input_bag
 from services.workflow_context.secret_fields import redact_secrets_in_data
 
 
@@ -399,6 +400,7 @@ class StepRunner:
                 run=run,
                 node_id=node_id,
             )
+            outcomes = self._seed_run_inputs(run, outcomes)
             self._store_step_outcomes(step_outcomes, node_id, outcomes)
 
             persisted_output = self._serialize_outcomes(outcomes)
@@ -582,6 +584,7 @@ class StepRunner:
             run=run,
             node_id=node_id,
         )
+        outcomes = self._seed_run_inputs(run, outcomes)
         self._store_step_outcomes(step_outcomes, node_id, outcomes)
         summaries = "; ".join(f"{o.name}: {o.summary}" for o in outcomes if o.summary)
         logger.info(
@@ -771,6 +774,22 @@ class StepRunner:
             ),
         )
         return outcomes
+
+    @staticmethod
+    def _seed_run_inputs(run: WorkflowRun, outcomes: list[StepOutcome]) -> list[StepOutcome]:
+        """Stamp WorkflowRun.run_inputs onto every device in each outcome's
+        context — see services.workflow_context.run_inputs.seed_run_input_bag.
+        No-op when the run declared no static attributes."""
+        if not run.run_inputs:
+            return outcomes
+        return [
+            StepOutcome(
+                name=outcome.name,
+                context=seed_run_input_bag(outcome.context, run.run_inputs),
+                summary=outcome.summary,
+            )
+            for outcome in outcomes
+        ]
 
     @staticmethod
     def _store_step_outcomes(

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.models.workflows import Workflow
 from models.workflows import (
+    StaticAttributeDef,
     WorkflowCreate,
     WorkflowListResponse,
     WorkflowNameCheckResponse,
@@ -32,6 +33,39 @@ def _validate_no_cycle(canvas_nodes: list[dict], canvas_edges: list[dict]) -> No
         topological_order(canvas_nodes, canvas_edges)
     except GraphCycleError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttributeDef]) -> None:
+    """Raise HTTP 400 on a duplicate attribute name or a default value that
+    doesn't match its declared type — the same shape checks a hand-typed
+    canvas config field never gets, but this schema drives a generated form
+    (the run-inputs dialog), so a bad row there breaks every future run."""
+    seen: set[str] = set()
+    for raw in static_attributes:
+        attr = (
+            raw
+            if isinstance(raw, StaticAttributeDef)
+            else StaticAttributeDef.model_validate(raw)
+        )
+        if attr.name in seen:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Duplicate static attribute name: {attr.name!r}",
+            )
+        seen.add(attr.name)
+        if attr.default is None:
+            continue
+        is_number = isinstance(attr.default, (int, float)) and not isinstance(attr.default, bool)
+        type_ok = (
+            (attr.type == "string" and isinstance(attr.default, str))
+            or (attr.type == "number" and is_number)
+            or (attr.type == "boolean" and isinstance(attr.default, bool))
+        )
+        if not type_ok:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Static attribute {attr.name!r}: default does not match type {attr.type!r}",
+            )
 
 
 def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSummary:
@@ -62,6 +96,7 @@ def _to_response(workflow: Workflow, creator_username: str | None) -> WorkflowRe
         canvas_nodes=workflow.canvas_nodes,
         canvas_edges=workflow.canvas_edges,
         canvas_groups=workflow.canvas_groups,
+        static_attributes=workflow.static_attributes,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
     )
@@ -92,6 +127,7 @@ class WorkflowService:
     def create_workflow(self, data: WorkflowCreate, user_id: int) -> WorkflowResponse:
         logger.info("Creating workflow name=%r user_id=%s", data.name, user_id)
         _validate_no_cycle(data.canvas_nodes, data.canvas_edges)
+        _validate_static_attributes(data.static_attributes)
         try:
             workflow = self.repo.create(
                 name=data.name,
@@ -102,6 +138,7 @@ class WorkflowService:
                 canvas_nodes=data.canvas_nodes,
                 canvas_edges=data.canvas_edges,
                 canvas_groups=data.canvas_groups,
+                static_attributes=[attr.model_dump() for attr in data.static_attributes],
             )
             result = self.repo.get_by_id(workflow.id)
             if result is None:
@@ -139,6 +176,8 @@ class WorkflowService:
                     updated_fields.get("canvas_nodes", workflow.canvas_nodes),
                     updated_fields.get("canvas_edges", workflow.canvas_edges),
                 )
+            if "static_attributes" in updated_fields:
+                _validate_static_attributes(updated_fields["static_attributes"] or [])
             workflow = self.repo.update(workflow, updated_fields)
             logger.info("Workflow updated id=%s user_id=%s", workflow_id, user_id)
             return _to_response(workflow, creator_username)
