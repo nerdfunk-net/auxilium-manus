@@ -1,88 +1,59 @@
 # Auxilium Manus
 
-A NetDevOps workflow builder for network engineers. Design, configure, and execute network automation workflows visually.
+*Auxilium Manus* — Latin for "helping hand" — is a NetDevOps workflow builder for network
+engineers. It lets you design, configure, and execute network automation workflows
+visually, without writing a script for every task.
 
-## Prerequisites
+## What it does
 
-- Docker and Docker Compose
-- Python 3.14 with a virtual environment at `.venv/`
-- Node.js 20+
+Network automation usually means one-off scripts: a Python file that logs into a device,
+pulls config, maybe pushes a change, and prints the result. Auxilium Manus replaces that
+with a visual, repeatable workflow model:
 
-## First-time setup
+- **Pick devices from inventory** — pull live device data from Nautobot (or a static
+  inventory) and select one or more targets before building a workflow around them.
+- **Design workflows on a canvas** — compose steps (get config, run a command, render a
+  Jinja template, evaluate a condition, write to Git, update Nautobot/ISE, store an
+  artifact, …) as nodes on a React Flow canvas, connected by dependency-aware edges. The
+  output of one step becomes the input of the next.
+- **Run once or fan out** — execute a workflow interactively against a single device, or
+  fan it out into a parallel per-device child workflow across an entire device group.
+- **Get durable, resumable execution** — runs are orchestrated by Hatchet, so long-running
+  or multi-device workflows survive worker restarts, support retries, and can be paused at
+  a debug step or an approval gate.
+- **Keep an audit trail** — every run is stored separately from the workflow definition,
+  with per-step status, logs, and results. Command output, device configuration backups,
+  and other generated artifacts are persisted as durable, downloadable artifacts.
 
-### 1. Create Docker networks
+Under the hood, a workflow definition is a backend-owned JSON graph (distinct from the
+React Flow canvas/UI state), validated and compiled into executable steps by the backend.
+Steps that talk to devices use Netmiko over SSH; steps that talk to inventory use the
+Nautobot API; results run through role-based access control so only authorized users can
+view or trigger specific workflows and settings.
 
-The compose file uses two external networks that must exist before starting services:
+## Key features
 
-```bash
-docker network create internal
-docker network create --internal hatchet
-```
+- Visual, drag-and-drop workflow canvas (React Flow) with live validation
+- Device-first design: select inventory targets, then build the workflow around them
+- Nautobot integration for device inventory, attributes, and updates
+- Optional Cisco ISE integration (device add, TACACS+ key management)
+- Git-backed steps for cloning, pulling, and pushing configuration/templates
+- Jinja2 template rendering and config deployment to devices via Netmiko/SSH
+- Durable, retryable background execution via Hatchet, with per-run logs and artifacts
+- Fan-out execution: run a workflow across every device in a group in parallel
+- Credential vault (encrypted at rest) and RBAC-protected settings, users, and workflows
 
-Only needed once. Skip if the networks already exist.
+## Tech stack
 
-### 2. Start infrastructure
+**Frontend:** Next.js (App Router), React, React Flow, TypeScript, Tailwind CSS, Shadcn
+UI, TanStack Query, Zustand, React Hook Form, Zod
 
-```bash
-docker compose up -d
-```
+**Backend:** FastAPI, Python, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko,
+GitPython
 
-This starts PostgreSQL, Redis, and the Hatchet workflow engine. Wait ~30 seconds for all services to become healthy.
+**Integrations:** Nautobot API, Cisco ISE
 
-### 3. Configure Hatchet
-
-Open the Hatchet dashboard at [http://localhost:8888](http://localhost:8888) and sign in:
-
-- Email: `admin@example.com`
-- Password: `Admin123!!`
-
-Go to **Settings → API Tokens → Create Token**, copy the token, then add it to `backend/.env`:
-
-```
-HATCHET_CLIENT_TOKEN=<paste token here>
-```
-
-### 4. Install dependencies
-
-```bash
-# Backend
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-
-# Frontend
-cd frontend && npm install
-```
-
-## Running the app
-
-Open three terminals:
-
-**Terminal 1 — Backend API**
-```bash
-source .venv/bin/activate
-cd backend && python start.py
-```
-
-API available at [http://localhost:8001](http://localhost:8001) · Swagger docs at [http://localhost:8001/docs](http://localhost:8001/docs)
-
-**Terminal 2 — Workflow worker**
-```bash
-source .venv/bin/activate
-cd backend && python -m hatchet.worker
-```
-
-The worker receives workflow execution jobs from Hatchet and runs them on your machine.
-
-**Terminal 3 — Frontend**
-```bash
-cd frontend && npm run dev
-```
-
-App available at [http://localhost:3000](http://localhost:3000) · Default credentials: `admin / admin`
-
-### Dashboard routes
-
-Authenticated pages share a sidebar layout (`DashboardShell` + `AppSidebar`):
+## Dashboard routes
 
 | Route | Feature |
 |---|---|
@@ -93,29 +64,11 @@ Authenticated pages share a sidebar layout (`DashboardShell` + `AppSidebar`):
 
 `/settings` redirects to `/settings/general`. `/` redirects to `/workflows`.
 
-## Services overview
+## Installation
 
-| Service | URL | Purpose |
-|---|---|---|
-| Frontend | http://localhost:3000 | Main application |
-| Backend API | http://localhost:8001 | REST API |
-| Hatchet dashboard | http://localhost:8888 | Workflow run history and monitoring |
-| PostgreSQL (app) | localhost:5432 | Application database |
-| Redis | localhost:6379 | Cache and pub/sub |
+See [INSTALL.md](INSTALL.md) for prerequisites, first-time setup, and how to run the app
+locally or via Docker.
 
-## Stopping
+## License
 
-```bash
-# Stop the app processes with Ctrl+C in each terminal, then:
-docker compose down
-
-# To also delete all data:
-docker compose down -v
-```
-
-## Development notes
-
-- The backend restarts automatically on code changes (uvicorn `--reload`).
-- The worker does **not** hot-reload — restart it manually after changing code in `backend/hatchet/` or `backend/services/execution/`.
-- Database migrations run automatically on backend startup.
-- Hatchet Docker containers only manage job scheduling. All actual workflow execution happens in the worker process on your machine.
+Apache License 2.0 — see [LICENSE](LICENSE).
