@@ -12,8 +12,10 @@ import {
   type FinalConnectionState,
   type NodeTypes,
   type OnEdgesChange,
+  type OnMoveEnd,
   type OnNodesChange,
   type OnSelectionChangeFunc,
+  type Viewport,
 } from "@xyflow/react";
 import type { DragEvent, MouseEvent } from "react";
 import { useCallback, useMemo } from "react";
@@ -72,6 +74,10 @@ interface WorkflowCanvasProps {
   onEdgesChange: OnEdgesChange<WorkflowCanvasEdge>;
   onConnect: (connection: Connection) => void;
   onAddStepAtPosition: (step: StepPayload, position: { x: number; y: number }) => void;
+  /** Pan/zoom to restore on initial mount, e.g. from a pre-navigation draft. Omit (or null) to fit-to-content instead. */
+  initialViewport?: Viewport | null;
+  /** Fired once per pan/zoom gesture (not per frame) so the caller can remember it for the next mount. */
+  onViewportChange?: (viewport: Viewport) => void;
 }
 
 function WorkflowCanvasInner({
@@ -82,6 +88,8 @@ function WorkflowCanvasInner({
   onEdgesChange,
   onConnect,
   onAddStepAtPosition,
+  initialViewport,
+  onViewportChange,
 }: WorkflowCanvasProps) {
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
   const selectEdge = useWorkflowBuilderStore((state) => state.selectEdge);
@@ -239,6 +247,11 @@ function WorkflowCanvasInner({
     [nodes],
   );
 
+  const handleMoveEnd: OnMoveEnd = useCallback(
+    (_event, viewport) => onViewportChange?.(viewport),
+    [onViewportChange],
+  );
+
   return (
     <div
       className="relative h-full overflow-hidden bg-slate-50"
@@ -264,8 +277,10 @@ function WorkflowCanvasInner({
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
         onSelectionChange={handleSelectionChange}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
+        onMoveEnd={handleMoveEnd}
+        {...(initialViewport
+          ? { defaultViewport: initialViewport }
+          : { fitView: true, fitViewOptions: { padding: 0.2 } })}
       >
         <Background
           color="#cbd5e1"

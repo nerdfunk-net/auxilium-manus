@@ -1,9 +1,31 @@
 import { create } from "zustand";
 
-import type { WorkflowVisibility } from "../types/workflow-persistence";
+import type { StaticAttributeDef, WorkflowVisibility } from "../types/workflow-persistence";
+import type {
+  CanvasGroup,
+  PersistedCanvasNode,
+  WorkflowCanvasEdge,
+} from "../types/workflow-canvas";
 
 type RightPanelTab = "steps" | "properties";
 type RunMode = "normal" | "debug";
+
+/**
+ * Snapshot of the in-progress (possibly unsaved) canvas, keyed by the
+ * workflowId it belongs to (null = an unsaved new workflow). This is a
+ * module-level Zustand singleton, so unlike the canvas `useState` in
+ * WorkflowBuilderPage it survives that component unmounting when the user
+ * navigates to another route (Inventory, Runs, Settings) and back.
+ */
+interface CanvasDraft {
+  workflowId: number | null;
+  nodes: PersistedCanvasNode[];
+  edges: WorkflowCanvasEdge[];
+  groups: CanvasGroup[];
+  staticAttributes: StaticAttributeDef[];
+  /** Pan/zoom at the time of unmount, so it isn't force-refit on remount. */
+  viewport: { x: number; y: number; zoom: number } | null;
+}
 
 interface WorkflowMetadata {
   workflowId: number | null;
@@ -30,6 +52,8 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   activeGroupId: string | null;
   /** Stack for breadcrumb; [] means root. Last item = current view. */
   groupNavigationStack: string[];
+  canvasDraft: CanvasDraft | null;
+  setCanvasDraft: (draft: CanvasDraft) => void;
   enterGroup: (groupId: string) => void;
   exitToParent: () => void;
   exitToRoot: () => void;
@@ -81,6 +105,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   overviewPanelOpen: true,
   activeGroupId: null,
   groupNavigationStack: [],
+  canvasDraft: null,
+  setCanvasDraft: (draft) => set({ canvasDraft: draft }),
   enterGroup: (groupId) =>
     set((state) => {
       const groupNavigationStack = [...state.groupNavigationStack, groupId];

@@ -6,6 +6,7 @@ import type {
   EdgeChange,
   NodeChange,
   NodePositionChange,
+  Viewport,
 } from "@xyflow/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -132,18 +133,42 @@ export function WorkflowBuilderPage() {
   } = useWorkflowStepsQuery();
   const plugins = pluginResponse?.plugins ?? EMPTY_PLUGINS;
 
+  // The canvas (nodes/edges) is local React state scoped to this component,
+  // while workflowId survives in the Zustand store across route changes
+  // (e.g. navigating to /workflows/runs and back). Captured once at mount so
+  // it never re-fires for loads that happen via handleLoadWorkflow within the
+  // same mount.
+  const [mountWorkflowId] = useState(() => workflowId);
+  // On unmount (route navigation away from the editor) the current canvas is
+  // snapshotted into the Zustand singleton (see setCanvasDraft below), which
+  // — unlike this component's own useState — survives the unmount. If this
+  // mount's initial workflowId matches that draft, we are returning to the
+  // same in-progress edit and must restore it verbatim rather than re-fetch
+  // the last *saved* version from the backend, which would silently discard
+  // unsaved edits (including plain node moves).
+  const [initialCanvasDraft] = useState(() => {
+    const draft = useWorkflowBuilderStore.getState().canvasDraft;
+    return draft && draft.workflowId === mountWorkflowId ? draft : null;
+  });
+
   // Canvas state architecture (see doc/FEATURE-GROUPING.md "Canvas state
   // architecture — decision: single authoritative array"). allNodes/allEdges/
   // groups are the only stateful arrays; everything React Flow renders is a
   // pure projection recomputed below and never stored in its own state.
-  const [allNodes, setAllNodes] = useState<PersistedCanvasNode[]>(EMPTY_NODES);
-  const [allEdges, setAllEdges] = useState<WorkflowCanvasEdge[]>(EMPTY_EDGES);
-  const [groups, setGroups] = useState<CanvasGroup[]>(EMPTY_GROUPS);
+  const [allNodes, setAllNodes] = useState<PersistedCanvasNode[]>(
+    () => initialCanvasDraft?.nodes ?? EMPTY_NODES,
+  );
+  const [allEdges, setAllEdges] = useState<WorkflowCanvasEdge[]>(
+    () => initialCanvasDraft?.edges ?? EMPTY_EDGES,
+  );
+  const [groups, setGroups] = useState<CanvasGroup[]>(
+    () => initialCanvasDraft?.groups ?? EMPTY_GROUPS,
+  );
   // Workflow-level, not canvas-scoped, but persisted the same way (rides
   // along with the canvas arrays in every save call) — see doc/WORKFLOW-STEPS.md
   // "Static attributes".
   const [staticAttributes, setStaticAttributes] = useState<StaticAttributeDef[]>(
-    EMPTY_STATIC_ATTRIBUTES,
+    () => initialCanvasDraft?.staticAttributes ?? EMPTY_STATIC_ATTRIBUTES,
   );
 
   const projected = useMemo(
@@ -151,14 +176,45 @@ export function WorkflowBuilderPage() {
     [allNodes, allEdges, groups, activeGroupId],
   );
 
-  // The canvas (nodes/edges) is local React state scoped to this component,
-  // while workflowId survives in the Zustand store across route changes
-  // (e.g. navigating to /workflows/runs and back). On a fresh mount with a
-  // workflow already recorded in the store, re-fetch its canvas so it isn't
-  // shown blank. Captured once at mount so it never re-fires for loads that
-  // happen via handleLoadWorkflow within the same mount.
-  const [mountWorkflowId] = useState(() => workflowId);
-  const hasRehydratedCanvasRef = useRef(false);
+  const setCanvasDraft = useWorkflowBuilderStore((state) => state.setCanvasDraft);
+  // Keep a ref mirror of the canvas so the unmount cleanup below (which must
+  // run only once, on unmount) can read the latest values without making the
+  // effect re-run on every keystroke/drag.
+  const canvasSnapshotRef = useRef({ allNodes, allEdges, groups, staticAttributes });
+  useEffect(() => {
+    canvasSnapshotRef.current = { allNodes, allEdges, groups, staticAttributes };
+  }, [allNodes, allEdges, groups, staticAttributes]);
+
+  // Pan/zoom, restored verbatim alongside the canvas draft so returning from
+  // another route doesn't re-fit (and visually "zoom in on") the canvas.
+  // Updated directly by the WorkflowCanvas onMoveEnd callback (once per
+  // gesture, not per frame) rather than through state, since it never needs
+  // to trigger a re-render of this component.
+  const viewportRef = useRef<Viewport | null>(initialCanvasDraft?.viewport ?? null);
+  const handleViewportChange = useCallback((viewport: Viewport) => {
+    viewportRef.current = viewport;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const currentWorkflowId = useWorkflowBuilderStore.getState().workflowId;
+      const snapshot = canvasSnapshotRef.current;
+      setCanvasDraft({
+        workflowId: currentWorkflowId,
+        nodes: snapshot.allNodes,
+        edges: snapshot.allEdges,
+        groups: snapshot.groups,
+        staticAttributes: snapshot.staticAttributes,
+        viewport: viewportRef.current,
+      });
+    };
+  }, [setCanvasDraft]);
+
+  // Fallback for when no matching draft was found above (true first mount of
+  // the editor in this browser session with a workflow already recorded in
+  // the store, or the store's draft belongs to a different workflow): fetch
+  // the last saved canvas from the backend so it isn't shown blank.
+  const hasRehydratedCanvasRef = useRef(initialCanvasDraft !== null);
 
   useEffect(() => {
     if (hasRehydratedCanvasRef.current) return;
@@ -1190,6 +1246,8 @@ export function WorkflowBuilderPage() {
               onConnect={handleConnect}
               onAddStepAtPosition={handleAddStepAtPosition}
               plugins={plugins}
+              initialViewport={initialCanvasDraft?.viewport}
+              onViewportChange={handleViewportChange}
             />
           </div>
         </section>
