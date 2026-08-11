@@ -84,7 +84,7 @@ free-form **content** lives in artifact storage and is referenced by an `Artifac
 
 | Lives in the envelope (metadata) | Lives in artifact storage (content) |
 |----------------------------------|-------------------------------------|
-| Device identity, attributes      | Running / startup config text       |
+| Device identity, attribute bags  | Running / startup config text       |
 | Parsed structured data (bounded) | Raw command output                  |
 | Capability flags, device status  | Generated config bundles, backups   |
 | ArtifactRef pointers             | Reports, diffs                      |
@@ -110,20 +110,22 @@ once here; individual snippets below omit it.
 # backend/models/workflow_context.py
 
 from __future__ import annotations
-from datetime import datetime, timezone
-from enum import Enum
+
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def now_iso() -> str:
+    return datetime.now(UTC).isoformat()
 
 
-class Capability(str, Enum):
+class Capability(StrEnum):
     """A discrete, independently-acquired property of a DeviceContext."""
     IDENTITY          = "identity"          # id, name, hostname, driver  (source steps)
-    ATTRIBUTES        = "attributes"        # nautobot attribute map
+    ATTRIBUTES        = "attributes"        # at least one attribute_bags entry populated
     RUNNING_CONFIG    = "running_config"    # running config retrieved (as ArtifactRef)
     STARTUP_CONFIG    = "startup_config"    # startup config retrieved
     PARSED            = "parsed"            # at least one parser ran
@@ -137,7 +139,7 @@ class ArtifactRef(BaseModel):
     media_type: str = "text/plain"
     size_bytes: int | None = None
     sha256: str | None = None  # integrity / change detection
-    created_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
 
 
 class CommandResult(BaseModel):
@@ -145,12 +147,12 @@ class CommandResult(BaseModel):
     node_id: str                               # graph node that issued this command
     command: str
     success: bool
-    executed_at: str = Field(default_factory=_now_iso)
+    executed_at: str = Field(default_factory=now_iso)
     output_ref: ArtifactRef | None = None      # bytes live in artifact storage
     summary: str | None = None                 # optional short, bounded excerpt
 
 
-class DeviceStatus(str, Enum):
+class DeviceStatus(StrEnum):
     PENDING  = "pending"
     OK       = "ok"
     FAILED   = "failed"
@@ -162,7 +164,7 @@ class DeviceError(BaseModel):
     step_id: str    # step type e.g. "get-running-config"
     code: str       # "timeout" | "auth_failed" | "unreachable" | "parse_error" | ...
     message: str    # human-readable, safe to surface in the UI
-    occurred_at: str = Field(default_factory=_now_iso)
+    occurred_at: str = Field(default_factory=now_iso)
 
 
 class DeviceContext(BaseModel):
@@ -181,9 +183,19 @@ class DeviceContext(BaseModel):
     source_id: str = ""                # ID of the configured source
 
     # --- Enrichment --------------------------------------------------------------
-    attributes: dict[str, Any] = Field(default_factory=dict)
-    # Nautobot attribute map: role, device_type, location, custom_fields,
-    # interfaces, tags, config_context, etc.
+    attribute_bags: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # Namespaced attribute maps, keyed by source/producer, e.g.:
+    #   attribute_bags["nautobot"]  = {role, device_type, location, custom_fields,
+    #                                   interfaces, tags, config_context, ...}
+    #   attribute_bags["tacacs"]    = {shared_secret: <sealed>, ...}
+    #   attribute_bags["run_input"] = {<static_attributes the operator supplied>}
+    # "run_input" is a reserved bag name seeded by the engine (see
+    # doc/WORKFLOW-STEPS.md → "Static attributes"). update-attribute and other
+    # generic writers may create/extend any other bag; reads use dotted-path
+    # expressions like {bag_name.field} (services/workflow_context/attribute_path.py).
+    # Sensitive leaves (e.g. attribute_bags["tacacs"]["shared_secret"]) are stored
+    # as sealed envelopes, never cleartext — see doc/WORKFLOW-STEPS.md →
+    # "Secret-valued attributes".
 
     running_config_ref: ArtifactRef | None = None
     startup_config_ref: ArtifactRef | None = None
@@ -205,6 +217,21 @@ class DeviceContext(BaseModel):
     errors: list[DeviceError] = Field(default_factory=list)
     # errors is append-only. Dedupe on merge by (node_id, step_id) pair.
 
+    # set[Capability] is not natively JSON — sorted list on the wire, coerced back
+    # into a set on load. This is the round-trip pinned by the Serialisation rule below.
+    @field_serializer("capabilities")
+    def serialize_capabilities(self, capabilities: set[Capability]) -> list[str]:
+        return sorted(cap.value for cap in capabilities)
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def parse_capabilities(cls, value: Any) -> set[Capability]:
+        if value is None:
+            return set()
+        if isinstance(value, (list, tuple, set)):
+            return {Capability(item) for item in value}
+        raise TypeError(f"capabilities must be a set or list, got {type(value)!r}")
+
 
 class WorkflowContext(BaseModel):
     """The single envelope that flows along every edge of the workflow graph."""
@@ -214,7 +241,7 @@ class WorkflowContext(BaseModel):
     # --- Invariant execution metadata (set once by the engine) -------------------
     run_id: str
     workflow_id: str
-    schema_version: int = 1
+    schema_version: int = 2
 
     # --- Core device map (keyed by device id) ------------------------------------
     devices: dict[str, DeviceContext] = Field(default_factory=dict)
@@ -266,6 +293,18 @@ class StepOutcome(BaseModel):
     """A named exit path from a step, carrying the enriched context."""
     name: str                 # "success" | "failure" | "ios" | "nxos" | ...
     context: WorkflowContext
+    summary: str | None = None  # short, bounded status text; surfaced in run/step UI and logs
+
+
+def bare_hostname(primary_ip4: str | None, fallback: str) -> str:
+    """Derive a bare SSH hostname from primary_ip4 (strip CIDR) or fallback.
+
+    The one shared implementation of the hostname invariant (no CIDR mask) —
+    every source step must call this instead of re-deriving it locally.
+    """
+    if primary_ip4:
+        return primary_ip4.split("/")[0]
+    return fallback
 ```
 
 ---
@@ -279,6 +318,7 @@ from typing import Any
 from models.workflow_context import WorkflowContext, StepOutcome
 from core.models.runs import WorkflowRun
 from services.artifacts import ArtifactService
+from services.network.netmiko.session_pool import DeviceSessionPool
 
 async def execute(
     *,
@@ -287,13 +327,17 @@ async def execute(
     run: WorkflowRun,                 # ORM instance — use object_session(run) for DB
     artifact_service: ArtifactService,  # injected by the engine
     node_id: str,                     # this step's graph node id — use for keying
+    device_sessions: DeviceSessionPool,  # run-segment-scoped pooled SSH sessions
 ) -> list[StepOutcome]:
     ...
 ```
 
-`artifact_service` and `node_id` are provided by the engine; step authors do not
-instantiate them. `node_id` is the graph node's unique id (not the step type); use it
-when writing to `pending_commands`, `command_results`, `errors`, and `metadata`.
+`artifact_service`, `node_id`, and `device_sessions` are provided by the engine; step
+authors do not instantiate them. `node_id` is the graph node's unique id (not the step
+type); use it when writing to `pending_commands`, `command_results`, `errors`, and
+`metadata`. `device_sessions` is only used by SSH-issuing steps; non-SSH steps accept
+and ignore it (import `DeviceSessionPool` under `TYPE_CHECKING` there — see
+`doc/WORKFLOW-STEPS.md` → "Device sessions" for the full pooling contract).
 
 - The engine assembles the input context by `merge()`-ing all parent step results, then
   calls `execute()`. Steps never call other steps directly.
@@ -377,21 +421,21 @@ as parameters (see Executor Contract above).
 ### get-nautobot-devices (source step)
 
 ```python
-async def execute(*, config, context, run, artifact_service, node_id) -> list[StepOutcome]:
+async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
     devices_raw = await fetch_devices_from_nautobot(config)
 
-    def bare_host(ip: str | None) -> str:
-        """Strip CIDR mask for the SSH target hostname."""
-        return ip.split("/")[0] if ip else ""
-
+    # bare_hostname() is the shared helper (models/workflow_context.py) — strips the
+    # CIDR mask from primary_ip4, falling back to the device name. Every source step
+    # must use it, not a local re-implementation, so the hostname invariant holds
+    # identically everywhere.
     new_devices = {
         d.id: DeviceContext(
             id=d.id,
             name=d.name,
-            hostname=bare_host(d.primary_ip4) or d.name,
+            hostname=bare_hostname(d.primary_ip4, fallback=d.name),
             platform=d.platform,
             network_driver=d.network_driver,
             primary_ip4=d.primary_ip4,
@@ -412,7 +456,7 @@ async def execute(*, config, context, run, artifact_service, node_id) -> list[St
 ### get-running-config
 
 ```python
-async def execute(*, config, context, run, artifact_service, node_id) -> list[StepOutcome]:
+async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
@@ -458,7 +502,7 @@ async def execute(*, config, context, run, artifact_service, node_id) -> list[St
 ### parse-bgp (parser step)
 
 ```python
-async def execute(*, config, context, run, artifact_service, node_id) -> list[StepOutcome]:
+async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
@@ -480,7 +524,7 @@ async def execute(*, config, context, run, artifact_service, node_id) -> list[St
 ### build-config (command-building step)
 
 ```python
-async def execute(*, config, context, run, artifact_service, node_id) -> list[StepOutcome]:
+async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
@@ -552,7 +596,8 @@ inlined, copies are small even for large device fleets.
 When branches converge, the engine merges parent contexts:
 
 ```python
-def merge(contexts: list[WorkflowContext]) -> WorkflowContext: ...
+# services/workflow_context/merge.py
+def merge_workflow_contexts(contexts: list[WorkflowContext]) -> WorkflowContext: ...
 ```
 
 | Field | Rule |
@@ -567,7 +612,8 @@ def merge(contexts: list[WorkflowContext]) -> WorkflowContext: ...
 | Field | Rule |
 |-------|------|
 | Scalar identity fields | Must be equal or one side `None`; conflict → record `DeviceError`, keep first parent's value. |
-| `attributes`, `parsed` | Shallow key-union; conflicting keys raise unless equal. |
+| `attribute_bags` | Dict-union by bag name, then shallow key-union **within** each bag; conflicting keys raise unless equal. |
+| `parsed` | Shallow key-union; conflicting keys raise unless equal. |
 | `*_config_ref` | Take the non-None value; conflict (both non-None and different) → raise. |
 | `command_results` | Dict-union by `node_id`; each value is the node's full `list[CommandResult]`. The same `node_id` always carries the same list, so union is idempotent; conflict (same node_id, different list) → raise. |
 | `capabilities` | Union — a device has a capability if any branch gave it. |
@@ -742,13 +788,14 @@ for device_id in touched:
 ### TypeScript capability type
 
 The TypeScript `Capability` union must stay in sync with the Python `Capability` enum.
-**Do not maintain these by hand.** Either generate the TypeScript union from `registry.yaml`
-(or from the Python enum) at build time, or add a contract test that asserts the two sets
-are identical. The chosen approach must be documented before the first step ships.
+**As implemented, this is maintained by hand** (no codegen, no cross-language parity
+test yet — see Open Decision 5 below); a `registry.yaml`-vs-enum test exists on the
+backend side only. Treat any change to the Python `Capability` enum as requiring a
+matching manual edit here.
 
 ```typescript
 // frontend/src/lib/capability-types.ts
-// AUTO-GENERATED from backend/models/workflow_context.py — do not edit by hand
+/** Capability tokens — keep in sync with backend Capability enum. */
 
 export type Capability =
   | "identity"
@@ -756,7 +803,16 @@ export type Capability =
   | "running_config"
   | "startup_config"
   | "parsed"
-  | "pending_commands"
+  | "pending_commands";
+
+export const ALL_CAPABILITIES: Capability[] = [
+  "identity",
+  "attributes",
+  "running_config",
+  "startup_config",
+  "parsed",
+  "pending_commands",
+];
 
 export interface Provided {
   capabilities: Capability[]
@@ -848,7 +904,10 @@ export interface WorkflowNodeData {
 
 ## Runtime Validation Guards
 
-Design-time canvas checks are not enough. The engine validates at runtime too.
+Design-time canvas checks are not enough. The engine validates at runtime too. The
+canonical implementation lives in `backend/services/workflow_context/guards.py`
+(`pre_step_guard`, `post_step_guard`, `effective_produces`) — the snippets below show
+the logic, not a literal copy of that file.
 
 **Pre-step guard** — before calling a step, check for empty inventory (no-op) then assert
 both coarse capabilities and parser keys:
@@ -888,6 +947,22 @@ for device_id in touched:
         )
 ```
 
+**Config-dependent `produces`** — the post-step guard normally checks the static
+`produces` list from `registry.yaml`, but a handful of steps only guarantee a subset of
+their declared capabilities depending on `pluginConfig`, and the registry format has no
+way to express a conditional. `effective_produces()` computes the actual expected set for
+these before the guard runs:
+
+| Step | Config that narrows `produces` |
+|------|---------------------------------|
+| `get-device-configs` | `config_format: "running" \| "startup" \| "both"` — only the requested `*_CONFIG` capability is required, not both. |
+| `render-jinja-template` | Always narrows to `{PARSED}` regardless of the registry entry. |
+| `update-attribute` | `ATTRIBUTES` is only guaranteed when at least one configured entry is `mode: "fixed"` (an unconditional write); a purely `regex`-mode config may legitimately skip a device, so `produces` narrows to `{}`. |
+
+Every other step uses its registry `produces` unchanged. A new step should only need
+`effective_produces()` if its declared capability is genuinely conditional on config —
+prefer a `produces` list that's always true instead, when possible.
+
 **Schema validation** — every persisted/loaded context is `model_validate`-d with
 `extra="forbid"`. Unknown fields are rejected.
 
@@ -910,7 +985,7 @@ Quick reference for step authors.
 |----------------------------|---------------------|-----------------------------------------------|------------------------------------------------------|
 | `get-nautobot-devices`     | *(source)*          | nothing                                       | `devices[*]` identity fields + `IDENTITY`            |
 | `get-git-devices`          | *(source)*          | nothing                                       | `devices[*]` identity fields + `IDENTITY`            |
-| `get-nautobot-attributes`  | `IDENTITY`          | `devices[*].id`                               | `devices[*].attributes` + `ATTRIBUTES`               |
+| `get-nautobot-attributes`  | `IDENTITY`          | `devices[*].id`                               | `devices[*].attribute_bags["nautobot"]` + `ATTRIBUTES` |
 | `get-running-config`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].running_config_ref` + `RUNNING_CONFIG`   |
 | `get-startup-config`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].startup_config_ref` + `STARTUP_CONFIG`   |
 | `parse-bgp`                | `RUNNING_CONFIG`    | `devices[*].running_config_ref`               | `devices[*].parsed["bgp"]` + `PARSED`               |
@@ -933,20 +1008,29 @@ Quick reference for step authors.
 
 ## Open Decisions
 
-1. **Artifact storage backend** — DB large-object, filesystem, or object store (S3/MinIO)?
-   The `ArtifactRef` abstraction is backend-agnostic; pick one and implement an
-   `ArtifactService` behind it.
+1. ~~**Artifact storage backend**~~ — **Resolved:** filesystem
+   (`services/artifacts/filesystem_artifact_service.py`), with an in-memory
+   implementation for dev/tests. The abstract `ArtifactService` (`store`/`resolve`)
+   stays backend-agnostic if an object-store backend is added later.
 2. **Per-device capability gating** — should a step run only on the subset of devices
    that satisfy its capability, instead of requiring all devices? A per-device gate is
    more flexible but more complex; recommended as a follow-up once the all-devices model
-   is stable.
+   is stable. Still open.
 3. **Parsed-data size bound** — `parsed` is "structured but bounded". Define a soft cap
-   and spill to an `ArtifactRef` above it if parsers produce large trees.
-4. **Outcome fan-out semantics** — when a step emits both `success` and `failure`, the
-   engine sends each outcome's context only down edges bound to that outcome handle.
-   Confirm this is enforced before the first branching step is implemented.
-5. **Capability enum sync** — choose between build-time codegen (Python enum → TS union)
-   or a contract test. Must be decided before the second step type ships.
+   and spill to an `ArtifactRef` above it if parsers produce large trees. Still open.
+4. ~~**Outcome fan-out semantics**~~ — **Resolved:** implemented as full inventory-level
+   fan-out (per-device/chunked child workflows + optional Wait & Run approval batching),
+   well beyond a single step's multiple outcomes. See `doc/WORKFLOW-STEPS.md` →
+   "Fan-out execution" for the design; this document's merge rules above cover only
+   branch-convergence `merge()`, not fan-out's separate `merge_fan_out_contexts()`
+   (`services/workflow_context/merge.py`) — see that section for its list-concatenate /
+   first-child-wins semantics.
+5. **Capability enum sync** — kept in sync by hand today. Partially mitigated: a backend
+   test (`backend/tests/unit/test_plugin_registry_capabilities.py`) asserts every
+   `registry.yaml` capability string is a valid `Capability` enum value, but there is no
+   test asserting the Python enum and `frontend/src/lib/capability-types.ts`'s
+   `Capability` union stay identical to each other. Still open — add that parity check
+   (or codegen) before relying on the frontend union being trustworthy.
 
 ---
 
@@ -983,7 +1067,9 @@ WorkflowContext                                           schema_version: int
 ├── devices: { device_id: DeviceContext }
 │   ├── id, name, hostname, platform,
 │   │   network_driver, primary_ip4, source               ← source steps
-│   ├── attributes: { ... }                               ← get-nautobot-attributes
+│   ├── attribute_bags: { bag_name: { ... } }              ← "nautobot" (get-nautobot-attributes),
+│   │                                                         "tacacs"/"ise" (ISE/TACACS+ steps),
+│   │                                                         "run_input" (reserved, seeded by engine)
 │   ├── running_config_ref, startup_config_ref            ← get-*-config  (ArtifactRef)
 │   ├── parsed: { parser_key: structured_data }           ← parse-* steps
 │   │   ├── "{node_id}.merged_content": { artifact_ref, step_node_id, output_key, kind, size_bytes }
