@@ -35,6 +35,7 @@ from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
 )
+from routers.sources.pyats import pyats_source_crud_router, pyats_source_ops_router
 from routers.system import router as system_router
 from routers.templates import router as templates_router
 from routers.users import router as users_router
@@ -50,6 +51,7 @@ from services.ise.client import ISEService
 from services.logging.logging_settings_service import LoggingSettingsService
 from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
+from services.pyats.client import PyATSShimService
 
 
 @asynccontextmanager
@@ -76,12 +78,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await ise_service.startup()
     service_factory.set_ise_app_service(ise_service)
 
+    pyats_service = PyATSShimService()
+    await pyats_service.startup()
+    service_factory.set_pyats_app_service(pyats_service)
+
     service_factory.build_cache_service()
 
     yield
 
     await nautobot_service.shutdown()
     await ise_service.shutdown()
+    await pyats_service.shutdown()
 
 
 app = FastAPI(
@@ -101,6 +108,8 @@ app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_ops_router, prefix=settings.api_prefix)
+app.include_router(pyats_source_crud_router, prefix=settings.api_prefix)
+app.include_router(pyats_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)
 app.include_router(workflow_steps_router, prefix=settings.api_prefix)
 app.include_router(workflow_update_attribute_router, prefix=settings.api_prefix)

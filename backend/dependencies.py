@@ -11,6 +11,7 @@ from models.sources_nautobot import NautobotConnection
 from services.auth.login_rate_limiter import LoginRateLimiter
 from services.ise.source_config_service import ISESourceConfigService
 from services.nautobot.credentials import NautobotCredentials
+from services.pyats.source_config_service import PyATSSourceConfigService
 from services.sources.nautobot.persistence_service import InventoryService
 
 
@@ -24,6 +25,12 @@ def get_ise_source_config_service(
     db: Session = Depends(get_db),
 ) -> ISESourceConfigService:
     return service_factory.build_ise_source_config_service(db)
+
+
+def get_pyats_source_config_service(
+    db: Session = Depends(get_db),
+) -> PyATSSourceConfigService:
+    return service_factory.build_pyats_source_config_service(db)
 
 
 def nautobot_credentials_from_body(connection: NautobotConnection) -> NautobotCredentials:

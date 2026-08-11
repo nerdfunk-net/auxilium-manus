@@ -90,3 +90,35 @@ export interface SourceTestConnectionResponse {
   success: boolean;
   message: string;
 }
+
+export interface PyATSSourceResponse {
+  source_id: string;
+  url: string;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface PyATSSourceListResponse {
+  sources: PyATSSourceResponse[];
+  total: number;
+}
+
+export interface PyATSSourceCreatePayload {
+  source_id: string;
+  url: string;
+  token: string;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface PyATSSourceUpdatePayload {
+  url?: string;
+  token?: string;
+  verify_ssl?: boolean;
+  timeout?: number;
+}
+
+export interface PyATSTestConnectionResponse {
+  success: boolean;
+  message: string;
+}

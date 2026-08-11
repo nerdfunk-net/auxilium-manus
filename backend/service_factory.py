@@ -16,12 +16,15 @@ from services.ise.source_config_service import ISESourceConfigService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.metadata_service import NautobotMetadataService
+from services.pyats.client import PyATSShimService
+from services.pyats.source_config_service import PyATSSourceConfigService
 from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
 
 _cache_service: RedisCacheService | None = None
 _nautobot_service: NautobotService | None = None
 _ise_service: ISEService | None = None
+_pyats_service: PyATSShimService | None = None
 _login_rate_limiter: LoginRateLimiter | None = None
 
 
@@ -49,6 +52,21 @@ def set_ise_app_service(service: ISEService) -> None:
 
 def build_ise_source_config_service(db: Session) -> ISESourceConfigService:
     return ISESourceConfigService(db)
+
+
+def get_pyats_app_service() -> PyATSShimService:
+    if _pyats_service is None:
+        raise RuntimeError("PyATSShimService is not initialized")
+    return _pyats_service
+
+
+def set_pyats_app_service(service: PyATSShimService) -> None:
+    global _pyats_service
+    _pyats_service = service
+
+
+def build_pyats_source_config_service(db: Session) -> PyATSSourceConfigService:
+    return PyATSSourceConfigService(db)
 
 
 def build_ise_network_device_service(

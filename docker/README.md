@@ -9,6 +9,8 @@ Running the application requires **two pieces**:
 
 PostgreSQL and Redis are bundled in the application `docker-compose.yml`. Hatchet brings its own PostgreSQL and RabbitMQ on the private `internal` network.
 
+**Optional:** `docker/pyats/` runs Cisco pyATS/Genie in its own container behind a thin HTTP shim, for pyATS-backed workflow steps and the pyATS source under Settings → Sources. See `docker/pyats/README.md` and `doc/PYATS_INTEGRATION.md`.
+
 ## Quick start (development)
 
 ### 1. Create Docker networks
@@ -141,6 +143,7 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 | `docker-compose.yml` | App stack: postgres, redis, web, worker (`frontend` + `hatchet` networks) |
 | `.env.example` | Optional template (prefer editing `x-manus-app-env` in compose) |
 | `hatchet/docker-compose.yml` | Hatchet stack (engine, dashboard, dependencies) |
+| `pyats/docker-compose.yml` | Optional pyATS shim stack (see `pyats/README.md`) |
 | `prepare-all-in-one.sh` | Build and export air-gap image |
 | `deploy-all-in-one.sh` | Load and run image in air-gap environment |
 | `validate-all-in-one.sh` | Post-deployment health checks |

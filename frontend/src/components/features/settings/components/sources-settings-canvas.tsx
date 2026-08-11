@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { GitBranch, Network, ShieldCheck } from "lucide-react";
+import { FlaskConical, GitBranch, Network, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,8 @@ import {
 } from "@/hooks/queries/use-git-source-operations-mutations";
 import { useISESourcesMutations } from "@/hooks/queries/use-ise-sources-mutations";
 import { useISESourcesQuery } from "@/hooks/queries/use-ise-sources-query";
+import { usePyATSSourcesMutations } from "@/hooks/queries/use-pyats-sources-mutations";
+import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
 import { useSettingsMutations } from "@/hooks/queries/use-settings-mutations";
 import { useSettingsListQuery } from "@/hooks/queries/use-settings-query";
 
@@ -28,6 +30,7 @@ import {
 import { GitSourceDialog } from "../dialogs/git-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
 import { NautobotSourceDialog } from "../dialogs/nautobot-source-dialog";
+import { PyATSSourceDialog } from "../dialogs/pyats-source-dialog";
 import type {
   GitSourceConfig,
   GitSourceValue,
@@ -35,6 +38,8 @@ import type {
   ISESourceUpdatePayload,
   NautobotSourceConfig,
   NautobotSourceValue,
+  PyATSSourceCreatePayload,
+  PyATSSourceUpdatePayload,
 } from "../types/settings-api";
 import {
   collectExistingSourceIds,
@@ -47,9 +52,10 @@ type DialogState =
   | { type: "nautobot"; mode: "create" | "edit"; sourceId?: string }
   | { type: "git"; mode: "create" | "edit"; sourceId?: string }
   | { type: "ise"; mode: "create" | "edit"; sourceId?: string }
+  | { type: "pyats"; mode: "create" | "edit"; sourceId?: string }
   | {
       type: "delete";
-      sourceType: "nautobot" | "git" | "ise";
+      sourceType: "nautobot" | "git" | "ise" | "pyats";
       sourceId: string;
       key: string;
     }
@@ -76,6 +82,22 @@ export function SourcesSettingsCanvas() {
     [ise],
   );
   const existingIseIds = useMemo(() => ise.map((item) => item.source_id), [ise]);
+
+  const { data: pyatsData, isLoading: isPyatsLoading } = usePyATSSourcesQuery();
+  const {
+    createSource: createPyatsSource,
+    updateSource: updatePyatsSource,
+    deleteSource: deletePyatsSource,
+  } = usePyATSSourcesMutations();
+  const pyats = useMemo(() => pyatsData?.sources ?? [], [pyatsData]);
+  const pyatsById = useMemo(
+    () => new Map(pyats.map((item) => [item.source_id, item])),
+    [pyats],
+  );
+  const existingPyatsIds = useMemo(
+    () => pyats.map((item) => item.source_id),
+    [pyats],
+  );
 
   const { nautobot, git } = useMemo(
     () => groupSourceSettings(data?.settings ?? []),
@@ -155,17 +177,35 @@ export function SourcesSettingsCanvas() {
     [updateIseSource],
   );
 
+  const savePyats = useCallback(
+    async (values: PyATSSourceCreatePayload) => {
+      await createPyatsSource.mutateAsync(values);
+      setDialog({ type: "closed" });
+    },
+    [createPyatsSource],
+  );
+
+  const updatePyats = useCallback(
+    async (sourceId: string, values: PyATSSourceUpdatePayload) => {
+      await updatePyatsSource.mutateAsync({ sourceId, data: values });
+      setDialog({ type: "closed" });
+    },
+    [updatePyatsSource],
+  );
+
   const confirmDelete = useCallback(async () => {
     if (dialog.type !== "delete") {
       return;
     }
     if (dialog.sourceType === "ise") {
       await deleteIseSource.mutateAsync(dialog.sourceId);
+    } else if (dialog.sourceType === "pyats") {
+      await deletePyatsSource.mutateAsync(dialog.sourceId);
     } else {
       await deleteSetting.mutateAsync(dialog.key);
     }
     setDialog({ type: "closed" });
-  }, [dialog, deleteSetting, deleteIseSource]);
+  }, [dialog, deleteSetting, deleteIseSource, deletePyatsSource]);
 
   const handlePullGit = useCallback(
     async (sourceId: string) => {
@@ -186,6 +226,7 @@ export function SourcesSettingsCanvas() {
     dialog.type === "nautobot" ? dialog : null;
   const gitDialogOpen = dialog.type === "git" ? dialog : null;
   const iseDialogOpen = dialog.type === "ise" ? dialog : null;
+  const pyatsDialogOpen = dialog.type === "pyats" ? dialog : null;
   const deleteDialogOpen = dialog.type === "delete" ? dialog : null;
   const removeAndCloneDialogOpen =
     dialog.type === "remove-and-clone" ? dialog : null;
@@ -210,11 +251,25 @@ export function SourcesSettingsCanvas() {
         timeout: editingIse.timeout,
       }
     : null;
+  const editingPyats =
+    pyatsDialogOpen?.mode === "edit" && pyatsDialogOpen.sourceId
+      ? (pyatsById.get(pyatsDialogOpen.sourceId) ?? null)
+      : null;
+  const editingPyatsValue = editingPyats
+    ? {
+        sourceId: editingPyats.source_id,
+        url: editingPyats.url,
+        verifySsl: editingPyats.verify_ssl,
+        timeout: editingPyats.timeout,
+      }
+    : null;
 
   const isDeletePending =
     deleteDialogOpen?.sourceType === "ise"
       ? deleteIseSource.isPending
-      : deleteSetting.isPending;
+      : deleteDialogOpen?.sourceType === "pyats"
+        ? deletePyatsSource.isPending
+        : deleteSetting.isPending;
 
   return (
     <>
@@ -227,9 +282,10 @@ export function SourcesSettingsCanvas() {
             <div>
               <p className="text-sm font-semibold">Sources</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add multiple Nautobot, Git, and Cisco ISE connections. Each
-                instance needs a unique source ID for workflow step references
-                (e.g. <code className="rounded bg-muted px-1 text-xs">prod-lab</code>
+                Add multiple Nautobot, Git, Cisco ISE, and pyATS connections.
+                Each instance needs a unique source ID for workflow step
+                references (e.g.{" "}
+                <code className="rounded bg-muted px-1 text-xs">prod-lab</code>
                 ).
               </p>
             </div>
@@ -338,6 +394,32 @@ export function SourcesSettingsCanvas() {
                 })
               }
             />
+
+            <SourceListSection
+              title="pyATS"
+              description="Cisco pyATS/Genie shim for network testing steps"
+              icon={FlaskConical}
+              isLoading={isPyatsLoading}
+              emptyLabel="No pyATS sources yet."
+              addLabel="Add pyATS"
+              items={pyats.map((item) => ({
+                sourceId: item.source_id,
+                summary: item.url,
+                detail: item.verify_ssl ? undefined : "TLS verification disabled",
+              }))}
+              onAdd={() => setDialog({ type: "pyats", mode: "create" })}
+              onEdit={(sourceId) =>
+                setDialog({ type: "pyats", mode: "edit", sourceId })
+              }
+              onDelete={(sourceId) =>
+                setDialog({
+                  type: "delete",
+                  sourceType: "pyats",
+                  sourceId,
+                  key: "",
+                })
+              }
+            />
           </div>
         </div>
       </div>
@@ -371,6 +453,17 @@ export function SourcesSettingsCanvas() {
         onClose={() => setDialog({ type: "closed" })}
         onCreate={saveIse}
         onUpdate={updateIse}
+      />
+
+      <PyATSSourceDialog
+        open={pyatsDialogOpen !== null}
+        mode={pyatsDialogOpen?.mode ?? "create"}
+        initialValue={editingPyatsValue}
+        existingSourceIds={existingPyatsIds}
+        isSaving={createPyatsSource.isPending || updatePyatsSource.isPending}
+        onClose={() => setDialog({ type: "closed" })}
+        onCreate={savePyats}
+        onUpdate={updatePyats}
       />
 
       <Dialog

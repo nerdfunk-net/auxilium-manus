@@ -1,0 +1,8 @@
+# pyATS releases use CalVer (26.x in 2026); [full] pulls in genie.libs
+# parsers, required for the /v1/jobs "parse" operation to have anything to
+# parse against. Verify this range still resolves before bumping the major
+# (year) component -- CalVer means a new year can be a breaking jump.
+pyats[full]>=26.0,<27.0
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pyyaml>=6.0,<7.0

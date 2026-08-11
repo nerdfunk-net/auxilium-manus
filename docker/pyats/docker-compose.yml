@@ -1,0 +1,47 @@
+# Auxilium Manus — pyATS shim (optional)
+#
+# Runs Cisco pyATS/Genie in its own container behind a thin HTTP shim, so the
+# main app never installs pyATS into its own Python environment (pyATS's
+# published wheels only confirm Python 3.12/3.13 support, and its dependency
+# tree risks colliding with the app's own deps). See doc/PYATS_INTEGRATION.md
+# at the repo root for the full design.
+#
+# Prerequisite: the app stack's `backend` network must already exist (created
+# automatically the first time `docker/docker-compose.yml` is brought up).
+#
+# Start:
+#   cp .env.example .env   # set PYATS_SHIM_TOKEN to a random secret
+#   cd docker/pyats && docker compose up -d --build
+#
+# Then, in the app: Settings → Sources → Add pyATS source, with:
+#   URL:   http://pyats-shim:8100   (container DNS name on the `backend` network)
+#   Token: same value as PYATS_SHIM_TOKEN in .env
+#
+# No host port is published — pyats-shim is reachable only from other
+# containers on `backend` (manus-web / manus-worker), the same trust model
+# already used for postgres/redis.
+
+services:
+  pyats-shim:
+    build:
+      context: ../../pyats-shim
+      dockerfile: Dockerfile
+    container_name: pyats-shim
+    environment:
+      PYATS_SHIM_TOKEN: "${PYATS_SHIM_TOKEN:?Set PYATS_SHIM_TOKEN in docker/pyats/.env}"
+      PYATS_SHIM_PORT: 8100
+      PYATS_SHIM_MAX_CONCURRENT_JOBS: 4
+      PYATS_SHIM_JOB_TIMEOUT_SECONDS: 120
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backend
+
+networks:
+  backend:
+    external: true

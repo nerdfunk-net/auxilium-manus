@@ -32,6 +32,18 @@ to the client or logged (`_redact_secrets`, called at both call sites) — only 
 is unaddressed. **Accepted as-is** for now; `GIT_ASKPASS` or a git credential-helper would close this
 window if it's ever prioritized, since neither exposes the secret via argv.
 
+## pyATS shim: device credentials over plain HTTP
+
+`backend/services/pyats/client.py` sends device SSH credentials to the
+`pyats-shim` container in the `POST /v1/jobs` request body over plain HTTP
+(no TLS). **Accepted as-is**: the shim publishes no host port and is only
+reachable from other containers on the internal `backend` Docker network
+(`manus-web`/`manus-worker`), the same trust boundary already relied on for
+`postgres`/`redis`. If the shim is ever exposed outside that network (a
+published host port, a different/wider Docker network, a remote deployment),
+this must move to HTTPS or an equivalent transport fix first — see
+`doc/PYATS_INTEGRATION.md` for the full design.
+
 ## Git debug write endpoints (`test_write`/`test_delete`/`test_push`)
 
 `services/git/debug_service.py`'s `test_write`, `test_delete`, and `test_push` perform real filesystem

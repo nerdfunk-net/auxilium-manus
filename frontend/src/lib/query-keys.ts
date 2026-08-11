@@ -68,6 +68,10 @@ export const queryKeys = {
     all: ["sources-ise"] as const,
     list: () => [...queryKeys.sourcesIse.all, "list"] as const,
   },
+  sourcesPyats: {
+    all: ["sources-pyats"] as const,
+    list: () => [...queryKeys.sourcesPyats.all, "list"] as const,
+  },
   credentials: {
     all: ["credentials"] as const,
     list: (includeExpired?: boolean) =>
