@@ -37,6 +37,7 @@ from hatchet.workflows.workflow_run import workflow as workflow_execution  # noq
 from services.ise.client import ISEService  # noqa: E402
 from services.logging.logging_settings_service import LoggingSettingsService  # noqa: E402
 from services.nautobot.client import NautobotService  # noqa: E402
+from services.pyats.client import PyATSShimService  # noqa: E402
 
 configure_logging("worker")
 logger = logging.getLogger(__name__)
@@ -54,6 +55,10 @@ async def lifespan() -> AsyncGenerator[None, None]:
     await ise_service.startup()
     service_factory.set_ise_app_service(ise_service)
 
+    pyats_service = PyATSShimService()
+    await pyats_service.startup()
+    service_factory.set_pyats_app_service(pyats_service)
+
     service_factory.build_cache_service()
     logger.info("Worker services initialized")
     try:
@@ -61,6 +66,7 @@ async def lifespan() -> AsyncGenerator[None, None]:
     finally:
         await nautobot_service.shutdown()
         await ise_service.shutdown()
+        await pyats_service.shutdown()
         logger.info("Worker services shut down")
 
 

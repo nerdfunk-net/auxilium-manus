@@ -22,6 +22,7 @@ import os
 import shutil
 import signal
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,16 @@ class JobRunner:
             "PYATS_SHIM_RESULT_FILE": str(result_path),
         }
 
+        device_names = list(testbed["devices"])
+        logger.info(
+            "launching pyats run job operation=%s devices=%s work_dir=%s timeout=%s",
+            operation,
+            device_names,
+            work_dir,
+            timeout,
+        )
+        started_at = time.monotonic()
+
         proc = await asyncio.create_subprocess_exec(
             self._settings.pyats_bin,
             "run",
@@ -105,17 +116,33 @@ class JobRunner:
         try:
             _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except TimeoutError:
+            logger.error(
+                "pyats run job timed out after %.1fs devices=%s",
+                time.monotonic() - started_at,
+                device_names,
+            )
             self._kill_process_group(proc)
             with contextlib.suppress(ProcessLookupError):
                 await proc.wait()
             raise JobTimeoutError(f"pyATS job did not complete within {timeout} seconds") from None
 
+        elapsed = time.monotonic() - started_at
+
         if result_path.exists():
+            logger.info(
+                "pyats run job finished exit_code=%s elapsed=%.1fs devices=%s",
+                proc.returncode,
+                elapsed,
+                device_names,
+            )
             return json.loads(result_path.read_text())
 
         stderr_tail = stderr.decode(errors="replace")[-4000:]
         logger.error(
-            "pyATS job produced no result file (exit code %s): %s", proc.returncode, stderr_tail
+            "pyATS job produced no result file (exit code %s, elapsed %.1fs): %s",
+            proc.returncode,
+            elapsed,
+            stderr_tail,
         )
         error = f"pyATS job produced no results (exit code {proc.returncode}): {stderr_tail}"
         return {name: {"success": False, "error": error, "commands": {}} for name in testbed["devices"]}

@@ -13,13 +13,27 @@
 #   cp .env.example .env   # set PYATS_SHIM_TOKEN to a random secret
 #   cd docker/pyats && docker compose up -d --build
 #
-# Then, in the app: Settings → Sources → Add pyATS source, with:
-#   URL:   http://pyats-shim:8100   (container DNS name on the `backend` network)
-#   Token: same value as PYATS_SHIM_TOKEN in .env
+# Then, in the app: Settings → Sources → Add pyATS source. Which URL to use
+# depends on where the backend itself runs:
 #
-# No host port is published — pyats-shim is reachable only from other
-# containers on `backend` (manus-web / manus-worker), the same trust model
-# already used for postgres/redis.
+#   - Backend also containerized on the `backend` Docker network (manus-web /
+#     manus-worker from docker/docker-compose.yml):
+#       URL: http://pyats-shim:8100   (container DNS name)
+#
+#   - Backend running natively on the host (the CLAUDE.md dev workflow —
+#     `python start.py` / `python scripts/run_worker_dev.py`, NOT in Docker):
+#       URL: http://localhost:8100    (the published port below)
+#       The backend rejects loopback source URLs by default — set
+#       ALLOW_LOOPBACK_SOURCE_URLS=true in backend/.env for this local-lab case
+#       (see backend/.env.example).
+#
+#   Token (either case): same value as PYATS_SHIM_TOKEN in .env
+#
+# The published port is bound to 127.0.0.1 only — reachable from the same
+# machine (native backend, curl, browser), not the LAN. Combined with the
+# `backend` Docker network (for a containerized backend), this keeps the same
+# trust boundary in both cases: only local processes on the app's own host
+# can ever reach the shim.
 
 services:
   pyats-shim:
@@ -33,6 +47,8 @@ services:
       PYATS_SHIM_MAX_CONCURRENT_JOBS: 4
       PYATS_SHIM_JOB_TIMEOUT_SECONDS: 120
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:8100:8100"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
       interval: 15s

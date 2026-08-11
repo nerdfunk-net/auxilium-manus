@@ -85,12 +85,28 @@ backend/routers/sources/pyats/
 
 backend/service_factory.py                 # get/set_pyats_app_service, build_pyats_source_config_service
 backend/dependencies.py                    # get_pyats_source_config_service (FastAPI dependency)
-backend/main.py                            # PyATSShimService lifespan startup/shutdown, router registration
+backend/main.py                            # PyATSShimService lifespan startup/shutdown (API process), router registration
+backend/hatchet/worker.py                  # PyATSShimService lifespan startup/shutdown (Hatchet worker process)
 backend/services/auth/rbac_seed.py         # sources.pyats read/write/delete permissions
 
 backend/tests/unit/test_pyats_source_config_service.py
 backend/tests/unit/test_pyats_router_auth.py
 ```
+
+**Two independent processes, two independent lifespans.** The FastAPI API
+process and the Hatchet worker process each construct their own
+`PyATSShimService` and register it via `service_factory.set_pyats_app_service`
+in their own startup path — `main.py`'s `lifespan()` for the API process,
+`hatchet/worker.py`'s `lifespan()` for the worker. Workflow steps always run
+in the **worker** process, so registering a new app-scoped service only in
+`main.py` (as this integration initially did) leaves
+`service_factory.get_pyats_app_service()` raising
+`RuntimeError: PyATSShimService is not initialized` for every step that
+calls it, while the API's own `/sources/pyats/{id}/test-connection`
+endpoint works fine — the failure is worker-only, which makes it easy to
+miss in review. Any future app-scoped service (a new external system client,
+following the Nautobot/ISE/pyATS pattern) needs its startup/shutdown added
+to **both** lifespans.
 
 ## The shim's HTTP contract
 
@@ -188,6 +204,28 @@ functional check failed"); success reports the installed pyATS/Genie
 versions in the message. Response shape is always `{success, message}`,
 same as every other source's test-connection endpoint — no HTTP error
 status on a *failed* check, only on auth/validation errors.
+
+**Which URL to use depends on where the backend process itself runs** — this
+tripped up the first real end-to-end test. `docker/pyats/docker-compose.yml`
+joins the `backend` Docker network (for a backend that's *also*
+containerized there, e.g. `docker/docker-compose.yml`'s `manus-web`/
+`manus-worker`) **and** publishes its port to `127.0.0.1:8100` on the host
+(for the common local-dev case: backend running natively via `python
+start.py` / `python scripts/run_worker_dev.py`, which cannot resolve
+`pyats-shim` as a hostname at all — it isn't on that Docker network).
+Native-backend dev uses `http://localhost:8100`; a fully containerized
+backend uses `http://pyats-shim:8100`. The loopback URL case additionally
+needs `ALLOW_LOOPBACK_SOURCE_URLS=true` in `backend/.env` (see
+`backend/.env.example`) — `validate_outbound_http_url` rejects loopback
+targets by default. **Remember to restart the Hatchet worker after changing
+this env var or the source URL** — see the lifespan note above; the worker
+only re-reads config/settings at its own process startup.
+
+If a workflow step fails with a connection error and `docker logs pyats-shim`
+shows **no request activity at all** for that run, the request never left
+the backend/worker process — that is always a connectivity/URL problem, not
+a pyATS/Genie problem. See `docker/pyats/README.md`'s "Watching it work"
+section for the log lines to expect on a working call.
 
 ## Security notes
 
