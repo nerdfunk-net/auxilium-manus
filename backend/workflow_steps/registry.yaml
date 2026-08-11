@@ -355,6 +355,67 @@ plugins:
           required: true
           example: cisco_config
 
+  - id: add-pyats-testbed
+    name: Add Testbed
+    overview: Build a pyATS testbed from the current device list.
+    description: >
+      Resolve a credential and pyATS shim source for the current device list,
+      producing a reusable testbed bundle that downstream pyATS-backed steps
+      (e.g. Get & Parse Config) consume without needing their own
+      credential/source configuration.
+    artifact_type: configuration_retrieval
+    palette_category: pyats
+    directory: add_pyats_testbed
+    enabled: true
+    requires: [identity]
+    produces: [pyats_testbed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: pyats_source_id
+          description: ID of a pyATS source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: lab-pyats
+        - name: credential_reference
+          description: Reference to credentials stored in the backend.
+          data_type: credential_ref
+          required: true
+        - name: network_driver_override
+          description: Override the resolved pyATS os for all devices in this step.
+          data_type: string
+          required: false
+          example: iosxe
+
+  - id: get-pyats-config
+    name: Get & Parse Config
+    overview: Get running/startup config via pyATS and parse it with Genie.
+    description: >
+      Fetch running and startup configuration via the pyATS shim and parse it
+      with Genie into structured data. Requires an upstream Add Testbed step.
+    artifact_type: configuration_retrieval
+    palette_category: pyats
+    directory: get_pyats_config
+    enabled: true
+    requires: [identity, pyats_testbed]
+    produces: [parsed]
+    primary_output: pyats_config
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: output_key
+          description: >
+            Unique key for this step's parsed output on each device (used by
+            downstream Jinja templates and Log Attributes as
+            device.parsed.<output_key>). Nested under "running"/"startup".
+          data_type: string
+          required: true
+          example: pyats_config
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.

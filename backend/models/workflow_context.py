@@ -22,6 +22,7 @@ class Capability(StrEnum):
     STARTUP_CONFIG = "startup_config"
     PARSED = "parsed"
     PENDING_COMMANDS = "pending_commands"
+    PYATS_TESTBED = "pyats_testbed"
 
 
 class DeviceStatus(StrEnum):

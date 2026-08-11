@@ -33,6 +33,7 @@ REDACTED_PLACEHOLDER = "***REDACTED***"
 SECRET_BAG_PATHS: tuple[tuple[str, ...], ...] = (
     ("tacacs", "shared_secret"),
     ("ise", "tacacsSettings", "sharedSecret"),
+    ("pyats_testbed", "password"),
 )
 
 

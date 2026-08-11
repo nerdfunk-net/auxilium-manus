@@ -333,6 +333,38 @@ Key points for step authors:
 - Emergency rollback: `settings.netmiko_session_pooling = False` restores the
   legacy fresh-session-per-call behavior without a code change.
 
+### Calling pyATS from a step
+
+A step must **never** `import pyats` / `import genie` directly. pyATS/Genie
+is not installed in the backend's own Python environment at all (its
+published wheels don't confirm support for the backend's Python version, and
+its dependency tree risks colliding with the app's own deps) — it runs in a
+separate Docker container (`/pyats-shim`) behind a thin FastAPI wrapper. A
+pyATS-backed step calls that wrapper over HTTP through the same app-scoped
+service-client pattern already used for Nautobot and Cisco ISE:
+
+```python
+shim = service_factory.get_pyats_app_service()          # PyATSShimService
+credentials = pyats_source_config_service.resolve_credentials(source_id)  # PyATSCredentials
+response = await shim.run_job(
+    credentials, operation="parse", devices=[...], commands=[...],
+)
+```
+
+Full shim HTTP contract, job/easypy execution model, and container
+architecture: **doc/PYATS_INTEGRATION.md**.
+
+Reference implementations: `workflow_steps/add_pyats_testbed/executor.py`
+(resolves a credential + pyATS source once for the current device list and
+writes a reusable connection bundle into each device's
+`attribute_bags["pyats_testbed"]`, producing the `pyats_testbed` capability)
+and `workflow_steps/get_pyats_config/executor.py` (a downstream step that
+`requires: [identity, pyats_testbed]` and calls the shim using that bundle —
+no credential/source configuration of its own). Any new pyATS-backed step
+that needs the same device connection info should declare
+`requires: [pyats_testbed]` and read the bag rather than re-resolving its own
+credential, the same way Add Testbed → Get & Parse Config do.
+
 ### Optional modules
 
 | File         | Purpose                                              |

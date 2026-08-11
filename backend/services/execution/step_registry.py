@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from models.workflow_context import StepOutcome
+from workflow_steps.add_pyats_testbed.executor import execute as add_pyats_testbed
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
 from workflow_steps.compare_data.executor import execute as compare_data
@@ -37,6 +38,7 @@ from workflow_steps.get_ise_devices.executor import execute as get_ise_devices
 from workflow_steps.get_ise_tacacs_key.executor import execute as get_ise_tacacs_key
 from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
+from workflow_steps.get_pyats_config.executor import execute as get_pyats_config
 from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
 from workflow_steps.git_push.executor import execute as git_push
@@ -74,6 +76,8 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "config-to-attributes": config_to_attributes,
     "get-device-configs": get_device_configs,
     "parse-cisco-config": parse_cisco_config,
+    "add-pyats-testbed": add_pyats_testbed,
+    "get-pyats-config": get_pyats_config,
     "render-jinja-template": render_jinja_template,
     "run-command": run_command,
     "deploy-rendered-template": deploy_rendered_template,

@@ -15,7 +15,7 @@ backend's Python environment.
 - [How a job actually runs](#how-a-job-actually-runs)
 - [Configuring a source](#configuring-a-source)
 - [Security notes](#security-notes)
-- [Phase 2 (not yet built): the workflow step](#phase-2-not-yet-built-the-workflow-step)
+- [Workflow steps: Add Testbed and Get & Parse Config](#workflow-steps-add-testbed-and-get--parse-config)
 - [Open items / verify during hardening](#open-items--verify-during-hardening)
 
 ## Why a separate container
@@ -208,33 +208,74 @@ status on a *failed* check, only on auth/validation errors.
   logging at the summary level shown in `job_runner.py` (stderr tail on
   failure only, no full command output).
 
-## Phase 2 (not yet built): the workflow step
+## Workflow steps: Add Testbed and Get & Parse Config
 
-This integration currently stops at "verify the shim works via Settings ->
-Sources -> Test connection." A `pyats-execute`/`pyats-parse` workflow step
-that calls the shim mid-run is a separate, future phase. When built, it
-should follow `backend/workflow_steps/reachable/executor.py` as the closest
-existing analog (a non-SSH, per-device external check):
+Two steps, both under the **PyATS** palette category (only shown once a
+pyATS source is configured — a frontend-only filter in `step-catalog.tsx`,
+no backend change):
 
-- `device_sessions: DeviceSessionPool` is accepted but never touched — a
-  pyATS step doesn't participate in the Netmiko session pool, since pyATS
-  manages its own Unicon connections inside the shim container. Import
-  `DeviceSessionPool` under `TYPE_CHECKING` only.
-- Devices come from `context.devices` (populated by an upstream inventory
-  step), not a direct `Inventory` lookup — same as every other step.
-- Device SSH credentials for the *target devices* (not the shim's own
-  bearer token) still go through the normal per-step credential resolution
-  (`workflow_steps/common/credential_resolver.py`), the same as
-  `run-command`. The pyATS *source*'s credential is only the shim's bearer
-  token — it has nothing to do with target-device auth.
-- Call `service_factory.get_pyats_app_service().run_job(...)` with
-  credentials resolved via `PyATSSourceConfigService.resolve_credentials`,
-  batching every device in the step's `context.devices` into one call (per
-  [How a job actually runs](#how-a-job-actually-runs)).
-- Results should be written into `device.parsed[f"{node_id}.pyats"]`
-  and/or stored as an artifact via `artifact_service.store(content=...,
-  kind="pyats_result", ...)`, matching `run_command`'s pattern for parsed
-  vs. raw output.
+### Add Testbed (`add-pyats-testbed`)
+
+Pure local computation, no network I/O. Given a device list from an
+upstream inventory step (`requires: [identity]`), it resolves a
+`credential_reference` **once** (via
+`workflow_steps/common/credential_resolver.py::resolve_generic_credential`,
+which — unlike `resolve_ssh_credential` — accepts both `"ssh"` and
+`"generic"` vault credential types, since the shim only needs a plain
+username/password over HTTP), computes each device's pyATS `os` (a new
+`services/network/pyats/platform.py::resolve_pyats_os`, mirroring the
+Netmiko sibling but mapping to Genie's `os` vocabulary — `ios`/`iosxe`/
+`nxos`/`iosxr`/`junos`/`eos`, which differs from Netmiko's `device_type`
+strings), seals the password with `seal_secret()`, and writes one bundle
+per device into `attribute_bags["pyats_testbed"]`:
+
+```python
+{"pyats_source_id": ..., "host": ..., "os": ..., "username": ..., "password": <sealed>}
+```
+
+This produces the new `Capability.PYATS_TESTBED` (`"pyats_testbed"`) — added
+to the closed `Capability` enum in `models/workflow_context.py`, and
+mirrored in `frontend/src/lib/capability-types.ts` for canvas connection
+validation. `services/workflow_context/secret_fields.py::SECRET_BAG_PATHS`
+gained a `("pyats_testbed", "password")` entry so the bundle's password is
+redacted at every persist/log boundary, same as the TACACS+ shared-secret
+path.
+
+Downstream pyATS steps declare `requires: [pyats_testbed]` and read this
+bag instead of asking for their own credential/source — define once, reuse
+across every pyATS step in the workflow.
+
+### Get & Parse Config (`get-pyats-config`)
+
+`requires: [identity, pyats_testbed]`, `produces: [parsed]`. For each
+device, reads its `pyats_testbed` bag, `unwrap_secret()`s the password
+(in-memory only, to build the shim request body — never copied elsewhere),
+and calls the shim **once per device**:
+
+```python
+shim.run_job(
+    shim_credentials, operation="parse",
+    devices=[{"name": device_id, "host": ..., "os": ..., "username": ..., "password": ...}],
+    commands=["show running-config", "show startup-config"],
+)
+```
+
+One call per device rather than Phase 1's "batch every device into one
+call" — because devices may in principle reference different
+`pyats_source_id`s, and per-device isolation keeps partial-failure handling
+simple (one bad device's shim call failing doesn't block the others). If
+job-startup overhead × device count proves too slow in practice, grouping
+devices by `pyats_source_id` and batching is a possible follow-up.
+
+The Genie-parsed result for both commands is written into
+`device.parsed[output_key]` as `{"running": ..., "startup": ...}` — this is
+the Genie-powered analog of the existing `parse-cisco-config` step (which
+uses `cisco_config_parser`, not Genie), not a replacement for
+`get-device-configs`. No raw-text artifact capture in v1 — only the
+Genie-parsed structured result.
+
+Full step-authoring convention: **doc/WORKFLOW-STEPS.md**'s "Calling pyATS
+from a step" section.
 
 ## Open items / verify during hardening
 

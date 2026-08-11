@@ -3,6 +3,7 @@
 import { ChevronDown, Plus, Search } from "lucide-react";
 import { useMemo, useState, type DragEvent } from "react";
 
+import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
 import { cn } from "@/lib/utils";
 
 import type { PluginDefinition } from "../types/plugin-registry";
@@ -117,7 +118,16 @@ export function StepCatalog({ errorMessage, isLoading, onAddStep, plugins }: Ste
     (state) => state.toggleStepCatalogCategory,
   );
 
-  const groups = useMemo(() => groupPaletteItems(plugins), [plugins]);
+  const { data: pyatsSourcesData } = usePyATSSourcesQuery();
+  const hasPyatsSource = (pyatsSourcesData?.sources.length ?? 0) > 0;
+
+  const groups = useMemo(() => {
+    const allGroups = groupPaletteItems(plugins);
+    // The PyATS category only makes sense once a pyATS shim source is
+    // configured under Settings -> Sources — hide it otherwise rather than
+    // showing steps nobody can configure yet.
+    return hasPyatsSource ? allGroups : allGroups.filter((group) => group.categoryKey !== "pyats");
+  }, [plugins, hasPyatsSource]);
   const query = search.trim().toLowerCase();
 
   const visibleGroups = useMemo(() => {

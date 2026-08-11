@@ -6,6 +6,7 @@ import {
   FileArchive,
   FileText,
   Filter,
+  FlaskConical,
   GitBranch,
   GitMerge,
   HardDriveDownload,
@@ -33,6 +34,7 @@ import {
 export const ARTIFACT_TYPE_ORDER = [
   "nautobot",
   "cisco",
+  "pyats",
   "inventory_selector",
   "routing",
   "attributes",
@@ -47,6 +49,7 @@ export const ARTIFACT_TYPE_ORDER = [
 export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   nautobot: "Nautobot",
   cisco: "Cisco",
+  pyats: "PyATS",
 };
 
 export function formatPaletteCategory(category: string): string {
@@ -82,6 +85,11 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "get-ise-tacacs-key": Key,
   reachable: Wifi,
   "login-successful": LogIn,
+  "add-pyats-testbed": FlaskConical,
+  // resolveStepIcon's artifact_type fallback is keyed off palette_category
+  // (not the step's real artifact_type) once a custom palette_category is
+  // set, so any pyats-category step needs an explicit entry here too.
+  "get-pyats-config": HardDriveDownload,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {
@@ -117,6 +125,7 @@ export const categoryTileClasses: Record<string, string> = {
   inventory_selector: "bg-sky-100 text-sky-700",
   nautobot: "bg-teal-100 text-teal-700",
   cisco: "bg-cyan-100 text-cyan-700",
+  pyats: "bg-fuchsia-100 text-fuchsia-700",
   persistent_artifact: "bg-violet-100 text-violet-700",
   template_rendering: "bg-orange-100 text-orange-700",
   trigger: "bg-slate-100 text-slate-700",
@@ -138,6 +147,7 @@ export const categoryBorderAccentClasses: Record<string, string> = {
   inventory_selector: "border-l-sky-700",
   nautobot: "border-l-teal-700",
   cisco: "border-l-cyan-700",
+  pyats: "border-l-fuchsia-700",
   persistent_artifact: "border-l-violet-700",
   template_rendering: "border-l-orange-700",
 };

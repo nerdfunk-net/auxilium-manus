@@ -6,7 +6,8 @@ export type Capability =
   | "running_config"
   | "startup_config"
   | "parsed"
-  | "pending_commands";
+  | "pending_commands"
+  | "pyats_testbed";
 
 export const ALL_CAPABILITIES: Capability[] = [
   "identity",
@@ -15,6 +16,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "startup_config",
   "parsed",
   "pending_commands",
+  "pyats_testbed",
 ];
 
 export interface Provided {
