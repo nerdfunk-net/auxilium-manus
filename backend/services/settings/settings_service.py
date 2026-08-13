@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.models.settings import Setting
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_git_remote_url, validate_outbound_http_url
 from models.settings import (
     SettingCreate,
     SettingListResponse,
@@ -15,6 +15,8 @@ from models.settings import (
     SettingUpdate,
 )
 from repositories.settings_repository import SettingsRepository
+from services.credentials.credentials_service import CredentialsService
+from services.credentials.exceptions import CredentialNotFoundError
 from services.settings.exceptions import SourceConfigError
 from services.settings.source_keys import (
     SourceType,
@@ -27,6 +29,14 @@ logger = logging.getLogger(__name__)
 
 
 _TOKEN_SOURCE_TYPES = frozenset({"nautobot", "git"})
+_TOKEN_USERNAME = {
+    "nautobot": "nautobot-token",
+    "git": "git-token",
+}
+
+
+def _credential_name(source_type: str, source_id: str) -> str:
+    return f"{source_type}-{source_id}"
 
 
 def _redact_source_token(key: str, value: dict[str, Any] | None) -> dict[str, Any]:
@@ -34,8 +44,8 @@ def _redact_source_token(key: str, value: dict[str, Any] | None) -> dict[str, An
     raw = dict(value or {})
     if parsed is None or parsed[0] not in _TOKEN_SOURCE_TYPES:
         return raw
-    token_configured = bool(str(raw.get("token") or "").strip())
-    redacted = dict(raw)
+    token_configured = bool(raw.get("credential_id")) or bool(str(raw.get("token") or "").strip())
+    redacted = {k: v for k, v in raw.items() if k not in {"token", "credential_id"}}
     redacted["token"] = ""
     redacted["token_configured"] = token_configured
     return redacted
@@ -55,6 +65,7 @@ def _to_response(setting: Setting) -> SettingResponse:
 class SettingsService:
     def __init__(self, db: Session) -> None:
         self.repo = SettingsRepository(db)
+        self._credentials = CredentialsService(db)
 
     def list_settings(self, *, key_prefix: str | None = None) -> SettingListResponse:
         rows = self.repo.list_all(key_prefix=key_prefix)
@@ -97,7 +108,12 @@ class SettingsService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"{source_type.title()} source '{source_id}' not found in settings",
             )
-        return {**(setting.value or {}), "source_id": source_id}
+        value = dict(setting.value or {})
+        if source_type in _TOKEN_SOURCE_TYPES:
+            credential_id = value.pop("credential_id", None)
+            if credential_id is not None:
+                value["token"] = self._credentials.get_decrypted_password(credential_id)
+        return {**value, "source_id": source_id}
 
     def get_source_config_for_step(self, source_type: SourceType, source_id: str) -> dict[str, Any]:
         """Worker-safe equivalent of ``get_source_config``.
@@ -119,7 +135,22 @@ class SettingsService:
                 detail=f"Setting '{data.key}' already exists",
             )
 
-        value = self._normalize_source_value(data.key, data.value)
+        value, token = self._normalize_source_value(data.key, data.value)
+        parsed = parse_source_key(data.key)
+        if parsed is not None and parsed[0] in _TOKEN_SOURCE_TYPES:
+            source_type, source_id = parsed
+            token = (token or "").strip()
+            if not token:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="token is required",
+                )
+            value["credential_id"] = self._persist_source_credential(
+                source_type=source_type,
+                source_id=source_id,
+                token=token,
+                existing_credential_id=None,
+            )
 
         logger.info("Creating setting key=%s", data.key)
         setting = self.repo.create(
@@ -139,14 +170,32 @@ class SettingsService:
 
         fields: dict = {}
         if data.value is not None:
-            incoming = dict(data.value)
+            value, token = self._normalize_source_value(key, dict(data.value))
             parsed = parse_source_key(key)
             if parsed is not None and parsed[0] in _TOKEN_SOURCE_TYPES:
-                incoming_token = str(incoming.get("token") or "").strip()
-                if not incoming_token:
-                    existing = setting.value or {}
-                    incoming["token"] = existing.get("token", "")
-            fields["value"] = self._normalize_source_value(key, incoming)
+                source_type, source_id = parsed
+                existing = setting.value or {}
+                existing_credential_id = existing.get("credential_id")
+                token = (token or "").strip()
+                if token:
+                    value["credential_id"] = self._persist_source_credential(
+                        source_type=source_type,
+                        source_id=source_id,
+                        token=token,
+                        existing_credential_id=existing_credential_id,
+                    )
+                elif existing_credential_id is not None:
+                    value["credential_id"] = existing_credential_id
+                else:
+                    legacy_token = str(existing.get("token") or "").strip()
+                    if legacy_token:
+                        value["credential_id"] = self._persist_source_credential(
+                            source_type=source_type,
+                            source_id=source_id,
+                            token=legacy_token,
+                            existing_credential_id=None,
+                        )
+            fields["value"] = value
         if data.description is not None:
             fields["description"] = data.description
 
@@ -169,12 +218,38 @@ class SettingsService:
             )
         logger.info("Deleting setting key=%s", key)
         self.repo.delete(setting)
+        credential_id = (setting.value or {}).get("credential_id")
+        if credential_id is not None:
+            try:
+                self._credentials.delete_credential(credential_id)
+            except CredentialNotFoundError:
+                pass
 
-    @staticmethod
-    def _normalize_source_value(key: str, value: dict) -> dict:
+    def _persist_source_credential(
+        self,
+        *,
+        source_type: str,
+        source_id: str,
+        token: str,
+        existing_credential_id: int | None,
+    ) -> int:
+        if existing_credential_id is not None:
+            self._credentials.update_credential(existing_credential_id, password=token)
+            return existing_credential_id
+        credential = self._credentials.create_credential(
+            name=_credential_name(source_type, source_id),
+            username=_TOKEN_USERNAME[source_type],
+            cred_type="generic",
+            password=token,
+            source=source_type,
+            visibility="global",
+        )
+        return credential["id"]
+
+    def _normalize_source_value(self, key: str, value: dict) -> tuple[dict, str | None]:
         parsed = parse_source_key(key)
         if parsed is None:
-            return value
+            return value, None
 
         source_type, source_id = parsed
         value = dict(value)
@@ -191,19 +266,29 @@ class SettingsService:
                     ),
                 )
 
-        validated = SettingsService._validate_source_url(source_type, value)
-        return ensure_value_source_id(validated, source_type=source_type, source_id=source_id)
+        validated = self._validate_source_url(source_type, value)
+
+        token: str | None = None
+        if source_type in _TOKEN_SOURCE_TYPES:
+            token = validated.pop("token", None)
+            validated.pop("credential_id", None)
+
+        result = ensure_value_source_id(validated, source_type=source_type, source_id=source_id)
+        return result, token
 
     @staticmethod
     def _validate_source_url(source_type: SourceType, value: dict) -> dict:
-        """Validate outbound HTTP URLs for ISE/Nautobot source settings."""
-        if source_type not in ("nautobot", "ise"):
+        """Validate outbound URLs for ISE/Nautobot (HTTP) and Git (HTTPS/SSH) source settings."""
+        if source_type not in ("nautobot", "ise", "git"):
             return value
         raw_url = value.get("url")
         if raw_url is None:
             return value
         try:
-            safe_url = validate_outbound_http_url(str(raw_url), resolve_dns=True)
+            if source_type == "git":
+                safe_url = validate_git_remote_url(str(raw_url), resolve_dns=True)
+            else:
+                safe_url = validate_outbound_http_url(str(raw_url), resolve_dns=True)
         except UnsafeURLError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

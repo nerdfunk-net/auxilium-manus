@@ -18,15 +18,15 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.git.diff import GitDiffService
+from services.workflow_context.device_template import (
+    TemplateRenderOptions,
+    parse_strict_templates,
+    render_device_template,
+)
 from workflow_steps.common.content_resolver import (
     ExportableContent,
     list_exportable_content,
     parse_content_source,
-)
-from workflow_steps.common.device_template import (
-    TemplateRenderOptions,
-    parse_strict_templates,
-    render_device_template,
 )
 from workflow_steps.compare_data.config import get_config
 from workflow_steps.compare_data.reference_reader import read_reference_text

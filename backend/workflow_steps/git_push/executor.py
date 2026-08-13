@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from workflow_steps.common.device_template import render_step_template
+from services.workflow_context.device_template import render_step_template
 from workflow_steps.common.git_push_helpers import (
     collect_export_paths_for_commit,
     parse_commit_before_push,

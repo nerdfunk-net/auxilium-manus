@@ -11,7 +11,7 @@ from typing import Any
 
 from services.artifacts.sinks.base import ArtifactSink, StoredExport
 from services.git.paths import repo_path as get_repo_path
-from workflow_steps.common.device_template import sanitize_relative_path
+from services.workflow_context.device_template import sanitize_relative_path
 
 logger = logging.getLogger(__name__)
 

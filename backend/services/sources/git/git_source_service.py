@@ -16,6 +16,7 @@ from urllib.parse import urlparse, urlunparse
 import yaml
 
 from core.config import PROJECT_ROOT
+from core.safe_urls import UnsafeURLError, validate_git_remote_url
 from git import GitCommandError, Repo
 from git.exc import InvalidGitRepositoryError
 from services.git.env import set_ssl_env
@@ -70,6 +71,11 @@ def test_connection(
 
     if not public_url:
         return {"success": False, "message": "Repository URL is required"}
+
+    try:
+        validate_git_remote_url(public_url, resolve_dns=True)
+    except UnsafeURLError as exc:
+        return {"success": False, "message": str(exc)}
 
     auth_url = _build_auth_url(public_url, user, secret)
     ssl_config = {"verify_ssl": verify_ssl}
@@ -136,6 +142,10 @@ def clone_or_pull(source_config: dict[str, Any]) -> Path:
 
     if not url:
         raise ValueError(f"Git source '{source_id}' has no URL configured")
+    try:
+        validate_git_remote_url(url, resolve_dns=True)
+    except UnsafeURLError as exc:
+        raise ValueError(f"Git source '{source_id}' has an unsafe URL: {exc}") from exc
 
     repo_dir = _GIT_BASE_DIR / source_id
     auth_url = _build_auth_url(url, username, token)
@@ -187,6 +197,10 @@ def remove_and_clone(source_config: dict[str, Any]) -> Path:
 
     if not url:
         raise ValueError(f"Git source '{source_id}' has no URL configured")
+    try:
+        validate_git_remote_url(url, resolve_dns=True)
+    except UnsafeURLError as exc:
+        raise ValueError(f"Git source '{source_id}' has an unsafe URL: {exc}") from exc
 
     repo_dir = _GIT_BASE_DIR / source_id
     auth_url = _build_auth_url(url, username, token)

@@ -52,12 +52,12 @@ from services.pyats.source_config_service import (
     PyATSSourceConfigService,
     PyATSSourceNotFoundError,
 )
-from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
-from workflow_steps.common.device_template import (
+from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
     render_device_template,
 )
+from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 from workflow_steps.compare_data.reference_reader import read_reference_text
 from workflow_steps.compare_pyats_snapshot.config import get_config
 

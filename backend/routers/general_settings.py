@@ -24,6 +24,7 @@ def _service(db: Session = Depends(get_db)) -> GeneralSettingsService:
 @router.get(
     "/settings",
     response_model=GeneralSettingsResponse,
+    dependencies=[Depends(require_permission("general_settings", "read"))],
 )
 async def get_general_settings(
     service: GeneralSettingsService = Depends(_service),

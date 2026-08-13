@@ -43,7 +43,7 @@ def build_jinja_context(
     workflow_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the template namespace tree for a device."""
-    from workflow_steps.common.device_template import build_template_context
+    from services.workflow_context.device_template import build_template_context
 
     context = build_template_context(device, run_id=run_id)
     context["workflow"] = {"id": workflow_id or ""}

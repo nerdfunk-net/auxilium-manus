@@ -13,8 +13,8 @@ from core.config import settings
 from core.models.runs import WorkflowRun
 from models.workflow_context import ArtifactRef, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.workflow_context.device_template import sanitize_relative_path
 from services.workflow_context.secret_fields import redact_secrets_in_data
-from workflow_steps.common.device_template import sanitize_relative_path
 from workflow_steps.log_attributes.config import get_config
 
 if TYPE_CHECKING:

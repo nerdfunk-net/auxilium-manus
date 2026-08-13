@@ -230,7 +230,6 @@ class DeviceUpdateService:
         device_identifier: dict[str, Any],
         *,
         matching_strategy: str,
-        create_if_missing: bool,
     ) -> tuple[str, str]:
         logger.info("Step 1: Resolving device ID")
         device_id, device_name = await self._resolve_device_id(
@@ -238,9 +237,6 @@ class DeviceUpdateService:
         )
         if device_id:
             return device_id, device_name or ""
-        if create_if_missing:
-            # TODO: Call DeviceImportService to create device
-            raise ValueError("Device not found and create_if_missing not yet implemented")
         raise ValueError(f"Device not found with identifier: {device_identifier}")
 
     async def _apply_property_updates(
@@ -310,7 +306,6 @@ class DeviceUpdateService:
         update_data: dict[str, Any],
         interface_config: dict[str, str] | None = None,
         interfaces: list[dict[str, Any]] | None = None,
-        create_if_missing: bool = False,
         add_prefix: bool = True,
         default_prefix_length: str = "/24",
         matching_strategy: str = "exact",
@@ -369,8 +364,6 @@ class DeviceUpdateService:
                     ...
                 ]
 
-            create_if_missing: If True, create device if not found (uses DeviceImportService)
-
         Returns:
             {
                 "success": True,  # Always True (exceptions raised on failure)
@@ -389,7 +382,7 @@ class DeviceUpdateService:
             }
 
         Raises:
-            ValueError: If device not found and create_if_missing=False, or validation fails
+            ValueError: If device not found, or validation fails
             NautobotAPIError: If Nautobot API request fails
             Exception: If update fails for any other reason
         """
@@ -400,7 +393,6 @@ class DeviceUpdateService:
             device_id, device_name = await self._resolve_device_for_update(
                 device_identifier,
                 matching_strategy=matching_strategy,
-                create_if_missing=create_if_missing,
             )
             details["before"] = await self.common.get_device_details(device_id=device_id, depth=1)
             current_primary_ip4 = await self.common.extract_primary_ip_address(details["before"])

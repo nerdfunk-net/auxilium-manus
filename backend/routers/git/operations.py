@@ -23,23 +23,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/git/{repo_id}", tags=["git-operations"])
 
 
-def get_cached_commits(
-    git_cache_service, repo_id: int, branch_name: str, repo_path: str, limit: int = 50
-):
-    """
-    Get commits for a repository using cache when available.
-
-    DEPRECATED: This function now delegates to git_cache_service.
-    """
-    return git_cache_service.get_commits(
-        repo_id=repo_id,
-        repo_path=repo_path,
-        branch_name=branch_name,
-        limit=limit,
-        use_models=False,  # Return dicts for backward compatibility
-    )
-
-
 @router.get("/status", dependencies=[Depends(require_permission("git.operations", "read"))])
 async def get_repository_status(
     repo_id: int,

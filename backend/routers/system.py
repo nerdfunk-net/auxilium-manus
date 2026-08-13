@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.dev_tools import require_dev_tools
 from core.schema_manager import SchemaManager
 from models.system import RbacSeedResponse, SchemaMigrationResponse, SchemaStatusResponse
 from services.auth.rbac_seed import admin_reseed_rbac
@@ -30,7 +31,10 @@ async def get_schema_status() -> SchemaStatusResponse:
 @router.post(
     "/schema/migrate",
     response_model=SchemaMigrationResponse,
-    dependencies=[Depends(require_permission("system.database", "write"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("system.database", "write")),
+    ],
 )
 async def migrate_schema(force: bool = False) -> SchemaMigrationResponse:
     return SchemaManager().perform_migration(force=force)
@@ -39,7 +43,10 @@ async def migrate_schema(force: bool = False) -> SchemaMigrationResponse:
 @router.post(
     "/rbac/seed",
     response_model=RbacSeedResponse,
-    dependencies=[Depends(require_permission("system.rbac", "write"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("system.rbac", "write")),
+    ],
 )
 async def reseed_rbac(
     remove_existing: bool = False,

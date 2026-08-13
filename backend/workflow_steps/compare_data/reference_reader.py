@@ -9,7 +9,7 @@ from typing import Any
 
 from core.config import settings
 from services.git.paths import repo_path as get_repo_path
-from workflow_steps.common.device_template import sanitize_relative_path
+from services.workflow_context.device_template import sanitize_relative_path
 from workflow_steps.common.git_source_loader import load_git_source_repository
 
 logger = logging.getLogger(__name__)

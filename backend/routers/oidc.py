@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 
 import service_factory
 from core.auth import require_permission
+from core.config import settings
 from core.database import get_db
 from core.dev_tools import dev_tools_enabled
+from core.oidc_redirect import assert_redirect_matches_state, validate_oidc_redirect_uri
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_oidc_config_service, get_oidc_service
 from models.auth import (
@@ -102,6 +104,7 @@ async def initiate_test_login(
         response_type=body.response_type or "code",
         client_id=body.client_id,
         oidc_service=oidc_service,
+        relax_redirect=True,
     )
 
 
@@ -113,8 +116,19 @@ async def _build_login_response(
     response_type: str = "code",
     client_id: str | None = None,
     oidc_service: OIDCService,
+    relax_redirect: bool = False,
 ) -> OIDCLoginResponse:
     cache = _cache_or_503()
+
+    try:
+        redirect_uri = validate_oidc_redirect_uri(
+            redirect_uri,
+            allowlist=settings.oidc_redirect_uri_allowlist,
+            environment=settings.environment,
+            dev_tools=relax_redirect,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
         state = oidc_service.generate_state()
@@ -130,7 +144,9 @@ async def _build_login_response(
     except OIDCError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    cache.set(f"oidc-state:{state_with_provider}", "1", ttl_seconds=OIDC_STATE_TTL_SECONDS)
+    cache.set(
+        f"oidc-state:{state_with_provider}", redirect_uri, ttl_seconds=OIDC_STATE_TTL_SECONDS
+    )
 
     return OIDCLoginResponse(
         authorization_url=authorization_url,
@@ -155,11 +171,16 @@ async def handle_callback(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state")
 
     state_key = f"oidc-state:{body.state}"
-    if cache.get(state_key) is None:
+    stored_redirect_uri = cache.get(state_key)
+    if stored_redirect_uri is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state")
     cache.delete(state_key)
 
     redirect_uri = body.redirect_uri or ""
+    try:
+        assert_redirect_matches_state(stored_redirect_uri, redirect_uri)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
         tokens = await oidc_service.exchange_code_for_tokens(provider_id, body.code, redirect_uri)

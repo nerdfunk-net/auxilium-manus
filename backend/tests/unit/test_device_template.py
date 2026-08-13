@@ -7,7 +7,7 @@ import unittest
 from datetime import UTC, datetime
 
 from models.workflow_context import DeviceContext
-from workflow_steps.common.device_template import (
+from services.workflow_context.device_template import (
     TemplateRenderOptions,
     TemplateResolutionError,
     render_device_template,

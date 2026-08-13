@@ -7,7 +7,7 @@ from typing import Any
 
 import psycopg
 from psycopg import sql
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -33,6 +33,12 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_db_session() -> Session:
     return SessionLocal()
+
+
+def ping_database() -> None:
+    """Raise if the database is unreachable. Used by GET /health/ready."""
+    with SessionLocal() as db:
+        db.execute(text("SELECT 1"))
 
 
 def init_db() -> None:

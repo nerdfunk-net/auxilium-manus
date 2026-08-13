@@ -4,7 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from core.config import settings
 from core.logging_config import configure_logging
@@ -14,7 +14,8 @@ if not logging.root.handlers:
     configure_logging("app")
 
 import service_factory
-from core.database import SessionLocal, init_db
+from core.database import SessionLocal, init_db, ping_database
+from models.health import ReadyResponse
 from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
 from routers.cache_settings import router as cache_settings_router
@@ -47,11 +48,14 @@ from routers.workflows import router as workflows_router
 from services.auth.auth_service import AuthService
 from services.auth.rbac_seed import seed_rbac
 from services.auth.rbac_service import RBACService
+from services.health.ready import build_ready_response
 from services.ise.client import ISEService
 from services.logging.logging_settings_service import LoggingSettingsService
 from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.pyats.client import PyATSShimService
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -133,3 +137,38 @@ app.include_router(certificates_router, prefix=settings.api_prefix)
 @app.get("/health", tags=["health"])
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/health/ready", tags=["health"], response_model=ReadyResponse)
+async def health_ready(response: Response) -> ReadyResponse:
+    database_ok = True
+    database_error: str | None = None
+    try:
+        ping_database()
+    except Exception:
+        logger.exception("Readiness check: database unreachable")
+        database_ok = False
+        database_error = "unavailable"
+
+    redis_ok = True
+    redis_error: str | None = None
+    cache = service_factory.build_cache_service()
+    if cache is None:
+        redis_ok = False
+        redis_error = "unconfigured"
+    else:
+        try:
+            cache.ping()
+        except Exception:
+            logger.exception("Readiness check: redis unreachable")
+            redis_ok = False
+            redis_error = "unavailable"
+
+    status_code, body = build_ready_response(
+        database_ok=database_ok,
+        database_error=database_error,
+        redis_ok=redis_ok,
+        redis_error=redis_error,
+    )
+    response.status_code = status_code
+    return body

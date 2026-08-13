@@ -20,7 +20,10 @@ internal one.
 checking parameters; Netmiko's default behavior auto-accepts unknown host keys (equivalent to
 `StrictHostKeyChecking=no`). **Accepted as-is**: standard practice for NetDevOps automation tooling
 targeting a known device inventory, but worth stating explicitly here since it's a real MITM exposure if
-the management network is ever untrusted.
+the management network is ever untrusted. The template-editor preview endpoints
+(`/netmiko/run-commands`, `/netmiko/get-configs`) deny SSH to arbitrary hosts outside development
+unless `ALLOW_NETMIKO_ARBITRARY_HOSTS=true` (`core/safe_hosts.py`); this host-key-checking gap remains
+accepted for whatever host the preview (or a workflow run) is allowed to reach.
 
 ## Git credentials visible in process argv
 

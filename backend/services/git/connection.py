@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from core.safe_urls import UnsafeURLError, validate_git_remote_url
 from models.git_repositories import GitConnectionTestRequest, GitConnectionTestResponse
 from services.git.auth import GitAuthenticationService
 from services.git.env import set_ssl_env
@@ -55,6 +56,16 @@ class GitConnectionService:
         logger.info("Auth Type: %s", test_request.auth_type)
         logger.info("Credential Name: %s", test_request.credential_name)
         logger.info("Verify SSL: %s", test_request.verify_ssl)
+
+        try:
+            validate_git_remote_url(test_request.url, resolve_dns=True)
+        except UnsafeURLError as exc:
+            logger.warning("Git connection test rejected unsafe URL: %s", exc)
+            return GitConnectionTestResponse(
+                success=False,
+                message=str(exc),
+                details={},
+            )
 
         try:
             # Create temporary directory for test
@@ -304,9 +315,10 @@ class GitConnectionService:
                 },
             )
         else:
-            logger.warning("Git connection test failed for %s: %s", test_request.url, result.stderr)
+            safe_stderr = result.stderr.replace(clone_url, test_request.url)
+            logger.warning("Git connection test failed for %s: %s", test_request.url, safe_stderr)
             return GitConnectionTestResponse(
                 success=False,
-                message=f"Git connection failed: {result.stderr}",
-                details={"error": result.stderr, "return_code": result.returncode},
+                message="Git connection failed",
+                details={"error": safe_stderr, "return_code": result.returncode},
             )

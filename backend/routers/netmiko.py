@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
+from core.config import settings
 from core.database import get_db
 from core.models.users import User
+from core.safe_hosts import validate_netmiko_preview_host
 from core.safe_http_errors import raise_internal_server_error
 from models.netmiko import (
     NetmikoCommandEntry,
@@ -73,6 +75,15 @@ async def run_commands(
             detail="At least one non-empty command is required",
         )
 
+    try:
+        host = validate_netmiko_preview_host(
+            payload.host,
+            environment=settings.environment,
+            allow_arbitrary=settings.allow_netmiko_arbitrary_hosts,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     credential = credentials_service.get_credential_by_id(
         payload.credential_id, acting_user_id=current_user.id
     )
@@ -98,7 +109,7 @@ async def run_commands(
     try:
         netmiko = NetmikoService(pool=pool)
         result = await netmiko.send_commands(
-            host=payload.host,
+            host=host,
             network_driver=payload.network_driver,
             platform=payload.platform,
             username=credential["username"],
@@ -110,7 +121,7 @@ async def run_commands(
     except NetmikoConnectionError as exc:
         # Device-side connect/auth/timeout failure: report gracefully so the
         # editor can surface it, rather than emitting a generic 500.
-        logger.info("Netmiko preview connection failed host=%s", payload.host)
+        logger.info("Netmiko preview connection failed host=%s", host)
         return NetmikoRunCommandsResponse(success=False, commands=[], error=str(exc))
     finally:
         await pool.close()
@@ -144,6 +155,15 @@ async def get_configs(
     current_user: User = Depends(get_current_user),
     credentials_service: CredentialsService = Depends(_credentials_service),
 ) -> NetmikoGetConfigsResponse:
+    try:
+        host = validate_netmiko_preview_host(
+            payload.host,
+            environment=settings.environment,
+            allow_arbitrary=settings.allow_netmiko_arbitrary_hosts,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     credential = credentials_service.get_credential_by_id(
         payload.credential_id, acting_user_id=current_user.id
     )
@@ -169,7 +189,7 @@ async def get_configs(
     try:
         netmiko = NetmikoService(pool=pool)
         result = await netmiko.get_configs(
-            host=payload.host,
+            host=host,
             network_driver=payload.network_driver,
             platform=payload.platform,
             username=credential["username"],
@@ -179,7 +199,7 @@ async def get_configs(
             credential_reference=f"credential:{payload.credential_id}",
         )
     except NetmikoConnectionError as exc:
-        logger.info("Netmiko get-configs connection failed host=%s", payload.host)
+        logger.info("Netmiko get-configs connection failed host=%s", host)
         return NetmikoGetConfigsResponse(success=False, error=str(exc))
     finally:
         await pool.close()

@@ -25,16 +25,16 @@ from services.artifacts.sinks import (
     StoredExport,
 )
 from services.general.general_settings_service import GeneralSettingsService
-from workflow_steps.common.content_resolver import (
-    ExportableContent,
-    list_exportable_content,
-    parse_content_source,
-)
-from workflow_steps.common.device_template import (
+from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
     render_device_template,
     render_step_template,
+)
+from workflow_steps.common.content_resolver import (
+    ExportableContent,
+    list_exportable_content,
+    parse_content_source,
 )
 from workflow_steps.common.git_source_loader import load_git_source_repository
 

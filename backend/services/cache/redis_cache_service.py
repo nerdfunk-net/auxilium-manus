@@ -40,6 +40,10 @@ class RedisCacheService:
         """Generate full Redis key with prefix."""
         return f"{self._prefix}:{key}"
 
+    def ping(self) -> None:
+        """Raise if Redis is unreachable. Used by GET /health/ready."""
+        self._redis.ping()
+
     def _incr_stat(self, stat_name: str, amount: int = 1):
         """Increment a statistics counter."""
         self._redis.hincrby(self._stats_key, stat_name, amount)

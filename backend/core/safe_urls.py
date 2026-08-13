@@ -1,8 +1,9 @@
-"""Outbound URL policy for admin-configured HTTP integrations (ISE, Nautobot)."""
+"""Outbound URL policy for admin-configured HTTP integrations (ISE, Nautobot, Git)."""
 
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 from urllib.parse import urlparse
 
@@ -10,6 +11,9 @@ from core.config import settings
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 _BLOCKED_HOSTNAMES = frozenset({"metadata.google.internal"})
+
+_ALLOWED_GIT_SCHEMES = frozenset({"https", "ssh", "git+ssh"})
+_SCP_LIKE_PATTERN = re.compile(r"^(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9_.-]+:(?!//)\S+$")
 
 
 class UnsafeURLError(ValueError):
@@ -51,6 +55,42 @@ def validate_outbound_http_url(url: str, *, resolve_dns: bool = True) -> str:
         _assert_resolved_hosts_allowed(host)
 
     return raw.rstrip("/")
+
+
+def validate_git_remote_url(url: str, *, resolve_dns: bool = True) -> str:
+    """Return a normalized git remote or raise ``UnsafeURLError``.
+
+    Allows https (via ``validate_outbound_http_url``), ssh, git+ssh, and
+    scp-like ``git@host:path``. Rejects ``file://``, ``http://``, and bare
+    filesystem paths.
+    """
+    raw = (url or "").strip()
+    if not raw:
+        raise UnsafeURLError("URL is required")
+
+    parsed = urlparse(raw)
+    scheme = parsed.scheme.lower()
+
+    if scheme == "https":
+        return validate_outbound_http_url(raw, resolve_dns=resolve_dns)
+
+    if scheme in ("ssh", "git+ssh"):
+        host = (parsed.hostname or "").strip()
+        if not host:
+            raise UnsafeURLError("URL host is required")
+        return raw
+
+    if scheme:
+        raise UnsafeURLError(f"Git remote URL must use https or ssh, got {scheme!r}")
+
+    if not raw.startswith(("/", "\\")) and _SCP_LIKE_PATTERN.match(raw):
+        host_part = raw.split(":", 1)[0]
+        host = host_part.split("@", 1)[-1] if "@" in host_part else host_part
+        if not host:
+            raise UnsafeURLError("URL host is required")
+        return raw
+
+    raise UnsafeURLError("Git remote URL must use https or ssh, not a filesystem path")
 
 
 def _assert_resolved_hosts_allowed(host: str) -> None:

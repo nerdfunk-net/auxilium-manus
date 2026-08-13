@@ -3,7 +3,7 @@
 The connection's non-secret settings (URL, verify_ssl, timeout) live in the
 generic ``settings`` table under ``sources.ise.<id>``; the username/password
 live in the encrypted ``credentials`` table (source="ise") so the password is
-never stored in plaintext, unlike the Nautobot token today.
+never stored in plaintext.
 """
 
 from __future__ import annotations

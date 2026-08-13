@@ -4,6 +4,8 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
+from core.production_guards import validate_non_development_secrets
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / "backend"
 DEFAULT_PLUGINS_FILE = BACKEND_ROOT / "workflow_steps" / "registry.yaml"
@@ -56,6 +58,8 @@ class Settings:
     netmiko_session_pooling: bool
     netmiko_pool_workers: int
     netmiko_keepalive_seconds: int
+    oidc_redirect_uri_allowlist: list[str]
+    allow_netmiko_arbitrary_hosts: bool
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -79,7 +83,6 @@ class Settings:
         )
         self.initial_username = environ.get("INITIAL_USERNAME", "admin")
         self.initial_password = environ.get("INITIAL_PASSWORD", DEFAULT_INITIAL_PASSWORD)
-        self._validate_initial_password()
         self.log_level = environ.get("LOG_LEVEL", "INFO")
         self.log_format = environ.get(
             "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -107,6 +110,17 @@ class Settings:
         self.netmiko_session_pooling = self._get_bool("NETMIKO_SESSION_POOLING", True)
         self.netmiko_pool_workers = self._get_int("NETMIKO_POOL_WORKERS", 10)
         self.netmiko_keepalive_seconds = self._get_int("NETMIKO_KEEPALIVE_SECONDS", 30)
+        self.oidc_redirect_uri_allowlist = self._get_csv("OIDC_REDIRECT_URI_ALLOWLIST", "")
+        self.allow_netmiko_arbitrary_hosts = self._get_bool(
+            "ALLOW_NETMIKO_ARBITRARY_HOSTS", self.environment == "development"
+        )
+        validate_non_development_secrets(
+            environment=self.environment,
+            secret_key=self.secret_key,
+            initial_password=self.initial_password,
+            credential_encryption_key=self.credential_encryption_key,
+            database_password=self.database_password,
+        )
 
     def _validate_run_retention(self) -> None:
         if self.run_retention_days < 1:
@@ -135,17 +149,9 @@ class Settings:
             f"@{self.database_host}:{self.database_port}/{database}"
         )
 
-    def _get_secret_key(self) -> str:
-        secret_key = environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
-
-        if self.environment != "development" and secret_key == DEFAULT_SECRET_KEY:
-            raise RuntimeError("SECRET_KEY must be configured outside development")
-
-        return secret_key
-
-    def _validate_initial_password(self) -> None:
-        if self.environment != "development" and self.initial_password == DEFAULT_INITIAL_PASSWORD:
-            raise RuntimeError("INITIAL_PASSWORD must be configured outside development")
+    @staticmethod
+    def _get_secret_key() -> str:
+        return environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 
     @staticmethod
     def _get_int(name: str, default: int) -> int:

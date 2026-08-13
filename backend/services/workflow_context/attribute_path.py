@@ -179,7 +179,7 @@ def build_device_value_context(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a namespaced lookup tree for attribute path resolution."""
-    from workflow_steps.common.device_template import build_template_context
+    from services.workflow_context.device_template import build_template_context
 
     context = build_template_context(device, run_id=run_id)
     for bag_name, bag_value in device.attribute_bags.items():

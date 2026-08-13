@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
+from core.config import settings
 from core.database import get_db
 from core.models.users import User
 from routers.netmiko import _credentials_service
@@ -31,6 +32,7 @@ def _override_db() -> Iterator[MagicMock]:
 @pytest.fixture
 def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    monkeypatch.setattr(settings, "allow_netmiko_arbitrary_hosts", True)
     app = FastAPI()
     app.include_router(netmiko_router, prefix="/api")
     app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
@@ -160,3 +162,34 @@ def test_get_configs_returns_404_when_credential_not_visible(app: FastAPI) -> No
         response = client.post("/api/netmiko/get-configs", json=_payload())
 
     assert response.status_code == 404
+
+
+def test_get_configs_rejects_metadata_host_even_with_arbitrary_hosts_allowed(
+    app: FastAPI,
+) -> None:
+    mock_credentials_service = MagicMock()
+    app.dependency_overrides[_credentials_service] = lambda: mock_credentials_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/netmiko/get-configs",
+            json={**_payload(), "host": "169.254.169.254"},
+        )
+
+    assert response.status_code == 400
+    mock_credentials_service.get_credential_by_id.assert_not_called()
+
+
+def test_get_configs_rejects_arbitrary_host_in_production(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "allow_netmiko_arbitrary_hosts", False)
+    monkeypatch.setattr(settings, "environment", "production")
+    mock_credentials_service = MagicMock()
+    app.dependency_overrides[_credentials_service] = lambda: mock_credentials_service
+
+    with TestClient(app) as client:
+        response = client.post("/api/netmiko/get-configs", json=_payload())
+
+    assert response.status_code == 400
+    mock_credentials_service.get_credential_by_id.assert_not_called()

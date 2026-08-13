@@ -48,6 +48,8 @@ COPY frontend/tsconfig.json ./frontend/
 ENV BACKEND_HOST=0.0.0.0
 ENV BACKEND_PORT=8000
 ENV FRONTEND_PORT=3000
+ENV NODE_ENV=production
+ENV ENV=production
 ENV BACKEND_URL=http://127.0.0.1:8000
 
 RUN mkdir -p /app/data /var/log/supervisor

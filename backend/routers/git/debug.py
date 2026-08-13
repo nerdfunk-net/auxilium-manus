@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import get_current_user, require_permission
+from core.dev_tools import require_dev_tools
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_git_auth_service, get_git_debug_service
 
@@ -19,7 +20,10 @@ router = APIRouter(prefix="/git-repositories", tags=["git-debug"])
 
 @router.post(
     "/{repo_id}/debug/read",
-    dependencies=[Depends(require_permission("git.debug", "execute"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("git.debug", "execute")),
+    ],
 )
 async def debug_read_test(
     repo_id: int,
@@ -37,7 +41,10 @@ async def debug_read_test(
 
 @router.post(
     "/{repo_id}/debug/write",
-    dependencies=[Depends(require_permission("git.debug", "execute"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("git.debug", "execute")),
+    ],
 )
 async def debug_write_test(
     repo_id: int,
@@ -55,7 +62,10 @@ async def debug_write_test(
 
 @router.post(
     "/{repo_id}/debug/delete",
-    dependencies=[Depends(require_permission("git.debug", "execute"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("git.debug", "execute")),
+    ],
 )
 async def debug_delete_test(
     repo_id: int,
@@ -73,7 +83,10 @@ async def debug_delete_test(
 
 @router.post(
     "/{repo_id}/debug/push",
-    dependencies=[Depends(require_permission("git.debug", "execute"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("git.debug", "execute")),
+    ],
 )
 async def debug_push_test(
     repo_id: int,
@@ -92,7 +105,10 @@ async def debug_push_test(
 
 @router.get(
     "/{repo_id}/debug/diagnostics",
-    dependencies=[Depends(require_permission("git.debug", "read"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("git.debug", "read")),
+    ],
 )
 async def debug_diagnostics(
     repo_id: int,

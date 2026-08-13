@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from core.auth import get_current_user, require_permission
+from core.dev_tools import require_dev_tools
 from core.safe_http_errors import raise_internal_server_error
 from models.certificates import (
     AddCertificateRequest,
@@ -62,7 +63,10 @@ async def upload_certificate(
 @router.post(
     "/add-to-system",
     response_model=AddCertificateResponse,
-    dependencies=[Depends(require_permission("system.certificates", "write"))],
+    dependencies=[
+        Depends(require_dev_tools),
+        Depends(require_permission("system.certificates", "write")),
+    ],
 )
 async def add_certificate_to_system(
     body: AddCertificateRequest,
