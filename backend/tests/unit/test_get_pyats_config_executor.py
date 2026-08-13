@@ -43,7 +43,6 @@ def _shim_success_response(device_id: str) -> dict:
                 "error": None,
                 "commands": {
                     "show running-config": _PARSED_HOSTNAME,
-                    "show startup-config": _PARSED_HOSTNAME,
                 },
             }
         }
@@ -88,7 +87,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(Capability.PARSED, device.capabilities)
         entry = device.parsed["pyats_config"]
         self.assertEqual(entry["running"], {"hostname": "r1"})
-        self.assertEqual(entry["startup"], {"hostname": "r1"})
+        self.assertNotIn("startup", entry)
 
         shim.run_job.assert_awaited_once()
         call_kwargs = shim.run_job.call_args.kwargs
@@ -164,7 +163,6 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                             "parsed": None,
                             "error": "no parser",
                         },
-                        "show startup-config": _PARSED_HOSTNAME,
                     },
                 }
             }

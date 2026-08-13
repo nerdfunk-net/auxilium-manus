@@ -437,6 +437,39 @@ function getComparisonDiffEntries(
     .map(([key, entry]) => ({ key, entry: entry as ParsedComparisonDiffEntry }));
 }
 
+/**
+ * Genie-parsed config output from get-pyats-config / parse-cisco-config:
+ * `{"running": <genie dict>|null}` (parse-cisco-config additionally has a
+ * `startup` key). Stored inline in `device.parsed` -- unlike templates and
+ * comparisons, this is small structured JSON, not an artifact reference.
+ */
+interface GenieParsedConfigEntry {
+  running?: unknown;
+  startup?: unknown;
+}
+
+function isGenieParsedConfigEntry(value: unknown): value is GenieParsedConfigEntry {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (
+    isParsedTemplateEntry(value) ||
+    isComparisonResultEntry(value) ||
+    isComparisonDiffEntry(value)
+  ) {
+    return false;
+  }
+  return "running" in value || "startup" in value;
+}
+
+function getGenieParsedConfigEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: GenieParsedConfigEntry }> {
+  return Object.entries(parsed)
+    .filter(([, value]) => isGenieParsedConfigEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as GenieParsedConfigEntry }));
+}
+
 function ConfigArtifactPanel({
   runId,
   label,
@@ -539,6 +572,42 @@ function DeviceParsedTemplatesContent({
             label={`Rendered template (${entry.output_key})`}
             artifactRef={entry.artifact_ref}
           />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DeviceGenieConfigContent({
+  entries,
+}: {
+  entries: Array<{ key: string; entry: GenieParsedConfigEntry }>;
+}) {
+  return (
+    <div className="mt-2 space-y-3">
+      {entries.map(({ key, entry }) => (
+        <div key={key} className="space-y-2">
+          <p className="font-mono text-[10px] text-muted-foreground">output_key: {key}</p>
+          {"running" in entry ? (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Running config (parsed)
+              </p>
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 text-[11px] font-mono">
+                {entry.running != null ? JSON.stringify(entry.running, null, 2) : "—"}
+              </pre>
+            </div>
+          ) : null}
+          {"startup" in entry ? (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Startup config (parsed)
+              </p>
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 text-[11px] font-mono">
+                {entry.startup != null ? JSON.stringify(entry.startup, null, 2) : "—"}
+              </pre>
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -715,10 +784,16 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
     () => getComparisonDiffEntries(device.parsed ?? {}),
     [device.parsed],
   );
+  const genieConfigEntries = useMemo(
+    () => getGenieParsedConfigEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
   const hasParsedTemplates = parsedTemplateEntries.length > 0;
   const hasComparisons =
     comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0;
+  const hasGenieConfig = genieConfigEntries.length > 0;
   const [showComparisons, setShowComparisons] = useState(hasComparisons);
+  const [showGenieConfig, setShowGenieConfig] = useState(false);
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
   const configCount =
     (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
@@ -813,11 +888,28 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
               ))}
             </div>
           ) : null}
+          {hasGenieConfig ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Genie parsed config
+              </p>
+              {genieConfigEntries.map(({ key, entry }) => (
+                <div key={key} className="text-xs text-muted-foreground">
+                  <span className="font-mono">{key}</span>
+                  {" · "}
+                  {["running" in entry ? "running" : null, "startup" in entry ? "startup" : null]
+                    .filter(Boolean)
+                    .join(", ")}
+                </div>
+              ))}
+            </div>
+          ) : null}
           <DeviceErrorList errors={device.errors} />
           {hasConfigs ||
           hasCommandResults ||
           hasParsedTemplates ||
           hasComparisons ||
+          hasGenieConfig ||
           attributeBagNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {attributeBagNames.length > 0 ? (
@@ -869,6 +961,15 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
                   {comparisonDiffEntries.length !== 1 ? "s" : ""}
                 </button>
               ) : null}
+              {hasGenieConfig ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowGenieConfig((value) => !value)}
+                >
+                  {showGenieConfig ? "Hide" : "Show"} Genie parsed config
+                </button>
+              ) : null}
             </div>
           ) : null}
           {showAttributeBags && attributeBagNames.length > 0 ? (
@@ -897,6 +998,9 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
               comparisonResults={comparisonResultEntries}
               comparisonDiffs={comparisonDiffEntries}
             />
+          ) : null}
+          {showGenieConfig && hasGenieConfig ? (
+            <DeviceGenieConfigContent entries={genieConfigEntries} />
           ) : null}
         </div>
       </div>

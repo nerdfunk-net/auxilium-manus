@@ -294,7 +294,7 @@ and calls the shim **once per device**:
 shim.run_job(
     shim_credentials, operation="parse",
     devices=[{"name": device_id, "host": ..., "os": ..., "username": ..., "password": ...}],
-    commands=["show running-config", "show startup-config"],
+    commands=["show running-config"],
 )
 ```
 
@@ -305,12 +305,21 @@ simple (one bad device's shim call failing doesn't block the others). If
 job-startup overhead × device count proves too slow in practice, grouping
 devices by `pyats_source_id` and batching is a possible follow-up.
 
-The Genie-parsed result for both commands is written into
-`device.parsed[output_key]` as `{"running": ..., "startup": ...}` — this is
-the Genie-powered analog of the existing `parse-cisco-config` step (which
-uses `cisco_config_parser`, not Genie), not a replacement for
-`get-device-configs`. No raw-text artifact capture in v1 — only the
-Genie-parsed structured result.
+Only `show running-config` is requested — `show startup-config` was dropped
+after real-world testing hit `ParserNotFound` on every device. Confirmed
+against the `CiscoTestAutomation/genieparser` source (`gh search code
+"'show startup-config'" --repo CiscoTestAutomation/genieparser` returns zero
+hits): genieparser has **no registered parser for `show startup-config` on
+any platform**, only for `show running-config`. This isn't a per-device or
+per-revision gap, so requesting it via `operation="parse"` would fail on
+every device, every time — not something worth carrying as a permanent
+per-device failure mode.
+
+The Genie-parsed result is written into `device.parsed[output_key]` as
+`{"running": ...}` — this is the Genie-powered analog of the existing
+`parse-cisco-config` step (which uses `cisco_config_parser`, not Genie), not
+a replacement for `get-device-configs`. No raw-text artifact capture in v1
+— only the Genie-parsed structured result, and only for running-config.
 
 Full step-authoring convention: **doc/WORKFLOW-STEPS.md**'s "Calling pyATS
 from a step" section.

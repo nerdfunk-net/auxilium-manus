@@ -1,18 +1,28 @@
 """Executor for the get-pyats-config step.
 
-Fetches running/startup config via the pyATS shim's ``POST /v1/jobs``
+Fetches running-config via the pyATS shim's ``POST /v1/jobs``
 (``operation: "parse"``) and stores Genie's structured result into
 ``device.parsed``. Never imports pyats/genie directly -- see "Calling pyATS
 from a step" in doc/WORKFLOW-STEPS.md. Device connection info and
 credentials come entirely from the ``pyats_testbed`` bag written by an
 upstream add-pyats-testbed step; this step resolves no credentials of its
 own.
+
+Startup-config is intentionally out of scope: genieparser has no registered
+parser for ``show startup-config`` on any platform (confirmed against the
+CiscoTestAutomation/genieparser source -- there is no ``cli_command = 'show
+startup-config'`` anywhere in it, only dozens for ``show running-config``),
+so requesting it via ``operation="parse"`` would fail on every device, every
+time. Raw (unparsed) config capture -- running or startup -- is already
+``get-device-configs``'s job (Netmiko-based); this step is Genie-structured
+parsing only.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -47,8 +57,7 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "get-pyats-config"
 _RUNNING_COMMAND = "show running-config"
-_STARTUP_COMMAND = "show startup-config"
-_COMMANDS = [_RUNNING_COMMAND, _STARTUP_COMMAND]
+_COMMANDS = [_RUNNING_COMMAND]
 
 
 def _resolve_source_credentials(
@@ -132,6 +141,15 @@ async def _fetch_one_device(
         "password": password,
     }
 
+    logger.info(
+        "%s calling shim device=%s host=%s os=%s source=%s",
+        _STEP_ID,
+        device_id,
+        bag.get("host"),
+        bag.get("os"),
+        source_id,
+    )
+    started = time.monotonic()
     try:
         shim = service_factory.get_pyats_app_service()
         response = await shim.run_job(
@@ -141,13 +159,36 @@ async def _fetch_one_device(
             commands=_COMMANDS,
         )
     except PyATSAPIError as exc:
+        logger.warning(
+            "%s shim call failed device=%s host=%s elapsed=%.1fs error=%s",
+            _STEP_ID,
+            device_id,
+            bag.get("host"),
+            time.monotonic() - started,
+            exc,
+        )
         return _fail_device(
             device=device, device_id=device_id, node_id=node_id, code="shim_error", message=str(exc)
         )
 
+    logger.info(
+        "%s shim call returned device=%s host=%s elapsed=%.1fs",
+        _STEP_ID,
+        device_id,
+        bag.get("host"),
+        time.monotonic() - started,
+    )
+
     result = (response.get("results") or {}).get(device_id)
     if not result or not result.get("success", False):
         message = (result or {}).get("error") or "pyATS shim reported failure for this device"
+        logger.warning(
+            "%s device connect/parse failed device=%s host=%s error=%s",
+            _STEP_ID,
+            device_id,
+            bag.get("host"),
+            message,
+        )
         return _fail_device(
             device=device,
             device_id=device_id,
@@ -158,22 +199,16 @@ async def _fetch_one_device(
 
     commands = result.get("commands") or {}
     running_entry = commands.get(_RUNNING_COMMAND) or {}
-    startup_entry = commands.get(_STARTUP_COMMAND) or {}
-    command_errors = [
-        f"{cmd}: {entry['error']}"
-        for cmd, entry in ((_RUNNING_COMMAND, running_entry), (_STARTUP_COMMAND, startup_entry))
-        if entry.get("error")
-    ]
-    if command_errors:
+    if running_entry.get("error"):
         return _fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
             code="parse_failed",
-            message="; ".join(command_errors),
+            message=f"{_RUNNING_COMMAND}: {running_entry['error']}",
         )
 
-    entry = {"running": running_entry.get("parsed"), "startup": startup_entry.get("parsed")}
+    entry = {"running": running_entry.get("parsed")}
     parsed = dict(device.parsed)
     parsed[output_key] = entry
     enriched = device.model_copy(

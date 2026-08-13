@@ -29,6 +29,7 @@ from typing import Any
 import yaml
 
 from app.config import ShimSettings
+from app.log_markers import CONNECT_MARKER
 from app.testbed_builder import build_testbed_dict
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class JobRunner:
         request_path = work_dir / "request.json"
         result_path = work_dir / "result.json"
         runinfo_dir = work_dir / "runinfo"
+        runinfo_dir.mkdir(parents=True, exist_ok=True)
 
         testbed_path.write_text(yaml.safe_dump(testbed, sort_keys=False))
         request_path.write_text(json.dumps({"operation": operation, "commands": commands}))
@@ -86,10 +88,13 @@ class JobRunner:
         }
 
         device_names = list(testbed["devices"])
+        device_hosts = {
+            name: dev["connections"]["cli"]["ip"] for name, dev in testbed["devices"].items()
+        }
         logger.info(
             "launching pyats run job operation=%s devices=%s work_dir=%s timeout=%s",
             operation,
-            device_names,
+            device_hosts,
             work_dir,
             timeout,
         )
@@ -114,7 +119,7 @@ class JobRunner:
         )
 
         try:
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except TimeoutError:
             logger.error(
                 "pyats run job timed out after %.1fs devices=%s",
@@ -127,6 +132,7 @@ class JobRunner:
             raise JobTimeoutError(f"pyATS job did not complete within {timeout} seconds") from None
 
         elapsed = time.monotonic() - started_at
+        self._log_connect_events(stdout, stderr)
 
         if result_path.exists():
             logger.info(
@@ -137,15 +143,33 @@ class JobRunner:
             )
             return json.loads(result_path.read_text())
 
-        stderr_tail = stderr.decode(errors="replace")[-4000:]
+        # 20000 chars, not 4000: easypy's report footer alone (printed last) can
+        # run past 4000 chars, which was silently pushing the actual exception
+        # -- printed just *before* the footer -- out of a shorter tail window.
+        stderr_tail = stderr.decode(errors="replace")[-20000:]
+        stdout_tail = stdout.decode(errors="replace")[-20000:]
         logger.error(
-            "pyATS job produced no result file (exit code %s, elapsed %.1fs): %s",
+            "pyATS job produced no result file (exit code %s, elapsed %.1fs) stdout=%r stderr=%r",
             proc.returncode,
             elapsed,
+            stdout_tail,
             stderr_tail,
         )
-        error = f"pyATS job produced no results (exit code {proc.returncode}): {stderr_tail}"
+        error = f"pyATS job produced no results (exit code {proc.returncode}): {stderr_tail or stdout_tail}"
         return {name: {"success": False, "error": error, "commands": {}} for name in testbed["devices"]}
+
+    @staticmethod
+    def _log_connect_events(stdout: bytes, stderr: bytes) -> None:
+        """Forward only ``[pyats-connect]``-marked lines from the subprocess output.
+
+        The rest of the subprocess's stdout/stderr can contain raw device
+        command output (e.g. running-config) and must never be logged in
+        full -- see the security notes in doc/PYATS_INTEGRATION.md.
+        """
+        for raw in (stdout, stderr):
+            for line in raw.decode(errors="replace").splitlines():
+                if CONNECT_MARKER in line:
+                    logger.info("%s", line.strip())
 
     @staticmethod
     def _kill_process_group(proc: asyncio.subprocess.Process) -> None:

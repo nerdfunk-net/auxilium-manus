@@ -11,16 +11,19 @@ export function GetPyatsConfigHelpPanel() {
     <div className="space-y-6">
       <HelpSection title="What this step does">
         <p>
-          Fetches each device&apos;s running and startup configuration via the
-          pyATS shim and parses both with Genie into structured data — the
-          Genie-powered alternative to Parse Cisco Config, which uses a
-          lighter-weight parser instead.
+          Fetches each device&apos;s running configuration via the pyATS shim
+          and parses it with Genie into structured data — the Genie-powered
+          alternative to Parse Cisco Config, which uses a lighter-weight
+          parser instead. Startup config is intentionally out of scope:
+          Genie has no parser for <HelpCode>show startup-config</HelpCode> on
+          any platform, so raw config capture (running or startup) stays the
+          job of Get Device Configs instead.
         </p>
         <p>
           The parsed result is written to{" "}
           <HelpCode>device.parsed.{"{output_key}"}</HelpCode> as{" "}
-          <HelpCode>{"{ running: ..., startup: ... }"}</HelpCode> for
-          downstream Render Jinja Template or Log Attributes steps.
+          <HelpCode>{"{ running: ... }"}</HelpCode> for downstream Render
+          Jinja Template or Log Attributes steps.
         </p>
         <HelpWarning title="Requires an upstream Add Testbed step">
           <p>
@@ -41,9 +44,7 @@ export function GetPyatsConfigHelpPanel() {
         <HelpExample>
           output_key: pyats_config
           <br />
-          <span className="text-muted-foreground">
-            → device.parsed.pyats_config.running / .startup
-          </span>
+          <span className="text-muted-foreground">→ device.parsed.pyats_config.running</span>
         </HelpExample>
       </HelpSection>
     </div>
