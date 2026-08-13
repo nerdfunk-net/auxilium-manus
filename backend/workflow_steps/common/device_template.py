@@ -57,7 +57,9 @@ def build_template_context(
 ) -> dict[str, Any]:
     """Build the namespaced lookup tree for template placeholders."""
     primary_ip4 = device.primary_ip4.split("/")[0] if device.primary_ip4 else ""
-    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    now = datetime.now(UTC)
+    timestamp = now.strftime("%Y%m%d-%H%M%S")
+    date = now.strftime("%Y%m%d")
 
     command_bag: dict[str, Any] = {}
     parsed_bag: dict[str, Any] = {}
@@ -87,6 +89,7 @@ def build_template_context(
         "run": {
             "id": run_id or "",
             "timestamp": timestamp,
+            "date": date,
         },
         "command": command_bag,
         "parsed": parsed_bag,

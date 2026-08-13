@@ -2,6 +2,7 @@ import type { PluginUIComponent } from "@/components/features/workflows/types/pl
 import { AddToIsePlugin } from "@/components/features/workflow-steps/add-to-ise";
 import { AddToNautobotPlugin } from "@/components/features/workflow-steps/add-to-nautobot";
 import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-data";
+import { ComparePyatsSnapshotPlugin } from "@/components/features/workflow-steps/compare-pyats-snapshot";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
@@ -66,6 +67,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "merge-content": MergeContentPlugin,
   "filter-output": FilterOutputPlugin,
   "compare-data": CompareDataPlugin,
+  "compare-pyats-snapshot": ComparePyatsSnapshotPlugin,
   "render-jinja-template": RenderJinjaTemplatePlugin,
   "store-artifact": StoreArtifactPlugin,
   "git-clone": GitClonePlugin,

@@ -255,9 +255,16 @@ export function StoreArtifactHelpPanel() {
           </li>
           <li>
             <HelpCode>{"{run.timestamp}"}</HelpCode>,{" "}
+            <HelpCode>{"{run.date}"}</HelpCode>,{" "}
             <HelpCode>{"{run.id}"}</HelpCode>
           </li>
         </ul>
+        <p className="text-[11px] text-muted-foreground">
+          <HelpCode>{"{run.timestamp}"}</HelpCode> is <HelpCode>20260813-132757</HelpCode>{" "}
+          (date + time); <HelpCode>{"{run.date}"}</HelpCode> is just{" "}
+          <HelpCode>20260813</HelpCode> — useful for grouping a day&apos;s exports under
+          one filename regardless of what time the run started.
+        </p>
         <HelpExample>
           filename_template: ./
           {"{nautobot.location.name}"}/{"{device.name}"}.cfg

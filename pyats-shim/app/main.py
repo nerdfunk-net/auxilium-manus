@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.diff import router as diff_router
 from app.health import router as health_router
 from app.job_runner import JobRunner
 from app.jobs import router as jobs_router
@@ -33,3 +34,4 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="pyATS Shim", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(jobs_router)
+app.include_router(diff_router)

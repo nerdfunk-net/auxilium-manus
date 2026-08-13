@@ -449,6 +449,83 @@ plugins:
           required: true
           example: pyats_snapshot
 
+  - id: compare-pyats-snapshot
+    name: Compare Snapshot
+    overview: Diff two Genie snapshots of the same feature via genie.utils.diff.Diff.
+    description: >
+      Compare a live pyATS snapshot (from an upstream Get Snapshot step) against a
+      stored reference snapshot using Genie's own diff, which ignores noisy dynamic
+      fields (counters, timestamps) unlike a plain text diff.
+    artifact_type: control_flow
+    palette_category: pyats
+    directory: compare_pyats_snapshot
+    enabled: true
+    requires: [identity, pyats_testbed]
+    produces: [parsed]
+    consumes: []
+    primary_output: comparison_diff
+    outcomes:
+      - name: match
+      - name: mismatch
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: feature
+          description: >
+            Single Genie feature name to compare (e.g. bgp). Use multiple step
+            instances to compare multiple features.
+          data_type: string
+          required: true
+          example: bgp
+        - name: source_step_node_id
+          description: >
+            Canvas node id of the upstream Get Snapshot step producing the
+            live snapshot.
+          data_type: string
+          required: true
+        - name: parsed_output_key
+          description: >
+            Optional output_key from Get Snapshot, to disambiguate multiple
+            snapshot keys.
+          data_type: string
+          required: false
+        - name: reference_location
+          description: Where the reference snapshot JSON is stored (filesystem or git).
+          data_type: string
+          required: false
+          default: filesystem
+        - name: reference_subdirectory
+          description: Subdirectory under DATA_DIRECTORY for filesystem references.
+          data_type: string
+          required: false
+          default: pyats-snapshots
+        - name: git_source_id
+          description: Git source id from Settings → Sources when reference_location is git.
+          data_type: string
+          required: false
+        - name: repository_subdirectory
+          description: Optional path prefix inside the git repository before filename_template.
+          data_type: string
+          required: false
+        - name: pull_before_read
+          description: Pull latest changes once before reading a git reference file.
+          data_type: boolean
+          required: false
+          default: false
+        - name: filename_template
+          description: >
+            Per-device path to the reference snapshot JSON file -- must be JSON
+            previously exported via a Store Artifact step from a Get Snapshot
+            run's pyats_snapshot content. No {feature} placeholder.
+          data_type: string
+          required: true
+          example: "{device.name}.pyats-snapshot.json"
+        - name: comparison_diff_key
+          description: >
+            Parsed key written per device on mismatch ({node_id}.comparison_diff).
+          data_type: string
+          required: false
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.

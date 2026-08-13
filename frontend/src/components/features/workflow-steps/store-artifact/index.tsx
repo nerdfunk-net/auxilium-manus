@@ -103,6 +103,7 @@ const FILENAME_PLACEHOLDERS = [
   "{command.name}",
   "{parsed.output_key}",
   "{run.timestamp}",
+  "{run.date}",
   "{run.id}",
 ];
 

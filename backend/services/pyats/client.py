@@ -64,8 +64,12 @@ class PyATSShimService:
 
         try:
             response = await self._do_request(
-                "POST", f"{base}/v1/jobs", credentials.verify_ssl, request_timeout,
-                json=body, headers=headers,
+                "POST",
+                f"{base}/v1/jobs",
+                credentials.verify_ssl,
+                request_timeout,
+                json=body,
+                headers=headers,
             )
         except httpx.TimeoutException as exc:
             raise PyATSAPIError(
@@ -83,11 +87,55 @@ class PyATSShimService:
             raise PyATSAPIError(f"pyATS shim job request failed with status {response.status_code}")
         return response.json()
 
+    async def diff(
+        self,
+        credentials: PyATSCredentials,
+        *,
+        snapshot_a: dict[str, Any],
+        snapshot_b: dict[str, Any],
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        base = self._base_url(credentials)
+        body: dict[str, Any] = {"snapshot_a": snapshot_a, "snapshot_b": snapshot_b}
+        request_timeout = timeout_seconds or credentials.timeout
+        headers = {"Authorization": f"Bearer {credentials.token}"}
+
+        try:
+            response = await self._do_request(
+                "POST",
+                f"{base}/v1/diff",
+                credentials.verify_ssl,
+                request_timeout,
+                json=body,
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise PyATSAPIError(
+                f"pyATS shim diff request timed out after {request_timeout} seconds"
+            ) from exc
+        except PyATSAPIError:
+            raise
+        except Exception as exc:
+            logger.error("pyATS shim diff request failed: %s", exc)
+            raise PyATSAPIError("pyATS shim diff request failed") from exc
+
+        if response.status_code == 400:
+            raise PyATSValidationError(self._extract_error_message(response))
+        if response.status_code >= 400:
+            raise PyATSAPIError(
+                f"pyATS shim diff request failed with status {response.status_code}"
+            )
+        return response.json()
+
     async def _get(self, url: str, credentials: PyATSCredentials) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {credentials.token}"} if credentials.token else {}
         try:
             response = await self._do_request(
-                "GET", url, credentials.verify_ssl, credentials.timeout, headers=headers,
+                "GET",
+                url,
+                credentials.verify_ssl,
+                credentials.timeout,
+                headers=headers,
             )
         except httpx.TimeoutException as exc:
             raise PyATSAPIError(

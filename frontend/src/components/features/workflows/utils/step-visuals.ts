@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   Combine,
   Database,
+  Diff,
   Eye,
   FileArchive,
   FileText,
@@ -92,6 +93,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   // set, so any pyats-category step needs an explicit entry here too.
   "get-pyats-config": HardDriveDownload,
   "get-pyats-snapshot": Camera,
+  "compare-pyats-snapshot": Diff,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

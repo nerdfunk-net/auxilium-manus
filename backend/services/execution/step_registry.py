@@ -26,6 +26,7 @@ from workflow_steps.add_pyats_testbed.executor import execute as add_pyats_testb
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
 from workflow_steps.compare_data.executor import execute as compare_data
+from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.fan_in.executor import execute as fan_in
@@ -92,6 +93,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "merge-content": merge_content,
     "filter-output": filter_output,
     "compare-data": compare_data,
+    "compare-pyats-snapshot": compare_pyats_snapshot,
     "store-artifact": store_artifact,
     "git-clone": git_clone,
     "git-pull": git_pull,

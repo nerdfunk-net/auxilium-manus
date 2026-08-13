@@ -16,6 +16,7 @@ backend's Python environment.
 - [Configuring a source](#configuring-a-source)
 - [Security notes](#security-notes)
 - [Workflow steps: Add Testbed and Get & Parse Config](#workflow-steps-add-testbed-and-get--parse-config)
+- [Genie-native snapshot comparison](#genie-native-snapshot-comparison)
 - [Open items / verify during hardening](#open-items--verify-during-hardening)
 
 ## Why a separate container
@@ -60,6 +61,7 @@ pyats-shim/                                # Standalone service, NOT part of the
 │   ├── auth.py                            # Bearer-token dependency for /v1/jobs
 │   ├── health.py                          # GET /health, GET /health/pyats
 │   ├── jobs.py                            # POST /v1/jobs request/response models + route
+│   ├── diff.py                            # POST /v1/diff -- Genie-native snapshot diff (no subprocess/testbed)
 │   ├── testbed_builder.py                 # device list -> pyATS testbed dict
 │   ├── job_runner.py                      # per-request temp dir, subprocess, timeout, cleanup
 │   └── job_scripts/
@@ -89,8 +91,15 @@ backend/main.py                            # PyATSShimService lifespan startup/s
 backend/hatchet/worker.py                  # PyATSShimService lifespan startup/shutdown (Hatchet worker process)
 backend/services/auth/rbac_seed.py         # sources.pyats read/write/delete permissions
 
+backend/workflow_steps/compare_pyats_snapshot/
+├── executor.py                            # diffs one feature between a live snapshot and a stored reference
+└── config.py
+
 backend/tests/unit/test_pyats_source_config_service.py
 backend/tests/unit/test_pyats_router_auth.py
+backend/tests/unit/test_pyats_client.py
+backend/tests/unit/test_compare_pyats_snapshot_executor.py
+pyats-shim/tests/test_diff.py                # genie-gated -- see "Genie-native snapshot comparison" below
 ```
 
 **Two independent processes, two independent lifespans.** The FastAPI API
@@ -324,6 +333,117 @@ a replacement for `get-device-configs`. No raw-text artifact capture in v1
 Full step-authoring convention: **doc/WORKFLOW-STEPS.md**'s "Calling pyATS
 from a step" section.
 
+A third step, `get-pyats-snapshot` ("Get Snapshot"), captures Genie
+`device.learn(feature)` output (BGP, OSPF, interfaces, platform, ... or
+`"all"`) the same way — one `operation="learn"` shim call per device, with
+each feature's `Ops.to_dict()` result stored per feature and tolerant of
+partial per-feature failure (a device only fails if *every* requested
+feature fails to learn, since feature support varies a lot by platform).
+Not detailed further here; see `workflow_steps/get_pyats_snapshot/executor.py`.
+
+## Genie-native snapshot comparison
+
+`get-pyats-snapshot` exists to enable comparing two snapshots of the same
+device over time (e.g. before/after a change). The **Compare Snapshot**
+step (`compare-pyats-snapshot`) does this the way pyATS/Genie natively
+supports — via `genie.utils.diff.Diff`, which understands the data well
+enough to ignore noisy dynamic fields (counters, timestamps, uptime), unlike
+`compare-data`'s plain line-based text diff. It diffs one Genie feature per
+step instance between a live snapshot (from an upstream `get-pyats-snapshot`
+step in the current run) and a reference snapshot (a JSON file previously
+exported to git/filesystem by `store-artifact` from an earlier
+`get-pyats-snapshot` run — there is no cross-run artifact lookup in this
+codebase, so "reference" always means a stored file, not a database query).
+Implementation: `backend/workflow_steps/compare_pyats_snapshot/executor.py`
+(backend step) and `pyats-shim/app/diff.py` (`POST /v1/diff`, the shim
+endpoint that runs `Diff` itself). The design considerations below were
+worked through before implementing and remain accurate to what was built.
+
+**Decision: all Genie code stays in the shim container, not the backend.**
+We considered installing `genie.libs.parser`/`genie.libs.ops` directly into
+the backend's own Python 3.14 venv — PyPI metadata confirms both packages
+declare **zero** runtime dependency on `unicon`/`pyats` (only `xmltodict` for
+`genie.libs.parser`). This looked promising for both parsing and diffing.
+Ruled out for now: Netmiko's own `use_genie=True` integration
+(`netmiko/utilities.py`) hard-imports `genie.conf.base.Device`
+(`genie.libs.conf`), and its own missing-dependency error says `pip install
+genie` / `pip install pyats` — so doing this "the supported way" pulls the
+full pyats/unicon stack straight back into the backend, hitting the same
+Python-version wall (pyats wheels only confirm 3.12/3.13) that justified the
+separate shim container to begin with. It may be possible to bypass
+Netmiko's wrapper and call Genie parser classes directly with a lightweight
+duck-typed device stub (`genie.libs.parser.utils.get_parser`) instead of a
+real `pyats` `Device`, but this is unverified. **Revisit only if there's a
+concrete reason to move parsing into the backend** — for now, any new
+Genie-touching logic (including the diff endpoint below) belongs in
+`pyats-shim/`, called from a step the same way `run_job` already is.
+
+**`Ops.info` vs `Ops.to_dict()` — implemented with a documented assumption,
+still not empirically verified.** Genie's documented `Diff` usage is
+`Diff(output1.info, output2.info)` (confirmed against the official pyATS
+getting-started docs). Our shim's `learn` branch (`generic_script.py`)
+stores `ops.to_dict()`, not `.info`, because the result has to be
+JSON-serializable for the HTTP response / artifact storage, and `.info` can
+contain non-JSON-safe types (`QDict`, `netaddr` objects). Whether
+`to_dict()` is exactly equivalent to `.info` (vs. e.g. wrapping it or
+omitting something) could **not** be confirmed from source: pyATS/Genie's
+core `Ops` base class is closed-source — `CiscoTestAutomation/genie` on
+GitHub contains only docs, no implementation. Circumstantial evidence
+they're equivalent: `genielibs`' own test suite mocks `Ops.to_dict()`'s
+return value using a fixture literally named `..._info` (e.g.
+`IosxeInterfaceOutput_info`) — i.e. `to_dict()` appears to wrap the `.info`
+dict under an `"info"` key. `pyats-shim/app/diff.py`'s `_unwrap()` acts on
+that assumption: it extracts `snapshot["info"]` when present, else falls
+back to the whole dict unchanged. This is unverified against a real pyATS
+install (tracked in "Open items" below, since `docker build` for
+`pyats-shim` has never been confirmed working in this dev environment) — if
+it turns out to be wrong, `_unwrap()` is the only place that needs to
+change.
+
+**What already exists to build on.** `get-pyats-snapshot` stores each
+feature's `to_dict()` result as a JSON artifact via `ArtifactService`, plus
+a lightweight per-feature success/error summary in
+`device.parsed[output_key]` (`{"kind": "pyats_snapshot", "artifact_ref":
+..., "features": {...}}`). `workflow_steps/common/content_resolver.py`
+already recognizes `content_source: "pyats_snapshot"`, so `store-artifact`
+(export a snapshot to git/filesystem) and `compare-data` (compare a live
+snapshot against a stored reference) both work with snapshots, with no shim
+changes. `compare-data`'s diff (`GitDiffService.compare_text_content`) is a
+plain line-based text diff of the JSON, though — no concept of "ignore this
+counter" — every dynamic field change shows up as a mismatch. Excluding
+that noise automatically is exactly what `compare-pyats-snapshot` adds.
+
+**Implemented shape of the Genie-native Compare Snapshot step:**
+
+- A lightweight shim endpoint — no subprocess, no testbed, no device I/O,
+  since this is pure computation on two already-learned dicts:
+  `POST /v1/diff` (`pyats-shim/app/diff.py`) takes
+  `{"snapshot_a": {...}, "snapshot_b": {...}}`, runs
+  `genie.utils.diff.Diff(a, b); diff.findDiff()` (after the `_unwrap()` step
+  above), and returns `{"identical": bool, "diff": str}` — `str(diff)` is
+  Genie's human-readable line-based format, `identical` is a plain flag so
+  the backend step doesn't need to parse that text to route match/mismatch.
+- Backend side (`workflow_steps/compare_pyats_snapshot/executor.py`):
+  resolve the live `pyats_snapshot` artifact via
+  `workflow_steps/common/content_resolver.py`'s existing `pyats_snapshot`
+  support (content source is hard-coded, not user-selectable), load the
+  reference snapshot JSON via `compare-data`'s
+  `reference_reader.py` (git or filesystem — reused as-is, since a
+  previously-exported `pyats_snapshot` JSON file **is** a text blob from
+  that mechanism's point of view), extract the one configured `feature`'s
+  `data` payload from both sides, POST them to `/v1/diff` via
+  `PyATSShimService.diff()`, and store/display the result the same way
+  `compare-data` stores a unified diff (`ArtifactRef` + a
+  `comparison_diff`-shaped `device.parsed` entry, so `store-artifact` can
+  export the Genie diff downstream with no `content_resolver.py` changes).
+- Scope is **one Genie feature per step instance** (mirrors `compare-data`'s
+  single-artifact-per-comparison model) — no `{feature}` filename
+  placeholder; compare several features with several step instances.
+- Doesn't replace `compare-data` — that step stays the right tool for
+  text-based comparisons (raw configs). `compare-pyats-snapshot` is the
+  dedicated home for Genie-semantic comparison specifically, since it needs
+  the shim round-trip and a different diff algorithm than a text diff.
+
 ## Open items / verify during hardening
 
 - **Per-device connect timeout.** `device.connect()` in `generic_script.py`
@@ -347,3 +467,17 @@ from a step" section.
   Dockerfile was reviewed manually, but a real `docker build`/`up` should
   be run once to confirm the image builds and the container passes its
   healthcheck.
+- **`Ops.info` vs `Ops.to_dict()` unwrap assumption in `POST /v1/diff`.**
+  `pyats-shim/app/diff.py`'s `_unwrap()` extracts `snapshot["info"]` before
+  calling `genie.utils.diff.Diff()`, based on circumstantial (mocked-test)
+  evidence rather than a real pyATS install — see "Genie-native snapshot
+  comparison" above for the full reasoning. Verify directly once the
+  `docker build` item above is resolved, e.g. in a
+  `pyats shell --testbed-file testbed.yaml` session:
+  ```python
+  ops = dev.learn('interface')
+  ops.info == ops.to_dict()   # or a structural diff of the two
+  ```
+  If they differ, `_unwrap()` is the only place that needs to change.
+  `pyats-shim/tests/test_diff.py` is gated on `pytest.importorskip("genie")`
+  and has not run against real Genie in this environment either.

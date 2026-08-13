@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import unittest
+from datetime import UTC, datetime
 
 from models.workflow_context import DeviceContext
 from workflow_steps.common.device_template import (
@@ -69,6 +71,27 @@ class DeviceTemplateTests(unittest.TestCase):
             options=TemplateRenderOptions(strict=True, run_id="run-uuid-1"),
         )
         self.assertEqual(rendered, "lab_run-uuid-1.cfg")
+
+    def test_run_namespace_uses_run_date(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        rendered = render_device_template(
+            "{device.name}_{run.date}.cfg",
+            device,
+            options=TemplateRenderOptions(strict=True, run_id="run-uuid-1"),
+        )
+        expected_date = datetime.now(UTC).strftime("%Y%m%d")
+        self.assertEqual(rendered, f"lab_{expected_date}.cfg")
+
+    def test_run_date_is_prefix_of_run_timestamp(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        rendered = render_device_template(
+            "{run.date}_{run.timestamp}",
+            device,
+            options=TemplateRenderOptions(strict=True, run_id="run-uuid-1"),
+        )
+        date_part, timestamp_part = rendered.split("_", 1)
+        self.assertTrue(re.fullmatch(r"\d{8}", date_part))
+        self.assertTrue(timestamp_part.startswith(date_part))
 
     def test_strict_fails_when_nautobot_bag_missing(self) -> None:
         device = DeviceContext(id="device-1", name="lab", hostname="lab")
