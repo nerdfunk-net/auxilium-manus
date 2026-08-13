@@ -1,5 +1,7 @@
 # Frontend analysis — 13 August 2026
 
+> **Addendum (13 Aug 2026, post `get-pyats-snapshot` / `compare-pyats-snapshot`):** all findings re-verified against the current tree and still valid. Deltas from the new steps: `step-result-viewer.tsx` grew 1,181 → **1,299** lines (new `Snapshot*` guards + `DeviceSnapshotContent`); `store-artifact/index.tsx` is now 753 and `compare-data/index.tsx` 690; new `compare-pyats-snapshot/index.tsx` (455 lines) adds one more `workflowNodes = []` default-prop violation (§4.5). The new steps introduce no new secret handling, raw `fetch`, or registry violations. `doc/refactoring/GROK-20260813-REFACTORING.md` R8/R12 have been updated accordingly.
+
 Review of `frontend/src` against `CLAUDE.md`, file-size / maintainability, and production-readiness security. The app is not in production yet; findings are ordered so a first release can be planned against them.
 
 **Scope:** frontend TypeScript/TSX only (411 files, ~56k lines), plus the Next.js API routes that the browser actually talks to (`/api/proxy/*`, `/api/auth/*`). Backend security already recorded in `doc/SECURITY-NOTES.md` is not re-litigated here, except where the frontend design forces secrets into the browser.

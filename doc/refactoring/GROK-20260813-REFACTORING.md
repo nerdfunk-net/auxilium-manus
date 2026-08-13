@@ -856,6 +856,7 @@ Plugin ConfigPanels (`PluginConfigPanelProps.workflowNodes?` etc.). `NodeConfigM
 | `workflow-steps/store-artifact/index.tsx` | `workflowNodes = []`, `workflowEdges = []`, `plugins = []` |
 | `workflow-steps/compare-data/index.tsx` | same three |
 | `workflow-steps/filter-output/index.tsx` | same three |
+| `workflow-steps/compare-pyats-snapshot/index.tsx` (added 2026-08, line ~89) | `workflowNodes = []` |
 
 `patch: Record<string, unknown> = {}` on `build*Config` helpers is a **pure function** default, not a React prop. Leave those.
 
@@ -884,7 +885,7 @@ Point **all** ConfigPanel defaults and `node-config-modal.tsx` / `workflow-build
 
 ## Files
 
-The 10 files in the tables above, plus optional `constants/empty-canvas.ts` and the two files that already define `EMPTY_PLUGINS` if you unify.
+The 11 files in the tables above (compare-pyats-snapshot was added after the original analysis), plus optional `constants/empty-canvas.ts` and the two files that already define `EMPTY_PLUGINS` if you unify.
 
 ## Verify
 
@@ -1057,7 +1058,7 @@ Move-only. Do not change markup, class names, or data mapping.
 
 ## Before
 
-`frontend/src/components/features/workflows/components/step-result-viewer.tsx` (~1181 lines) defines (in order):
+`frontend/src/components/features/workflows/components/step-result-viewer.tsx` (~1299 lines after the get-pyats-snapshot / compare-pyats-snapshot steps landed) defines (in order):
 
 | Symbol | Kind |
 |---|---|
@@ -1070,10 +1071,12 @@ Move-only. Do not change markup, class names, or data mapping.
 | `isParsedTemplateEntry`, `getParsedTemplateEntries` | parsed template |
 | `isComparisonResultEntry`, `isComparisonDiffEntry`, `getComparisonResultEntries`, `getComparisonDiffEntries` | compare-data |
 | `isGenieParsedConfigEntry`, `getGenieParsedConfigEntries` | genie |
+| `SnapshotFeatureResult`, `SnapshotEntry`, `isSnapshotEntry`, `getSnapshotEntries` | pyATS snapshot (added 2026-08) |
 | `ConfigArtifactPanel` | artifact body |
 | `DeviceConfigsContent` | running/startup |
 | `DeviceParsedTemplatesContent` | templates |
 | `DeviceGenieConfigContent` | genie view |
+| `DeviceSnapshotContent` | pyATS snapshot view (added 2026-08) |
 | `DeviceComparisonDiffsContent` | diffs |
 | `DeviceCommandResultsContent` | commands |
 | `DeviceErrorList` (**exported**) | errors |
@@ -1102,6 +1105,7 @@ features/workflows/components/step-result-viewer/
   device-configs-content.tsx
   device-parsed-templates-content.tsx
   device-genie-config-content.tsx
+  device-snapshot-content.tsx      # DeviceSnapshotContent + Snapshot* guards (or guards in parsed-guards.ts)
   device-comparison-diff-content.tsx
   device-command-results-content.tsx
   device-error-list.tsx          # export DeviceErrorList
