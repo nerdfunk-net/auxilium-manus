@@ -123,6 +123,11 @@ class RunRequestedOperation(aetest.Testcase):
                 try:
                     if operation == "parse":
                         entry["parsed"] = device.parse(command)
+                    elif operation == "learn":
+                        # `command` is a Genie feature name here (e.g. "bgp", or "all"),
+                        # not a CLI string -- see app/jobs.py's JobRequest.commands.
+                        ops = device.learn(command)
+                        entry["parsed"] = ops.to_dict() if ops is not None else None
                     else:
                         entry["raw"] = device.execute(command)
                 except Exception as exc:  # noqa: BLE001 - reported per-command, not raised

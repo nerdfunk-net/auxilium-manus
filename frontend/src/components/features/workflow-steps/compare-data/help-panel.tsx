@@ -64,6 +64,12 @@ export function CompareDataHelpPanel() {
             <HelpCode>filtered_output</HelpCode> — output from Filter Output (recommended
             after stripping volatile fields).
           </li>
+          <li>
+            <HelpCode>pyats_snapshot</HelpCode> — Genie learn snapshot from Get Snapshot
+            (requires source step + parsed_output_key). Diffs as plain text, so it flags
+            every field that differs, including noisy dynamic ones like counters or
+            uptime — a Filter Output step first can help reduce false positives.
+          </li>
         </ul>
         <HelpExample>
           content_source: filtered_output
@@ -75,9 +81,9 @@ export function CompareDataHelpPanel() {
       <HelpSection title="Source step">
         <p>
           When content source is <HelpCode>command_output</HelpCode>,{" "}
-          <HelpCode>rendered_template</HelpCode>, <HelpCode>merged_content</HelpCode>,
-          or <HelpCode>filtered_output</HelpCode>, set{" "}
-          <HelpCode>source_step_node_id</HelpCode> to the upstream node ID. Pick from
+          <HelpCode>rendered_template</HelpCode>, <HelpCode>merged_content</HelpCode>,{" "}
+          <HelpCode>filtered_output</HelpCode>, or <HelpCode>pyats_snapshot</HelpCode>,
+          set <HelpCode>source_step_node_id</HelpCode> to the upstream node ID. Pick from
           the dropdown or type directly (e.g. <HelpCode>run-command-3</HelpCode>).
         </p>
         <HelpExample>
@@ -90,11 +96,11 @@ export function CompareDataHelpPanel() {
       <HelpSection title="Parsed output key">
         <p>
           When <HelpCode>content_source</HelpCode> is{" "}
-          <HelpCode>rendered_template</HelpCode>, set{" "}
-          <HelpCode>parsed_output_key</HelpCode> to the{" "}
-          <HelpCode>output_key</HelpCode> from the Render Jinja Template step. This
-          selects <HelpCode>device.parsed.{"{output_key}"}</HelpCode> as the left-hand
-          comparison input.
+          <HelpCode>rendered_template</HelpCode> or <HelpCode>pyats_snapshot</HelpCode>,
+          set <HelpCode>parsed_output_key</HelpCode> to the{" "}
+          <HelpCode>output_key</HelpCode> from that upstream step. This selects{" "}
+          <HelpCode>device.parsed.{"{output_key}"}</HelpCode> as the left-hand comparison
+          input.
         </p>
         <HelpExample>
           content_source: rendered_template
@@ -102,6 +108,13 @@ export function CompareDataHelpPanel() {
           source_step_node_id: render-jinja-1
           <br />
           parsed_output_key: device_config
+        </HelpExample>
+        <HelpExample>
+          content_source: pyats_snapshot
+          <br />
+          source_step_node_id: get-pyats-snapshot-1
+          <br />
+          parsed_output_key: pyats_snapshot
         </HelpExample>
       </HelpSection>
 

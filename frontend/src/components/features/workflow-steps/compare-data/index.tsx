@@ -64,6 +64,11 @@ const CONTENT_SOURCE_OPTIONS = [
     label: "Filtered output",
     hint: "Choose the filter-output step that removed volatile fields.",
   },
+  {
+    value: "pyats_snapshot",
+    label: "pyATS snapshot",
+    hint: "Choose the get-pyats-snapshot step that produced the snapshot.",
+  },
 ] as const;
 
 const VALID_COMPARE_SOURCES = new Set([
@@ -74,6 +79,7 @@ const VALID_COMPARE_SOURCES = new Set([
   "rendered_template",
   "merged_content",
   "filtered_output",
+  "pyats_snapshot",
 ]);
 
 type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
@@ -190,8 +196,10 @@ function CompareDataConfigPanel({
     contentSource === "command_output" ||
     contentSource === "rendered_template" ||
     contentSource === "merged_content" ||
-    contentSource === "filtered_output";
-  const needsParsedOutputKey = contentSource === "rendered_template";
+    contentSource === "filtered_output" ||
+    contentSource === "pyats_snapshot";
+  const needsParsedOutputKey =
+    contentSource === "rendered_template" || contentSource === "pyats_snapshot";
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, contentSource, nodeId),
     [workflowNodes, contentSource, nodeId],
@@ -270,7 +278,10 @@ function CompareDataConfigPanel({
     (selectedNodeId: string) => {
       const step = sourceSteps.find((candidate) => candidate.nodeId === selectedNodeId);
       const patch: Record<string, unknown> = { source_step_node_id: selectedNodeId };
-      if (contentSource === "rendered_template" && step?.outputKey) {
+      if (
+        (contentSource === "rendered_template" || contentSource === "pyats_snapshot") &&
+        step?.outputKey
+      ) {
         const currentKey =
           typeof config.parsed_output_key === "string" ? config.parsed_output_key.trim() : "";
         if (!currentKey) {
@@ -418,7 +429,9 @@ function CompareDataConfigPanel({
                         ? "Choose merge-content step…"
                         : contentSource === "filtered_output"
                           ? "Choose filter-output step…"
-                          : "Choose run-command step…"
+                          : contentSource === "pyats_snapshot"
+                            ? "Choose get-pyats-snapshot step…"
+                            : "Choose run-command step…"
                   }
                 />
               </SelectTrigger>
@@ -438,7 +451,9 @@ function CompareDataConfigPanel({
                   ? "Add a Merge Content step to this workflow first."
                   : contentSource === "filtered_output"
                     ? "Add a Filter Output step to this workflow first."
-                    : "Add a Run Command step to this workflow first."}
+                    : contentSource === "pyats_snapshot"
+                      ? "Add a Get Snapshot step to this workflow first."
+                      : "Add a Run Command step to this workflow first."}
             </p>
           )}
           {selectedSourceStep ? (
@@ -453,7 +468,9 @@ function CompareDataConfigPanel({
           <Input
             value={sourceStepNodeId}
             onChange={(event) => handleSourceStepNodeIdChange(event.target.value)}
-            placeholder="run-command-3"
+            placeholder={
+              contentSource === "pyats_snapshot" ? "get-pyats-snapshot-3" : "run-command-3"
+            }
             className="h-8 font-mono text-xs"
           />
         </div>
@@ -472,7 +489,7 @@ function CompareDataConfigPanel({
               typeof config.parsed_output_key === "string" ? config.parsed_output_key : ""
             }
             onChange={(event) => handleParsedOutputKeyChange(event.target.value)}
-            placeholder="device_config"
+            placeholder={contentSource === "pyats_snapshot" ? "pyats_snapshot" : "device_config"}
             className="h-8 font-mono text-xs"
           />
         </div>

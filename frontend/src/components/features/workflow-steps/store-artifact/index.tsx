@@ -69,6 +69,11 @@ const CONTENT_SOURCE_OPTIONS = [
     label: "Filtered output",
     hint: "Choose the filter-output step that removed volatile fields.",
   },
+  {
+    value: "pyats_snapshot",
+    label: "pyATS snapshot",
+    hint: "Choose the get-pyats-snapshot step that produced the snapshot.",
+  },
 ] as const;
 
 type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
@@ -197,8 +202,10 @@ function StoreArtifactConfigPanel({
     contentSource === "rendered_template" ||
     contentSource === "merged_content" ||
     contentSource === "comparison_diff" ||
-    contentSource === "filtered_output";
-  const needsParsedOutputKey = contentSource === "rendered_template";
+    contentSource === "filtered_output" ||
+    contentSource === "pyats_snapshot";
+  const needsParsedOutputKey =
+    contentSource === "rendered_template" || contentSource === "pyats_snapshot";
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, contentSource, nodeId),
     [workflowNodes, contentSource, nodeId],
@@ -276,7 +283,10 @@ function StoreArtifactConfigPanel({
     (selectedNodeId: string) => {
       const step = sourceSteps.find((candidate) => candidate.nodeId === selectedNodeId);
       const patch: Record<string, unknown> = { source_step_node_id: selectedNodeId };
-      if (contentSource === "rendered_template" && step?.outputKey) {
+      if (
+        (contentSource === "rendered_template" || contentSource === "pyats_snapshot") &&
+        step?.outputKey
+      ) {
         const currentKey =
           typeof config.parsed_output_key === "string" ? config.parsed_output_key.trim() : "";
         if (!currentKey) {
@@ -568,7 +578,9 @@ function StoreArtifactConfigPanel({
                           ? "Choose compare-data step…"
                           : contentSource === "filtered_output"
                             ? "Choose filter-output step…"
-                            : "Choose run-command step…"
+                            : contentSource === "pyats_snapshot"
+                              ? "Choose get-pyats-snapshot step…"
+                              : "Choose run-command step…"
                   }
                 />
               </SelectTrigger>
@@ -590,7 +602,9 @@ function StoreArtifactConfigPanel({
                     ? "Add a Compare Data step to this workflow first."
                     : contentSource === "filtered_output"
                       ? "Add a Filter Output step to this workflow first."
-                      : "Add a Run Command step to this workflow first."}
+                      : contentSource === "pyats_snapshot"
+                        ? "Add a Get Snapshot step to this workflow first."
+                        : "Add a Run Command step to this workflow first."}
             </p>
           )}
           {selectedSourceStep ? (
@@ -623,7 +637,9 @@ function StoreArtifactConfigPanel({
                       ? "merge-content-3"
                       : contentSource === "comparison_diff"
                         ? "compare-data-3"
-                        : "run-command-3"
+                        : contentSource === "pyats_snapshot"
+                          ? "get-pyats-snapshot-3"
+                          : "run-command-3"
                 }
                 className="h-8 font-mono text-xs"
               />
@@ -648,12 +664,13 @@ function StoreArtifactConfigPanel({
               typeof config.parsed_output_key === "string" ? config.parsed_output_key : ""
             }
             onChange={(event) => handleParsedOutputKeyChange(event.target.value)}
-            placeholder="device_config"
+            placeholder={contentSource === "pyats_snapshot" ? "pyats_snapshot" : "device_config"}
             className="h-8 font-mono text-xs"
           />
           <p className="text-[11px] text-muted-foreground">
-            Optional output_key from the render step. Leave empty to export all templates
-            produced by the selected step.
+            {contentSource === "pyats_snapshot"
+              ? "Optional output_key from the Get Snapshot step. Leave empty to export all snapshots produced by the selected step."
+              : "Optional output_key from the render step. Leave empty to export all templates produced by the selected step."}
           </p>
         </div>
       ) : null}

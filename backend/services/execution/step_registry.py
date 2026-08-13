@@ -39,6 +39,7 @@ from workflow_steps.get_ise_tacacs_key.executor import execute as get_ise_tacacs
 from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
 from workflow_steps.get_pyats_config.executor import execute as get_pyats_config
+from workflow_steps.get_pyats_snapshot.executor import execute as get_pyats_snapshot
 from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
 from workflow_steps.git_push.executor import execute as git_push
@@ -78,6 +79,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "parse-cisco-config": parse_cisco_config,
     "add-pyats-testbed": add_pyats_testbed,
     "get-pyats-config": get_pyats_config,
+    "get-pyats-snapshot": get_pyats_snapshot,
     "render-jinja-template": render_jinja_template,
     "run-command": run_command,
     "deploy-rendered-template": deploy_rendered_template,

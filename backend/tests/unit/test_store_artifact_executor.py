@@ -76,6 +76,31 @@ def _device_with_rendered_template() -> DeviceContext:
     )
 
 
+def _device_with_pyats_snapshot() -> DeviceContext:
+    artifact_ref = ArtifactRef(
+        artifact_id="artifact-snapshot",
+        kind="pyats_snapshot",
+        media_type="application/json",
+        size_bytes=42,
+    )
+    return DeviceContext(
+        id="device-1",
+        name="lab",
+        hostname="lab",
+        attribute_bags={"nautobot": {"location": {"name": "DC1"}}},
+        parsed={
+            "pyats_snapshot": {
+                "kind": "pyats_snapshot",
+                "artifact_ref": artifact_ref.model_dump(mode="json"),
+                "step_node_id": "get-pyats-snapshot-5",
+                "features": {"bgp": {"success": True, "error": None}},
+            }
+        },
+        capabilities={Capability.IDENTITY, Capability.PARSED},
+        status=DeviceStatus.OK,
+    )
+
+
 class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_exports_running_config_to_nested_path(self) -> None:
         run = MagicMock()
@@ -228,6 +253,58 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0]["content_source"], "rendered_template")
         self.assertEqual(stored[0]["output_key"], "device_config")
+
+    async def test_exports_pyats_snapshot_to_filesystem(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        artifact_service = InMemoryArtifactService()
+        await artifact_service.store(
+            content='{"bgp": {"success": true, "data": {}}}',
+            kind="pyats_snapshot",
+            device_id="device-1",
+            run_id="run-uuid-1",
+            media_type="application/json",
+        )
+        device = _device_with_pyats_snapshot()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                _mock_export_directory(Path(tmp)),
+                patch.object(
+                    artifact_service,
+                    "resolve",
+                    new=AsyncMock(return_value='{"bgp": {"success": true, "data": {}}}'),
+                ),
+            ):
+                outcomes = await execute(
+                    config={
+                        "content_source": "pyats_snapshot",
+                        "source_step_node_id": "get-pyats-snapshot-5",
+                        "parsed_output_key": "pyats_snapshot",
+                        "filename_template": "{device.name}_{parsed.output_key}.json",
+                        "output_subdirectory": "exports",
+                    },
+                    context=WorkflowContext(
+                        run_id="run-uuid-1",
+                        workflow_id="wf-1",
+                        devices={"device-1": device},
+                    ),
+                    run=run,
+                    artifact_service=artifact_service,
+                    node_id="store-artifact-4",
+                    device_sessions=MagicMock(),
+                )
+
+            export_root = Path(tmp) / "exports" / "wf-1" / "run-uuid-1"
+            files = list(export_root.glob("*.json"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0].name, "lab_pyats_snapshot.json")
+
+        self.assertEqual(len(outcomes), 1)
+        stored = outcomes[0].context.metadata["store-artifact-4.stored_artifacts"]
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["content_source"], "pyats_snapshot")
+        self.assertEqual(stored[0]["output_key"], "pyats_snapshot")
 
     async def test_strict_template_failure_goes_to_failure_outcome(self) -> None:
         run = MagicMock()

@@ -13,14 +13,15 @@ const SOURCE_STEP_KIND: Partial<Record<string, string>> = {
   merged_content: "merge-content",
   comparison_diff: "compare-data",
   filtered_output: "filter-output",
+  pyats_snapshot: "get-pyats-snapshot",
 };
 
-function readRenderOutputKey(node: PersistedCanvasNode): string {
+function readOutputKey(node: PersistedCanvasNode, fallback: string): string {
   const pluginConfig = (node.data.pluginConfig ?? {}) as Record<string, unknown>;
   if (typeof pluginConfig.output_key === "string" && pluginConfig.output_key.trim()) {
     return pluginConfig.output_key.trim();
   }
-  return "device_config";
+  return fallback;
 }
 
 export function listUpstreamSourceSteps(
@@ -39,6 +40,11 @@ export function listUpstreamSourceSteps(
       nodeId: node.id,
       title: node.data.title?.trim() || node.id,
       stepKind: node.data.kind,
-      outputKey: stepKind === "render-jinja-template" ? readRenderOutputKey(node) : undefined,
+      outputKey:
+        stepKind === "render-jinja-template"
+          ? readOutputKey(node, "device_config")
+          : stepKind === "get-pyats-snapshot"
+            ? readOutputKey(node, "pyats_snapshot")
+            : undefined,
     }));
 }

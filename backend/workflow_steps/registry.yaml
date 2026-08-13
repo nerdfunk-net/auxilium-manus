@@ -391,10 +391,10 @@ plugins:
 
   - id: get-pyats-config
     name: Get & Parse Config
-    overview: Get running/startup config via pyATS and parse it with Genie.
+    overview: Get running config via pyATS and parse it with Genie.
     description: >
-      Fetch running and startup configuration via the pyATS shim and parse it
-      with Genie into structured data. Requires an upstream Add Testbed step.
+      Fetch running configuration via the pyATS shim and parse it with Genie
+      into structured data. Requires an upstream Add Testbed step.
     artifact_type: configuration_retrieval
     palette_category: pyats
     directory: get_pyats_config
@@ -411,10 +411,43 @@ plugins:
           description: >
             Unique key for this step's parsed output on each device (used by
             downstream Jinja templates and Log Attributes as
-            device.parsed.<output_key>). Nested under "running"/"startup".
+            device.parsed.<output_key>). Nested under "running".
           data_type: string
           required: true
           example: pyats_config
+
+  - id: get-pyats-snapshot
+    name: Get Snapshot
+    overview: Capture a Genie "learn" snapshot of live device state.
+    description: >
+      Learn one or more Genie features (BGP, OSPF, interfaces, platform, ...)
+      or "all" via pyATS and store the structured snapshot. Requires an
+      upstream Add Testbed step.
+    artifact_type: configuration_retrieval
+    palette_category: pyats
+    directory: get_pyats_snapshot
+    enabled: true
+    requires: [identity, pyats_testbed]
+    produces: [parsed]
+    primary_output: pyats_snapshot
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: features
+          description: >
+            Genie learn feature names to capture (e.g. bgp, ospf, interface),
+            or ["all"] for everything supported on the device.
+          data_type: array
+          required: true
+        - name: output_key
+          description: >
+            Unique key for this step's snapshot on each device
+            (device.parsed.<output_key>).
+          data_type: string
+          required: true
+          example: pyats_snapshot
 
   - id: get-from-list
     name: Get from List

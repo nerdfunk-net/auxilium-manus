@@ -173,6 +173,10 @@ export function StoreArtifactHelpPanel() {
           <li>
             <HelpCode>filtered_output</HelpCode> — output from Filter Output.
           </li>
+          <li>
+            <HelpCode>pyats_snapshot</HelpCode> — Genie learn snapshot from Get Snapshot
+            (pick step + optional <HelpCode>parsed_output_key</HelpCode>).
+          </li>
         </ul>
         <HelpExample>
           content_source: running_config
@@ -185,10 +189,11 @@ export function StoreArtifactHelpPanel() {
         <p>
           Shown when <HelpCode>content_source</HelpCode> is{" "}
           <HelpCode>command_output</HelpCode>, <HelpCode>rendered_template</HelpCode>,{" "}
-          <HelpCode>merged_content</HelpCode>, <HelpCode>comparison_diff</HelpCode>, or{" "}
-          <HelpCode>filtered_output</HelpCode>. Select the upstream step that produced
-          the content. Stored as <HelpCode>source_step_node_id</HelpCode> (shown in
-          Configuration as <HelpCode>source_step</HelpCode>).
+          <HelpCode>merged_content</HelpCode>, <HelpCode>comparison_diff</HelpCode>,{" "}
+          <HelpCode>filtered_output</HelpCode>, or <HelpCode>pyats_snapshot</HelpCode>.
+          Select the upstream step that produced the content. Stored as{" "}
+          <HelpCode>source_step_node_id</HelpCode> (shown in Configuration as{" "}
+          <HelpCode>source_step</HelpCode>).
         </p>
         <p>
           If only one matching step exists on the canvas, it is selected automatically.
@@ -205,10 +210,10 @@ export function StoreArtifactHelpPanel() {
       <HelpSection title="parsed_output_key">
         <p>
           Shown when <HelpCode>content_source</HelpCode> is{" "}
-          <HelpCode>rendered_template</HelpCode>. Optional{" "}
-          <HelpCode>output_key</HelpCode> from the render step. Leave empty to export
-          all templates from the selected step. Selecting a render step may auto-fill
-          this from the step&apos;s configured key.
+          <HelpCode>rendered_template</HelpCode> or <HelpCode>pyats_snapshot</HelpCode>.
+          Optional <HelpCode>output_key</HelpCode> from the render/snapshot step. Leave
+          empty to export everything produced by the selected step. Selecting a step may
+          auto-fill this from the step&apos;s configured key.
         </p>
         <HelpExample>
           content_source: rendered_template
@@ -216,6 +221,13 @@ export function StoreArtifactHelpPanel() {
           source_step_node_id: render-jinja-template-1
           <br />
           parsed_output_key: device_config
+        </HelpExample>
+        <HelpExample>
+          content_source: pyats_snapshot
+          <br />
+          source_step_node_id: get-pyats-snapshot-1
+          <br />
+          parsed_output_key: pyats_snapshot
         </HelpExample>
       </HelpSection>
 

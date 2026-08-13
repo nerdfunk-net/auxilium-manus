@@ -1,4 +1,5 @@
 import {
+  Camera,
   CheckCircle2,
   Combine,
   Database,
@@ -90,6 +91,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   // (not the step's real artifact_type) once a custom palette_category is
   // set, so any pyats-category step needs an explicit entry here too.
   "get-pyats-config": HardDriveDownload,
+  "get-pyats-snapshot": Camera,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

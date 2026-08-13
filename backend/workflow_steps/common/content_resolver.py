@@ -28,6 +28,7 @@ _CONTENT_SOURCES = frozenset(
         "merged_content",
         "comparison_diff",
         "filtered_output",
+        "pyats_snapshot",
     }
 )
 
@@ -118,6 +119,15 @@ def list_exportable_content(
             raise ValueError("store-artifact: source_step_node_id is required for filtered_output")
         return _exportable_from_filtered_output(device, source_step_node_id=source_step_node_id)
 
+    if content_source == "pyats_snapshot":
+        if not source_step_node_id:
+            raise ValueError("store-artifact: source_step_node_id is required for pyats_snapshot")
+        return _exportable_from_pyats_snapshot(
+            device,
+            source_step_node_id=source_step_node_id,
+            parsed_output_key=parsed_output_key,
+        )
+
     return []
 
 
@@ -186,6 +196,54 @@ def _exportable_from_parsed_templates(
                     "content_source": "rendered_template",
                     "source_step_node_id": source_step_node_id,
                     "output_key": output_key,
+                },
+            )
+        )
+    return items
+
+
+def _is_pyats_snapshot_entry(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("kind") != "pyats_snapshot":
+        return False
+    artifact_raw = value.get("artifact_ref")
+    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
+        return False
+    return bool(value.get("step_node_id"))
+
+
+def _exportable_from_pyats_snapshot(
+    device: DeviceContext,
+    *,
+    source_step_node_id: str,
+    parsed_output_key: str | None = None,
+) -> list[ExportableContent]:
+    if parsed_output_key:
+        raw = device.parsed.get(parsed_output_key)
+        candidates = [(parsed_output_key, raw)] if raw is not None else []
+    else:
+        candidates = list(device.parsed.items())
+
+    items: list[ExportableContent] = []
+    for key, raw in candidates:
+        if not _is_pyats_snapshot_entry(raw):
+            continue
+        if str(raw.get("step_node_id") or "") != source_step_node_id:
+            continue
+        output_key = str(raw.get("output_key") or key)
+        artifact_ref = ArtifactRef.model_validate(raw["artifact_ref"])
+        features = raw.get("features") if isinstance(raw.get("features"), dict) else {}
+        items.append(
+            ExportableContent(
+                kind="pyats_snapshot",
+                media_type=artifact_ref.media_type,
+                artifact_ref=artifact_ref,
+                extra={
+                    "content_source": "pyats_snapshot",
+                    "source_step_node_id": source_step_node_id,
+                    "output_key": output_key,
+                    "features": sorted(features.keys()),
                 },
             )
         )

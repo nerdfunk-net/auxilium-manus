@@ -470,6 +470,47 @@ function getGenieParsedConfigEntries(
     .map(([key, entry]) => ({ key, entry: entry as GenieParsedConfigEntry }));
 }
 
+/**
+ * Genie "learn" snapshot output from get-pyats-snapshot:
+ * `{"kind": "pyats_snapshot", "artifact_ref": ..., "features": {name: {success, error}}}`.
+ * The `kind` discriminator keeps this unambiguous from the other `device.parsed`
+ * shapes above (comparison entries use the same discriminator convention).
+ */
+interface SnapshotFeatureResult {
+  success: boolean;
+  error?: string | null;
+}
+
+interface SnapshotEntry {
+  kind: "pyats_snapshot";
+  artifact_ref: ArtifactRef;
+  step_node_id: string;
+  features: Record<string, SnapshotFeatureResult>;
+}
+
+function isSnapshotEntry(value: unknown): value is SnapshotEntry {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const entry = value as SnapshotEntry;
+  return (
+    entry.kind === "pyats_snapshot" &&
+    typeof entry.artifact_ref === "object" &&
+    entry.artifact_ref !== null &&
+    typeof entry.artifact_ref.artifact_id === "string" &&
+    typeof entry.features === "object" &&
+    entry.features !== null
+  );
+}
+
+function getSnapshotEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: SnapshotEntry }> {
+  return Object.entries(parsed)
+    .filter(([, value]) => isSnapshotEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as SnapshotEntry }));
+}
+
 function ConfigArtifactPanel({
   runId,
   label,
@@ -608,6 +649,43 @@ function DeviceGenieConfigContent({
               </pre>
             </div>
           ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DeviceSnapshotContent({
+  runId,
+  entries,
+}: {
+  runId: number | null;
+  entries: Array<{ key: string; entry: SnapshotEntry }>;
+}) {
+  return (
+    <div className="mt-2 space-y-3">
+      {entries.map(({ key, entry }) => (
+        <div key={key} className="space-y-2">
+          <p className="font-mono text-[10px] text-muted-foreground">output_key: {key}</p>
+          <div className="flex flex-wrap gap-1">
+            {Object.entries(entry.features).map(([feature, result]) => (
+              <Badge
+                key={feature}
+                className="text-[10px]"
+                variant={result.success ? "secondary" : "destructive"}
+                title={result.success ? undefined : (result.error ?? undefined)}
+              >
+                {feature}
+              </Badge>
+            ))}
+          </div>
+          {runId == null ? (
+            <p className="text-xs text-muted-foreground">
+              Snapshot content is available from a workflow run detail view.
+            </p>
+          ) : (
+            <ConfigArtifactPanel runId={runId} label="Genie snapshot" artifactRef={entry.artifact_ref} />
+          )}
         </div>
       ))}
     </div>
@@ -788,12 +866,18 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
     () => getGenieParsedConfigEntries(device.parsed ?? {}),
     [device.parsed],
   );
+  const snapshotEntries = useMemo(
+    () => getSnapshotEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
   const hasParsedTemplates = parsedTemplateEntries.length > 0;
   const hasComparisons =
     comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0;
   const hasGenieConfig = genieConfigEntries.length > 0;
+  const hasSnapshot = snapshotEntries.length > 0;
   const [showComparisons, setShowComparisons] = useState(hasComparisons);
   const [showGenieConfig, setShowGenieConfig] = useState(false);
+  const [showSnapshot, setShowSnapshot] = useState(false);
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
   const configCount =
     (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
@@ -904,12 +988,34 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
               ))}
             </div>
           ) : null}
+          {hasSnapshot ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Genie snapshot
+              </p>
+              {snapshotEntries.map(({ key, entry }) => {
+                const featureNames = Object.keys(entry.features);
+                const successCount = featureNames.filter(
+                  (name) => entry.features[name].success,
+                ).length;
+                return (
+                  <div key={key} className="text-xs text-muted-foreground">
+                    <span className="font-mono">{key}</span>
+                    {" · "}
+                    {successCount}/{featureNames.length} feature
+                    {featureNames.length !== 1 ? "s" : ""} learned
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           <DeviceErrorList errors={device.errors} />
           {hasConfigs ||
           hasCommandResults ||
           hasParsedTemplates ||
           hasComparisons ||
           hasGenieConfig ||
+          hasSnapshot ||
           attributeBagNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {attributeBagNames.length > 0 ? (
@@ -970,6 +1076,15 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
                   {showGenieConfig ? "Hide" : "Show"} Genie parsed config
                 </button>
               ) : null}
+              {hasSnapshot ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowSnapshot((value) => !value)}
+                >
+                  {showSnapshot ? "Hide" : "Show"} Genie snapshot
+                </button>
+              ) : null}
             </div>
           ) : null}
           {showAttributeBags && attributeBagNames.length > 0 ? (
@@ -1001,6 +1116,9 @@ function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number |
           ) : null}
           {showGenieConfig && hasGenieConfig ? (
             <DeviceGenieConfigContent entries={genieConfigEntries} />
+          ) : null}
+          {showSnapshot && hasSnapshot ? (
+            <DeviceSnapshotContent runId={runId ?? null} entries={snapshotEntries} />
           ) : null}
         </div>
       </div>

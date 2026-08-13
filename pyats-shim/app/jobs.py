@@ -34,8 +34,9 @@ class DeviceRequest(BaseModel):
 
 
 class JobRequest(BaseModel):
-    operation: Literal["execute", "parse"]
+    operation: Literal["execute", "parse", "learn"]
     devices: list[DeviceRequest] = Field(..., min_length=1)
+    # CLI commands for execute/parse; Genie feature names (e.g. "bgp", or "all") for learn.
     commands: list[str] = Field(..., min_length=1)
     timeout_seconds: float | None = Field(default=None, ge=1, le=600)
 

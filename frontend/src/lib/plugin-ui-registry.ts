@@ -9,6 +9,7 @@ import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get
 import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/parse-cisco-config";
 import { AddPyatsTestbedPlugin } from "@/components/features/workflow-steps/add-pyats-testbed";
 import { GetPyatsConfigPlugin } from "@/components/features/workflow-steps/get-pyats-config";
+import { GetPyatsSnapshotPlugin } from "@/components/features/workflow-steps/get-pyats-snapshot";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetFromConfigPlugin } from "@/components/features/workflow-steps/get-from-config";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
@@ -53,6 +54,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "add-pyats-testbed": AddPyatsTestbedPlugin,
   "get-pyats-config": GetPyatsConfigPlugin,
+  "get-pyats-snapshot": GetPyatsSnapshotPlugin,
   "run-command": RunCommandPlugin,
   "deploy-rendered-template": DeployRenderedTemplatePlugin,
   "route-on-attribute": RouteOnAttributePlugin,
