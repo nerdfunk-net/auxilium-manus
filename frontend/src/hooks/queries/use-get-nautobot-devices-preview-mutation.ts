@@ -41,8 +41,7 @@ export interface PreviewResponse {
 }
 
 export interface PreviewRequest {
-  nautobot_url: string;
-  nautobot_token: string;
+  source_id: string;
   operations: LogicalOperationPayload[];
 }
 

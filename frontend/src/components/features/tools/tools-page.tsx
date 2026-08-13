@@ -2,39 +2,71 @@
 
 import { Database, KeyRound, Shield, Wrench } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuthStore } from "@/lib/auth-store";
+import { hasPermission } from "@/lib/permissions";
+import type { AuthUser } from "@/lib/auth";
 
 interface ToolLink {
   title: string;
   description: string;
   href: string;
   icon: LucideIcon;
+  canShow: (user: AuthUser | null) => boolean;
 }
 
-const TOOL_LINKS: ToolLink[] = [
-  {
-    title: "Database Migration",
-    description: "Compare the live schema against the models and apply changes, or re-seed RBAC.",
-    href: "/tools/database-migration",
-    icon: Database,
-  },
-  {
-    title: "Add Certificate",
-    description: "Upload and install CA certificates into the system trust store.",
-    href: "/tools/add-certificate",
-    icon: KeyRound,
-  },
-  {
-    title: "OIDC Test Dashboard",
-    description: "Debug OIDC provider configuration and test SSO login flows.",
-    href: "/tools/oidc-test",
-    icon: Shield,
-  },
-];
+const MIGRATION_TOOL: ToolLink = {
+  title: "Database Migration",
+  description: "Compare the live schema against the models and apply changes, or re-seed RBAC.",
+  href: "/tools/database-migration",
+  icon: Database,
+  canShow: (user) =>
+    hasPermission(user, "system.database", "read") ||
+    hasPermission(user, "system.database", "write"),
+};
 
-export function ToolsPage() {
+const CERTIFICATE_TOOL: ToolLink = {
+  title: "Add Certificate",
+  description: "Upload and install CA certificates into the system trust store.",
+  href: "/tools/add-certificate",
+  icon: KeyRound,
+  canShow: (user) =>
+    hasPermission(user, "system.certificates", "read") ||
+    hasPermission(user, "system.certificates", "write"),
+};
+
+const OIDC_TOOL: ToolLink = {
+  title: "OIDC Test Dashboard",
+  description: "Debug OIDC provider configuration and test SSO login flows.",
+  href: "/tools/oidc-test",
+  icon: Shield,
+  canShow: (user) => hasPermission(user, "system.oidc", "read"),
+};
+
+interface ToolsPageProps {
+  oidcTestEnabled?: boolean;
+}
+
+export function ToolsPage({ oidcTestEnabled = false }: ToolsPageProps) {
+  const user = useAuthStore((state) => state.user);
+
+  const toolLinks = useMemo(() => {
+    const links: ToolLink[] = [];
+    if (MIGRATION_TOOL.canShow(user)) {
+      links.push(MIGRATION_TOOL);
+    }
+    if (CERTIFICATE_TOOL.canShow(user)) {
+      links.push(CERTIFICATE_TOOL);
+    }
+    if (oidcTestEnabled && OIDC_TOOL.canShow(user)) {
+      links.push(OIDC_TOOL);
+    }
+    return links;
+  }, [oidcTestEnabled, user]);
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 p-8">
       <div className="flex items-center gap-3">
@@ -50,7 +82,7 @@ export function ToolsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {TOOL_LINKS.map((tool) => (
+        {toolLinks.map((tool) => (
           <Link key={tool.href} href={tool.href}>
             <Card className="h-full transition-colors hover:border-primary/50">
               <CardHeader className="flex flex-row items-center gap-3 pb-2">

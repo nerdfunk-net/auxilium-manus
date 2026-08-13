@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -87,5 +88,8 @@ export function useCertificatesMutations() {
     },
   });
 
-  return { uploadCertificate, addCertificatesToSystem, deleteCertificate };
+  return useMemo(
+    () => ({ uploadCertificate, addCertificatesToSystem, deleteCertificate }),
+    [uploadCertificate, addCertificatesToSystem, deleteCertificate],
+  );
 }

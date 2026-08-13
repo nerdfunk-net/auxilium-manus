@@ -12,23 +12,12 @@ import {
   Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useOidcProvidersQuery } from "@/hooks/queries/use-oidc-providers-query";
+import { useApi } from "@/hooks/use-api";
 import { useAuthStore } from "@/lib/auth-store";
-
-interface OidcProvider {
-  provider_id: string;
-  name: string;
-  description?: string | null;
-  icon?: string | null;
-  display_order: number;
-}
-
-interface OidcProvidersResponse {
-  providers: OidcProvider[];
-  allow_traditional_login: boolean;
-}
 
 const PROVIDER_ICONS: Record<string, typeof LogIn> = {
   building: Building2,
@@ -50,10 +39,15 @@ export function LoginPage() {
   const authError = useAuthStore((state) => state.error);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [oidcProviders, setOidcProviders] = useState<OidcProvider[]>([]);
-  const [allowTraditionalLogin, setAllowTraditionalLogin] = useState(true);
+  const { data: oidcData } = useOidcProvidersQuery();
+  const oidcProviders = useMemo(
+    () => oidcData?.providers ?? [],
+    [oidcData?.providers],
+  );
+  const allowTraditionalLogin = oidcData?.allow_traditional_login ?? true;
   const [oidcError, setOidcError] = useState("");
   const [oidcLoadingProvider, setOidcLoadingProvider] = useState<string | null>(null);
+  const { apiCall } = useApi();
   const [notice] = useState(() => {
     if (typeof window === "undefined") return "";
     const reason = new URLSearchParams(window.location.search).get("reason");
@@ -61,25 +55,6 @@ export function LoginPage() {
     if (reason === "expired") return "Your session expired. Please sign in again.";
     return "";
   });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetch("/api/proxy/auth/oidc/providers")
-      .then((response) => (response.ok ? (response.json() as Promise<OidcProvidersResponse>) : null))
-      .then((data) => {
-        if (!data || cancelled) return;
-        setOidcProviders(data.providers);
-        setAllowTraditionalLogin(data.allow_traditional_login);
-      })
-      .catch(() => {
-        // OIDC is optional — silently fall back to traditional login only.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -102,22 +77,16 @@ export function LoginPage() {
 
     try {
       const redirectUri = `${window.location.origin}/login/callback`;
-      const response = await fetch(
-        `/api/proxy/auth/oidc/${providerId}/login?redirect_uri=${encodeURIComponent(redirectUri)}`,
+      const data = await apiCall<{ authorization_url: string; state: string }>(
+        `auth/oidc/${providerId}/login?redirect_uri=${encodeURIComponent(redirectUri)}`,
       );
-
-      if (!response.ok) {
-        throw new Error(`Failed to initiate SSO login with ${providerId}`);
-      }
-
-      const data = (await response.json()) as { authorization_url: string; state: string };
       sessionStorage.setItem("oidc_state", data.state);
       window.location.assign(data.authorization_url);
     } catch (err) {
       setOidcError(err instanceof Error ? err.message : "SSO login failed");
       setOidcLoadingProvider(null);
     }
-  }, []);
+  }, [apiCall]);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10 text-foreground">

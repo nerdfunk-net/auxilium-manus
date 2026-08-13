@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -77,5 +78,8 @@ export function useCredentialMutations() {
     },
   });
 
-  return { createCredential, updateCredential, deleteCredential };
+  return useMemo(
+    () => ({ createCredential, updateCredential, deleteCredential }),
+    [createCredential, updateCredential, deleteCredential],
+  );
 }

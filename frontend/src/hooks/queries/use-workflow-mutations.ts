@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -49,5 +50,8 @@ export function useWorkflowMutations() {
     },
   });
 
-  return { createWorkflow, updateWorkflow, deleteWorkflow };
+  return useMemo(
+    () => ({ createWorkflow, updateWorkflow, deleteWorkflow }),
+    [createWorkflow, updateWorkflow, deleteWorkflow],
+  );
 }

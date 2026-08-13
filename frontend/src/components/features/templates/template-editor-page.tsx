@@ -4,6 +4,7 @@ import { ArrowLeft, Download, FileCode, Play, RefreshCw, Save } from "lucide-rea
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CanvasErrorBoundary } from "@/components/features/workflows/components/canvas-error-boundary";
 import { Button } from "@/components/ui/button";
 import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
 import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
@@ -188,8 +189,7 @@ function TemplateEditorContent() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        nautobot_url: sourceCredentials.url,
-        nautobot_token: sourceCredentials.token,
+        source_id: sourceCredentials.sourceId,
         device_id: selectedDevice.id,
         list_of_attributes: attributes,
       }),
@@ -213,8 +213,7 @@ function TemplateEditorContent() {
     attributes,
     attributesKey,
     sourceCredentials.isReady,
-    sourceCredentials.url,
-    sourceCredentials.token,
+    sourceCredentials.sourceId,
     apiCall,
     setNautobotAttributes,
   ]);
@@ -552,8 +551,6 @@ function TemplateEditorContent() {
         <NetmikoOptionsPanel
           sources={sources}
           sourceId={effectiveSourceId}
-          nautobotUrl={sourceCredentials.url}
-          nautobotToken={sourceCredentials.token}
           sourceReady={sourceCredentials.isReady}
           commandCount={cleanedCommands.length}
           attributeCount={attributes.length}
@@ -583,7 +580,9 @@ function TemplateEditorContent() {
           </div>
 
           <div className="min-h-[480px] overflow-hidden rounded-lg border">
-            <CodeEditorPanel value={content} language={templateType} onChange={setContent} />
+            <CanvasErrorBoundary fallbackTitle="The editor failed to render">
+              <CodeEditorPanel value={content} language={templateType} onChange={setContent} />
+            </CanvasErrorBoundary>
           </div>
         </div>
 

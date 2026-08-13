@@ -26,11 +26,26 @@ from services.settings.source_keys import (
 logger = logging.getLogger(__name__)
 
 
+_TOKEN_SOURCE_TYPES = frozenset({"nautobot", "git"})
+
+
+def _redact_source_token(key: str, value: dict[str, Any] | None) -> dict[str, Any]:
+    parsed = parse_source_key(key)
+    raw = dict(value or {})
+    if parsed is None or parsed[0] not in _TOKEN_SOURCE_TYPES:
+        return raw
+    token_configured = bool(str(raw.get("token") or "").strip())
+    redacted = dict(raw)
+    redacted["token"] = ""
+    redacted["token_configured"] = token_configured
+    return redacted
+
+
 def _to_response(setting: Setting) -> SettingResponse:
     return SettingResponse(
         id=setting.id,
         key=setting.key,
-        value=setting.value,
+        value=_redact_source_token(setting.key, setting.value),
         description=setting.description,
         created_at=setting.created_at,
         updated_at=setting.updated_at,
@@ -124,7 +139,14 @@ class SettingsService:
 
         fields: dict = {}
         if data.value is not None:
-            fields["value"] = self._normalize_source_value(key, data.value)
+            incoming = dict(data.value)
+            parsed = parse_source_key(key)
+            if parsed is not None and parsed[0] in _TOKEN_SOURCE_TYPES:
+                incoming_token = str(incoming.get("token") or "").strip()
+                if not incoming_token:
+                    existing = setting.value or {}
+                    incoming["token"] = existing.get("token", "")
+            fields["value"] = self._normalize_source_value(key, incoming)
         if data.description is not None:
             fields["description"] = data.description
 
@@ -155,6 +177,8 @@ class SettingsService:
             return value
 
         source_type, source_id = parsed
+        value = dict(value)
+        value.pop("token_configured", None)
         body_source_id = value.get("source_id")
         if isinstance(body_source_id, str) and body_source_id.strip():
             normalized_body_id = body_source_id.strip().lower()

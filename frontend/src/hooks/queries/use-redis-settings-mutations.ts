@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -49,5 +50,8 @@ export function useRedisSettingsMutations() {
     },
   });
 
-  return { saveSettings, clearCache };
+  return useMemo(
+    () => ({ saveSettings, clearCache }),
+    [saveSettings, clearCache],
+  );
 }

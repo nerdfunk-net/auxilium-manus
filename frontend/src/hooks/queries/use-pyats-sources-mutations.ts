@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
@@ -109,5 +110,8 @@ export function usePyATSSourcesMutations() {
     },
   });
 
-  return { createSource, updateSource, deleteSource, testConnection };
+  return useMemo(
+    () => ({ createSource, updateSource, deleteSource, testConnection }),
+    [createSource, updateSource, deleteSource, testConnection],
+  );
 }

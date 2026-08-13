@@ -56,7 +56,7 @@ interface GitSourceDialogProps {
   existingSourceIds?: string[];
   isSaving?: boolean;
   onClose: () => void;
-  onSave: (values: GitSourceValue, settingKey: string) => void;
+  onSave: (values: GitSourceValue, settingKey: string, token?: string) => void;
 }
 
 const EMPTY_DEFAULTS: GitFormValues = {
@@ -69,11 +69,13 @@ const EMPTY_DEFAULTS: GitFormValues = {
   verifySsl: true,
 };
 
+const EMPTY_SOURCE_IDS: string[] = [];
+
 export function GitSourceDialog({
   open,
   mode,
   initialValue,
-  existingSourceIds = [],
+  existingSourceIds = EMPTY_SOURCE_IDS,
   isSaving = false,
   onClose,
   onSave,
@@ -108,19 +110,15 @@ export function GitSourceDialog({
     }
   }, [open, initialValue, reset]);
 
-  const resolveToken = useCallback(
-    (entered: string | undefined) => {
-      const trimmed = entered?.trim() ?? "";
-      return trimmed || (initialValue?.token ?? "");
-    },
-    [initialValue?.token],
-  );
+  const resolveEnteredToken = useCallback((entered: string | undefined) => {
+    return entered?.trim() ?? "";
+  }, []);
 
   const onSubmit = useCallback(
     (values: GitFormValues) => {
-      const token = resolveToken(values.token);
+      const token = resolveEnteredToken(values.token);
 
-      if (!token) {
+      if (mode === "create" && !token) {
         return;
       }
 
@@ -137,23 +135,41 @@ export function GitSourceDialog({
         branch: values.branch.trim(),
         username: values.username?.trim() ?? "",
         repository_path: values.repository_path?.trim() ?? "",
-        token,
+        tokenConfigured: mode === "edit" ? Boolean(initialValue?.tokenConfigured) || Boolean(token) : Boolean(token),
         verifySsl: values.verifySsl,
       };
 
-      onSave(payload, buildSourceSettingKey("git", values.sourceId));
+      onSave(
+        payload,
+        buildSourceSettingKey("git", values.sourceId),
+        token || undefined,
+      );
     },
-    [existingSourceIds, mode, onSave, resolveToken],
+    [existingSourceIds, initialValue?.tokenConfigured, mode, onSave, resolveEnteredToken],
   );
 
   const handleTestConnection = useCallback(async () => {
+    const values = getValues();
+    const token = resolveEnteredToken(values.token);
+    const isEdit = mode === "edit";
+
+    if (isEdit && !token) {
+      const valid = await trigger(["url", "branch"]);
+      if (!valid) {
+        return;
+      }
+      testConnection.mutate({
+        source_id: values.sourceId,
+        verify_ssl: values.verifySsl,
+      });
+      return;
+    }
+
     const valid = await trigger(["url", "branch", "token"]);
     if (!valid) {
       return;
     }
 
-    const values = getValues();
-    const token = resolveToken(values.token);
     if (!token) {
       toast({
         title: "Token required",
@@ -170,9 +186,9 @@ export function GitSourceDialog({
       token,
       verify_ssl: values.verifySsl,
     });
-  }, [getValues, resolveToken, testConnection, toast, trigger]);
+  }, [getValues, mode, resolveEnteredToken, testConnection, toast, trigger]);
 
-  const hasExistingToken = Boolean(initialValue?.token);
+  const hasExistingToken = Boolean(initialValue?.tokenConfigured);
   const isEdit = mode === "edit";
 
   return (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -89,5 +90,8 @@ export function useRbacRolesMutations() {
     },
   });
 
-  return { createRole, updateRole, deleteRole, assignRolePermission, removeRolePermission };
+  return useMemo(
+    () => ({ createRole, updateRole, deleteRole, assignRolePermission, removeRolePermission }),
+    [createRole, updateRole, deleteRole, assignRolePermission, removeRolePermission],
+  );
 }

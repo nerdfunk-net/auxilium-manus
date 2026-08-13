@@ -31,23 +31,11 @@ export function useGetGitDevicesPreviewMutation() {
 
   return useMutation({
     mutationFn: async (request: GitPreviewRequest) => {
-      console.debug("[DEBUG] useGetGitDevicesPreviewMutation — fetch START", request);
-      const result = await apiCall<GitPreviewResponse>("sources/git/preview", {
+      return apiCall<GitPreviewResponse>("sources/git/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
-      console.debug("[DEBUG] useGetGitDevicesPreviewMutation — fetch DONE", result);
-      return result;
-    },
-    onSuccess: (data) => {
-      console.debug("[DEBUG] useGetGitDevicesPreviewMutation — onSuccess", data);
-    },
-    onError: (error) => {
-      console.debug("[DEBUG] useGetGitDevicesPreviewMutation — onError", error);
-    },
-    onSettled: (data, error) => {
-      console.debug("[DEBUG] useGetGitDevicesPreviewMutation — onSettled data=%o error=%o", data, error);
     },
   });
 }

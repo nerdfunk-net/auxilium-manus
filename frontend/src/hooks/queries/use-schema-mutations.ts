@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -38,5 +39,8 @@ export function useSchemaMutations() {
     },
   });
 
-  return { migrateSchema };
+  return useMemo(
+    () => ({ migrateSchema }),
+    [migrateSchema],
+  );
 }

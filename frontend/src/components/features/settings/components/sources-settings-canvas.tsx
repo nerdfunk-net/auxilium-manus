@@ -123,15 +123,18 @@ export function SourcesSettingsCanvas() {
   );
 
   const saveNautobot = useCallback(
-    async (values: NautobotSourceValue, settingKey: string) => {
+    async (values: NautobotSourceValue, settingKey: string, token?: string) => {
       const exists = nautobotById.has(values.sourceId);
+      const value: Record<string, unknown> = {
+        url: values.url,
+        verify_ssl: values.verifySsl,
+      };
+      if (token) {
+        value.token = token;
+      }
       await upsertSetting.mutateAsync({
         key: settingKey,
-        value: {
-          url: values.url,
-          token: values.token,
-          verify_ssl: values.verifySsl,
-        },
+        value,
         description: `Nautobot source ${values.sourceId}`,
         exists,
       });
@@ -141,18 +144,21 @@ export function SourcesSettingsCanvas() {
   );
 
   const saveGit = useCallback(
-    async (values: GitSourceValue, settingKey: string) => {
+    async (values: GitSourceValue, settingKey: string, token?: string) => {
       const exists = gitById.has(values.sourceId);
+      const value: Record<string, unknown> = {
+        url: values.url,
+        branch: values.branch,
+        username: values.username,
+        repository_path: values.repository_path,
+        verify_ssl: values.verifySsl,
+      };
+      if (token) {
+        value.token = token;
+      }
       await upsertSetting.mutateAsync({
         key: settingKey,
-        value: {
-          url: values.url,
-          branch: values.branch,
-          username: values.username,
-          repository_path: values.repository_path,
-          token: values.token,
-          verify_ssl: values.verifySsl,
-        },
+        value,
         description: `Git source ${values.sourceId}`,
         exists,
       });

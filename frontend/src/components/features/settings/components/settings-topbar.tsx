@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthStore } from "@/lib/auth-store";
-import { hasPermission } from "@/lib/permissions";
 
 import { SETTINGS_SECTIONS } from "../constants/settings-sections";
 import type { SettingsSection } from "../types/settings-section";
@@ -15,8 +15,9 @@ interface SettingsTopbarProps {
 
 export function SettingsTopbar({ activeSection }: SettingsTopbarProps) {
   const currentUser = useAuthStore((state) => state.user);
-  const visibleSections = SETTINGS_SECTIONS.filter(
-    (section) => section.id !== "users" || hasPermission(currentUser, "users", "read"),
+  const visibleSections = useMemo(
+    () => SETTINGS_SECTIONS.filter((section) => section.canShow(currentUser)),
+    [currentUser],
   );
 
   return (

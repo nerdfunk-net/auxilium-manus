@@ -540,12 +540,14 @@ DATABASE_USERNAME=postgres
 DATABASE_PASSWORD=password
 INITIAL_USERNAME=admin
 INITIAL_PASSWORD=admin
+ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboard)
 ```
 
 **Frontend** (`.env.local`):
 ```bash
 BACKEND_URL=http://localhost:8000  # Used by Next.js proxy
 PORT=3000
+ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboard)
 ```
 
 ## Common Tasks

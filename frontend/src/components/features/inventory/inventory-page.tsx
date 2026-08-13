@@ -32,8 +32,7 @@ export function InventoryPage() {
         />
 
         <DeviceSelector
-          nautobot_token={source.nautobot_token}
-          nautobot_url={source.nautobot_url}
+          sourceId={source.sourceId}
           showActions
           showSaveLoad
           sourceReady={source.isReady}

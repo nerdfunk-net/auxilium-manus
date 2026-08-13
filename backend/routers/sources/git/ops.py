@@ -80,21 +80,37 @@ class GitSourceActionRequest(BaseModel):
 async def test_connection(
     request: GitSourceTestConnectionRequest,
     _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> GitSourceTestConnectionResponse:
-    """Test Git connectivity using form values (does not require a saved source)."""
+    """Test Git connectivity using form values or a saved source."""
     try:
+        if request.source_id:
+            config = SettingsService(db).get_source_config("git", request.source_id)
+            url = str(config.get("url") or "")
+            branch = str(config.get("branch") or "main")
+            username = str(config.get("username") or "")
+            token = str(config.get("token") or "")
+            verify_ssl = bool(config.get("verify_ssl", True))
+        else:
+            url = request.url or ""
+            branch = request.branch
+            username = request.username
+            token = request.token
+            verify_ssl = request.verify_ssl
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
             lambda: test_git_source_connection(
-                url=request.url,
-                branch=request.branch,
-                username=request.username,
-                token=request.token,
-                verify_ssl=request.verify_ssl,
+                url=url,
+                branch=branch,
+                username=username,
+                token=token,
+                verify_ssl=verify_ssl,
             ),
         )
         return GitSourceTestConnectionResponse(**result)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise_internal_server_error(logger, "Git test connection failed: ", exc)
 

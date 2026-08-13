@@ -7,14 +7,12 @@ import { useInventoryCustomFieldsQuery } from "@/hooks/queries/use-inventory-cus
 import type { CustomField, FieldOption } from "../types/device-selector";
 
 interface UseDeviceFilterOptions {
-  nautobot_url: string;
-  nautobot_token: string;
+  sourceId: string;
   sourceReady: boolean;
 }
 
 export function useDeviceFilter({
-  nautobot_url,
-  nautobot_token,
+  sourceId,
   sourceReady,
 }: UseDeviceFilterOptions) {
   const [currentField, setCurrentField] = useState("");
@@ -33,15 +31,13 @@ export function useDeviceFilter({
 
   const { data: customFieldsData, isLoading: isLoadingCustomFields } =
     useInventoryCustomFieldsQuery({
-      nautobot_url,
-      nautobot_token,
+      sourceId,
       enabled: loadCustomFields && sourceReady,
     });
 
   const { data: fieldValuesData, isLoading: isLoadingFieldValues } =
     useGetNautobotDevicesFieldValuesQuery({
-      nautobot_url,
-      nautobot_token,
+      sourceId,
       field: fieldNameToLoad ?? "",
       enabled: sourceReady && Boolean(fieldNameToLoad),
     });

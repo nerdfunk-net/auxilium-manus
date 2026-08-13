@@ -11,10 +11,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
+import type { AuthUser } from "@/lib/auth";
 import { useAuthStore } from "@/lib/auth-store";
+import { hasPermission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 type NavigationItem = {
@@ -22,6 +24,7 @@ type NavigationItem = {
   icon: typeof Workflow;
   href: string;
   isActive: (pathname: string) => boolean;
+  canShow: (user: AuthUser | null) => boolean;
 };
 
 const navigationItems: NavigationItem[] = [
@@ -30,30 +33,42 @@ const navigationItems: NavigationItem[] = [
     icon: Workflow,
     href: "/workflows",
     isActive: (pathname) => pathname === "/workflows",
+    canShow: (user) => hasPermission(user, "workflows", "read"),
   },
   {
     label: "Inventory",
     icon: Network,
     href: "/inventory",
     isActive: (pathname) => pathname === "/inventory",
+    canShow: (user) => hasPermission(user, "sources.nautobot", "read"),
   },
   {
     label: "Templates",
     icon: FileCode,
     href: "/templates",
     isActive: (pathname) => pathname.startsWith("/templates"),
+    canShow: (user) => hasPermission(user, "templates", "read"),
   },
   {
     label: "Runs",
     icon: PlayCircle,
     href: "/workflows/runs",
     isActive: (pathname) => pathname === "/workflows/runs",
+    canShow: (user) => hasPermission(user, "workflow_runs", "read"),
   },
   {
     label: "Settings",
     icon: Settings,
     href: "/settings/general",
     isActive: (pathname) => pathname.startsWith("/settings"),
+    canShow: (user) =>
+      hasPermission(user, "settings", "read") ||
+      hasPermission(user, "general_settings", "write") ||
+      hasPermission(user, "credentials", "read") ||
+      hasPermission(user, "users", "read") ||
+      hasPermission(user, "hatchet_settings", "read") ||
+      hasPermission(user, "cache_settings", "read") ||
+      hasPermission(user, "logging_settings", "read"),
   },
 ];
 
@@ -62,6 +77,11 @@ export function AppSidebar() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+
+  const visibleItems = useMemo(
+    () => navigationItems.filter((item) => item.canShow(user)),
+    [user],
+  );
 
   const handleLogout = useCallback(async () => {
     await logout();
@@ -82,7 +102,7 @@ export function AppSidebar() {
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 p-3">
-        {navigationItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = item.isActive(pathname);
 
           return (

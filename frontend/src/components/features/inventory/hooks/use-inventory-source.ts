@@ -25,8 +25,7 @@ export function useInventorySource() {
   return useMemo(
     () => ({
       sourceId: firstSourceId,
-      nautobot_url: credentials.url,
-      nautobot_token: credentials.token,
+      nautobotUrl: credentials.url,
       isLoading: isLoadingSettings || credentials.isLoading,
       isReady: Boolean(firstSourceId) && credentials.isReady,
       hasSources: Boolean(firstSourceId),
@@ -34,7 +33,6 @@ export function useInventorySource() {
     [
       firstSourceId,
       credentials.url,
-      credentials.token,
       credentials.isLoading,
       credentials.isReady,
       isLoadingSettings,

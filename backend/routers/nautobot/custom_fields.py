@@ -10,7 +10,7 @@ import service_factory
 from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
-from dependencies import nautobot_credentials_from_query
+from dependencies import nautobot_credentials_from_source_id
 from services.nautobot.credentials import NautobotCredentials
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ router = APIRouter(
 
 @router.get("/custom-fields/devices")
 async def get_nautobot_device_custom_fields(
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     _: User = Depends(get_current_user),
 ):
     try:
@@ -36,7 +36,7 @@ async def get_nautobot_device_custom_fields(
 @router.get("/custom-field-choices/{custom_field_name}")
 async def get_nautobot_custom_field_choices(
     custom_field_name: str,
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     _: User = Depends(get_current_user),
 ):
     try:

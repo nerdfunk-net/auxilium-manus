@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
+import { useWorkflowCheckNameMutation } from "@/hooks/queries/use-workflow-check-name";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useAuthStore } from "@/lib/auth-store";
 import { queryKeys } from "@/lib/query-keys";
@@ -66,6 +67,7 @@ export function WorkflowImportDialog({
   onClose,
 }: WorkflowImportDialogProps) {
   const { createWorkflow, updateWorkflow } = useWorkflowMutations();
+  const checkName = useWorkflowCheckNameMutation();
   const { apiCall } = useApi();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -337,34 +339,21 @@ export function WorkflowImportDialog({
       setIsChecking(true);
       try {
         const folder = values.folder || "/";
-        const params = new URLSearchParams({
+        const check = await checkName.mutateAsync({
           name: values.name,
           folder,
           visibility: values.visibility,
         });
-        const res = await fetch(
-          `/api/proxy/workflows/check-name?${params.toString()}`,
-          {
-            credentials: "include",
-          },
-        );
-        if (res.ok) {
-          const check = (await res.json()) as {
-            available: boolean;
-            message?: string;
-            existing_id?: number;
-          };
-          if (!check.available) {
-            if (check.existing_id !== undefined) {
-              setPendingOverwrite({
-                message:
-                  check.message ?? "A workflow with this name already exists.",
-                existingId: check.existing_id,
-                values,
-              });
-            }
-            return;
+        if (!check.available) {
+          if (check.existing_id !== undefined) {
+            setPendingOverwrite({
+              message:
+                check.message ?? "A workflow with this name already exists.",
+              existingId: check.existing_id,
+              values,
+            });
           }
+          return;
         }
       } catch {
         // Ignore check errors and let the save attempt handle it
@@ -373,7 +362,7 @@ export function WorkflowImportDialog({
       }
       await performSave(values);
     },
-    [performSave, remapRequirements.length, allRemapsSelected, toast],
+    [checkName, performSave, remapRequirements.length, allRemapsSelected, toast],
   );
 
   const showTemplateSummary =

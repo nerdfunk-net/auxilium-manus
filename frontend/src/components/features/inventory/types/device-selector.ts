@@ -86,8 +86,7 @@ export interface BackendConditionsResponse {
 }
 
 export interface DeviceSelectorProps {
-  nautobot_url: string;
-  nautobot_token: string;
+  sourceId: string;
   sourceReady: boolean;
   onDevicesSelected?: (devices: DeviceInfo[], conditions: LogicalCondition[]) => void;
   showActions?: boolean;

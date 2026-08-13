@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Plus, X } from "lucide-react";
 
+import {
+  EMPTY_PLUGINS,
+  EMPTY_WORKFLOW_EDGES,
+  EMPTY_WORKFLOW_NODES,
+} from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,9 +93,9 @@ function FilterOutputConfigPanel({
   config,
   onChange,
   nodeId,
-  workflowNodes = [],
-  workflowEdges = [],
-  plugins = [],
+  workflowNodes = EMPTY_WORKFLOW_NODES,
+  workflowEdges = EMPTY_WORKFLOW_EDGES,
+  plugins = EMPTY_PLUGINS,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
 

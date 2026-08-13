@@ -44,9 +44,11 @@ import type {
   PersistedCanvasNode,
 } from "../types/workflow-canvas";
 
-const EMPTY_PLUGINS: PluginDefinition[] = [];
-const EMPTY_NODES: PersistedCanvasNode[] = [];
-const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
+import {
+  EMPTY_PLUGINS,
+  EMPTY_WORKFLOW_EDGES as EMPTY_EDGES,
+  EMPTY_WORKFLOW_NODES as EMPTY_NODES,
+} from "../constants/empty-canvas";
 
 const MODAL_TAB_TRIGGER_CLASS =
   "h-9 rounded-none border-b-2 border-transparent px-5 text-xs text-muted-foreground hover:text-foreground data-[state=active]:border-accent-foreground data-[state=active]:bg-background data-[state=active]:font-medium data-[state=active]:text-accent-foreground data-[state=active]:shadow-none";

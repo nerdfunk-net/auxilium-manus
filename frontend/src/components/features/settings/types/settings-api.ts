@@ -15,7 +15,7 @@ export interface SettingListResponse {
 export interface NautobotSourceValue {
   sourceId: string;
   url: string;
-  token: string;
+  tokenConfigured: boolean;
   verifySsl: boolean;
 }
 
@@ -23,7 +23,7 @@ export interface GitSourceValue {
   sourceId: string;
   url: string;
   branch: string;
-  token: string;
+  tokenConfigured: boolean;
   username: string;
   repository_path: string;
   verifySsl: boolean;

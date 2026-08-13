@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -83,5 +84,8 @@ export function useTemplateMutations() {
     },
   });
 
-  return { createTemplate, updateTemplate, deleteTemplate };
+  return useMemo(
+    () => ({ createTemplate, updateTemplate, deleteTemplate }),
+    [createTemplate, updateTemplate, deleteTemplate],
+  );
 }

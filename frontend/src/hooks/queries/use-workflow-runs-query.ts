@@ -36,7 +36,7 @@ export function useWorkflowRunsQuery(
   return useQuery<WorkflowRunListResponse>({
     queryKey: workflowId
       ? queryKeys.workflowRuns.list(workflowId, filtersKey)
-      : ["workflow-runs", "disabled"],
+      : queryKeys.workflowRuns.all,
     queryFn: () =>
       apiCall(
         `workflows/${workflowId}/runs${buildWorkflowRunsListQuery(filters)}`,

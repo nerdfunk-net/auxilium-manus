@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 import service_factory
 from core.database import get_db
-from models.sources_nautobot import NautobotConnection
+from models.sources_nautobot import NautobotSourceRef
 from services.auth.login_rate_limiter import LoginRateLimiter
 from services.ise.source_config_service import ISESourceConfigService
 from services.nautobot.credentials import NautobotCredentials
 from services.pyats.source_config_service import PyATSSourceConfigService
+from services.settings.settings_service import SettingsService
 from services.sources.nautobot.persistence_service import InventoryService
 
 
@@ -33,19 +34,32 @@ def get_pyats_source_config_service(
     return service_factory.build_pyats_source_config_service(db)
 
 
-def nautobot_credentials_from_body(connection: NautobotConnection) -> NautobotCredentials:
+def _credentials_from_source_config(
+    config: dict,
+    timeout: float = 30.0,
+) -> NautobotCredentials:
     return service_factory.credentials_from_connection(
-        connection.nautobot_url,
-        connection.nautobot_token,
-        connection.timeout,
+        str(config.get("url") or ""),
+        str(config.get("token") or ""),
+        timeout,
+        verify_ssl=config.get("verify_ssl", True),
     )
 
 
-def nautobot_credentials_from_query(
-    nautobot_url: str = Query(..., min_length=1),
-    nautobot_token: str = Query(..., min_length=1),
+def nautobot_credentials_from_source_id(
+    source_id: str = Query(..., min_length=1, max_length=64),
+    db: Session = Depends(get_db),
 ) -> NautobotCredentials:
-    return service_factory.credentials_from_connection(nautobot_url, nautobot_token)
+    config = SettingsService(db).get_source_config("nautobot", source_id)
+    return _credentials_from_source_config(config)
+
+
+def nautobot_credentials_from_source_ref(
+    ref: NautobotSourceRef,
+    db: Session,
+) -> NautobotCredentials:
+    config = SettingsService(db).get_source_config("nautobot", ref.source_id)
+    return _credentials_from_source_config(config, ref.timeout)
 
 
 def get_git_service():

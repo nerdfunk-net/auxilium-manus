@@ -17,7 +17,7 @@ function parseNautobotValue(
     sourceId,
     key: record.key,
     url: value.url,
-    token: typeof value.token === "string" ? value.token : "",
+    tokenConfigured: Boolean(value.token_configured),
     verifySsl: resolveVerifySsl(value),
     description: record.description,
     updatedAt: record.updated_at,
@@ -37,7 +37,7 @@ function parseGitValue(
     key: record.key,
     url: value.url,
     branch: typeof value.branch === "string" ? value.branch : "main",
-    token: typeof value.token === "string" ? value.token : "",
+    tokenConfigured: Boolean(value.token_configured),
     username: typeof value.username === "string" ? value.username : "",
     repository_path:
       typeof value.repository_path === "string" ? value.repository_path : "",

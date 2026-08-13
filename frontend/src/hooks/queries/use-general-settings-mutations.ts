@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -32,5 +33,8 @@ export function useGeneralSettingsMutations() {
     },
   });
 
-  return { saveSettings };
+  return useMemo(
+    () => ({ saveSettings }),
+    [saveSettings],
+  );
 }

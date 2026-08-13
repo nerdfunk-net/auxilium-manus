@@ -23,8 +23,6 @@ import type { DeviceSummary } from "../types";
 interface NetmikoOptionsPanelProps {
   sources: { sourceId: string }[];
   sourceId: string;
-  nautobotUrl: string;
-  nautobotToken: string;
   sourceReady: boolean;
   commandCount: number;
   attributeCount: number;
@@ -44,8 +42,6 @@ const NO_SOURCE = "__none__";
 export function NetmikoOptionsPanel({
   sources,
   sourceId,
-  nautobotUrl,
-  nautobotToken,
   sourceReady,
   commandCount,
   attributeCount,
@@ -108,8 +104,7 @@ export function NetmikoOptionsPanel({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              nautobot_url: nautobotUrl,
-              nautobot_token: nautobotToken,
+              source_id: sourceId,
               search: searchTerm.trim(),
               limit: 20,
             }),
@@ -135,7 +130,7 @@ export function NetmikoOptionsPanel({
       active = false;
       clearTimeout(timeoutId);
     };
-  }, [searchTerm, sourceReady, nautobotUrl, nautobotToken, apiCall]);
+  }, [searchTerm, sourceReady, sourceId, apiCall]);
 
   const handleSelectDevice = (device: DeviceSummary) => {
     isSelectingRef.current = true;

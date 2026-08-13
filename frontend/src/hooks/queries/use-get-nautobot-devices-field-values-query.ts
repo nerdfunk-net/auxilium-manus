@@ -15,8 +15,7 @@ export interface FieldValuesResponse {
 }
 
 interface UseFieldValuesOptions {
-  nautobot_url: string;
-  nautobot_token: string;
+  sourceId: string;
   field: string;
   enabled?: boolean;
 }
@@ -34,21 +33,17 @@ function normalizeFieldValues(
 }
 
 export function useGetNautobotDevicesFieldValuesQuery({
-  nautobot_url,
-  nautobot_token,
+  sourceId,
   field,
   enabled = true,
 }: UseFieldValuesOptions) {
   const { apiCall } = useApi();
-  const hasCredentials = Boolean(nautobot_url && nautobot_token);
+  const hasSource = Boolean(sourceId);
 
   return useQuery({
-    queryKey: queryKeys.sourcesNautobot.fieldValues(nautobot_url, field),
+    queryKey: queryKeys.sourcesNautobot.fieldValues(sourceId, field),
     queryFn: async () => {
-      const params = new URLSearchParams({
-        nautobot_url,
-        nautobot_token,
-      });
+      const params = new URLSearchParams({ source_id: sourceId });
       const response = await apiCall<FieldValuesResponse>(
         `sources/nautobot/field-values/${encodeURIComponent(field)}?${params.toString()}`,
         { method: "GET" },
@@ -58,7 +53,7 @@ export function useGetNautobotDevicesFieldValuesQuery({
         values: normalizeFieldValues(response.values ?? []),
       };
     },
-    enabled: enabled && hasCredentials && Boolean(field),
+    enabled: enabled && hasSource && Boolean(field),
     staleTime: 5 * 60 * 1000,
   });
 }

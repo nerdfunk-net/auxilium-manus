@@ -7,17 +7,19 @@ import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 
 export interface NautobotTestConnectionPayload {
-  url: string;
-  token: string;
+  url?: string;
+  token?: string;
   verify_ssl: boolean;
+  source_id?: string;
 }
 
 export interface GitSourceTestConnectionPayload {
-  url: string;
-  branch: string;
+  url?: string;
+  branch?: string;
   username?: string;
-  token: string;
+  token?: string;
   verify_ssl: boolean;
+  source_id?: string;
 }
 
 export function useNautobotTestConnectionMutation() {

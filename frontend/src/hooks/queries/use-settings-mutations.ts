@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
@@ -121,5 +122,8 @@ export function useSettingsMutations() {
     },
   });
 
-  return { createSetting, updateSetting, deleteSetting, upsertSetting };
+  return useMemo(
+    () => ({ createSetting, updateSetting, deleteSetting, upsertSetting }),
+    [createSetting, updateSetting, deleteSetting, upsertSetting],
+  );
 }

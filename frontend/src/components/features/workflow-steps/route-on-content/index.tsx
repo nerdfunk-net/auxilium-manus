@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 
+import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,7 +32,7 @@ function RouteOnContentConfigPanel({
   config,
   onChange,
   nodeId,
-  workflowNodes = [],
+  workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
   const parsed = useMemo(() => parseRouteOnContentConfig(config), [config]);
 

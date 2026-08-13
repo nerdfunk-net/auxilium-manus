@@ -6,32 +6,27 @@ import { queryKeys } from "@/lib/query-keys";
 import type { CustomField } from "@/components/features/inventory/types/device-selector";
 
 interface UseInventoryCustomFieldsOptions {
-  nautobot_url: string;
-  nautobot_token: string;
+  sourceId: string;
   enabled?: boolean;
 }
 
 export function useInventoryCustomFieldsQuery({
-  nautobot_url,
-  nautobot_token,
+  sourceId,
   enabled = false,
 }: UseInventoryCustomFieldsOptions) {
   const { apiCall } = useApi();
-  const hasCredentials = Boolean(nautobot_url && nautobot_token);
+  const hasSource = Boolean(sourceId);
 
   return useQuery({
-    queryKey: queryKeys.sourcesNautobot.customFields(nautobot_url),
+    queryKey: queryKeys.sourcesNautobot.customFields(sourceId),
     queryFn: async () => {
-      const params = new URLSearchParams({
-        nautobot_url,
-        nautobot_token,
-      });
+      const params = new URLSearchParams({ source_id: sourceId });
       return apiCall<{ custom_fields: CustomField[] }>(
         `sources/nautobot/custom-fields?${params.toString()}`,
         { method: "GET" },
       );
     },
-    enabled: enabled && hasCredentials,
+    enabled: enabled && hasSource,
     staleTime: 10 * 60 * 1000,
   });
 }

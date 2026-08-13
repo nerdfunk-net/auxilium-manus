@@ -45,6 +45,8 @@ export const queryKeys = {
       filtersKey
         ? ([...queryKeys.workflowRuns.all, "list", workflowId, filtersKey] as const)
         : ([...queryKeys.workflowRuns.all, "list", workflowId] as const),
+    listPrefix: (workflowId: number) =>
+      [...queryKeys.workflowRuns.all, "list", workflowId] as const,
     detail: (runId: number) =>
       [...queryKeys.workflowRuns.all, "detail", runId] as const,
     artifact: (runId: number, artifactId: string) =>
@@ -53,16 +55,16 @@ export const queryKeys = {
   sourcesNautobot: {
     all: ["sources-nautobot"] as const,
     fieldOptions: () => [...queryKeys.sourcesNautobot.all, "field-options"] as const,
-    fieldValues: (nautobotUrl: string, field: string) =>
-      [...queryKeys.sourcesNautobot.all, "field-values", nautobotUrl, field] as const,
-    preview: (nautobotUrl: string, operationsKey: string) =>
-      [...queryKeys.sourcesNautobot.all, "preview", nautobotUrl, operationsKey] as const,
+    fieldValues: (sourceId: string, field: string) =>
+      [...queryKeys.sourcesNautobot.all, "field-values", sourceId, field] as const,
+    preview: (sourceId: string, operationsKey: string) =>
+      [...queryKeys.sourcesNautobot.all, "preview", sourceId, operationsKey] as const,
     inventories: () => [...queryKeys.sourcesNautobot.all, "inventories"] as const,
     groups: () => [...queryKeys.sourcesNautobot.all, "groups"] as const,
     inventoryDetail: (id: number) =>
       [...queryKeys.sourcesNautobot.all, "inventory", id] as const,
-    customFields: (nautobotUrl: string) =>
-      [...queryKeys.sourcesNautobot.all, "custom-fields", nautobotUrl] as const,
+    customFields: (sourceId: string) =>
+      [...queryKeys.sourcesNautobot.all, "custom-fields", sourceId] as const,
   },
   sourcesIse: {
     all: ["sources-ise"] as const,
@@ -121,5 +123,6 @@ export const queryKeys = {
   oidc: {
     all: ["oidc"] as const,
     debug: () => [...queryKeys.oidc.all, "debug"] as const,
+    providers: () => [...queryKeys.oidc.all, "providers"] as const,
   },
 };

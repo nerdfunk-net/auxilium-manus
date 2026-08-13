@@ -32,7 +32,15 @@ export async function proxyRequest({
   path,
   request,
 }: ProxyRequestOptions) {
-  const targetUrl = buildBackendUrl(path, request.url);
+  let targetUrl: string;
+  try {
+    targetUrl = buildBackendUrl(path, request.url);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid proxy path") {
+      return NextResponse.json({ message: "Not found" }, { status: 404 });
+    }
+    throw error;
+  }
   const [headers, requestBody] = await Promise.all([
     buildForwardHeaders(request.headers, authorization),
     body !== undefined ? Promise.resolve(body) : readRequestBody(request),
@@ -61,13 +69,18 @@ export function buildBackendUrl(path: string[], requestUrl: string) {
   return `${backendUrl}${normalizedPath}${sourceUrl.search}`;
 }
 
-function normalizeProxyPath(path: string[]) {
+const FORBIDDEN_SEGMENTS = new Set(["", ".", ".."]);
+
+export function normalizeProxyPath(path: string[]) {
   // Next.js decodes each catch-all segment before handing it to us, so a
   // literal "#" (or other reserved char) in a segment — e.g. an ISE group
   // name like "myGroup#myGroup#my-test-001" — must be re-encoded before
   // going into a plain string URL. Left decoded, fetch() treats a bare "#"
   // as the start of a URL fragment and silently drops everything after it,
   // including the query string.
+  if (path.some((segment) => FORBIDDEN_SEGMENTS.has(segment))) {
+    throw new Error("Invalid proxy path");
+  }
   const requestedPath = path.map((segment) => encodeURIComponent(segment)).join("/");
 
   if (requestedPath.startsWith("api/")) {

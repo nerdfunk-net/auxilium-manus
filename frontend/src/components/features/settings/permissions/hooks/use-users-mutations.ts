@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -76,5 +77,8 @@ export function useUsersMutations() {
     },
   });
 
-  return { createUser, updateUser, deleteUser, setUserActive };
+  return useMemo(
+    () => ({ createUser, updateUser, deleteUser, setUserActive }),
+    [createUser, updateUser, deleteUser, setUserActive],
+  );
 }

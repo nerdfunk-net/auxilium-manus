@@ -6,15 +6,17 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 import service_factory
 from core.auth import get_current_user, require_permission
+from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import (
     get_inventory_service,
-    nautobot_credentials_from_body,
-    nautobot_credentials_from_query,
+    nautobot_credentials_from_source_id,
+    nautobot_credentials_from_source_ref,
 )
 from models.sources_nautobot import (
     DeviceAttributesRequest,
@@ -36,6 +38,7 @@ from services.nautobot.common.exceptions import (
     NautobotValidationError,
 )
 from services.nautobot.credentials import NautobotCredentials
+from services.settings.settings_service import SettingsService
 from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
 from utils.inventory_converter import convert_saved_inventory_to_operations
@@ -68,14 +71,24 @@ def _build_source_service(
 async def test_connection(
     request: NautobotTestConnectionRequest,
     _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> NautobotTestConnectionResponse:
-    """Test Nautobot connectivity using form values (does not require a saved source)."""
-    credentials = service_factory.credentials_from_connection(
-        request.url.strip(),
-        request.token.strip(),
-        request.timeout,
-        verify_ssl=request.verify_ssl,
-    )
+    """Test Nautobot connectivity using form values or a saved source."""
+    if request.source_id:
+        config = SettingsService(db).get_source_config("nautobot", request.source_id)
+        credentials = service_factory.credentials_from_connection(
+            str(config.get("url") or ""),
+            str(config.get("token") or ""),
+            request.timeout,
+            verify_ssl=config.get("verify_ssl", True),
+        )
+    else:
+        credentials = service_factory.credentials_from_connection(
+            (request.url or "").strip(),
+            (request.token or "").strip(),
+            request.timeout,
+            verify_ssl=request.verify_ssl,
+        )
     nautobot = service_factory.get_nautobot_app_service()
     try:
         status_payload = await nautobot.test_connection(credentials)
@@ -150,8 +163,9 @@ async def rename_group(
 async def preview_inventory(
     request: InventoryPreviewRequest,
     _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> InventoryPreviewResponse:
-    credentials = nautobot_credentials_from_body(request)
+    credentials = nautobot_credentials_from_source_ref(request, db)
     source_service = _build_source_service(credentials)
     try:
         if not request.operations:
@@ -174,9 +188,10 @@ async def preview_inventory(
 async def preview_device_ids(
     request: DeviceIdsPreviewRequest,
     _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> InventoryPreviewResponse:
     """Preview an explicit, static list of device IDs (Selection Mode inventories)."""
-    credentials = nautobot_credentials_from_body(request)
+    credentials = nautobot_credentials_from_source_ref(request, db)
     source_service = _build_source_service(credentials)
     try:
         if not request.device_ids:
@@ -195,8 +210,9 @@ async def preview_device_ids(
 async def search_devices(
     request: DeviceSearchRequest,
     _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> DeviceSearchResponse:
-    credentials = nautobot_credentials_from_body(request)
+    credentials = nautobot_credentials_from_source_ref(request, db)
     source_service = _build_source_service(credentials)
     try:
         devices = await source_service.search_devices_by_name(request.search, request.limit)
@@ -220,8 +236,9 @@ async def search_devices(
 async def get_device_details(
     request: DeviceDetailsRequest,
     _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> dict:
-    credentials = nautobot_credentials_from_body(request)
+    credentials = nautobot_credentials_from_source_ref(request, db)
     source_service = _build_source_service(credentials)
     try:
         return await source_service.get_device_details(request.device_id)
@@ -235,8 +252,9 @@ async def get_device_details(
 async def get_device_attributes(
     request: DeviceAttributesRequest,
     _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> dict:
-    credentials = nautobot_credentials_from_body(request)
+    credentials = nautobot_credentials_from_source_ref(request, db)
     source_service = _build_source_service(credentials)
     try:
         return await source_service.get_device_attributes(
@@ -281,7 +299,7 @@ async def get_field_options(_: User = Depends(get_current_user)) -> dict:
 
 @router.get("/custom-fields")
 async def get_custom_fields(
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     _: User = Depends(get_current_user),
 ) -> dict:
     try:
@@ -295,7 +313,7 @@ async def get_custom_fields(
 @router.get("/field-values/{field_name}")
 async def get_field_values(
     field_name: str,
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     _: User = Depends(get_current_user),
 ) -> dict:
     try:
@@ -313,7 +331,7 @@ async def get_field_values(
 @router.get("/resolve-devices/{inventory_id}")
 async def resolve_inventory_to_devices(
     inventory_id: int,
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
 ) -> dict:
@@ -379,7 +397,7 @@ async def resolve_inventory_to_devices(
 @router.get("/resolve-devices/detailed/{inventory_id}")
 async def resolve_inventory_to_devices_detailed(
     inventory_id: int,
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
 ) -> dict:
@@ -463,7 +481,7 @@ async def resolve_inventory_to_devices_detailed(
 @router.get("/{inventory_id}/devices", response_model=InventoryPreviewResponse)
 async def get_inventory_devices(
     inventory_id: int,
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
 ) -> InventoryPreviewResponse:
@@ -513,7 +531,7 @@ async def get_inventory_devices(
 @router.get("/{inventory_id}/analyze")
 async def analyze_inventory(
     inventory_id: int,
-    credentials: NautobotCredentials = Depends(nautobot_credentials_from_query),
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
 ) -> dict:

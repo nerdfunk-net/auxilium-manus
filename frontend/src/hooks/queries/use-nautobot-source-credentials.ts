@@ -24,26 +24,25 @@ export function useNautobotSourceCredentials({
     enabled: enabled && Boolean(normalizedId),
   });
 
-  const credentials = useMemo(() => {
+  const parsed = useMemo(() => {
     const value = query.data?.value;
     if (!value || typeof value !== "object") {
-      return { url: "", token: "" };
+      return { url: "", tokenConfigured: false };
     }
     return {
       url: typeof value.url === "string" ? value.url : "",
-      token: typeof value.token === "string" ? value.token : "",
+      tokenConfigured: Boolean(value.token_configured),
     };
   }, [query.data?.value]);
 
-  const isReady = Boolean(
-    normalizedId && credentials.url && credentials.token,
-  );
+  const isReady = Boolean(normalizedId && parsed.url && parsed.tokenConfigured);
 
   return {
-    ...credentials,
+    url: parsed.url,
+    sourceId: normalizedId,
+    tokenConfigured: parsed.tokenConfigured,
     isLoading: query.isLoading,
     isError: query.isError,
     isReady,
-    sourceId: normalizedId,
   };
 }

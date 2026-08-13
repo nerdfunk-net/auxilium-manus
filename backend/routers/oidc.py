@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.auth import require_permission
 from core.database import get_db
+from core.dev_tools import dev_tools_enabled
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_oidc_config_service, get_oidc_service
 from models.auth import (
@@ -87,6 +88,8 @@ async def initiate_test_login(
     _: None = Depends(require_permission("system.oidc", "read")),
     oidc_service: OIDCService = Depends(get_oidc_service),
 ) -> OIDCLoginResponse:
+    if not dev_tools_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     if not body.redirect_uri:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -207,6 +210,8 @@ async def debug_status(
     config_service: OidcConfigService = Depends(get_oidc_config_service),
     oidc_service: OIDCService = Depends(get_oidc_service),
 ) -> dict:
+    if not dev_tools_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     global_settings = config_service.get_global_settings()
     providers = config_service.get_providers()
 

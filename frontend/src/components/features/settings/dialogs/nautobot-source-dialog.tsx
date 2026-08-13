@@ -53,7 +53,7 @@ interface NautobotSourceDialogProps {
   existingSourceIds?: string[];
   isSaving?: boolean;
   onClose: () => void;
-  onSave: (values: NautobotSourceValue, settingKey: string) => void;
+  onSave: (values: NautobotSourceValue, settingKey: string, token?: string) => void;
 }
 
 const EMPTY_DEFAULTS: NautobotFormValues = {
@@ -63,11 +63,13 @@ const EMPTY_DEFAULTS: NautobotFormValues = {
   verifySsl: true,
 };
 
+const EMPTY_SOURCE_IDS: string[] = [];
+
 export function NautobotSourceDialog({
   open,
   mode,
   initialValue,
-  existingSourceIds = [],
+  existingSourceIds = EMPTY_SOURCE_IDS,
   isSaving = false,
   onClose,
   onSave,
@@ -99,19 +101,15 @@ export function NautobotSourceDialog({
     }
   }, [open, initialValue, reset]);
 
-  const resolveToken = useCallback(
-    (entered: string | undefined) => {
-      const trimmed = entered?.trim() ?? "";
-      return trimmed || (initialValue?.token ?? "");
-    },
-    [initialValue?.token],
-  );
+  const resolveEnteredToken = useCallback((entered: string | undefined) => {
+    return entered?.trim() ?? "";
+  }, []);
 
   const onSubmit = useCallback(
     (values: NautobotFormValues) => {
-      const token = resolveToken(values.token);
+      const token = resolveEnteredToken(values.token);
 
-      if (!token) {
+      if (mode === "create" && !token) {
         return;
       }
 
@@ -125,23 +123,41 @@ export function NautobotSourceDialog({
       const payload: NautobotSourceValue = {
         sourceId: values.sourceId,
         url: values.url.trim(),
-        token,
+        tokenConfigured: mode === "edit" ? Boolean(initialValue?.tokenConfigured) || Boolean(token) : Boolean(token),
         verifySsl: values.verifySsl,
       };
 
-      onSave(payload, buildSourceSettingKey("nautobot", values.sourceId));
+      onSave(
+        payload,
+        buildSourceSettingKey("nautobot", values.sourceId),
+        token || undefined,
+      );
     },
-    [existingSourceIds, mode, onSave, resolveToken],
+    [existingSourceIds, initialValue?.tokenConfigured, mode, onSave, resolveEnteredToken],
   );
 
   const handleTestConnection = useCallback(async () => {
+    const values = getValues();
+    const token = resolveEnteredToken(values.token);
+    const isEdit = mode === "edit";
+
+    if (isEdit && !token) {
+      const valid = await trigger(["url"]);
+      if (!valid) {
+        return;
+      }
+      testConnection.mutate({
+        source_id: values.sourceId,
+        verify_ssl: values.verifySsl,
+      });
+      return;
+    }
+
     const valid = await trigger(["url", "token"]);
     if (!valid) {
       return;
     }
 
-    const values = getValues();
-    const token = resolveToken(values.token);
     if (!token) {
       toast({
         title: "Token required",
@@ -156,9 +172,9 @@ export function NautobotSourceDialog({
       token,
       verify_ssl: values.verifySsl,
     });
-  }, [getValues, resolveToken, testConnection, toast, trigger]);
+  }, [getValues, mode, resolveEnteredToken, testConnection, toast, trigger]);
 
-  const hasExistingToken = Boolean(initialValue?.token);
+  const hasExistingToken = Boolean(initialValue?.tokenConfigured);
   const isEdit = mode === "edit";
 
   return (

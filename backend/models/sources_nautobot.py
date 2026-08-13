@@ -2,26 +2,36 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
-class NautobotConnection(BaseModel):
-    """Per-request Nautobot credentials (workflow step or API caller)."""
+class NautobotSourceRef(BaseModel):
+    """Identifies a saved Nautobot source; the server looks up url/token."""
 
-    nautobot_url: str = Field(..., min_length=1)
-    nautobot_token: str = Field(..., min_length=1)
+    source_id: str = Field(..., min_length=1, max_length=64)
     timeout: float = Field(default=30.0, ge=1, le=120)
 
 
 class NautobotTestConnectionRequest(BaseModel):
-    """Credentials from the Settings / Sources form (not necessarily saved yet)."""
+    """Unsaved form values, or ``source_id`` to test stored credentials."""
 
-    url: str = Field(..., min_length=1)
-    token: str = Field(..., min_length=1)
+    url: str | None = Field(default=None, min_length=1)
+    token: str | None = Field(default=None)
     verify_ssl: bool = True
     timeout: float = Field(default=30.0, ge=1, le=120)
+    source_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_source_or_credentials(self) -> Self:
+        has_source = bool((self.source_id or "").strip())
+        has_credentials = bool(
+            (self.url or "").strip() and (self.token or "").strip()
+        )
+        if has_source == has_credentials:
+            raise ValueError("Provide either source_id or both url and token")
+        return self
 
 
 class NautobotTestConnectionResponse(BaseModel):
@@ -103,11 +113,11 @@ class LogicalOperation(BaseModel):
 LogicalOperation.model_rebuild()
 
 
-class InventoryPreviewRequest(NautobotConnection):
+class InventoryPreviewRequest(NautobotSourceRef):
     operations: list[LogicalOperation] = Field(default_factory=list)
 
 
-class DeviceIdsPreviewRequest(NautobotConnection):
+class DeviceIdsPreviewRequest(NautobotSourceRef):
     """Preview an explicit, static list of Nautobot device IDs (no logical expression)."""
 
     device_ids: list[str] = Field(default_factory=list)
@@ -134,7 +144,7 @@ class InventoryPreviewResponse(BaseModel):
     operations_executed: int
 
 
-class FieldValuesRequest(NautobotConnection):
+class FieldValuesRequest(NautobotSourceRef):
     field: str = Field(..., min_length=1)
 
 
@@ -154,14 +164,7 @@ class RenameGroupResponse(BaseModel):
     new_path: str
 
 
-class NautobotCredentialsQuery(BaseModel):
-    """Query parameters for Nautobot-backed GET endpoints."""
-
-    nautobot_url: str = Field(..., min_length=1)
-    nautobot_token: str = Field(..., min_length=1)
-
-
-class DeviceSearchRequest(NautobotConnection):
+class DeviceSearchRequest(NautobotSourceRef):
     """Search Nautobot devices by (partial) name."""
 
     search: str = Field(..., min_length=1)
@@ -180,13 +183,13 @@ class DeviceSearchResponse(BaseModel):
     devices: list[DeviceSummary]
 
 
-class DeviceDetailsRequest(NautobotConnection):
+class DeviceDetailsRequest(NautobotSourceRef):
     """Fetch full Nautobot device details by ID."""
 
     device_id: str = Field(..., min_length=1)
 
 
-class DeviceAttributesRequest(NautobotConnection):
+class DeviceAttributesRequest(NautobotSourceRef):
     """Fetch the Nautobot attribute bag for a device (template editor preview)."""
 
     device_id: str = Field(..., min_length=1)

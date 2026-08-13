@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
@@ -33,5 +34,8 @@ export function useWorkflowScheduleMutations() {
     },
   });
 
-  return { upsertSchedule, deleteSchedule };
+  return useMemo(
+    () => ({ upsertSchedule, deleteSchedule }),
+    [upsertSchedule, deleteSchedule],
+  );
 }

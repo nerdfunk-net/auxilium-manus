@@ -7,6 +7,7 @@ import { Suspense, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/auth-store";
 import type { AuthUser } from "@/lib/auth";
+import { parseAndVerifyOidcState } from "@/lib/oidc-state";
 
 type CallbackStatus = "processing" | "success" | "error";
 
@@ -38,19 +39,13 @@ function OidcCallbackContent() {
 
       const storedState = sessionStorage.getItem("oidc_state");
       sessionStorage.removeItem("oidc_state");
-
-      if (storedState && state !== storedState) {
-        setError("Invalid state parameter — possible CSRF attempt");
+      const verified = parseAndVerifyOidcState(storedState, state);
+      if (!verified.ok) {
+        setError(verified.error);
         setStatus("error");
         return;
       }
-
-      const providerId = state.includes(":") ? state.split(":", 2)[0] : null;
-      if (!providerId) {
-        setError("Invalid state parameter");
-        setStatus("error");
-        return;
-      }
+      const providerId = verified.providerId;
 
       try {
         const response = await fetch(`/api/auth/oidc/${providerId}/callback`, {

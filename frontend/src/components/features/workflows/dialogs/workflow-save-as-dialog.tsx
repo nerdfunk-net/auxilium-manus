@@ -24,6 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { useWorkflowCheckNameMutation } from "@/hooks/queries/use-workflow-check-name";
+
 import type { WorkflowVisibility } from "../types/workflow-persistence";
 
 const saveAsSchema = z.object({
@@ -65,6 +67,7 @@ export function WorkflowSaveAsDialog({
   onOverwrite,
   onClose,
 }: WorkflowSaveAsDialogProps) {
+  const checkName = useWorkflowCheckNameMutation();
   const [pendingOverwrite, setPendingOverwrite] = useState<{
     message: string;
     existingId: number;
@@ -96,26 +99,20 @@ export function WorkflowSaveAsDialog({
       setIsChecking(true);
       try {
         const folder = values.folder || "/";
-        const params = new URLSearchParams({
+        const check = await checkName.mutateAsync({
           name: values.name,
           folder,
           visibility: values.visibility,
         });
-        const res = await fetch(`/api/proxy/workflows/check-name?${params.toString()}`, {
-          credentials: "include",
-        });
-        if (res.ok) {
-          const check = await res.json() as { available: boolean; message?: string; existing_id?: number };
-          if (!check.available) {
-            if (check.existing_id !== undefined) {
-              setPendingOverwrite({
-                message: check.message ?? "A workflow with this name already exists.",
-                existingId: check.existing_id,
-                values,
-              });
-            }
-            return;
+        if (!check.available) {
+          if (check.existing_id !== undefined) {
+            setPendingOverwrite({
+              message: check.message ?? "A workflow with this name already exists.",
+              existingId: check.existing_id,
+              values,
+            });
           }
+          return;
         }
       } catch {
         // Ignore check errors and let the save attempt handle it
@@ -124,7 +121,7 @@ export function WorkflowSaveAsDialog({
       }
       onSave(values);
     },
-    [onSave],
+    [checkName, onSave],
   );
 
   return (

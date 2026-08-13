@@ -133,8 +133,7 @@ function DeviceSelectionConfigPanel({
   const conditionCount = useMemo(() => countConditions(filterTree), [filterTree]);
   const isSourceConfigured = isNautobotSourceConfigured(config);
   const hasInventory = inventoryMeta.id !== null || conditionCount > 0 || deviceIds.length > 0;
-  const canPreview =
-    hasInventory && credentials.isReady && Boolean(credentials.url && credentials.token);
+  const canPreview = hasInventory && credentials.isReady;
 
   const inventoryLabel = inventoryMeta.name
     ? inventoryMeta.name
@@ -265,8 +264,7 @@ function DeviceSelectionConfigPanel({
       <DeviceSelectionPreviewDialog
         open={previewOpen}
         config={{
-          nautobot_url: credentials.url,
-          nautobot_token: credentials.token,
+          source_id: sourceId,
           inventory_type: inventoryType,
           device_filter: filterTree,
           device_ids: deviceIds,

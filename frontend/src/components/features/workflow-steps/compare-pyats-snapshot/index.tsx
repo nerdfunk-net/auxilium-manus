@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,7 +87,7 @@ function ComparePyatsSnapshotConfigPanel({
   config,
   onChange,
   nodeId,
-  workflowNodes = [],
+  workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const [gitSourceOpen, setGitSourceOpen] = useState(false);

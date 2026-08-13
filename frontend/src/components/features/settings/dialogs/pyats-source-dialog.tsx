@@ -71,11 +71,13 @@ const EMPTY_DEFAULTS: PyATSFormValues = {
   timeout: 30,
 };
 
+const EMPTY_SOURCE_IDS: string[] = [];
+
 export function PyATSSourceDialog({
   open,
   mode,
   initialValue,
-  existingSourceIds = [],
+  existingSourceIds = EMPTY_SOURCE_IDS,
   isSaving = false,
   onClose,
   onCreate,

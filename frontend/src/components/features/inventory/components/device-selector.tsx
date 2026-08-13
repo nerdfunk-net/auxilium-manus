@@ -44,8 +44,7 @@ const EMPTY_DEVICES: DeviceInfo[] = [];
 const EMPTY_DEVICE_IDS: string[] = [];
 
 export function DeviceSelector({
-  nautobot_url,
-  nautobot_token,
+  sourceId,
   sourceReady,
   onDevicesSelected,
   showActions = true,
@@ -74,12 +73,11 @@ export function DeviceSelector({
   } = useConditionTree();
 
   const deviceFilter = useDeviceFilter({
-    nautobot_url,
-    nautobot_token,
+    sourceId,
     sourceReady,
   });
 
-  const previewOptions = { nautobot_url, nautobot_token, sourceReady };
+  const previewOptions = { sourceId, sourceReady };
 
   const preview = useDevicePreview(
     conditionTree,
@@ -182,7 +180,7 @@ export function DeviceSelector({
         });
 
         if (result.inventory_type === "static") {
-          const params = new URLSearchParams({ nautobot_url, nautobot_token });
+          const params = new URLSearchParams({ source_id: sourceId });
           const response = await apiCall<InventoryPreviewApiResponse>(
             `sources/nautobot/${id}/devices?${params.toString()}`,
           );
@@ -209,8 +207,7 @@ export function DeviceSelector({
       preview,
       selection,
       apiCall,
-      nautobot_url,
-      nautobot_token,
+      sourceId,
       onInventoryLoaded,
       toast,
     ],

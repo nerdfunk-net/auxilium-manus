@@ -13,8 +13,7 @@ import type { DevicePreview } from "@/hooks/queries/use-get-nautobot-devices-pre
 import { queryKeys } from "@/lib/query-keys";
 
 interface PreviewConfig {
-  nautobot_url: string;
-  nautobot_token: string;
+  source_id: string;
   inventory_type: "filter" | "static";
   device_filter: FilterTree;
   device_ids: string[];
@@ -41,8 +40,7 @@ async function fetchDevicePreview(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        nautobot_url: config.nautobot_url,
-        nautobot_token: config.nautobot_token,
+        source_id: config.source_id,
         device_ids: config.device_ids,
       }),
     });
@@ -54,8 +52,7 @@ async function fetchDevicePreview(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      nautobot_url: config.nautobot_url,
-      nautobot_token: config.nautobot_token,
+      source_id: config.source_id,
       operations,
     }),
   });
@@ -78,9 +75,9 @@ export function DeviceSelectionPreviewDialog({
   );
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.sourcesNautobot.preview(config.nautobot_url, operationsKey),
+    queryKey: queryKeys.sourcesNautobot.preview(config.source_id, operationsKey),
     queryFn: () => fetchDevicePreview(apiCall, config),
-    enabled: open && Boolean(config.nautobot_url && config.nautobot_token),
+    enabled: open && Boolean(config.source_id),
     staleTime: 0,
     gcTime: 0,
     retry: false,
@@ -105,12 +102,12 @@ export function DeviceSelectionPreviewDialog({
                 <>
                   Devices from{" "}
                   <span className="font-medium">&ldquo;{inventoryName}&rdquo;</span> via{" "}
-                  <span className="font-medium">{config.nautobot_url || "—"}</span>
+                  <span className="font-medium">{config.source_id || "—"}</span>
                 </>
               ) : (
                 <>
                   Devices from{" "}
-                  <span className="font-medium">{config.nautobot_url || "—"}</span> matching
+                  <span className="font-medium">{config.source_id || "—"}</span> matching
                   selected inventory
                 </>
               )}

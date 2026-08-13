@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { AUTH_COOKIE_NAME, type AuthUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, clearAuthCookie, type AuthUser } from "@/lib/auth";
 import { proxyRequest } from "@/lib/api-proxy";
 
 export async function GET(request: Request) {
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
 
   if (!userResponse.ok) {
     if (userResponse.status === 401 || userResponse.status === 403) {
-      cookieStore.delete(AUTH_COOKIE_NAME);
+      clearAuthCookie(cookieStore);
 
       return NextResponse.json(
         { message: "Authentication required" },

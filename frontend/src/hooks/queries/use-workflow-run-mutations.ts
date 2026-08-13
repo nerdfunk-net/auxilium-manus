@@ -41,7 +41,7 @@ export function useTriggerRunMutation(workflowId: number | null) {
       const targetId = variables.workflowId ?? workflowId;
       if (targetId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", targetId],
+          queryKey: queryKeys.workflowRuns.listPrefix(targetId),
         });
       }
       toast({ title: "Run queued", description: "Workflow execution has been started." });
@@ -70,7 +70,7 @@ export function useCancelRunMutation(workflowId: number | null) {
     onSuccess: (_data, runId) => {
       if (workflowId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
         });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
@@ -100,7 +100,7 @@ export function useStepRunMutation(workflowId: number | null) {
     onSuccess: (_data, runId) => {
       if (workflowId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
         });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
@@ -133,7 +133,7 @@ export function useContinueRunMutation(workflowId: number | null) {
     onSuccess: (_data, runId) => {
       if (workflowId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
         });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
@@ -164,7 +164,7 @@ export function useApproveBatchMutation(workflowId: number | null) {
     onSuccess: (_data, runId) => {
       if (workflowId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
         });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
@@ -194,7 +194,7 @@ export function useDeleteRunMutation(workflowId: number | null) {
     onSuccess: (_data, runId) => {
       if (workflowId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
         });
       }
       queryClient.removeQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });
@@ -229,7 +229,7 @@ export function useBulkDeleteRunsMutation(workflowId: number | null) {
     onSuccess: (results) => {
       if (workflowId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
         });
       }
       for (const result of results) {
@@ -269,7 +269,7 @@ export function useApproveAllMutation(workflowId: number | null) {
     onSuccess: (_data, runId) => {
       if (workflowId) {
         queryClient.invalidateQueries({
-          queryKey: [...queryKeys.workflowRuns.all, "list", workflowId],
+          queryKey: queryKeys.workflowRuns.listPrefix(workflowId),
         });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.workflowRuns.detail(runId) });

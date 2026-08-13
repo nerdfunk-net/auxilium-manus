@@ -16,8 +16,7 @@ const EMPTY_DEVICES: DeviceInfo[] = [];
 const EMPTY_DEVICE_IDS: string[] = [];
 
 interface UseDevicePreviewOptions {
-  nautobot_url: string;
-  nautobot_token: string;
+  sourceId: string;
   sourceReady: boolean;
 }
 
@@ -59,7 +58,7 @@ export function useDevicePreview(
   onDevicesSelected?: (devices: DeviceInfo[], conditions: LogicalCondition[]) => void,
   onSelectionChange?: (selectedIds: string[], selectedDevices: DeviceInfo[]) => void,
 ) {
-  const { nautobot_url, nautobot_token, sourceReady } = options;
+  const { sourceId, sourceReady } = options;
   const previewMutation = useGetNautobotDevicesPreviewMutation();
   const { toast } = useToast();
 
@@ -153,7 +152,7 @@ export function useDevicePreview(
 
     const operations = buildOperationsFromTree(conditionTree);
     previewMutation.mutate(
-      { nautobot_url, nautobot_token, operations },
+      { source_id: sourceId, operations },
       {
         onSuccess: (data) => {
           setPreviewHidden(false);
@@ -170,8 +169,7 @@ export function useDevicePreview(
     sourceReady,
     conditionTree,
     previewMutation,
-    nautobot_url,
-    nautobot_token,
+    sourceId,
     toast,
     treeToFlatConditions,
   ]);

@@ -73,11 +73,13 @@ const EMPTY_DEFAULTS: ISEFormValues = {
   timeout: 30,
 };
 
+const EMPTY_SOURCE_IDS: string[] = [];
+
 export function ISESourceDialog({
   open,
   mode,
   initialValue,
-  existingSourceIds = [],
+  existingSourceIds = EMPTY_SOURCE_IDS,
   isSaving = false,
   onClose,
   onCreate,

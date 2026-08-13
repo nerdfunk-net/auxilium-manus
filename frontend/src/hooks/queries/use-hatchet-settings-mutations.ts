@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
@@ -37,5 +38,8 @@ export function useHatchetSettingsMutations() {
     },
   });
 
-  return { testConnection };
+  return useMemo(
+    () => ({ testConnection }),
+    [testConnection],
+  );
 }

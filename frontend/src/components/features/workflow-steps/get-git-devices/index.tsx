@@ -85,17 +85,14 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   );
 
   const handleShowPreview = useCallback(async () => {
-    console.debug("[DEBUG] handleShowPreview — called, sourceId=%s pattern=%s", sourceId, filenamePattern);
     try {
       const result = await runPreview({
         git_source_id: sourceId,
         filename_pattern: filenamePattern,
       });
-      console.debug("[DEBUG] handleShowPreview — runPreview resolved", result);
       setPreviewDevices(result.devices);
       setPreviewOpen(true);
-    } catch (err) {
-      console.debug("[DEBUG] handleShowPreview — runPreview threw", err);
+    } catch {
       // error state is surfaced via previewIsError / previewError below
     }
   }, [runPreview, sourceId, filenamePattern]);

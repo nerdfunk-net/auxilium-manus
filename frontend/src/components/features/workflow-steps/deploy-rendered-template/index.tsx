@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
+import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,7 +72,7 @@ function DeployRenderedTemplateConfigPanel({
   config,
   onChange,
   nodeId,
-  workflowNodes = [],
+  workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
 
