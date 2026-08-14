@@ -44,6 +44,7 @@ from routers.workflow_runs import router as workflow_runs_router
 from routers.workflow_schedules import router as workflow_schedules_router
 from routers.workflow_steps import router as workflow_steps_router
 from routers.workflow_update_attribute import router as workflow_update_attribute_router
+from routers.workflow_update_content import router as workflow_update_content_router
 from routers.workflows import router as workflows_router
 from services.auth.auth_service import AuthService
 from services.auth.rbac_seed import seed_rbac
@@ -117,6 +118,7 @@ app.include_router(pyats_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)
 app.include_router(workflow_steps_router, prefix=settings.api_prefix)
 app.include_router(workflow_update_attribute_router, prefix=settings.api_prefix)
+app.include_router(workflow_update_content_router, prefix=settings.api_prefix)
 app.include_router(workflows_router, prefix=settings.api_prefix)
 app.include_router(workflow_runs_router, prefix=settings.api_prefix)
 app.include_router(workflow_schedules_router, prefix=settings.api_prefix)

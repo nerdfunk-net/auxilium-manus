@@ -1793,6 +1793,49 @@ plugins:
             - pattern: "^uptime"
             - path: "route.ospf"
 
+  - id: update-content
+    name: Update Content
+    overview: Search and replace text in a device's configuration.
+    description: >
+      Apply one or more ordered regex search/replace rules to a device's running or
+      startup config and store the result for downstream steps.
+    artifact_type: control_flow
+    palette_category: content_tools
+    directory: update_content
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    consumes: []
+    primary_output: updated_content
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: content_source
+          description: Which device config to search/replace (running_config or startup_config).
+          data_type: string
+          required: true
+          default: running_config
+          example: running_config
+        - name: replace_rules
+          description: >
+            Ordered list of search/replace rules applied in sequence to the config text.
+            Each rule has a pattern (regex), a replacement (fixed text, or a template using
+            Python backreferences like \1 or \g<name> to reuse captured groups),
+            regex_flags, and replace_all (false = only the first match). A rule with no
+            match leaves the text unchanged and is not an error.
+          data_type: object_list
+          required: true
+          example:
+            - pattern: "ntp server 192\\.168\\.1\\.10"
+              replacement: "ntp server 192.168.178.10"
+              regex_flags:
+                case_insensitive: false
+                multiline: false
+                dotall: false
+              replace_all: true
+
   - id: render-jinja-template
     name: Render Jinja Template
     overview: Render a Jinja2 template per device.

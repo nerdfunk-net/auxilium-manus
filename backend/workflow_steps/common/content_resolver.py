@@ -29,6 +29,7 @@ _CONTENT_SOURCES = frozenset(
         "comparison_diff",
         "filtered_output",
         "pyats_snapshot",
+        "updated_content",
     }
 )
 
@@ -118,6 +119,11 @@ def list_exportable_content(
         if not source_step_node_id:
             raise ValueError("store-artifact: source_step_node_id is required for filtered_output")
         return _exportable_from_filtered_output(device, source_step_node_id=source_step_node_id)
+
+    if content_source == "updated_content":
+        if not source_step_node_id:
+            raise ValueError("store-artifact: source_step_node_id is required for updated_content")
+        return _exportable_from_updated_content(device, source_step_node_id=source_step_node_id)
 
     if content_source == "pyats_snapshot":
         if not source_step_node_id:
@@ -329,6 +335,34 @@ def _exportable_from_filtered_output(
             artifact_ref=artifact_ref,
             extra={
                 "content_source": "filtered_output",
+                "source_step_node_id": source_step_node_id,
+            },
+        )
+    ]
+
+
+def _exportable_from_updated_content(
+    device: DeviceContext,
+    *,
+    source_step_node_id: str,
+) -> list[ExportableContent]:
+    key = f"{source_step_node_id}.updated_content"
+    raw = device.parsed.get(key)
+    if not isinstance(raw, dict):
+        return []
+    artifact_raw = raw.get("artifact_ref")
+    if not isinstance(artifact_raw, dict) or not artifact_raw.get("artifact_id"):
+        return []
+    if raw.get("kind") != "updated_content":
+        return []
+    artifact_ref = ArtifactRef.model_validate(artifact_raw)
+    return [
+        ExportableContent(
+            kind="updated_content",
+            media_type=artifact_ref.media_type,
+            artifact_ref=artifact_ref,
+            extra={
+                "content_source": "updated_content",
                 "source_step_node_id": source_step_node_id,
             },
         )

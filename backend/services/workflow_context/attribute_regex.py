@@ -111,3 +111,26 @@ def apply_regex_transform(
     if not result["matched"]:
         return None
     return str(result["destination_value"])
+
+
+def apply_regex_content_replace(
+    *,
+    source_text: str,
+    pattern: str,
+    replacement: str,
+    flags: RegexFlagsConfig | dict[str, bool] | None = None,
+    replace_all: bool = True,
+) -> tuple[str, int]:
+    """Replace all (or only the first) regex matches in ``source_text``.
+
+    Unlike ``apply_regex_transform`` (single match, extracts one value),
+    this rewrites the whole document via ``re.Pattern.subn``. ``replacement``
+    supports the same Python backref syntax (``\\1``, ``\\g<name>``) as
+    ``destination_template`` above. Returns ``(new_text, match_count)``.
+    """
+    compiled = compile_pattern(pattern, RegexFlagsConfig.from_mapping(flags or {}))
+    count = 0 if replace_all else 1
+    try:
+        return compiled.subn(replacement, source_text, count=count)
+    except re.error as exc:
+        raise ValueError(f"invalid replacement template: {exc}") from exc

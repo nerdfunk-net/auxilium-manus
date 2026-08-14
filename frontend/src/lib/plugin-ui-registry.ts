@@ -39,6 +39,7 @@ import { BackgroundPlugin } from "@/components/features/workflow-steps/backgroun
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
+import { UpdateContentPlugin } from "@/components/features/workflow-steps/update-content";
 import { UpdateIseTacacsKeyPlugin } from "@/components/features/workflow-steps/update-ise-tacacs-key";
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
@@ -75,6 +76,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-push": GitPushPlugin,
   "update-nautobot-device": UpdateNautobotDevicePlugin,
   "update-attribute": UpdateAttributePlugin,
+  "update-content": UpdateContentPlugin,
   "update-ise-tacacs-key": UpdateIseTacacsKeyPlugin,
   "add-to-ise": AddToIsePlugin,
   "add-to-nautobot": AddToNautobotPlugin,
