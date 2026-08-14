@@ -17,6 +17,7 @@ backend's Python environment.
 - [Security notes](#security-notes)
 - [Workflow steps: Add Testbed and Get & Parse Config](#workflow-steps-add-testbed-and-get--parse-config)
 - [Genie-native snapshot comparison](#genie-native-snapshot-comparison)
+- [Configure Replace Config](#configure-replace-config)
 - [Open items / verify during hardening](#open-items--verify-during-hardening)
 
 ## Why a separate container
@@ -443,6 +444,31 @@ that noise automatically is exactly what `compare-pyats-snapshot` adds.
   text-based comparisons (raw configs). `compare-pyats-snapshot` is the
   dedicated home for Genie-semantic comparison specifically, since it needs
   the shim round-trip and a different diff algorithm than a text diff.
+
+## Configure Replace Config
+
+`configure-replace-config` applies a configuration file already on a
+device (typically written there by an upstream Upload Config step) via
+Cisco's `configure replace <file> time <n> force`, which schedules an
+automatic on-device rollback after `n` minutes unless `configure confirm`
+is sent first. It needs **zero pyATS shim changes** -- the flow is composed
+entirely from shim capabilities that already exist and are already used
+elsewhere: `operation="learn"` (the same call `get-pyats-snapshot` uses)
+captures a Genie `interface` snapshot before and after the replace,
+`POST /v1/diff` (the same endpoint `compare-pyats-snapshot` uses) diffs
+them, and `operation="execute"` sends both the replace and confirm CLI
+commands. Each shim call is its own fresh connect/disconnect; there is no
+need to hold one session open across the whole flow, because the rollback
+timer is device-side, not tied to the CLI session that issued it.
+
+`configure confirm` is deliberately withheld -- leaving the device to
+auto-revert on its own timer -- whenever the post-change snapshot can't be
+captured at all (the strongest signal the replace broke connectivity) or
+when it differs from the pre-change baseline; both cases are reported as a
+step failure. Like `get-pyats-config`/`get-pyats-snapshot`, this step reads
+credentials and device connection info entirely from the `pyats_testbed`
+bag written by an upstream Add Testbed step. See
+`workflow_steps/configure_replace_config/executor.py`.
 
 ## Open items / verify during hardening
 

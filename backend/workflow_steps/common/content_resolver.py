@@ -18,7 +18,7 @@ class ExportableContent:
     extra: dict[str, Any]
 
 
-_CONTENT_SOURCES = frozenset(
+CONTENT_SOURCES = frozenset(
     {
         "running_config",
         "startup_config",
@@ -36,9 +36,9 @@ _CONTENT_SOURCES = frozenset(
 
 def parse_content_source(config: dict[str, Any]) -> str:
     source = str(config.get("content_source") or "").strip().lower()
-    if source not in _CONTENT_SOURCES:
+    if source not in CONTENT_SOURCES:
         raise ValueError(
-            f"store-artifact: content_source {source!r} must be one of {sorted(_CONTENT_SOURCES)}"
+            f"store-artifact: content_source {source!r} must be one of {sorted(CONTENT_SOURCES)}"
         )
     return source
 

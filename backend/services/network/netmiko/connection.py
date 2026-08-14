@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from netmiko import ConnectHandler
+from netmiko import ConnectHandler, file_transfer
 from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutException
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,15 @@ class DeployResult:
     error: str | None = None
     session_log: str | None = None
     confirmed_prompts: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FileTransferResult:
+    success: bool
+    file_transferred: bool = False
+    file_verified: bool = False
+    file_exists: bool = False
+    error: str | None = None
 
 
 class NetmikoConnectionError(Exception):
@@ -337,3 +346,41 @@ class NetmikoDeviceSession:
             return ConfigResult(success=False, error=str(exc))
         except Exception as exc:
             return ConfigResult(success=False, error=str(exc))
+
+    def upload_file(
+        self,
+        *,
+        local_path: str,
+        dest_file: str,
+        file_system: str,
+        overwrite: bool = False,
+        inline_transfer: bool = False,
+        socket_timeout: float = 10.0,
+    ) -> FileTransferResult:
+        """Push a local file to the device via Netmiko's SCP/SFTP file_transfer,
+        or its inline (non-SCP, text-only) transfer mode.
+
+        Uses its own SCP/SFTP subsystem channel over the existing SSH
+        transport, so it does not enter config mode or otherwise change the
+        CLI session's base state.
+        """
+        self.connect()
+        try:
+            result = file_transfer(
+                self.connection,
+                source_file=local_path,
+                dest_file=dest_file,
+                file_system=file_system,
+                direction="put",
+                overwrite_file=overwrite,
+                inline_transfer=inline_transfer,
+                socket_timeout=socket_timeout,
+            )
+            return FileTransferResult(
+                success=True,
+                file_transferred=bool(result.get("file_transferred")),
+                file_verified=bool(result.get("file_verified")),
+                file_exists=bool(result.get("file_exists")),
+            )
+        except Exception as exc:
+            return FileTransferResult(success=False, error=str(exc))

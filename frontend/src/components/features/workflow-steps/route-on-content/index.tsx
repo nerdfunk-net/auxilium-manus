@@ -17,7 +17,7 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
+import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
 import {
   buildRouteOnContentConfig,

@@ -23,7 +23,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
-import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
+import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
 
 import { StoreArtifactHelpPanel } from "./help-panel";
@@ -78,6 +78,11 @@ const CONTENT_SOURCE_OPTIONS = [
     value: "pyats_snapshot",
     label: "pyATS snapshot",
     hint: "Choose the get-pyats-snapshot step that produced the snapshot.",
+  },
+  {
+    value: "updated_content",
+    label: "Updated content",
+    hint: "Choose the update-content step that produced the edited config.",
   },
 ] as const;
 
@@ -209,7 +214,8 @@ function StoreArtifactConfigPanel({
     contentSource === "merged_content" ||
     contentSource === "comparison_diff" ||
     contentSource === "filtered_output" ||
-    contentSource === "pyats_snapshot";
+    contentSource === "pyats_snapshot" ||
+    contentSource === "updated_content";
   const needsParsedOutputKey =
     contentSource === "rendered_template" || contentSource === "pyats_snapshot";
   const sourceSteps = useMemo(
@@ -586,7 +592,9 @@ function StoreArtifactConfigPanel({
                             ? "Choose filter-output step…"
                             : contentSource === "pyats_snapshot"
                               ? "Choose get-pyats-snapshot step…"
-                              : "Choose run-command step…"
+                              : contentSource === "updated_content"
+                                ? "Choose update-content step…"
+                                : "Choose run-command step…"
                   }
                 />
               </SelectTrigger>
@@ -610,7 +618,9 @@ function StoreArtifactConfigPanel({
                       ? "Add a Filter Output step to this workflow first."
                       : contentSource === "pyats_snapshot"
                         ? "Add a Get Snapshot step to this workflow first."
-                        : "Add a Run Command step to this workflow first."}
+                        : contentSource === "updated_content"
+                          ? "Add an Update Content step to this workflow first."
+                          : "Add a Run Command step to this workflow first."}
             </p>
           )}
           {selectedSourceStep ? (
@@ -645,7 +655,9 @@ function StoreArtifactConfigPanel({
                         ? "compare-data-3"
                         : contentSource === "pyats_snapshot"
                           ? "get-pyats-snapshot-3"
-                          : "run-command-3"
+                          : contentSource === "updated_content"
+                            ? "update-content-3"
+                            : "run-command-3"
                 }
                 className="h-8 font-mono text-xs"
               />

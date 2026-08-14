@@ -12,6 +12,7 @@ import {
   GitBranch,
   GitMerge,
   HardDriveDownload,
+  HardDriveUpload,
   Key,
   List,
   LogIn,
@@ -53,6 +54,7 @@ export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   nautobot: "Nautobot",
   cisco: "Cisco",
   pyats: "PyATS",
+  configuration_retrieval: "Configuration Management",
 };
 
 export function formatPaletteCategory(category: string): string {
@@ -96,6 +98,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "get-pyats-config": HardDriveDownload,
   "get-pyats-snapshot": Camera,
   "compare-pyats-snapshot": Diff,
+  "upload-config": HardDriveUpload,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

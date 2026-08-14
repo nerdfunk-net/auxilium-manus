@@ -18,7 +18,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
-import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
+import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
 import { DeployRenderedTemplateHelpPanel } from "./help-panel";
 

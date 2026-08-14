@@ -23,7 +23,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
-import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/store-artifact/upstream-source-steps";
+import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
 
 import { CompareDataHelpPanel } from "./help-panel";

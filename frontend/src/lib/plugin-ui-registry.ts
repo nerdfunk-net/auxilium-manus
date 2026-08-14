@@ -11,6 +11,7 @@ import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/par
 import { AddPyatsTestbedPlugin } from "@/components/features/workflow-steps/add-pyats-testbed";
 import { GetPyatsConfigPlugin } from "@/components/features/workflow-steps/get-pyats-config";
 import { GetPyatsSnapshotPlugin } from "@/components/features/workflow-steps/get-pyats-snapshot";
+import { ConfigureReplaceConfigPlugin } from "@/components/features/workflow-steps/configure-replace-config";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetFromConfigPlugin } from "@/components/features/workflow-steps/get-from-config";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
@@ -41,6 +42,7 @@ import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
 import { UpdateContentPlugin } from "@/components/features/workflow-steps/update-content";
 import { UpdateIseTacacsKeyPlugin } from "@/components/features/workflow-steps/update-ise-tacacs-key";
+import { UploadConfigPlugin } from "@/components/features/workflow-steps/upload-config";
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
@@ -69,6 +71,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "filter-output": FilterOutputPlugin,
   "compare-data": CompareDataPlugin,
   "compare-pyats-snapshot": ComparePyatsSnapshotPlugin,
+  "configure-replace-config": ConfigureReplaceConfigPlugin,
   "render-jinja-template": RenderJinjaTemplatePlugin,
   "store-artifact": StoreArtifactPlugin,
   "git-clone": GitClonePlugin,
@@ -78,6 +81,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "update-attribute": UpdateAttributePlugin,
   "update-content": UpdateContentPlugin,
   "update-ise-tacacs-key": UpdateIseTacacsKeyPlugin,
+  "upload-config": UploadConfigPlugin,
   "add-to-ise": AddToIsePlugin,
   "add-to-nautobot": AddToNautobotPlugin,
   "log-message": LogMessagePlugin,

@@ -15,6 +15,7 @@ from services.network.netmiko.connection import (
     CommandResult,
     ConfigResult,
     DeployResult,
+    FileTransferResult,
     NetmikoConnectionError,
     NetmikoDeviceSession,
 )
@@ -184,6 +185,47 @@ class NetmikoService:
         return await self._pool.run_on_device(
             host=host,
             device_type=device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
+        )
+
+    async def upload_file(
+        self,
+        *,
+        host: str,
+        network_driver: str | None,
+        platform: str | None,
+        username: str,
+        password: str,
+        local_path: str,
+        dest_file: str,
+        file_system: str,
+        overwrite: bool,
+        inline_transfer: bool,
+        socket_timeout: float,
+        credential_reference: str,
+        device_type: str | None = None,
+    ) -> FileTransferResult:
+        resolved_device_type = device_type or resolve_netmiko_device_type(
+            network_driver=network_driver,
+            platform=platform,
+        )
+
+        def _op(session: NetmikoDeviceSession) -> FileTransferResult:
+            return session.upload_file(
+                local_path=local_path,
+                dest_file=dest_file,
+                file_system=file_system,
+                overwrite=overwrite,
+                inline_transfer=inline_transfer,
+                socket_timeout=socket_timeout,
+            )
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=resolved_device_type,
             credential_reference=credential_reference,
             username=username,
             password=password,

@@ -28,6 +28,7 @@ from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
+from workflow_steps.configure_replace_config.executor import execute as configure_replace_config
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
@@ -62,6 +63,7 @@ from workflow_steps.update_attribute.executor import execute as update_attribute
 from workflow_steps.update_content.executor import execute as update_content
 from workflow_steps.update_ise_tacacs_key.executor import execute as update_ise_tacacs_key
 from workflow_steps.update_nautobot_device.executor import execute as update_nautobot_device
+from workflow_steps.upload_config.executor import execute as upload_config
 
 StepExecutor = Callable[..., Awaitable[list[StepOutcome]]]
 
@@ -95,6 +97,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "filter-output": filter_output,
     "compare-data": compare_data,
     "compare-pyats-snapshot": compare_pyats_snapshot,
+    "configure-replace-config": configure_replace_config,
     "store-artifact": store_artifact,
     "git-clone": git_clone,
     "git-pull": git_pull,
@@ -103,6 +106,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "update-content": update_content,
     "update-ise-tacacs-key": update_ise_tacacs_key,
     "update-nautobot-device": update_nautobot_device,
+    "upload-config": upload_config,
     "log-message": log_message,
     "log-attributes": log_attributes,
     "show-summary": show_summary,

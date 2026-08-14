@@ -526,6 +526,53 @@ plugins:
           data_type: string
           required: false
 
+  - id: configure-replace-config
+    name: Configure Replace Config
+    overview: Apply a config file via 'configure replace' and confirm only if verification is clean.
+    description: >
+      Replace the running configuration with a file already on the device
+      (e.g. from an upstream Upload Config step) using Cisco's 'configure
+      replace ... time N force', verify no operational impact via a Genie
+      interface snapshot diff, then send 'configure confirm' to cancel the
+      device's automatic rollback timer. If verification fails or the device
+      can't be reached afterward, 'configure confirm' is deliberately not
+      sent and the device reverts itself. Requires an upstream Add Testbed
+      step.
+    artifact_type: command_execution
+    palette_category: pyats
+    directory: configure_replace_config
+    enabled: true
+    requires: [identity, pyats_testbed]
+    produces: [parsed]
+    consumes: []
+    primary_output: configure_replace
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: destination_filename
+          description: >
+            Filename of the config file already present on the device (e.g.
+            the destination_filename an upstream Upload Config step wrote).
+          data_type: string
+          required: true
+          example: startup-config-new.cfg
+        - name: file_system
+          description: "Filesystem on the device where the file lives, e.g. bootflash: or nvram:."
+          data_type: string
+          required: true
+          example: "bootflash:"
+        - name: timeout_minutes
+          description: >
+            Minutes passed to 'configure replace ... time <n>' before the
+            device automatically reverts the change if not confirmed. Whole
+            number from 1 to 120 (device-enforced range).
+          data_type: integer
+          required: true
+          default: 2
+          example: 2
+
   - id: get-from-list
     name: Get from List
     overview: Configure a static list of devices.
@@ -1835,6 +1882,76 @@ plugins:
                 multiline: false
                 dotall: false
               replace_all: true
+
+  - id: upload-config
+    name: Upload Config
+    overview: Upload a configuration file to a device via SCP.
+    description: >
+      Upload content produced by an earlier step (e.g. Update Content) to a device's
+      filesystem using Netmiko's secure-copy or inline file transfer.
+    artifact_type: command_execution
+    palette_category: configuration_retrieval
+    directory: upload_config
+    enabled: true
+    requires: [identity]
+    produces: []
+    consumes: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: credential_reference
+          description: Reference to credentials stored in the backend.
+          data_type: credential_ref
+          required: true
+        - name: content_source
+          description: Which upstream content to upload.
+          data_type: string
+          required: true
+          default: updated_content
+          example: updated_content
+        - name: source_step_node_id
+          description: >
+            Canvas node id of the step that produced the content (not needed for
+            running_config/startup_config).
+          data_type: string
+          required: false
+        - name: parsed_output_key
+          description: >
+            Optional output_key from the source step. Leave empty to use the
+            content produced by the selected step.
+          data_type: string
+          required: false
+        - name: destination_filename
+          description: Target filename on the device filesystem.
+          data_type: string
+          required: true
+          example: startup-config-new.cfg
+        - name: file_system
+          description: "Destination filesystem on the device, e.g. bootflash: or nvram:."
+          data_type: string
+          required: true
+          example: "bootflash:"
+        - name: overwrite
+          description: Overwrite the destination file if it already exists.
+          data_type: boolean
+          required: false
+          default: false
+        - name: inline_transfer
+          description: Use Netmiko's inline (non-SCP) transfer — text files only.
+          data_type: boolean
+          required: false
+          default: false
+        - name: network_driver_override
+          description: Override the Netmiko device type for all devices in this step.
+          data_type: string
+          required: false
+        - name: socket_timeout
+          description: SCP/SFTP socket timeout in seconds.
+          data_type: integer
+          required: false
+          default: 10
 
   - id: render-jinja-template
     name: Render Jinja Template

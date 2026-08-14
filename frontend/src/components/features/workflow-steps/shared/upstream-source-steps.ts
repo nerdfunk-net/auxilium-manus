@@ -14,6 +14,7 @@ const SOURCE_STEP_KIND: Partial<Record<string, string>> = {
   comparison_diff: "compare-data",
   filtered_output: "filter-output",
   pyats_snapshot: "get-pyats-snapshot",
+  updated_content: "update-content",
 };
 
 function readOutputKey(node: PersistedCanvasNode, fallback: string): string {
