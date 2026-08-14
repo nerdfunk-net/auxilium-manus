@@ -138,7 +138,7 @@ export function ConfigureCommandsDialog({
           </div>
 
           {executeHint && !canExecute ? (
-            <p className="text-[11px] text-amber-600">{executeHint}</p>
+            <p className="text-[11px] text-warning-foreground">{executeHint}</p>
           ) : null}
         </div>
 

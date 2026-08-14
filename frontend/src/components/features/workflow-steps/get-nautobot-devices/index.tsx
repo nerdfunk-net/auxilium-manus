@@ -165,13 +165,13 @@ function DeviceSelectionConfigPanel({
             ) : credentials.isLoading ? (
               <span className="block font-sans">Loading credentials…</span>
             ) : (
-              <span className="block font-sans text-amber-600">
+              <span className="block font-sans text-warning-foreground">
                 Source not found in settings
               </span>
             )}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button
@@ -194,12 +194,12 @@ function DeviceSelectionConfigPanel({
         </div>
 
         {inventoryLabel ? (
-          <div className="flex items-start gap-2 rounded-md border border-teal-200 bg-teal-50/50 px-2.5 py-2">
-            <FileText className="mt-0.5 size-3.5 shrink-0 text-teal-600" aria-hidden />
+          <div className="flex items-start gap-2 rounded-md border border-step-border bg-step-surface/50 px-2.5 py-2">
+            <FileText className="mt-0.5 size-3.5 shrink-0 text-step-hover" aria-hidden />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-teal-900">{inventoryLabel}</p>
+              <p className="truncate text-xs font-medium text-step-surface-foreground">{inventoryLabel}</p>
               {inventoryMeta.id !== null ? (
-                <p className="text-[10px] text-teal-700/80">ID {inventoryMeta.id}</p>
+                <p className="text-[10px] text-step-muted-foreground/80">ID {inventoryMeta.id}</p>
               ) : null}
             </div>
           </div>
@@ -242,7 +242,7 @@ function DeviceSelectionConfigPanel({
           Preview devices
         </Button>
         {!canPreview && hasInventory && !credentials.isReady ? (
-          <p className="text-[11px] text-amber-600">Configure a Nautobot source to preview.</p>
+          <p className="text-[11px] text-warning-foreground">Configure a Nautobot source to preview.</p>
         ) : null}
       </div>
 

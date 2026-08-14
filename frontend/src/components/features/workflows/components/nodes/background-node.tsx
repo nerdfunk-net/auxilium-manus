@@ -20,7 +20,7 @@ export function BackgroundNode({ data, selected }: NodeProps<BackgroundCanvasNod
   return (
     <div
       className={cn(
-        "relative h-full w-full rounded-lg border border-slate-300/60",
+        "relative h-full w-full rounded-lg border border-input/60",
         selected && "ring-2 ring-ring/30 ring-offset-1",
       )}
       style={{ backgroundColor: color }}
@@ -29,8 +29,8 @@ export function BackgroundNode({ data, selected }: NodeProps<BackgroundCanvasNod
         isVisible={selected}
         minWidth={80}
         minHeight={80}
-        lineClassName="!border-teal-400"
-        handleClassName="!h-2 !w-2 !rounded-sm !border-teal-500 !bg-white"
+        lineClassName="!border-step"
+        handleClassName="!h-2 !w-2 !rounded-sm !border-step-hover !bg-card"
       />
     </div>
   );

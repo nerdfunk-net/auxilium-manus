@@ -33,17 +33,17 @@ export function SelectedInventoryList({
   const allSelected = devices.length > 0 && devices.every((d) => removalSelectedIds.has(d.id));
 
   return (
-    <div className="rounded-lg border-0 bg-white p-0 shadow-lg">
-      <div className="flex items-center justify-between rounded-t-lg bg-gradient-to-r from-teal-500/80 to-teal-600/80 px-4 py-2 text-white">
+    <div className="rounded-lg border-0 bg-card p-0 shadow-lg">
+      <div className="flex items-center justify-between rounded-t-lg step-header px-4 py-2">
         <div className="flex items-center space-x-2">
           <ListChecks className="h-4 w-4" />
           <span className="text-sm font-medium">Selected Inventory</span>
         </div>
-        <div className="text-xs text-teal-100">
+        <div className="text-xs text-step-header-muted">
           {devices.length} device{devices.length !== 1 ? "s" : ""}
         </div>
       </div>
-      <div className="bg-gradient-to-b from-white to-gray-50 p-6">
+      <div className="bg-gradient-to-b from-card to-muted p-6">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
@@ -66,7 +66,7 @@ export function SelectedInventoryList({
             <tbody>
               {devices.length === 0 ? (
                 <tr>
-                  <td className="py-8 text-center text-gray-500" colSpan={6}>
+                  <td className="py-8 text-center text-muted-foreground" colSpan={6}>
                     No devices added yet. Preview results and use &quot;Add Devices to
                     selection&quot; to build this list.
                   </td>
@@ -77,7 +77,7 @@ export function SelectedInventoryList({
                     <td className="p-2">
                       <Button
                         aria-label={`Remove device ${device.name}`}
-                        className="h-6 w-6 text-red-600 hover:text-red-800"
+                        className="h-6 w-6 text-error-foreground hover:text-error-foreground"
                         onClick={() => onRemoveDevice(device.id)}
                         size="icon"
                         type="button"
@@ -113,7 +113,7 @@ export function SelectedInventoryList({
 
         <div className="mt-4 flex items-center justify-between border-t pt-4">
           <Button
-            className="flex items-center space-x-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+            className="flex items-center space-x-2 text-error-foreground hover:bg-error hover:text-error-foreground"
             disabled={removalSelectedIds.size === 0}
             onClick={onRemoveSelected}
             type="button"
@@ -123,7 +123,7 @@ export function SelectedInventoryList({
             <span>Remove Selected Devices</span>
           </Button>
           <Button
-            className="flex items-center space-x-2 border-0 bg-teal-600 text-white hover:bg-teal-700 disabled:bg-gray-400"
+            className="flex items-center space-x-2 border-0 bg-step-hover text-step-foreground hover:bg-step-hover/90 disabled:bg-muted-foreground"
             disabled={devices.length === 0 || isSaving}
             onClick={onSave}
             type="button"

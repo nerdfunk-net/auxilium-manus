@@ -203,8 +203,8 @@ export function GroupTreePanel({
           className={cn(
             'flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer text-sm transition-colors select-none',
             isSelected
-              ? 'bg-blue-100 text-blue-700 font-medium'
-              : 'hover:bg-gray-100 text-gray-700'
+              ? 'bg-info text-info-foreground font-medium'
+              : 'hover:bg-muted text-foreground'
           )}
           style={{ paddingLeft: `${depth * 14 + 6}px` }}
           onClick={() => onSelectGroup(node.path)}
@@ -218,7 +218,7 @@ export function GroupTreePanel({
           }
         >
           <button
-            className="w-4 h-4 flex items-center justify-center flex-shrink-0 rounded hover:bg-gray-200"
+            className="w-4 h-4 flex items-center justify-center flex-shrink-0 rounded hover:bg-muted"
             onClick={e => {
               e.stopPropagation()
               if (hasChildren) toggleExpanded(key)
@@ -251,7 +251,7 @@ export function GroupTreePanel({
             <span className="flex-1 truncate">{node.name}</span>
           )}
           {invCount > 0 && (
-            <span className="text-xs text-gray-400 flex-shrink-0 tabular-nums">
+            <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
               {invCount}
             </span>
           )}
@@ -267,7 +267,7 @@ export function GroupTreePanel({
                 style={{ paddingLeft: `${(depth + 1) * 14 + 6}px` }}
               >
                 <div className="w-4 h-4 flex-shrink-0" />
-                <Folder className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
+                <Folder className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
                 <Input
                   ref={newGroupInputRef}
                   className="h-6 text-xs px-1 py-0 flex-1"
@@ -288,7 +288,7 @@ export function GroupTreePanel({
             style={{ paddingLeft: `${(depth + 1) * 14 + 6}px` }}
           >
             <div className="w-4 h-4 flex-shrink-0" />
-            <Folder className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
+            <Folder className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
             <Input
               ref={newGroupInputRef}
               className="h-6 text-xs px-1 py-0 flex-1"
@@ -306,7 +306,7 @@ export function GroupTreePanel({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2 mb-2">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-2">
         Groups
       </div>
       <div className="flex-1 overflow-y-auto space-y-0.5">
@@ -317,7 +317,7 @@ export function GroupTreePanel({
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            className="w-full justify-start text-xs text-primary hover:text-info-foreground hover:bg-info"
             onClick={() => startCreatingUnder(selectedGroup)}
           >
             <Plus className="h-3.5 w-3.5 mr-1" />
@@ -331,11 +331,11 @@ export function GroupTreePanel({
         createPortal(
           <div
             ref={contextMenuRef}
-            className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[160px]"
+            className="fixed z-50 bg-card border border-border rounded-md shadow-lg py-1 min-w-[160px]"
             style={{ top: contextMenu.y, left: contextMenu.x, pointerEvents: 'auto' }}
           >
             <button
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 flex items-center gap-2"
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted flex items-center gap-2"
               onMouseDown={e => {
                 e.preventDefault()
                 const parentPath = contextMenu.path
@@ -343,12 +343,12 @@ export function GroupTreePanel({
                 startCreatingUnder(parentPath)
               }}
             >
-              <FolderPlus className="h-3.5 w-3.5 text-blue-500" />
+              <FolderPlus className="h-3.5 w-3.5 text-primary" />
               New subgroup here
             </button>
             {contextMenu.path !== null && (
               <button
-                className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 flex items-center gap-2"
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted flex items-center gap-2"
                 onMouseDown={e => {
                   e.preventDefault()
                   const nodePath = contextMenu.path!
@@ -356,7 +356,7 @@ export function GroupTreePanel({
                   startRenaming(nodePath, nodeName)
                 }}
               >
-                <Pencil className="h-3.5 w-3.5 text-gray-500" />
+                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                 Rename Group
               </button>
             )}

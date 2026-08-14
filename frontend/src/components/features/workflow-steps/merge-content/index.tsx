@@ -254,9 +254,9 @@ function MergeContentConfigPanel({
           </Badge>
         </div>
         {sourceNodes.length === 0 ? (
-          <p className="text-[11px] text-amber-600">{emptySourceWarning}</p>
+          <p className="text-[11px] text-warning-foreground">{emptySourceWarning}</p>
         ) : (
-          <div className="space-y-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+          <div className="space-y-1 rounded-lg border border-border bg-card px-2 py-1.5">
             {sourceNodes.map((node) => {
               const checked = sourceStepNodeIds.includes(node.id);
               return (
@@ -268,7 +268,7 @@ function MergeContentConfigPanel({
                     type="checkbox"
                     checked={checked}
                     onChange={(e) => handleSourceToggle(node.id, e.target.checked)}
-                    className="accent-teal-500"
+                    className="accent-step"
                     aria-hidden={false}
                   />
                   <span className="truncate text-xs">
@@ -340,7 +340,7 @@ function MergeContentConfigPanel({
               type="checkbox"
               checked={includeCommandHeader}
               onChange={handleIncludeHeaderChange}
-              className="accent-teal-500"
+              className="accent-step"
               aria-hidden={false}
             />
             <span className="font-mono text-xs font-medium">include_command_header</span>
@@ -351,21 +351,21 @@ function MergeContentConfigPanel({
         </div>
       ) : null}
 
-      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         <p className="font-medium">Use in Store Artifact</p>
-        <p className="mt-1 text-[11px] text-teal-800">
+        <p className="mt-1 text-[11px] text-step-surface-foreground">
           Set <span className="font-mono">content_source</span> to{" "}
           <span className="font-mono font-medium">Merged Content</span> and select this
           step as the source.
         </p>
         <div className="mt-2 flex items-center gap-2">
-          <code className="rounded border border-teal-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-teal-900">
+          <code className="rounded border border-step-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-step-surface-foreground">
             {parsedKey}
           </code>
           <button
             type="button"
             onClick={handleCopy}
-            className="text-[10px] text-teal-700 underline hover:text-teal-900"
+            className="text-[10px] text-step-muted-foreground underline hover:text-step-surface-foreground"
           >
             {copied ? "Copied!" : "Copy key"}
           </button>

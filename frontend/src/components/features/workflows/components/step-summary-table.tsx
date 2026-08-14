@@ -40,17 +40,17 @@ function SummaryCellIcon({
   onClick?: () => void;
 }) {
   if (status === "success") {
-    return <CheckCircle2 className="size-4 text-emerald-600" aria-label="success" />;
+    return <CheckCircle2 className="size-4 text-success-foreground" aria-label="success" />;
   }
   if (status === "device-error" || status === "step-error") {
     return (
       <button
         type="button"
         onClick={onClick}
-        className="rounded hover:bg-red-50"
+        className="rounded hover:bg-error"
         title="View error details"
       >
-        <XCircle className="size-4 text-red-500" aria-label="failed — click for details" />
+        <XCircle className="size-4 text-destructive" aria-label="failed — click for details" />
       </button>
     );
   }
@@ -79,7 +79,7 @@ export function StepSummaryTable({ steps }: StepSummaryTableProps) {
       <Button
         variant="outline"
         size="sm"
-        className="h-8 gap-1.5 rounded-lg border-slate-300 text-xs"
+        className="h-8 gap-1.5 rounded-lg border-input text-xs"
         onClick={() => setTableOpen(true)}
       >
         <Table2 className="size-3.5" aria-hidden />

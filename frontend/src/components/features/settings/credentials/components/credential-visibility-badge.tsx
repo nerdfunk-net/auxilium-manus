@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 import type { CredentialVisibility } from "../types";
 
 const VISIBILITY_CLASSES: Record<CredentialVisibility, string> = {
-  global: "bg-slate-100 text-slate-700",
-  private: "bg-blue-100 text-blue-800",
+  global: "bg-muted text-muted-foreground",
+  private: "bg-info text-info-foreground",
 };
 
 const VISIBILITY_LABELS: Record<CredentialVisibility, string> = {

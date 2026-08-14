@@ -77,13 +77,13 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
             ) : credentials.isLoading ? (
               <span className="block font-sans">Loading credentials…</span>
             ) : (
-              <span className="block font-sans text-amber-600">
+              <span className="block font-sans text-warning-foreground">
                 Source not found in settings
               </span>
             )}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button
@@ -112,7 +112,7 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
             {identifierMode === "explicit" ? "explicit device" : "from context"}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">No enabled update fields configured</p>
+          <p className="text-[11px] text-warning-foreground">No enabled update fields configured</p>
         )}
 
         <Button

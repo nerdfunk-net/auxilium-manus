@@ -82,7 +82,7 @@ function RegexFlagsFields({
               type="checkbox"
               checked={flags[item.key]}
               onChange={(event) => onChange({ [item.key]: event.target.checked })}
-              className="mt-0.5 size-4 rounded border accent-teal-500"
+              className="mt-0.5 size-4 rounded border accent-step"
             />
             <div className="space-y-0.5">
               <Label htmlFor={`${item.key}-${fieldId}`} className="font-mono text-xs font-medium">
@@ -317,8 +317,8 @@ function AttributeUpdateDialogForm({
 
   return (
     <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
-      <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-teal-600 to-teal-500 px-4 py-3 text-white">
-        <DialogTitle className="text-base text-white">
+      <DialogHeader className="shrink-0 border-b step-header px-4 py-3">
+        <DialogTitle className="text-base text-step-header-foreground">
           {mode === "add" ? "Add attribute update" : "Edit attribute update"}
         </DialogTitle>
         <DialogDescription className="sr-only">
@@ -327,7 +327,7 @@ function AttributeUpdateDialogForm({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="overflow-y-auto bg-slate-50 p-4">
+      <div className="overflow-y-auto bg-muted p-4">
         <AttributeUpdateEditor
           value={draft}
           onChange={(next) => {
@@ -337,20 +337,20 @@ function AttributeUpdateDialogForm({
           fieldId="attribute-dialog"
         />
         {error ? (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p className="mt-3 rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
             {error}
           </p>
         ) : null}
       </div>
 
-      <DialogFooter className="shrink-0 border-t bg-white px-4 py-3">
+      <DialogFooter className="shrink-0 border-t bg-card px-4 py-3">
         <Button type="button" variant="outline" size="sm" onClick={onClose}>
           Cancel
         </Button>
         <Button
           type="button"
           size="sm"
-          className="bg-teal-500 text-white hover:bg-teal-600"
+          className="bg-step text-step-foreground hover:bg-step-hover"
           onClick={handleSave}
         >
           {mode === "add" ? "Add" : "Save"}

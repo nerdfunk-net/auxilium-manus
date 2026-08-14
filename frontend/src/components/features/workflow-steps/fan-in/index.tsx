@@ -6,7 +6,7 @@ import { FanInHelpPanel } from "./help-panel";
 function FanInConfigPanel() {
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         Rejoins a fanned-out workflow into a single path. Per-device steps run in
         parallel child workflows up to this node; steps placed after it run once
         over all devices.

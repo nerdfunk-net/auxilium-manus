@@ -42,13 +42,13 @@ export function ConditionGroup({
   const getLogicBadgeColor = (logic: string) => {
     switch (logic) {
       case "AND":
-        return "bg-green-100 text-green-800";
+        return "bg-success text-success-foreground";
       case "OR":
-        return "bg-yellow-100 text-yellow-800";
+        return "bg-warning text-warning-foreground";
       case "NOT":
-        return "bg-red-100 text-red-800";
+        return "bg-error text-error-foreground";
       default:
-        return "bg-blue-100 text-blue-800";
+        return "bg-info text-info-foreground";
     }
   };
 
@@ -56,7 +56,7 @@ export function ConditionGroup({
     <div
       className={`cursor-pointer rounded-r border-l-4 py-2 pl-4 transition-colors ${
         isActiveTarget
-          ? "border-blue-500 bg-blue-50/70"
+          ? "border-info-border bg-info/70"
           : "border-purple-300 bg-purple-50/50 hover:bg-purple-100/50"
       }`}
       onClick={(e) => {
@@ -72,7 +72,7 @@ export function ConditionGroup({
         <Badge
           className={
             isActiveTarget
-              ? "border-blue-300 bg-blue-100 text-blue-800"
+              ? "border-info-border bg-info text-info-foreground"
               : "border-purple-300 bg-purple-100 text-purple-800"
           }
           variant="outline"
@@ -80,7 +80,7 @@ export function ConditionGroup({
           GROUP ({group.internalLogic})
         </Badge>
         {isActiveTarget ? (
-          <Badge className="bg-blue-500 text-xs text-white">Active Target</Badge>
+          <Badge className="bg-info-foreground text-xs text-info">Active Target</Badge>
         ) : null}
         <Button
           className="h-5 px-2 text-xs"
@@ -96,7 +96,7 @@ export function ConditionGroup({
           Toggle
         </Button>
         <Button
-          className="ml-auto h-5 w-5 p-0 hover:bg-red-100"
+          className="ml-auto h-5 w-5 p-0 hover:bg-error"
           onClick={(e) => {
             e.stopPropagation();
             onRemove(group.id);
@@ -106,12 +106,12 @@ export function ConditionGroup({
           type="button"
           variant="ghost"
         >
-          <X className="h-3 w-3 text-red-600" />
+          <X className="h-3 w-3 text-error-foreground" />
         </Button>
       </div>
       <div className="space-y-1">
         {group.items.length === 0 ? (
-          <p className="text-xs italic text-gray-400">Empty group - add conditions here</p>
+          <p className="text-xs italic text-muted-foreground">Empty group - add conditions here</p>
         ) : (
           group.items.map((subItem, subIndex) => (
             <div key={subItem.id}>

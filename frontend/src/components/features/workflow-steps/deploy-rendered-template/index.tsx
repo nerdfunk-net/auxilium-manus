@@ -222,7 +222,7 @@ function DeployRenderedTemplateConfigPanel({
         {isLoading ? (
           <p className="text-[11px] text-muted-foreground">Loading credentials…</p>
         ) : sshCredentials.length === 0 && !credentialReference ? (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             No SSH credentials in Settings → Credentials
           </p>
         ) : (
@@ -268,7 +268,7 @@ function DeployRenderedTemplateConfigPanel({
             </SelectContent>
           </Select>
         ) : (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             Add a Render Jinja Template step to this workflow first.
           </p>
         )}
@@ -278,7 +278,7 @@ function DeployRenderedTemplateConfigPanel({
             {selectedSourceStep.outputKey ? ` · output_key ${selectedSourceStep.outputKey}` : ""}
           </p>
         ) : sourceStepNodeId && sourceSteps.length > 0 ? (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             Saved node id <span className="font-mono">{sourceStepNodeId}</span> is not on this
             canvas. Pick a step above or enter an id manually.
           </p>
@@ -428,7 +428,7 @@ function DeployRenderedTemplateConfigPanel({
           </div>
         </div>
         {autoConfirmPrompts ? (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
             Risky: any command in the rendered template that raises a confirmation
             prompt will be accepted automatically, with no human review. Only enable
             this when every command is expected and safe to auto-accept.

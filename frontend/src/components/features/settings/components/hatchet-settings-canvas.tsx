@@ -32,9 +32,9 @@ export function HatchetSettingsCanvas() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto bg-slate-50 p-8">
+    <div className="flex h-full flex-col gap-6 overflow-y-auto bg-muted p-8">
       <div className="mx-auto w-full max-w-2xl space-y-6">
-        <div className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <div className="flex items-start gap-2 rounded-md bg-warning px-3 py-2 text-xs text-warning-foreground">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <p>
             Hatchet is configured entirely via <code>HATCHET_CLIENT_*</code> and{" "}
@@ -54,7 +54,7 @@ export function HatchetSettingsCanvas() {
             {lastStatus ? (
               <div className="flex items-start gap-3">
                 {lastStatus.reachable ? (
-                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-green-500" />
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success-foreground" />
                 ) : (
                   <AlertCircle className="mt-0.5 size-5 shrink-0 text-destructive" />
                 )}
@@ -62,7 +62,7 @@ export function HatchetSettingsCanvas() {
                   <div className="flex items-center gap-2">
                     <Badge
                       variant={lastStatus.reachable ? "default" : "destructive"}
-                      className={lastStatus.reachable ? "bg-green-500 hover:bg-green-500" : ""}
+                      className={lastStatus.reachable ? "bg-success-foreground hover:bg-success-foreground" : ""}
                     >
                       {lastStatus.reachable ? "Connected" : "Unreachable"}
                     </Badge>
@@ -128,9 +128,9 @@ export function HatchetSettingsCanvas() {
                   label="Token"
                   value={
                     data.token_configured ? (
-                      <span className="text-green-600">Configured</span>
+                      <span className="text-success-foreground">Configured</span>
                     ) : (
-                      <span className="text-amber-600">Not set</span>
+                      <span className="text-warning-foreground">Not set</span>
                     )
                   }
                 />

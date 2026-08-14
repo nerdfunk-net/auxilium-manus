@@ -138,7 +138,7 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
             {configuredCount} device{configuredCount === 1 ? "" : "s"} configured
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">Enter a name and/or IP address for at least one device</p>
+          <p className="text-[11px] text-warning-foreground">Enter a name and/or IP address for at least one device</p>
         )}
 
         <div className="space-y-2">

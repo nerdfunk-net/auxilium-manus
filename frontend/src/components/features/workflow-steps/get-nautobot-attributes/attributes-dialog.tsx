@@ -68,7 +68,7 @@ export function AttributesDialog({
             >
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded accent-teal-500 focus:ring-2 focus:ring-teal-400/40"
+                className="h-4 w-4 rounded accent-step focus:ring-2 focus:ring-step/40"
                 checked={selected.includes(key)}
                 onChange={() => handleToggle(key)}
               />
@@ -77,7 +77,7 @@ export function AttributesDialog({
           ))}
         </div>
 
-        <DialogFooter className="shrink-0 border-t bg-white px-4 py-3">
+        <DialogFooter className="shrink-0 border-t bg-card px-4 py-3">
           <Button variant="outline" size="sm" onClick={onClose} type="button">
             Cancel
           </Button>

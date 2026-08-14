@@ -133,10 +133,10 @@ function SaveInventoryForm({
   if (showOverwriteConfirm) {
     return (
       <div className="flex flex-1 flex-col gap-4 p-6">
-        <div className="rounded border-l-4 border-yellow-400 bg-yellow-50 p-4">
+        <div className="rounded border-l-4 border-warning-border bg-warning p-4">
           <div className="flex gap-3">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-yellow-500" />
-            <p className="text-sm text-yellow-800">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-warning-foreground" />
+            <p className="text-sm text-warning-foreground">
               An inventory named{" "}
               <strong>&quot;{inventoryToOverwrite?.name}&quot;</strong> already exists. Do
               you want to overwrite it?
@@ -179,9 +179,9 @@ function SaveInventoryForm({
           />
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Inventories in{" "}
-            <span className="text-blue-600">{selectedGroup ?? "Root"}</span>
+            <span className="text-primary">{selectedGroup ?? "Root"}</span>
           </div>
           {inventoriesInGroup.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
@@ -191,11 +191,11 @@ function SaveInventoryForm({
             <div className="space-y-1">
               {inventoriesInGroup.map((inv) => (
                 <div
-                  className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-gray-50"
+                  className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted"
                   key={inv.id}
                 >
-                  <FileText className="h-4 w-4 shrink-0 text-gray-400" />
-                  <span className="flex-1 truncate text-gray-800">{inv.name}</span>
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 truncate text-foreground">{inv.name}</span>
                   <Badge className="shrink-0 text-xs" variant="secondary">
                     {inv.scope}
                   </Badge>
@@ -207,16 +207,16 @@ function SaveInventoryForm({
       </div>
 
       <div className="space-y-3 border-t p-4">
-        <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           General
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-sm" htmlFor="inv-name">
-              Name <span className="text-red-500">*</span>
+              Name <span className="text-destructive">*</span>
             </Label>
             <Input
-              className={!name.trim() && name !== "" ? "border-red-300" : ""}
+              className={!name.trim() && name !== "" ? "border-destructive" : ""}
               id="inv-name"
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g., Windows Servers in Berlin"
@@ -252,7 +252,7 @@ function SaveInventoryForm({
           />
         </div>
         <button
-          className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+          className="flex items-center gap-1 text-xs font-medium text-primary hover:text-info-foreground"
           onClick={() => setShowTree((v) => !v)}
           type="button"
         >

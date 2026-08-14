@@ -145,7 +145,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         Dumps the entire workflow context: device identity, every attribute bag (Nautobot,
         Git, custom), parsed values, command metadata, errors, pending commands, and
         workflow metadata.
@@ -159,7 +159,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
           </Badge>
         </div>
         <Select value={outputDestination} onValueChange={handleDestinationChange}>
-          <SelectTrigger className="h-8 text-xs focus:ring-teal-400/40">
+          <SelectTrigger className="h-8 text-xs focus:ring-step/40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -181,7 +181,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
           </Badge>
         </div>
         <Select value={outputFormat} onValueChange={handleFormatChange}>
-          <SelectTrigger className="h-8 text-xs focus:ring-teal-400/40">
+          <SelectTrigger className="h-8 text-xs focus:ring-step/40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -209,7 +209,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
         <Switch
           checked={showParsedTemplates}
           onCheckedChange={handleShowParsedTemplatesChange}
-          className="data-[state=checked]:bg-teal-500"
+          className="data-[state=checked]:bg-step"
         />
       </div>
 
@@ -226,7 +226,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
         <Switch
           checked={showDeviceConfigs}
           onCheckedChange={handleShowDeviceConfigsChange}
-          className="data-[state=checked]:bg-teal-500"
+          className="data-[state=checked]:bg-step"
         />
       </div>
 
@@ -243,7 +243,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
               value={filename}
               onChange={(event) => handleFilenameChange(event.target.value)}
               placeholder="workflow-attributes.json"
-              className="h-8 font-mono text-xs focus-visible:ring-teal-400/40"
+              className="h-8 font-mono text-xs focus-visible:ring-step/40"
             />
             <p className="text-[11px] leading-4 text-muted-foreground">
               Relative path inside the run directory. Parent segments are allowed.
@@ -260,7 +260,7 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
             <Switch
               checked={append}
               onCheckedChange={handleAppendChange}
-              className="data-[state=checked]:bg-teal-500"
+              className="data-[state=checked]:bg-step"
             />
           </div>
         </>

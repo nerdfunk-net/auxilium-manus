@@ -65,7 +65,7 @@ export function RunListItem({
             {run.triggered_by_username ?? "unknown"} · {formatTime(run.created_at)}
           </p>
           {run.status === "paused" && run.debug_message ? (
-            <p className="mt-0.5 truncate text-xs text-amber-700">{run.debug_message}</p>
+            <p className="mt-0.5 truncate text-xs text-warning-foreground">{run.debug_message}</p>
           ) : null}
         </div>
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">

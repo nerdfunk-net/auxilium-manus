@@ -106,11 +106,11 @@ function AddToNautobotConfigPanel({ config, onChange, nodeId }: PluginConfigPane
             ) : credentials.isLoading ? (
               <span className="block font-sans">Loading credentials…</span>
             ) : (
-              <span className="block font-sans text-amber-600">Source not found in settings</span>
+              <span className="block font-sans text-warning-foreground">Source not found in settings</span>
             )}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button
@@ -141,7 +141,7 @@ function AddToNautobotConfigPanel({ config, onChange, nodeId }: PluginConfigPane
             {customFieldsSource === "nautobot_origin" ? ", all custom fields from Nautobot origin" : ""}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             {requiredCount}/5 required fields set
           </p>
         )}

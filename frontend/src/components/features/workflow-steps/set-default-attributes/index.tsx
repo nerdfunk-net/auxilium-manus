@@ -150,7 +150,7 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
               {configuredCount} field{configuredCount === 1 ? "" : "s"} configured
             </p>
           ) : (
-            <p className="text-[11px] text-amber-600">No default fields configured yet</p>
+            <p className="text-[11px] text-warning-foreground">No default fields configured yet</p>
           )}
           <Button
             className="h-7 w-full text-xs"
@@ -174,7 +174,7 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
             {git.git_source_id ? (
               <p className="font-mono text-[11px] text-muted-foreground">{git.git_source_id}</p>
             ) : (
-              <p className="text-[11px] text-amber-600">Not configured</p>
+              <p className="text-[11px] text-warning-foreground">Not configured</p>
             )}
             <Button
               className="h-7 w-full text-xs"

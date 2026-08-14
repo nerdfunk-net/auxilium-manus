@@ -26,13 +26,13 @@ interface RegexProbePanelProps {
 
 function ProbeResultView({ result }: { result: UpdateAttributeProbeResult }) {
   return (
-    <div className="space-y-2 rounded-lg border border-teal-200 bg-teal-50 p-3 text-teal-900">
+    <div className="space-y-2 rounded-lg border border-step-border bg-step-surface p-3 text-step-surface-foreground">
       <div className="flex items-center gap-2">
         <Badge
           className={
             result.matched
-              ? "bg-teal-600 text-white hover:bg-teal-600"
-              : "bg-amber-100 text-amber-900 hover:bg-amber-100"
+              ? "bg-step-hover text-step-foreground hover:bg-step-hover"
+              : "bg-warning text-warning-foreground hover:bg-warning"
           }
         >
           {result.matched ? "Matched" : "No match"}
@@ -173,7 +173,7 @@ export function RegexProbePanel({
         <Button
           type="button"
           size="sm"
-          className="bg-teal-500 text-white hover:bg-teal-600"
+          className="bg-step text-step-foreground hover:bg-step-hover"
           onClick={() => void handleManualProbe()}
           disabled={probeMutation.isPending}
         >

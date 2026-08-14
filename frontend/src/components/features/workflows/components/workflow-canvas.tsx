@@ -254,7 +254,7 @@ function WorkflowCanvasInner({
 
   return (
     <div
-      className="relative h-full overflow-hidden bg-slate-50"
+      className="relative h-full overflow-hidden bg-muted"
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >

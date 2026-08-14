@@ -153,7 +153,7 @@ function RouteOnContentConfigPanel({
               </SelectContent>
             </Select>
           ) : (
-            <p className="text-[11px] text-amber-600">
+            <p className="text-[11px] text-warning-foreground">
               Add an upstream step that produces this content source first.
             </p>
           )}

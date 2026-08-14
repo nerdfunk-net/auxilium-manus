@@ -129,7 +129,7 @@ function ConfigToAttributesConfigPanel({ config, onChange }: PluginConfigPanelPr
             string_list
           </Badge>
         </div>
-        <div className="space-y-1 rounded-lg border border-slate-200 bg-white p-2">
+        <div className="space-y-1 rounded-lg border border-border bg-card p-2">
           {ATTRIBUTE_GROUPS.map(({ key, label }) => (
             <label
               key={key}
@@ -137,7 +137,7 @@ function ConfigToAttributesConfigPanel({ config, onChange }: PluginConfigPanelPr
             >
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded accent-teal-500 focus:ring-2 focus:ring-teal-400/40"
+                className="h-4 w-4 rounded accent-step focus:ring-2 focus:ring-step/40"
                 checked={selected.includes(key)}
                 onChange={() => handleToggle(key)}
               />
@@ -146,7 +146,7 @@ function ConfigToAttributesConfigPanel({ config, onChange }: PluginConfigPanelPr
           ))}
         </div>
         {selected.length === 0 && (
-          <p className="text-[11px] text-amber-600">No attributes selected</p>
+          <p className="text-[11px] text-warning-foreground">No attributes selected</p>
         )}
       </div>
     </div>

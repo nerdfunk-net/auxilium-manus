@@ -232,7 +232,7 @@ export function NodeConfigModal({
   return (
     <Dialog open={configModalNodeId !== null} onOpenChange={(open) => { if (!open) closeConfigModal(); }}>
       <DialogContent className="flex h-[75vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="shrink-0 border-b border-sky-200 bg-accent px-6 py-4">
+        <DialogHeader className="shrink-0 border-b border-info-border bg-accent px-6 py-4">
           <DialogTitle className="text-base text-accent-foreground">
             {activeNode?.data.title ?? "Step configuration"}
           </DialogTitle>
@@ -517,7 +517,7 @@ export function NodeConfigModal({
           </Tabs>
         ) : null}
 
-        <div className="shrink-0 border-t border-sky-100 bg-accent/10 px-6 py-3">
+        <div className="shrink-0 border-t border-info-border bg-accent/10 px-6 py-3">
           <Button size="sm" variant="outline" onClick={closeConfigModal}>
             Close
           </Button>

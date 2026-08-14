@@ -146,7 +146,7 @@ function GetPyatsSnapshotConfigPanel({ config, onChange }: PluginConfigPanelProp
         </div>
 
         {features.length === 0 ? (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             Select at least one feature, or &quot;all&quot;
           </p>
         ) : null}

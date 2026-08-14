@@ -39,8 +39,8 @@ export function LabelNode({ data, selected }: NodeProps<LabelCanvasNode>) {
         isVisible={selected}
         minWidth={40}
         minHeight={24}
-        lineClassName="!border-teal-400"
-        handleClassName="!h-2 !w-2 !rounded-sm !border-teal-500 !bg-white"
+        lineClassName="!border-step"
+        handleClassName="!h-2 !w-2 !rounded-sm !border-step-hover !bg-card"
       />
       <p
         className={cn(

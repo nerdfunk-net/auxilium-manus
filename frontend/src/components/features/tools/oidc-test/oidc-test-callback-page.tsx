@@ -156,12 +156,12 @@ function OidcTestCallbackContent() {
             <CardTitle className="flex items-center gap-2 text-base">
               {result.status === "approval_pending" ? (
                 <>
-                  <AlertCircle className="size-4 text-amber-600" />
+                  <AlertCircle className="size-4 text-warning-foreground" />
                   Approval pending
                 </>
               ) : (
                 <>
-                  <CheckCircle2 className="size-4 text-green-600" />
+                  <CheckCircle2 className="size-4 text-success-foreground" />
                   Login succeeded
                 </>
               )}

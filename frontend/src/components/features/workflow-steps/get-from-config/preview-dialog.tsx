@@ -55,7 +55,7 @@ export function GetFromConfigPreviewDialog({
                   <span className="truncate text-muted-foreground">{match.line_content}</span>
                   <span className="font-mono">
                     {match.hostname ?? (
-                      <span className="text-amber-600">unparseable</span>
+                      <span className="text-warning-foreground">unparseable</span>
                     )}
                   </span>
                   <span className="font-mono text-muted-foreground">

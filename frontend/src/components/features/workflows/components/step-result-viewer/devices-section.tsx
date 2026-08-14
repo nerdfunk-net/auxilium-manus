@@ -107,9 +107,9 @@ export function DevicesSection({
 export function DeviceStatusIcon({ status }: { status: DeviceContext["status"] }) {
   switch (status) {
     case "ok":
-      return <CheckCircle2 className="size-3.5 text-emerald-600" />;
+      return <CheckCircle2 className="size-3.5 text-success-foreground" />;
     case "failed":
-      return <XCircle className="size-3.5 text-red-500" />;
+      return <XCircle className="size-3.5 text-destructive" />;
     default:
       return <AlertCircle className="size-3.5 text-muted-foreground" />;
   }

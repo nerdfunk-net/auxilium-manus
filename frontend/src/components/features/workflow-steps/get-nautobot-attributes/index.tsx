@@ -80,13 +80,13 @@ function GetNautobotAttributesConfigPanel({
             ) : credentials.isLoading ? (
               <span className="block font-sans">Loading credentials…</span>
             ) : (
-              <span className="block font-sans text-amber-600">
+              <span className="block font-sans text-warning-foreground">
                 Source not found in settings
               </span>
             )}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button
@@ -113,7 +113,7 @@ function GetNautobotAttributesConfigPanel({
             {selected.length} group{selected.length !== 1 ? "s" : ""} selected
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">No attributes selected</p>
+          <p className="text-[11px] text-warning-foreground">No attributes selected</p>
         )}
 
         <Button

@@ -7,10 +7,10 @@ import type { CredentialStatus } from "../types";
 import { credentialStatusLabel } from "../utils/credential-utils";
 
 const STATUS_CLASSES: Record<CredentialStatus, string> = {
-  active: "bg-emerald-100 text-emerald-800",
-  expiring: "bg-amber-100 text-amber-800",
-  expired: "bg-red-100 text-red-800",
-  unknown: "bg-slate-100 text-slate-600",
+  active: "bg-success text-success-foreground",
+  expiring: "bg-warning text-warning-foreground",
+  expired: "bg-error text-error-foreground",
+  unknown: "bg-muted text-muted-foreground",
 };
 
 export function CredentialStatusBadge({

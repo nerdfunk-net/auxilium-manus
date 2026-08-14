@@ -124,7 +124,7 @@ function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         {sourceId ? (
           <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button
@@ -148,7 +148,7 @@ function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           onChange={handleDeviceNameChange}
         />
         <ExpressionHint example="{name}" />
-        {!deviceName && <p className="text-[11px] text-amber-600">Not configured</p>}
+        {!deviceName && <p className="text-[11px] text-warning-foreground">Not configured</p>}
       </div>
 
       {/* description */}
@@ -177,7 +177,7 @@ function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           <span className="font-mono">/24</span>) is stripped automatically — there is no
           separate netmask field.
         </p>
-        {!ipAddress && <p className="text-[11px] text-amber-600">Not configured</p>}
+        {!ipAddress && <p className="text-[11px] text-warning-foreground">Not configured</p>}
       </div>
 
       {/* new_key */}
@@ -191,7 +191,7 @@ function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           onChange={handleNewKeyChange}
         />
         <ExpressionHint example="{custom.new_tacacs_key}" />
-        {!newKey && <p className="text-[11px] text-amber-600">Not configured</p>}
+        {!newKey && <p className="text-[11px] text-warning-foreground">Not configured</p>}
       </div>
 
       {/* device_groups */}

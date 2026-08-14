@@ -101,7 +101,7 @@ export function LoadInventoryModal({
 
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <span className="ml-2 text-sm text-muted-foreground">
               Loading inventories...
             </span>
@@ -132,9 +132,9 @@ export function LoadInventoryModal({
 
               {/* Right: inventory files */}
               <div className="flex-1 overflow-y-auto p-3">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                   Inventories in{' '}
-                  <span className="text-blue-600">{selectedGroup ?? 'Root'}</span>
+                  <span className="text-primary">{selectedGroup ?? 'Root'}</span>
                 </div>
                 {inventoriesInGroup.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
@@ -149,8 +149,8 @@ export function LoadInventoryModal({
                           key={inv.id}
                           className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer text-sm transition-colors ${
                             isSelected
-                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                              : 'hover:bg-gray-50 border border-transparent'
+                              ? 'bg-info text-info-foreground border border-info-border'
+                              : 'hover:bg-muted border border-transparent'
                           }`}
                           onClick={() => {
                             setSelectedInventoryId(inv.id)
@@ -162,7 +162,7 @@ export function LoadInventoryModal({
                           }}
                         >
                           <FileText
-                            className={`h-4 w-4 flex-shrink-0 ${isSelected ? 'text-blue-500' : 'text-gray-400'}`}
+                            className={`h-4 w-4 flex-shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`}
                           />
                           <span className="flex-1 truncate font-medium">
                             {inv.name}
@@ -170,7 +170,7 @@ export function LoadInventoryModal({
                           <Badge variant="secondary" className="text-xs flex-shrink-0">
                             {inv.scope}
                           </Badge>
-                          <span className="text-xs text-gray-400 flex-shrink-0">
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
                             {inv.created_by}
                           </span>
                         </div>
@@ -186,13 +186,13 @@ export function LoadInventoryModal({
               className="border-t p-4 space-y-2 overflow-y-auto flex-shrink-0"
               style={{ height: showTree ? '260px' : '110px' }}
             >
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 General
               </div>
               {selectedInventory ? (
                 <>
                   {selectedInventory.description ? (
-                    <p className="text-sm text-gray-700">
+                    <p className="text-sm text-foreground">
                       {selectedInventory.description}
                     </p>
                   ) : (
@@ -204,7 +204,7 @@ export function LoadInventoryModal({
                     <>
                       <button
                         type="button"
-                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                        className="flex items-center gap-1 text-xs text-primary hover:text-info-foreground font-medium"
                         onClick={() => setShowTree(v => !v)}
                       >
                         {showTree ? (

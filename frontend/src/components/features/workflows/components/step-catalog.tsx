@@ -84,7 +84,7 @@ function StepRow({
     <div
       className={cn(
         "group flex cursor-grab items-start gap-[11px] rounded-[10px] border bg-card p-[9px_10px] transition-colors",
-        "hover:border-sky-200 hover:bg-sky-50/60 hover:shadow-[0_2px_8px_rgba(56,189,248,0.14)]",
+        "hover:border-info-border hover:bg-info/60 hover:shadow-[0_2px_8px_rgba(56,189,248,0.14)]",
       )}
       draggable
       onClick={() => onAddStep(item)}

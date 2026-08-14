@@ -27,7 +27,7 @@ export function ConfigArtifactPanel({
 
   if (error || !data) {
     return (
-      <p className="text-xs text-amber-600">
+      <p className="text-xs text-warning-foreground">
         {label} unavailable — re-run the workflow to persist config content.
       </p>
     );

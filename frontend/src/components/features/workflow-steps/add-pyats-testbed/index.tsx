@@ -82,7 +82,7 @@ function AddPyatsTestbedConfigPanel({ config, onChange }: PluginConfigPanelProps
         {sourceId ? (
           <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button
@@ -107,7 +107,7 @@ function AddPyatsTestbedConfigPanel({ config, onChange }: PluginConfigPanelProps
         {isLoading ? (
           <p className="text-[11px] text-muted-foreground">Loading credentials…</p>
         ) : usableCredentials.length === 0 && !credentialReference ? (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             No SSH/generic credentials in Settings → Credentials
           </p>
         ) : (

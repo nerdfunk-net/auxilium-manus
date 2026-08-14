@@ -107,7 +107,7 @@ export function WorkflowExecutionsPanel({ onFocusNodeOnCanvas }: WorkflowExecuti
   if (workflowId == null) return null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
+    <div className="flex min-h-0 flex-1 flex-col bg-muted">
       <div className="flex items-center justify-between border-b bg-background px-6 py-4">
         <div>
           <p className="text-sm font-semibold">Executions</p>

@@ -23,15 +23,15 @@ export function formatTime(iso: string): string {
 export function RunStatusIcon({ status }: { status: WorkflowRunStatus }) {
   switch (status) {
     case "success":
-      return <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />;
+      return <CheckCircle2 className="size-4 shrink-0 text-success-foreground" />;
     case "failed":
-      return <XCircle className="size-4 shrink-0 text-red-500" />;
+      return <XCircle className="size-4 shrink-0 text-destructive" />;
     case "cancelled":
-      return <Ban className="size-4 shrink-0 text-slate-400" />;
+      return <Ban className="size-4 shrink-0 text-muted-foreground" />;
     case "paused":
-      return <Pause className="size-4 shrink-0 text-amber-600" />;
+      return <Pause className="size-4 shrink-0 text-warning-foreground" />;
     case "running":
     case "pending":
-      return <Loader2 className="size-4 shrink-0 animate-spin text-teal-500" />;
+      return <Loader2 className="size-4 shrink-0 animate-spin text-step" />;
   }
 }

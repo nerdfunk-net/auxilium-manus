@@ -355,9 +355,9 @@ function CompareDataConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         <p className="font-medium">Compare workflow data to a reference file</p>
-        <p className="mt-1 text-[11px] text-teal-800">
+        <p className="mt-1 text-[11px] text-step-surface-foreground">
           Devices route to <span className="font-mono">match</span>,{" "}
           <span className="font-mono">mismatch</span>, or{" "}
           <span className="font-mono">failure</span> handles. On mismatch, the unified
@@ -365,13 +365,13 @@ function CompareDataConfigPanel({
           <span className="font-mono">{comparisonDiffKey}</span> for downstream steps.
         </p>
         <div className="mt-2 flex items-center gap-2">
-          <code className="rounded border border-teal-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-teal-900">
+          <code className="rounded border border-step-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-step-surface-foreground">
             {comparisonDiffKey}
           </code>
           <button
             type="button"
             onClick={handleCopyDiffKey}
-            className="text-[10px] text-teal-700 underline hover:text-teal-900"
+            className="text-[10px] text-step-muted-foreground underline hover:text-step-surface-foreground"
           >
             {copied ? "Copied!" : "Copy key"}
           </button>
@@ -405,7 +405,7 @@ function CompareDataConfigPanel({
           </SelectContent>
         </Select>
         {autoDetected ? (
-          <p className="text-[11px] text-teal-700">
+          <p className="text-[11px] text-step-muted-foreground">
             ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})
           </p>
         ) : selectedHint ? (
@@ -450,7 +450,7 @@ function CompareDataConfigPanel({
               </SelectContent>
             </Select>
           ) : (
-            <p className="text-[11px] text-amber-600">
+            <p className="text-[11px] text-warning-foreground">
               {contentSource === "rendered_template"
                 ? "Add a Render Jinja Template step to this workflow first."
                 : contentSource === "merged_content"
@@ -537,7 +537,7 @@ function CompareDataConfigPanel({
             {gitSourceId ? (
               <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
             ) : (
-              <p className="text-[11px] text-amber-600">Not configured</p>
+              <p className="text-[11px] text-warning-foreground">Not configured</p>
             )}
             <Button
               className="h-7 w-full text-xs"
@@ -585,7 +585,7 @@ function CompareDataConfigPanel({
               onChange={(event) =>
                 handleBooleanChange("pull_before_read", event.target.checked)
               }
-              className="accent-teal-500"
+              className="accent-step"
               aria-hidden={false}
             />
             <span className="font-mono text-xs font-medium">pull_before_read</span>
@@ -647,7 +647,7 @@ function CompareDataConfigPanel({
             onChange={(event) =>
               onChange(buildCompareDataConfig(config, { strict_templates: event.target.checked }))
             }
-            className="accent-teal-500"
+            className="accent-step"
             aria-hidden={false}
           />
           <span className="font-mono text-xs font-medium">strict_templates</span>
@@ -663,7 +663,7 @@ function CompareDataConfigPanel({
                 }),
               )
             }
-            className="accent-teal-500"
+            className="accent-step"
             aria-hidden={false}
           />
           <span className="font-mono text-xs font-medium">normalize_line_endings</span>
@@ -679,7 +679,7 @@ function CompareDataConfigPanel({
                 }),
               )
             }
-            className="accent-teal-500"
+            className="accent-step"
             aria-hidden={false}
           />
           <span className="font-mono text-xs font-medium">ignore_trailing_whitespace</span>

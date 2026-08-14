@@ -105,7 +105,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
           />
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="border-b border-slate-200 px-4 py-2">
+            <div className="border-b border-border px-4 py-2">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Inventories in {groupListTitle}
               </p>
@@ -130,7 +130,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
                           className={cn(
                             "flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors",
                             isSelected
-                              ? "border-teal-300 bg-teal-50"
+                              ? "border-step-border bg-step-surface"
                               : "border-transparent hover:bg-muted/50",
                           )}
                           type="button"
@@ -141,7 +141,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
                             onClose();
                           }}
                         >
-                          <FileText className="h-4 w-4 shrink-0 text-teal-500" aria-hidden />
+                          <FileText className="h-4 w-4 shrink-0 text-step" aria-hidden />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">
                             {inv.name}
                           </span>
@@ -161,7 +161,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
           </div>
         </div>
 
-        <div className="shrink-0 border-t bg-slate-50/50 px-6 py-4">
+        <div className="shrink-0 border-t bg-muted/50 px-6 py-4">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             General
           </p>
@@ -197,7 +197,7 @@ export function LoadInventoryDialog({ open, onClose, onLoad }: LoadInventoryDial
                 Show condition tree
               </button>
               {showTree ? (
-                <pre className="max-h-32 overflow-auto rounded-md border bg-white p-3 text-[11px] text-muted-foreground">
+                <pre className="max-h-32 overflow-auto rounded-md border bg-card p-3 text-[11px] text-muted-foreground">
                   {expressionPreview || "(empty)"}
                 </pre>
               ) : null}

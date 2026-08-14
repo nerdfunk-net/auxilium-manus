@@ -245,9 +245,9 @@ function FilterOutputConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         <p className="font-medium">Remove volatile fields before comparison</p>
-        <p className="mt-1 text-[11px] text-teal-800">
+        <p className="mt-1 text-[11px] text-step-surface-foreground">
           Applies regex patterns or dot-path selectors to clean up command output.
           The filtered result is stored and consumed by downstream steps via{" "}
           <span className="font-mono">filtered_output</span>.
@@ -281,7 +281,7 @@ function FilterOutputConfigPanel({
           </SelectContent>
         </Select>
         {autoDetected ? (
-          <p className="text-[11px] text-teal-700">
+          <p className="text-[11px] text-step-muted-foreground">
             ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})
           </p>
         ) : selectedHint ? (
@@ -313,7 +313,7 @@ function FilterOutputConfigPanel({
             </SelectContent>
           </Select>
         ) : (
-          <p className="text-[11px] text-amber-600">{sourceEmptyMessage}</p>
+          <p className="text-[11px] text-warning-foreground">{sourceEmptyMessage}</p>
         )}
         {selectedSourceStep ? (
           <p className="text-[11px] text-muted-foreground">
@@ -370,7 +370,7 @@ function FilterOutputConfigPanel({
         </div>
 
         {rules.length === 0 ? (
-          <p className="text-[11px] text-amber-600">Add at least one filter rule.</p>
+          <p className="text-[11px] text-warning-foreground">Add at least one filter rule.</p>
         ) : null}
 
         <div className="space-y-2">

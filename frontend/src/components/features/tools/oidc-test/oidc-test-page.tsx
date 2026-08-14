@@ -32,7 +32,7 @@ function StatusCard({
     <Card>
       <CardContent className="flex items-center gap-3 pt-6">
         {ok ? (
-          <CheckCircle2 className="size-5 text-green-600" />
+          <CheckCircle2 className="size-5 text-success-foreground" />
         ) : (
           <XCircle className="size-5 text-muted-foreground" />
         )}

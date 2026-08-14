@@ -151,7 +151,7 @@ function GetIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelProps
         {sourceId ? (
           <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button
@@ -238,7 +238,7 @@ function GetIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelProps
         </div>
 
         {noTierEnabled && (
-          <p className="text-[11px] text-amber-600">At least one priority tier must be enabled.</p>
+          <p className="text-[11px] text-warning-foreground">At least one priority tier must be enabled.</p>
         )}
       </div>
 

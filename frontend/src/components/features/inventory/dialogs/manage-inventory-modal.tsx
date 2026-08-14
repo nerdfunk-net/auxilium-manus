@@ -267,7 +267,7 @@ export function ManageInventoryModal({
 
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <span className="ml-2 text-sm text-muted-foreground">
               Loading inventories...
             </span>
@@ -303,9 +303,9 @@ export function ManageInventoryModal({
 
               {/* Right: inventory files */}
               <div className="flex-1 overflow-y-auto p-3">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                   Inventories in{' '}
-                  <span className="text-blue-600">{selectedGroup ?? 'Root'}</span>
+                  <span className="text-primary">{selectedGroup ?? 'Root'}</span>
                 </div>
                 {inventoriesInGroup.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
@@ -322,8 +322,8 @@ export function ManageInventoryModal({
                           key={inv.id}
                           className={`border rounded-lg transition-colors ${
                             isSelected && !isEditing
-                              ? 'border-blue-200 bg-blue-50'
-                              : 'border-gray-200 bg-white'
+                              ? 'border-info-border bg-info'
+                              : 'border-border bg-card'
                           }`}
                         >
                           {isEditing ? (
@@ -410,7 +410,7 @@ export function ManageInventoryModal({
                               }}
                             >
                               <FileText
-                                className={`h-4 w-4 flex-shrink-0 ${isSelected ? 'text-blue-500' : 'text-gray-400'}`}
+                                className={`h-4 w-4 flex-shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`}
                               />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
@@ -424,7 +424,7 @@ export function ManageInventoryModal({
                                     {inv.scope}
                                   </Badge>
                                 </div>
-                                <div className="text-xs text-gray-400">
+                                <div className="text-xs text-muted-foreground">
                                   {inv.created_by}
                                   {inv.created_at && (
                                     <>
@@ -439,8 +439,8 @@ export function ManageInventoryModal({
                               {/* Action buttons */}
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 {deleteConfirmId === inv.id ? (
-                                  <div className="flex items-center gap-1 bg-red-50 px-2 py-1 rounded border border-red-200">
-                                    <span className="text-xs text-red-600 font-medium">
+                                  <div className="flex items-center gap-1 bg-error px-2 py-1 rounded border border-error-border">
+                                    <span className="text-xs text-error-foreground font-medium">
                                       Sure?
                                     </span>
                                     <Button
@@ -476,7 +476,7 @@ export function ManageInventoryModal({
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      className="h-7 w-7 p-0 hover:bg-gray-100"
+                                      className="h-7 w-7 p-0 hover:bg-muted"
                                       title="Edit"
                                       onClick={e => {
                                         e.stopPropagation()
@@ -488,7 +488,7 @@ export function ManageInventoryModal({
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                                      className="h-7 w-7 p-0 text-primary hover:bg-info"
                                       title="Export"
                                       onClick={e => {
                                         e.stopPropagation()
@@ -505,7 +505,7 @@ export function ManageInventoryModal({
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                                      className="h-7 w-7 p-0 text-error-foreground hover:bg-error"
                                       title="Delete"
                                       onClick={e => {
                                         e.stopPropagation()
@@ -532,13 +532,13 @@ export function ManageInventoryModal({
               className="border-t p-4 space-y-2 overflow-y-auto flex-shrink-0"
               style={{ height: showTree ? '260px' : '110px' }}
             >
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 General
               </div>
               {selectedInventory ? (
                 <>
                   {selectedInventory.description ? (
-                    <p className="text-sm text-gray-700">
+                    <p className="text-sm text-foreground">
                       {selectedInventory.description}
                     </p>
                   ) : (
@@ -550,7 +550,7 @@ export function ManageInventoryModal({
                     <>
                       <button
                         type="button"
-                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                        className="flex items-center gap-1 text-xs text-primary hover:text-info-foreground font-medium"
                         onClick={() => setShowTree(v => !v)}
                       >
                         {showTree ? (

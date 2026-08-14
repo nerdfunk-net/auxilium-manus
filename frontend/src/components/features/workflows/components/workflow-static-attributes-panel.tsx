@@ -87,7 +87,7 @@ export function WorkflowStaticAttributesPanel({
           return (
             <div
               key={index}
-              className="space-y-1.5 rounded-lg border border-slate-200 bg-white p-2.5"
+              className="space-y-1.5 rounded-lg border border-border bg-card p-2.5"
             >
               <div className="flex items-center gap-1.5">
                 <Input
@@ -109,10 +109,10 @@ export function WorkflowStaticAttributesPanel({
                 </Button>
               </div>
               {isDuplicate ? (
-                <p className="text-[11px] text-amber-600">Duplicate attribute name.</p>
+                <p className="text-[11px] text-warning-foreground">Duplicate attribute name.</p>
               ) : null}
               {!attr.name.trim() ? (
-                <p className="text-[11px] text-amber-600">Name is required.</p>
+                <p className="text-[11px] text-warning-foreground">Name is required.</p>
               ) : null}
 
               <div className="flex items-center gap-1.5">

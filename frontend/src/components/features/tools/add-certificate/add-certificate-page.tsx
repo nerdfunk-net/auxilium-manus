@@ -181,9 +181,9 @@ export function AddCertificatePage() {
                     </TableCell>
                     <TableCell>
                       {cert.exists_in_system ? (
-                        <Badge className="bg-green-500 hover:bg-green-500">In System CA</Badge>
+                        <Badge className="bg-success-foreground hover:bg-success-foreground">In System CA</Badge>
                       ) : (
-                        <Badge variant="secondary" className="text-amber-700">
+                        <Badge variant="secondary" className="text-warning-foreground">
                           Not in System
                         </Badge>
                       )}

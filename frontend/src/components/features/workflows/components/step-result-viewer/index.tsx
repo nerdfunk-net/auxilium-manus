@@ -58,7 +58,7 @@ export function StepResultViewer({
 
     return (
       <div>
-        <p className="mb-2 flex items-center gap-1.5 text-xs text-amber-600">
+        <p className="mb-2 flex items-center gap-1.5 text-xs text-warning-foreground">
           <FileJson className="size-3.5" />
           Legacy or unstructured output
         </p>

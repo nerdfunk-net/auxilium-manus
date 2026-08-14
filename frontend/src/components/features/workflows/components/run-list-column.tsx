@@ -49,7 +49,7 @@ export function RunListColumn({
   const allSelected = deletableRuns.length > 0 && selectedForDelete.size === deletableRuns.length;
 
   return (
-    <div className="flex w-[380px] shrink-0 flex-col border-r bg-slate-50">
+    <div className="flex w-[380px] shrink-0 flex-col border-r bg-muted">
       <WorkflowRunFiltersBar filters={filters} onChange={onFiltersChange} />
 
       {canDelete && deletableRuns.length > 0 ? (

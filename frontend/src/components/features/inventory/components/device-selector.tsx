@@ -386,7 +386,7 @@ export function DeviceSelector({
       {selectionMode && preview.selectedIds.size > 0 ? (
         <div className="flex justify-end">
           <Button
-            className="flex items-center space-x-2 border-0 bg-teal-600 text-white hover:bg-teal-700"
+            className="flex items-center space-x-2 border-0 bg-step-hover text-step-foreground hover:bg-step-hover/90"
             onClick={handleAddToSelection}
             type="button"
           >

@@ -117,7 +117,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
             {sourceId}
           </p>
         ) : (
-          <p className="text-[11px] text-amber-600">Not configured</p>
+          <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
 
         <Button

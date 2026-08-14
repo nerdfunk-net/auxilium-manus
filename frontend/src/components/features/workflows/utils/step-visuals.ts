@@ -127,13 +127,13 @@ export const categoryTileClasses: Record<string, string> = {
   debug: "bg-purple-100 text-purple-700",
   canvas_decoration: "bg-purple-100 text-purple-700",
   inventory_selector: "bg-sky-100 text-sky-700",
-  nautobot: "bg-teal-100 text-teal-700",
+  nautobot: "bg-step-surface text-step-muted-foreground",
   cisco: "bg-cyan-100 text-cyan-700",
   pyats: "bg-fuchsia-100 text-fuchsia-700",
   persistent_artifact: "bg-violet-100 text-violet-700",
   template_rendering: "bg-orange-100 text-orange-700",
-  trigger: "bg-slate-100 text-slate-700",
-  result: "bg-teal-100 text-teal-700",
+  trigger: "bg-muted text-muted-foreground",
+  result: "bg-step-surface text-step-muted-foreground",
 };
 
 export const CATEGORY_TILE_FALLBACK = "bg-muted text-muted-foreground";
@@ -149,7 +149,7 @@ export const categoryBorderAccentClasses: Record<string, string> = {
   debug: "border-l-purple-700",
   canvas_decoration: "border-l-purple-700",
   inventory_selector: "border-l-sky-700",
-  nautobot: "border-l-teal-700",
+  nautobot: "border-l-step-hover",
   cisco: "border-l-cyan-700",
   pyats: "border-l-fuchsia-700",
   persistent_artifact: "border-l-violet-700",
@@ -161,37 +161,37 @@ export const CATEGORY_BORDER_FALLBACK = "border-l-border";
 export function outcomeClasses(name: string): string {
   const lower = name.toLowerCase();
   if (lower === "success" || lower === "match" || lower === "pass") {
-    return "bg-green-50 text-green-700 border border-green-200";
+    return "bg-success text-success-foreground border border-success-border";
   }
   if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
-    return "bg-red-50 text-red-700 border border-red-200";
+    return "bg-error text-error-foreground border border-error-border";
   }
   if (lower === "default") {
-    return "bg-amber-50 text-amber-700 border border-amber-200";
+    return "bg-warning text-warning-foreground border border-warning-border";
   }
-  return "bg-sky-50 text-sky-700 border border-sky-200";
+  return "bg-info text-info-foreground border border-info-border";
 }
 
 export function outcomeHandleClasses(name: string): string {
   const lower = name.toLowerCase();
   if (lower === "success" || lower === "match" || lower === "pass") {
-    return "!bg-green-500 !border-green-600";
+    return "!bg-success-foreground !border-success-foreground";
   }
   if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
-    return "!bg-red-500 !border-red-600";
+    return "!bg-error-foreground !border-error-foreground";
   }
   if (lower === "default") {
-    return "!bg-amber-500 !border-amber-600";
+    return "!bg-warning-foreground !border-warning-foreground";
   }
-  return "!bg-sky-500 !border-sky-600";
+  return "!bg-info-foreground !border-info-foreground";
 }
 
 export function outcomeDotClasses(name: string): string {
   const lower = name.toLowerCase();
-  if (lower === "success" || lower === "match" || lower === "pass") return "bg-green-500";
+  if (lower === "success" || lower === "match" || lower === "pass") return "bg-success-foreground";
   if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
-    return "bg-red-500";
+    return "bg-error-foreground";
   }
-  if (lower === "default") return "bg-amber-500";
-  return "bg-sky-500";
+  if (lower === "default") return "bg-warning-foreground";
+  return "bg-info-foreground";
 }

@@ -6,7 +6,7 @@ import { ShowSummaryHelpPanel } from "./help-panel";
 function ShowSummaryConfigPanel() {
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         Renders a device × step status table for this run wherever this
         step&apos;s result row is expanded in the run detail view.
       </div>

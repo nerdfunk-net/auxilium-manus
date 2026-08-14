@@ -108,7 +108,7 @@ export function StepResultRow({
             </p>
           ) : null}
           {step.error_message && !expanded ? (
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-red-500">
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-destructive">
               <ErrorCategoryIcon category={step.error_category} className="size-3 shrink-0" />
               <span className="line-clamp-1">{step.error_message}</span>
             </p>

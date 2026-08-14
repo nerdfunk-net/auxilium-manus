@@ -85,7 +85,7 @@ export function RedisSettingsCanvas() {
   const performance = statsData?.performance as Record<string, number> | undefined;
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto bg-slate-50 p-8">
+    <div className="flex h-full flex-col gap-6 overflow-y-auto bg-muted p-8">
       <div className="mx-auto w-full max-w-2xl space-y-6">
         {/* Status card */}
         <Card>
@@ -106,13 +106,13 @@ export function RedisSettingsCanvas() {
           <CardContent className="space-y-4">
             <div className="flex items-center gap-3">
               {connected ? (
-                <CheckCircle2 className="size-5 shrink-0 text-green-500" />
+                <CheckCircle2 className="size-5 shrink-0 text-success-foreground" />
               ) : (
                 <AlertCircle className="size-5 shrink-0 text-destructive" />
               )}
               <Badge
                 variant={connected ? "default" : "destructive"}
-                className={connected ? "bg-green-500 hover:bg-green-500" : ""}
+                className={connected ? "bg-success-foreground hover:bg-success-foreground" : ""}
               >
                 {connected ? "Connected" : "Disconnected"}
               </Badge>

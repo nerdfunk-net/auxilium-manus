@@ -511,7 +511,7 @@ export function WorkflowImportDialog({
                   Loading credentials…
                 </p>
               ) : sshCredentials.length === 0 ? (
-                <p className="text-xs text-amber-600">
+                <p className="text-xs text-warning-foreground">
                   No SSH credentials available. Add credentials in Settings →
                   Credentials first.
                 </p>

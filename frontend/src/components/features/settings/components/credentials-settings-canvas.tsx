@@ -100,7 +100,7 @@ export function CredentialsSettingsCanvas() {
   }, [deleteCredential, dialog]);
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto bg-slate-50 p-8">
+    <div className="flex h-full flex-col gap-6 overflow-y-auto bg-muted p-8">
       <div className="mx-auto w-full max-w-5xl space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">

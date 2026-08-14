@@ -53,17 +53,17 @@ export function DeviceTable({
   if (!showPreviewResults && devices.length === 0) return null;
 
   return (
-    <div className="rounded-lg border-0 bg-white p-0 shadow-lg">
-      <div className="flex items-center justify-between rounded-t-lg bg-gradient-to-r from-blue-400/80 to-blue-500/80 px-4 py-2 text-white">
+    <div className="rounded-lg border-0 bg-card p-0 shadow-lg">
+      <div className="flex items-center justify-between rounded-t-lg bg-gradient-to-r from-info-foreground/80 to-info-foreground px-4 py-2 text-info">
         <div className="flex items-center space-x-2">
           <Database className="h-4 w-4" />
           <span className="text-sm font-medium">Preview Results</span>
         </div>
-        <div className="text-xs text-blue-100">
+        <div className="text-xs text-info">
           {totalDevices} devices found ({operationsExecuted} queries executed)
         </div>
       </div>
-      <div className="bg-gradient-to-b from-white to-gray-50 p-6">
+      <div className="bg-gradient-to-b from-card to-muted p-6">
         {enableSelection && selectedIds.size > 0 ? (
           <div className="mb-4 flex items-center justify-between rounded-md border border-purple-200 bg-purple-50 p-3">
             <p className="text-sm text-purple-800">
@@ -99,7 +99,7 @@ export function DeviceTable({
               {currentPageDevices.length === 0 ? (
                 <tr>
                   <td
-                    className="py-8 text-center text-gray-500"
+                    className="py-8 text-center text-muted-foreground"
                     colSpan={enableSelection ? 8 : 7}
                   >
                     No devices found matching the criteria.
@@ -113,7 +113,7 @@ export function DeviceTable({
                         <input
                           aria-label={`Select device ${device.name}`}
                           checked={selectedIds.has(device.id)}
-                          className="h-4 w-4 rounded border-gray-300"
+                          className="h-4 w-4 rounded border-input"
                           onChange={(e) => onSelectDevice(device.id, e.target.checked)}
                           type="checkbox"
                         />
@@ -133,7 +133,7 @@ export function DeviceTable({
                             </Badge>
                           ))
                         ) : (
-                          <span className="text-xs text-gray-400">-</span>
+                          <span className="text-xs text-muted-foreground">-</span>
                         )}
                         {device.tags && device.tags.length > 3 ? (
                           <Badge className="h-5 px-1 py-0 text-xs" variant="outline">
@@ -156,7 +156,7 @@ export function DeviceTable({
 
         {totalDevices > 0 ? (
           <div className="mt-4 flex items-center justify-between border-t pt-4">
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               Showing {(currentPage - 1) * pageSize + 1} to{" "}
               {Math.min(currentPage * pageSize, totalDevices)} of {totalDevices} entries
             </div>
@@ -168,7 +168,7 @@ export function DeviceTable({
                       currentPageDevices.length > 0 &&
                       currentPageDevices.every((d) => selectedIds.has(d.id))
                     }
-                    className="h-4 w-4 rounded border-gray-300"
+                    className="h-4 w-4 rounded border-input"
                     onChange={(e) => onSelectAll(e.target.checked)}
                     type="checkbox"
                   />
@@ -221,7 +221,7 @@ export function DeviceTable({
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <div className="ml-4 flex items-center gap-2">
-                <span className="text-sm text-gray-500">Rows per page:</span>
+                <span className="text-sm text-muted-foreground">Rows per page:</span>
                 <Select
                   onValueChange={(val) => setPageSize(parseInt(val, 10))}
                   value={pageSize.toString()}

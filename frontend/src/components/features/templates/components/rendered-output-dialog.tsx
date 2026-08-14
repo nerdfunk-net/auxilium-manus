@@ -33,7 +33,7 @@ export function RenderedOutputDialog({
           </DialogDescription>
         </DialogHeader>
         {result?.warnings.length ? (
-          <ul className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <ul className="rounded-md border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
             {result.warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}

@@ -119,9 +119,9 @@ function UpdateAttributeConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         <p className="font-medium">Update one or more device attributes</p>
-        <p className="mt-1 text-[11px] text-teal-800">
+        <p className="mt-1 text-[11px] text-step-surface-foreground">
           Add attribute updates below. Each entry writes a fixed value or a regex-derived
           value into the workflow device context.
         </p>
@@ -135,7 +135,7 @@ function UpdateAttributeConfigPanel({
               object_list
             </Badge>
             {parsed.attributes.length > 0 ? (
-              <Badge className="h-4 rounded bg-teal-50 px-1 text-[10px] text-teal-900" variant="outline">
+              <Badge className="h-4 rounded bg-step-surface px-1 text-[10px] text-step-surface-foreground" variant="outline">
                 {parsed.attributes.length}
               </Badge>
             ) : null}
@@ -153,7 +153,7 @@ function UpdateAttributeConfigPanel({
         </div>
 
         {parsed.attributes.length === 0 ? (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             No attribute updates yet. Click + to add one.
           </p>
         ) : (
@@ -161,7 +161,7 @@ function UpdateAttributeConfigPanel({
             {parsed.attributes.map((attribute, index) => (
               <div
                 key={attribute.id}
-                className="flex items-start gap-1.5 rounded-lg border border-slate-200 bg-white p-2"
+                className="flex items-start gap-1.5 rounded-lg border border-border bg-card p-2"
               >
                 <div className="flex shrink-0 flex-col gap-0.5">
                   <Button

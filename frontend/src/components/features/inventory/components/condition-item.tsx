@@ -15,12 +15,12 @@ interface ConditionItemProps {
 export function ConditionItem({ item, onRemove, getFieldLabel }: ConditionItemProps) {
   return (
     <div className="flex items-center gap-2">
-      <div className="inline-flex items-center space-x-2 rounded bg-blue-100 px-3 py-1.5 text-sm text-blue-800">
+      <div className="inline-flex items-center space-x-2 rounded bg-info px-3 py-1.5 text-sm text-info-foreground">
         <span className="font-medium">{getFieldLabel(item.field)}</span>
-        <span className="text-gray-600">{item.operator}</span>
+        <span className="text-muted-foreground">{item.operator}</span>
         <span className="font-medium">&quot;{item.value}&quot;</span>
         <Button
-          className="h-4 w-4 p-0 hover:bg-blue-200"
+          className="h-4 w-4 p-0 hover:bg-info"
           onClick={() => onRemove(item.id)}
           size="sm"
           title="Delete condition"

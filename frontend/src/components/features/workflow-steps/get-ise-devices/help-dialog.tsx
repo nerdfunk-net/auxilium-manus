@@ -46,7 +46,7 @@ export function IseDevicesHelpDialog({ open, onClose }: IseDevicesHelpDialogProp
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="shrink-0 border-b bg-white px-6 py-4">
+        <DialogHeader className="shrink-0 border-b bg-card px-6 py-4">
           <DialogTitle>Get from ISE — Help</DialogTitle>
           <DialogDescription>
             How each lookup mode works, with examples — including the part
@@ -173,7 +173,7 @@ export function IseDevicesHelpDialog({ open, onClose }: IseDevicesHelpDialogProp
               IPSEC#Is IPSEC Device#No
             </div>
 
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+            <div className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-warning-foreground">
               <p className="font-medium">Common mistakes that return 0 devices</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4">
                 <li>
@@ -229,7 +229,7 @@ export function IseDevicesHelpDialog({ open, onClose }: IseDevicesHelpDialogProp
           </Section>
         </div>
 
-        <DialogFooter className="shrink-0 border-t bg-white px-6 py-3">
+        <DialogFooter className="shrink-0 border-t bg-card px-6 py-3">
           <Button type="button" variant="outline" onClick={onClose}>
             Close
           </Button>

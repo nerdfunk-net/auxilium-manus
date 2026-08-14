@@ -279,7 +279,7 @@ export function SourcesSettingsCanvas() {
 
   return (
     <>
-      <div className="flex h-full items-center justify-center overflow-y-auto bg-slate-50 p-10">
+      <div className="flex h-full items-center justify-center overflow-y-auto bg-muted p-10">
         <div className="w-full max-w-3xl rounded-2xl border bg-card p-6 shadow-sm">
           <div className="mb-6 flex items-start gap-4">
             <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">

@@ -16,15 +16,15 @@ export function Toaster() {
           key={t.id}
           className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg transition-all ${
             t.variant === "destructive"
-              ? "border-red-200 bg-red-50 text-red-900"
+              ? "border-error-border bg-error text-error-foreground"
               : "border-border bg-card text-card-foreground"
           }`}
         >
           <div className="mt-0.5 shrink-0">
             {t.variant === "destructive" ? (
-              <AlertCircle className="size-4 text-red-500" />
+              <AlertCircle className="size-4 text-error-foreground" />
             ) : (
-              <CheckCircle2 className="size-4 text-green-500" />
+              <CheckCircle2 className="size-4 text-success-foreground" />
             )}
           </div>
           <div className="min-w-0 flex-1">

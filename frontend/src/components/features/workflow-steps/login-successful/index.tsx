@@ -63,7 +63,7 @@ function LoginSuccessfulConfigPanel({
         {isLoading ? (
           <p className="text-[11px] text-muted-foreground">Loading credentials…</p>
         ) : sshCredentials.length === 0 && !credentialReference ? (
-          <p className="text-[11px] text-amber-600">
+          <p className="text-[11px] text-warning-foreground">
             No SSH credentials in Settings → Credentials
           </p>
         ) : (

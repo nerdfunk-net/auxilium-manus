@@ -97,8 +97,8 @@ export function ToolsPage({ oidcTestEnabled = false }: ToolsPageProps) {
         ))}
       </div>
 
-      <Card className="border-amber-500/40 bg-amber-50 dark:bg-amber-950/30">
-        <CardContent className="pt-6 text-sm text-amber-800 dark:text-amber-300">
+      <Card className="border-warning-border bg-warning">
+        <CardContent className="pt-6 text-sm text-warning-foreground">
           These tools are intended for debugging and administrative purposes. They are not shown
           in the main navigation and require the relevant permissions to use.
         </CardContent>

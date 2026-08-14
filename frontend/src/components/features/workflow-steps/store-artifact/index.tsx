@@ -393,7 +393,7 @@ function StoreArtifactConfigPanel({
             {gitSourceId ? (
               <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
             ) : (
-              <p className="text-[11px] text-amber-600">Not configured</p>
+              <p className="text-[11px] text-warning-foreground">Not configured</p>
             )}
             <Button
               className="h-7 w-full text-xs"
@@ -552,7 +552,7 @@ function StoreArtifactConfigPanel({
           </SelectContent>
         </Select>
         {autoDetected ? (
-          <p className="text-[11px] text-teal-700">
+          <p className="text-[11px] text-step-muted-foreground">
             ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})
           </p>
         ) : selectedHint ? (
@@ -599,7 +599,7 @@ function StoreArtifactConfigPanel({
               </SelectContent>
             </Select>
           ) : (
-            <p className="text-[11px] text-amber-600">
+            <p className="text-[11px] text-warning-foreground">
               {contentSource === "rendered_template"
                 ? "Add a Render Jinja Template step to this workflow first."
                 : contentSource === "merged_content"
@@ -622,7 +622,7 @@ function StoreArtifactConfigPanel({
                 : ""}
             </p>
           ) : sourceStepNodeId && sourceSteps.length > 0 ? (
-            <p className="text-[11px] text-amber-600">
+            <p className="text-[11px] text-warning-foreground">
               Saved node id{" "}
               <span className="font-mono">{sourceStepNodeId}</span> is not on this
               canvas. Pick a step above or enter an id manually.

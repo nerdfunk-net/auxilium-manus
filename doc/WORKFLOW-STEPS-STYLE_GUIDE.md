@@ -6,20 +6,21 @@ Reference implementation: `get-nautobot-devices/`
 
 ## Color palette
 
-All steps use the **teal** accent family from Tailwind. Never use `sky-`, `blue-`, or arbitrary hex colors.
+All steps use the **step** token family from `frontend/src/app/globals.css` (teal). Never use raw `teal-*`, `sky-*`, `blue-*`, or arbitrary hex colors.
 
-| Role | Tailwind class | Usage |
+| Role | Class | Usage |
 |---|---|---|
-| Card header background | `bg-gradient-to-r from-teal-600 to-teal-500` | Step card top bar |
-| Header text / icons | `text-white` | On gradient header |
-| Header badge / pill | `bg-white/20 text-white` | Counts, labels in header |
-| Primary action button | `bg-teal-500 hover:bg-teal-600 text-white` | Round `+` / submit button |
-| Selected row / item | `bg-teal-50 text-teal-900` | Active state in lists/sidebars |
-| Accent icons | `text-teal-500` | Folder, status icons |
-| Info banner | `bg-teal-50 text-teal-900` | Contextual hint strips |
-| Info badge border | `border-teal-200` | Pill borders inside info banners |
-| Focus ring | `focus:ring-teal-400/40` | Inputs, selects |
-| Checkbox accent | `accent-teal-500` | Native checkboxes |
+| Card / dialog header | `step-header` | Gradient bar; sets header text color |
+| Header muted text | `text-step-header-muted` | Counts, helper text on the header |
+| Header badge / pill | `bg-step-header-foreground/20 text-step-header-foreground` | Counts, labels in header |
+| Primary action button | `bg-step text-step-foreground hover:bg-step-hover` | Round `+` / submit button |
+| Selected row / item | `bg-step-surface text-step-surface-foreground` | Active state in lists/sidebars |
+| Accent icons | `text-step` | Folder, status icons |
+| Info banner | `bg-step-surface text-step-surface-foreground` | Contextual hint strips |
+| Info badge border | `border-step-border` | Pill borders inside info banners |
+| Focus ring | `focus:ring-step/40` / `focus-visible:ring-step/40` | Inputs, selects |
+| Checkbox accent | `accent-step` | Native checkboxes |
+| Unconfigured hint | `text-[11px] text-warning-foreground` | Missing source / incomplete config |
 
 ---
 
@@ -27,18 +28,18 @@ All steps use the **teal** accent family from Tailwind. Never use `sky-`, `blue-
 
 ```
 ┌─────────────────────────────────────┐
-│  Header (gradient from-teal-600 …)  │  py-2.5 px-4, text-white, font-semibold
+│  Header (.step-header)              │  py-2.5 px-4, font-semibold
 ├─────────────────────────────────────┤
-│  Body (bg-slate-50)                 │  overflow-y-auto, space-y-4, p-4
-│   • warning banner (amber-50)       │  when source not configured
+│  Body (bg-muted)                    │  overflow-y-auto, space-y-4, p-4
+│   • warning banner (bg-warning)     │  when source not configured
 │   • main content                    │
 │   • preview results                 │
 ├─────────────────────────────────────┤
-│  Footer (bg-white, border-t)        │  flex-wrap gap-2, px-4 py-3
+│  Footer (bg-card, border-t)         │  flex-wrap gap-2, px-4 py-3
 └─────────────────────────────────────┘
 ```
 
-- Outer wrapper: `rounded-xl border border-slate-200 bg-card shadow-sm`
+- Outer wrapper: `rounded-xl border border-border bg-card shadow-sm`
 - Dialog variant: `rounded-none border-0 shadow-none` (strip rounding/border when inside a Dialog)
 
 ---
@@ -90,7 +91,7 @@ input). One handle centred on the left edge (`id="input"`, `type="target"`).
 
 | Role | Tailwind classes |
 |---|---|
-| Input handle | `!bg-slate-300 !border-slate-400` |
+| Input handle | `!bg-muted-foreground/40 !border-muted-foreground` |
 
 Defined once as `TARGET_HANDLE_CLASS` in `workflow-node.tsx`. Always light gray — never
 match outcome green/red styling.
@@ -102,10 +103,10 @@ renderer colours labels and source handles automatically:
 
 | Outcome name (case-insensitive) | Label pill | Handle dot |
 |---|---|---|
-| `success`, `match`, `pass` | `bg-green-50 text-green-700 border border-green-200` | `!bg-green-500 !border-green-600` |
-| `failure`, `fail`, `error`, `mismatch` | `bg-red-50 text-red-700 border border-red-200` | `!bg-red-500 !border-red-600` |
-| `default` | `bg-amber-50 text-amber-700 border border-amber-200` | `!bg-amber-500 !border-amber-600` |
-| anything else | `bg-sky-50 text-sky-700 border border-sky-200` | `!bg-sky-500 !border-sky-600` |
+| `success`, `match`, `pass` | `bg-success text-success-foreground border border-success-border` | `!bg-success-foreground !border-success-foreground` |
+| `failure`, `fail`, `error`, `mismatch` | `bg-error text-error-foreground border border-error-border` | `!bg-error-foreground !border-error-foreground` |
+| `default` | `bg-warning text-warning-foreground border border-warning-border` | `!bg-warning-foreground !border-warning-foreground` |
+| anything else | `bg-info text-info-foreground border border-info-border` | `!bg-info-foreground !border-info-foreground` |
 
 Rules:
 
@@ -156,8 +157,8 @@ When adding a new step, only add a `nodeIconsByKind` entry if the default
 When an inventory node has `pluginConfig.fan_out.enabled === true`, the canvas node renders
 a small "Fan out" badge next to its title so the active split is visible at a glance:
 
-- `<Badge variant="outline" className="gap-1 border-teal-300 bg-teal-50 text-teal-700">` with
-  a `<Split className="size-3" aria-hidden />` icon. Teal family only — no `sky-`/`blue-`.
+- `<Badge variant="outline" className="gap-1 border-step-border bg-step-surface text-step-muted-foreground">` with
+  a `<Split className="size-3" aria-hidden />` icon. Step tokens only — no `sky-`/`blue-`/`teal-*`.
 
 ### What step authors implement
 
@@ -206,7 +207,7 @@ The `ConfigPanel` component renders inside the React Flow node property panel �
 - Labels: `font-mono text-xs font-medium` for parameter names
 - Badges: `<Badge variant="secondary">` for type hints (`nautobot`, `filter tree`, …)
 - Status hint (configured): `text-[11px] text-muted-foreground truncate`
-- Status hint (unconfigured): `text-[11px] text-amber-600`
+- Status hint (unconfigured): `text-[11px] text-warning-foreground`
 - Action button: `<Button variant="outline" size="sm" className="h-7 w-full text-xs">`
 
 ---
@@ -237,7 +238,7 @@ the bottom of their `ConfigPanel`. Reference implementation:
 The **Fan In** node (`fan-in`) has no configuration. Its `ConfigPanel`
 (`workflow-steps/fan-in/index.tsx`) is info-only:
 
-- A single teal info banner (`rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900`)
+- A single step info banner (`rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground`)
   explaining the rejoin, plus a `text-[11px] text-muted-foreground` hint to place git/store
   steps after it. No inputs, no `onChange`.
 
@@ -248,7 +249,7 @@ The **Fan In** node (`fan-in`) has no configuration. Its `ConfigPanel`
 - Use `<Dialog>` from Shadcn.
 - Wide dialogs (filter builder): `max-w-4xl h-[85vh] flex flex-col gap-0 overflow-hidden p-0`
 - Compact dialogs (source config): `sm:max-w-md`
-- Footer: `<DialogFooter className="shrink-0 border-t bg-white px-4 py-3">`
+- Footer: `<DialogFooter className="shrink-0 border-t bg-card px-4 py-3">`
 - Always include `<DialogHeader className="sr-only">` with `DialogTitle` + `DialogDescription` for accessibility.
 
 ---
@@ -263,7 +264,7 @@ The **Fan In** node (`fan-in`) has no configuration. Its `ConfigPanel`
 </Button>
 
 // Secondary / outlined
-<Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-lg border-slate-300 text-xs">
+<Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-lg border-input text-xs">
   <Icon className="h-3.5 w-3.5" aria-hidden />
   Label
 </Button>
@@ -280,11 +281,11 @@ The **Fan In** node (`fan-in`) has no configuration. Its `ConfigPanel`
 
 ## Sidebar (group tree)
 
-- Outer: `bg-white border-r border-slate-200`
-- Section header: `text-[10px] font-semibold uppercase tracking-wide text-muted-foreground`, `border-b border-slate-200 px-3 py-2`
-- Row selected: `bg-teal-50 text-teal-900`
+- Outer: `bg-card border-r border-border`
+- Section header: `text-[10px] font-semibold uppercase tracking-wide text-muted-foreground`, `border-b border-border px-3 py-2`
+- Row selected: `bg-step-surface text-step-surface-foreground`
 - Row hover: `hover:bg-muted`
-- Folder icon: `text-teal-500`
+- Folder icon: `text-step`
 - Count badge: `text-[10px] text-muted-foreground`
 
 ---
@@ -295,8 +296,8 @@ All text/number inputs follow the same pattern:
 
 ```tsx
 <input
-  className="h-9 w-full rounded-lg border border-input bg-white px-2 text-xs
-             focus:outline-none focus:ring-2 focus:ring-teal-400/40
+  className="h-9 w-full rounded-lg border border-input bg-card px-2 text-xs
+             focus:outline-none focus:ring-2 focus:ring-step/40
              disabled:cursor-not-allowed disabled:bg-muted/50"
 />
 ```
@@ -306,16 +307,16 @@ All text/number inputs follow the same pattern:
 ## Condition / info banners
 
 ```tsx
-// Teal info (adding-to context)
-<div className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">
+// Step info (adding-to context)
+<div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
   Adding conditions to:{" "}
-  <span className="inline-flex rounded-full border border-teal-200 bg-white px-2 py-0.5 font-medium text-teal-900 shadow-sm">
+  <span className="inline-flex rounded-full border border-step-border bg-card px-2 py-0.5 font-medium text-step-surface-foreground shadow-sm">
     Root
   </span>
 </div>
 
-// Amber warning (missing config)
-<p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+// Warning (missing config)
+<p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
   Configure a Nautobot source…
 </p>
 ```
@@ -331,7 +332,7 @@ All text/number inputs follow the same pattern:
 - [ ] Registry `description` is the single source of truth for the subtitle on the canvas
 - [ ] Outcomes use standard names (`success` / `failure`, or `match` / `mismatch` / `failure`)
       so green/red output handle colours apply automatically
-- [ ] Input handle stays light gray (`!bg-slate-300 !border-slate-400`) — do not style
+- [ ] Input handle stays muted (`!bg-muted-foreground/40 !border-muted-foreground`) — do not style
       target handles like outcomes
 - [ ] Optional: `nodeIconsByKind` entry only when `artifact_type` default icon is wrong
 - [ ] Canvas decorations (`label` / `background`) are the only exception — see
@@ -339,12 +340,12 @@ All text/number inputs follow the same pattern:
 
 ### Config panel, dialogs, and forms
 
-- [ ] Header uses `bg-gradient-to-r from-teal-600 to-teal-500`
-- [ ] No `sky-` / `blue-` colors anywhere in the step **config UI** (canvas outcome
-      green/red/amber is defined centrally in `workflow-node.tsx`)
+- [ ] Header uses `step-header`
+- [ ] No `sky-` / `blue-` / raw `teal-*` colors anywhere in the step **config UI** (canvas outcome
+      colours are defined centrally in `step-visuals.ts`)
 - [ ] ConfigPanel is narrow, uses `h-7 w-full` outline buttons
-- [ ] All inputs use `focus:ring-teal-400/40`
-- [ ] Dialog footers use `border-t bg-white px-4 py-3`
+- [ ] All inputs use `focus:ring-step/40` or `focus-visible:ring-step/40`
+- [ ] Dialog footers use `border-t bg-card px-4 py-3`
 - [ ] `<DialogHeader className="sr-only">` present with title + description
 - [ ] `aria-hidden` on all decorative icons
 - [ ] Shadcn primitives used for all UI (no raw `<select>`, `<dialog>`, etc.)

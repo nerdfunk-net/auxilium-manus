@@ -98,7 +98,7 @@ function DataContractChips({ capabilities, emptyLabel }: { capabilities: string[
       {capabilities.map((capability) => (
         <span
           key={capability}
-          className="rounded-[6px] border bg-muted px-2 py-0.5 font-mono text-[11px] text-slate-700"
+          className="rounded-[6px] border bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
         >
           {capability}
         </span>
@@ -397,7 +397,7 @@ export function WorkflowPropertiesPanel({
           ) : singleNode && isGroupCanvasNode(singleNode) ? (
             <div>
               <div className="flex items-center gap-3">
-                <span className="flex size-[42px] shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+                <span className="flex size-[42px] shrink-0 items-center justify-center rounded-lg bg-step-surface text-step-muted-foreground">
                   <FolderOpen className="size-[18px]" aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
@@ -504,7 +504,7 @@ export function WorkflowPropertiesPanel({
                     {singleNode.data.outcomes?.map((outcome) => (
                       <span
                         key={outcome.name}
-                        className="flex items-center gap-1.5 rounded-full border bg-muted/50 px-2.5 py-1 text-[11px] font-medium text-slate-700"
+                        className="flex items-center gap-1.5 rounded-full border bg-muted/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
                       >
                         <span
                           className={cn("size-1.5 rounded-full", outcomeDotClasses(outcome.name))}

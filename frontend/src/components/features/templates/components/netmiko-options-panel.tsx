@@ -289,7 +289,7 @@ export function NetmikoOptionsPanel({
             <Label htmlFor="get-configs">Get Configs</Label>
             <label
               htmlFor="get-configs"
-              className="flex h-9 items-center gap-2 rounded-md border border-input bg-white px-3 text-xs"
+              className="flex h-9 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs"
             >
               <input
                 id="get-configs"

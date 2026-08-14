@@ -99,14 +99,14 @@ function RequiredFieldRow({
   return (
     <div
       className={`space-y-1 rounded-lg border p-2.5 ${
-        isEmpty ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"
+        isEmpty ? "border-warning-border bg-warning" : "border-border bg-muted"
       }`}
     >
       <Label className="text-[11px] font-medium text-muted-foreground">
-        {label} <span className="text-amber-600">*</span>
+        {label} <span className="text-warning-foreground">*</span>
       </Label>
       <Input
-        className="h-8 text-xs focus-visible:ring-teal-400/40"
+        className="h-8 text-xs focus-visible:ring-step/40"
         placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -127,19 +127,19 @@ function OptionalFieldRow({
   onChange: (patch: Partial<UpdateFieldSpec>) => void;
 }) {
   return (
-    <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+    <div className="space-y-1 rounded-lg border border-border bg-muted p-2.5">
       <div className="flex items-center gap-2">
         <input
           type="checkbox"
           checked={spec.enabled}
           onChange={(event) => onChange({ enabled: event.target.checked })}
-          className="size-4 rounded border accent-teal-500"
+          className="size-4 rounded border accent-step"
           aria-label={`Enable ${label}`}
         />
         <Label className="text-[11px] font-medium text-muted-foreground">{label}</Label>
       </div>
       <Input
-        className="h-8 text-xs focus-visible:ring-teal-400/40 disabled:opacity-50"
+        className="h-8 text-xs focus-visible:ring-step/40 disabled:opacity-50"
         disabled={!spec.enabled}
         placeholder={placeholder}
         value={spec.value}
@@ -280,12 +280,12 @@ function AddToNautobotDialogForm({
 
   return (
     <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
-      <DialogHeader className="border-b bg-gradient-to-r from-teal-600 to-teal-500 px-4 py-3 text-white">
-        <DialogTitle className="text-base text-white">Add to Nautobot Configuration</DialogTitle>
+      <DialogHeader className="border-b step-header px-4 py-3">
+        <DialogTitle className="text-base text-step-header-foreground">Add to Nautobot Configuration</DialogTitle>
       </DialogHeader>
 
-      <div className="space-y-4 overflow-y-auto bg-slate-50 p-4">
-        <section className="space-y-2 rounded-xl border border-slate-200 bg-card p-3 shadow-sm">
+      <div className="space-y-4 overflow-y-auto bg-muted p-4">
+        <section className="space-y-2 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs font-medium">device_fields</span>
             <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
@@ -306,7 +306,7 @@ function AddToNautobotDialogForm({
           </div>
         </section>
 
-        <section className="space-y-3 rounded-xl border border-slate-200 bg-card p-3 shadow-sm">
+        <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs font-medium">device_fields</span>
             <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
@@ -330,7 +330,7 @@ function AddToNautobotDialogForm({
               <span className="font-mono text-xs font-medium">custom_fields</span>
               {customFieldsSource === "manual" ? (
                 <Button
-                  className="h-7 bg-teal-500 text-white hover:bg-teal-600"
+                  className="h-7 bg-step text-step-foreground hover:bg-step-hover"
                   size="sm"
                   type="button"
                   onClick={addCustomFieldRow}
@@ -365,7 +365,7 @@ function AddToNautobotDialogForm({
               <div className="space-y-2">
                 {customFieldRows.map((row) => (
                   <div
-                    className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5"
+                    className="space-y-2 rounded-lg border border-border bg-muted p-2.5"
                     key={row.id}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -376,10 +376,10 @@ function AddToNautobotDialogForm({
                           onChange={(event) =>
                             patchCustomFieldRow(row.id, { enabled: event.target.checked })
                           }
-                          className="size-4 rounded border accent-teal-500"
+                          className="size-4 rounded border accent-step"
                           aria-label={`Enable custom field ${row.name || "row"}`}
                         />
-                        <span className="text-xs font-medium text-teal-700">Custom field</span>
+                        <span className="text-xs font-medium text-step-muted-foreground">Custom field</span>
                       </div>
                       <Button
                         className="h-7 px-2 text-destructive hover:text-destructive"
@@ -422,7 +422,7 @@ function AddToNautobotDialogForm({
           </p>
         </section>
 
-        <section className="space-y-2 rounded-xl border border-slate-200 bg-card p-3 shadow-sm">
+        <section className="space-y-2 rounded-xl border border-border bg-card p-3 shadow-sm">
           <span className="font-mono text-xs font-medium">rack</span>
           <p className="text-[11px] text-muted-foreground">
             Optional — leave rack empty to skip placement entirely.
@@ -440,7 +440,7 @@ function AddToNautobotDialogForm({
           </div>
         </section>
 
-        <section className="space-y-3 rounded-xl border border-slate-200 bg-card p-3 shadow-sm">
+        <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="font-mono text-xs font-medium">interfaces</span>
@@ -450,7 +450,7 @@ function AddToNautobotDialogForm({
             </div>
             {interfacesSource === "manual" ? (
               <Button
-                className="h-7 bg-teal-500 text-white hover:bg-teal-600"
+                className="h-7 bg-step text-step-foreground hover:bg-step-hover"
                 size="sm"
                 type="button"
                 onClick={addInterface}
@@ -488,11 +488,11 @@ function AddToNautobotDialogForm({
                 const rowId = iface.id ?? iface.name;
                 return (
                   <div
-                    className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
+                    className="space-y-2 rounded-lg border border-border bg-muted p-3"
                     key={rowId}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-teal-700">Interface</span>
+                      <span className="text-xs font-medium text-step-muted-foreground">Interface</span>
                       <Button
                         className="h-7 px-2 text-destructive hover:text-destructive"
                         size="sm"
@@ -570,7 +570,7 @@ function AddToNautobotDialogForm({
           )}
         </section>
 
-        <section className="space-y-3 rounded-xl border border-slate-200 bg-card p-3 shadow-sm">
+        <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center justify-between">
             <Label className="font-mono text-xs font-medium">add_prefix</Label>
             <Switch
@@ -653,11 +653,11 @@ function AddToNautobotDialogForm({
         </section>
       </div>
 
-      <DialogFooter className="border-t bg-white px-4 py-3">
+      <DialogFooter className="border-t bg-card px-4 py-3">
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button className="bg-teal-500 text-white hover:bg-teal-600" type="button" onClick={handleSave}>
+        <Button className="bg-step text-step-foreground hover:bg-step-hover" type="button" onClick={handleSave}>
           Save
         </Button>
       </DialogFooter>

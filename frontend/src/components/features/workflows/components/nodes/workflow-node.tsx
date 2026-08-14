@@ -35,10 +35,10 @@ const NODE_WIDTH_CLASS = "w-80";
 const NODE_HEIGHT_CLASS = "h-32";
 
 const TARGET_HANDLE_CLASS =
-  "!size-3 !border-2 !bg-slate-300 !border-slate-400";
+  "!size-3 !border-2 !bg-muted-foreground/40 !border-muted-foreground";
 const GROUP_ENTRY_HANDLE_CLASS =
-  "!size-3 !border-2 !bg-teal-400 !border-teal-500";
-const GROUP_EXIT_HANDLE_RING_CLASS = "!ring-2 !ring-teal-400 !ring-offset-1";
+  "!size-3 !border-2 !bg-step !border-step-hover";
+const GROUP_EXIT_HANDLE_RING_CLASS = "!ring-2 !ring-step !ring-offset-1";
 
 const HANDLE_SIDE_TO_POSITION: Record<HandleSide, Position> = {
   top: Position.Top,
@@ -116,7 +116,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         categoryBorderAccentClasses[nodeType] ?? CATEGORY_BORDER_FALLBACK,
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
         isAwaitingThisStep &&
-          "animate-pulse border-teal-500 shadow-lg ring-2 ring-teal-500/50",
+          "animate-pulse border-step shadow-lg ring-2 ring-step/50",
       )}
     >
       {hasTargetHandles ? (
@@ -175,7 +175,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
             ) : null}
             {fanOutEnabled ? (
               <Badge
-                className="shrink-0 gap-1 border-teal-300 bg-teal-50 text-teal-700"
+                className="shrink-0 gap-1 border-step-border bg-step-surface text-step-muted-foreground"
                 variant="outline"
               >
                 <Split className="size-3" aria-hidden />
@@ -184,7 +184,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
             ) : null}
             {isAwaitingThisStep ? (
               <Badge
-                className="shrink-0 animate-pulse border-teal-400 bg-teal-100 text-teal-800"
+                className="shrink-0 animate-pulse border-step bg-step-surface text-step-surface-foreground"
                 variant="outline"
               >
                 Next Step
@@ -192,7 +192,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
             ) : null}
             {data.isGroupEntryPoint ? (
               <Badge
-                className="shrink-0 border-teal-300 bg-teal-50 text-teal-700"
+                className="shrink-0 border-step-border bg-step-surface text-step-muted-foreground"
                 variant="outline"
               >
                 Group input
@@ -200,7 +200,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
             ) : null}
             {data.isGroupExitPoint ? (
               <Badge
-                className="shrink-0 border-teal-300 bg-teal-50 text-teal-700"
+                className="shrink-0 border-step-border bg-step-surface text-step-muted-foreground"
                 variant="outline"
               >
                 Group output

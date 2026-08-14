@@ -21,6 +21,33 @@
   --input: #e2e8f0;
   --ring: #38bdf8;
   --radius: 0.75rem;
+
+  /* Status surfaces — use for alerts, badges, banners. Destructive stays for actions. */
+  --success: #f0fdf4;
+  --success-foreground: #14532d;
+  --success-border: #bbf7d0;
+  --warning: #fffbeb;
+  --warning-foreground: #78350f;
+  --warning-border: #fde68a;
+  --info: #f0f9ff;
+  --info-foreground: #0c4a6e;
+  --info-border: #bae6fd;
+  --error: #fef2f2;
+  --error-foreground: #7f1d1d;
+  --error-border: #fecaca;
+
+  /* Workflow-step chrome only (ConfigPanels, canvas teal, step dialogs). */
+  --step: #14b8a6;
+  --step-foreground: #ffffff;
+  --step-hover: #0d9488;
+  --step-surface: #f0fdfa;
+  --step-surface-foreground: #134e4a;
+  --step-muted-foreground: #0f766e;
+  --step-border: #99f6e4;
+  --step-header-from: #0d9488;
+  --step-header-to: #14b8a6;
+  --step-header-foreground: #ffffff;
+  --step-header-muted: #ccfbf1;
 }
 
 @theme inline {
@@ -43,6 +70,29 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-border: var(--warning-border);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-border: var(--info-border);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-error-border: var(--error-border);
+  --color-step: var(--step);
+  --color-step-foreground: var(--step-foreground);
+  --color-step-hover: var(--step-hover);
+  --color-step-surface: var(--step-surface);
+  --color-step-surface-foreground: var(--step-surface-foreground);
+  --color-step-muted-foreground: var(--step-muted-foreground);
+  --color-step-border: var(--step-border);
+  --color-step-header-from: var(--step-header-from);
+  --color-step-header-to: var(--step-header-to);
+  --color-step-header-foreground: var(--step-header-foreground);
+  --color-step-header-muted: var(--step-header-muted);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-lg: var(--radius);
@@ -71,6 +121,31 @@
     --border: #1e293b;
     --input: #334155;
     --ring: #38bdf8;
+
+    --success: #052e16;
+    --success-foreground: #bbf7d0;
+    --success-border: #166534;
+    --warning: #451a03;
+    --warning-foreground: #fde68a;
+    --warning-border: #92400e;
+    --info: #082f49;
+    --info-foreground: #bae6fd;
+    --info-border: #075985;
+    --error: #450a0a;
+    --error-foreground: #fecaca;
+    --error-border: #991b1b;
+
+    --step: #2dd4bf;
+    --step-foreground: #042f2e;
+    --step-hover: #14b8a6;
+    --step-surface: #042f2e;
+    --step-surface-foreground: #ccfbf1;
+    --step-muted-foreground: #5eead4;
+    --step-border: #115e59;
+    --step-header-from: #0f766e;
+    --step-header-to: #14b8a6;
+    --step-header-foreground: #f0fdfa;
+    --step-header-muted: #99f6e4;
   }
 }
 
@@ -82,4 +157,39 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Status wells — set background + text + border-color (add `border` for width). */
+.status-success {
+  background-color: var(--success);
+  color: var(--success-foreground);
+  border-color: var(--success-border);
+}
+
+.status-warning {
+  background-color: var(--warning);
+  color: var(--warning-foreground);
+  border-color: var(--warning-border);
+}
+
+.status-error {
+  background-color: var(--error);
+  color: var(--error-foreground);
+  border-color: var(--error-border);
+}
+
+.status-info {
+  background-color: var(--info);
+  color: var(--info-foreground);
+  border-color: var(--info-border);
+}
+
+/* Workflow-step ConfigPanel / dialog header. Do not use on dashboard chrome. */
+.step-header {
+  background-image: linear-gradient(
+    to right,
+    var(--step-header-from),
+    var(--step-header-to)
+  );
+  color: var(--step-header-foreground);
 }
