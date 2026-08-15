@@ -32,6 +32,7 @@ from hatchet.workflows.cache_devices import workflow as cache_devices_workflow  
 from hatchet.workflows.device_group_execution import (  # noqa: E402
     child_workflow as device_group_workflow,
 )
+from hatchet.workflows.purge_retention import workflow as purge_retention_workflow  # noqa: E402
 from hatchet.workflows.scheduled_trigger import workflow as scheduled_trigger_workflow  # noqa: E402
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
 from services.ise.client import ISEService  # noqa: E402
@@ -79,6 +80,7 @@ def main() -> None:
             device_group_workflow,
             cache_devices_workflow,
             scheduled_trigger_workflow,
+            purge_retention_workflow,
         ],
         lifespan=lifespan,
     )

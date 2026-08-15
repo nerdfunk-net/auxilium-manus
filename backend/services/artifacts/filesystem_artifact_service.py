@@ -97,7 +97,11 @@ class FilesystemArtifactService(ArtifactService):
         meta_path = self._meta_path(artifact_id)
         if not meta_path.is_file():
             return None
-        return json.loads(meta_path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            logger.warning("Corrupt artifact meta file, treating as unreadable: %s", meta_path)
+            return None
 
     def get_for_run(self, *, run_uuid: str, artifact_id: str) -> tuple[ArtifactRef, str]:
         meta = self.read_meta(artifact_id)
@@ -112,3 +116,38 @@ class FilesystemArtifactService(ArtifactService):
             created_at=str(meta.get("created_at", now_iso())),
         )
         return ref, self.read_content(artifact_id)
+
+    def delete_artifact(self, artifact_id: str) -> None:
+        self._content_path(artifact_id).unlink(missing_ok=True)
+        self._meta_path(artifact_id).unlink(missing_ok=True)
+
+    def _artifact_id_from_meta_path(self, meta_path: Path) -> str:
+        return meta_path.name.removesuffix(".meta.json")
+
+    def delete_for_run(self, run_uuid: str) -> int:
+        """Delete every artifact whose stored meta belongs to ``run_uuid``."""
+        deleted = 0
+        for meta_path in self._artifacts_dir.glob("*.meta.json"):
+            artifact_id = self._artifact_id_from_meta_path(meta_path)
+            meta = self.read_meta(artifact_id)
+            if meta is not None and meta.get("run_id") == run_uuid:
+                self.delete_artifact(artifact_id)
+                deleted += 1
+        logger.debug("Deleted %s artifact(s) for run_id=%s", deleted, run_uuid)
+        return deleted
+
+    def purge_orphaned(self, valid_run_uuids: set[str]) -> int:
+        """Delete artifacts whose ``run_id`` no longer matches an existing run.
+
+        Also removes artifacts with unreadable/corrupt meta files, since their
+        content can no longer be attributed to any run.
+        """
+        deleted = 0
+        for meta_path in self._artifacts_dir.glob("*.meta.json"):
+            artifact_id = self._artifact_id_from_meta_path(meta_path)
+            meta = self.read_meta(artifact_id)
+            if meta is None or meta.get("run_id") not in valid_run_uuids:
+                self.delete_artifact(artifact_id)
+                deleted += 1
+        logger.info("Purged %s orphaned artifact(s)", deleted)
+        return deleted

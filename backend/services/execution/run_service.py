@@ -270,10 +270,8 @@ class RunService:
                     "only finished runs can be deleted"
                 ),
             )
-        # NOTE: does not delete filesystem artifact content under
-        # {data_directory}/artifacts/ — same known gap as
-        # RunRepository.purge_finished_runs_older_than.
         self.run_repo.delete_run(run)
+        self.artifact_service.delete_for_run(run.uuid)
 
     def _assert_not_awaiting_batch_approval(self, run: WorkflowRun) -> None:
         if run.approval_state is not None and run.approval_state.get("awaiting"):

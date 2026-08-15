@@ -46,6 +46,7 @@ class Settings:
     run_retention_enabled: bool
     run_retention_days: int
     run_retention_batch_size: int
+    run_retention_cron_schedule: str
     apply_safe_migrations: bool
     apply_risky_migrations: bool
     install_certificate_files: bool
@@ -95,6 +96,7 @@ class Settings:
         self.run_retention_enabled = self._get_bool("RUN_RETENTION_ENABLED", False)
         self.run_retention_days = self._get_int("RUN_RETENTION_DAYS", 90)
         self.run_retention_batch_size = self._get_int("RUN_RETENTION_BATCH_SIZE", 500)
+        self.run_retention_cron_schedule = environ.get("RUN_RETENTION_CRON_SCHEDULE", "0 3 * * *")
         self._validate_run_retention()
         self.apply_safe_migrations = self._get_bool("APPLY_SAFE_DATABASE_MIGRATION", False)
         self.apply_risky_migrations = self._get_bool("APPLY_RISKY_DATABASE_MIGRATION", False)
@@ -127,6 +129,8 @@ class Settings:
             raise RuntimeError("RUN_RETENTION_DAYS must be at least 1")
         if self.run_retention_batch_size < 1:
             raise RuntimeError("RUN_RETENTION_BATCH_SIZE must be at least 1")
+        if not self.run_retention_cron_schedule.strip():
+            raise RuntimeError("RUN_RETENTION_CRON_SCHEDULE must not be empty")
 
     def _validate_refresh_token_max_age(self) -> None:
         if self.refresh_token_max_age_hours < 1:

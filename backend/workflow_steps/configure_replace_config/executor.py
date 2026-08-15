@@ -1,30 +1,30 @@
 """Executor for the configure-replace-config step.
 
 Applies a configuration file already present on a device (e.g. uploaded by
-an upstream Upload Config step) via Cisco's ``configure replace <file> time
-<n> force``, which schedules an automatic on-device rollback after ``n``
+an upstream Upload Config step) via Cisco's ``configure replace <file> force
+time <n>``, which schedules an automatic on-device rollback after ``n``
 minutes unless ``configure confirm`` is sent first. This step never imports
 pyats/genie directly -- see "Calling pyATS from a step" in
 doc/WORKFLOW-STEPS.md. Device connection info and credentials come entirely
 from the ``pyats_testbed`` bag written by an upstream add-pyats-testbed
 step; this step resolves no credentials of its own.
 
-No pyATS shim changes are needed: the flow is composed entirely from shim
-capabilities that already exist and are already used elsewhere --
-``operation="learn"`` (same call get-pyats-snapshot uses) captures a Genie
-``interface`` snapshot before and after the replace, ``POST /v1/diff``
-(same endpoint compare-pyats-snapshot uses) diffs them, and
-``operation="execute"`` sends both the replace and confirm CLI commands.
-Each shim call is its own fresh connect/disconnect -- there is no need to
-hold one session open across the whole flow, because the rollback timer is
-device-side, not tied to the CLI session that issued it.
+No pyATS shim changes are needed: the flow is composed entirely from the
+``operation="execute"`` shim call, sending the replace command and then the
+confirm command. Each shim call is its own fresh connect/disconnect -- there
+is no need to hold one session open across the whole flow, because the
+rollback timer is device-side, not tied to the CLI session that issued it.
 
-``configure confirm`` is deliberately withheld -- leaving the device to
-auto-revert on its own timer -- whenever the post-change snapshot can't be
-captured at all (the strongest signal the replace broke connectivity) or
-when it differs from the pre-change baseline. Both cases are reported as a
-step failure (see doc/WORKFLOW-STEPS.md's status semantics), not silently
-swallowed.
+Verification is deliberately simple: send ``configure replace``, then
+immediately send ``configure confirm`` and inspect its output rather than
+diffing Genie snapshots before/after (interface counters and other benign
+noise made snapshot diffs unreliable in practice, flagging clean replaces as
+failed). Reconnecting to send ``configure confirm`` doubles as the
+connectivity check -- if the replace broke reachability, that shim call
+fails outright. If the device responds with "No Rollback Confirmed Change
+pending" (e.g. the timer already expired, or another session already
+confirmed it), the outcome is reported as a step failure rather than
+silently swallowed.
 """
 
 from __future__ import annotations
@@ -64,10 +64,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "configure-replace-config"
-_VERIFY_FEATURE = "interface"
 _CONFIRM_COMMAND = "configure confirm"
 _MIN_TIMEOUT_MINUTES = 1
 _MAX_TIMEOUT_MINUTES = 120
+_ARCHIVE_NOT_CONFIGURED_MARKER = "turn config archive on"
+_NO_PENDING_ROLLBACK_MARKER = "no rollback confirmed change pending"
+
+
+def _is_archive_not_configured_error(message: str | None) -> bool:
+    """True when the device rejected 'configure replace ... time N' because
+    config archiving (required by the 'Rollback Confirmed Change' feature)
+    is not set up -- e.g. Cisco IOS's '%Turn config archive on before using
+    Rollback Confirmed Change'.
+    """
+    return _ARCHIVE_NOT_CONFIGURED_MARKER in (message or "").lower()
+
+
+def _has_no_pending_rollback(raw_output: Any) -> bool:
+    """True when 'configure confirm' reports no pending timed change --
+    e.g. Cisco IOS's '%No Rollback Confirmed Change pending'. This means the
+    timer already expired (device reverted) or another session already
+    confirmed it; either way this run can't vouch for the outcome.
+    """
+    return _NO_PENDING_ROLLBACK_MARKER in str(raw_output or "").lower()
 
 
 def _resolve_source_credentials(
@@ -91,49 +110,6 @@ def _fail_device(
     err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
     failed = device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
-    return device_id, failed, False
-
-
-async def _fail_with_diff(
-    *,
-    device: DeviceContext,
-    device_id: str,
-    node_id: str,
-    timeout_minutes: int,
-    diff_text: str,
-    context_run_id: str | None,
-    artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
-    diff_ref = await artifact_service.store(
-        content=diff_text,
-        kind="comparison_diff",
-        device_id=device_id,
-        run_id=context_run_id,
-        media_type="text/plain",
-    )
-    message = (
-        f"Post-change {_VERIFY_FEATURE} snapshot differs from the baseline; "
-        f"'{_CONFIRM_COMMAND}' was NOT sent -- device will auto-revert after "
-        f"{timeout_minutes} minute(s)"
-    )
-    err = DeviceError(
-        node_id=node_id, step_id=_STEP_ID, code="verification_failed", message=message
-    )
-    parsed = dict(device.parsed)
-    parsed[f"{node_id}.configure_replace"] = {
-        "kind": "configure_replace",
-        "confirmed": False,
-        "diff_artifact_ref": diff_ref.model_dump(mode="json"),
-        "timeout_minutes": timeout_minutes,
-    }
-    failed = device.model_copy(
-        update={
-            "status": DeviceStatus.FAILED,
-            "errors": [*device.errors, err],
-            "parsed": parsed,
-            "capabilities": device.capabilities | {Capability.PARSED},
-        }
     )
     return device_id, failed, False
 
@@ -178,8 +154,6 @@ async def _process_one_device(
     destination_filename: str,
     file_system: str,
     timeout_minutes: int,
-    context_run_id: str | None,
-    artifact_service: ArtifactService,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
 ) -> tuple[str, DeviceContext, bool]:
@@ -233,27 +207,16 @@ async def _process_one_device(
     shim = service_factory.get_pyats_app_service()
 
     logger.info(
-        "%s pre-snapshot device=%s host=%s os=%s source=%s",
+        "%s replace starting device=%s host=%s os=%s source=%s",
         _STEP_ID,
         device_id,
         bag.get("host"),
         bag.get("os"),
         source_id,
     )
-    ok, pre_data, err = await _call_shim(
-        shim, shim_credentials, operation="learn", shim_device=shim_device, command=_VERIFY_FEATURE
-    )
-    if not ok:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="pre_snapshot_failed",
-            message=f"Could not capture baseline {_VERIFY_FEATURE} snapshot: {err}",
-        )
 
     replace_command = (
-        f"configure replace {file_system}{destination_filename} time {timeout_minutes} force"
+        f"configure replace {file_system}{destination_filename} force time {timeout_minutes}"
     )
     logger.info(
         "%s replace device=%s host=%s command=%s",
@@ -271,6 +234,21 @@ async def _process_one_device(
         command=replace_command,
     )
     if not ok:
+        if _is_archive_not_configured_error(err):
+            return _fail_device(
+                device=device,
+                device_id=device_id,
+                node_id=node_id,
+                code="archive_not_configured",
+                message=(
+                    "Device rejected 'configure replace' because config archiving is not "
+                    "enabled -- the 'time'/Rollback Confirmed Change feature this step relies "
+                    "on requires it. Configure it once on the device, e.g.:\n"
+                    "  archive\n"
+                    "   path flash:archive\n"
+                    "then retry. See this step's Help panel for details."
+                ),
+            )
         return _fail_device(
             device=device,
             device_id=device_id,
@@ -286,48 +264,7 @@ async def _process_one_device(
         time.monotonic() - started,
     )
 
-    ok, post_data, err = await _call_shim(
-        shim, shim_credentials, operation="learn", shim_device=shim_device, command=_VERIFY_FEATURE
-    )
-    if not ok:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="post_snapshot_failed",
-            message=(
-                f"Could not reconnect/capture post-change {_VERIFY_FEATURE} snapshot after "
-                f"'configure replace' ({err}); '{_CONFIRM_COMMAND}' was NOT sent -- device will "
-                f"auto-revert after {timeout_minutes} minute(s)"
-            ),
-        )
-
-    try:
-        diff_response = await shim.diff(shim_credentials, snapshot_a=pre_data, snapshot_b=post_data)
-    except (PyATSAPIError, PyATSValidationError) as exc:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="diff_failed",
-            message=(
-                f"Could not verify configuration impact ({exc}); '{_CONFIRM_COMMAND}' was NOT sent "
-                f"-- device will auto-revert after {timeout_minutes} minute(s)"
-            ),
-        )
-
-    if not diff_response.get("identical"):
-        return await _fail_with_diff(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            timeout_minutes=timeout_minutes,
-            diff_text=str(diff_response.get("diff") or ""),
-            context_run_id=context_run_id,
-            artifact_service=artifact_service,
-        )
-
-    ok, _, err = await _call_shim(
+    ok, confirm_raw, err = await _call_shim(
         shim,
         shim_credentials,
         operation="execute",
@@ -341,8 +278,22 @@ async def _process_one_device(
             node_id=node_id,
             code="confirm_failed",
             message=(
-                f"Verification passed but '{_CONFIRM_COMMAND}' failed ({err}); device may "
-                f"auto-revert after {timeout_minutes} minute(s) unless confirmed another way"
+                f"Could not reconnect/send '{_CONFIRM_COMMAND}' after 'configure replace' "
+                f"({err}); device will auto-revert after {timeout_minutes} minute(s)"
+            ),
+        )
+
+    if _has_no_pending_rollback(confirm_raw):
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code="confirm_not_pending",
+            message=(
+                f"Device reported no pending Rollback Confirmed Change when "
+                f"'{_CONFIRM_COMMAND}' was sent -- the timed replace may have already reverted "
+                f"or been confirmed by another session; verify the running configuration "
+                f"manually"
             ),
         )
 
@@ -352,7 +303,6 @@ async def _process_one_device(
         "destination_filename": destination_filename,
         "file_system": file_system,
         "timeout_minutes": timeout_minutes,
-        "verify_feature": _VERIFY_FEATURE,
     }
     parsed = dict(device.parsed)
     parsed[f"{node_id}.configure_replace"] = entry
@@ -397,6 +347,7 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del device_sessions  # unused: pyATS connects via the shim, not Netmiko
+    del artifact_service  # unused: verification no longer stores a diff artifact
 
     merged_config = {**get_config(), **config}
 
@@ -444,8 +395,6 @@ async def execute(
                 destination_filename=destination_filename,
                 file_system=file_system,
                 timeout_minutes=timeout_minutes,
-                context_run_id=context.run_id,
-                artifact_service=artifact_service,
                 source_credentials=source_credentials,
                 source_errors=source_errors,
             )

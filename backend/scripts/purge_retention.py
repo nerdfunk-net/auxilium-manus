@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Purge old workflow runs and step logs from PostgreSQL.
+"""Purge old workflow runs, step logs, and their filesystem artifacts.
 
 Deletes workflow_runs in terminal states (success, failed, cancelled) older than
-RUN_RETENTION_DAYS. workflow_step_results rows cascade automatically.
+RUN_RETENTION_DAYS. workflow_step_results rows cascade automatically. Also sweeps
+{DATA_DIRECTORY}/artifacts/ for any artifact whose run_id no longer matches an
+existing run and deletes it (see RetentionService.purge_workflow_runs).
 
-Schedule via cron, e.g. daily at 03:00:
+The Hatchet worker already runs this automatically once a day via the
+PurgeWorkflowRunRetention cron workflow (hatchet/workflows/purge_retention.py),
+so this script is mainly useful for manual --dry-run previews or one-off runs
+when the worker isn't running. It can still be cron'd directly if preferred:
   0 3 * * * cd /path/to/auxilium-manus/backend && ../.venv/bin/python scripts/purge_retention.py
 
 Usage:
@@ -81,8 +86,9 @@ def main() -> int:
 
     action = "Would delete" if result.dry_run else "Deleted"
     print(  # noqa: T201
-        f"{action} {result.runs_deleted} run(s) "
-        f"older than {result.retention_days} day(s) (before {result.cutoff.isoformat()})"
+        f"{action} {result.runs_deleted} run(s) and {result.artifacts_deleted} orphaned "
+        f"artifact(s) older than {result.retention_days} day(s) "
+        f"(before {result.cutoff.isoformat()})"
     )
     return 0
 

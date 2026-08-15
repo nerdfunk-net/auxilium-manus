@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import (
-    ArtifactRef,
     Capability,
     DeviceContext,
     DeviceStatus,
@@ -19,7 +18,7 @@ from workflow_steps.configure_replace_config.executor import execute
 
 _NODE_ID = "configure-replace-config-1"
 _DEVICE_ID = "device-1"
-_REPLACE_COMMAND = "configure replace bootflash:new_config.txt time 2 force"
+_REPLACE_COMMAND = "configure replace bootflash:new_config.txt force time 2"
 _CONFIRM_COMMAND = "configure confirm"
 _BASE_CONFIG = {
     "destination_filename": "new_config.txt",
@@ -46,18 +45,6 @@ def _device_with_testbed(*, source_id: str = "lab-pyats") -> DeviceContext:
     )
 
 
-def _learn_response(feature: str, data: dict | None, *, error: str | None = None) -> dict:
-    return {
-        "results": {
-            _DEVICE_ID: {
-                "success": True,
-                "error": None,
-                "commands": {feature: {"raw": None, "parsed": data, "error": error}},
-            }
-        }
-    }
-
-
 def _execute_response(command: str, *, raw: str = "", error: str | None = None) -> dict:
     return {
         "results": {
@@ -76,8 +63,6 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         *,
         device: DeviceContext,
         run_job_side_effect,
-        diff_result: dict | None = None,
-        diff_side_effect: Exception | None = None,
         config: dict | None = None,
         artifact_service: InMemoryArtifactService | None = None,
         resolve_credentials_side_effect: Exception | None = None,
@@ -107,10 +92,6 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
             shim = MagicMock()
             shim.run_job = AsyncMock(side_effect=run_job_side_effect)
-            if diff_side_effect is not None:
-                shim.diff = AsyncMock(side_effect=diff_side_effect)
-            else:
-                shim.diff = AsyncMock(return_value=diff_result or {"identical": True, "diff": ""})
             service_factory_mock.get_pyats_app_service.return_value = shim
 
             outcomes = await execute(
@@ -131,12 +112,12 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         outcomes, shim, _ = await self._run(
             device=_device_with_testbed(),
             run_job_side_effect=[
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
-                _execute_response(_REPLACE_COMMAND),
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
-                _execute_response(_CONFIRM_COMMAND),
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
+                _execute_response(
+                    _CONFIRM_COMMAND,
+                    raw="Confirm the configuration change",
+                ),
             ],
-            diff_result={"identical": True, "diff": ""},
         )
 
         names = [o.name for o in outcomes]
@@ -150,16 +131,12 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry["file_system"], "bootflash:")
         self.assertEqual(entry["timeout_minutes"], 2)
 
-        self.assertEqual(shim.run_job.await_count, 4)
-        replace_call = shim.run_job.call_args_list[1]
+        self.assertEqual(shim.run_job.await_count, 2)
+        replace_call = shim.run_job.call_args_list[0]
         self.assertEqual(replace_call.kwargs["commands"], [_REPLACE_COMMAND])
         self.assertEqual(replace_call.kwargs["devices"][0]["password"], "secret")
-        confirm_call = shim.run_job.call_args_list[3]
+        confirm_call = shim.run_job.call_args_list[1]
         self.assertEqual(confirm_call.kwargs["commands"], [_CONFIRM_COMMAND])
-
-        diff_call_kwargs = shim.diff.call_args.kwargs
-        self.assertEqual(diff_call_kwargs["snapshot_a"], {"Gi0/0": {"status": "up"}})
-        self.assertEqual(diff_call_kwargs["snapshot_b"], {"Gi0/0": {"status": "up"}})
 
     async def test_missing_testbed_bag_fails_device(self) -> None:
         device = DeviceContext(id=_DEVICE_ID, name="r1", hostname="r1", status=DeviceStatus.OK)
@@ -170,25 +147,10 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error_code, "missing_testbed")
         shim.run_job.assert_not_awaited()
 
-    async def test_pre_snapshot_failure_stops_before_replace(self) -> None:
+    async def test_replace_command_failure_stops_before_confirm(self) -> None:
         outcomes, shim, _ = await self._run(
             device=_device_with_testbed(),
             run_job_side_effect=[
-                _learn_response("interface", None, error="connection refused"),
-            ],
-        )
-
-        failure_outcome = next(o for o in outcomes if o.name == "failure")
-        error_code = failure_outcome.context.devices[_DEVICE_ID].errors[0].code
-        self.assertEqual(error_code, "pre_snapshot_failed")
-        self.assertEqual(shim.run_job.await_count, 1)
-        shim.diff.assert_not_awaited()
-
-    async def test_replace_command_failure_stops_before_post_snapshot(self) -> None:
-        outcomes, shim, _ = await self._run(
-            device=_device_with_testbed(),
-            run_job_side_effect=[
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
                 _execute_response(
                     _REPLACE_COMMAND, error="Invalid config file bootflash:new_config.txt"
                 ),
@@ -198,84 +160,69 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         error_code = failure_outcome.context.devices[_DEVICE_ID].errors[0].code
         self.assertEqual(error_code, "replace_failed")
-        self.assertEqual(shim.run_job.await_count, 2)
-        shim.diff.assert_not_awaited()
+        self.assertEqual(shim.run_job.await_count, 1)
 
-    async def test_post_snapshot_connection_lost_skips_confirm(self) -> None:
+    async def test_replace_command_archive_not_configured_gives_clear_message(self) -> None:
         outcomes, shim, _ = await self._run(
             device=_device_with_testbed(),
             run_job_side_effect=[
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
-                _execute_response(_REPLACE_COMMAND),
+                _execute_response(
+                    _REPLACE_COMMAND,
+                    error="%Turn config archive on before using Rollback Confirmed Change",
+                ),
+            ],
+        )
+
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        err = failure_outcome.context.devices[_DEVICE_ID].errors[0]
+        self.assertEqual(err.code, "archive_not_configured")
+        self.assertIn("archive", err.message.lower())
+        self.assertEqual(shim.run_job.await_count, 1)
+
+    async def test_confirm_call_connection_lost_fails_device(self) -> None:
+        outcomes, shim, _ = await self._run(
+            device=_device_with_testbed(),
+            run_job_side_effect=[
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
                 PyATSAPIError("connection timed out"),
             ],
         )
 
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         err = failure_outcome.context.devices[_DEVICE_ID].errors[0]
-        self.assertEqual(err.code, "post_snapshot_failed")
+        self.assertEqual(err.code, "confirm_failed")
         self.assertIn("auto-revert", err.message)
-        self.assertEqual(shim.run_job.await_count, 3)
-        shim.diff.assert_not_awaited()
+        self.assertEqual(shim.run_job.await_count, 2)
 
-    async def test_diff_mismatch_skips_confirm_and_stores_diff(self) -> None:
-        artifact_service = InMemoryArtifactService()
-        outcomes, shim, artifact_service = await self._run(
-            device=_device_with_testbed(),
-            run_job_side_effect=[
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
-                _execute_response(_REPLACE_COMMAND),
-                _learn_response("interface", {"Gi0/0": {"status": "down"}}),
-            ],
-            diff_result={"identical": False, "diff": "-status: up\n+status: down\n"},
-            artifact_service=artifact_service,
-        )
-
-        failure_outcome = next(o for o in outcomes if o.name == "failure")
-        device = failure_outcome.context.devices[_DEVICE_ID]
-        self.assertEqual(device.errors[0].code, "verification_failed")
-        entry = device.parsed[f"{_NODE_ID}.configure_replace"]
-        self.assertFalse(entry["confirmed"])
-        diff_text = await artifact_service.resolve(
-            ArtifactRef.model_validate(entry["diff_artifact_ref"])
-        )
-        self.assertIn("status", diff_text)
-        # Only pre/replace/post learn+execute calls -- no confirm.
-        self.assertEqual(shim.run_job.await_count, 3)
-
-    async def test_diff_shim_error_skips_confirm(self) -> None:
+    async def test_confirm_command_error_fails_device(self) -> None:
         outcomes, shim, _ = await self._run(
             device=_device_with_testbed(),
             run_job_side_effect=[
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
-                _execute_response(_REPLACE_COMMAND),
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
-            ],
-            diff_side_effect=PyATSValidationError("bad snapshot shape"),
-        )
-
-        failure_outcome = next(o for o in outcomes if o.name == "failure")
-        error_code = failure_outcome.context.devices[_DEVICE_ID].errors[0].code
-        self.assertEqual(error_code, "diff_failed")
-        self.assertEqual(shim.run_job.await_count, 3)
-
-    async def test_confirm_failure_fails_device_after_clean_verification(self) -> None:
-        outcomes, shim, _ = await self._run(
-            device=_device_with_testbed(),
-            run_job_side_effect=[
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
-                _execute_response(_REPLACE_COMMAND),
-                _learn_response("interface", {"Gi0/0": {"status": "up"}}),
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
                 _execute_response(_CONFIRM_COMMAND, error="% Nothing to confirm"),
             ],
-            diff_result={"identical": True, "diff": ""},
         )
 
         failure_outcome = next(o for o in outcomes if o.name == "failure")
         err = failure_outcome.context.devices[_DEVICE_ID].errors[0]
         self.assertEqual(err.code, "confirm_failed")
-        self.assertIn("auto-revert", err.message)
-        self.assertEqual(shim.run_job.await_count, 4)
+        self.assertEqual(shim.run_job.await_count, 2)
+
+    async def test_confirm_reports_no_pending_rollback_fails_device(self) -> None:
+        outcomes, shim, _ = await self._run(
+            device=_device_with_testbed(),
+            run_job_side_effect=[
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
+                _execute_response(
+                    _CONFIRM_COMMAND, raw="%No Rollback Confirmed Change pending"
+                ),
+            ],
+        )
+
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        err = failure_outcome.context.devices[_DEVICE_ID].errors[0]
+        self.assertEqual(err.code, "confirm_not_pending")
+        self.assertEqual(shim.run_job.await_count, 2)
 
     async def test_source_resolution_error_fails_device(self) -> None:
         outcomes, shim, _ = await self._run(

@@ -10,3 +10,4 @@ class WorkflowRunRetentionResult(BaseModel):
     retention_days: int
     cutoff: datetime
     runs_deleted: int
+    artifacts_deleted: int = 0

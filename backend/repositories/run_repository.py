@@ -218,6 +218,9 @@ class RunRepository:
         self.db.delete(run)
         self.db.commit()
 
+    def list_all_uuids(self) -> set[str]:
+        return set(self.db.scalars(select(WorkflowRun.uuid)))
+
     def _finished_runs_older_than_filter(self, *, cutoff: datetime):
         return (
             WorkflowRun.status.in_(TERMINAL_RUN_STATUSES),

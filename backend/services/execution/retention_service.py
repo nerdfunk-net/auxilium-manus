@@ -5,15 +5,22 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from models.retention import WorkflowRunRetentionResult
 from repositories.run_repository import RunRepository
+from services.artifacts import FilesystemArtifactService
 
 logger = logging.getLogger(__name__)
 
 
 class RetentionService:
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self, db: Session, artifact_service: FilesystemArtifactService | None = None
+    ) -> None:
         self.run_repo = RunRepository(db)
+        self.artifact_service = artifact_service or FilesystemArtifactService(
+            settings.data_directory
+        )
 
     def purge_workflow_runs(
         self,
@@ -45,9 +52,14 @@ class RetentionService:
             batch_size=batch_size,
         )
         logger.info("Deleted %s finished workflow run(s)", deleted)
+
+        valid_run_uuids = self.run_repo.list_all_uuids()
+        artifacts_deleted = self.artifact_service.purge_orphaned(valid_run_uuids)
+
         return WorkflowRunRetentionResult(
             dry_run=False,
             retention_days=retention_days,
             cutoff=cutoff,
             runs_deleted=deleted,
+            artifacts_deleted=artifacts_deleted,
         )

@@ -539,16 +539,21 @@ plugins:
 
   - id: configure-replace-config
     name: Configure Replace Config
-    overview: Apply a config file via 'configure replace' and confirm only if verification is clean.
+    overview: Apply a config file via 'configure replace' and confirm the change.
     description: >
       Replace the running configuration with a file already on the device
       (e.g. from an upstream Upload Config step) using Cisco's 'configure
-      replace ... time N force', verify no operational impact via a Genie
-      interface snapshot diff, then send 'configure confirm' to cancel the
-      device's automatic rollback timer. If verification fails or the device
-      can't be reached afterward, 'configure confirm' is deliberately not
-      sent and the device reverts itself. Requires an upstream Add Testbed
-      step.
+      replace ... force time N', then reconnect and send 'configure confirm'
+      to cancel the device's automatic rollback timer. Reconnecting to send
+      'configure confirm' doubles as the connectivity check -- if the
+      replace broke reachability, that call fails outright and the device
+      auto-reverts on its own timer. If the device reports no pending
+      Rollback Confirmed Change (e.g. the timer already expired, or another
+      session already confirmed it), the step also fails so the outcome
+      isn't silently assumed. Requires an upstream Add Testbed step, and
+      requires config archiving enabled on the device (e.g. 'archive' /
+      'path flash:archive') -- otherwise the device rejects the command with
+      "Turn config archive on before using Rollback Confirmed Change".
     artifact_type: command_execution
     palette_category: pyats
     directory: configure_replace_config
