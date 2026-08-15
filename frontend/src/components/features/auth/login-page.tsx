@@ -12,7 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useOidcProvidersQuery } from "@/hooks/queries/use-oidc-providers-query";
@@ -48,13 +48,21 @@ export function LoginPage() {
   const [oidcError, setOidcError] = useState("");
   const [oidcLoadingProvider, setOidcLoadingProvider] = useState<string | null>(null);
   const { apiCall } = useApi();
-  const [notice] = useState(() => {
-    if (typeof window === "undefined") return "";
-    const reason = new URLSearchParams(window.location.search).get("reason");
-    if (reason === "idle") return "You were signed out due to inactivity.";
-    if (reason === "expired") return "Your session expired. Please sign in again.";
-    return "";
-  });
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    // Read the query param on the client only, after hydration, so the
+    // server-rendered markup (no query-param access) and the client's
+    // first render match; the notice then appears in a follow-up update.
+    const applyNoticeFromQuery = async () => {
+      const reason = new URLSearchParams(window.location.search).get("reason");
+      if (reason === "idle") {
+        setNotice("You were signed out due to inactivity.");
+      } else if (reason === "expired") {
+        setNotice("Your session expired. Please sign in again.");
+      }
+    };
+    void applyNoticeFromQuery();
+  }, []);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
