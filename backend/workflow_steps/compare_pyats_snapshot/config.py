@@ -9,4 +9,5 @@ def get_config() -> dict:
         "repository_subdirectory": "",
         "pull_before_read": False,
         "filename_template": "{device.name}.pyats-snapshot.json",
+        "exclude_keys": [],
     }

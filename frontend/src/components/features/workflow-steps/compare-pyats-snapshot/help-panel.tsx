@@ -18,10 +18,9 @@ export function ComparePyatsSnapshotHelpPanel() {
         <p>
           Compares one Genie feature (e.g. <HelpCode>bgp</HelpCode>) between a live pyATS
           snapshot captured earlier in this run and a stored reference snapshot, using
-          Genie&rsquo;s own <HelpCode>genie.utils.diff.Diff</HelpCode> — which understands
-          the data well enough to ignore noisy dynamic fields (counters, timestamps,
-          uptime), unlike a plain text diff. Each device routes to a{" "}
-          <HelpCode>match</HelpCode>, <HelpCode>mismatch</HelpCode>, or{" "}
+          Genie&rsquo;s own <HelpCode>genie.utils.diff.Diff</HelpCode> — a
+          structure-aware diff of the parsed data, unlike a plain text diff. Each device
+          routes to a <HelpCode>match</HelpCode>, <HelpCode>mismatch</HelpCode>, or{" "}
           <HelpCode>failure</HelpCode> outcome handle.
         </p>
         <p>
@@ -80,6 +79,27 @@ export function ComparePyatsSnapshotHelpPanel() {
           it produced snapshots under multiple keys and the default (first match) isn&rsquo;t
           the right one.
         </p>
+      </HelpSection>
+
+      <HelpSection title="Exclude keys">
+        <p>
+          <HelpCode>exclude_keys</HelpCode> is an optional comma-separated list of dict
+          keys to ignore during the diff, passed straight through to Genie&rsquo;s{" "}
+          <HelpCode>Diff(a, b, exclude=[...])</HelpCode>.
+        </p>
+        <HelpWarning title="Genie does not ignore volatile fields by default">
+          <p>
+            <HelpCode>genie.utils.diff.Diff</HelpCode> compares every key literally
+            unless you list it in <HelpCode>exclude</HelpCode>. Fields that change on
+            their own between captures — e.g. <HelpCode>updated</HelpCode>,{" "}
+            <HelpCode>uptime</HelpCode>, <HelpCode>last_change</HelpCode>, packet/byte
+            counters — will otherwise report as a mismatch even when nothing
+            operationally meaningful changed. Add them here to silence that noise.
+          </p>
+        </HelpWarning>
+        <HelpExample>
+          exclude_keys: updated, last_change, uptime
+        </HelpExample>
       </HelpSection>
 
       <HelpSection title="Reference location">

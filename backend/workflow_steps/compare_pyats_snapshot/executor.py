@@ -251,6 +251,7 @@ async def _compare_one_device(
     source_step_node_id: str,
     parsed_output_key: str | None,
     config: dict[str, Any],
+    exclude_keys: list[str],
     context_run_id: str | None,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
@@ -380,7 +381,10 @@ async def _compare_one_device(
     try:
         shim = service_factory.get_pyats_app_service()
         response = await shim.diff(
-            shim_credentials, snapshot_a=live_data, snapshot_b=reference_data
+            shim_credentials,
+            snapshot_a=live_data,
+            snapshot_b=reference_data,
+            exclude_keys=exclude_keys,
         )
     except (PyATSAPIError, PyATSValidationError) as exc:
         return _fail_device(
@@ -435,6 +439,12 @@ async def execute(
     if not filename_template:
         raise ValueError(f"{_STEP_ID}: filename_template is required")
     parsed_output_key = str(merged_config.get("parsed_output_key") or "").strip() or None
+    raw_exclude_keys = merged_config.get("exclude_keys")
+    exclude_keys = (
+        [str(key).strip() for key in raw_exclude_keys if str(key).strip()]
+        if isinstance(raw_exclude_keys, list)
+        else []
+    )
 
     if not context.devices:
         return [StepOutcome(name=outcome_name, context=context) for outcome_name in _OUTCOME_NAMES]
@@ -444,13 +454,15 @@ async def execute(
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
 
     logger.info(
-        "%s started run_id=%s node_id=%s devices=%d feature=%s source_step_node_id=%s",
+        "%s started run_id=%s node_id=%s devices=%d feature=%s source_step_node_id=%s "
+        "exclude_keys=%s",
         _STEP_ID,
         run.id,
         node_id,
         len(context.devices),
         feature,
         source_step_node_id,
+        exclude_keys,
     )
 
     source_ids = {
@@ -471,6 +483,7 @@ async def execute(
                 source_step_node_id=source_step_node_id,
                 parsed_output_key=parsed_output_key,
                 config=merged_config,
+                exclude_keys=exclude_keys,
                 context_run_id=context.run_id,
                 source_credentials=source_credentials,
                 source_errors=source_errors,

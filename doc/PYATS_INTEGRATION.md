@@ -347,9 +347,20 @@ Not detailed further here; see `workflow_steps/get_pyats_snapshot/executor.py`.
 `get-pyats-snapshot` exists to enable comparing two snapshots of the same
 device over time (e.g. before/after a change). The **Compare Snapshot**
 step (`compare-pyats-snapshot`) does this the way pyATS/Genie natively
-supports — via `genie.utils.diff.Diff`, which understands the data well
-enough to ignore noisy dynamic fields (counters, timestamps, uptime), unlike
-`compare-data`'s plain line-based text diff. It diffs one Genie feature per
+supports — via `genie.utils.diff.Diff`, a structure-aware diff of the parsed
+data, unlike `compare-data`'s plain line-based text diff.
+
+**`Diff` does not ignore volatile/dynamic fields (counters, timestamps,
+uptime) by default** — it compares every key literally unless an explicit
+`exclude` list is passed to its constructor. An earlier version of this
+step (and this doc) assumed Genie ignored that noise automatically; it
+doesn't. `compare-pyats-snapshot` exposes an `exclude_keys` config (a list of
+dict keys, e.g. `["updated", "last_change", "uptime"]`) that is threaded
+through `PyATSShimService.diff()` → `POST /v1/diff`'s `exclude` field →
+`Diff(a, b, exclude=exclude_keys)`. Leave it empty and every key, including
+purely time-based ones, is compared literally.
+
+It diffs one Genie feature per
 step instance between a live snapshot (from an upstream `get-pyats-snapshot`
 step in the current run) and a reference snapshot (a JSON file previously
 exported to git/filesystem by `store-artifact` from an earlier
@@ -411,19 +422,24 @@ already recognizes `content_source: "pyats_snapshot"`, so `store-artifact`
 snapshot against a stored reference) both work with snapshots, with no shim
 changes. `compare-data`'s diff (`GitDiffService.compare_text_content`) is a
 plain line-based text diff of the JSON, though — no concept of "ignore this
-counter" — every dynamic field change shows up as a mismatch. Excluding
-that noise automatically is exactly what `compare-pyats-snapshot` adds.
+counter" — every dynamic field change shows up as a mismatch.
+`compare-pyats-snapshot` adds the ability to ignore that noise via its
+`exclude_keys` config (see "Genie-native snapshot comparison" above) — but
+unlike a schema-aware default, it's opt-in: nothing is excluded until you
+list it.
 
 **Implemented shape of the Genie-native Compare Snapshot step:**
 
 - A lightweight shim endpoint — no subprocess, no testbed, no device I/O,
   since this is pure computation on two already-learned dicts:
   `POST /v1/diff` (`pyats-shim/app/diff.py`) takes
-  `{"snapshot_a": {...}, "snapshot_b": {...}}`, runs
-  `genie.utils.diff.Diff(a, b); diff.findDiff()` (after the `_unwrap()` step
-  above), and returns `{"identical": bool, "diff": str}` — `str(diff)` is
-  Genie's human-readable line-based format, `identical` is a plain flag so
-  the backend step doesn't need to parse that text to route match/mismatch.
+  `{"snapshot_a": {...}, "snapshot_b": {...}, "exclude": [...]}` (`exclude`
+  optional), runs
+  `genie.utils.diff.Diff(a, b, exclude=exclude); diff.findDiff()` (after the
+  `_unwrap()` step above), and returns `{"identical": bool, "diff": str}` —
+  `str(diff)` is Genie's human-readable line-based format, `identical` is a
+  plain flag so the backend step doesn't need to parse that text to route
+  match/mismatch.
 - Backend side (`workflow_steps/compare_pyats_snapshot/executor.py`):
   resolve the live `pyats_snapshot` artifact via
   `workflow_steps/common/content_resolver.py`'s existing `pyats_snapshot`

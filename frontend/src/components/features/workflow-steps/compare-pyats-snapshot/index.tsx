@@ -52,6 +52,12 @@ const FILENAME_PLACEHOLDERS = [
   "{run.id}",
 ];
 
+function excludeKeysFromConfig(config: Record<string, unknown>): string[] {
+  return Array.isArray(config.exclude_keys)
+    ? config.exclude_keys.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function buildComparePyatsSnapshotConfig(
   config: Record<string, unknown>,
   patch: Record<string, unknown> = {},
@@ -62,6 +68,7 @@ function buildComparePyatsSnapshotConfig(
       typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
     parsed_output_key:
       typeof config.parsed_output_key === "string" ? config.parsed_output_key : "",
+    exclude_keys: excludeKeysFromConfig(config),
     reference_location:
       config.reference_location === "git" || config.reference_location === "filesystem"
         ? config.reference_location
@@ -101,6 +108,23 @@ function ComparePyatsSnapshotConfigPanel({
       onChange(buildComparePyatsSnapshotConfig(config));
     }
   }, [nodeId, config, onChange]);
+
+  // Local text buffer for exclude_keys: the persisted config value is an
+  // array (parsed by splitting on ","), so deriving the input's display
+  // value from that array on every keystroke drops in-progress trailing
+  // commas/spaces (e.g. typing "updated," would immediately snap back to
+  // "updated"). Buffer the raw text and only resync it from config when the
+  // selected node actually changes.
+  const excludeKeysInitializedFor = useRef<string | null>(null);
+  const [excludeKeysText, setExcludeKeysText] = useState("");
+
+  useEffect(() => {
+    if (excludeKeysInitializedFor.current === nodeId) {
+      return;
+    }
+    excludeKeysInitializedFor.current = nodeId;
+    setExcludeKeysText(excludeKeysFromConfig(config).join(", "));
+  }, [nodeId, config]);
 
   const feature = typeof config.feature === "string" ? config.feature : "";
   const referenceLocation = (config.reference_location as ReferenceLocation) || "filesystem";
@@ -178,6 +202,18 @@ function ComparePyatsSnapshotConfigPanel({
   const handleParsedOutputKeyChange = useCallback(
     (value: string) => {
       onChange(buildComparePyatsSnapshotConfig(config, { parsed_output_key: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleExcludeKeysChange = useCallback(
+    (value: string) => {
+      setExcludeKeysText(value);
+      const excludeKeys = value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      onChange(buildComparePyatsSnapshotConfig(config, { exclude_keys: excludeKeys }));
     },
     [config, onChange],
   );
@@ -315,6 +351,29 @@ function ComparePyatsSnapshotConfigPanel({
           placeholder="pyats_snapshot"
           className="h-8 font-mono text-xs"
         />
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">exclude_keys</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            optional
+          </Badge>
+        </div>
+        <Input
+          value={excludeKeysText}
+          onChange={(event) => handleExcludeKeysChange(event.target.value)}
+          placeholder="updated, last_change, uptime"
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Comma-separated dict keys to ignore during the diff (passed to Genie&rsquo;s{" "}
+          <span className="font-mono">Diff(..., exclude=[...])</span>). Genie does{" "}
+          <span className="font-medium text-foreground">not</span> ignore volatile fields
+          like <span className="font-mono">updated</span> automatically — list any keys
+          whose values change on their own (timers, counters, uptime) to avoid false
+          mismatches.
+        </p>
       </div>
 
       <div className="space-y-1.5 border-t pt-3">

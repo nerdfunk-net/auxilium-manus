@@ -163,6 +163,24 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         call_kwargs = shim.diff.call_args.kwargs
         self.assertEqual(call_kwargs["snapshot_a"], {"peers": 2})
         self.assertEqual(call_kwargs["snapshot_b"], {"peers": 2})
+        self.assertEqual(call_kwargs["exclude_keys"], [])
+
+    async def test_exclude_keys_passed_through_to_shim_diff(self) -> None:
+        device = _device_with_snapshot(
+            ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")
+        )
+        outcomes, shim, _ = await self._run(
+            device=device,
+            reference_content=json.dumps({"bgp": {"success": True, "data": {"peers": 2}}}),
+            shim_diff_result={"identical": True, "diff": ""},
+            config={**_BASE_CONFIG, "exclude_keys": ["updated", " last_change ", "", 5]},
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(list(by_name["match"].context.devices), ["device-1"])
+
+        call_kwargs = shim.diff.call_args.kwargs
+        self.assertEqual(call_kwargs["exclude_keys"], ["updated", "last_change", "5"])
 
     async def test_mismatch_routes_to_mismatch_outcome_and_stores_diff(self) -> None:
         device = _device_with_snapshot(

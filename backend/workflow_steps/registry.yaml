@@ -454,8 +454,9 @@ plugins:
     overview: Diff two Genie snapshots of the same feature via genie.utils.diff.Diff.
     description: >
       Compare a live pyATS snapshot (from an upstream Get Snapshot step) against a
-      stored reference snapshot using Genie's own diff, which ignores noisy dynamic
-      fields (counters, timestamps) unlike a plain text diff.
+      stored reference snapshot using Genie's own structure-aware diff instead of a
+      plain text diff. Configure exclude_keys to ignore volatile fields (e.g. updated,
+      uptime) that Genie does not ignore automatically.
     artifact_type: control_flow
     palette_category: pyats
     directory: compare_pyats_snapshot
@@ -489,6 +490,16 @@ plugins:
             snapshot keys.
           data_type: string
           required: false
+        - name: exclude_keys
+          description: >
+            Dict keys to ignore during the diff (passed to Genie's
+            Diff(..., exclude=[...])). Genie does not ignore volatile fields
+            (e.g. updated, uptime, last_change) automatically -- list any keys
+            whose values change on their own to avoid false mismatches.
+          data_type: array
+          required: false
+          default: []
+          example: ["updated", "last_change", "uptime"]
         - name: reference_location
           description: Where the reference snapshot JSON is stored (filesystem or git).
           data_type: string

@@ -93,10 +93,13 @@ class PyATSShimService:
         *,
         snapshot_a: dict[str, Any],
         snapshot_b: dict[str, Any],
+        exclude_keys: list[str] | None = None,
         timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         base = self._base_url(credentials)
         body: dict[str, Any] = {"snapshot_a": snapshot_a, "snapshot_b": snapshot_b}
+        if exclude_keys:
+            body["exclude"] = exclude_keys
         request_timeout = timeout_seconds or credentials.timeout
         headers = {"Authorization": f"Bearer {credentials.token}"}
 

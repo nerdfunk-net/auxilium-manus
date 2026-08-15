@@ -72,6 +72,35 @@ def test_compute_diff_without_info_key_diffs_whole_dict():
     assert diff_text.strip() != ""
 
 
+def test_compute_diff_without_exclude_reports_volatile_key_changes():
+    identical, diff_text = _compute_diff(
+        {"info": {"peers": 2, "updated": "4w2d"}},
+        {"info": {"peers": 2, "updated": "4w0d"}},
+    )
+    assert identical is False
+    assert diff_text.strip() != ""
+
+
+def test_compute_diff_with_exclude_ignores_listed_keys():
+    identical, diff_text = _compute_diff(
+        {"info": {"peers": 2, "updated": "4w2d"}},
+        {"info": {"peers": 2, "updated": "4w0d"}},
+        exclude=["updated"],
+    )
+    assert identical is True
+    assert diff_text.strip() == ""
+
+
+def test_compute_diff_with_exclude_still_reports_other_diffs():
+    identical, diff_text = _compute_diff(
+        {"info": {"peers": 2, "updated": "4w2d"}},
+        {"info": {"peers": 3, "updated": "4w0d"}},
+        exclude=["updated"],
+    )
+    assert identical is False
+    assert "peers" in diff_text
+
+
 def test_route_returns_diff_for_differing_snapshots(client):
     response = client.post(
         "/v1/diff",
@@ -82,6 +111,22 @@ def test_route_returns_diff_for_differing_snapshots(client):
     body = response.json()
     assert body["identical"] is False
     assert body["diff"] != ""
+
+
+def test_route_applies_exclude_list(client):
+    response = client.post(
+        "/v1/diff",
+        json={
+            "snapshot_a": {"info": {"updated": "4w2d"}},
+            "snapshot_b": {"info": {"updated": "4w0d"}},
+            "exclude": ["updated"],
+        },
+        headers=_auth_headers(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["identical"] is True
+    assert body["diff"] == ""
 
 
 def test_route_returns_identical_for_matching_snapshots(client):

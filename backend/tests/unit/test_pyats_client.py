@@ -45,6 +45,31 @@ class PyATSShimServiceDiffTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer shim-token")
 
+    async def test_diff_omits_exclude_when_not_given(self) -> None:
+        self.mock_client.request.return_value = httpx.Response(
+            200, json={"identical": True, "diff": ""}
+        )
+        await self.service.diff(
+            _credentials(),
+            snapshot_a={"info": {"a": 1}},
+            snapshot_b={"info": {"a": 1}},
+        )
+        call = self.mock_client.request.call_args
+        self.assertNotIn("exclude", call.kwargs["json"])
+
+    async def test_diff_includes_exclude_keys_in_request_body(self) -> None:
+        self.mock_client.request.return_value = httpx.Response(
+            200, json={"identical": True, "diff": ""}
+        )
+        await self.service.diff(
+            _credentials(),
+            snapshot_a={"info": {"updated": "4w2d"}},
+            snapshot_b={"info": {"updated": "4w0d"}},
+            exclude_keys=["updated"],
+        )
+        call = self.mock_client.request.call_args
+        self.assertEqual(call.kwargs["json"]["exclude"], ["updated"])
+
     async def test_diff_400_raises_validation_error(self) -> None:
         self.mock_client.request.return_value = httpx.Response(
             400, json={"detail": "Genie diff failed: incompatible shapes"}
