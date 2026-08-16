@@ -72,6 +72,36 @@ def serialize_command_output(raw: Any) -> str:
     return json.dumps(raw, indent=2, default=str)
 
 
+# Cisco IOS/IOS-XE prints "Building configuration...\n\nCurrent configuration :
+# <n> bytes\n" ahead of the actual config text on 'show running-config'.
+# Netmiko's send_command() only strips the command echo and trailing prompt,
+# so this banner survives verbatim -- and it is not valid config syntax: any
+# consumer that later feeds this text back to the device (e.g. 'configure
+# replace') sees it as two commands, fails to apply them, and aborts.
+_RUNNING_CONFIG_BUILDING_LINE = "building configuration..."
+_RUNNING_CONFIG_SIZE_LINE_RE = re.compile(r"^current configuration\s*:\s*\d+\s*bytes\s*$", re.I)
+
+
+def _strip_running_config_banner(raw: str) -> str:
+    """Drop the 'Building configuration...'/'Current configuration : N bytes'
+    preamble (and any blank lines around it) so callers get the config text a
+    device would actually accept back, matching what 'show startup-config' or
+    an on-device saved config file looks like."""
+    lines = raw.splitlines()
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped:
+            index += 1
+        elif stripped.lower() == _RUNNING_CONFIG_BUILDING_LINE:
+            index += 1
+        elif _RUNNING_CONFIG_SIZE_LINE_RE.match(stripped):
+            index += 1
+        else:
+            break
+    return "\n".join(lines[index:])
+
+
 class NetmikoDeviceSession:
     """Synchronous Netmiko session with explicit connect / disconnect."""
 
@@ -328,7 +358,9 @@ class NetmikoDeviceSession:
             ) from exc
 
     def get_running_config(self) -> str:
-        return self.send_command("show running-config", read_timeout=120)
+        return _strip_running_config_banner(
+            self.send_command("show running-config", read_timeout=120)
+        )
 
     def get_startup_config(self) -> str:
         return self.send_command("show startup-config", read_timeout=120)

@@ -59,6 +59,12 @@ export function UploadConfigHelpPanel() {
           for uploading content produced anywhere else in the workflow.
         </p>
         <p>
+          <span className="font-medium text-foreground">Running configuration</span> reads
+          whichever step last set the device&apos;s <HelpCode>running_config_ref</HelpCode> —
+          Get Configs (live fetch) or Read Config (from disk/git) both populate it, so either one
+          upstream is enough; no <HelpCode>source_step_node_id</HelpCode> is needed.
+        </p>
+        <p>
           Sources other than running/startup config and latest command output need{" "}
           <HelpCode>source_step_node_id</HelpCode> to pick which upstream step&apos;s
           output to use. When exactly one matching step exists in the workflow, it is

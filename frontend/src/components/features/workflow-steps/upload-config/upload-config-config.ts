@@ -11,7 +11,7 @@ export const CONTENT_SOURCE_OPTIONS = [
   {
     value: "running_config",
     label: "Running configuration",
-    hint: "Requires an upstream get-device-configs (or similar) step.",
+    hint: "Requires an upstream Read Config or Get Device Configs step. No step picker needed — the most recent running config is used automatically.",
   },
   {
     value: "startup_config",

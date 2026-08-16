@@ -10,10 +10,18 @@ from the ``pyats_testbed`` bag written by an upstream add-pyats-testbed
 step; this step resolves no credentials of its own.
 
 No pyATS shim changes are needed: the flow is composed entirely from the
-``operation="execute"`` shim call, sending the replace command and then the
-confirm command. Each shim call is its own fresh connect/disconnect -- there
-is no need to hold one session open across the whole flow, because the
-rollback timer is device-side, not tied to the CLI session that issued it.
+``operation="execute"`` shim call. The pre-check and post-check diffs are
+each their own fresh connect/disconnect (they're read-only and order
+doesn't matter), but ``configure replace ... time N`` and the following
+``configure confirm`` are sent together as *one* shim job -- i.e. one
+connect, both commands, one disconnect. This is deliberate, not an
+optimization: in testing, sending ``configure confirm`` as a separate job
+(a fresh reconnect) reliably got back "%No Rollback Confirmed Change
+pending" even though the replace had genuinely applied and stuck -- the
+device's Rollback Confirmed Change "pending" bookkeeping appears to be
+scoped to the CLI session that issued the timed replace, not global to the
+device. A brand-new session simply can't see it. Keeping both commands on
+one connection sidesteps that entirely.
 
 ``configure confirm`` succeeding only proves the rollback timer was
 cancelled -- it says nothing about whether every line of the target file
@@ -39,11 +47,22 @@ rather than blocking the run on a diagnostic command's failure -- except
 the post-check, where a failed diff means we can no longer vouch for the
 outcome and the device is failed.
 
-Reconnecting to send ``configure confirm`` doubles as the connectivity
-check -- if the replace broke reachability, that shim call fails outright.
-If the device responds with "No Rollback Confirmed Change pending" (e.g.
-the timer already expired, or another session already confirmed it), the
-outcome is reported as a step failure rather than silently swallowed.
+The diff command always prints a ``!Contextual Config Diffs:`` header, even
+when there is nothing to report -- IOS then follows it with
+``!No changes were found`` rather than leaving the body blank. A plain
+``.strip()`` truthiness check on that text would treat every call as a real
+diff; ``_diff_has_changes`` filters both known no-op lines out first.
+
+Sending ``configure confirm`` on the same connection means a broken-reachability
+scenario no longer shows up as a failed reconnect; instead it shows up as
+``configure confirm`` itself erroring on that still-open channel (connection
+drop, timeout, etc.), which is handled the same way. ``verify_diff_after_replace``
+(on by default) still opens a fresh connection afterward for the post-check
+diff, so a device that's become unreachable to *new* connections is still
+caught there. If the device responds with "No Rollback Confirmed Change
+pending" (e.g. the timer already expired, or another session already
+confirmed it), the outcome is reported as a step failure rather than
+silently swallowed.
 """
 
 from __future__ import annotations
@@ -110,6 +129,28 @@ def _has_no_pending_rollback(raw_output: Any) -> bool:
     return _NO_PENDING_ROLLBACK_MARKER in str(raw_output or "").lower()
 
 
+def _diff_has_changes(diff_text: str) -> bool:
+    """True when a 'show archive config differences' response represents a
+    real difference.
+
+    The command always prints a '!Contextual Config Diffs:' header line, even
+    when there is nothing to report -- Cisco IOS then follows it with
+    '!No changes were found' rather than leaving the rest of the output
+    blank. A plain truthiness/``.strip()`` check on the raw text therefore
+    treats every call as a diff; this walks the non-blank lines and ignores
+    only those two known no-op lines.
+    """
+    for line in diff_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        lowered = stripped.lstrip("!").strip().lower()
+        if lowered in ("contextual config diffs:", "no changes were found"):
+            continue
+        return True
+    return False
+
+
 def _resolve_source_credentials(
     db: Session, source_ids: set[str]
 ) -> tuple[dict[str, PyATSCredentials], dict[str, str]]:
@@ -135,6 +176,71 @@ def _fail_device(
     return device_id, failed, False
 
 
+def _fail_replace(
+    *, device: DeviceContext, device_id: str, node_id: str, error: str | None
+) -> tuple[str, DeviceContext, bool]:
+    """Fail a device for a 'configure replace' error, whether it surfaced as a
+    connection/job-level failure or as a per-command error on an otherwise-connected
+    session -- both land here so the archive-not-configured hint stays in one place."""
+    if _is_archive_not_configured_error(error):
+        return _fail_device(
+            device=device,
+            device_id=device_id,
+            node_id=node_id,
+            code="archive_not_configured",
+            message=(
+                "Device rejected 'configure replace' because config archiving is not "
+                "enabled -- the 'time'/Rollback Confirmed Change feature this step relies "
+                "on requires it. Configure it once on the device, e.g.:\n"
+                "  archive\n"
+                "   path flash:archive\n"
+                "then retry. See this step's Help panel for details."
+            ),
+        )
+    return _fail_device(
+        device=device,
+        device_id=device_id,
+        node_id=node_id,
+        code="replace_failed",
+        message=f"'configure replace' failed or the connection was lost: {error}",
+    )
+
+
+async def _run_shim_job(
+    shim: Any,
+    shim_credentials: PyATSCredentials,
+    *,
+    operation: str,
+    shim_device: dict[str, Any],
+    commands: list[str],
+) -> tuple[bool, dict[str, dict[str, Any]], str | None]:
+    """Run a shim job with one or more commands over a single device connection.
+
+    The shim connects once, runs every command in ``commands`` against that
+    same connection in order, then disconnects -- see generic_script.py's
+    ``run_commands``. Returns (ok, command_entries, error_message); ``ok`` is
+    False only when the connection/job itself failed for this device (each
+    entry in ``command_entries`` -- keyed by command text -- can still carry
+    its own per-command ``error`` even when ``ok`` is True).
+    """
+    try:
+        response = await shim.run_job(
+            shim_credentials,
+            operation=operation,
+            devices=[shim_device],
+            commands=commands,
+        )
+    except PyATSAPIError as exc:
+        return False, {}, str(exc)
+
+    result = (response.get("results") or {}).get(shim_device["name"])
+    if not result or not result.get("success", False):
+        message = (result or {}).get("error") or "pyATS shim reported failure for this device"
+        return False, {}, message
+
+    return True, result.get("commands") or {}, None
+
+
 async def _call_shim(
     shim: Any,
     shim_credentials: PyATSCredentials,
@@ -144,22 +250,13 @@ async def _call_shim(
     command: str,
 ) -> tuple[bool, Any, str | None]:
     """Run a single-command shim job. Returns (ok, value, error_message)."""
-    try:
-        response = await shim.run_job(
-            shim_credentials,
-            operation=operation,
-            devices=[shim_device],
-            commands=[command],
-        )
-    except PyATSAPIError as exc:
-        return False, None, str(exc)
+    ok, command_entries, err = await _run_shim_job(
+        shim, shim_credentials, operation=operation, shim_device=shim_device, commands=[command]
+    )
+    if not ok:
+        return False, None, err
 
-    result = (response.get("results") or {}).get(shim_device["name"])
-    if not result or not result.get("success", False):
-        message = (result or {}).get("error") or "pyATS shim reported failure for this device"
-        return False, None, message
-
-    entry = (result.get("commands") or {}).get(command) or {}
+    entry = command_entries.get(command) or {}
     if entry.get("error"):
         return False, None, entry["error"]
 
@@ -296,7 +393,7 @@ async def _process_one_device(
         diff_ok, pre_diff_text, diff_err = await _run_diff(
             shim, shim_credentials, shim_device=shim_device, diff_command=diff_command
         )
-        if diff_ok and not pre_diff_text.strip():
+        if diff_ok and not _diff_has_changes(pre_diff_text):
             entry = {
                 "kind": "configure_replace",
                 "confirmed": False,
@@ -322,7 +419,7 @@ async def _process_one_device(
                 bag.get("host"),
             )
             return device_id, enriched, True
-        if diff_ok and pre_diff_text.strip():
+        if diff_ok and _diff_has_changes(pre_diff_text):
             pre_diff_artifact_ref = await artifact_service.store(
                 content=pre_diff_text,
                 kind=_DIFF_ARTIFACT_KIND_PRE,
@@ -351,35 +448,20 @@ async def _process_one_device(
         replace_command,
     )
     started = time.monotonic()
-    ok, _, err = await _call_shim(
+    ok, command_entries, err = await _run_shim_job(
         shim,
         shim_credentials,
         operation="execute",
         shim_device=shim_device,
-        command=replace_command,
+        commands=[replace_command, _CONFIRM_COMMAND],
     )
     if not ok:
-        if _is_archive_not_configured_error(err):
-            return _fail_device(
-                device=device,
-                device_id=device_id,
-                node_id=node_id,
-                code="archive_not_configured",
-                message=(
-                    "Device rejected 'configure replace' because config archiving is not "
-                    "enabled -- the 'time'/Rollback Confirmed Change feature this step relies "
-                    "on requires it. Configure it once on the device, e.g.:\n"
-                    "  archive\n"
-                    "   path flash:archive\n"
-                    "then retry. See this step's Help panel for details."
-                ),
-            )
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="replace_failed",
-            message=f"'configure replace' failed or the connection was lost: {err}",
+        return _fail_replace(device=device, device_id=device_id, node_id=node_id, error=err)
+
+    replace_error = (command_entries.get(replace_command) or {}).get("error")
+    if replace_error:
+        return _fail_replace(
+            device=device, device_id=device_id, node_id=node_id, error=replace_error
         )
     logger.info(
         "%s replace returned device=%s host=%s elapsed=%.1fs",
@@ -389,24 +471,20 @@ async def _process_one_device(
         time.monotonic() - started,
     )
 
-    ok, confirm_raw, err = await _call_shim(
-        shim,
-        shim_credentials,
-        operation="execute",
-        shim_device=shim_device,
-        command=_CONFIRM_COMMAND,
-    )
-    if not ok:
+    confirm_entry = command_entries.get(_CONFIRM_COMMAND) or {}
+    if confirm_entry.get("error"):
         return _fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
             code="confirm_failed",
             message=(
-                f"Could not reconnect/send '{_CONFIRM_COMMAND}' after 'configure replace' "
-                f"({err}); device will auto-revert after {timeout_minutes} minute(s)"
+                f"'configure replace' succeeded but sending '{_CONFIRM_COMMAND}' on the same "
+                f"connection failed ({confirm_entry['error']}); device will auto-revert after "
+                f"{timeout_minutes} minute(s)"
             ),
         )
+    confirm_raw = confirm_entry.get("raw")
 
     if _has_no_pending_rollback(confirm_raw):
         return _fail_device(
@@ -444,7 +522,7 @@ async def _process_one_device(
                     f"{file_system}{destination_filename}"
                 ),
             )
-        if post_diff_text.strip():
+        if _diff_has_changes(post_diff_text):
             post_diff_artifact_ref = await artifact_service.store(
                 content=post_diff_text,
                 kind=_DIFF_ARTIFACT_KIND_POST,
