@@ -246,43 +246,6 @@ class GitCacheService:
             logger.error("Failed to get file history for %s: %s", file_path, e)
             return []
 
-    def get_commit_details(
-        self, repo_id: int, repo_path: str, commit_hash: str
-    ) -> dict[str, Any] | None:
-        """Get detailed information for a specific commit with caching."""
-        cache_cfg = self._get_cache_config()
-        cache_key = self._build_cache_key(repo_id, "commit", commit_hash)
-
-        if cache_cfg.get("enabled", True):
-            cached_commit = self._cache.get(cache_key)
-            if cached_commit is not None:
-                logger.debug("Cache hit for commit details: %s", commit_hash)
-                return cached_commit
-
-        try:
-            repo = Repo(repo_path)
-            commit = repo.commit(commit_hash)
-
-            commit_dict = commit_to_dict(commit)
-
-            stats = commit.stats.total
-            commit_dict["stats"] = {
-                "additions": stats.get("insertions", 0),
-                "deletions": stats.get("deletions", 0),
-                "changes": stats.get("lines", 0),
-                "total_lines": stats.get("files", 0),
-            }
-
-            if cache_cfg.get("enabled", True):
-                ttl = int(cache_cfg.get("ttl_seconds", 600))
-                self._cache.set(cache_key, commit_dict, ttl)
-
-            return commit_dict
-
-        except Exception as e:
-            logger.error("Failed to get commit details for %s: %s", commit_hash, e)
-            return None
-
     def invalidate_repo(self, repo_id: int) -> None:
         """Invalidate all cached data for a repository."""
         try:
@@ -300,19 +263,3 @@ class GitCacheService:
 
         except Exception as e:
             logger.error("Failed to invalidate cache for repo %s: %s", repo_id, e)
-
-    def invalidate_all(self) -> None:
-        """Invalidate all git-related cached data."""
-        try:
-            pattern = "repo:*"
-            logger.warning("Invalidating ALL git caches")
-
-            if hasattr(self._cache, "delete_pattern"):
-                self._cache.delete_pattern(pattern)
-            elif hasattr(self._cache, "clear"):
-                self._cache.clear()
-            else:
-                logger.warning("Cache service doesn't support bulk deletion")
-
-        except Exception as e:
-            logger.error("Failed to invalidate all caches: %s", e)

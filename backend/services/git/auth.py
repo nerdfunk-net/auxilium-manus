@@ -238,28 +238,6 @@ class GitAuthenticationService:
         except Exception:
             return url
 
-    def is_ssh_auth(self, repository: dict) -> bool:
-        """Check if repository uses SSH key authentication.
-
-        Args:
-            repository: Repository metadata dict
-
-        Returns:
-            True if auth_type is ssh_key
-        """
-        return repository.get("auth_type", "token") == "ssh_key"
-
-    def is_token_auth(self, repository: dict) -> bool:
-        """Check if repository uses token authentication.
-
-        Args:
-            repository: Repository metadata dict
-
-        Returns:
-            True if auth_type is token (or default)
-        """
-        return repository.get("auth_type", "token") == "token"
-
     @contextmanager
     def setup_auth_environment(self, repository: dict):
         """Context manager to setup authentication environment for Git operations.

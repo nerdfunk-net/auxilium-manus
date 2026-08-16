@@ -18,26 +18,6 @@ logger = logging.getLogger(__name__)
 git_repo_manager = GitRepositoryManager()
 
 
-def get_git_repositories_by_category(category: str):
-    """Get all active Git repository instances for a specific category.
-
-    Returns a list of opened/cloned git.Repo objects ready for use.
-    """
-    import service_factory
-
-    repos = git_repo_manager.get_repositories_by_category(category)
-    git_service = service_factory.build_git_service()
-
-    result = []
-    for repo_dict in repos:
-        try:
-            repo = git_service.open_or_clone(repo_dict)
-            result.append(repo)
-        except Exception as e:
-            logger.error("Failed to open/clone repository %s: %s", repo_dict.get("name"), e)
-    return result
-
-
 def get_git_repo_by_id(repo_id: int):
     """Get Git repository instance by ID (shared utility function)."""
     try:

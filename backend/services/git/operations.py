@@ -2,8 +2,11 @@
 Git Operations Service - Centralized repository operations.
 
 This service consolidates sync, clone, pull, and status operations that were
-previously duplicated or embedded in routers. It provides a clean service layer
-for all git operational tasks.
+previously duplicated or embedded in routers. All real clone/pull/fetch network
+operations delegate to ``services.git.service.GitService`` — the single place
+that enforces ``core.safe_urls.validate_git_remote_url`` — so status checks and
+repository syncing are held to the same URL-safety policy as everything else in
+the git subsystem.
 """
 
 from __future__ import annotations
@@ -16,10 +19,10 @@ from typing import Any
 
 from git import GitCommandError, Repo
 
-from models.git import CloneResult, SyncResult
-from services.git.auth import GitAuthenticationService
-from services.git.env import set_ssl_env
+from core.safe_urls import UnsafeURLError
+from models.git import SyncResult
 from services.git.paths import repo_path as get_repo_path
+from services.git.service import GitService
 
 logger = logging.getLogger(__name__)
 
@@ -91,16 +94,20 @@ def _fill_cached_commits(
         status_info["commits"] = []
 
 
-def _fill_remote_sync_status(repo: Repo, status_info: dict[str, Any], branch: str) -> None:
+def _fill_remote_sync_status(
+    git_service: GitService,
+    repository: dict[str, Any],
+    repo: Repo,
+    status_info: dict[str, Any],
+    branch: str,
+) -> None:
     try:
         if "origin" not in [r.name for r in repo.remotes]:
             return
 
-        origin = repo.remote("origin")
-        try:
-            origin.fetch()
-        except Exception as fetch_error:
-            logger.debug("Fetch failed: %s", fetch_error)
+        fetch_result = git_service.fetch(repository, repo=repo)
+        if not fetch_result.success:
+            logger.debug("Fetch failed: %s", fetch_result.message)
 
         try:
             remote_branch = f"origin/{branch}"
@@ -134,18 +141,6 @@ def _map_clone_error_message(err: str, repository: dict[str, Any]) -> str:
     return f"Git clone failed: {err}"
 
 
-def _cleanup_failed_clone_dir(repo_path: str, success: bool) -> None:
-    try:
-        if not success and os.path.isdir(repo_path) and not os.listdir(repo_path):
-            shutil.rmtree(repo_path)
-            logger.info(
-                "Removed empty directory after failed clone: %s",
-                repo_path,
-            )
-    except Exception as ce:
-        logger.warning("Cleanup after failed clone skipped: %s", ce)
-
-
 def _backup_non_git_directory(
     repo_path: str, *, repo_dir_exists: bool, is_git_repo: bool
 ) -> None:
@@ -155,71 +150,6 @@ def _backup_non_git_directory(
         backup_path = os.path.join(parent_dir, f"{base_name}_backup_{int(time.time())}")
         shutil.move(repo_path, backup_path)
         logger.info("Backed up existing directory to %s", backup_path)
-
-
-def _clone_repository_at_path(
-    *,
-    repository: dict[str, Any],
-    repo_path: str,
-    clone_url: str,
-    repo_dir_exists: bool,
-    is_git_repo: bool,
-) -> tuple[bool, str]:
-    _backup_non_git_directory(
-        repo_path, repo_dir_exists=repo_dir_exists, is_git_repo=is_git_repo
-    )
-    success = False
-    message = ""
-    try:
-        if not repository.get("verify_ssl", True):
-            logger.warning("Git SSL verification disabled - not recommended for production")
-        with set_ssl_env(repository):
-            logger.info("Cloning branch %s into %s", repository["branch"], repo_path)
-            Repo.clone_from(clone_url, repo_path, branch=repository["branch"])
-
-        if not os.path.isdir(os.path.join(repo_path, ".git")):
-            raise GitCommandError("clone", 1, b"", b".git not found after clone")
-
-        success = True
-        message = f"Repository '{repository['name']}' cloned successfully to {repo_path}"
-        logger.info(message)
-    except GitCommandError as gce:
-        err = str(gce)
-        logger.error("Git clone failed: %s", err)
-        message = _map_clone_error_message(err, repository)
-    except Exception as e:
-        logger.error("Unexpected error during Git clone: %s", e)
-        message = f"Unexpected error: {str(e)}"
-    finally:
-        _cleanup_failed_clone_dir(repo_path, success)
-    return success, message
-
-
-def _pull_repository_at_path(
-    *,
-    repository: dict[str, Any],
-    repo_path: str,
-    clone_url: str,
-    resolved_token: str | None,
-) -> tuple[bool, str]:
-    try:
-        repo = Repo(repo_path)
-        origin = repo.remotes.origin
-
-        if resolved_token and "http" in repository["url"]:
-            try:
-                origin.set_url(clone_url)
-            except Exception as e:
-                logger.debug("Skipping remote URL update: %s", e)
-
-        with set_ssl_env(repository):
-            origin.pull(repository["branch"])
-        message = f"Repository '{repository['name']}' updated successfully"
-        logger.info(message)
-        return True, message
-    except Exception as e:
-        logger.error("Error during Git pull: %s", e)
-        return False, f"Pull failed: {str(e)}"
 
 
 def _scan_config_files(repo_path: str) -> list[str]:
@@ -236,10 +166,15 @@ def _scan_config_files(repo_path: str) -> list[str]:
 
 
 class GitOperationsService:
-    """Service for git repository operations like sync, clone, pull, and status."""
+    """Service for git repository operations like sync, clone, pull, and status.
+
+    Delegates all real clone/pull/fetch network operations to the shared
+    ``GitService`` engine (services/git/service.py) — the single place that
+    enforces ``core.safe_urls.validate_git_remote_url``.
+    """
 
     def __init__(self):
-        self._auth = GitAuthenticationService()
+        self._git_service = GitService()
 
     def sync_repository(self, repository: dict[str, Any], force_clone: bool = False) -> SyncResult:
         """Sync a repository (clone if not exists, pull if exists).
@@ -250,9 +185,6 @@ class GitOperationsService:
 
         Returns:
             SyncResult with success status and message
-
-        Raises:
-            Exception: If sync operation fails
         """
         repo_path = str(get_repo_path(repository))
         logger.info("Syncing repository '%s' to path: %s", repository["name"], repo_path)
@@ -262,31 +194,30 @@ class GitOperationsService:
         is_git_repo = os.path.isdir(os.path.join(repo_path, ".git"))
         needs_clone = _sync_needs_clone(force_clone=force_clone, is_git_repo=is_git_repo)
 
-        success = False
-        message = ""
-
-        with self._auth.setup_auth_environment(repository) as (
-            clone_url,
-            resolved_username,
-            resolved_token,
-            ssh_key_path,
-        ):
-            del resolved_username, ssh_key_path  # unused; keep unpack shape
-            if needs_clone:
-                success, message = _clone_repository_at_path(
-                    repository=repository,
-                    repo_path=repo_path,
-                    clone_url=clone_url,
-                    repo_dir_exists=repo_dir_exists,
-                    is_git_repo=is_git_repo,
-                )
-            else:
-                success, message = _pull_repository_at_path(
-                    repository=repository,
-                    repo_path=repo_path,
-                    clone_url=clone_url,
-                    resolved_token=resolved_token,
-                )
+        if needs_clone:
+            _backup_non_git_directory(
+                repo_path, repo_dir_exists=repo_dir_exists, is_git_repo=is_git_repo
+            )
+            try:
+                self._git_service.clone(repository)
+                success = True
+                message = f"Repository '{repository['name']}' cloned successfully to {repo_path}"
+                logger.info(message)
+            except UnsafeURLError as exc:
+                success = False
+                message = f"Repository URL is not allowed: {exc}"
+                logger.warning(message)
+            except GitCommandError as exc:
+                success = False
+                message = _map_clone_error_message(str(exc), repository)
+                logger.error("Git clone failed: %s", exc)
+            except Exception as exc:
+                success = False
+                message = f"Unexpected error: {exc}"
+                logger.error("Unexpected error during Git clone: %s", exc)
+        else:
+            pull_result = self._git_service.pull(repository)
+            success, message = pull_result.success, pull_result.message
 
         return SyncResult(
             success=success,
@@ -297,7 +228,7 @@ class GitOperationsService:
         )
 
     def remove_and_sync(self, repository: dict[str, Any]) -> SyncResult:
-        """Remove existing repository and clone fresh.
+        """Remove any existing local copy and clone fresh.
 
         Args:
             repository: Repository metadata dict
@@ -312,69 +243,23 @@ class GitOperationsService:
             repo_path,
         )
 
-        # Remove existing repository if present
-        if os.path.exists(repo_path):
-            try:
-                shutil.rmtree(repo_path, ignore_errors=True)
-                logger.info("Removed existing repository at %s", repo_path)
-            except Exception as e:
-                logger.error("Failed to remove repository: %s", e)
-
-        # Ensure parent directory exists
-        os.makedirs(os.path.dirname(repo_path), exist_ok=True)
-
-        # Clone fresh copy using authentication service
-        success = False
-        message = ""
-
-        with self._auth.setup_auth_environment(repository) as (
-            clone_url,
-            resolved_username,
-            resolved_token,
-            ssh_key_path,
-        ):
-            try:
-                if not repository.get("verify_ssl", True):
-                    logger.warning("Git SSL verification disabled - not recommended for production")
-
-                with set_ssl_env(repository):
-                    logger.info(
-                        "Cloning fresh copy of branch %s into %s",
-                        repository["branch"],
-                        repo_path,
-                    )
-                    Repo.clone_from(clone_url, repo_path, branch=repository["branch"])
-
-                if not os.path.isdir(os.path.join(repo_path, ".git")):
-                    raise GitCommandError("clone", 1, b"", b".git not found after clone")
-
-                success = True
-                message = f"Repository '{repository['name']}' removed and re-cloned successfully"
-                logger.info(message)
-
-            except GitCommandError as gce:
-                err = str(gce)
-                logger.error("Git clone failed: %s", err)
-                if "authentication" in err.lower():
-                    message = "Authentication failed. Please check your Git credentials."
-                elif "not found" in err.lower():
-                    message = (
-                        f"Repository or branch not found. "
-                        f"URL: {repository['url']} Branch: {repository['branch']}"
-                    )
-                else:
-                    message = f"Git clone failed: {err}"
-            except Exception as e:
-                logger.error("Unexpected error during Git clone: %s", e)
-                message = f"Unexpected error: {str(e)}"
-            finally:
-                # Cleanup empty directory after failed clone
-                try:
-                    if not success and os.path.isdir(repo_path) and not os.listdir(repo_path):
-                        shutil.rmtree(repo_path)
-                        logger.info("Removed empty directory after failed clone: %s", repo_path)
-                except Exception as ce:
-                    logger.warning("Cleanup after failed clone skipped: %s", ce)
+        try:
+            self._git_service.clone(repository)
+            success = True
+            message = f"Repository '{repository['name']}' removed and re-cloned successfully"
+            logger.info(message)
+        except UnsafeURLError as exc:
+            success = False
+            message = f"Repository URL is not allowed: {exc}"
+            logger.warning(message)
+        except GitCommandError as exc:
+            success = False
+            message = _map_clone_error_message(str(exc), repository)
+            logger.error("Git clone failed: %s", exc)
+        except Exception as exc:
+            success = False
+            message = f"Unexpected error: {exc}"
+            logger.error("Unexpected error during Git clone: %s", exc)
 
         return SyncResult(
             success=success,
@@ -383,49 +268,6 @@ class GitOperationsService:
             commits_ahead=0,
             repository_path=repo_path if success else None,
         )
-
-    def clone_repository(self, repository: dict[str, Any], target_path: str = None) -> CloneResult:
-        """Clone a repository to a specific path.
-
-        Args:
-            repository: Repository metadata dict
-            target_path: Optional target path (uses default if not provided)
-
-        Returns:
-            CloneResult with success status and path
-        """
-        repo_path = target_path or str(get_repo_path(repository))
-        logger.info("Cloning repository '%s' to %s", repository["name"], repo_path)
-
-        success = False
-        message = ""
-
-        try:
-            os.makedirs(os.path.dirname(repo_path), exist_ok=True)
-
-            with self._auth.setup_auth_environment(repository) as (
-                clone_url,
-                _,
-                _,
-                _,
-            ):
-                with set_ssl_env(repository):
-                    Repo.clone_from(clone_url, repo_path, branch=repository["branch"])
-
-                success = True
-                message = f"Repository cloned successfully to {repo_path}"
-
-        except Exception as e:
-            logger.error("Clone failed: %s", e)
-            message = f"Clone failed: {str(e)}"
-            # Cleanup on failure
-            if os.path.exists(repo_path):
-                try:
-                    shutil.rmtree(repo_path)
-                except Exception:
-                    pass
-
-        return CloneResult(success=success, message=message, repo_path=repo_path)
 
     def get_repository_status(self, repository: dict[str, Any], repo_id: int) -> dict[str, Any]:
         """Get comprehensive repository status using GitPython."""
@@ -440,7 +282,9 @@ class GitOperationsService:
             status_info["is_git_repo"] = True
             _fill_local_git_metadata(repo, status_info)
             _fill_cached_commits(status_info, repo_id, repo_path, repository["branch"])
-            _fill_remote_sync_status(repo, status_info, repository["branch"])
+            _fill_remote_sync_status(
+                self._git_service, repository, repo, status_info, repository["branch"]
+            )
             try:
                 status_info["config_files"] = _scan_config_files(repo_path)
             except Exception as e:

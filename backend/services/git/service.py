@@ -21,18 +21,18 @@ Usage:
     repo = git_service.open_or_clone(repository_dict)
 
     # Commit and push changes
-    result = git_service.commit_and_push(
+    commit_result = git_service.commit(
         repository_dict,
         message="Updated configuration",
-        files=["config.yaml"]
+        files=["config.yaml"],
     )
+    git_service.push(repository_dict)
 """
 
 from __future__ import annotations
 
 import logging
 import shutil
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,7 @@ from typing import Any
 from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
 
+from core.safe_urls import validate_git_remote_url
 from services.git.auth import GitAuthenticationService
 from services.git.config import set_git_author
 from services.git.env import set_ssl_env
@@ -78,16 +79,6 @@ class PullResult(GitResult):
     """Result of a pull operation."""
 
     commits_pulled: int = 0
-    branch: str | None = None
-
-
-@dataclass
-class CommitAndPushResult(GitResult):
-    """Result of a combined commit and push operation."""
-
-    commit_sha: str | None = None
-    files_changed: int = 0
-    pushed: bool = False
     branch: str | None = None
 
 
@@ -159,7 +150,10 @@ class GitService:
         Raises:
             GitCommandError: If clone operation fails
             InvalidGitRepositoryError: If repository is invalid and re-clone fails
+            UnsafeURLError: If the repository URL fails the outbound git URL policy
         """
+        validate_git_remote_url(repository.get("url", ""), resolve_dns=True)
+
         repo_dir = self.get_repo_path(repository)
         repo_dir.mkdir(parents=True, exist_ok=True)
 
@@ -224,7 +218,10 @@ class GitService:
 
         Raises:
             GitCommandError: If clone operation fails
+            UnsafeURLError: If the repository URL fails the outbound git URL policy
         """
+        validate_git_remote_url(repository.get("url", ""), resolve_dns=True)
+
         # Clean up existing directory if present
         if target_path.exists():
             try:
@@ -273,6 +270,8 @@ class GitService:
             PullResult with operation status
         """
         try:
+            validate_git_remote_url(repository.get("url", ""), resolve_dns=True)
+
             if repo is None:
                 repo = self.open_or_clone(repository)
 
@@ -353,6 +352,8 @@ class GitService:
             PushResult with operation status
         """
         try:
+            validate_git_remote_url(repository.get("url", ""), resolve_dns=True)
+
             if repo is None:
                 repo = self.open_or_clone(repository)
 
@@ -502,102 +503,6 @@ class GitService:
                 message=f"Unexpected error: {str(e)}",
             )
 
-    def commit_and_push(
-        self,
-        repository: dict,
-        message: str,
-        files: list[str] | None = None,
-        repo: Repo | None = None,
-        add_all: bool = False,
-        branch: str | None = None,
-    ) -> CommitAndPushResult:
-        """Commit changes and push to remote in one operation.
-
-        This is the most common workflow for automated changes. It:
-        1. Stages specified files (or all changes)
-        2. Creates a commit with the specified message
-        3. Pushes to the remote repository
-
-        Args:
-            repository: Repository metadata dict
-            message: Commit message
-            files: Optional list of files to stage (relative paths)
-            repo: Optional existing Repo instance (will open if not provided)
-            add_all: If True, stage all changes (git add .)
-            branch: Optional branch name for push (uses repository config if not provided)
-
-        Returns:
-            CommitAndPushResult with operation status
-        """
-        try:
-            if repo is None:
-                repo = self.open_or_clone(repository)
-
-            # Step 1: Commit
-            commit_result = self.commit(
-                repository=repository,
-                message=message,
-                files=files,
-                repo=repo,
-                add_all=add_all,
-            )
-
-            if not commit_result.success:
-                return CommitAndPushResult(
-                    success=False,
-                    message=commit_result.message,
-                    commit_sha=None,
-                    files_changed=0,
-                    pushed=False,
-                    branch=branch or repository.get("branch", "main"),
-                )
-
-            # If no changes were committed, skip push
-            if commit_result.files_changed == 0:
-                return CommitAndPushResult(
-                    success=True,
-                    message="No changes to commit or push",
-                    commit_sha=None,
-                    files_changed=0,
-                    pushed=False,
-                    branch=branch or repository.get("branch", "main"),
-                )
-
-            # Step 2: Push
-            push_result = self.push(
-                repository=repository,
-                repo=repo,
-                branch=branch,
-            )
-
-            if not push_result.success:
-                return CommitAndPushResult(
-                    success=False,
-                    message=f"Commit succeeded but push failed: {push_result.message}",
-                    commit_sha=commit_result.commit_sha,
-                    files_changed=commit_result.files_changed,
-                    pushed=False,
-                    branch=push_result.branch,
-                )
-
-            return CommitAndPushResult(
-                success=True,
-                message=f"Successfully committed and pushed {commit_result.files_changed} files",
-                commit_sha=commit_result.commit_sha,
-                files_changed=commit_result.files_changed,
-                pushed=True,
-                branch=push_result.branch,
-            )
-
-        except Exception as e:
-            logger.error("Unexpected error in commit_and_push: %s", e)
-            return CommitAndPushResult(
-                success=False,
-                message=f"Unexpected error: {str(e)}",
-                pushed=False,
-                branch=branch or repository.get("branch", "main"),
-            )
-
     def fetch(self, repository: dict, repo: Repo | None = None) -> GitResult:
         """Fetch updates from remote without merging.
 
@@ -609,6 +514,8 @@ class GitService:
             GitResult with operation status
         """
         try:
+            validate_git_remote_url(repository.get("url", ""), resolve_dns=True)
+
             if repo is None:
                 repo = self.open_or_clone(repository)
 
@@ -648,88 +555,3 @@ class GitService:
                 message=f"Fetch failed: {str(e)}",
             )
 
-    def get_status(self, repository: dict, repo: Repo | None = None) -> dict[str, Any]:
-        """Get comprehensive repository status.
-
-        Args:
-            repository: Repository metadata dict
-            repo: Optional existing Repo instance
-
-        Returns:
-            Dictionary with status information
-        """
-        repo_path = self.get_repo_path(repository)
-
-        status = {
-            "exists": repo_path.exists(),
-            "is_git_repo": False,
-            "current_branch": None,
-            "current_commit": None,
-            "is_dirty": False,
-            "untracked_files": [],
-            "modified_files": [],
-            "staged_files": [],
-        }
-
-        if not status["exists"]:
-            return status
-
-        try:
-            if repo is None:
-                repo = Repo(repo_path)
-
-            status["is_git_repo"] = True
-
-            try:
-                status["current_branch"] = repo.active_branch.name
-            except Exception:
-                status["current_branch"] = "HEAD"
-
-            try:
-                if repo.head.is_valid():
-                    commit = repo.head.commit
-                    status["current_commit"] = {
-                        "sha": commit.hexsha[:8],
-                        "message": commit.message.strip(),
-                        "author": commit.author.name,
-                        "date": commit.committed_datetime.isoformat(),
-                    }
-            except Exception:
-                pass
-
-            status["is_dirty"] = repo.is_dirty()
-            status["untracked_files"] = repo.untracked_files
-            status["modified_files"] = [item.a_path for item in repo.index.diff(None)]
-            status["staged_files"] = (
-                [item.a_path for item in repo.index.diff("HEAD")] if repo.head.is_valid() else []
-            )
-
-        except InvalidGitRepositoryError:
-            status["is_git_repo"] = False
-        except Exception as e:
-            logger.warning("Error getting repository status: %s", e)
-            status["error"] = str(e)
-
-        return status
-
-    @contextmanager
-    def with_auth_environment(self, repository: dict):
-        """Context manager to set up authentication environment for Git operations.
-
-        Use this when you need to perform custom Git operations with proper
-        authentication configured.
-
-        Args:
-            repository: Repository metadata dict
-
-        Yields:
-            Tuple of (auth_url, username, token, ssh_key_path)
-
-        Example:
-            >>> with git_service.with_auth_environment(repo_config) as (url, user, token, ssh_key):
-            ...     # Custom git operations with auth configured
-            ...     pass
-        """
-        with set_ssl_env(repository):
-            with self._auth.setup_auth_environment(repository) as auth_info:
-                yield auth_info

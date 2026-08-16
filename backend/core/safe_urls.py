@@ -61,8 +61,10 @@ def validate_git_remote_url(url: str, *, resolve_dns: bool = True) -> str:
     """Return a normalized git remote or raise ``UnsafeURLError``.
 
     Allows https (via ``validate_outbound_http_url``), ssh, git+ssh, and
-    scp-like ``git@host:path``. Rejects ``file://``, ``http://``, and bare
-    filesystem paths.
+    scp-like ``git@host:path``. Rejects ``file://`` and bare filesystem paths.
+    ``http://`` is rejected everywhere except when ``ENV=development`` (the
+    default) — production deployments must set ``ENV=production`` to enforce
+    https/ssh only, matching ``core.production_guards``.
     """
     raw = (url or "").strip()
     if not raw:
@@ -79,6 +81,12 @@ def validate_git_remote_url(url: str, *, resolve_dns: bool = True) -> str:
         if not host:
             raise UnsafeURLError("URL host is required")
         return raw
+
+    if scheme == "http" and settings.environment == "development":
+        host = (parsed.hostname or "").strip()
+        if not host:
+            raise UnsafeURLError("URL host is required")
+        return raw.rstrip("/")
 
     if scheme:
         raise UnsafeURLError(f"Git remote URL must use https or ssh, got {scheme!r}")

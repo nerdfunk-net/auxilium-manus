@@ -1,55 +1,45 @@
-"""Git source service — clone/pull a repository and extract device data from YAML files."""
+"""Git source service — clone/pull a repository and extract device data from YAML files.
+
+All real git operations (clone/pull/push/test-connection) delegate to the shared
+``services.git`` engine (``GitService`` for clone/pull, ``GitConnectionService`` for
+connection testing) — the same engine ``store-artifact``/``git-push``/the Git Repositories
+feature use — so there is a single place that talks to git and a single place that enforces
+``core.safe_urls.validate_git_remote_url``.
+"""
 
 from __future__ import annotations
 
 import glob
 import logging
-import os
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote as urlquote
-from urllib.parse import urlparse, urlunparse
 
 import yaml
 
-from core.config import PROJECT_ROOT
-from core.safe_urls import UnsafeURLError, validate_git_remote_url
-from git import GitCommandError, Repo
-from git.exc import InvalidGitRepositoryError
-from services.git.env import set_ssl_env
+from core.safe_urls import UnsafeURLError
+from git import GitCommandError
+from models.git_repositories import GitAuthType, GitConnectionTestRequest
+from services.git.connection import GitConnectionService
 
 logger = logging.getLogger(__name__)
 
-_GIT_BASE_DIR = PROJECT_ROOT / "data" / "git"
-_TEST_CLONE_TIMEOUT_SECONDS = 30
 
-
-def _build_auth_url(url: str, username: str, token: str) -> str:
-    """Inject HTTP basic-auth credentials into an https URL."""
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https") or not token:
-            return url
-        user_enc = urlquote(username or "git", safe="")
-        token_enc = urlquote(token, safe="")
-        netloc = parsed.netloc
-        if "@" in netloc:
-            netloc = netloc.split("@", 1)[-1]
-        netloc = f"{user_enc}:{token_enc}@{netloc}"
-        return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, ""))
-    except Exception:
-        return url
-
-
-def _redact_secrets(message: str, *, auth_url: str, public_url: str, token: str) -> str:
-    """Strip credentials from git error text before returning to the client."""
-    redacted = message.replace(auth_url, public_url)
-    if token:
-        redacted = redacted.replace(token, "***")
-    return redacted
+def source_config_to_git_repository(source_config: dict[str, Any]) -> dict[str, Any]:
+    """Map a resolved Settings git-source config to a ``GitService`` repository dict."""
+    source_id: str = source_config["source_id"]
+    on_disk_path = str(source_config.get("repository_path") or source_id).strip("/\\") or source_id
+    return {
+        "id": source_id,
+        "name": source_id,
+        "url": str(source_config.get("url") or "").strip(),
+        "branch": str(source_config.get("branch") or "main").strip() or "main",
+        "auth_type": "token",
+        "token": str(source_config.get("token") or "").strip(),
+        "username": str(source_config.get("username") or "").strip(),
+        "path": on_disk_path,
+        "verify_ssl": bool(source_config.get("verify_ssl", True)),
+        "source_id": source_id,
+    }
 
 
 def test_connection(
@@ -60,129 +50,75 @@ def test_connection(
     token: str = "",
     verify_ssl: bool = True,
 ) -> dict[str, Any]:
-    """Shallow-clone into a temp directory to verify URL, branch, and credentials.
+    """Test connectivity to a Settings git source via the shared ``GitConnectionService``.
 
-    Does not touch ``data/git/<source_id>``. Returns ``{success, message}``.
+    Thin adapter: builds a ``GitConnectionTestRequest`` (always inline-token auth, matching
+    how Settings git sources store credentials) and translates the response back to the
+    ``{success, message}`` shape this module's callers expect.
     """
-    public_url = url.strip()
     branch_name = (branch or "main").strip() or "main"
-    user = (username or "").strip()
-    secret = (token or "").strip()
+    request = GitConnectionTestRequest(
+        url=(url or "").strip(),
+        branch=branch_name,
+        auth_type=GitAuthType.TOKEN,
+        username=(username or "").strip() or None,
+        token=(token or "").strip() or None,
+        verify_ssl=verify_ssl,
+    )
 
-    if not public_url:
-        return {"success": False, "message": "Repository URL is required"}
+    response = GitConnectionService().test_connection(request)
 
-    try:
-        validate_git_remote_url(public_url, resolve_dns=True)
-    except UnsafeURLError as exc:
-        return {"success": False, "message": str(exc)}
-
-    auth_url = _build_auth_url(public_url, user, secret)
-    ssl_config = {"verify_ssl": verify_ssl}
-
-    try:
-        with tempfile.TemporaryDirectory(prefix="git-source-test-") as temp_dir:
-            clone_path = Path(temp_dir) / "repo"
-            cmd = [
-                "git",
-                "clone",
-                "--depth",
-                "1",
-                "--branch",
-                branch_name,
-                auth_url,
-                str(clone_path),
-            ]
-            with set_ssl_env(ssl_config):
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    env=os.environ.copy(),
-                    timeout=_TEST_CLONE_TIMEOUT_SECONDS,
-                )
-            if result.returncode != 0:
-                raw = (result.stderr or result.stdout or "clone failed").strip()
-                safe = _redact_secrets(
-                    raw, auth_url=auth_url, public_url=public_url, token=secret
-                )
-                logger.warning("Git source connection test failed: %s", safe)
-                return {"success": False, "message": f"Git connection failed: {safe}"}
-
-        logger.info(
-            "Git source connection test succeeded url=%s branch=%s",
-            public_url,
-            branch_name,
-        )
+    if response.success:
         return {
             "success": True,
             "message": f"Connection successful (branch '{branch_name}')",
         }
-    except subprocess.TimeoutExpired:
-        logger.warning("Git source connection test timed out url=%s", public_url)
-        return {
-            "success": False,
-            "message": f"Git connection test timed out after {_TEST_CLONE_TIMEOUT_SECONDS} seconds",
-        }
-    except Exception as exc:
-        safe = _redact_secrets(
-            str(exc), auth_url=auth_url, public_url=public_url, token=secret
-        )
-        logger.error("Git source connection test error: %s", safe)
-        return {"success": False, "message": f"Git connection test error: {safe}"}
+
+    error_detail = (response.details or {}).get("error")
+    message = f"{response.message}: {error_detail}" if error_detail else response.message
+    return {"success": False, "message": message}
 
 
 def clone_or_pull(source_config: dict[str, Any]) -> Path:
-    """Ensure the repository is available locally; return the root path."""
-    source_id: str = source_config["source_id"]
-    url: str = source_config.get("url", "").strip()
-    branch: str = source_config.get("branch", "main").strip() or "main"
-    token: str = source_config.get("token", "").strip()
-    username: str = source_config.get("username", "").strip()
+    """Ensure the repository is available locally; return the root path.
 
-    if not url:
+    Delegates to the shared ``GitService`` engine. A pull failure on an already-cloned
+    repo is logged and swallowed — the cached copy is used — matching the previous
+    behaviour of this function.
+    """
+    source_id: str = source_config["source_id"]
+    if not str(source_config.get("url") or "").strip():
         raise ValueError(f"Git source '{source_id}' has no URL configured")
+
+    repository = source_config_to_git_repository(source_config)
+
+    import service_factory
+
+    git_service = service_factory.build_git_service()
+    repo_dir = git_service.get_repo_path(repository)
+    repo_existed = (repo_dir / ".git").is_dir()
+
     try:
-        validate_git_remote_url(url, resolve_dns=True)
+        repo = git_service.open_or_clone(repository)
     except UnsafeURLError as exc:
         raise ValueError(f"Git source '{source_id}' has an unsafe URL: {exc}") from exc
-
-    repo_dir = _GIT_BASE_DIR / source_id
-    auth_url = _build_auth_url(url, username, token)
-    repo_path = str(repo_dir)
-
-    repo_dir_exists = repo_dir.exists()
-    is_git_repo = (repo_dir / ".git").is_dir()
-
-    if repo_dir_exists and is_git_repo:
-        try:
-            repo = Repo(repo_path)
-            origin = repo.remotes.origin
-            if token and "http" in url:
-                try:
-                    origin.set_url(auth_url)
-                except Exception as exc:
-                    logger.info("Skipping remote URL update: %s", exc)
-            with set_ssl_env(source_config):
-                origin.pull(branch)
-            logger.info("Pulled git source '%s' branch '%s'", source_id, branch)
-        except InvalidGitRepositoryError:
-            logger.warning("Directory %s is not a valid git repo; re-cloning", repo_dir)
-            shutil.rmtree(repo_path, ignore_errors=True)
-            is_git_repo = False
-        except GitCommandError as exc:
-            logger.warning("Pull failed for '%s': %s — using cached copy", source_id, exc)
-        return repo_dir
-
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        logger.info("Cloning git source '%s' branch '%s' into %s", source_id, branch, repo_dir)
-        with set_ssl_env(source_config):
-            Repo.clone_from(auth_url, repo_path, branch=branch)
-        logger.info("Cloned git source '%s'", source_id)
     except GitCommandError as exc:
-        shutil.rmtree(repo_path, ignore_errors=True)
         raise RuntimeError(f"Failed to clone git source '{source_id}': {exc}") from exc
+
+    if repo_existed:
+        pull_result = git_service.pull(repository, repo=repo)
+        if pull_result.success:
+            logger.info(
+                "Pulled git source '%s' branch '%s'", source_id, repository["branch"]
+            )
+        else:
+            logger.warning(
+                "Pull failed for '%s': %s — using cached copy",
+                source_id,
+                pull_result.message,
+            )
+    else:
+        logger.info("Cloned git source '%s'", source_id)
 
     return repo_dir
 
@@ -190,37 +126,23 @@ def clone_or_pull(source_config: dict[str, Any]) -> Path:
 def remove_and_clone(source_config: dict[str, Any]) -> Path:
     """Remove any existing local copy and clone fresh; return the root path."""
     source_id: str = source_config["source_id"]
-    url: str = source_config.get("url", "").strip()
-    branch: str = source_config.get("branch", "main").strip() or "main"
-    token: str = source_config.get("token", "").strip()
-    username: str = source_config.get("username", "").strip()
-
-    if not url:
+    if not str(source_config.get("url") or "").strip():
         raise ValueError(f"Git source '{source_id}' has no URL configured")
+
+    repository = source_config_to_git_repository(source_config)
+
+    import service_factory
+
+    git_service = service_factory.build_git_service()
     try:
-        validate_git_remote_url(url, resolve_dns=True)
+        git_service.clone(repository)
     except UnsafeURLError as exc:
         raise ValueError(f"Git source '{source_id}' has an unsafe URL: {exc}") from exc
-
-    repo_dir = _GIT_BASE_DIR / source_id
-    auth_url = _build_auth_url(url, username, token)
-    repo_path = str(repo_dir)
-
-    if repo_dir.exists():
-        shutil.rmtree(repo_path, ignore_errors=True)
-        logger.info("Removed existing local copy of git source '%s'", source_id)
-
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        logger.info("Cloning git source '%s' branch '%s' into %s", source_id, branch, repo_dir)
-        with set_ssl_env(source_config):
-            Repo.clone_from(auth_url, repo_path, branch=branch)
-        logger.info("Cloned git source '%s'", source_id)
     except GitCommandError as exc:
-        shutil.rmtree(repo_path, ignore_errors=True)
         raise RuntimeError(f"Failed to clone git source '{source_id}': {exc}") from exc
 
-    return repo_dir
+    logger.info("Cloned git source '%s'", source_id)
+    return git_service.get_repo_path(repository)
 
 
 def _find_files(repo_dir: Path, repository_path: str, pattern: str) -> list[Path]:

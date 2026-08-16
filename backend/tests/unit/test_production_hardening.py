@@ -260,15 +260,23 @@ class TestR3GitRemoteUrl(unittest.TestCase):
         with self.assertRaises(UnsafeURLError):
             validate_git_remote_url("file:///tmp/repo.git")
 
-    def test_rejects_http_scheme(self) -> None:
-        with self.assertRaises(UnsafeURLError):
-            validate_git_remote_url("http://git.example.com/org/repo.git")
+    def test_rejects_http_scheme_in_production(self) -> None:
+        with patch("core.safe_urls.settings.environment", "production"):
+            with self.assertRaises(UnsafeURLError):
+                validate_git_remote_url("http://git.example.com/org/repo.git")
+
+    def test_allows_http_scheme_in_development(self) -> None:
+        with patch("core.safe_urls.settings.environment", "development"):
+            self.assertEqual(
+                validate_git_remote_url("http://git.example.com/org/repo.git"),
+                "http://git.example.com/org/repo.git",
+            )
 
     def test_rejects_bare_path(self) -> None:
         with self.assertRaises(UnsafeURLError):
             validate_git_remote_url("/var/git/repo.git")
 
-    @patch("services.sources.git.git_source_service.subprocess.run")
+    @patch("services.git.connection.subprocess.run")
     def test_git_source_service_test_connection_rejects_file_scheme(
         self, mock_run: MagicMock
     ) -> None:

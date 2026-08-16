@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import (
+    ArtifactRef,
     Capability,
     DeviceContext,
     DeviceStatus,
@@ -20,10 +21,17 @@ _NODE_ID = "configure-replace-config-1"
 _DEVICE_ID = "device-1"
 _REPLACE_COMMAND = "configure replace bootflash:new_config.txt force time 2"
 _CONFIRM_COMMAND = "configure confirm"
+_DIFF_COMMAND = (
+    "show archive config differences system:running-config bootflash:new_config.txt"
+)
+# Diff checks default on; existing tests below focus on the replace/confirm
+# flow itself, so they're pinned off here and exercised separately.
 _BASE_CONFIG = {
     "destination_filename": "new_config.txt",
     "file_system": "bootflash:",
     "timeout_minutes": 2,
+    "skip_if_no_pending_changes": False,
+    "verify_diff_after_replace": False,
 }
 
 
@@ -43,6 +51,10 @@ def _device_with_testbed(*, source_id: str = "lab-pyats") -> DeviceContext:
             }
         },
     )
+
+
+def _as_artifact_ref(payload: dict) -> ArtifactRef:
+    return ArtifactRef.model_validate(payload)
 
 
 def _execute_response(command: str, *, raw: str = "", error: str | None = None) -> dict:
@@ -292,6 +304,135 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id=_NODE_ID,
                 device_sessions=MagicMock(),
             )
+
+    async def test_skip_when_no_pending_changes(self) -> None:
+        outcomes, shim, _ = await self._run(
+            device=_device_with_testbed(),
+            config={
+                **_BASE_CONFIG,
+                "skip_if_no_pending_changes": True,
+            },
+            run_job_side_effect=[
+                _execute_response(_DIFF_COMMAND, raw="   \n"),
+            ],
+        )
+
+        names = [o.name for o in outcomes]
+        self.assertEqual(names, ["success"])
+        device = outcomes[0].context.devices[_DEVICE_ID]
+        entry = device.parsed[f"{_NODE_ID}.configure_replace"]
+        self.assertTrue(entry["skipped"])
+        self.assertEqual(entry["reason"], "no_pending_changes")
+        self.assertEqual(shim.run_job.await_count, 1)
+        self.assertEqual(shim.run_job.call_args_list[0].kwargs["commands"], [_DIFF_COMMAND])
+
+    async def test_pre_diff_nonempty_stores_artifact_and_proceeds(self) -> None:
+        diff_text = "-no shutdown\n+shutdown"
+        outcomes, shim, artifacts = await self._run(
+            device=_device_with_testbed(),
+            config={
+                **_BASE_CONFIG,
+                "skip_if_no_pending_changes": True,
+            },
+            run_job_side_effect=[
+                _execute_response(_DIFF_COMMAND, raw=diff_text),
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
+                _execute_response(_CONFIRM_COMMAND, raw="Confirm the configuration change"),
+            ],
+        )
+
+        names = [o.name for o in outcomes]
+        self.assertEqual(names, ["success"])
+        device = outcomes[0].context.devices[_DEVICE_ID]
+        diff_entry = device.parsed[f"{_NODE_ID}.configure_replace_diff"]
+        artifact_ref = diff_entry["pre_diff_artifact_ref"]
+        self.assertEqual(await artifacts.resolve(_as_artifact_ref(artifact_ref)), diff_text)
+        self.assertEqual(shim.run_job.await_count, 3)
+
+    async def test_pre_diff_command_error_proceeds_with_replace(self) -> None:
+        outcomes, shim, _ = await self._run(
+            device=_device_with_testbed(),
+            config={
+                **_BASE_CONFIG,
+                "skip_if_no_pending_changes": True,
+            },
+            run_job_side_effect=[
+                PyATSAPIError("diff command not supported"),
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
+                _execute_response(_CONFIRM_COMMAND, raw="Confirm the configuration change"),
+            ],
+        )
+
+        names = [o.name for o in outcomes]
+        self.assertEqual(names, ["success"])
+        self.assertEqual(shim.run_job.await_count, 3)
+
+    async def test_post_diff_mismatch_fails_device(self) -> None:
+        diff_text = "-no shutdown\n+shutdown"
+        outcomes, shim, artifacts = await self._run(
+            device=_device_with_testbed(),
+            config={
+                **_BASE_CONFIG,
+                "verify_diff_after_replace": True,
+            },
+            run_job_side_effect=[
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
+                _execute_response(_CONFIRM_COMMAND, raw="Confirm the configuration change"),
+                _execute_response(_DIFF_COMMAND, raw=diff_text),
+            ],
+        )
+
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        device = failure_outcome.context.devices[_DEVICE_ID]
+        err = device.errors[0]
+        self.assertEqual(err.code, "diff_mismatch")
+        diff_entry = device.parsed[f"{_NODE_ID}.configure_replace_diff"]
+        artifact_ref = diff_entry["post_diff_artifact_ref"]
+        self.assertEqual(await artifacts.resolve(_as_artifact_ref(artifact_ref)), diff_text)
+        self.assertEqual(shim.run_job.await_count, 3)
+
+    async def test_post_diff_command_error_fails_device(self) -> None:
+        outcomes, shim, _ = await self._run(
+            device=_device_with_testbed(),
+            config={
+                **_BASE_CONFIG,
+                "verify_diff_after_replace": True,
+            },
+            run_job_side_effect=[
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
+                _execute_response(_CONFIRM_COMMAND, raw="Confirm the configuration change"),
+                PyATSAPIError("connection lost"),
+            ],
+        )
+
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        err = failure_outcome.context.devices[_DEVICE_ID].errors[0]
+        self.assertEqual(err.code, "post_verify_failed")
+        self.assertEqual(shim.run_job.await_count, 3)
+
+    async def test_default_flow_runs_both_diff_checks(self) -> None:
+        diff_text = "-no shutdown\n+shutdown"
+        outcomes, shim, _ = await self._run(
+            device=_device_with_testbed(),
+            config={
+                "destination_filename": "new_config.txt",
+                "file_system": "bootflash:",
+                "timeout_minutes": 2,
+            },
+            run_job_side_effect=[
+                _execute_response(_DIFF_COMMAND, raw=diff_text),
+                _execute_response(_REPLACE_COMMAND, raw="Rollback Done"),
+                _execute_response(_CONFIRM_COMMAND, raw="Confirm the configuration change"),
+                _execute_response(_DIFF_COMMAND, raw="   "),
+            ],
+        )
+
+        names = [o.name for o in outcomes]
+        self.assertEqual(names, ["success"])
+        device = outcomes[0].context.devices[_DEVICE_ID]
+        self.assertTrue(device.parsed[f"{_NODE_ID}.configure_replace"]["confirmed"])
+        self.assertIn(f"{_NODE_ID}.configure_replace_diff", device.parsed)
+        self.assertEqual(shim.run_job.await_count, 4)
 
     async def test_no_devices_short_circuits(self) -> None:
         run = MagicMock()

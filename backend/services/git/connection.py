@@ -92,6 +92,17 @@ class GitConnectionService:
                     temp_repo
                 )
 
+                # resolve_credentials() only looks at credential_name (returns
+                # (None, None, None) when it's unset) — fall back to the inline
+                # username/token on the request itself, same as
+                # GitAuthenticationService.setup_auth_environment does for the
+                # real clone/pull path. Without this, a request with an inline
+                # token and no stored credential would silently attempt an
+                # unauthenticated clone.
+                if not resolved_token and test_request.token:
+                    resolved_token = test_request.token
+                    resolved_username = resolved_username or test_request.username
+
                 # Log resolved credentials (without exposing secrets)
                 logger.info("Credential resolution results:")
                 logger.info(

@@ -100,14 +100,6 @@ class SyncResult(BaseModel):
     repository_path: str | None = Field(None, description="Local path to repository")
 
 
-class CloneResult(BaseModel):
-    """Result of a repository clone operation."""
-
-    success: bool = Field(..., description="Whether clone was successful")
-    message: str = Field(..., description="Human-readable result message")
-    repo_path: str = Field(..., description="Local path to cloned repository")
-
-
 class StatusInfo(BaseModel):
     """Git repository status information."""
 

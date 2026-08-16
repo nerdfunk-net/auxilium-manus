@@ -19,6 +19,13 @@ export function ConfigureReplaceConfigHelpPanel() {
         </p>
         <ol className="list-decimal space-y-1 pl-5">
           <li>
+            If <HelpCode>skip_if_no_pending_changes</HelpCode> is on, diffs
+            the target file against the running config first (
+            <HelpCode>show archive config differences</HelpCode>). If
+            there&apos;s no difference, the step skips straight to success
+            without touching the device.
+          </li>
+          <li>
             Runs <HelpCode>configure replace</HelpCode> with the configured
             filename, filesystem, and timeout.
           </li>
@@ -31,7 +38,28 @@ export function ConfigureReplaceConfigHelpPanel() {
             confirm the device actually had a pending timed change to
             confirm.
           </li>
+          <li>
+            If <HelpCode>verify_diff_after_replace</HelpCode> is on, diffs
+            the target file against the running config again to confirm
+            they actually match — <HelpCode>configure confirm</HelpCode>{" "}
+            succeeding only proves the rollback timer was cancelled, not
+            that every line applied.
+          </li>
         </ol>
+        <HelpWarning title="A diff mismatch after replace fails the step, even though the timer was confirmed">
+          <p>
+            <HelpCode>configure confirm</HelpCode> only proves the device
+            cancelled its rollback timer — it doesn&apos;t prove the running
+            config matches the target file. If{" "}
+            <HelpCode>verify_diff_after_replace</HelpCode> finds a
+            difference, the device fails with code{" "}
+            <HelpCode>diff_mismatch</HelpCode> and the diff is stored as an
+            artifact for review. If the verification diff command itself
+            fails to run, the device fails with{" "}
+            <HelpCode>post_verify_failed</HelpCode> rather than assuming
+            success.
+          </p>
+        </HelpWarning>
         <HelpWarning title="A lost connection or an unconfirmable state means the device reverts itself">
           <p>
             Reconnecting to send <HelpCode>configure confirm</HelpCode>{" "}
@@ -100,6 +128,36 @@ export function ConfigureReplaceConfigHelpPanel() {
           long the device waits for <HelpCode>configure confirm</HelpCode>{" "}
           before auto-reverting. Whole number from 1 to 120 (the device&apos;s
           own accepted range).
+        </p>
+      </HelpSection>
+
+      <HelpSection title="skip_if_no_pending_changes">
+        <p>
+          Default on. Before replacing, diffs the target file against the
+          running config. If there are no differences, the step skips{" "}
+          <HelpCode>configure replace</HelpCode>/
+          <HelpCode>configure confirm</HelpCode> entirely and reports
+          success — avoids cycling the device through a rollback timer for a
+          no-op change. A non-empty pre-diff is stored as an artifact for
+          review but does not block the replace. If the diff command itself
+          fails to run (e.g. unsupported on this platform), the step
+          proceeds with the replace unverified rather than blocking on a
+          diagnostic command.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="verify_diff_after_replace">
+        <p>
+          Default on. After <HelpCode>configure confirm</HelpCode> succeeds,
+          diffs the target file against the running config again. A
+          non-empty diff means the running config still doesn&apos;t match
+          the target despite the rollback timer being cancelled — the
+          device fails with code <HelpCode>diff_mismatch</HelpCode> and the
+          diff is stored as an artifact. Unlike the pre-check, a failure to
+          run this diff also fails the device (code{" "}
+          <HelpCode>post_verify_failed</HelpCode>), since the outcome can no
+          longer be vouched for once <HelpCode>configure confirm</HelpCode>{" "}
+          has already run.
         </p>
       </HelpSection>
     </div>

@@ -79,10 +79,6 @@ class GitRepositoryService:
             logger.error("Error getting git repositories: %s", e)
             raise
 
-    def get_repositories_by_category(self, category: str) -> list[dict[str, Any]]:
-        """Get all active repositories for a specific category."""
-        return self.get_repositories(category=category, active_only=True)
-
     def update_repository(self, repo_id: int, repo_data: dict[str, Any]) -> bool:
         """Update a git repository."""
         try:

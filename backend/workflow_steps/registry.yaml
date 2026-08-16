@@ -550,10 +550,16 @@ plugins:
       auto-reverts on its own timer. If the device reports no pending
       Rollback Confirmed Change (e.g. the timer already expired, or another
       session already confirmed it), the step also fails so the outcome
-      isn't silently assumed. Requires an upstream Add Testbed step, and
-      requires config archiving enabled on the device (e.g. 'archive' /
-      'path flash:archive') -- otherwise the device rejects the command with
-      "Turn config archive on before using Rollback Confirmed Change".
+      isn't silently assumed. Two optional config-text diffs
+      ('show archive config differences') bracket the replace: a pre-check
+      can skip the replace entirely when the target already matches the
+      running config, and a post-check fails the device if the running
+      config still differs from the target after 'configure confirm'
+      succeeded -- both diffs are stored as artifacts. Requires an upstream
+      Add Testbed step, and requires config archiving enabled on the device
+      (e.g. 'archive' / 'path flash:archive') -- otherwise the device
+      rejects the command with "Turn config archive on before using
+      Rollback Confirmed Change".
     artifact_type: command_execution
     palette_category: pyats
     directory: configure_replace_config
@@ -588,6 +594,30 @@ plugins:
           required: true
           default: 2
           example: 2
+        - name: skip_if_no_pending_changes
+          description: >
+            Before replacing, diff the target file against the running
+            config ('show archive config differences'). If there are no
+            differences, skip 'configure replace'/'configure confirm'
+            entirely and report success -- avoids cycling the device
+            through a rollback timer for a no-op. A non-empty pre-diff is
+            stored as an artifact but does not block the replace. If the
+            diff command itself fails, the replace proceeds unverified.
+          data_type: boolean
+          required: false
+          default: true
+        - name: verify_diff_after_replace
+          description: >
+            After 'configure confirm' succeeds, diff the target file
+            against the running config again. A non-empty diff means the
+            running config still doesn't match the target despite the
+            rollback timer being cancelled, so the device is failed and the
+            diff is stored as an artifact. A failure to run the diff itself
+            also fails the device, since the outcome can no longer be
+            vouched for.
+          data_type: boolean
+          required: false
+          default: true
 
   - id: get-from-list
     name: Get from List

@@ -15,16 +15,35 @@ confirm command. Each shim call is its own fresh connect/disconnect -- there
 is no need to hold one session open across the whole flow, because the
 rollback timer is device-side, not tied to the CLI session that issued it.
 
-Verification is deliberately simple: send ``configure replace``, then
-immediately send ``configure confirm`` and inspect its output rather than
-diffing Genie snapshots before/after (interface counters and other benign
-noise made snapshot diffs unreliable in practice, flagging clean replaces as
-failed). Reconnecting to send ``configure confirm`` doubles as the
-connectivity check -- if the replace broke reachability, that shim call
-fails outright. If the device responds with "No Rollback Confirmed Change
-pending" (e.g. the timer already expired, or another session already
-confirmed it), the outcome is reported as a step failure rather than
-silently swallowed.
+``configure confirm`` succeeding only proves the rollback timer was
+cancelled -- it says nothing about whether every line of the target file
+actually applied. Two optional device-native config diffs
+(``show archive config differences system:running-config <file>``) bracket
+the replace to close that gap:
+
+* ``skip_if_no_pending_changes`` (pre-check): if the target file already
+  matches the running config, skip ``configure replace``/``configure
+  confirm`` entirely rather than cycling the device through a rollback
+  timer for a no-op. A non-empty pre-diff is stored as an artifact for
+  visibility but does not block the replace.
+* ``verify_diff_after_replace`` (post-check): after ``configure confirm``
+  succeeds, diff again. A non-empty diff means the running config still
+  doesn't match the target despite the timer being cancelled, so the
+  device is failed with the diff stored as an artifact.
+
+This is a config-text diff (not a Genie/operational-state diff), so it
+avoids the counter/timestamp noise that made an earlier Genie
+before/after-snapshot approach unreliable (see git history). Both checks
+fail open on a shim/command error (proceed with the replace unverified)
+rather than blocking the run on a diagnostic command's failure -- except
+the post-check, where a failed diff means we can no longer vouch for the
+outcome and the device is failed.
+
+Reconnecting to send ``configure confirm`` doubles as the connectivity
+check -- if the replace broke reachability, that shim call fails outright.
+If the device responds with "No Rollback Confirmed Change pending" (e.g.
+the timer already expired, or another session already confirmed it), the
+outcome is reported as a step failure rather than silently swallowed.
 """
 
 from __future__ import annotations
@@ -69,6 +88,8 @@ _MIN_TIMEOUT_MINUTES = 1
 _MAX_TIMEOUT_MINUTES = 120
 _ARCHIVE_NOT_CONFIGURED_MARKER = "turn config archive on"
 _NO_PENDING_ROLLBACK_MARKER = "no rollback confirmed change pending"
+_DIFF_ARTIFACT_KIND_PRE = "configure_replace_pre_diff"
+_DIFF_ARTIFACT_KIND_POST = "configure_replace_post_diff"
 
 
 def _is_archive_not_configured_error(message: str | None) -> bool:
@@ -146,6 +167,54 @@ async def _call_shim(
     return True, value, None
 
 
+def _build_diff_command(*, file_system: str, destination_filename: str) -> str:
+    target = f"{file_system}{destination_filename}"
+    return f"show archive config differences system:running-config {target}"
+
+
+def _device_with_diff_refs(
+    device: DeviceContext,
+    node_id: str,
+    *,
+    pre_diff_artifact_ref: Any | None,
+    post_diff_artifact_ref: Any | None,
+) -> DeviceContext:
+    """Record diff artifact refs on the device's parsed output, independent of
+    whether the device ends up succeeding or failing."""
+    if pre_diff_artifact_ref is None and post_diff_artifact_ref is None:
+        return device
+    entry: dict[str, Any] = {"kind": "configure_replace_diff"}
+    if pre_diff_artifact_ref is not None:
+        entry["pre_diff_artifact_ref"] = pre_diff_artifact_ref.model_dump(mode="json")
+    if post_diff_artifact_ref is not None:
+        entry["post_diff_artifact_ref"] = post_diff_artifact_ref.model_dump(mode="json")
+    parsed = dict(device.parsed)
+    parsed[f"{node_id}.configure_replace_diff"] = entry
+    return device.model_copy(
+        update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
+    )
+
+
+async def _run_diff(
+    shim: Any,
+    shim_credentials: PyATSCredentials,
+    *,
+    shim_device: dict[str, Any],
+    diff_command: str,
+) -> tuple[bool, str, str | None]:
+    """Run the config-text diff command. Returns (ok, diff_text, error_message)."""
+    ok, raw, err = await _call_shim(
+        shim,
+        shim_credentials,
+        operation="execute",
+        shim_device=shim_device,
+        command=diff_command,
+    )
+    if not ok:
+        return False, "", err
+    return True, str(raw or ""), None
+
+
 async def _process_one_device(
     *,
     device_id: str,
@@ -154,8 +223,12 @@ async def _process_one_device(
     destination_filename: str,
     file_system: str,
     timeout_minutes: int,
+    skip_if_no_pending_changes: bool,
+    verify_diff_after_replace: bool,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
+    artifact_service: ArtifactService,
+    context_run_id: str,
 ) -> tuple[str, DeviceContext, bool]:
     bag = device.attribute_bags.get("pyats_testbed")
     if not isinstance(bag, dict):
@@ -214,6 +287,58 @@ async def _process_one_device(
         bag.get("os"),
         source_id,
     )
+
+    diff_command = _build_diff_command(
+        file_system=file_system, destination_filename=destination_filename
+    )
+    pre_diff_artifact_ref = None
+    if skip_if_no_pending_changes:
+        diff_ok, pre_diff_text, diff_err = await _run_diff(
+            shim, shim_credentials, shim_device=shim_device, diff_command=diff_command
+        )
+        if diff_ok and not pre_diff_text.strip():
+            entry = {
+                "kind": "configure_replace",
+                "confirmed": False,
+                "skipped": True,
+                "reason": "no_pending_changes",
+                "destination_filename": destination_filename,
+                "file_system": file_system,
+                "timeout_minutes": timeout_minutes,
+            }
+            parsed = dict(device.parsed)
+            parsed[f"{node_id}.configure_replace"] = entry
+            enriched = device.model_copy(
+                update={
+                    "parsed": parsed,
+                    "capabilities": device.capabilities | {Capability.PARSED},
+                    "status": DeviceStatus.OK,
+                }
+            )
+            logger.info(
+                "%s skipped device=%s host=%s reason=no_pending_changes",
+                _STEP_ID,
+                device_id,
+                bag.get("host"),
+            )
+            return device_id, enriched, True
+        if diff_ok and pre_diff_text.strip():
+            pre_diff_artifact_ref = await artifact_service.store(
+                content=pre_diff_text,
+                kind=_DIFF_ARTIFACT_KIND_PRE,
+                device_id=device_id,
+                run_id=context_run_id,
+                media_type="text/plain",
+            )
+        elif not diff_ok:
+            logger.warning(
+                "%s pre-replace diff check failed device=%s host=%s error=%s -- proceeding "
+                "with replace unverified",
+                _STEP_ID,
+                device_id,
+                bag.get("host"),
+                diff_err,
+            )
 
     replace_command = (
         f"configure replace {file_system}{destination_filename} force time {timeout_minutes}"
@@ -297,6 +422,60 @@ async def _process_one_device(
             ),
         )
 
+    post_diff_artifact_ref = None
+    if verify_diff_after_replace:
+        diff_ok, post_diff_text, diff_err = await _run_diff(
+            shim, shim_credentials, shim_device=shim_device, diff_command=diff_command
+        )
+        if not diff_ok:
+            return _fail_device(
+                device=_device_with_diff_refs(
+                    device,
+                    node_id,
+                    pre_diff_artifact_ref=pre_diff_artifact_ref,
+                    post_diff_artifact_ref=None,
+                ),
+                device_id=device_id,
+                node_id=node_id,
+                code="post_verify_failed",
+                message=(
+                    f"'configure confirm' succeeded but the post-replace diff check failed "
+                    f"({diff_err}); the running configuration could not be verified against "
+                    f"{file_system}{destination_filename}"
+                ),
+            )
+        if post_diff_text.strip():
+            post_diff_artifact_ref = await artifact_service.store(
+                content=post_diff_text,
+                kind=_DIFF_ARTIFACT_KIND_POST,
+                device_id=device_id,
+                run_id=context_run_id,
+                media_type="text/plain",
+            )
+            return _fail_device(
+                device=_device_with_diff_refs(
+                    device,
+                    node_id,
+                    pre_diff_artifact_ref=pre_diff_artifact_ref,
+                    post_diff_artifact_ref=post_diff_artifact_ref,
+                ),
+                device_id=device_id,
+                node_id=node_id,
+                code="diff_mismatch",
+                message=(
+                    f"Running configuration still differs from "
+                    f"{file_system}{destination_filename} after 'configure replace'/"
+                    f"'configure confirm' succeeded; see the stored diff artifact "
+                    f"(artifact_id={post_diff_artifact_ref.artifact_id}) for details"
+                ),
+            )
+
+    enriched = _device_with_diff_refs(
+        device,
+        node_id,
+        pre_diff_artifact_ref=pre_diff_artifact_ref,
+        post_diff_artifact_ref=None,
+    )
     entry = {
         "kind": "configure_replace",
         "confirmed": True,
@@ -304,12 +483,12 @@ async def _process_one_device(
         "file_system": file_system,
         "timeout_minutes": timeout_minutes,
     }
-    parsed = dict(device.parsed)
+    parsed = dict(enriched.parsed)
     parsed[f"{node_id}.configure_replace"] = entry
-    enriched = device.model_copy(
+    enriched = enriched.model_copy(
         update={
             "parsed": parsed,
-            "capabilities": device.capabilities | {Capability.PARSED},
+            "capabilities": enriched.capabilities | {Capability.PARSED},
             "status": DeviceStatus.OK,
         }
     )
@@ -347,7 +526,6 @@ async def execute(
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
     del device_sessions  # unused: pyATS connects via the shim, not Netmiko
-    del artifact_service  # unused: verification no longer stores a diff artifact
 
     merged_config = {**get_config(), **config}
 
@@ -358,6 +536,8 @@ async def execute(
     if not file_system:
         raise ValueError(f"{_STEP_ID}: file_system is required")
     timeout_minutes = _parse_timeout_minutes(merged_config.get("timeout_minutes"))
+    skip_if_no_pending_changes = bool(merged_config.get("skip_if_no_pending_changes", True))
+    verify_diff_after_replace = bool(merged_config.get("verify_diff_after_replace", True))
 
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
@@ -395,8 +575,12 @@ async def execute(
                 destination_filename=destination_filename,
                 file_system=file_system,
                 timeout_minutes=timeout_minutes,
+                skip_if_no_pending_changes=skip_if_no_pending_changes,
+                verify_diff_after_replace=verify_diff_after_replace,
                 source_credentials=source_credentials,
                 source_errors=source_errors,
+                artifact_service=artifact_service,
+                context_run_id=context.run_id,
             )
             for device_id, device in context.devices.items()
         ]
