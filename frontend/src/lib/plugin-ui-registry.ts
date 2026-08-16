@@ -7,6 +7,7 @@ import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
+import { ReadConfigPlugin } from "@/components/features/workflow-steps/read-config";
 import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/parse-cisco-config";
 import { AddPyatsTestbedPlugin } from "@/components/features/workflow-steps/add-pyats-testbed";
 import { GetPyatsConfigPlugin } from "@/components/features/workflow-steps/get-pyats-config";
@@ -55,6 +56,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "set-default-attributes": SetDefaultAttributesPlugin,
   "config-to-attributes": ConfigToAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,
+  "read-config": ReadConfigPlugin,
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "add-pyats-testbed": AddPyatsTestbedPlugin,
   "get-pyats-config": GetPyatsConfigPlugin,

@@ -52,6 +52,7 @@ from workflow_steps.login_successful.executor import execute as login_successful
 from workflow_steps.merge_content.executor import execute as merge_content
 from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_config
 from workflow_steps.reachable.executor import execute as reachable
+from workflow_steps.read_config.executor import execute as read_config
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.route_on_content.executor import execute as route_on_content
@@ -80,6 +81,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "set-default-attributes": set_default_attributes,
     "config-to-attributes": config_to_attributes,
     "get-device-configs": get_device_configs,
+    "read-config": read_config,
     "parse-cisco-config": parse_cisco_config,
     "add-pyats-testbed": add_pyats_testbed,
     "get-pyats-config": get_pyats_config,
