@@ -112,7 +112,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
       <DashboardToolbar
         addDisabled={activeWidgetIds.size >= Object.keys(WIDGET_REGISTRY).length}
         isEditing={isEditing}
