@@ -3,6 +3,7 @@
 import {
   Boxes,
   FileCode,
+  LayoutDashboard,
   LogOut,
   Network,
   PlayCircle,
@@ -28,6 +29,13 @@ type NavigationItem = {
 };
 
 const navigationItems: NavigationItem[] = [
+  {
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    href: "/dashboard",
+    isActive: (pathname) => pathname === "/dashboard",
+    canShow: () => true,
+  },
   {
     label: "Workflows",
     icon: Workflow,

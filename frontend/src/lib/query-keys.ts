@@ -1,4 +1,13 @@
 export const queryKeys = {
+  dashboard: {
+    all: ["dashboard"] as const,
+    layout: () => [...queryKeys.dashboard.all, "layout"] as const,
+    schedules: () => [...queryKeys.dashboard.all, "schedules"] as const,
+    recentRuns: (limit?: number) =>
+      limit
+        ? ([...queryKeys.dashboard.all, "recent-runs", limit] as const)
+        : ([...queryKeys.dashboard.all, "recent-runs"] as const),
+  },
   workflowSteps: {
     all: ["workflow-steps"] as const,
     list: () => [...queryKeys.workflowSteps.all, "list"] as const,

@@ -7,6 +7,7 @@ from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.schedules import WorkflowSchedule
 from core.models.settings import Setting
 from core.models.templates import Template
+from core.models.user_preferences import UserPreference
 from core.models.users import User
 from core.models.workflows import Workflow
 
@@ -22,6 +23,7 @@ __all__ = [
     "Template",
     "User",
     "UserPermission",
+    "UserPreference",
     "UserRole",
     "Workflow",
     "WorkflowRun",

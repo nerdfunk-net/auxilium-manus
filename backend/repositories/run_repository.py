@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
+from core.models.workflows import Workflow
 from models.runs import TERMINAL_RUN_STATUSES
 
 
@@ -106,6 +107,26 @@ class RunRepository:
 
         stmt = stmt.order_by(WorkflowRun.created_at.desc())
         return [(row.WorkflowRun, row.triggered_by_username) for row in self.db.execute(stmt)]
+
+    def list_recent_runs(
+        self, user_id: int, *, limit: int
+    ) -> list[tuple[WorkflowRun, str | None, str]]:
+        stmt = (
+            select(
+                WorkflowRun,
+                User.username.label("triggered_by_username"),
+                Workflow.name.label("workflow_name"),
+            )
+            .join(Workflow, WorkflowRun.workflow_id == Workflow.id)
+            .outerjoin(User, WorkflowRun.triggered_by_id == User.id)
+            .where(or_(Workflow.visibility == "public", Workflow.creator_id == user_id))
+            .order_by(WorkflowRun.created_at.desc())
+            .limit(limit)
+        )
+        return [
+            (row.WorkflowRun, row.triggered_by_username, row.workflow_name)
+            for row in self.db.execute(stmt)
+        ]
 
     def update_run_status(
         self,
