@@ -40,3 +40,19 @@ class DashboardRunItem(BaseModel):
 
 class DashboardRecentRunsResponse(BaseModel):
     runs: list[DashboardRunItem]
+
+
+class DashboardNotificationItem(BaseModel):
+    id: int
+    run_id: int
+    workflow_id: int
+    workflow_name: str
+    workflow_owner_username: str | None
+    device_name: str | None
+    severity: str
+    message: str
+    created_at: datetime
+
+
+class DashboardNotificationListResponse(BaseModel):
+    notifications: list[DashboardNotificationItem]

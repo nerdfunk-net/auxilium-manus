@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user
 from core.database import get_db
 from core.models.users import User
-from models.dashboard import DashboardRecentRunsResponse, DashboardScheduleListResponse
+from models.dashboard import (
+    DashboardNotificationListResponse,
+    DashboardRecentRunsResponse,
+    DashboardScheduleListResponse,
+)
 from models.user_preferences import DashboardLayoutResponse, DashboardLayoutUpdate
 from services.dashboard.dashboard_service import DashboardService
 from services.users.user_preference_service import UserPreferenceService
@@ -58,3 +62,12 @@ async def get_dashboard_recent_runs(
     service: DashboardService = Depends(_dashboard_service),
 ) -> DashboardRecentRunsResponse:
     return service.list_recent_runs(current_user.id, limit=limit)
+
+
+@router.get("/notifications", response_model=DashboardNotificationListResponse)
+async def get_dashboard_notifications(
+    limit: int = Query(10, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    service: DashboardService = Depends(_dashboard_service),
+) -> DashboardNotificationListResponse:
+    return service.list_notifications(current_user.id, limit=limit)

@@ -50,6 +50,7 @@ from workflow_steps.log_attributes.executor import execute as log_attributes
 from workflow_steps.log_message.executor import execute as log_message
 from workflow_steps.login_successful.executor import execute as login_successful
 from workflow_steps.merge_content.executor import execute as merge_content
+from workflow_steps.notify.executor import execute as notify
 from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_config
 from workflow_steps.reachable.executor import execute as reachable
 from workflow_steps.read_config.executor import execute as read_config
@@ -112,4 +113,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "log-message": log_message,
     "log-attributes": log_attributes,
     "show-summary": show_summary,
+    "notify": notify,
 }

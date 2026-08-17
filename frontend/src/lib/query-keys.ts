@@ -7,6 +7,10 @@ export const queryKeys = {
       limit
         ? ([...queryKeys.dashboard.all, "recent-runs", limit] as const)
         : ([...queryKeys.dashboard.all, "recent-runs"] as const),
+    notifications: (limit?: number) =>
+      limit
+        ? ([...queryKeys.dashboard.all, "notifications", limit] as const)
+        : ([...queryKeys.dashboard.all, "notifications"] as const),
   },
   workflowSteps: {
     all: ["workflow-steps"] as const,

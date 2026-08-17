@@ -8,17 +8,21 @@ from sqlalchemy.orm import Session
 
 from core.models.schedules import WorkflowSchedule
 from models.dashboard import (
+    DashboardNotificationItem,
+    DashboardNotificationListResponse,
     DashboardRecentRunsResponse,
     DashboardRunItem,
     DashboardScheduleItem,
     DashboardScheduleListResponse,
 )
+from repositories.notification_repository import NotificationRepository
 from repositories.run_repository import RunRepository
 from repositories.schedule_repository import ScheduleRepository
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_RECENT_RUNS_LIMIT = 20
+DEFAULT_NOTIFICATIONS_LIMIT = 10
 
 
 def _compute_next_run(schedule: WorkflowSchedule) -> datetime | None:
@@ -49,6 +53,7 @@ class DashboardService:
     def __init__(self, db: Session) -> None:
         self._schedule_repo = ScheduleRepository(db)
         self._run_repo = RunRepository(db)
+        self._notification_repo = NotificationRepository(db)
 
     def list_schedules(self, user_id: int) -> DashboardScheduleListResponse:
         rows = self._schedule_repo.list_enabled_with_workflow(user_id)
@@ -88,3 +93,23 @@ class DashboardService:
             for run, triggered_by_username, workflow_name in rows
         ]
         return DashboardRecentRunsResponse(runs=items)
+
+    def list_notifications(
+        self, user_id: int, *, limit: int = DEFAULT_NOTIFICATIONS_LIMIT
+    ) -> DashboardNotificationListResponse:
+        rows = self._notification_repo.list_recent(user_id, limit=limit)
+        items = [
+            DashboardNotificationItem(
+                id=notification.id,
+                run_id=notification.run_id,
+                workflow_id=notification.workflow_id,
+                workflow_name=notification.workflow_name,
+                workflow_owner_username=notification.workflow_owner_username,
+                device_name=notification.device_name,
+                severity=notification.severity,
+                message=notification.message,
+                created_at=notification.created_at,
+            )
+            for notification in rows
+        ]
+        return DashboardNotificationListResponse(notifications=items)

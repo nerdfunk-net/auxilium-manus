@@ -33,3 +33,19 @@ export interface DashboardRunItem {
 export interface DashboardRecentRunsResponse {
   runs: DashboardRunItem[];
 }
+
+export interface DashboardNotificationItem {
+  id: number;
+  run_id: number;
+  workflow_id: number;
+  workflow_name: string;
+  workflow_owner_username: string | null;
+  device_name: string | null;
+  severity: string;
+  message: string;
+  created_at: string;
+}
+
+export interface DashboardNotificationListResponse {
+  notifications: DashboardNotificationItem[];
+}

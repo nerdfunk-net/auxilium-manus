@@ -1,4 +1,5 @@
 import {
+  Bell,
   Camera,
   CheckCircle2,
   Combine,
@@ -85,6 +86,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "log-attributes": Eye,
   "log-message": List,
   "show-summary": Table2,
+  notify: Bell,
   label: Type,
   background: Square,
   "get-ise-devices": ShieldCheck,

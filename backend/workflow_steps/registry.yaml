@@ -1744,6 +1744,38 @@ plugins:
     outcomes:
       - name: success
 
+  - id: notify
+    name: Notify
+    overview: Write a notification for every device in the workflow context.
+    description: >
+      Records one notification per device in the workflow context (workflow
+      name, owner, timestamp, severity, rendered message). Supports
+      {path.to.value} placeholders resolved per device, same mechanism as Log
+      Message. Notifications appear on the dashboard's Notifications card.
+    artifact_type: control_flow
+    palette_category: debug
+    directory: notify
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: message
+          description: >
+            Message recorded for every device. Supports {path.to.value}
+            placeholders resolved per device.
+          data_type: string
+          required: true
+          example: "Could not get config from device {device.name}"
+        - name: severity
+          description: Notification severity — info, warning, or error.
+          data_type: string
+          required: true
+          default: info
+          example: warning
+
   - id: fan-in
     name: Fan In
     overview: Rejoin fan-out branches into one execution path.

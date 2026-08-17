@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
-export type WidgetId = "schedules" | "recent-runs";
+export type WidgetId = "schedules" | "recent-runs" | "notifications";
 
 export interface WidgetDefaultSize {
   w: number;

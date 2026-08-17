@@ -36,6 +36,7 @@ import { DeployRenderedTemplatePlugin } from "@/components/features/workflow-ste
 import { LogAttributesPlugin } from "@/components/features/workflow-steps/log-attributes";
 import { LogMessagePlugin } from "@/components/features/workflow-steps/log-message";
 import { ShowSummaryPlugin } from "@/components/features/workflow-steps/show-summary";
+import { NotifyPlugin } from "@/components/features/workflow-steps/notify";
 import { LabelPlugin } from "@/components/features/workflow-steps/label";
 import { BackgroundPlugin } from "@/components/features/workflow-steps/background";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
@@ -89,6 +90,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "log-message": LogMessagePlugin,
   "log-attributes": LogAttributesPlugin,
   "show-summary": ShowSummaryPlugin,
+  notify: NotifyPlugin,
   label: LabelPlugin,
   background: BackgroundPlugin,
 };

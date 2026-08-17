@@ -2,6 +2,7 @@ from core.models.base import Base
 from core.models.credentials import Credential
 from core.models.git import GitRepository
 from core.models.inventories import Inventory
+from core.models.notifications import Notification
 from core.models.rbac import Permission, Role, RolePermission, UserPermission, UserRole
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.schedules import WorkflowSchedule
@@ -16,6 +17,7 @@ __all__ = [
     "Credential",
     "GitRepository",
     "Inventory",
+    "Notification",
     "Permission",
     "Role",
     "RolePermission",
