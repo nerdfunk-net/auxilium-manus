@@ -10,6 +10,7 @@ from core.database import get_db
 from models.sources_nautobot import NautobotSourceRef
 from services.auth.login_rate_limiter import LoginRateLimiter
 from services.ise.source_config_service import ISESourceConfigService
+from services.mattermost.source_config_service import MattermostSourceConfigService
 from services.nautobot.credentials import NautobotCredentials
 from services.pyats.source_config_service import PyATSSourceConfigService
 from services.settings.settings_service import SettingsService
@@ -32,6 +33,12 @@ def get_pyats_source_config_service(
     db: Session = Depends(get_db),
 ) -> PyATSSourceConfigService:
     return service_factory.build_pyats_source_config_service(db)
+
+
+def get_mattermost_source_config_service(
+    db: Session = Depends(get_db),
+) -> MattermostSourceConfigService:
+    return service_factory.build_mattermost_source_config_service(db)
 
 
 def _credentials_from_source_config(

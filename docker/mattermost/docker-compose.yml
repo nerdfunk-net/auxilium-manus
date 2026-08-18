@@ -1,0 +1,108 @@
+# Auxilium Manus — Mattermost (optional)
+#
+# Runs Mattermost Team Edition in its own container, so the app can send
+# workflow/run notifications to users via the Mattermost REST API instead of
+# email. Self-contained: brings its own Postgres, isolated on a private
+# `mattermost-internal` network.
+#
+# Prerequisite: the app stack's `backend` network must already exist (created
+# automatically the first time `docker/docker-compose.yml` is brought up).
+# If you're running this standalone (no app stack yet), create it manually:
+#   docker network create backend
+#
+# Start:
+#   cd docker/mattermost && docker compose up -d
+#
+# First-time setup:
+#   1. Open http://localhost:8065 and create the first account (becomes System Admin).
+#   2. System Console → Integrations → Bot Accounts → enable bot account creation
+#      if prompted, then "Add Bot Account" to create a service bot for the app.
+#   3. Copy the bot's Personal Access Token (System Console → Integrations →
+#      Bot Accounts → your bot → Create New Token) and configure it in the
+#      main app (backend/.env) so it can post messages via
+#      POST /api/v4/posts using "Authorization: Bearer <token>".
+#
+# Reachability, same pattern as docker/pyats:
+#   - Backend containerized on the `backend` network (manus-web / manus-worker
+#     from docker/docker-compose.yml): reach Mattermost at http://mattermost:8065
+#   - Backend running natively on the host (CLAUDE.md dev workflow): reach it
+#     at http://localhost:8065 (the published port below)
+#
+# Networks:
+#   mattermost-internal — private (Mattermost ↔ its own Postgres only)
+#   backend              — external: containerized app backend ↔ Mattermost API
+#
+# Note: MM_SERVICESETTINGS_SITEURL below assumes localhost access. If you put
+# this behind a reverse proxy / real domain, update it (and consider TLS)
+# before exposing it beyond your local machine.
+
+services:
+  mattermost-postgres:
+    image: postgres:17-alpine
+    container_name: mattermost-postgres
+    hostname: mattermost-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmpassword
+      POSTGRES_DB: mattermost
+    volumes:
+      - mattermost_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - mattermost-internal
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:latest
+    container_name: mattermost
+    hostname: mattermost
+    restart: unless-stopped
+    depends_on:
+      mattermost-postgres:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:mmpassword@mattermost-postgres:5432/mattermost?sslmode=disable&connect_timeout=10"
+      MM_SERVICESETTINGS_SITEURL: "http://localhost:8065"
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_BLEVESETTINGS_INDEXDIR: /mattermost/bleve-indexes
+    volumes:
+      - mattermost_config:/mattermost/config
+      - mattermost_data:/mattermost/data
+      - mattermost_logs:/mattermost/logs
+      - mattermost_plugins:/mattermost/plugins
+      - mattermost_client_plugins:/mattermost/client/plugins
+      - mattermost_bleve:/mattermost/bleve-indexes
+    ports:
+      - "8065:8065"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8065/api/v4/system/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - mattermost-internal
+      - backend
+
+volumes:
+  mattermost_postgres_data:
+  mattermost_config:
+  mattermost_data:
+  mattermost_logs:
+  mattermost_plugins:
+  mattermost_client_plugins:
+  mattermost_bleve:
+
+networks:
+  mattermost-internal:
+    driver: bridge
+  backend:
+    external: true

@@ -122,3 +122,35 @@ export interface PyATSTestConnectionResponse {
   success: boolean;
   message: string;
 }
+
+export interface MattermostSourceResponse {
+  source_id: string;
+  url: string;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface MattermostSourceListResponse {
+  sources: MattermostSourceResponse[];
+  total: number;
+}
+
+export interface MattermostSourceCreatePayload {
+  source_id: string;
+  url: string;
+  token: string;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface MattermostSourceUpdatePayload {
+  url?: string;
+  token?: string;
+  verify_ssl?: boolean;
+  timeout?: number;
+}
+
+export interface MattermostTestConnectionResponse {
+  success: boolean;
+  message: string;
+}

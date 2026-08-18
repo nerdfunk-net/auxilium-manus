@@ -17,6 +17,7 @@ import {
   Key,
   List,
   LogIn,
+  MessageSquare,
   Replace,
   Router,
   Scale,
@@ -45,6 +46,7 @@ export const ARTIFACT_TYPE_ORDER = [
   "attributes",
   "content_tools",
   "debug",
+  "notify",
   "template_rendering",
   "command_execution",
   "configuration_retrieval",
@@ -56,6 +58,7 @@ export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   cisco: "Cisco",
   pyats: "PyATS",
   configuration_retrieval: "Configuration Management",
+  notify: "Notify",
 };
 
 export function formatPaletteCategory(category: string): string {
@@ -87,6 +90,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "log-message": List,
   "show-summary": Table2,
   notify: Bell,
+  "notify-mattermost": MessageSquare,
   label: Type,
   background: Square,
   "get-ise-devices": ShieldCheck,
@@ -141,6 +145,7 @@ export const categoryTileClasses: Record<string, string> = {
   template_rendering: "bg-orange-100 text-orange-700",
   trigger: "bg-muted text-muted-foreground",
   result: "bg-step-surface text-step-muted-foreground",
+  notify: "bg-blue-100 text-blue-700",
 };
 
 export const CATEGORY_TILE_FALLBACK = "bg-muted text-muted-foreground";
@@ -161,6 +166,7 @@ export const categoryBorderAccentClasses: Record<string, string> = {
   pyats: "border-l-fuchsia-700",
   persistent_artifact: "border-l-violet-700",
   template_rendering: "border-l-orange-700",
+  notify: "border-l-blue-700",
 };
 
 export const CATEGORY_BORDER_FALLBACK = "border-l-border";

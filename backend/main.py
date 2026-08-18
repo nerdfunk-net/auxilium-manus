@@ -33,6 +33,10 @@ from routers.rbac import router as rbac_router
 from routers.settings import router as settings_router
 from routers.sources.git.ops import router as git_source_ops_router
 from routers.sources.ise import ise_source_crud_router, ise_source_ops_router
+from routers.sources.mattermost import (
+    mattermost_source_crud_router,
+    mattermost_source_ops_router,
+)
 from routers.sources.nautobot import (
     nautobot_source_crud_router,
     nautobot_source_ops_router,
@@ -53,6 +57,7 @@ from services.auth.rbac_service import RBACService
 from services.health.ready import build_ready_response
 from services.ise.client import ISEService
 from services.logging.logging_settings_service import LoggingSettingsService
+from services.mattermost.client import MattermostService
 from services.nautobot.client import NautobotService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.pyats.client import PyATSShimService
@@ -88,6 +93,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await pyats_service.startup()
     service_factory.set_pyats_app_service(pyats_service)
 
+    mattermost_service = MattermostService()
+    await mattermost_service.startup()
+    service_factory.set_mattermost_app_service(mattermost_service)
+
     service_factory.build_cache_service()
 
     yield
@@ -95,6 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await nautobot_service.shutdown()
     await ise_service.shutdown()
     await pyats_service.shutdown()
+    await mattermost_service.shutdown()
 
 
 app = FastAPI(
@@ -116,6 +126,8 @@ app.include_router(ise_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_ops_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_crud_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_ops_router, prefix=settings.api_prefix)
+app.include_router(mattermost_source_crud_router, prefix=settings.api_prefix)
+app.include_router(mattermost_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)
 app.include_router(workflow_steps_router, prefix=settings.api_prefix)
 app.include_router(workflow_update_attribute_router, prefix=settings.api_prefix)

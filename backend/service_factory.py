@@ -13,6 +13,8 @@ from services.ise.credentials import ISECredentials
 from services.ise.network_device_group_service import ISENetworkDeviceGroupService
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.ise.source_config_service import ISESourceConfigService
+from services.mattermost.client import MattermostService
+from services.mattermost.source_config_service import MattermostSourceConfigService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.metadata_service import NautobotMetadataService
@@ -25,6 +27,7 @@ _cache_service: RedisCacheService | None = None
 _nautobot_service: NautobotService | None = None
 _ise_service: ISEService | None = None
 _pyats_service: PyATSShimService | None = None
+_mattermost_service: MattermostService | None = None
 _login_rate_limiter: LoginRateLimiter | None = None
 
 
@@ -67,6 +70,21 @@ def set_pyats_app_service(service: PyATSShimService) -> None:
 
 def build_pyats_source_config_service(db: Session) -> PyATSSourceConfigService:
     return PyATSSourceConfigService(db)
+
+
+def get_mattermost_app_service() -> MattermostService:
+    if _mattermost_service is None:
+        raise RuntimeError("MattermostService is not initialized")
+    return _mattermost_service
+
+
+def set_mattermost_app_service(service: MattermostService) -> None:
+    global _mattermost_service
+    _mattermost_service = service
+
+
+def build_mattermost_source_config_service(db: Session) -> MattermostSourceConfigService:
+    return MattermostSourceConfigService(db)
 
 
 def build_ise_network_device_service(

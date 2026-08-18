@@ -37,6 +37,7 @@ from hatchet.workflows.scheduled_trigger import workflow as scheduled_trigger_wo
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
 from services.ise.client import ISEService  # noqa: E402
 from services.logging.logging_settings_service import LoggingSettingsService  # noqa: E402
+from services.mattermost.client import MattermostService  # noqa: E402
 from services.nautobot.client import NautobotService  # noqa: E402
 from services.pyats.client import PyATSShimService  # noqa: E402
 
@@ -60,6 +61,10 @@ async def lifespan() -> AsyncGenerator[None, None]:
     await pyats_service.startup()
     service_factory.set_pyats_app_service(pyats_service)
 
+    mattermost_service = MattermostService()
+    await mattermost_service.startup()
+    service_factory.set_mattermost_app_service(mattermost_service)
+
     service_factory.build_cache_service()
     logger.info("Worker services initialized")
     try:
@@ -68,6 +73,7 @@ async def lifespan() -> AsyncGenerator[None, None]:
         await nautobot_service.shutdown()
         await ise_service.shutdown()
         await pyats_service.shutdown()
+        await mattermost_service.shutdown()
         logger.info("Worker services shut down")
 
 

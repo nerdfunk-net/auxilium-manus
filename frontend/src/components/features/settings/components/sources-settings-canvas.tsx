@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { FlaskConical, GitBranch, Network, ShieldCheck } from "lucide-react";
+import { FlaskConical, GitBranch, MessageSquare, Network, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,8 @@ import {
 } from "@/hooks/queries/use-git-source-operations-mutations";
 import { useISESourcesMutations } from "@/hooks/queries/use-ise-sources-mutations";
 import { useISESourcesQuery } from "@/hooks/queries/use-ise-sources-query";
+import { useMattermostSourcesMutations } from "@/hooks/queries/use-mattermost-sources-mutations";
+import { useMattermostSourcesQuery } from "@/hooks/queries/use-mattermost-sources-query";
 import { usePyATSSourcesMutations } from "@/hooks/queries/use-pyats-sources-mutations";
 import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
 import { useSettingsMutations } from "@/hooks/queries/use-settings-mutations";
@@ -29,6 +31,7 @@ import {
 } from "../constants/setting-keys";
 import { GitSourceDialog } from "../dialogs/git-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
+import { MattermostSourceDialog } from "../dialogs/mattermost-source-dialog";
 import { NautobotSourceDialog } from "../dialogs/nautobot-source-dialog";
 import { PyATSSourceDialog } from "../dialogs/pyats-source-dialog";
 import type {
@@ -36,6 +39,8 @@ import type {
   GitSourceValue,
   ISESourceCreatePayload,
   ISESourceUpdatePayload,
+  MattermostSourceCreatePayload,
+  MattermostSourceUpdatePayload,
   NautobotSourceConfig,
   NautobotSourceValue,
   PyATSSourceCreatePayload,
@@ -53,9 +58,10 @@ type DialogState =
   | { type: "git"; mode: "create" | "edit"; sourceId?: string }
   | { type: "ise"; mode: "create" | "edit"; sourceId?: string }
   | { type: "pyats"; mode: "create" | "edit"; sourceId?: string }
+  | { type: "mattermost"; mode: "create" | "edit"; sourceId?: string }
   | {
       type: "delete";
-      sourceType: "nautobot" | "git" | "ise" | "pyats";
+      sourceType: "nautobot" | "git" | "ise" | "pyats" | "mattermost";
       sourceId: string;
       key: string;
     }
@@ -97,6 +103,26 @@ export function SourcesSettingsCanvas() {
   const existingPyatsIds = useMemo(
     () => pyats.map((item) => item.source_id),
     [pyats],
+  );
+
+  const { data: mattermostData, isLoading: isMattermostLoading } =
+    useMattermostSourcesQuery();
+  const {
+    createSource: createMattermostSource,
+    updateSource: updateMattermostSource,
+    deleteSource: deleteMattermostSource,
+  } = useMattermostSourcesMutations();
+  const mattermost = useMemo(
+    () => mattermostData?.sources ?? [],
+    [mattermostData],
+  );
+  const mattermostById = useMemo(
+    () => new Map(mattermost.map((item) => [item.source_id, item])),
+    [mattermost],
+  );
+  const existingMattermostIds = useMemo(
+    () => mattermost.map((item) => item.source_id),
+    [mattermost],
   );
 
   const { nautobot, git } = useMemo(
@@ -199,6 +225,22 @@ export function SourcesSettingsCanvas() {
     [updatePyatsSource],
   );
 
+  const saveMattermost = useCallback(
+    async (values: MattermostSourceCreatePayload) => {
+      await createMattermostSource.mutateAsync(values);
+      setDialog({ type: "closed" });
+    },
+    [createMattermostSource],
+  );
+
+  const updateMattermost = useCallback(
+    async (sourceId: string, values: MattermostSourceUpdatePayload) => {
+      await updateMattermostSource.mutateAsync({ sourceId, data: values });
+      setDialog({ type: "closed" });
+    },
+    [updateMattermostSource],
+  );
+
   const confirmDelete = useCallback(async () => {
     if (dialog.type !== "delete") {
       return;
@@ -207,11 +249,13 @@ export function SourcesSettingsCanvas() {
       await deleteIseSource.mutateAsync(dialog.sourceId);
     } else if (dialog.sourceType === "pyats") {
       await deletePyatsSource.mutateAsync(dialog.sourceId);
+    } else if (dialog.sourceType === "mattermost") {
+      await deleteMattermostSource.mutateAsync(dialog.sourceId);
     } else {
       await deleteSetting.mutateAsync(dialog.key);
     }
     setDialog({ type: "closed" });
-  }, [dialog, deleteSetting, deleteIseSource, deletePyatsSource]);
+  }, [dialog, deleteSetting, deleteIseSource, deletePyatsSource, deleteMattermostSource]);
 
   const handlePullGit = useCallback(
     async (sourceId: string) => {
@@ -233,6 +277,7 @@ export function SourcesSettingsCanvas() {
   const gitDialogOpen = dialog.type === "git" ? dialog : null;
   const iseDialogOpen = dialog.type === "ise" ? dialog : null;
   const pyatsDialogOpen = dialog.type === "pyats" ? dialog : null;
+  const mattermostDialogOpen = dialog.type === "mattermost" ? dialog : null;
   const deleteDialogOpen = dialog.type === "delete" ? dialog : null;
   const removeAndCloneDialogOpen =
     dialog.type === "remove-and-clone" ? dialog : null;
@@ -269,18 +314,32 @@ export function SourcesSettingsCanvas() {
         timeout: editingPyats.timeout,
       }
     : null;
+  const editingMattermost =
+    mattermostDialogOpen?.mode === "edit" && mattermostDialogOpen.sourceId
+      ? (mattermostById.get(mattermostDialogOpen.sourceId) ?? null)
+      : null;
+  const editingMattermostValue = editingMattermost
+    ? {
+        sourceId: editingMattermost.source_id,
+        url: editingMattermost.url,
+        verifySsl: editingMattermost.verify_ssl,
+        timeout: editingMattermost.timeout,
+      }
+    : null;
 
   const isDeletePending =
     deleteDialogOpen?.sourceType === "ise"
       ? deleteIseSource.isPending
       : deleteDialogOpen?.sourceType === "pyats"
         ? deletePyatsSource.isPending
-        : deleteSetting.isPending;
+        : deleteDialogOpen?.sourceType === "mattermost"
+          ? deleteMattermostSource.isPending
+          : deleteSetting.isPending;
 
   return (
     <>
-      <div className="flex h-full items-center justify-center overflow-y-auto bg-muted p-10">
-        <div className="w-full max-w-3xl rounded-2xl border bg-card p-6 shadow-sm">
+      <div className="flex h-full flex-col overflow-y-auto bg-muted p-10">
+        <div className="mx-auto w-full max-w-3xl rounded-2xl border bg-card p-6 shadow-sm">
           <div className="mb-6 flex items-start gap-4">
             <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Network className="size-6" />
@@ -426,6 +485,32 @@ export function SourcesSettingsCanvas() {
                 })
               }
             />
+
+            <SourceListSection
+              title="Mattermost"
+              description="Chat notifications for workflow runs"
+              icon={MessageSquare}
+              isLoading={isMattermostLoading}
+              emptyLabel="No Mattermost sources yet."
+              addLabel="Add Mattermost"
+              items={mattermost.map((item) => ({
+                sourceId: item.source_id,
+                summary: item.url,
+                detail: item.verify_ssl ? undefined : "TLS verification disabled",
+              }))}
+              onAdd={() => setDialog({ type: "mattermost", mode: "create" })}
+              onEdit={(sourceId) =>
+                setDialog({ type: "mattermost", mode: "edit", sourceId })
+              }
+              onDelete={(sourceId) =>
+                setDialog({
+                  type: "delete",
+                  sourceType: "mattermost",
+                  sourceId,
+                  key: "",
+                })
+              }
+            />
           </div>
         </div>
       </div>
@@ -470,6 +555,17 @@ export function SourcesSettingsCanvas() {
         onClose={() => setDialog({ type: "closed" })}
         onCreate={savePyats}
         onUpdate={updatePyats}
+      />
+
+      <MattermostSourceDialog
+        open={mattermostDialogOpen !== null}
+        mode={mattermostDialogOpen?.mode ?? "create"}
+        initialValue={editingMattermostValue}
+        existingSourceIds={existingMattermostIds}
+        isSaving={createMattermostSource.isPending || updateMattermostSource.isPending}
+        onClose={() => setDialog({ type: "closed" })}
+        onCreate={saveMattermost}
+        onUpdate={updateMattermost}
       />
 
       <Dialog

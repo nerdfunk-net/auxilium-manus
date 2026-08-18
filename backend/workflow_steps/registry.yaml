@@ -1776,6 +1776,51 @@ plugins:
           default: info
           example: warning
 
+  - id: notify-mattermost
+    name: Notify Mattermost
+    overview: Post a message to a Mattermost channel.
+    description: >
+      Posts one message to a Mattermost channel via a configured Mattermost
+      source, team, and channel. Supports {path.to.value} placeholders
+      resolved against the first device in context (e.g. {device.name},
+      {nautobot.location.name}), plus {devices} (comma-joined device names)
+      and {device_count} for summarizing a multi-device run. Typically wired
+      to an upstream step's success or failure outcome handle to report a
+      workflow's outcome. Fan-out note: place after Fan In (or at the end of
+      a non-fanned workflow) for one summary message per run; inside
+      fan-out children it posts once per child branch.
+    artifact_type: control_flow
+    palette_category: notify
+    directory: notify_mattermost
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: mattermost_source_id
+          description: ID of a Mattermost source configured under Settings → Sources.
+          data_type: string
+          required: true
+        - name: team_name
+          description: Mattermost team name that owns the target channel.
+          data_type: string
+          required: true
+        - name: channel_name
+          description: Mattermost channel name to post the message to.
+          data_type: string
+          required: true
+        - name: message
+          description: >
+            Message text. Supports {path.to.value} placeholders resolved
+            against the first device in context, plus {devices} and
+            {device_count} for multi-device summaries.
+          data_type: string
+          required: true
+          example: "Workflow finished: {device_count} device(s) ({devices})"
+
   - id: fan-in
     name: Fan In
     overview: Rejoin fan-out branches into one execution path.
