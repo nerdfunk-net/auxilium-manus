@@ -1745,7 +1745,7 @@ plugins:
       - name: success
 
   - id: notify
-    name: Notify
+    name: Notify Local
     overview: Write a notification for every device in the workflow context.
     description: >
       Records one notification per device in the workflow context (workflow
@@ -1753,7 +1753,7 @@ plugins:
       {path.to.value} placeholders resolved per device, same mechanism as Log
       Message. Notifications appear on the dashboard's Notifications card.
     artifact_type: control_flow
-    palette_category: debug
+    palette_category: notify
     directory: notify
     enabled: true
     requires: [identity]
