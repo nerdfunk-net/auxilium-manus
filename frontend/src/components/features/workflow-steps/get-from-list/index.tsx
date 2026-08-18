@@ -143,18 +143,18 @@ function GetFromListConfigPanel({ config, onChange, nodeId }: PluginConfigPanelP
 
         <div className="space-y-2">
           {devices.map((device, index) => (
-            <div key={`device-${index}`} className="flex items-center gap-2">
+            <div key={`device-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
               <Input
                 value={device.name}
                 onChange={(event) => handleDeviceChange(index, "name", event.target.value)}
                 placeholder="router1.example.com"
-                className="h-8 font-mono text-xs"
+                className="h-8 min-w-0 font-mono text-xs"
               />
               <Input
                 value={device.ip_address}
                 onChange={(event) => handleDeviceChange(index, "ip_address", event.target.value)}
                 placeholder="10.0.0.5"
-                className="h-8 w-32 shrink-0 font-mono text-xs"
+                className="h-8 min-w-0 font-mono text-xs"
               />
               <Button
                 type="button"
