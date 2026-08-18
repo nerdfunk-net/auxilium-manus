@@ -1821,6 +1821,40 @@ plugins:
           required: true
           example: "Workflow finished: {device_count} device(s) ({devices})"
 
+  - id: notify-on-error
+    name: Notify On Error
+    overview: Write a notification for every accumulated error on every failed device.
+    description: >
+      Shared error sink for a workflow: wire many upstream steps' failure
+      outcome handles to this one node instead of adding a notify node after
+      every step. Writes one notification row per (device, error) pair —
+      root-cause step id, node id, and message — from that device's
+      accumulated error list, so a device that failed at more than one point
+      before reaching this node still surfaces every failure, not just the
+      latest. Devices with no accumulated errors (e.g. wired to a success
+      handle by mistake) are skipped. Severity is always error. Place this
+      node after the last step whose failures it should catch — branches
+      converge into it before it runs once.
+    artifact_type: control_flow
+    palette_category: notify
+    directory: notify_on_error
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: message
+          description: >
+            Message template rendered once per accumulated error on each
+            device. Supports {path.to.value} placeholders resolved per
+            device, plus {error.step_id}, {error.node_id}, {error.code},
+            {error.message} for the specific error being reported.
+          data_type: string
+          required: true
+          example: "Device {device.name} failed at {error.step_id}: {error.message}"
+
   - id: fan-in
     name: Fan In
     overview: Rejoin fan-out branches into one execution path.

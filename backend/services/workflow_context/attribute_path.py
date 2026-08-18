@@ -6,7 +6,7 @@ import re
 from enum import StrEnum
 from typing import Any
 
-from models.workflow_context import DeviceContext
+from models.workflow_context import DeviceContext, DeviceError
 from services.workflow_context.secret_fields import (
     REDACTED_PLACEHOLDER,
     is_sealed_secret,
@@ -55,12 +55,34 @@ _MISSING = object()
 # parse-cisco-config's output_key can't collide with an attribute bag name.
 _PARSED_NAMESPACE = "parsed"
 
+# Reserved namespace for the single DeviceError a caller is reporting on
+# (e.g. notify-on-error rendering one message per accumulated error). Not
+# read from DeviceContext itself — the caller passes the specific error via
+# resolve_device_attribute's ``error`` param, since a device can carry more
+# than one accumulated error and there's no single "the" error to expose.
+_ERROR_NAMESPACE = "error"
 
-def _namespace_bag(device: DeviceContext, bag_name: str) -> dict[str, Any] | None:
+
+def _error_to_bag(error: DeviceError) -> dict[str, str]:
+    return {
+        "node_id": error.node_id,
+        "step_id": error.step_id,
+        "code": error.code,
+        "message": error.message,
+        "occurred_at": error.occurred_at,
+    }
+
+
+def _namespace_bag(
+    device: DeviceContext, bag_name: str, *, error: DeviceError | None = None
+) -> dict[str, Any] | None:
     """Look up a namespaced bag by name: "parsed" reads DeviceContext.parsed,
-    anything else reads DeviceContext.attribute_bags."""
+    "error" reads the caller-supplied DeviceError (if any), anything else
+    reads DeviceContext.attribute_bags."""
     if bag_name == _PARSED_NAMESPACE:
         return device.parsed or None
+    if bag_name == _ERROR_NAMESPACE:
+        return _error_to_bag(error) if error is not None else None
     return device.attribute_bags.get(bag_name)
 
 
@@ -236,7 +258,11 @@ def _resolve_leaf(value: Any, *, reveal_secrets: bool) -> str | None:
 
 
 def resolve_device_attribute(
-    device: DeviceContext, attribute_path: str, *, reveal_secrets: bool = True
+    device: DeviceContext,
+    attribute_path: str,
+    *,
+    reveal_secrets: bool = True,
+    error: DeviceError | None = None,
 ) -> str | None:
     """Resolve a dot path against device scalars and namespaced attribute bags.
 
@@ -248,6 +274,13 @@ def resolve_device_attribute(
     parsed AAA servers) resolves to ``None`` — use ``resolve_device_value``
     or ``resolve_device_attribute_state`` (``{exists}``/``{empty}``) for
     those instead of expecting a literal-value match.
+
+    A leading ``error.`` segment reads the caller-supplied ``error`` param
+    (``error.step_id``, ``error.node_id``, ``error.code``, ``error.message``,
+    ``error.occurred_at``) instead of any device state — e.g.
+    ``notify-on-error`` rendering one message per accumulated
+    ``DeviceContext.errors`` entry. Resolves to ``None`` when ``error`` isn't
+    passed, same as any other unset namespace.
 
     ``reveal_secrets`` controls what happens when the resolved leaf is a
     sealed secret envelope (see ``services.workflow_context.secret_fields``):
@@ -274,13 +307,13 @@ def resolve_device_attribute(
 
     if "." in path:
         bag_name, remainder = path.split(".", 1)
-        bag = _namespace_bag(device, bag_name)
+        bag = _namespace_bag(device, bag_name, error=error)
         if bag is None:
             return None
         raw = _traverse_path(bag, remainder)
         return _resolve_leaf(raw, reveal_secrets=reveal_secrets)
 
-    bag = _namespace_bag(device, path)
+    bag = _namespace_bag(device, path, error=error)
     if bag is None:
         return None
     if isinstance(bag, dict) and len(bag) == 1:

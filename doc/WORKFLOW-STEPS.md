@@ -759,6 +759,22 @@ filter matched nothing. A node wired to a failing step's own `failure` handle (e
 on-failure notification branch) is unaffected and still runs normally — only the branch
 that actually lost its devices gets skipped.
 
+**Shared error sink instead of one notify node per step.** Wiring *many* steps'
+`failure` handles to one downstream node is ordinary fan-in — nothing limits how many
+edges converge on a target handle. `merge_workflow_contexts` (used when branches
+converge) unions the devices from each converging `failure` outcome and dedupes
+`DeviceContext.errors` by `(node_id, step_id)`, so the shared node runs once with the
+union of every device that failed anywhere upstream, each still carrying its own
+root-cause `DeviceError`. The `notify-on-error` step (`workflow_steps/notify_on_error/`)
+is built for this: it writes one notification per accumulated error on each device, using
+a dedicated `{error.step_id}` / `{error.node_id}` / `{error.code}` / `{error.message}`
+placeholder namespace resolved by `resolve_device_attribute`'s optional `error` param
+(`services/workflow_context/attribute_path.py`) — populated only when a step explicitly
+passes one `DeviceError` from `device.errors` per render call, so it's `None`/absent for
+every other step's placeholder templates. Place the sink after the last step whose
+failures it should catch, since a node only runs once its predecessors on that handle
+have converged.
+
 ### Fan-out merge (`services/workflow_context/merge.py`)
 
 `merge_fan_out_contexts` folds disjoint child contexts back together:

@@ -38,6 +38,7 @@ import { LogMessagePlugin } from "@/components/features/workflow-steps/log-messa
 import { ShowSummaryPlugin } from "@/components/features/workflow-steps/show-summary";
 import { NotifyPlugin } from "@/components/features/workflow-steps/notify";
 import { NotifyMattermostPlugin } from "@/components/features/workflow-steps/notify-mattermost";
+import { NotifyOnErrorPlugin } from "@/components/features/workflow-steps/notify-on-error";
 import { LabelPlugin } from "@/components/features/workflow-steps/label";
 import { BackgroundPlugin } from "@/components/features/workflow-steps/background";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
@@ -93,6 +94,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "show-summary": ShowSummaryPlugin,
   notify: NotifyPlugin,
   "notify-mattermost": NotifyMattermostPlugin,
+  "notify-on-error": NotifyOnErrorPlugin,
   label: LabelPlugin,
   background: BackgroundPlugin,
 };

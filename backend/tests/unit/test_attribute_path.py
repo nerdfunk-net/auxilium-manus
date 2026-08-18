@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from models.workflow_context import DeviceContext
+from models.workflow_context import DeviceContext, DeviceError
 from services.workflow_context.attribute_path import (
     AttributeState,
     resolve_device_attribute,
@@ -137,6 +137,48 @@ class AttributePathTests(unittest.TestCase):
         self.assertEqual(
             resolve_device_attribute(device, "parsed.cisco_config.hostname"),
             "from-parsed-field",
+        )
+
+    def test_resolves_error_namespace_when_error_passed(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        error = DeviceError(
+            node_id="node-42",
+            step_id="run-command",
+            code="timeout",
+            message="timed out after 30s",
+        )
+        self.assertEqual(
+            resolve_device_attribute(device, "error.step_id", error=error),
+            "run-command",
+        )
+        self.assertEqual(
+            resolve_device_attribute(device, "error.node_id", error=error),
+            "node-42",
+        )
+        self.assertEqual(
+            resolve_device_attribute(device, "error.message", error=error),
+            "timed out after 30s",
+        )
+
+    def test_error_namespace_absent_when_no_error_passed(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        self.assertIsNone(resolve_device_attribute(device, "error.message"))
+
+    def test_error_namespace_does_not_collide_with_attribute_bag_named_error(self) -> None:
+        # attribute_bags never actually has an "error" key in practice, but the
+        # reserved namespace must win over it rather than silently merging.
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={"error": {"message": "from-bag"}},
+        )
+        error = DeviceError(
+            node_id="node-1", step_id="reachable", code="unreachable", message="from-error-param"
+        )
+        self.assertEqual(
+            resolve_device_attribute(device, "error.message", error=error),
+            "from-error-param",
         )
 
 

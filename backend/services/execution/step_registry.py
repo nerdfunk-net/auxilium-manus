@@ -52,6 +52,7 @@ from workflow_steps.login_successful.executor import execute as login_successful
 from workflow_steps.merge_content.executor import execute as merge_content
 from workflow_steps.notify.executor import execute as notify
 from workflow_steps.notify_mattermost.executor import execute as notify_mattermost
+from workflow_steps.notify_on_error.executor import execute as notify_on_error
 from workflow_steps.parse_cisco_config.executor import execute as parse_cisco_config
 from workflow_steps.reachable.executor import execute as reachable
 from workflow_steps.read_config.executor import execute as read_config
@@ -116,4 +117,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "show-summary": show_summary,
     "notify": notify,
     "notify-mattermost": notify_mattermost,
+    "notify-on-error": notify_on_error,
 }

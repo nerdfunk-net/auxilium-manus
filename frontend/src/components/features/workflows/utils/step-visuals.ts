@@ -1,5 +1,6 @@
 import {
   Bell,
+  BellRing,
   Camera,
   CheckCircle2,
   Combine,
@@ -91,6 +92,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "show-summary": Table2,
   notify: Bell,
   "notify-mattermost": MessageSquare,
+  "notify-on-error": BellRing,
   label: Type,
   background: Square,
   "get-ise-devices": ShieldCheck,

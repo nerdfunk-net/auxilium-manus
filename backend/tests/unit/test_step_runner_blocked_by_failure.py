@@ -207,6 +207,62 @@ class BlockedByUpstreamFailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results["on_success"].status, "skipped")
         self.assertEqual(results["on_failure"].status, "success")
 
+    async def test_shared_sink_receives_union_of_two_failing_branches_once(self) -> None:
+        """Two independent steps' `failure` handles fan into one shared sink
+        node (the notify-on-error pattern): the sink must run exactly once,
+        with the merged devices from both branches, each device carrying
+        both branches' DeviceErrors (not deduped away, since they come from
+        different node_ids)."""
+        nodes = [
+            _node("inv", "get-nautobot-devices"),
+            _node("fails_a", "run-command"),
+            _node("fails_b", "run-command"),
+            _node("sink", "run-command"),
+        ]
+        edges = [
+            _edge("inv", "fails_a"),
+            _edge("inv", "fails_b"),
+            _edge("fails_a", "sink", source_handle="failure"),
+            _edge("fails_b", "sink", source_handle="failure"),
+        ]
+        wf = SimpleNamespace(id=1, canvas_nodes=nodes, canvas_edges=edges)
+        run = _make_run(self.db)
+        ctx = AsyncMock()
+        called_nodes: list[str] = []
+        sink_devices: dict[str, DeviceContext] = {}
+
+        async def _execute_step_stub(**kwargs: Any) -> list[StepOutcome]:
+            node_id = kwargs["node_id"]
+            context: WorkflowContext = kwargs["context"]
+            called_nodes.append(node_id)
+            if node_id == "inv":
+                devices = {"d1": _device("d1"), "d2": _device("d2")}
+                success_ctx = context.model_copy(update={"devices": devices})
+                return [StepOutcome(name="success", context=success_ctx)]
+            if node_id in ("fails_a", "fails_b"):
+                return _fail_all_devices_outcomes(node_id, context)
+            if node_id == "sink":
+                sink_devices.update(context.devices)
+                return [StepOutcome(name="success", context=context)]
+            raise AssertionError(f"unexpected node {node_id!r}")
+
+        with patch.object(StepRunner, "_execute_step", side_effect=_execute_step_stub):
+            final_status, fan_out, _ = await _run_steps_until_fan_out_or_done(
+                run_repo=self.run_repo, runner=self.runner, run=run, wf=wf, ctx=ctx
+            )
+
+        self.assertIsNone(fan_out)
+        self.assertEqual(called_nodes.count("sink"), 1)
+        self.assertEqual(final_status, "failed")
+
+        self.assertEqual(set(sink_devices), {"d1", "d2"})
+        for device in sink_devices.values():
+            step_ids = {error.step_id for error in device.errors}
+            node_ids = {error.node_id for error in device.errors}
+            self.assertEqual(len(device.errors), 2)
+            self.assertEqual(step_ids, {"run-command"})
+            self.assertEqual(node_ids, {"fails_a", "fails_b"})
+
 
 class BlockedByUpstreamFailureHelperTests(unittest.TestCase):
     """Direct unit tests for the pure `_blocked_by_upstream_failure` check."""
