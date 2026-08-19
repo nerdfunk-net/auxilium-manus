@@ -129,8 +129,7 @@ class StepRunner:
         embeds ``_fan_out.enabled`` in its outcome context — the caller must
         handle dispatching child workflows and aggregating results.
         """
-        nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
-        edges: list[dict[str, Any]] = workflow.canvas_edges or []
+        nodes, edges = self.load_execution_graph(workflow)
 
         ordered_nodes = self.build_execution_plan(nodes, edges)
         step_results = self.create_pending_step_results(run_id=run.id, ordered_nodes=ordered_nodes)
@@ -200,6 +199,79 @@ class StepRunner:
         Hatchet task's debug-mode per-node loop (`hatchet/workflows/workflow_run.py`).
         """
         return self._topological_sort(nodes, edges)
+
+    def load_execution_graph(
+        self, workflow: Workflow
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Read canvas_nodes/canvas_edges and resolve funnel nodes before any
+        caller sees them — the single point where the raw persisted graph
+        becomes the graph StepRunner actually walks.
+
+        Public — external drivers that read a Workflow's canvas and walk it
+        themselves must call this instead of reading ``canvas_nodes``/
+        ``canvas_edges`` directly, so they see the same funnel-resolved graph
+        as execute_all/resume_after_join/execute_subgraph. The Hatchet
+        debug-mode per-node loop (``hatchet/workflows/workflow_run.py``) is
+        the one such caller today — see ``build_execution_plan``'s docstring
+        for the same "callers that drive the walk themselves" contract.
+        """
+        nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
+        edges: list[dict[str, Any]] = workflow.canvas_edges or []
+        return self._resolve_funnels(nodes, edges)
+
+    @staticmethod
+    def _resolve_funnels(
+        nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Splice funnel nodes out of the graph: every edge into a funnel is
+        rewired straight to the funnel's one downstream target, keeping the
+        original edge's sourceHandle (outcome name) so e.g. a ``failure``
+        edge funneled into Notify On Error still reads as a failure edge.
+        Funnel nodes themselves are dropped, same as any other
+        ``executable: false`` decoration.
+        """
+        funnel_ids = {
+            n["id"] for n in nodes if "id" in n and (n.get("data") or {}).get("kind") == "funnel"
+        }
+        if not funnel_ids:
+            return nodes, edges
+
+        outgoing_by_funnel: dict[str, dict[str, Any]] = {}
+        for funnel_id in funnel_ids:
+            outgoing = [e for e in edges if e.get("source") == funnel_id]
+            if len(outgoing) != 1:
+                raise ValueError(
+                    f"Funnel node {funnel_id!r} must have exactly one outgoing "
+                    f"connection (found {len(outgoing)})"
+                )
+            downstream_target = outgoing[0].get("target", "")
+            if downstream_target in funnel_ids:
+                raise ValueError(
+                    f"Funnel node {funnel_id!r} feeds into another funnel "
+                    f"{downstream_target!r} — chaining funnels is not supported"
+                )
+            outgoing_by_funnel[funnel_id] = outgoing[0]
+
+        resolved_edges = [
+            e
+            for e in edges
+            if e.get("source") not in funnel_ids and e.get("target") not in funnel_ids
+        ]
+        for edge in edges:
+            target = edge.get("target", "")
+            if target not in funnel_ids:
+                continue
+            downstream_edge = outgoing_by_funnel[target]
+            resolved_edges.append(
+                {
+                    **edge,
+                    "target": downstream_edge.get("target", ""),
+                    "targetHandle": downstream_edge.get("targetHandle"),
+                }
+            )
+
+        remaining_nodes = [n for n in nodes if n.get("id") not in funnel_ids]
+        return remaining_nodes, resolved_edges
 
     def _is_executable_node(self, node: dict[str, Any]) -> bool:
         """False for canvas decorations (label, background, …); True otherwise.
@@ -475,8 +547,7 @@ class StepRunner:
         unusual shape in practice (post-join nodes are fed by the fanned-in
         device union, not pre-fan-out context).
         """
-        nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
-        edges: list[dict[str, Any]] = workflow.canvas_edges or []
+        nodes, edges = self.load_execution_graph(workflow)
         ordered_nodes = self._topological_sort(nodes, edges)
 
         post_join_ids = {join_node_id} | downstream_node_ids(join_node_id, nodes, edges)
@@ -654,8 +725,7 @@ class StepRunner:
               executor raised (see ``classify_step_exception``); the parent folds this
               into the persisted WorkflowStepResult.error_message/error_category/error_id.
         """
-        nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
-        edges: list[dict[str, Any]] = workflow.canvas_edges or []
+        nodes, edges = self.load_execution_graph(workflow)
         ordered_nodes = self._topological_sort(nodes, edges)
 
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {

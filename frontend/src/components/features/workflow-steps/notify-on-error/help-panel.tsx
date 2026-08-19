@@ -18,9 +18,11 @@ export function NotifyOnErrorHelpPanel() {
         <p>
           Shared error sink for a workflow: wire many upstream steps&apos;{" "}
           <HelpCode>failure</HelpCode> outcome handles to this one node instead of
-          adding a dedicated notify node after every step. Writes one notification
-          row per accumulated error on each device in context — root-cause step,
-          node, and message — instead of just the most recent one.
+          adding a dedicated notify node after every step. Renders one message
+          per accumulated error on each device in context — root-cause step,
+          node, and message — instead of just the most recent one, and delivers
+          it to one or both of two independently toggleable channels: a local
+          Notification row, and/or a Mattermost post.
         </p>
       </HelpSection>
 
@@ -28,7 +30,9 @@ export function NotifyOnErrorHelpPanel() {
         <p>
           Template string stored as <HelpCode>message</HelpCode>. Rendered once
           per error accumulated on a device — a device that failed at two
-          different points before reaching this node produces two rows.
+          different points before reaching this node produces two rows — and
+          reused verbatim as the Mattermost post text for that row when the
+          Mattermost channel is enabled below.
         </p>
         <p className="font-medium text-foreground">Placeholder syntax</p>
         <p>
@@ -65,6 +69,40 @@ export function NotifyOnErrorHelpPanel() {
           <HelpCode>Notify Local</HelpCode> step if you need
           <HelpCode>info</HelpCode>/<HelpCode>warning</HelpCode> severities.
         </p>
+      </HelpSection>
+
+      <HelpSection title="notify_local / notify_mattermost">
+        <p>
+          Two independent checkboxes controlling where the rendered message
+          goes. <HelpCode>notify_local</HelpCode> (default on) writes a local
+          Notification row per accumulated error, same as before this step
+          could reach Mattermost. <HelpCode>notify_mattermost</HelpCode>{" "}
+          (default off) additionally posts each row&apos;s rendered message to
+          a Mattermost channel. Either, both, or — if you explicitly disable
+          both — configuration is rejected with an error, since the step
+          would otherwise do nothing.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="mattermost_source_id / team_name / channel_name">
+        <p>
+          Only used when <HelpCode>notify_mattermost</HelpCode> is enabled.
+          The Mattermost source (URL + bot token) configured under Settings →
+          Sources, plus the target team and channel name (not a channel ID —
+          resolved to one at run time). The bot account behind the
+          source&apos;s token must be a member of both. Same fields and same
+          resolution mechanism as the <HelpCode>Notify Mattermost</HelpCode>{" "}
+          step.
+        </p>
+        <HelpWarning title="Mattermost failures are best-effort">
+          <p>
+            A Mattermost post is attempted once per accumulated error. If the
+            source, channel, or the post itself fails, it is logged as a
+            warning and skipped — it does not fail this step, does not
+            produce a <HelpCode>failure</HelpCode> outcome, and does not
+            block local notifications or other rows from being posted.
+          </p>
+        </HelpWarning>
       </HelpSection>
 
       <HelpSection title="Outcomes">

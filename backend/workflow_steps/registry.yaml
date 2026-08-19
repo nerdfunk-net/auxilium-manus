@@ -1645,6 +1645,24 @@ plugins:
           default: 320
           example: 320
 
+  - id: funnel
+    name: Funnel
+    overview: Merge many connections into one before a shared destination.
+    description: >
+      Canvas decoration — accepts edges from many upstream steps and routes
+      them through a single downstream connection, reducing visual clutter
+      for fan-in patterns like Notify On Error. Not executed at runtime;
+      each incoming edge is resolved directly between its real source and
+      the funnel's one destination before execution.
+    artifact_type: canvas_decoration
+    palette_category: debug
+    directory: funnel
+    enabled: true
+    executable: false
+    requires: []
+    produces: []
+    outcomes: []
+
   - id: log-message
     name: Log Message
     overview: Log a per-device message for workflow debugging.
@@ -1834,7 +1852,11 @@ plugins:
       latest. Devices with no accumulated errors (e.g. wired to a success
       handle by mistake) are skipped. Severity is always error. Place this
       node after the last step whose failures it should catch — branches
-      converge into it before it runs once.
+      converge into it before it runs once. Local notification and Mattermost
+      posting (via a configured Mattermost source, team, and channel) are
+      independently toggleable — either or both can be enabled. A Mattermost
+      post failure is logged and does not fail the step or block local
+      notifications.
     artifact_type: control_flow
     palette_category: notify
     directory: notify_on_error
@@ -1848,12 +1870,42 @@ plugins:
         - name: message
           description: >
             Message template rendered once per accumulated error on each
-            device. Supports {path.to.value} placeholders resolved per
-            device, plus {error.step_id}, {error.node_id}, {error.code},
-            {error.message} for the specific error being reported.
+            device, and reused verbatim as the Mattermost post text when that
+            channel is enabled. Supports {path.to.value} placeholders
+            resolved per device, plus {error.step_id}, {error.node_id},
+            {error.code}, {error.message} for the specific error being
+            reported.
           data_type: string
           required: true
           example: "Device {device.name} failed at {error.step_id}: {error.message}"
+        - name: notify_local
+          description: Write a local Notification row for each accumulated error.
+          data_type: boolean
+          required: false
+          default: true
+        - name: notify_mattermost
+          description: Also post each accumulated error's rendered message to Mattermost.
+          data_type: boolean
+          required: false
+          default: false
+        - name: mattermost_source_id
+          description: >
+            ID of a Mattermost source configured under Settings → Sources.
+            Required when notify_mattermost is true.
+          data_type: string
+          required: false
+        - name: team_name
+          description: >
+            Mattermost team name that owns the target channel. Required when
+            notify_mattermost is true.
+          data_type: string
+          required: false
+        - name: channel_name
+          description: >
+            Mattermost channel name to post each message to. Required when
+            notify_mattermost is true.
+          data_type: string
+          required: false
 
   - id: fan-in
     name: Fan In

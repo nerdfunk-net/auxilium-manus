@@ -62,6 +62,9 @@ const HANDLE_SIDE_OPTIONS: { value: HandleSide; label: string }[] = [
   { value: "right", label: "Right" },
 ];
 
+/** Node types whose canvas handles attach to a configurable side. */
+const HANDLE_SIDE_CONFIGURABLE_NODE_TYPES = new Set(["workflowNode", "funnelNode"]);
+
 interface NodeConfigModalProps {
   nodes: PersistedCanvasNode[];
   edges?: WorkflowCanvasEdge[];
@@ -299,7 +302,7 @@ export function NodeConfigModal({
                 </p>
               </div>
 
-              {activeNode.type === "workflowNode" ? (
+              {HANDLE_SIDE_CONFIGURABLE_NODE_TYPES.has(activeNode.type ?? "") ? (
                 <div className="mt-4 flex max-w-sm gap-3">
                   <div className="flex-1 space-y-1.5">
                     <Label className="text-xs font-medium" htmlFor="modal-step-income-side">
@@ -353,7 +356,7 @@ export function NodeConfigModal({
                   </div>
                 </div>
               ) : null}
-              {activeNode.type === "workflowNode" ? (
+              {HANDLE_SIDE_CONFIGURABLE_NODE_TYPES.has(activeNode.type ?? "") ? (
                 <p className="mt-1.5 max-w-sm text-[11px] leading-4 text-muted-foreground">
                   Which sides this step&apos;s input and outcome handles attach to. Income
                   takes priority — outcome cannot use the same side.

@@ -169,8 +169,7 @@ async def _run_steps_until_fan_out_or_done(
     the (possibly reloaded, e.g. after a debug resume) WorkflowRun to keep
     using in the caller.
     """
-    canvas_nodes: list[dict[str, Any]] = wf.canvas_nodes or []
-    canvas_edges: list[dict[str, Any]] = wf.canvas_edges or []
+    canvas_nodes, canvas_edges = runner.load_execution_graph(wf)
     ordered_nodes = runner.build_execution_plan(canvas_nodes, canvas_edges)
     step_results = runner.create_pending_step_results(run_id=run.id, ordered_nodes=ordered_nodes)
 

@@ -25,8 +25,8 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from services.mattermost.common.exceptions import MattermostAPIError, MattermostValidationError
-from services.mattermost.source_config_service import MattermostSourceNotFoundError
+from services.mattermost.common.exceptions import MattermostAPIError
+from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.notify_mattermost.config import get_config
 
@@ -85,13 +85,7 @@ async def execute(
     if db is None:
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
 
-    config_service = service_factory.build_mattermost_source_config_service(db)
-    try:
-        credentials = config_service.resolve_credentials(source_id)
-    except MattermostSourceNotFoundError as exc:
-        raise ValueError(f"{_STEP_ID}: Mattermost source '{source_id}' not found") from exc
-    except MattermostValidationError as exc:
-        raise ValueError(f"{_STEP_ID}: {exc}") from exc
+    credentials = resolve_mattermost_credentials(db, source_id, step_id=_STEP_ID)
 
     logger.info(
         "%s started run_id=%s node_id=%s devices=%d",

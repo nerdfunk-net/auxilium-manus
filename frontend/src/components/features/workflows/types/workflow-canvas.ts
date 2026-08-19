@@ -97,12 +97,14 @@ export interface WorkflowEdgeData extends Record<string, unknown> {
 export type WorkflowCanvasNode = Node<WorkflowNodeData, "workflowNode">;
 export type LabelCanvasNode = Node<WorkflowNodeData, "labelNode">;
 export type BackgroundCanvasNode = Node<WorkflowNodeData, "backgroundNode">;
+export type FunnelCanvasNode = Node<WorkflowNodeData, "funnelNode">;
 
 /** Persisted canvas nodes: executable steps plus canvas-only decorations. */
 export type PersistedCanvasNode =
   | WorkflowCanvasNode
   | LabelCanvasNode
-  | BackgroundCanvasNode;
+  | BackgroundCanvasNode
+  | FunnelCanvasNode;
 
 export type WorkflowCanvasEdge = Edge<WorkflowEdgeData, "waypoint">;
 
@@ -154,9 +156,23 @@ export function isCanvasDecorationKind(kind: string | undefined): boolean {
   return !!kind && CANVAS_DECORATION_KINDS.has(kind);
 }
 
+/**
+ * The funnel kind is deliberately NOT part of CANVAS_DECORATION_KINDS: unlike
+ * label/background it accepts connection handles (many in, one out) and is
+ * spliced — not just filtered — out of the graph before execution (see
+ * StepRunner._resolve_funnels). Kept as its own check so callers don't
+ * accidentally lump it in with edge-rejecting decorations.
+ */
+export const FUNNEL_KIND = "funnel";
+
+export function isFunnelKind(kind: string | undefined): boolean {
+  return kind === FUNNEL_KIND;
+}
+
 export function reactFlowTypeForKind(kind: string): PersistedCanvasNode["type"] {
   if (kind === "label") return "labelNode";
   if (kind === "background") return "backgroundNode";
+  if (kind === FUNNEL_KIND) return "funnelNode";
   return "workflowNode";
 }
 

@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import DeviceContext, DeviceError, DeviceStatus, WorkflowContext
+from services.mattermost.common.exceptions import MattermostAPIError
 from services.workflow_context.attribute_path import DEBUG_LOGS_METADATA_SUFFIX
 from workflow_steps.notify_on_error.executor import execute
+
+_MATTERMOST_CONFIG = {
+    "mattermost_source_id": "lab-mm",
+    "team_name": "networking",
+    "channel_name": "alerts",
+}
 
 
 def _run() -> MagicMock:
@@ -48,6 +55,27 @@ def _patches(*, workflow_result=None, notification_repo=None):
         patch(
             "workflow_steps.notify_on_error.executor.NotificationRepository",
             return_value=notification_repo_instance,
+        ),
+    )
+
+
+def _mattermost_client(*, channel_id: str = "chan123") -> MagicMock:
+    client = MagicMock()
+    client.get_channel_by_name = AsyncMock(return_value={"id": channel_id})
+    client.create_post = AsyncMock(return_value={"id": "post123"})
+    return client
+
+
+def _mattermost_patches(*, client: MagicMock | None = None):
+    resolved_client = client or _mattermost_client()
+    return (
+        patch(
+            "workflow_steps.notify_on_error.executor.resolve_mattermost_credentials",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "service_factory.get_mattermost_app_service",
+            return_value=resolved_client,
         ),
     )
 
@@ -242,6 +270,271 @@ class NotifyOnErrorExecutorTests(unittest.IsolatedAsyncioTestCase):
                     node_id="notify-on-error-1",
                     device_sessions=MagicMock(),
                 )
+
+    async def test_both_channels_enabled_posts_and_writes(self) -> None:
+        device1 = DeviceContext(
+            id="d1",
+            name="router1",
+            hostname="router1",
+            status=DeviceStatus.FAILED,
+            errors=[_error("run-command", "timeout")],
+        )
+        device2 = DeviceContext(
+            id="d2",
+            name="router2",
+            hostname="router2",
+            status=DeviceStatus.FAILED,
+            errors=[_error("reachable", "unreachable")],
+        )
+        context = _context({"d1": device1, "d2": device2})
+
+        notification_repo = MagicMock()
+        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        client = _mattermost_client()
+
+        session_p, workflow_p, notification_p = _patches(
+            workflow_result=(_workflow(), "alice"),
+            notification_repo=notification_repo,
+        )
+        mattermost_p = _mattermost_patches(client=client)
+        with session_p, workflow_p, notification_p, mattermost_p[0], mattermost_p[1]:
+            outcomes = await execute(
+                config={
+                    "message": "{device.name} failed at {error.step_id}: {error.message}",
+                    "notify_local": True,
+                    "notify_mattermost": True,
+                    **_MATTERMOST_CONFIG,
+                },
+                context=context,
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        rows = notification_repo.create_batch.call_args.args[0]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(client.create_post.await_count, 2)
+
+        debug_logs = outcomes[0].context.metadata[f"notify-on-error-1{DEBUG_LOGS_METADATA_SUFFIX}"]
+        self.assertTrue(debug_logs["mattermost_enabled"])
+        self.assertEqual(debug_logs["mattermost_posted"], 2)
+        self.assertEqual(debug_logs["mattermost_failed"], 0)
+
+    async def test_mattermost_post_failure_is_best_effort(self) -> None:
+        device = DeviceContext(
+            id="d1",
+            name="router1",
+            hostname="router1",
+            status=DeviceStatus.FAILED,
+            errors=[
+                _error("run-command", "timeout", node_id="node-a"),
+                _error("reachable", "unreachable", node_id="node-b"),
+            ],
+        )
+        context = _context({"d1": device})
+
+        notification_repo = MagicMock()
+        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        client = _mattermost_client()
+        client.create_post.side_effect = [None, MattermostAPIError("could not post")]
+
+        session_p, workflow_p, notification_p = _patches(
+            workflow_result=(_workflow(), "alice"),
+            notification_repo=notification_repo,
+        )
+        mattermost_p = _mattermost_patches(client=client)
+        with session_p, workflow_p, notification_p, mattermost_p[0], mattermost_p[1]:
+            outcomes = await execute(
+                config={
+                    "message": "{device.name} @ {error.node_id}",
+                    "notify_mattermost": True,
+                    **_MATTERMOST_CONFIG,
+                },
+                context=context,
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        rows = notification_repo.create_batch.call_args.args[0]
+        self.assertEqual(len(rows), 2)
+
+        debug_logs = outcomes[0].context.metadata[f"notify-on-error-1{DEBUG_LOGS_METADATA_SUFFIX}"]
+        self.assertEqual(debug_logs["mattermost_posted"], 1)
+        self.assertEqual(debug_logs["mattermost_failed"], 1)
+
+    async def test_channel_resolution_failure_skips_mattermost(self) -> None:
+        device = DeviceContext(
+            id="d1",
+            name="router1",
+            hostname="router1",
+            status=DeviceStatus.FAILED,
+            errors=[_error("run-command", "timeout")],
+        )
+        context = _context({"d1": device})
+
+        notification_repo = MagicMock()
+        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        client = _mattermost_client()
+        client.get_channel_by_name.side_effect = MattermostAPIError("channel not found")
+
+        session_p, workflow_p, notification_p = _patches(
+            workflow_result=(_workflow(), "alice"),
+            notification_repo=notification_repo,
+        )
+        mattermost_p = _mattermost_patches(client=client)
+        with session_p, workflow_p, notification_p, mattermost_p[0], mattermost_p[1]:
+            outcomes = await execute(
+                config={
+                    "message": "{device.name}",
+                    "notify_mattermost": True,
+                    **_MATTERMOST_CONFIG,
+                },
+                context=context,
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        client.create_post.assert_not_awaited()
+        rows = notification_repo.create_batch.call_args.args[0]
+        self.assertEqual(len(rows), 1)
+
+    async def test_notify_local_false_skips_local_writes(self) -> None:
+        device = DeviceContext(
+            id="d1",
+            name="router1",
+            hostname="router1",
+            status=DeviceStatus.FAILED,
+            errors=[_error("run-command", "timeout")],
+        )
+        context = _context({"d1": device})
+
+        notification_repo = MagicMock()
+        client = _mattermost_client()
+
+        session_p, workflow_p, notification_p = _patches(
+            workflow_result=(_workflow(), "alice"),
+            notification_repo=notification_repo,
+        )
+        mattermost_p = _mattermost_patches(client=client)
+        with session_p, workflow_p, notification_p, mattermost_p[0], mattermost_p[1]:
+            outcomes = await execute(
+                config={
+                    "message": "{device.name}",
+                    "notify_local": False,
+                    "notify_mattermost": True,
+                    **_MATTERMOST_CONFIG,
+                },
+                context=context,
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        notification_repo.create_batch.assert_not_called()
+        client.create_post.assert_awaited_once()
+
+    async def test_no_errors_skips_channel_resolution(self) -> None:
+        device = DeviceContext(id="d1", name="router1", hostname="router1")
+        context = _context({"d1": device})
+
+        notification_repo = MagicMock()
+        notification_repo.create_batch.side_effect = lambda rows: [MagicMock() for _ in rows]
+        client = _mattermost_client()
+
+        session_p, workflow_p, notification_p = _patches(
+            workflow_result=(_workflow(), "alice"),
+            notification_repo=notification_repo,
+        )
+        mattermost_p = _mattermost_patches(client=client)
+        with session_p, workflow_p, notification_p, mattermost_p[0], mattermost_p[1]:
+            outcomes = await execute(
+                config={
+                    "message": "{device.name}",
+                    "notify_mattermost": True,
+                    **_MATTERMOST_CONFIG,
+                },
+                context=context,
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        client.get_channel_by_name.assert_not_awaited()
+
+    async def test_both_channels_disabled_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "message": "hello",
+                    "notify_local": False,
+                    "notify_mattermost": False,
+                },
+                context=_context({}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_mattermost_missing_source_id_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "message": "hello",
+                    "notify_mattermost": True,
+                    "team_name": "networking",
+                    "channel_name": "alerts",
+                },
+                context=_context({}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_mattermost_missing_team_name_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "message": "hello",
+                    "notify_mattermost": True,
+                    "mattermost_source_id": "lab-mm",
+                    "channel_name": "alerts",
+                },
+                context=_context({}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_mattermost_missing_channel_name_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "message": "hello",
+                    "notify_mattermost": True,
+                    "mattermost_source_id": "lab-mm",
+                    "team_name": "networking",
+                },
+                context=_context({}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-on-error-1",
+                device_sessions=MagicMock(),
+            )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import {
   isCanvasDecorationKind,
+  isFunnelKind,
   type CanvasGroup,
   type WorkflowCanvasEdge,
   type PersistedCanvasNode,
@@ -47,8 +48,13 @@ export function validateCanvasWorkflow(
     (edge) => !nodeIds.has(edge.source) || !nodeIds.has(edge.target),
   );
   const hasExecutableStep = nodes.some(
-    (node) => !isCanvasDecorationKind(node.data.kind),
+    (node) => !isCanvasDecorationKind(node.data.kind) && !isFunnelKind(node.data.kind),
   );
+
+  const funnelIssues = nodes
+    .filter((node) => isFunnelKind(node.data.kind))
+    .filter((node) => edges.filter((edge) => edge.source === node.id).length !== 1)
+    .map((node) => `Funnel "${node.id}" must connect to exactly one destination.`);
 
   const groupIssues = groups
     .filter((group) => {
@@ -73,6 +79,7 @@ export function validateCanvasWorkflow(
     ),
     ...groupIssues,
     ...staticAttributeIssues,
+    ...funnelIssues,
   ];
 
   return {
@@ -80,7 +87,8 @@ export function validateCanvasWorkflow(
       hasExecutableStep &&
       danglingEdges.length === 0 &&
       groupIssues.length === 0 &&
-      staticAttributeIssues.length === 0,
+      staticAttributeIssues.length === 0 &&
+      funnelIssues.length === 0,
     issues,
   };
 }

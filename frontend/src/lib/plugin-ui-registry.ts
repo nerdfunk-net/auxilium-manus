@@ -41,6 +41,7 @@ import { NotifyMattermostPlugin } from "@/components/features/workflow-steps/not
 import { NotifyOnErrorPlugin } from "@/components/features/workflow-steps/notify-on-error";
 import { LabelPlugin } from "@/components/features/workflow-steps/label";
 import { BackgroundPlugin } from "@/components/features/workflow-steps/background";
+import { FunnelPlugin } from "@/components/features/workflow-steps/funnel";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
@@ -97,6 +98,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "notify-on-error": NotifyOnErrorPlugin,
   label: LabelPlugin,
   background: BackgroundPlugin,
+  funnel: FunnelPlugin,
 };
 
 export function getPluginUI(pluginId: string): PluginUIComponent | undefined {

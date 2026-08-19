@@ -143,6 +143,62 @@ Contract:
 `config.py` still provides defaults for the ConfigPanel. Decorations persist in
 `canvas_nodes` with the rest of the layout.
 
+### Pass-through decorations — `funnel`
+
+`funnel` is a canvas decoration with one deliberate exception to the contract
+above: **it does accept connection handles.** It exists to solve visual
+clutter for many-to-one fan-in (e.g. several steps' `failure` handles all
+wired into one `notify-on-error` node) the same way NiFi's funnel object
+does — many edges converge on the funnel, and exactly one edge leaves it, so
+the canvas only ever draws one line into the shared destination.
+
+| Step id | Purpose |
+|---------|---------|
+| `funnel` | Accepts unlimited incoming edges; requires exactly one outgoing edge |
+
+Contract:
+
+- Registry: same as other decorations (`artifact_type: canvas_decoration`,
+  `palette_category: debug`, `executable: false`, empty `requires` /
+  `produces` / `outcomes`) — no `executor.py`, no `step_registry.py` entry
+- Frontend uses a dedicated small React Flow node type (`funnelNode`,
+  `frontend/.../workflows/components/nodes/funnel-node.tsx`) rather than the
+  fixed `WorkflowNode` card, same variable-size exception granted to
+  `labelNode`/`backgroundNode`
+- Like `WorkflowNode`, its input/output handle sides are configurable from the
+  node config modal's General tab (`incomeHandleSide`/`outcomeHandleSide` on
+  `data`, same `HandleSide` mechanism — see
+  `HANDLE_SIDE_CONFIGURABLE_NODE_TYPES` in `node-config-modal.tsx`)
+- Unlike `label`/`background`, a funnel's handles **do** accept edges: an
+  unlimited number of incoming edges on its target handle, and exactly one
+  outgoing edge from its source handle (enforced both at edit time —
+  `isValidConnection` in `workflow-canvas.tsx` — and at save time —
+  `validateCanvasWorkflow` in `workflow-validation.ts`). Chaining two funnels
+  together is rejected at both edit time and by the backend splice below.
+  Capability compatibility is **not** checked at edit time for edges
+  touching a funnel — see `pre_step_guard`/`post_step_guard` below for where
+  it's actually enforced.
+- `StepRunner` does **not** simply filter a funnel's edges away like it does
+  for `label`/`background`. Instead, `StepRunner._resolve_funnels` (called
+  once, at the top of `StepRunner.load_execution_graph`, before
+  `_filter_executable_graph`/`topological_order` ever run) **splices** the
+  funnel out: every incoming edge is rewired directly to the funnel's one
+  downstream target, keeping the original edge's `sourceHandle` (outcome
+  name) intact — so a `failure` edge funneled into `notify-on-error` still
+  reads as a `failure` edge, and `pre_step_guard`/`post_step_guard` at the
+  real destination enforce capability correctness exactly as if the sources
+  had wired to it directly. Raises `ValueError` if a funnel has zero or more
+  than one outgoing edge, or if a funnel feeds directly into another funnel.
+- `load_execution_graph` is a **public** method precisely so external
+  drivers that read a workflow's canvas and walk it themselves — the Hatchet
+  debug-mode per-node loop, `_run_steps_until_fan_out_or_done` in
+  `hatchet/workflows/workflow_run.py`, which is the actual production entry
+  point and does **not** go through `StepRunner.execute_all` — see the same
+  spliced graph as `execute_all`/`resume_after_join`/`execute_subgraph`.
+  Any future caller that reads `canvas_nodes`/`canvas_edges` off a
+  `Workflow` directly and drives execution/reachability itself must call
+  this instead of reading the columns raw.
+
 ---
 
 ## Backend contract

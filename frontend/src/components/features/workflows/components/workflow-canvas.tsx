@@ -37,7 +37,9 @@ import {
   DEFAULT_EDGE_STYLE,
   EDGE_Z_INDEX,
   FOREGROUND_Z_INDEX,
+  FUNNEL_KIND,
   isCanvasDecorationKind,
+  isFunnelKind,
   sortNodesForContainment,
   type ProjectedCanvasNode,
   type StepPayload,
@@ -47,6 +49,7 @@ import { WaypointEdge } from "./edges/waypoint-edge";
 import { CollapsibleMiniMap } from "./collapsible-minimap";
 import { GroupNode } from "./nodes/group-node";
 import { BackgroundNode } from "./nodes/background-node";
+import { FunnelNode } from "./nodes/funnel-node";
 import { LabelNode } from "./nodes/label-node";
 import { WorkflowNode } from "./nodes/workflow-node";
 
@@ -55,6 +58,7 @@ const nodeTypes: NodeTypes = {
   groupNode: GroupNode,
   labelNode: LabelNode,
   backgroundNode: BackgroundNode,
+  funnelNode: FunnelNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -65,6 +69,8 @@ const edgeTypes: EdgeTypes = {
 const NODE_DROP_OFFSET = { x: 160, y: 64 };
 const LABEL_DROP_OFFSET = { x: 100, y: 20 };
 const BACKGROUND_DROP_OFFSET = { x: 240, y: 160 };
+// Half the funnel node's footprint (size-10 = 2.5rem = 40px).
+const FUNNEL_DROP_OFFSET = { x: 20, y: 20 };
 
 interface WorkflowCanvasProps {
   nodes: ProjectedCanvasNode[];
@@ -117,6 +123,29 @@ function WorkflowCanvasInner({
         return false;
       }
 
+      const sourceIsFunnel = isFunnelKind(sourceNode.data.kind);
+      const targetIsFunnel = isFunnelKind(targetNode.data.kind);
+
+      // No chaining — a funnel's one outgoing edge must land on a real step.
+      if (sourceIsFunnel && targetIsFunnel) {
+        return false;
+      }
+
+      // A funnel accepts unlimited incoming edges but requires exactly one
+      // outgoing edge — reject a second connection leaving the same funnel.
+      if (sourceIsFunnel) {
+        const alreadyHasOutgoing = edges.some((edge) => edge.source === connection.source);
+        return !alreadyHasOutgoing;
+      }
+
+      // Capability compatibility is intentionally not checked for edges into
+      // a funnel — it's a pass-through with no requires/produces of its own.
+      // Correctness is enforced at run time once StepRunner splices the
+      // funnel out and the real source/target guards run against each other.
+      if (targetIsFunnel) {
+        return true;
+      }
+
       const provided = getOutcomeProvides(
         outcomeProvides,
         connection.source ?? "",
@@ -148,7 +177,7 @@ function WorkflowCanvasInner({
         },
       );
     },
-    [nodes, outcomeProvides],
+    [nodes, edges, outcomeProvides],
   );
   const handleConnectEnd = useCallback(
     (_: unknown, connectionState: FinalConnectionState) => {
@@ -218,7 +247,9 @@ function WorkflowCanvasInner({
           ? LABEL_DROP_OFFSET
           : kind === "background"
             ? BACKGROUND_DROP_OFFSET
-            : NODE_DROP_OFFSET;
+            : kind === FUNNEL_KIND
+              ? FUNNEL_DROP_OFFSET
+              : NODE_DROP_OFFSET;
       onAddStepAtPosition(toStepPayload(plugin), {
         x: flowPosition.x - offset.x,
         y: flowPosition.y - offset.y,
