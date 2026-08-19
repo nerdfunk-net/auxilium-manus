@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { AutoLayoutDirection } from "../utils/auto-layout";
 import type { StaticAttributeDef, WorkflowVisibility } from "../types/workflow-persistence";
 import type {
   CanvasGroup,
@@ -53,6 +54,16 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   /** Stack for breadcrumb; [] means root. Last item = current view. */
   groupNavigationStack: string[];
   canvasDraft: CanvasDraft | null;
+  /** Shared by every auto-layout entry point (selection panel, canvas-level
+   * control) — not a persisted workflow setting, just a UI preference. */
+  autoLayoutDirection: AutoLayoutDirection;
+  /**
+   * Node ids the canvas should `fitView` to next, set once a
+   * `handleAutoLayout` run resolves and cleared once WorkflowCanvas has
+   * acted on it. Trigger-style transient state, same pattern as
+   * `configModalNodeId`.
+   */
+  pendingFitViewNodeIds: string[] | null;
   setCanvasDraft: (draft: CanvasDraft) => void;
   enterGroup: (groupId: string) => void;
   exitToParent: () => void;
@@ -65,6 +76,9 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   selectCanvasBackground: () => void;
   openConfigModal: (nodeId: string) => void;
   closeConfigModal: () => void;
+  setAutoLayoutDirection: (direction: AutoLayoutDirection) => void;
+  requestFitView: (nodeIds: string[]) => void;
+  clearFitViewRequest: () => void;
   toggleStepCatalogCategory: (artifactType: string) => void;
   setOverviewPanelOpen: (open: boolean) => void;
   markSaved: (message?: string) => void;
@@ -106,6 +120,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   activeGroupId: null,
   groupNavigationStack: [],
   canvasDraft: null,
+  autoLayoutDirection: "horizontal",
+  pendingFitViewNodeIds: null,
   setCanvasDraft: (draft) => set({ canvasDraft: draft }),
   enterGroup: (groupId) =>
     set((state) => {
@@ -143,6 +159,9 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
     set({ selectedNodeId: null, selectedEdgeId: null, rightPanelTab: "properties" }),
   openConfigModal: (configModalNodeId) => set({ configModalNodeId }),
   closeConfigModal: () => set({ configModalNodeId: null }),
+  setAutoLayoutDirection: (autoLayoutDirection) => set({ autoLayoutDirection }),
+  requestFitView: (nodeIds) => set({ pendingFitViewNodeIds: nodeIds }),
+  clearFitViewRequest: () => set({ pendingFitViewNodeIds: null }),
   toggleStepCatalogCategory: (artifactType) =>
     set((state) => ({
       stepCatalogExpanded: {

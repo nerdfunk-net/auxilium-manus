@@ -32,6 +32,10 @@ import { useWorkflowRunActions } from "./hooks/use-workflow-run-actions";
 
 export function WorkflowBuilderPage() {
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
+  const autoLayoutDirection = useWorkflowBuilderStore((state) => state.autoLayoutDirection);
+  const setAutoLayoutDirection = useWorkflowBuilderStore(
+    (state) => state.setAutoLayoutDirection,
+  );
   const {
     data: pluginResponse,
     error: pluginError,
@@ -90,6 +94,10 @@ export function WorkflowBuilderPage() {
           nodes={canvas.projected.nodes}
           onAddStep={canvas.handleAddStep}
           onAlignNodes={canvas.handleAlignNodes}
+          autoLayoutDirection={autoLayoutDirection}
+          isAutoLayoutRunning={canvas.isAutoLayoutRunning}
+          onAutoLayoutDirectionChange={setAutoLayoutDirection}
+          onAutoLayoutNodes={(nodeIds) => canvas.handleAutoLayout(nodeIds, autoLayoutDirection)}
           onDeleteEdge={canvas.handleDeleteEdge}
           onDeleteNodes={canvas.handleDeleteNodes}
           onDuplicateNode={canvas.handleDuplicateNode}
@@ -121,7 +129,10 @@ export function WorkflowBuilderPage() {
           workflowNodes={canvas.allNodes}
         />
       </main>
-      <WorkflowRunControls />
+      <WorkflowRunControls
+        isAutoLayoutRunning={canvas.isAutoLayoutRunning}
+        onAutoLayout={() => canvas.handleAutoLayout(null, autoLayoutDirection)}
+      />
 
       <WorkflowSaveAsDialog
         open={persistence.isSaveAsOpen}

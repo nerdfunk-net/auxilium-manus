@@ -18,7 +18,7 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import type { DragEvent, MouseEvent } from "react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { useToast } from "@/hooks/use-toast";
 import { isCompatible } from "@/lib/capability-types";
@@ -101,8 +101,22 @@ function WorkflowCanvasInner({
   const selectEdge = useWorkflowBuilderStore((state) => state.selectEdge);
   const selectCanvasBackground = useWorkflowBuilderStore((state) => state.selectCanvasBackground);
   const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
+  const pendingFitViewNodeIds = useWorkflowBuilderStore((state) => state.pendingFitViewNodeIds);
+  const clearFitViewRequest = useWorkflowBuilderStore((state) => state.clearFitViewRequest);
   const { toast } = useToast();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
+
+  // Auto-layout is the only canvas operation that deliberately moves the
+  // camera (see LAYOUT.md "Viewport after layout") — alignment/drag never do.
+  useEffect(() => {
+    if (!pendingFitViewNodeIds || pendingFitViewNodeIds.length === 0) return;
+    fitView({
+      nodes: pendingFitViewNodeIds.map((id) => ({ id })),
+      padding: 0.2,
+      duration: 300,
+    });
+    clearFitViewRequest();
+  }, [pendingFitViewNodeIds, fitView, clearFitViewRequest]);
 
   const outcomeProvides = useMemo(
     () => computeOutcomeProvides(nodes, edges),

@@ -1,19 +1,33 @@
 "use client";
 
-import { Activity, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, Clock, LayoutGrid, MoveHorizontal, MoveVertical, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
+import { cn } from "@/lib/utils";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 
 const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "paused"]);
 
-export function WorkflowRunControls() {
+interface WorkflowRunControlsProps {
+  onAutoLayout: () => void;
+  isAutoLayoutRunning?: boolean;
+}
+
+export function WorkflowRunControls({
+  onAutoLayout,
+  isAutoLayoutRunning = false,
+}: WorkflowRunControlsProps) {
   const workflowStatus = useWorkflowBuilderStore((state) => state.workflowStatus);
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
   const lastAction = useWorkflowBuilderStore((state) => state.lastAction);
   const activeRunId = useWorkflowBuilderStore((state) => state.activeRunId);
+  const autoLayoutDirection = useWorkflowBuilderStore((state) => state.autoLayoutDirection);
+  const setAutoLayoutDirection = useWorkflowBuilderStore(
+    (state) => state.setAutoLayoutDirection,
+  );
   const { data: activeRun } = useWorkflowRunQuery(activeRunId);
 
   let label: string;
@@ -42,10 +56,54 @@ export function WorkflowRunControls() {
   const statusText = isDirty && label !== "Draft" ? `${label} · Draft` : label;
 
   return (
-    <footer className="flex h-12 items-center border-t bg-card px-5 text-xs text-muted-foreground">
+    <footer className="flex h-12 items-center justify-between border-t bg-card px-5 text-xs text-muted-foreground">
       <span className="flex items-center gap-2">
         <Icon className="size-4" />
         {statusText}
+      </span>
+
+      <span className="flex items-center gap-1.5">
+        <div className="flex rounded-[7px] border p-[2px]">
+          <button
+            aria-label="Horizontal layout direction"
+            className={cn(
+              "flex items-center justify-center rounded-[5px] p-1 transition-colors",
+              autoLayoutDirection === "horizontal"
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setAutoLayoutDirection("horizontal")}
+            title="Horizontal layout direction"
+            type="button"
+          >
+            <MoveHorizontal className="size-3.5" aria-hidden />
+          </button>
+          <button
+            aria-label="Vertical layout direction"
+            className={cn(
+              "flex items-center justify-center rounded-[5px] p-1 transition-colors",
+              autoLayoutDirection === "vertical"
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setAutoLayoutDirection("vertical")}
+            title="Vertical layout direction"
+            type="button"
+          >
+            <MoveVertical className="size-3.5" aria-hidden />
+          </button>
+        </div>
+        <Button
+          className="h-7 gap-1.5"
+          disabled={isAutoLayoutRunning}
+          onClick={onAutoLayout}
+          size="sm"
+          title="Lay out everything in the current view"
+          variant="outline"
+        >
+          <LayoutGrid className="size-3.5" aria-hidden />
+          {isAutoLayoutRunning ? "Laying out…" : "Auto layout"}
+        </Button>
       </span>
     </footer>
   );

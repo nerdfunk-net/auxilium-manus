@@ -1,7 +1,5 @@
 import type { ProjectedCanvasNode } from "../types/workflow-canvas";
-
-const DEFAULT_NODE_WIDTH = 224;
-const DEFAULT_NODE_HEIGHT = 112;
+import { nodeHeight, nodeWidth, parentOffset } from "./canvas-coordinates";
 
 export type NodeAlignment =
   | "align-left"
@@ -13,40 +11,12 @@ export type NodeAlignment =
   | "distribute-horizontal"
   | "distribute-vertical";
 
-function nodeWidth(node: ProjectedCanvasNode): number {
-  return node.measured?.width ?? node.width ?? DEFAULT_NODE_WIDTH;
-}
-
-function nodeHeight(node: ProjectedCanvasNode): number {
-  return node.measured?.height ?? node.height ?? DEFAULT_NODE_HEIGHT;
-}
-
 function selectedNodes(
   nodes: ProjectedCanvasNode[],
   nodeIds: string[],
 ): ProjectedCanvasNode[] {
   const idSet = new Set(nodeIds);
   return nodes.filter((node) => idSet.has(node.id));
-}
-
-/**
- * A step parented to a background node (single-level nesting only, see
- * canvas-containment.ts) stores `position` relative to that parent, while every
- * other node stores absolute canvas position. Aligning a mix of the two
- * requires a shared coordinate space, so this resolves each target's parent
- * offset (zero when un-parented) up front and undoes it after computing the
- * new absolute positions.
- */
-function parentOffset(
-  node: ProjectedCanvasNode,
-  nodesById: Map<string, ProjectedCanvasNode>,
-): { x: number; y: number } {
-  const parentId = node.parentId;
-  if (!parentId) {
-    return { x: 0, y: 0 };
-  }
-  const parent = nodesById.get(parentId);
-  return parent ? { x: parent.position.x, y: parent.position.y } : { x: 0, y: 0 };
 }
 
 export function alignCanvasNodes(

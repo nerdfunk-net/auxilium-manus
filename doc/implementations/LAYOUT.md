@@ -1,9 +1,8 @@
 # Auto Layout for the Workflow Canvas
 
-Status: **planned, not implemented**. This document is the design and task
-breakdown for adding an "Auto layout" action to the workflow builder canvas.
-No code has been written yet — see `TODO` at the end for the ordered task
-list.
+Status: **implemented**. This document is the design record for the "Auto
+layout" action on the workflow builder canvas — see `TODO` at the end for
+what shipped vs. what's still open (manual QA pass, undo/confirm decision).
 
 ## Goal
 
@@ -194,9 +193,13 @@ checkbox: "Also align handle sides to layout direction."
   - `MultiStepLayoutPanel` (`frontend/src/components/features/workflows/components/multi-step-layout-panel.tsx`)
     when ≥ 2 nodes are selected — lays out only the selected subgraph plus
     the edges between them ("tidy this branch").
-  - A canvas-level control (e.g. next to `Controls`/`CollapsibleMiniMap` in
-    `workflow-canvas.tsx`) for "lay out everything in the current view" with
-    no selection required.
+  - A canvas-level control for "lay out everything in the current view" with
+    no selection required. Shipped in the bottom status bar
+    (`WorkflowRunControls`, `workflow-run-controls.tsx`) next to the
+    Saved/Draft status indicator, not as a floating canvas overlay — the
+    footer already reads `autoLayoutDirection` from the store directly, so
+    it's self-contained aside from `onAutoLayout`/`isAutoLayoutRunning`
+    passed in from `workflow-builder-page.tsx`.
 - A small direction toggle (Horizontal / Vertical) — reuse the icon set
   already imported in `multi-step-layout-panel.tsx` (`lucide-react` align
   icons already establish the visual language).
@@ -324,32 +327,47 @@ checkbox: "Also align handle sides to layout direction."
 - [ ] Add `elkjs` to `frontend/package.json`; confirm it plays well with the
       Next.js client bundle (dynamic import, no SSR issues — it's pure JS,
       no DOM access, so this should be low-risk).
-- [ ] Extract shared parent-offset + node-size-fallback coordinate helpers
+- [x] Extract shared parent-offset + node-size-fallback coordinate helpers
       (`parentOffset()`, `nodeWidth()`/`nodeHeight()`) out of
-      `node-alignment.ts` for reuse.
-- [ ] Implement `utils/auto-layout.ts` (`buildElkGraph`, `applyElkLayout`,
+      `node-alignment.ts` for reuse — landed in `utils/canvas-coordinates.ts`.
+- [x] Implement `utils/auto-layout.ts` (`buildElkGraph`, `applyElkLayout`,
       `runAutoLayout`), excluding `labelNode`/`backgroundNode`, including
       `funnelNode` with its real 40×40 size, honoring `incomeHandleSide`/
       `outcomeHandleSide` as ELK port sides, `FIXED_ORDER` ports for
       multi-outcome nodes, port assignment keyed on node kind (not `data`
       field presence), and pinned/fixed-position ELK nodes for unselected
       neighbors of a selection-scoped layout.
-- [ ] Add `handleAutoLayout` to `use-workflow-canvas.ts`: async, operates on
+- [x] Add `handleAutoLayout` to `use-workflow-canvas.ts`: async, operates on
       `projected.nodes`/`projected.edges`, writes back to `allNodes`/
-      `groups` positions, clears stale edge `waypoints`, re-resolves
-      background containment, `fitView()`s the affected nodes, `markDirty()`,
-      toast on ELK failure without mutating state.
-- [ ] Add direction toggle (horizontal/vertical) UI state.
-- [ ] Wire "auto layout selection" into `MultiStepLayoutPanel`, threading
-      `onAutoLayout` through `WorkflowPropertiesPanel` alongside the existing
-      `onAlign`.
-- [ ] Wire "auto layout current view" into a canvas-level control.
-- [ ] Thread new props through `workflow-builder-page.tsx`.
-- [ ] Unit tests for the pure mapping functions in `auto-layout.ts`.
+      `groups` positions, clears stale edge `waypoints` (resolved through
+      `projected.edges`' `realEdgeId` so a group-boundary proxy edge whose
+      synthetic node moved still clears correctly), re-resolves background
+      containment, `fitView()`s the affected nodes via a
+      `pendingFitViewNodeIds` store trigger, `markDirty()`, toasts on ELK
+      failure without mutating state.
+- [x] Add direction toggle (horizontal/vertical) UI state — `autoLayoutDirection`
+      in `use-workflow-builder-store.ts`, shared by both entry points.
+- [x] Wire "auto layout selection" into `MultiStepLayoutPanel` ("Tidy this
+      branch"), threading `onAutoLayoutNodes` through `WorkflowPropertiesPanel`
+      alongside the existing `onAlignNodes`.
+- [x] Wire "auto layout current view" into a canvas-level control — moved
+      from an initial `Panel`-on-canvas placement into the bottom status bar
+      (`WorkflowRunControls`) next to the Saved/Draft indicator, per
+      follow-up feedback after the first pass.
+- [x] Thread new props through `workflow-builder-page.tsx`.
+- [x] Unit tests for the pure mapping functions in `auto-layout.ts`
+      (`auto-layout.test.ts`: port assignment per kind, decoration exclusion,
+      direction mapping, selection-boundary pinning, edge exclusion between
+      two pinned nodes, position write-back incl. parent-relative conversion).
+- [x] Verified: `tsc --noEmit`, `eslint` on touched files, `vitest run`, and
+      a full `next build` all pass; `elkjs` (1.4MB) lands in its own
+      code-split chunk, confirmed absent from the initial bundle.
 - [ ] Manual pass: verify multi-outcome nodes (`route-on-attribute`,
       success/failure steps), funnels, collapsed groups, backgrounds with
       parented children, and mixed handle-side nodes all look correct after
-      a layout run, in both directions.
+      a layout run, in both directions. **Not done in-session** — no browser
+      automation was available (no Playwright chrome channel, no connected
+      Chrome extension); needs a real click-through before shipping broadly.
 - [ ] Decide on undo/confirm affordance before enabling this for large,
       hand-tuned canvases (no undo stack exists yet for alignment either —
       confirm whether this ships blocked on that or independently).

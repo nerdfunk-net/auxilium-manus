@@ -10,18 +10,27 @@ import {
   AlignStartVertical,
   AlignVerticalDistributeCenter,
   Group,
+  MoveHorizontal,
+  MoveVertical,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
+import type { AutoLayoutDirection } from "../utils/auto-layout";
 import type { NodeAlignment } from "../utils/node-alignment";
 import type { ProjectedCanvasNode } from "../types/workflow-canvas";
 
 interface MultiStepLayoutPanelProps {
   nodes: ProjectedCanvasNode[];
   canGroup?: boolean;
+  autoLayoutDirection: AutoLayoutDirection;
+  isAutoLayoutRunning?: boolean;
   onAlign: (alignment: NodeAlignment) => void;
+  onAutoLayoutDirectionChange: (direction: AutoLayoutDirection) => void;
+  onAutoLayout: () => void;
   onDelete: () => void;
   onGroup?: () => void;
 }
@@ -70,7 +79,11 @@ const DISTRIBUTE_ACTIONS: AlignmentAction[] = [
 export function MultiStepLayoutPanel({
   nodes,
   canGroup = false,
+  autoLayoutDirection,
+  isAutoLayoutRunning = false,
   onAlign,
+  onAutoLayoutDirectionChange,
+  onAutoLayout,
   onDelete,
   onGroup,
 }: MultiStepLayoutPanelProps) {
@@ -132,6 +145,52 @@ export function MultiStepLayoutPanel({
           Distribute needs at least three selected steps.
         </p>
       ) : null}
+
+      <p className="mt-4 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
+        Auto layout
+      </p>
+      <div className="mt-2.5 flex gap-1.5">
+        <div className="flex flex-1 rounded-[9px] border p-[3px]">
+          <button
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1 rounded-[6px] py-1 text-[10px] font-medium transition-colors",
+              autoLayoutDirection === "horizontal"
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => onAutoLayoutDirectionChange("horizontal")}
+            title="Horizontal"
+            type="button"
+          >
+            <MoveHorizontal className="size-3" aria-hidden />
+            Horizontal
+          </button>
+          <button
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1 rounded-[6px] py-1 text-[10px] font-medium transition-colors",
+              autoLayoutDirection === "vertical"
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => onAutoLayoutDirectionChange("vertical")}
+            title="Vertical"
+            type="button"
+          >
+            <MoveVertical className="size-3" aria-hidden />
+            Vertical
+          </button>
+        </div>
+      </div>
+      <Button
+        className="mt-2 w-full gap-1.5"
+        disabled={nodes.length < 2 || isAutoLayoutRunning}
+        onClick={onAutoLayout}
+        size="sm"
+        variant="outline"
+      >
+        <Sparkles className="size-3.5" aria-hidden />
+        {isAutoLayoutRunning ? "Laying out…" : "Tidy this branch"}
+      </Button>
 
       {canGroup ? (
         <Button

@@ -34,6 +34,7 @@ import {
   type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 import { groupIdFromNodeId, isGroupCanvasNode } from "../utils/canvas-group-projection";
+import type { AutoLayoutDirection } from "../utils/auto-layout";
 import type { NodeAlignment } from "../utils/node-alignment";
 import {
   CATEGORY_TILE_FALLBACK,
@@ -77,6 +78,10 @@ interface WorkflowPropertiesPanelProps {
   onEdgeLabelBoldChange?: (edgeId: string, bold: boolean) => void;
   onEdgeLabelFontSizeChange?: (edgeId: string, fontSize: number) => void;
   onAlignNodes?: (nodeIds: string[], alignment: NodeAlignment) => void;
+  autoLayoutDirection: AutoLayoutDirection;
+  isAutoLayoutRunning?: boolean;
+  onAutoLayoutDirectionChange: (direction: AutoLayoutDirection) => void;
+  onAutoLayoutNodes?: (nodeIds: string[]) => void;
   onDeleteNodes?: (nodeIds: string[]) => void;
   onDeleteEdge?: (edgeId: string) => void;
   onDuplicateNode?: (nodeId: string) => void;
@@ -122,6 +127,10 @@ export function WorkflowPropertiesPanel({
   onEdgeLabelBoldChange,
   onEdgeLabelFontSizeChange,
   onAlignNodes,
+  autoLayoutDirection,
+  isAutoLayoutRunning = false,
+  onAutoLayoutDirectionChange,
+  onAutoLayoutNodes,
   onDeleteNodes,
   onDeleteEdge,
   onDuplicateNode,
@@ -381,11 +390,17 @@ export function WorkflowPropertiesPanel({
                 !isInsideGroup &&
                 selectedCanvasNodes.every((node) => groupIdFromNodeId(node.id) === null)
               }
+              autoLayoutDirection={autoLayoutDirection}
+              isAutoLayoutRunning={isAutoLayoutRunning}
               onAlign={(alignment) =>
                 onAlignNodes?.(
                   selectedCanvasNodes.map((node) => node.id),
                   alignment,
                 )
+              }
+              onAutoLayoutDirectionChange={onAutoLayoutDirectionChange}
+              onAutoLayout={() =>
+                onAutoLayoutNodes?.(selectedCanvasNodes.map((node) => node.id))
               }
               onDelete={() =>
                 onDeleteNodes?.(selectedCanvasNodes.map((node) => node.id))

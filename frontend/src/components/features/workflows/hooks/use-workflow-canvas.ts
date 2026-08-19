@@ -15,6 +15,7 @@ import {
   DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG,
   deriveProducesParsed,
 } from "@/components/features/workflow-steps/render-jinja-template/template-config";
+import { useToast } from "@/hooks/use-toast";
 
 import {
   EMPTY_WORKFLOW_EDGES as EMPTY_EDGES,
@@ -49,6 +50,7 @@ import {
   ungroupNode,
 } from "../utils/canvas-group-projection";
 import { alignCanvasNodes, type NodeAlignment } from "../utils/node-alignment";
+import { runAutoLayout, type AutoLayoutDirection } from "../utils/auto-layout";
 import { useWorkflowBuilderStore } from "./use-workflow-builder-store";
 
 const EMPTY_GROUPS: CanvasGroup[] = [];
@@ -71,6 +73,9 @@ export function useWorkflowCanvas() {
   const enterGroup = useWorkflowBuilderStore((state) => state.enterGroup);
   const setCanvasDraft = useWorkflowBuilderStore((state) => state.setCanvasDraft);
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
+  const requestFitView = useWorkflowBuilderStore((state) => state.requestFitView);
+  const [isAutoLayoutRunning, setIsAutoLayoutRunning] = useState(false);
+  const { toast } = useToast();
 
   // The canvas (nodes/edges) is local React state scoped to this component,
   // while workflowId survives in the Zustand store across route changes
@@ -498,6 +503,77 @@ export function useWorkflowCanvas() {
     [projected.nodes, markDirty],
   );
 
+  const handleAutoLayout = useCallback(
+    async (nodeIds: string[] | null, direction: AutoLayoutDirection) => {
+      setIsAutoLayoutRunning(true);
+      try {
+        const result = await runAutoLayout(projected.nodes, projected.edges, direction, nodeIds);
+        if (result.movedNodeIds.length === 0) {
+          return;
+        }
+        const movedIds = new Set(result.movedNodeIds);
+        const positionById = new Map(result.nodes.map((n) => [n.id, n.position]));
+
+        setAllNodes((current) => {
+          const withNewPositions = current.map((n) =>
+            movedIds.has(n.id) && positionById.has(n.id)
+              ? { ...n, position: positionById.get(n.id)! }
+              : n,
+          );
+          // Re-resolve background containment per moved node, same as the
+          // drag-end path in handleNodesChange — a step relaid out
+          // into/out of a background must not keep a stale parentId.
+          let next = withNewPositions;
+          for (const id of movedIds) {
+            const node = next.find((n) => n.id === id);
+            if (!node) continue;
+            const { parentId, position } = resolveContainment(node, next);
+            next = next.map((n) => (n.id === id ? { ...n, parentId, position } : n));
+          }
+          return next;
+        });
+
+        setGroups((current) =>
+          current.map((g) => {
+            const syntheticId = groupNodeId(g.id);
+            return positionById.has(syntheticId)
+              ? { ...g, position: positionById.get(syntheticId)! }
+              : g;
+          }),
+        );
+
+        // Manual bends no longer make geometric sense once either endpoint
+        // moved. Resolved against `projected.edges` (not `allEdges` directly)
+        // so a group-boundary proxy edge whose *synthetic* group-node
+        // endpoint moved still maps back to its real edge id.
+        const touchedRealEdgeIds = new Set(
+          projected.edges
+            .filter((e) => movedIds.has(e.source) || movedIds.has(e.target))
+            .map((e) => e.data?.realEdgeId ?? e.id),
+        );
+        setAllEdges((current) =>
+          current.map((e) =>
+            touchedRealEdgeIds.has(e.id)
+              ? { ...e, data: { ...e.data, waypoints: undefined } }
+              : e,
+          ),
+        );
+
+        requestFitView(result.movedNodeIds);
+        markDirty();
+      } catch {
+        toast({
+          title: "Auto layout failed",
+          description: "Could not lay out the canvas. Nothing was moved.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsAutoLayoutRunning(false);
+      }
+    },
+    [projected.nodes, projected.edges, requestFitView, markDirty, toast],
+  );
+
   const handleNodeConfigChange = useCallback(
     (nodeId: string, config: Record<string, unknown>) => {
       setAllNodes((current) =>
@@ -787,6 +863,8 @@ export function useWorkflowCanvas() {
       handleIncomeHandleSideChange,
       handleOutcomeHandleSideChange,
       handleAlignNodes,
+      handleAutoLayout,
+      isAutoLayoutRunning,
       handleNodeConfigChange,
       handleAddStep,
       handleAddStepAtPosition,
@@ -824,6 +902,8 @@ export function useWorkflowCanvas() {
       handleIncomeHandleSideChange,
       handleOutcomeHandleSideChange,
       handleAlignNodes,
+      handleAutoLayout,
+      isAutoLayoutRunning,
       handleNodeConfigChange,
       handleAddStep,
       handleAddStepAtPosition,
