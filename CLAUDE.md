@@ -8,7 +8,7 @@ Workflows consist of ordered and dependency-aware steps. The output of one step 
 ## Tech Stack
 
 **Frontend:** Next.js 16.2.6 (App Router), React 19, React Flow, TypeScript 5, Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
-**Backend:** FastAPI, Python 3.12+, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko, GitPython
+**Backend:** FastAPI, Python 3.14, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko, GitPython
 **Integrations:** Nautobot API
 
 ## Architecture
@@ -121,7 +121,7 @@ export default function MyFeatureRoute() {
 - ✅ Use repository pattern (BaseRepository in `/backend/repositories/base.py`)
 - ✅ Production database is PostgreSQL with SQLAlchemy ORM/Core (`./doc/MIGRATION_SYSTEM.md`). In-memory SQLite in **unit** tests is acceptable when queries do not rely on PostgreSQL-only features.
 - ✅ Prefer SQLAlchemy ORM/Core for all runtime application data access. Repository-layer `sqlalchemy.text()` is allowed only under the rules in `doc/refactoring/REFACTORING_RAW_SQL.md` §3 (bound parameters, named constants for non-trivial SQL, no string composition of values, PostgreSQL integration coverage for dialect-specific behaviour). Health checks (`SELECT 1` in `core/database.py`) and migration/schema tooling are exempt.
-- ❌ Never call `text()` from routers, services, or Celery tasks.
+- ❌ Never call `text()` from routers, services, or Hatchet workers.
 - ❌ Never compose runtime values into raw SQL via f-strings or string concatenation.
 - ❌ NEVER bypass repository layer
 
@@ -831,7 +831,7 @@ ip_id = await ip_manager.ensure_ip_address_exists(...)
 
 **Backend:**
 - ❌ Creating SQLite databases for **production** (in-memory SQLite in unit tests is allowed; see Database Requirements above)
-- ❌ Calling `sqlalchemy.text()` from routers, services, or tasks, or composing runtime values into SQL via string concatenation / f-strings (repository policy: `doc/refactoring/REFACTORING_RAW_SQL.md` §3)
+- ❌ Calling `sqlalchemy.text()` from routers, services, or Hatchet workers, or composing runtime values into SQL via string concatenation / f-strings (repository policy: `doc/refactoring/REFACTORING_RAW_SQL.md` §3)
 - ❌ Bypassing repository pattern for local database access
 - ❌ Business logic in routers
 - ❌ Creating monolithic God Object services (note: DeviceCommonService is a facade, not a God Object)
@@ -860,6 +860,6 @@ When removing features or debugging issues, always complete the full removal/fix
 
 ## Python Conventions
 
-For Python/Celery projects: Always add inline documentation comments when modifying queue configurations, task decorators, or worker settings
+For Hatchet workflows and workers: Always add inline documentation comments when modifying queue configurations, workflow decorators, or worker settings.
 
 

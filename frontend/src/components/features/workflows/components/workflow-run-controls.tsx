@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, CheckCircle2, Clock, LayoutGrid, MoveHorizontal, MoveVertical, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, Clock, LayoutGrid, Magnet, MoveHorizontal, MoveVertical, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,8 @@ export function WorkflowRunControls({
   const setAutoLayoutDirection = useWorkflowBuilderStore(
     (state) => state.setAutoLayoutDirection,
   );
+  const snapToGrid = useWorkflowBuilderStore((state) => state.snapToGrid);
+  const setSnapToGrid = useWorkflowBuilderStore((state) => state.setSnapToGrid);
   const { data: activeRun } = useWorkflowRunQuery(activeRunId);
 
   let label: string;
@@ -63,6 +65,22 @@ export function WorkflowRunControls({
       </span>
 
       <span className="flex items-center gap-1.5">
+        <button
+          aria-label="Snap to grid"
+          aria-pressed={snapToGrid}
+          className={cn(
+            "flex items-center justify-center rounded-[7px] border p-1.5 transition-colors",
+            snapToGrid
+              ? "border-ring bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => setSnapToGrid(!snapToGrid)}
+          title="Snap to grid while dragging"
+          type="button"
+        >
+          <Magnet className="size-3.5" aria-hidden />
+        </button>
+        <div className="mx-0.5 h-4 w-px bg-border" />
         <div className="flex rounded-[7px] border p-[2px]">
           <button
             aria-label="Horizontal layout direction"

@@ -57,6 +57,9 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   /** Shared by every auto-layout entry point (selection panel, canvas-level
    * control) — not a persisted workflow setting, just a UI preference. */
   autoLayoutDirection: AutoLayoutDirection;
+  /** Rounds a dragged node's position to `SNAP_GRID` (workflow-canvas.tsx).
+   * Not a persisted workflow setting — resets to off each page load. */
+  snapToGrid: boolean;
   /**
    * Node ids the canvas should `fitView` to next, set once a
    * `handleAutoLayout` run resolves and cleared once WorkflowCanvas has
@@ -77,6 +80,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   openConfigModal: (nodeId: string) => void;
   closeConfigModal: () => void;
   setAutoLayoutDirection: (direction: AutoLayoutDirection) => void;
+  setSnapToGrid: (snapToGrid: boolean) => void;
   requestFitView: (nodeIds: string[]) => void;
   clearFitViewRequest: () => void;
   toggleStepCatalogCategory: (artifactType: string) => void;
@@ -121,6 +125,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   groupNavigationStack: [],
   canvasDraft: null,
   autoLayoutDirection: "horizontal",
+  snapToGrid: false,
   pendingFitViewNodeIds: null,
   setCanvasDraft: (draft) => set({ canvasDraft: draft }),
   enterGroup: (groupId) =>
@@ -160,6 +165,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   openConfigModal: (configModalNodeId) => set({ configModalNodeId }),
   closeConfigModal: () => set({ configModalNodeId: null }),
   setAutoLayoutDirection: (autoLayoutDirection) => set({ autoLayoutDirection }),
+  setSnapToGrid: (snapToGrid) => set({ snapToGrid }),
   requestFitView: (nodeIds) => set({ pendingFitViewNodeIds: nodeIds }),
   clearFitViewRequest: () => set({ pendingFitViewNodeIds: null }),
   toggleStepCatalogCategory: (artifactType) =>

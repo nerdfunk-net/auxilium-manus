@@ -72,6 +72,10 @@ const BACKGROUND_DROP_OFFSET = { x: 240, y: 160 };
 // Half the funnel node's footprint (size-10 = 2.5rem = 40px).
 const FUNNEL_DROP_OFFSET = { x: 20, y: 20 };
 
+// Matches the Background dots' `gap={22}` below, so a snapped position lines
+// up with the grid already visible on screen.
+const SNAP_GRID: [number, number] = [22, 22];
+
 interface WorkflowCanvasProps {
   nodes: ProjectedCanvasNode[];
   edges: WorkflowCanvasEdge[];
@@ -103,6 +107,7 @@ function WorkflowCanvasInner({
   const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
   const pendingFitViewNodeIds = useWorkflowBuilderStore((state) => state.pendingFitViewNodeIds);
   const clearFitViewRequest = useWorkflowBuilderStore((state) => state.clearFitViewRequest);
+  const snapToGrid = useWorkflowBuilderStore((state) => state.snapToGrid);
   const { toast } = useToast();
   const { screenToFlowPosition, fitView } = useReactFlow();
 
@@ -323,6 +328,8 @@ function WorkflowCanvasInner({
         onPaneClick={handlePaneClick}
         onSelectionChange={handleSelectionChange}
         onMoveEnd={handleMoveEnd}
+        snapToGrid={snapToGrid}
+        snapGrid={SNAP_GRID}
         {...(initialViewport
           ? { defaultViewport: initialViewport }
           : { fitView: true, fitViewOptions: { padding: 0.2 } })}
