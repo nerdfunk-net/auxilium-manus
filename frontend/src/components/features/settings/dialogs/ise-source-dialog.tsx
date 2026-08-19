@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -92,14 +92,16 @@ export function ISESourceDialog({
     control,
     handleSubmit,
     reset,
+    getValues,
     formState: { errors },
   } = useForm<ISEFormValues>({
     resolver: zodResolver(iseSchema),
     defaultValues: EMPTY_DEFAULTS,
   });
 
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpenRef.current) {
       reset({
         sourceId: initialValue?.sourceId ?? "",
         url: initialValue?.url ?? "",
@@ -109,6 +111,7 @@ export function ISESourceDialog({
         timeout: initialValue?.timeout ?? 30,
       });
     }
+    wasOpenRef.current = open;
   }, [open, initialValue, reset]);
 
   const isEdit = mode === "edit";
@@ -151,10 +154,27 @@ export function ISESourceDialog({
   );
 
   const handleTestConnection = useCallback(() => {
-    if (initialValue?.sourceId) {
-      testConnection.mutate(initialValue.sourceId);
+    if (!initialValue?.sourceId) {
+      return;
     }
-  }, [initialValue, testConnection]);
+    const values = getValues();
+    const overrides: ISESourceUpdatePayload = {
+      verify_ssl: values.verifySsl,
+    };
+    if (values.url?.trim()) {
+      overrides.url = values.url.trim();
+    }
+    if (values.username?.trim()) {
+      overrides.username = values.username.trim();
+    }
+    if (values.password?.trim()) {
+      overrides.password = values.password.trim();
+    }
+    if (!Number.isNaN(values.timeout)) {
+      overrides.timeout = values.timeout;
+    }
+    testConnection.mutate({ sourceId: initialValue.sourceId, overrides });
+  }, [initialValue, testConnection, getValues]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -287,7 +307,7 @@ export function ISESourceDialog({
           {isEdit ? (
             <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
               <p className="text-xs text-muted-foreground">
-                Test the saved connection against Cisco ISE.
+                Tests the connection against Cisco ISE, using any unsaved edits above.
               </p>
               <Button
                 type="button"

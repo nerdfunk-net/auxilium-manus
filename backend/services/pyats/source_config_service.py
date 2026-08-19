@@ -132,21 +132,45 @@ class PyATSSourceConfigService:
             except CredentialNotFoundError:
                 pass
 
-    def resolve_credentials(self, source_id: str) -> PyATSCredentials:
+    def resolve_credentials(
+        self,
+        source_id: str,
+        *,
+        url: str | None = None,
+        token: str | None = None,
+        verify_ssl: bool | None = None,
+        timeout: float | None = None,
+    ) -> PyATSCredentials:
+        """Resolve connection settings, layering any overrides on top of what's saved.
+
+        Overrides let ``/test-connection`` validate unsaved edits (e.g. a token
+        just typed into the source dialog) without requiring a Save first.
+        """
         setting = self._get_setting_or_raise(source_id)
         value = setting.value
-        credential_id = value.get("credential_id")
-        if credential_id is None:
-            raise PyATSValidationError(f"pyATS source '{source_id}' has no linked credential")
-        credential = self._credentials.get_credential_by_id(credential_id)
-        if credential is None:
-            raise PyATSValidationError(f"pyATS source '{source_id}' credential is missing")
-        token = self._credentials.get_decrypted_password(credential_id)
+
+        resolved_url = (
+            validate_outbound_http_url(url, resolve_dns=True) if url is not None else value["url"]
+        )
+
+        if token is not None:
+            resolved_token = token
+        else:
+            credential_id = value.get("credential_id")
+            if credential_id is None:
+                raise PyATSValidationError(f"pyATS source '{source_id}' has no linked credential")
+            credential = self._credentials.get_credential_by_id(credential_id)
+            if credential is None:
+                raise PyATSValidationError(f"pyATS source '{source_id}' credential is missing")
+            resolved_token = self._credentials.get_decrypted_password(credential_id)
+
         return PyATSCredentials(
-            base_url=value["url"],
-            token=token,
-            timeout=float(value.get("timeout", 30.0)),
-            verify_ssl=bool(value.get("verify_ssl", False)),
+            base_url=resolved_url,
+            token=resolved_token,
+            timeout=float(timeout if timeout is not None else value.get("timeout", 30.0)),
+            verify_ssl=bool(
+                verify_ssl if verify_ssl is not None else value.get("verify_ssl", False)
+            ),
         )
 
     def _get_setting_or_raise(self, source_id: str) -> Any:

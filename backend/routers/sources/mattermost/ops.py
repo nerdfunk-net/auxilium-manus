@@ -15,8 +15,9 @@ import service_factory
 from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
+from core.safe_urls import UnsafeURLError
 from dependencies import get_mattermost_source_config_service
-from models.mattermost import MattermostTestConnectionResponse
+from models.mattermost import MattermostSourceUpdateRequest, MattermostTestConnectionResponse
 from services.mattermost.common.exceptions import MattermostAPIError, MattermostValidationError
 from services.mattermost.credentials import MattermostCredentials
 from services.mattermost.source_config_service import (
@@ -34,13 +35,23 @@ router = APIRouter(
 
 
 def _resolve_credentials(
-    source_id: str, config: MattermostSourceConfigService
+    source_id: str,
+    config: MattermostSourceConfigService,
+    *,
+    overrides: MattermostSourceUpdateRequest | None = None,
 ) -> MattermostCredentials:
+    overrides = overrides or MattermostSourceUpdateRequest()
     try:
-        return config.resolve_credentials(source_id)
+        return config.resolve_credentials(
+            source_id,
+            url=overrides.url,
+            token=overrides.token,
+            verify_ssl=overrides.verify_ssl,
+            timeout=overrides.timeout,
+        )
     except MattermostSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except MattermostValidationError as exc:
+    except (MattermostValidationError, UnsafeURLError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -51,10 +62,14 @@ def _resolve_credentials(
 )
 async def test_connection(
     source_id: str,
+    overrides: MattermostSourceUpdateRequest | None = None,
     _: User = Depends(get_current_user),
     config: MattermostSourceConfigService = Depends(get_mattermost_source_config_service),
 ) -> MattermostTestConnectionResponse:
-    credentials = _resolve_credentials(source_id, config)
+    """Test connectivity. ``overrides`` lets the source dialog validate unsaved
+    edits (e.g. a token just typed in) against the live form values instead of
+    only what's already persisted."""
+    credentials = _resolve_credentials(source_id, config, overrides=overrides)
     client = service_factory.get_mattermost_app_service()
 
     try:

@@ -16,8 +16,9 @@ import service_factory
 from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
+from core.safe_urls import UnsafeURLError
 from dependencies import get_pyats_source_config_service
-from models.pyats import PyATSTestConnectionResponse
+from models.pyats import PyATSSourceUpdateRequest, PyATSTestConnectionResponse
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
 from services.pyats.source_config_service import (
@@ -34,12 +35,24 @@ router = APIRouter(
 )
 
 
-def _resolve_credentials(source_id: str, config: PyATSSourceConfigService) -> PyATSCredentials:
+def _resolve_credentials(
+    source_id: str,
+    config: PyATSSourceConfigService,
+    *,
+    overrides: PyATSSourceUpdateRequest | None = None,
+) -> PyATSCredentials:
+    overrides = overrides or PyATSSourceUpdateRequest()
     try:
-        return config.resolve_credentials(source_id)
+        return config.resolve_credentials(
+            source_id,
+            url=overrides.url,
+            token=overrides.token,
+            verify_ssl=overrides.verify_ssl,
+            timeout=overrides.timeout,
+        )
     except PyATSSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except PyATSValidationError as exc:
+    except (PyATSValidationError, UnsafeURLError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -50,10 +63,14 @@ def _resolve_credentials(source_id: str, config: PyATSSourceConfigService) -> Py
 )
 async def test_connection(
     source_id: str,
+    overrides: PyATSSourceUpdateRequest | None = None,
     _: User = Depends(get_current_user),
     config: PyATSSourceConfigService = Depends(get_pyats_source_config_service),
 ) -> PyATSTestConnectionResponse:
-    credentials = _resolve_credentials(source_id, config)
+    """Test connectivity. ``overrides`` lets the source dialog validate unsaved
+    edits (e.g. a token just typed in) against the live form values instead of
+    only what's already persisted."""
+    credentials = _resolve_credentials(source_id, config, overrides=overrides)
     shim = service_factory.get_pyats_app_service()
 
     try:

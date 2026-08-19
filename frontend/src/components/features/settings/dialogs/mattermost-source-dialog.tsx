@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -90,14 +90,16 @@ export function MattermostSourceDialog({
     control,
     handleSubmit,
     reset,
+    getValues,
     formState: { errors },
   } = useForm<MattermostFormValues>({
     resolver: zodResolver(mattermostSchema),
     defaultValues: EMPTY_DEFAULTS,
   });
 
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpenRef.current) {
       reset({
         sourceId: initialValue?.sourceId ?? "",
         url: initialValue?.url ?? "",
@@ -106,6 +108,7 @@ export function MattermostSourceDialog({
         timeout: initialValue?.timeout ?? 30,
       });
     }
+    wasOpenRef.current = open;
   }, [open, initialValue, reset]);
 
   const isEdit = mode === "edit";
@@ -144,10 +147,24 @@ export function MattermostSourceDialog({
   );
 
   const handleTestConnection = useCallback(() => {
-    if (initialValue?.sourceId) {
-      testConnection.mutate(initialValue.sourceId);
+    if (!initialValue?.sourceId) {
+      return;
     }
-  }, [initialValue, testConnection]);
+    const values = getValues();
+    const overrides: MattermostSourceUpdatePayload = {
+      verify_ssl: values.verifySsl,
+    };
+    if (values.url?.trim()) {
+      overrides.url = values.url.trim();
+    }
+    if (values.token?.trim()) {
+      overrides.token = values.token.trim();
+    }
+    if (!Number.isNaN(values.timeout)) {
+      overrides.timeout = values.timeout;
+    }
+    testConnection.mutate({ sourceId: initialValue.sourceId, overrides });
+  }, [initialValue, testConnection, getValues]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>

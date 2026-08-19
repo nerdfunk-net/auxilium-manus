@@ -136,22 +136,53 @@ class ISESourceConfigService:
             except CredentialNotFoundError:
                 pass
 
-    def resolve_credentials(self, source_id: str) -> ISECredentials:
+    def resolve_credentials(
+        self,
+        source_id: str,
+        *,
+        url: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        verify_ssl: bool | None = None,
+        timeout: float | None = None,
+    ) -> ISECredentials:
+        """Resolve connection settings, layering any overrides on top of what's saved.
+
+        Overrides let ``/test-connection`` validate unsaved edits (e.g. a password
+        just typed into the source dialog) without requiring a Save first.
+        """
         setting = self._get_setting_or_raise(source_id)
         value = setting.value
+
+        resolved_url = (
+            validate_outbound_http_url(url, resolve_dns=True) if url is not None else value["url"]
+        )
+
         credential_id = value.get("credential_id")
-        if credential_id is None:
-            raise ISEValidationError(f"ISE source '{source_id}' has no linked credential")
-        credential = self._credentials.get_credential_by_id(credential_id)
-        if credential is None:
-            raise ISEValidationError(f"ISE source '{source_id}' credential is missing")
-        password = self._credentials.get_decrypted_password(credential_id)
+        if username is not None and password is not None:
+            resolved_username = username
+            resolved_password = password
+        else:
+            if credential_id is None:
+                raise ISEValidationError(f"ISE source '{source_id}' has no linked credential")
+            credential = self._credentials.get_credential_by_id(credential_id)
+            if credential is None:
+                raise ISEValidationError(f"ISE source '{source_id}' credential is missing")
+            resolved_username = username if username is not None else credential["username"]
+            resolved_password = (
+                password
+                if password is not None
+                else self._credentials.get_decrypted_password(credential_id)
+            )
+
         return ISECredentials(
-            base_url=value["url"],
-            username=credential["username"],
-            password=password,
-            timeout=float(value.get("timeout", 30.0)),
-            verify_ssl=bool(value.get("verify_ssl", True)),
+            base_url=resolved_url,
+            username=resolved_username,
+            password=resolved_password,
+            timeout=float(timeout if timeout is not None else value.get("timeout", 30.0)),
+            verify_ssl=bool(
+                verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
+            ),
         )
 
     def _get_setting_or_raise(self, source_id: str) -> Any:

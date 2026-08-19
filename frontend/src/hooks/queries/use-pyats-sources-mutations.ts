@@ -89,10 +89,20 @@ export function usePyATSSourcesMutations() {
   });
 
   const testConnection = useMutation({
-    mutationFn: (sourceId: string) =>
+    mutationFn: ({
+      sourceId,
+      overrides,
+    }: {
+      sourceId: string;
+      overrides?: PyATSSourceUpdatePayload;
+    }) =>
       apiCall<PyATSTestConnectionResponse>(
         `sources/pyats/${encodeURIComponent(sourceId)}/test-connection`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(overrides ?? {}),
+        },
       ),
     onSuccess: (data) => {
       toast({

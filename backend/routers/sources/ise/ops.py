@@ -11,6 +11,7 @@ import service_factory
 from core.auth import get_current_user, require_permission
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
+from core.safe_urls import UnsafeURLError
 from dependencies import get_ise_source_config_service
 from models.ise import (
     ISEDeviceGroupChildCreateRequest,
@@ -23,6 +24,7 @@ from models.ise import (
     ISENetworkDeviceCreate,
     ISENetworkDeviceListResponse,
     ISENetworkDeviceUpdate,
+    ISESourceUpdateRequest,
     ISETestConnectionResponse,
 )
 from services.ise.common.exceptions import (
@@ -45,12 +47,25 @@ router = APIRouter(
 )
 
 
-def _resolve_credentials(source_id: str, config: ISESourceConfigService) -> ISECredentials:
+def _resolve_credentials(
+    source_id: str,
+    config: ISESourceConfigService,
+    *,
+    overrides: ISESourceUpdateRequest | None = None,
+) -> ISECredentials:
+    overrides = overrides or ISESourceUpdateRequest()
     try:
-        return config.resolve_credentials(source_id)
+        return config.resolve_credentials(
+            source_id,
+            url=overrides.url,
+            username=overrides.username,
+            password=overrides.password,
+            verify_ssl=overrides.verify_ssl,
+            timeout=overrides.timeout,
+        )
     except ISESourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ISEValidationError as exc:
+    except (ISEValidationError, UnsafeURLError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -266,10 +281,15 @@ async def delete_device(
 )
 async def test_connection(
     source_id: str,
+    overrides: ISESourceUpdateRequest | None = None,
     _: User = Depends(get_current_user),
     config: ISESourceConfigService = Depends(get_ise_source_config_service),
 ) -> ISETestConnectionResponse:
-    device_service = _resolve_device_service(source_id, config)
+    """Test connectivity. ``overrides`` lets the source dialog validate unsaved
+    edits (e.g. a password just typed in) against the live form values instead
+    of only what's already persisted."""
+    credentials = _resolve_credentials(source_id, config, overrides=overrides)
+    device_service = service_factory.build_ise_network_device_service(credentials)
     try:
         await device_service.test_connection()
         return ISETestConnectionResponse(success=True, message="Connection successful")
