@@ -4,9 +4,17 @@ import type { NextRequest } from "next/server";
 export function middleware(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
 
+  // React's dev-mode bundle calls eval() for debugging features (e.g.
+  // reconstructing cross-environment call stacks) — it never does in
+  // production, so 'unsafe-eval' is scoped to non-production only.
+  const scriptSrc =
+    process.env.NODE_ENV === "production"
+      ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`
+      : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`;
+
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
