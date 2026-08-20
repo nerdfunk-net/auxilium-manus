@@ -78,6 +78,8 @@ export const queryKeys = {
       [...queryKeys.sourcesNautobot.all, "inventory", id] as const,
     customFields: (sourceId: string) =>
       [...queryKeys.sourcesNautobot.all, "custom-fields", sourceId] as const,
+    deviceSearch: (sourceId: string, term: string) =>
+      [...queryKeys.sourcesNautobot.all, "device-search", sourceId, term] as const,
   },
   sourcesIse: {
     all: ["sources-ise"] as const,
@@ -113,6 +115,8 @@ export const queryKeys = {
         : ([...queryKeys.templates.all, "list"] as const),
     detail: (id: number) => [...queryKeys.templates.all, "detail", id] as const,
     categories: () => [...queryKeys.templates.all, "categories"] as const,
+    deviceAttributes: (deviceId: string, attributesKey: string) =>
+      [...queryKeys.templates.all, "device-attributes", deviceId, attributesKey] as const,
   },
   rbac: {
     all: ["rbac"] as const,

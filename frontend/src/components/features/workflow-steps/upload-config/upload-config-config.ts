@@ -2,7 +2,7 @@ export const DEFAULT_SOCKET_TIMEOUT = 10;
 export const MIN_SOCKET_TIMEOUT = 5;
 export const MAX_SOCKET_TIMEOUT = 300;
 
-export const CONTENT_SOURCE_OPTIONS = [
+export const UPLOAD_CONFIG_SOURCE_OPTIONS = [
   {
     value: "updated_content",
     label: "Updated content",
@@ -55,7 +55,7 @@ export const CONTENT_SOURCE_OPTIONS = [
   },
 ] as const;
 
-export type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
+export type ContentSource = (typeof UPLOAD_CONFIG_SOURCE_OPTIONS)[number]["value"];
 
 const SOURCE_STEP_NOT_REQUIRED = new Set<ContentSource>([
   "running_config",

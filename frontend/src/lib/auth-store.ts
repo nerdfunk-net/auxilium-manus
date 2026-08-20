@@ -1,5 +1,6 @@
 "use client";
 
+import type { QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 
 import type { AuthUser, LoginResponse } from "@/lib/auth";
@@ -10,7 +11,7 @@ interface AuthState {
   error: string | null;
   loadCurrentUser: () => Promise<void>;
   login: (credentials: { username: string; password: string }) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: (queryClient?: QueryClient) => Promise<void>;
   setUser: (user: AuthUser) => void;
 }
 
@@ -81,7 +82,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       throw error;
     }
   },
-  logout: async () => {
+  logout: async (queryClient) => {
     set({ error: null, isLoading: true });
 
     try {
@@ -94,6 +95,10 @@ export const useAuthStore = create<AuthState>((set) => ({
         throw new Error("Could not sign out");
       }
 
+      // Drop cached query results (device configs, run step results, etc.)
+      // so they can't survive in memory for the next person on a shared
+      // machine before a full page reload.
+      queryClient?.clear();
       set({ error: null, isLoading: false, user: null });
     } catch (error) {
       set({

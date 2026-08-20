@@ -1,11 +1,13 @@
 "use client";
 
+import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Download, FileCode, Play, RefreshCw, Save } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CanvasErrorBoundary } from "@/components/features/workflows/components/canvas-error-boundary";
 import { Button } from "@/components/ui/button";
+import { useDeviceAttributesQuery } from "@/hooks/queries/use-device-attributes-query";
 import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
 import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
@@ -74,7 +76,6 @@ function TemplateEditorContent() {
   const [attributesDialogOpen, setAttributesDialogOpen] = useState(false);
   const [isExecutingCommands, setIsExecutingCommands] = useState(false);
   const [getDeviceConfigs, setGetDeviceConfigs] = useState(false);
-  const [isFetchingConfigs, setIsFetchingConfigs] = useState(false);
   // Reference workflow whose static attributes are previewed as the
   // `run_input` variable — a per-session discovery aid, never persisted with
   // the template (see doc/WORKFLOW-STEPS.md "Static attributes").
@@ -95,10 +96,14 @@ function TemplateEditorContent() {
     enabled: Boolean(effectiveSourceId),
   });
   const templateQuery = useTemplateQuery({ templateId, enabled: isEditMode });
+  const deviceAttributesQuery = useDeviceAttributesQuery({
+    deviceId: selectedDevice?.id ?? null,
+    sourceId: sourceCredentials.sourceId,
+    attributes,
+    enabled: sourceCredentials.isReady,
+  });
 
   const loadedRef = useRef(false);
-  const lastAttributesKeyRef = useRef<string | null>(null);
-  const lastConfigsKeyRef = useRef<string | null>(null);
   const {
     setDeviceInfo,
     setNautobotAttributes,
@@ -114,8 +119,6 @@ function TemplateEditorContent() {
     () => commands.map((command) => command.trim()).filter(Boolean),
     [commands],
   );
-
-  const attributesKey = useMemo(() => [...attributes].sort().join(","), [attributes]);
 
   // Populate the editor once when an existing template loads.
   useEffect(() => {
@@ -166,124 +169,77 @@ function TemplateEditorContent() {
     });
   }, [selectedDevice, effectiveSourceId, setDeviceInfo]);
 
-  // Fetch the `nautobot` attribute bag whenever the device or the selected
-  // attribute groups change, using the same query as the workflow step.
+  // Mirror the device-attributes query result into the `nautobot` variable
+  // bag, using the same query as the workflow step.
   useEffect(() => {
     if (!selectedDevice) {
-      lastAttributesKeyRef.current = null;
       setNautobotAttributes(null);
       return;
     }
-    if (!sourceCredentials.isReady) {
-      return;
+    if (deviceAttributesQuery.data) {
+      setNautobotAttributes(deviceAttributesQuery.data);
+    } else if (deviceAttributesQuery.error) {
+      setNautobotAttributes({});
     }
-
-    const fetchKey = `${selectedDevice.id}|${attributesKey}`;
-    if (lastAttributesKeyRef.current === fetchKey) {
-      return;
-    }
-    lastAttributesKeyRef.current = fetchKey;
-
-    let active = true;
-    apiCall<Record<string, unknown>>("sources/nautobot/devices/attributes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source_id: sourceCredentials.sourceId,
-        device_id: selectedDevice.id,
-        list_of_attributes: attributes,
-      }),
-    })
-      .then((bag) => {
-        if (active) {
-          setNautobotAttributes(bag);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setNautobotAttributes({});
-        }
-      });
-
-    return () => {
-      active = false;
-    };
   }, [
     selectedDevice,
-    attributes,
-    attributesKey,
-    sourceCredentials.isReady,
-    sourceCredentials.sourceId,
-    apiCall,
+    deviceAttributesQuery.data,
+    deviceAttributesQuery.error,
     setNautobotAttributes,
   ]);
 
-  // When "Get Configs" is enabled and a test device + SSH credential are
-  // selected, fetch running+startup config over SSH and parse it exactly like
-  // the Parse Cisco Config step, populating the `parsed` variable.
+  // Reset the parsed-config preview whenever the inputs that would
+  // invalidate it change — but do NOT auto-fetch. Fetching live device
+  // config over SSH is an explicit action (see fetchDeviceConfigsMutation /
+  // the "Fetch configs" button).
   useEffect(() => {
     if (!getDeviceConfigs || !selectedDevice || credentialId === "none") {
-      lastConfigsKeyRef.current = null;
       setParsedConfig(null);
-      return;
     }
+  }, [getDeviceConfigs, selectedDevice, credentialId, setParsedConfig]);
 
-    const fetchKey = `${selectedDevice.id}|${credentialId}`;
-    if (lastConfigsKeyRef.current === fetchKey) {
-      return;
-    }
-    lastConfigsKeyRef.current = fetchKey;
-
-    const host = bareIp(selectedDevice.primary_ip4) ?? selectedDevice.name ?? "";
-
-    let active = true;
-    setIsFetchingConfigs(true);
-    apiCall<GetConfigsResponse>("netmiko/get-configs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        host,
-        platform: selectedDevice.platform,
-        network_driver: selectedDevice.network_driver,
-        credential_id: Number(credentialId),
-      }),
-    })
-      .then((response) => {
-        if (!active) {
-          return;
-        }
-        if (!response.success) {
-          toast({
-            title: "Get Configs failed",
-            description: response.error ?? "Unknown error",
-            variant: "destructive",
-          });
-          setParsedConfig(null);
-          return;
-        }
-        setParsedConfig(response.parsed);
-      })
-      .catch((error) => {
-        if (!active) {
-          return;
-        }
+  const fetchDeviceConfigsMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedDevice || credentialId === "none") {
+        throw new Error("Select a device and credential first");
+      }
+      const host = bareIp(selectedDevice.primary_ip4) ?? selectedDevice.name ?? "";
+      return apiCall<GetConfigsResponse>("netmiko/get-configs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host,
+          platform: selectedDevice.platform,
+          network_driver: selectedDevice.network_driver,
+          credential_id: Number(credentialId),
+        }),
+      });
+    },
+    onSuccess: (response) => {
+      if (!response.success) {
         toast({
           title: "Get Configs failed",
-          description: error instanceof Error ? error.message : "Unknown error",
+          description: response.error ?? "Unknown error",
           variant: "destructive",
         });
         setParsedConfig(null);
-      })
-      .finally(() => {
-        if (active) {
-          setIsFetchingConfigs(false);
-        }
+        return;
+      }
+      setParsedConfig(response.parsed);
+    },
+    onError: (error) => {
+      toast({
+        title: "Get Configs failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
       });
+      setParsedConfig(null);
+    },
+  });
 
-    return () => {
-      active = false;
-    };
-  }, [getDeviceConfigs, selectedDevice, credentialId, apiCall, toast, setParsedConfig]);
+  const handleFetchConfigs = useCallback(() => {
+    fetchDeviceConfigsMutation.mutate();
+  }, [fetchDeviceConfigsMutation]);
 
   // Preview the linked reference workflow's static_attributes as the
   // `run_input` variable. Purely a discovery aid — never saved with the
@@ -556,7 +512,9 @@ function TemplateEditorContent() {
           attributeCount={attributes.length}
           credentialId={credentialId}
           getConfigs={getDeviceConfigs}
-          isFetchingConfigs={isFetchingConfigs}
+          isFetchingConfigs={fetchDeviceConfigsMutation.isPending}
+          canFetchConfigs={Boolean(selectedDevice) && credentialId !== "none"}
+          onFetchConfigs={handleFetchConfigs}
           onSourceChange={setSourceId}
           onSelectDevice={setSelectedDevice}
           onConfigureCommands={() => setCommandsDialogOpen(true)}

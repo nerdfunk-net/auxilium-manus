@@ -1,14 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("next/server", () => ({
-  NextResponse: { json: () => ({}) },
-}));
+vi.mock("next/server", () => {
+  class FakeNextResponse {
+    body: BodyInit | null;
+    status: number;
+    headers: Headers;
+
+    constructor(body: BodyInit | null, init?: { headers?: Headers; status?: number }) {
+      this.body = body;
+      this.status = init?.status ?? 200;
+      this.headers = init?.headers ?? new Headers();
+    }
+
+    static json(data: unknown, init?: { headers?: Headers; status?: number }) {
+      return new FakeNextResponse(JSON.stringify(data), init);
+    }
+  }
+
+  return { NextResponse: FakeNextResponse };
+});
 
 vi.mock("next/headers", () => ({
   cookies: () => ({ get: () => undefined }),
 }));
 
-import { normalizeProxyPath } from "./api-proxy";
+import { normalizeProxyPath, proxyRequest } from "./api-proxy";
 
 describe("normalizeProxyPath", () => {
   it("prefixes /api for backend paths", () => {
@@ -31,4 +47,28 @@ describe("normalizeProxyPath", () => {
       expect(() => normalizeProxyPath(path)).toThrow("Invalid proxy path");
     },
   );
+});
+
+describe("proxyRequest", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("strips a Location header from the backend response", async () => {
+    const backendResponse = new Response("redirecting", {
+      status: 302,
+      headers: { Location: "https://evil.example/phish" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(backendResponse),
+    );
+
+    const result = (await proxyRequest({
+      path: ["workflows"],
+      request: new Request("http://next.internal/api/proxy/workflows"),
+    })) as { headers: Headers };
+
+    expect(result.headers.get("location")).toBeNull();
+  });
 });

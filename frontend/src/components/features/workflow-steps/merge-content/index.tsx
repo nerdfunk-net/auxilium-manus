@@ -17,13 +17,16 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { ContentSourcePicker } from "@/components/features/workflow-steps/shared/content-source-picker";
 
 import { MergeContentHelpPanel } from "./help-panel";
 
 type MergeMode = "text_sectioned" | "text_plain" | "json_merged";
 type ContentSource = "command_output" | "filtered_output" | "merged_content";
 
-const CONTENT_SOURCE_OPTIONS: { value: ContentSource; label: string; hint: string }[] = [
+// merge-content only accepts sources that are themselves mergeable content —
+// a distinct, hand-written set with copy specific to this step.
+const MERGE_CONTENT_SOURCE_OPTIONS: { value: ContentSource; label: string; hint: string }[] = [
   {
     value: "command_output",
     label: "Command output",
@@ -148,7 +151,7 @@ function MergeContentConfigPanel({
   );
 
   const selectedSourceHint = useMemo(
-    () => CONTENT_SOURCE_OPTIONS.find((o) => o.value === contentSource)?.hint,
+    () => MERGE_CONTENT_SOURCE_OPTIONS.find((o) => o.value === contentSource)?.hint,
     [contentSource],
   );
 
@@ -229,18 +232,11 @@ function MergeContentConfigPanel({
             string
           </Badge>
         </div>
-        <Select value={contentSource} onValueChange={handleContentSourceChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CONTENT_SOURCE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ContentSourcePicker
+          value={contentSource}
+          onChange={handleContentSourceChange}
+          options={MERGE_CONTENT_SOURCE_OPTIONS}
+        />
         {selectedSourceHint ? (
           <p className="text-[11px] text-muted-foreground">{selectedSourceHint}</p>
         ) : null}

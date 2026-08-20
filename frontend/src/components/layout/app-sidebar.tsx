@@ -10,6 +10,7 @@ import {
   Settings,
   Workflow,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useMemo } from "react";
@@ -85,6 +86,7 @@ export function AppSidebar() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const queryClient = useQueryClient();
 
   const visibleItems = useMemo(
     () => navigationItems.filter((item) => item.canShow(user)),
@@ -92,10 +94,10 @@ export function AppSidebar() {
   );
 
   const handleLogout = useCallback(async () => {
-    await logout();
+    await logout(queryClient);
     router.replace("/login");
     router.refresh();
-  }, [logout, router]);
+  }, [logout, queryClient, router]);
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-card">

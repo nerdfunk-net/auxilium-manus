@@ -1,4 +1,4 @@
-export const CONTENT_SOURCE_OPTIONS = [
+export const ROUTE_ON_CONTENT_SOURCE_OPTIONS = [
   {
     value: "running_config",
     label: "Running configuration",
@@ -41,7 +41,7 @@ export const CONTENT_SOURCE_OPTIONS = [
   },
 ] as const;
 
-export type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
+export type ContentSource = (typeof ROUTE_ON_CONTENT_SOURCE_OPTIONS)[number]["value"];
 
 export const MATCH_MODE_OPTIONS = [
   { value: "fixed_text", label: "Fixed text", hint: "Literal substring search." },
@@ -71,7 +71,7 @@ export const DEFAULT_ROUTE_ON_CONTENT_CONFIG: RouteOnContentConfig = {
 };
 
 const VALID_CONTENT_SOURCES = new Set<string>(
-  CONTENT_SOURCE_OPTIONS.map((option) => option.value),
+  ROUTE_ON_CONTENT_SOURCE_OPTIONS.map((option) => option.value),
 );
 const VALID_MATCH_MODES = new Set<string>(MATCH_MODE_OPTIONS.map((option) => option.value));
 

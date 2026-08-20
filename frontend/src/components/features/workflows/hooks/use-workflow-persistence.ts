@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MutableRefObject } from "react";
 
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useApi } from "@/hooks/use-api";
+import { queryKeys } from "@/lib/query-keys";
 
 import type { PluginDefinition } from "../types/plugin-registry";
 import type {
@@ -77,28 +79,29 @@ export function useWorkflowPersistence({
   // the editor in this browser session with a workflow already recorded in
   // the store, or the store's draft belongs to a different workflow): fetch
   // the last saved canvas from the backend so it isn't shown blank.
-  const hasRehydratedCanvasRef = useRef(initialCanvasDraft !== null);
+  // This is a one-shot rehydration fetch, not a live-syncing query: it should
+  // run once when a mount without a local draft becomes ready, then never
+  // refetch (no window-focus refetch, no auto-retry).
+  const rehydrateCanvasQuery = useQuery({
+    queryKey: queryKeys.workflows.detail(mountWorkflowId ?? 0),
+    queryFn: () => apiCall<WorkflowResponse>(`workflows/${mountWorkflowId}`),
+    enabled: initialCanvasDraft === null && mountWorkflowId != null && !isPluginsLoading,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
 
   useEffect(() => {
-    if (hasRehydratedCanvasRef.current) return;
-    if (!mountWorkflowId || isPluginsLoading) return;
-    hasRehydratedCanvasRef.current = true;
-    apiCall<WorkflowResponse>(`workflows/${mountWorkflowId}`)
-      .then((full) => {
-        const loaded = canvasFromWorkflowResponse(full, plugins);
-        applyLoadedCanvas(loaded);
-        if (loaded.migrated) markDirty();
-      })
-      .catch(() => markError("Failed to restore workflow canvas"));
-  }, [
-    mountWorkflowId,
-    isPluginsLoading,
-    plugins,
-    markDirty,
-    markError,
-    apiCall,
-    applyLoadedCanvas,
-  ]);
+    if (!rehydrateCanvasQuery.data) return;
+    const loaded = canvasFromWorkflowResponse(rehydrateCanvasQuery.data, plugins);
+    applyLoadedCanvas(loaded);
+    if (loaded.migrated) markDirty();
+  }, [rehydrateCanvasQuery.data, plugins, applyLoadedCanvas, markDirty]);
+
+  useEffect(() => {
+    if (!rehydrateCanvasQuery.error) return;
+    markError("Failed to restore workflow canvas");
+  }, [rehydrateCanvasQuery.error, markError]);
 
   const confirmNew = useCallback(() => {
     resetToNew();

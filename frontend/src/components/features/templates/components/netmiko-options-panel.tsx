@@ -16,9 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useApi } from "@/hooks/use-api";
+import { useNetmikoDeviceSearchQuery } from "@/hooks/queries/use-netmiko-device-search-query";
 
 import type { DeviceSummary } from "../types";
+
+const EMPTY_DEVICES: DeviceSummary[] = [];
 
 interface NetmikoOptionsPanelProps {
   sources: { sourceId: string }[];
@@ -29,12 +31,14 @@ interface NetmikoOptionsPanelProps {
   credentialId: string;
   getConfigs: boolean;
   isFetchingConfigs: boolean;
+  canFetchConfigs: boolean;
   onSourceChange: (sourceId: string) => void;
   onSelectDevice: (device: DeviceSummary | null) => void;
   onConfigureCommands: () => void;
   onConfigureAttributes: () => void;
   onCredentialChange: (value: string) => void;
   onGetConfigsChange: (value: boolean) => void;
+  onFetchConfigs: () => void;
 }
 
 const NO_SOURCE = "__none__";
@@ -48,30 +52,40 @@ export function NetmikoOptionsPanel({
   credentialId,
   getConfigs,
   isFetchingConfigs,
+  canFetchConfigs,
   onSourceChange,
   onSelectDevice,
   onConfigureCommands,
   onConfigureAttributes,
   onCredentialChange,
   onGetConfigsChange,
+  onFetchConfigs,
 }: NetmikoOptionsPanelProps) {
-  const { apiCall } = useApi();
   const { data: credentialsData } = useCredentialsQuery();
   const sshCredentials = (credentialsData?.credentials ?? []).filter(
     (credential) => credential.type === "ssh",
   );
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [results, setResults] = useState<DeviceSummary[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [showResults, setShowResults] = useState(false);
-  const isSelectingRef = useRef(false);
+  // Dismissed by the user (via outside click or picking a device); reopened
+  // as soon as they type again or refocus a field with existing results.
+  const [dismissed, setDismissed] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const searchQuery = useNetmikoDeviceSearchQuery({
+    sourceId,
+    searchTerm,
+    enabled: sourceReady,
+  });
+  const results = searchQuery.data?.devices ?? EMPTY_DEVICES;
+  const isSearching = searchQuery.isFetching;
+  const showResults =
+    !dismissed && searchTerm.trim().length >= 3 && sourceReady && results.length > 0;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowResults(false);
+        setDismissed(true);
       }
     };
     if (showResults) {
@@ -81,66 +95,15 @@ export function NetmikoOptionsPanel({
     return undefined;
   }, [showResults]);
 
-  useEffect(() => {
-    if (isSelectingRef.current) {
-      isSelectingRef.current = false;
-      return undefined;
-    }
-
-    let active = true;
-    const timeoutId = setTimeout(async () => {
-      if (searchTerm.trim().length < 3 || !sourceReady) {
-        if (active) {
-          setResults([]);
-          setShowResults(false);
-        }
-        return;
-      }
-      setIsSearching(true);
-      try {
-        const response = await apiCall<{ devices: DeviceSummary[] }>(
-          "sources/nautobot/devices/search",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              source_id: sourceId,
-              search: searchTerm.trim(),
-              limit: 20,
-            }),
-          },
-        );
-        if (active) {
-          setResults(response.devices ?? []);
-          setShowResults(true);
-        }
-      } catch {
-        if (active) {
-          setResults([]);
-          setShowResults(false);
-        }
-      } finally {
-        if (active) {
-          setIsSearching(false);
-        }
-      }
-    }, 300);
-
-    return () => {
-      active = false;
-      clearTimeout(timeoutId);
-    };
-  }, [searchTerm, sourceReady, sourceId, apiCall]);
-
   const handleSelectDevice = (device: DeviceSummary) => {
-    isSelectingRef.current = true;
+    setDismissed(true);
     setSearchTerm(device.name ?? device.id);
-    setShowResults(false);
     onSelectDevice(device);
   };
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
+    setDismissed(false);
     if (value.trim().length === 0) {
       onSelectDevice(null);
     }
@@ -199,7 +162,7 @@ export function NetmikoOptionsPanel({
                 onChange={(event) => handleSearchChange(event.target.value)}
                 onFocus={() => {
                   if (results.length > 0) {
-                    setShowResults(true);
+                    setDismissed(false);
                   }
                 }}
               />
@@ -210,7 +173,7 @@ export function NetmikoOptionsPanel({
                   <Search className="size-4 text-muted-foreground" />
                 )}
               </span>
-              {showResults && results.length > 0 ? (
+              {showResults ? (
                 <div className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover shadow-lg">
                   {results.map((device) => (
                     <button
@@ -287,22 +250,33 @@ export function NetmikoOptionsPanel({
 
           <div className="space-y-1.5 md:col-span-2">
             <Label htmlFor="get-configs">Get Configs</Label>
-            <label
-              htmlFor="get-configs"
-              className="flex h-9 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs"
-            >
-              <input
-                id="get-configs"
-                type="checkbox"
-                checked={getConfigs}
-                onChange={(event) => onGetConfigsChange(event.target.checked)}
-                className="size-4 rounded border"
-              />
-              <span>Parse config</span>
-              {isFetchingConfigs ? (
-                <RefreshCw className="ml-auto size-3.5 animate-spin text-muted-foreground" />
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="get-configs"
+                className="flex h-9 flex-1 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs"
+              >
+                <input
+                  id="get-configs"
+                  type="checkbox"
+                  checked={getConfigs}
+                  onChange={(event) => onGetConfigsChange(event.target.checked)}
+                  className="size-4 rounded border"
+                />
+                <span>Parse config</span>
+              </label>
+              {getConfigs ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canFetchConfigs || isFetchingConfigs}
+                  onClick={onFetchConfigs}
+                >
+                  <RefreshCw className={isFetchingConfigs ? "size-3.5 animate-spin" : "size-3.5"} />
+                  Fetch
+                </Button>
               ) : null}
-            </label>
+            </div>
           </div>
         </div>
       </CardContent>

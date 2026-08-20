@@ -18,11 +18,12 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import { ContentSourcePicker } from "@/components/features/workflow-steps/shared/content-source-picker";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
 import { UploadConfigHelpPanel } from "./help-panel";
 import {
-  CONTENT_SOURCE_OPTIONS,
+  UPLOAD_CONFIG_SOURCE_OPTIONS,
   MAX_SOCKET_TIMEOUT,
   MIN_SOCKET_TIMEOUT,
   buildUploadConfigConfig,
@@ -92,7 +93,7 @@ function UploadConfigConfigPanel({
   );
 
   const contentSourceHint = useMemo(
-    () => CONTENT_SOURCE_OPTIONS.find((option) => option.value === contentSource)?.hint,
+    () => UPLOAD_CONFIG_SOURCE_OPTIONS.find((option) => option.value === contentSource)?.hint,
     [contentSource],
   );
 
@@ -243,18 +244,11 @@ function UploadConfigConfigPanel({
             string
           </Badge>
         </div>
-        <Select value={contentSource} onValueChange={handleContentSourceChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CONTENT_SOURCE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ContentSourcePicker
+          value={contentSource}
+          onChange={handleContentSourceChange}
+          options={UPLOAD_CONFIG_SOURCE_OPTIONS}
+        />
         {contentSourceHint ? (
           <p className="text-[11px] text-muted-foreground">{contentSourceHint}</p>
         ) : null}

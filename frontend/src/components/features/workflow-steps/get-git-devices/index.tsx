@@ -25,7 +25,7 @@ import {
   fanOutFromConfig,
   type FanOutConfig,
 } from "../shared/fan-out-config";
-import { GitSourceSelectDialog } from "./git-source-select-dialog";
+import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
 import { GitDevicesPreviewDialog } from "./preview-dialog";
 import { GetGitDevicesHelpPanel } from "./help-panel";
 

@@ -18,7 +18,7 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
+import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
 import { ComparePyatsSnapshotHelpPanel } from "./help-panel";

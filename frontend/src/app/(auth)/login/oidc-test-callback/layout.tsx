@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 
+import { isDevToolsEnabled } from "@/lib/dev-tools";
+
 export default function OidcTestCallbackLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  if (process.env.ENABLE_DEV_TOOLS !== "true") notFound();
+  if (!isDevToolsEnabled()) notFound();
   return children;
 }

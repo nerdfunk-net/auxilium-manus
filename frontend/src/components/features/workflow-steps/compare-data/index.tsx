@@ -22,59 +22,16 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
+import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+import { ContentSourcePicker } from "@/components/features/workflow-steps/shared/content-source-picker";
+import {
+  CONTENT_SOURCE_OPTIONS,
+  type ContentSource,
+} from "@/components/features/workflow-steps/shared/content-source-options";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
 
 import { CompareDataHelpPanel } from "./help-panel";
-
-const CONTENT_SOURCE_OPTIONS = [
-  {
-    value: "upstream_output",
-    label: "Upstream output (auto-detected)",
-    hint: "Automatically resolved from the nearest content-producing upstream step.",
-  },
-  {
-    value: "running_config",
-    label: "Running configuration",
-    hint: "Requires an upstream get-device-configs (or similar) step.",
-  },
-  {
-    value: "startup_config",
-    label: "Startup configuration",
-    hint: "Requires startup config on the device context.",
-  },
-  {
-    value: "command_output",
-    label: "Command output (specific step)",
-    hint: "Choose the run-command step that produced the output.",
-  },
-  {
-    value: "latest_command_output",
-    label: "Latest command output",
-    hint: "Uses the most recent command result on the device.",
-  },
-  {
-    value: "rendered_template",
-    label: "Rendered template",
-    hint: "Choose the render-jinja-template step that produced the template.",
-  },
-  {
-    value: "merged_content",
-    label: "Merged content",
-    hint: "Choose the merge-content step that combined multiple command outputs.",
-  },
-  {
-    value: "filtered_output",
-    label: "Filtered output",
-    hint: "Choose the filter-output step that removed volatile fields.",
-  },
-  {
-    value: "pyats_snapshot",
-    label: "pyATS snapshot",
-    hint: "Choose the get-pyats-snapshot step that produced the snapshot.",
-  },
-] as const;
 
 const VALID_COMPARE_SOURCES = new Set([
   "running_config",
@@ -87,7 +44,13 @@ const VALID_COMPARE_SOURCES = new Set([
   "pyats_snapshot",
 ]);
 
-type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
+// compare-data can't reference "comparison_diff" (itself) or "updated_content"
+// (not an available upstream source for a comparison) — filtered from the
+// shared master list rather than duplicating it with a smaller hand-picked set.
+const COMPARE_DATA_SOURCE_OPTIONS = CONTENT_SOURCE_OPTIONS.filter(
+  (option) => option.value === "upstream_output" || VALID_COMPARE_SOURCES.has(option.value),
+);
+
 type ReferenceLocation = "filesystem" | "git";
 
 const REFERENCE_LOCATION_OPTIONS = [
@@ -218,7 +181,7 @@ function CompareDataConfigPanel({
   );
 
   const selectedHint = useMemo(
-    () => CONTENT_SOURCE_OPTIONS.find((option) => option.value === contentSource)?.hint,
+    () => COMPARE_DATA_SOURCE_OPTIONS.find((option) => option.value === contentSource)?.hint,
     [contentSource],
   );
 
@@ -385,25 +348,15 @@ function CompareDataConfigPanel({
             string
           </Badge>
         </div>
-        <Select value={contentSource} onValueChange={handleContentSourceChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CONTENT_SOURCE_OPTIONS.map((option) => (
-              <SelectItem
-                key={option.value}
-                value={option.value}
-                disabled={
-                  option.value === "upstream_output" &&
-                  !(upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource))
-                }
-              >
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ContentSourcePicker
+          value={contentSource}
+          onChange={handleContentSourceChange}
+          options={COMPARE_DATA_SOURCE_OPTIONS}
+          isOptionDisabled={(value) =>
+            value === "upstream_output" &&
+            !(upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource))
+          }
+        />
         {autoDetected ? (
           <p className="text-[11px] text-step-muted-foreground">
             ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})

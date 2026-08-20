@@ -36,6 +36,10 @@ export function useArtifactQuery({
       }),
     enabled: enabled && runId != null && artifactId != null,
     staleTime: 5 * 60 * 1000,
+    // Artifact content (device configs, secrets pulled into device
+    // attributes) should not linger in memory after the viewer navigates
+    // away — drop the cache entry immediately once unused.
+    gcTime: 30 * 1000,
     retry: false,
   });
 }

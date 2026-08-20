@@ -2,11 +2,6 @@ import type { NextConfig } from "next";
 
 const securityHeaders: { key: string; value: string }[] = [
   {
-    key: "Content-Security-Policy",
-    value:
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
-  },
-  {
     key: "Referrer-Policy",
     value: "strict-origin-when-cross-origin",
   },
@@ -31,6 +26,8 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+// Content-Security-Policy is set in middleware.ts instead — it needs a
+// per-request nonce, and next.config.ts headers are static.
 const nextConfig: NextConfig = {
   async headers() {
     return [

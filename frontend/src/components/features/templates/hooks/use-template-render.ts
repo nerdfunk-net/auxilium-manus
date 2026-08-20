@@ -1,5 +1,6 @@
 "use client";
 
+import { useMutation } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import { useApi } from "@/hooks/use-api";
@@ -49,39 +50,43 @@ export function buildVariablesContext(
 export function useTemplateRender() {
   const { apiCall } = useApi();
   const { toast } = useToast();
-  const [isRendering, setIsRendering] = useState(false);
-  const [result, setResult] = useState<TemplateRenderResponse | null>(null);
   const [showDialog, setShowDialog] = useState(false);
 
-  const render = useCallback(
-    async (content: string, variables: EditorVariable[]) => {
-      setIsRendering(true);
-      try {
-        const response = await apiCall<TemplateRenderResponse>("templates/render", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            template_content: content,
-            variables: buildVariablesContext(variables),
-          }),
-        });
-        setResult(response);
-        setShowDialog(true);
-      } catch (error) {
-        toast({
-          title: "Render failed",
-          description: error instanceof Error ? error.message : "Unknown error",
-          variant: "destructive",
-        });
-      } finally {
-        setIsRendering(false);
-      }
+  const renderMutation = useMutation({
+    mutationFn: (input: { content: string; variables: EditorVariable[] }) =>
+      apiCall<TemplateRenderResponse>("templates/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template_content: input.content,
+          variables: buildVariablesContext(input.variables),
+        }),
+      }),
+    onSuccess: () => setShowDialog(true),
+    onError: (error) => {
+      toast({
+        title: "Render failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
     },
-    [apiCall, toast],
+  });
+
+  const render = useCallback(
+    (content: string, variables: EditorVariable[]) => {
+      renderMutation.mutate({ content, variables });
+    },
+    [renderMutation],
   );
 
   return useMemo(
-    () => ({ render, isRendering, result, showDialog, setShowDialog }),
-    [render, isRendering, result, showDialog],
+    () => ({
+      render,
+      isRendering: renderMutation.isPending,
+      result: renderMutation.data ?? null,
+      showDialog,
+      setShowDialog,
+    }),
+    [render, renderMutation.isPending, renderMutation.data, showDialog],
   );
 }

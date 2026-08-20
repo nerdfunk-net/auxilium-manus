@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
+import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
 
 const GIT_SOURCE_ID_KEY = "git_source_id";
 

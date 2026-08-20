@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/get-git-devices/git-source-select-dialog";
+import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
 import { GitPushHelpPanel } from "./help-panel";
 
 const GIT_SOURCE_ID_KEY = "git_source_id";

@@ -1,9 +1,6 @@
 import { ToolsPage } from "@/components/features/tools/tools-page";
+import { isDevToolsEnabled } from "@/lib/dev-tools";
 
 export default function ToolsRoute() {
-  return (
-    <ToolsPage
-      oidcTestEnabled={process.env.ENABLE_DEV_TOOLS === "true"}
-    />
-  );
+  return <ToolsPage oidcTestEnabled={isDevToolsEnabled()} />;
 }

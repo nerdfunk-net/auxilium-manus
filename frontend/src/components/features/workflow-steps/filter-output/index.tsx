@@ -22,6 +22,7 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { ContentSourcePicker } from "@/components/features/workflow-steps/shared/content-source-picker";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
 
@@ -36,7 +37,9 @@ interface FilterRule {
 
 const EMPTY_RULES: FilterRule[] = [];
 
-const CONTENT_SOURCE_OPTIONS = [
+// filter-output only accepts raw command/merged output, not the full shared
+// master list — a distinct, hand-written set with copy specific to this step.
+const FILTER_OUTPUT_SOURCE_OPTIONS = [
   {
     value: "upstream_output",
     label: "Upstream output (auto-detected)",
@@ -56,7 +59,7 @@ const CONTENT_SOURCE_OPTIONS = [
 
 const VALID_FILTER_SOURCES = new Set(["command_output", "merged_content"]);
 
-type ContentSource = (typeof CONTENT_SOURCE_OPTIONS)[number]["value"];
+type ContentSource = (typeof FILTER_OUTPUT_SOURCE_OPTIONS)[number]["value"];
 
 function rawToRules(raw: unknown): FilterRule[] {
   if (!Array.isArray(raw)) return EMPTY_RULES;
@@ -229,7 +232,7 @@ function FilterOutputConfigPanel({
   );
 
   const selectedHint = useMemo(
-    () => CONTENT_SOURCE_OPTIONS.find((o) => o.value === contentSource)?.hint,
+    () => FILTER_OUTPUT_SOURCE_OPTIONS.find((o) => o.value === contentSource)?.hint,
     [contentSource],
   );
 
@@ -261,25 +264,15 @@ function FilterOutputConfigPanel({
             string
           </Badge>
         </div>
-        <Select value={contentSource} onValueChange={handleContentSourceChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CONTENT_SOURCE_OPTIONS.map((option) => (
-              <SelectItem
-                key={option.value}
-                value={option.value}
-                disabled={
-                  option.value === "upstream_output" &&
-                  !(upstream && VALID_FILTER_SOURCES.has(upstream.contentSource))
-                }
-              >
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ContentSourcePicker
+          value={contentSource}
+          onChange={handleContentSourceChange}
+          options={FILTER_OUTPUT_SOURCE_OPTIONS}
+          isOptionDisabled={(value) =>
+            value === "upstream_output" &&
+            !(upstream && VALID_FILTER_SOURCES.has(upstream.contentSource))
+          }
+        />
         {autoDetected ? (
           <p className="text-[11px] text-step-muted-foreground">
             ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})

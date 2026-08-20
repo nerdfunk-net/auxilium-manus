@@ -7,7 +7,7 @@ Workflows consist of ordered and dependency-aware steps. The output of one step 
 
 ## Tech Stack
 
-**Frontend:** Next.js 16.2.6 (App Router), React 19, React Flow, TypeScript 5, Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
+**Frontend:** Next.js 16.2.12 (App Router), React 19, React Flow, TypeScript 5, Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
 **Backend:** FastAPI, Python 3.14, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko, GitPython
 **Integrations:** Nautobot API
 
@@ -262,22 +262,15 @@ const { toast } = useToast()
 toast({ title: "Success", description: "Done!" })
 ```
 
-## GraphQL Integration
+## Nautobot / Source Data Fetching
 
-**Always use centralized service:** `/frontend/src/services/nautobot-graphql.ts`
+Nautobot and other source data is fetched through backend REST endpoints under `/api/proxy/sources/nautobot/*`
+(and `/api/proxy/sources/{ise,pyats,mattermost}/*` for other integrations) — there is no client-side GraphQL
+client, and none should be added (see "API proxy pattern" above). Add new source data needs as backend endpoints
+per the "Adding New Backend Endpoint" section, then call them from a TanStack Query hook under
+`/frontend/src/hooks/queries/`.
 
-```typescript
-// Add to service file
-export const MY_QUERY = `query { ... }`
-export interface GraphQLMyData { ... }
-export async function fetchMyData(apiCall) { ... }
-
-// Use in component
-import { fetchMyData } from '@/services/nautobot-graphql'
-const result = await fetchMyData(apiCall)
-```
-
-❌ DON'T create inline GraphQL queries or dedicated backend endpoints for each query
+❌ DON'T create inline GraphQL queries, a client-side GraphQL client, or dedicated backend endpoints for each query
 
 ## TanStack Query (Data Fetching & Caching)
 
@@ -450,10 +443,6 @@ const syncRepository = useMutation({
 - ❌ Store query data in `useState` (use `useMemo` for derived state)
 - ❌ Forget to invalidate cache after mutations
 - ❌ Use inline object literals as default params (`= {}` creates new object every render)
-
-### Documentation:
-- **Best Practices**: `/frontend/src/hooks/queries/BEST_PRACTICES.md`
-- **Optimistic Updates**: `/frontend/src/hooks/queries/OPTIMISTIC_UPDATES.md`
 
 ## React Best Practices (CRITICAL - Prevents Infinite Loops)
 
@@ -642,8 +631,8 @@ cd backend && python scripts/run_worker_dev.py
 cd frontend && npm run dev
 
 # Default credentials: admin/admin
-# Frontend: http://localhost:3000
-# Backend: http://localhost:8000
+# Frontend: http://localhost:3001
+# Backend: http://localhost:8001
 
 # Ruff (Python lint/format rules in backend/pyproject.toml) — run from time to time
 # or before larger backend changes; from backend/: `ruff check .` (optionally `--fix`)

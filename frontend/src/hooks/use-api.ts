@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo } from "react";
 
+const MAX_ERROR_MESSAGE_LENGTH = 300;
+
 export function useApi() {
   const router = useRouter();
 
@@ -50,6 +52,12 @@ export function useApi() {
           }
         } catch {
           // use default message
+        }
+        // 5xx detail is already sanitized server-side (core.safe_http_errors),
+        // but cap length defensively so a future regression can't dump a
+        // stack trace or long upstream error into a toast.
+        if (response.status >= 500 && message.length > MAX_ERROR_MESSAGE_LENGTH) {
+          message = `Server error (status ${response.status}). Check the logs for details.`;
         }
         throw new Error(message);
       }

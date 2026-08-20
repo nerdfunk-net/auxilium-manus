@@ -29,13 +29,28 @@ interface GitSourceSelectDialogProps {
   selectedSourceId: string;
   onClose: () => void;
   onSave: (sourceId: string) => void;
+  /** Distinct DOM id so two instances on the same page (unlikely, but
+   * multiple git-backed steps can appear on one canvas) don't collide. */
+  idPrefix?: string;
+  description?: string;
+  /** Only the most-used call sites show the "reference this ID" hint — it's
+   * most relevant where the source id is copy-pasted into other config. */
+  showReferenceHint?: boolean;
 }
+
+const DEFAULT_DESCRIPTION =
+  "A configured Git repository is required. Choose which saved source " +
+  "(from Settings → Sources) this step should use. Only the source ID " +
+  "is stored on the step; URL and token are loaded from settings at runtime.";
 
 export function GitSourceSelectDialog({
   open,
   selectedSourceId,
   onClose,
   onSave,
+  idPrefix = "git-source-select",
+  description = DEFAULT_DESCRIPTION,
+  showReferenceHint = true,
 }: GitSourceSelectDialogProps) {
   const router = useRouter();
   const [sourceId, setSourceId] = useState(selectedSourceId);
@@ -55,22 +70,21 @@ export function GitSourceSelectDialog({
   }
 
   const handleSave = useCallback(() => {
-    if (!sourceId) return;
+    if (!sourceId) {
+      return;
+    }
     onSave(sourceId);
     onClose();
   }, [onClose, onSave, sourceId]);
+
+  const fieldId = `${idPrefix}-select`;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Git source</DialogTitle>
-          <DialogDescription>
-            A configured Git repository is required. Choose which saved source
-            (from Settings → Sources) this step should use. Only the source ID
-            is stored on the step; URL and token are loaded from settings at
-            runtime.
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -94,9 +108,9 @@ export function GitSourceSelectDialog({
             </div>
           ) : (
             <div className="space-y-2">
-              <Label htmlFor="git-source-select">Source ID</Label>
+              <Label htmlFor={fieldId}>Source ID</Label>
               <Select value={sourceId || undefined} onValueChange={setSourceId}>
-                <SelectTrigger id="git-source-select">
+                <SelectTrigger id={fieldId}>
                   <SelectValue placeholder="Select a Git source" />
                 </SelectTrigger>
                 <SelectContent>
@@ -110,14 +124,16 @@ export function GitSourceSelectDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-muted-foreground">
-                Reference this ID when wiring sources in workflow steps (e.g.{" "}
-                <code className="rounded bg-muted px-1">
-                  {SOURCE_KEY_PREFIXES.git}
-                  {sourceId || "<id>"}
-                </code>
-                ).
-              </p>
+              {showReferenceHint ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Reference this ID when wiring sources in workflow steps (e.g.{" "}
+                  <code className="rounded bg-muted px-1">
+                    {SOURCE_KEY_PREFIXES.git}
+                    {sourceId || "<id>"}
+                  </code>
+                  ).
+                </p>
+              ) : null}
             </div>
           )}
         </div>

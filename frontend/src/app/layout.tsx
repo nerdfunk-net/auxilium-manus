@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 
 import { AppProviders } from "@/components/providers/app-providers";
 
@@ -20,11 +21,15 @@ export const metadata: Metadata = {
   description: "Visual NetDevOps workflow builder",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Reading the x-nonce request header (set by middleware.ts) here is what
+  // makes Next.js apply that nonce to its own inline bootstrap scripts.
+  await headers();
+
   return (
     <html
       lang="en"

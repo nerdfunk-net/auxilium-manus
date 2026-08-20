@@ -17,7 +17,11 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 const STRIP_REQUEST_HEADERS = new Set(["authorization", "cookie"]);
-const STRIP_RESPONSE_HEADERS = new Set(["set-cookie"]);
+// "location" is stripped because the server-side fetch to the backend uses
+// redirect: "manual" (so *we* don't follow it), but useApi's browser fetch
+// uses the default redirect: "follow" — forwarding Location would let a
+// future backend 3xx be followed client-side with no proxy-side review.
+const STRIP_RESPONSE_HEADERS = new Set(["set-cookie", "location"]);
 
 export interface ProxyRequestOptions {
   path: string[];

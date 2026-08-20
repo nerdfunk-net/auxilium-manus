@@ -17,11 +17,12 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { ContentSourcePicker } from "@/components/features/workflow-steps/shared/content-source-picker";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
 import {
   buildRouteOnContentConfig,
-  CONTENT_SOURCE_OPTIONS,
+  ROUTE_ON_CONTENT_SOURCE_OPTIONS,
   contentSourceRequiresStepNodeId,
   MATCH_MODE_OPTIONS,
   parseRouteOnContentConfig,
@@ -45,7 +46,7 @@ function RouteOnContentConfigPanel({
   );
 
   const contentSourceHint = useMemo(
-    () => CONTENT_SOURCE_OPTIONS.find((option) => option.value === parsed.content_source)?.hint,
+    () => ROUTE_ON_CONTENT_SOURCE_OPTIONS.find((option) => option.value === parsed.content_source)?.hint,
     [parsed.content_source],
   );
   const matchModeHint = useMemo(
@@ -111,18 +112,11 @@ function RouteOnContentConfigPanel({
             string
           </Badge>
         </div>
-        <Select value={parsed.content_source} onValueChange={handleContentSourceChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CONTENT_SOURCE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ContentSourcePicker
+          value={parsed.content_source}
+          onChange={handleContentSourceChange}
+          options={ROUTE_ON_CONTENT_SOURCE_OPTIONS}
+        />
         {contentSourceHint ? (
           <p className="text-[11px] text-muted-foreground">{contentSourceHint}</p>
         ) : null}

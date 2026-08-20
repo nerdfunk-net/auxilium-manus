@@ -19,6 +19,8 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
+import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+
 import {
   countConfiguredFields,
   modeFromConfig,
@@ -27,7 +29,6 @@ import {
   parseGitConfig,
   resourceTypeFromConfig,
 } from "./set-default-attributes-config";
-import { GitSourceSelectDialog } from "./git-source-select-dialog";
 import { SetDefaultAttributesDialog } from "./set-default-attributes-dialog";
 import type { AttributesConfig, DefaultsMode, ResourceType } from "./types";
 import { RESOURCE_TYPE_OPTIONS } from "./types";
@@ -223,6 +224,9 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
         selectedSourceId={git.git_source_id}
         onClose={() => setSourceOpen(false)}
         onSave={handleGitSourceChange}
+        idPrefix="set-default-attributes-git-source"
+        description="A configured Git repository is required. Choose which saved source (from Settings → Sources) this step should read the defaults YAML file from. Only the source ID is stored on the step; URL and token are loaded from settings at runtime."
+        showReferenceHint={false}
       />
     </div>
   );
