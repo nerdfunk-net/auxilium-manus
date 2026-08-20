@@ -4,14 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import {
-  Download,
-  FileText,
-  Loader2,
-  Pencil,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -35,7 +28,6 @@ import { useWorkflowExportMutation } from "@/hooks/queries/use-workflow-export-m
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 import { queryKeys } from "@/lib/query-keys";
-import { cn } from "@/lib/utils";
 
 import { WorkflowFolderSidebar } from "../components/workflow-folder-sidebar";
 import type {
@@ -50,6 +42,7 @@ import {
   normalizeFolder,
 } from "../utils/workflow-folders";
 import { WorkflowImportDialog } from "./workflow-import-dialog";
+import { WorkflowManageFilters } from "./workflow-manage-filters";
 
 const editSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
@@ -193,6 +186,17 @@ export function WorkflowManageDialog({
     });
   }, [deletingWorkflowId, deleteWorkflow, editingWorkflow, reset]);
 
+  const handleDeleteRequest = useCallback(
+    (wf: WorkflowSummary) => {
+      setDeletingWorkflowId(wf.id);
+      if (editingWorkflow?.id === wf.id) {
+        setEditingWorkflow(null);
+        reset();
+      }
+    },
+    [editingWorkflow, reset],
+  );
+
   const selectedFolderLabel =
     selectedFolder === null
       ? "ALL"
@@ -218,62 +222,28 @@ export function WorkflowManageDialog({
               onSelectFolder={setSelectedFolder}
             />
 
-            {/* Right: list + edit panel */}
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {/* Workflow list */}
-              <div className="flex-1 overflow-y-auto p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Workflows in{" "}
-                  <span className="text-primary">{selectedFolderLabel}</span>
-                </p>
+              <WorkflowManageFilters
+                selectedFolderLabel={selectedFolderLabel}
+                isLoading={isLoading}
+                error={error}
+                filteredWorkflows={filteredWorkflows}
+                deletingWorkflowId={deletingWorkflowId}
+                editingWorkflowId={editingWorkflow?.id}
+                isDeletePending={deleteWorkflow.isPending}
+                isExportPending={exportWorkflow.isPending}
+                exportingWorkflowId={
+                  exportWorkflow.isPending
+                    ? (exportWorkflow.variables as number | undefined)
+                    : undefined
+                }
+                onDeleteConfirm={handleDeleteConfirm}
+                onDeleteCancel={() => setDeletingWorkflowId(null)}
+                onEdit={handleEditClick}
+                onExport={(wf) => exportWorkflow.mutate(wf.id)}
+                onDelete={handleDeleteRequest}
+              />
 
-                {isLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading…</p>
-                ) : error ? (
-                  <p className="text-sm text-destructive">
-                    Failed to load workflows.
-                  </p>
-                ) : filteredWorkflows.length === 0 ? (
-                  <p className="text-sm italic text-muted-foreground">
-                    No workflows in this folder.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {filteredWorkflows.map((wf) =>
-                      deletingWorkflowId === wf.id ? (
-                        <DeleteConfirmRow
-                          key={wf.id}
-                          name={wf.name}
-                          isDeleting={deleteWorkflow.isPending}
-                          onConfirm={handleDeleteConfirm}
-                          onCancel={() => setDeletingWorkflowId(null)}
-                        />
-                      ) : (
-                        <WorkflowRow
-                          key={wf.id}
-                          workflow={wf}
-                          isEditing={editingWorkflow?.id === wf.id}
-                          isExporting={
-                            exportWorkflow.isPending &&
-                            exportWorkflow.variables === wf.id
-                          }
-                          onEdit={() => handleEditClick(wf)}
-                          onExport={() => exportWorkflow.mutate(wf.id)}
-                          onDelete={() => {
-                            setDeletingWorkflowId(wf.id);
-                            if (editingWorkflow?.id === wf.id) {
-                              setEditingWorkflow(null);
-                              reset();
-                            }
-                          }}
-                        />
-                      ),
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Bottom: edit panel */}
               <div className="border-t bg-muted/20 p-4">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   General
@@ -390,7 +360,6 @@ export function WorkflowManageDialog({
             </div>
           </div>
 
-          {/* Footer */}
           <div className="flex items-center justify-between border-t px-6 py-4">
             <Button variant="outline" onClick={() => setIsImportOpen(true)}>
               <Upload className="mr-2 size-4" />
@@ -408,118 +377,5 @@ export function WorkflowManageDialog({
         onClose={() => setIsImportOpen(false)}
       />
     </>
-  );
-}
-
-interface WorkflowRowProps {
-  workflow: WorkflowSummary;
-  isEditing: boolean;
-  isExporting: boolean;
-  onEdit: () => void;
-  onExport: () => void;
-  onDelete: () => void;
-}
-
-function WorkflowRow({
-  workflow,
-  isEditing,
-  isExporting,
-  onEdit,
-  onExport,
-  onDelete,
-}: WorkflowRowProps) {
-  return (
-    <div
-      className={cn(
-        "flex items-center rounded-lg border p-4 transition-colors",
-        isEditing && "border-primary/40 bg-primary/5",
-      )}
-    >
-      <FileText className="mr-3 size-5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{workflow.name}</span>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-            {getFolderLabel(workflow.folder)}
-          </span>
-        </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {workflow.creator_username ?? "—"} ·{" "}
-          {new Date(workflow.updated_at).toLocaleDateString()}
-        </p>
-      </div>
-      <div className="ml-4 flex shrink-0 items-center gap-3">
-        <button
-          type="button"
-          aria-label="Export workflow"
-          className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-          onClick={onExport}
-          disabled={isExporting}
-        >
-          {isExporting ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Download className="size-4" />
-          )}
-        </button>
-        <button
-          type="button"
-          aria-label="Edit workflow"
-          className="text-muted-foreground transition-colors hover:text-foreground"
-          onClick={onEdit}
-        >
-          <Pencil className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Delete workflow"
-          className="text-muted-foreground transition-colors hover:text-destructive"
-          onClick={onDelete}
-        >
-          <Trash2 className="size-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-interface DeleteConfirmRowProps {
-  name: string;
-  isDeleting: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-function DeleteConfirmRow({
-  name,
-  isDeleting,
-  onConfirm,
-  onCancel,
-}: DeleteConfirmRowProps) {
-  return (
-    <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-      <p className="text-sm">
-        Delete <span className="font-medium">&ldquo;{name}&rdquo;</span>? This
-        cannot be undone.
-      </p>
-      <div className="ml-4 flex shrink-0 gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onCancel}
-          disabled={isDeleting}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          variant="destructive"
-          onClick={onConfirm}
-          disabled={isDeleting}
-        >
-          {isDeleting ? "Deleting…" : "Delete"}
-        </Button>
-      </div>
-    </div>
   );
 }

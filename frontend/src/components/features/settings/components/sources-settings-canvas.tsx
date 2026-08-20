@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
 import { FlaskConical, GitBranch, MessageSquare, Network, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -12,329 +11,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  usePullGitSourceMutation,
-  useRemoveAndCloneGitSourceMutation,
-} from "@/hooks/queries/use-git-source-operations-mutations";
-import { useISESourcesMutations } from "@/hooks/queries/use-ise-sources-mutations";
-import { useISESourcesQuery } from "@/hooks/queries/use-ise-sources-query";
-import { useMattermostSourcesMutations } from "@/hooks/queries/use-mattermost-sources-mutations";
-import { useMattermostSourcesQuery } from "@/hooks/queries/use-mattermost-sources-query";
-import { usePyATSSourcesMutations } from "@/hooks/queries/use-pyats-sources-mutations";
-import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
-import { useSettingsMutations } from "@/hooks/queries/use-settings-mutations";
-import { useSettingsListQuery } from "@/hooks/queries/use-settings-query";
 
-import {
-  SOURCES_KEY_PREFIX,
-  buildSourceSettingKey,
-} from "../constants/setting-keys";
+import { buildSourceSettingKey } from "../constants/setting-keys";
 import { GitSourceDialog } from "../dialogs/git-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
 import { MattermostSourceDialog } from "../dialogs/mattermost-source-dialog";
 import { NautobotSourceDialog } from "../dialogs/nautobot-source-dialog";
 import { PyATSSourceDialog } from "../dialogs/pyats-source-dialog";
-import type {
-  GitSourceConfig,
-  GitSourceValue,
-  ISESourceCreatePayload,
-  ISESourceUpdatePayload,
-  MattermostSourceCreatePayload,
-  MattermostSourceUpdatePayload,
-  NautobotSourceConfig,
-  NautobotSourceValue,
-  PyATSSourceCreatePayload,
-  PyATSSourceUpdatePayload,
-} from "../types/settings-api";
-import {
-  collectExistingSourceIds,
-  groupSourceSettings,
-} from "../utils/parse-source-settings";
+import { useSourcesSettings } from "../hooks/use-sources-settings";
 import { SourceListSection } from "./source-list-section";
 
-type DialogState =
-  | { type: "closed" }
-  | { type: "nautobot"; mode: "create" | "edit"; sourceId?: string }
-  | { type: "git"; mode: "create" | "edit"; sourceId?: string }
-  | { type: "ise"; mode: "create" | "edit"; sourceId?: string }
-  | { type: "pyats"; mode: "create" | "edit"; sourceId?: string }
-  | { type: "mattermost"; mode: "create" | "edit"; sourceId?: string }
-  | {
-      type: "delete";
-      sourceType: "nautobot" | "git" | "ise" | "pyats" | "mattermost";
-      sourceId: string;
-      key: string;
-    }
-  | { type: "remove-and-clone"; sourceId: string };
-
 export function SourcesSettingsCanvas() {
-  const [dialog, setDialog] = useState<DialogState>({ type: "closed" });
-  const { data, isLoading } = useSettingsListQuery({
-    keyPrefix: SOURCES_KEY_PREFIX,
-  });
-  const { upsertSetting, deleteSetting } = useSettingsMutations();
-  const pullGitSource = usePullGitSourceMutation();
-  const removeAndCloneGitSource = useRemoveAndCloneGitSourceMutation();
-
-  const { data: iseData, isLoading: isIseLoading } = useISESourcesQuery();
-  const {
-    createSource: createIseSource,
-    updateSource: updateIseSource,
-    deleteSource: deleteIseSource,
-  } = useISESourcesMutations();
-  const ise = useMemo(() => iseData?.sources ?? [], [iseData]);
-  const iseById = useMemo(
-    () => new Map(ise.map((item) => [item.source_id, item])),
-    [ise],
-  );
-  const existingIseIds = useMemo(() => ise.map((item) => item.source_id), [ise]);
-
-  const { data: pyatsData, isLoading: isPyatsLoading } = usePyATSSourcesQuery();
-  const {
-    createSource: createPyatsSource,
-    updateSource: updatePyatsSource,
-    deleteSource: deletePyatsSource,
-  } = usePyATSSourcesMutations();
-  const pyats = useMemo(() => pyatsData?.sources ?? [], [pyatsData]);
-  const pyatsById = useMemo(
-    () => new Map(pyats.map((item) => [item.source_id, item])),
-    [pyats],
-  );
-  const existingPyatsIds = useMemo(
-    () => pyats.map((item) => item.source_id),
-    [pyats],
-  );
-
-  const { data: mattermostData, isLoading: isMattermostLoading } =
-    useMattermostSourcesQuery();
-  const {
-    createSource: createMattermostSource,
-    updateSource: updateMattermostSource,
-    deleteSource: deleteMattermostSource,
-  } = useMattermostSourcesMutations();
-  const mattermost = useMemo(
-    () => mattermostData?.sources ?? [],
-    [mattermostData],
-  );
-  const mattermostById = useMemo(
-    () => new Map(mattermost.map((item) => [item.source_id, item])),
-    [mattermost],
-  );
-  const existingMattermostIds = useMemo(
-    () => mattermost.map((item) => item.source_id),
-    [mattermost],
-  );
-
-  const { nautobot, git } = useMemo(
-    () => groupSourceSettings(data?.settings ?? []),
-    [data?.settings],
-  );
-
-  const nautobotById = useMemo(
-    () => new Map(nautobot.map((item) => [item.sourceId, item])),
-    [nautobot],
-  );
-  const gitById = useMemo(
-    () => new Map(git.map((item) => [item.sourceId, item])),
-    [git],
-  );
-
-  const existingNautobotIds = useMemo(
-    () => collectExistingSourceIds(data?.settings ?? [], "nautobot"),
-    [data?.settings],
-  );
-  const existingGitIds = useMemo(
-    () => collectExistingSourceIds(data?.settings ?? [], "git"),
-    [data?.settings],
-  );
-
-  const saveNautobot = useCallback(
-    async (values: NautobotSourceValue, settingKey: string, token?: string) => {
-      const exists = nautobotById.has(values.sourceId);
-      const value: Record<string, unknown> = {
-        url: values.url,
-        verify_ssl: values.verifySsl,
-      };
-      if (token) {
-        value.token = token;
-      }
-      await upsertSetting.mutateAsync({
-        key: settingKey,
-        value,
-        description: `Nautobot source ${values.sourceId}`,
-        exists,
-      });
-      setDialog({ type: "closed" });
-    },
-    [nautobotById, upsertSetting],
-  );
-
-  const saveGit = useCallback(
-    async (values: GitSourceValue, settingKey: string, token?: string) => {
-      const exists = gitById.has(values.sourceId);
-      const value: Record<string, unknown> = {
-        url: values.url,
-        branch: values.branch,
-        username: values.username,
-        repository_path: values.repository_path,
-        verify_ssl: values.verifySsl,
-      };
-      if (token) {
-        value.token = token;
-      }
-      await upsertSetting.mutateAsync({
-        key: settingKey,
-        value,
-        description: `Git source ${values.sourceId}`,
-        exists,
-      });
-      setDialog({ type: "closed" });
-    },
-    [gitById, upsertSetting],
-  );
-
-  const saveIse = useCallback(
-    async (values: ISESourceCreatePayload) => {
-      await createIseSource.mutateAsync(values);
-      setDialog({ type: "closed" });
-    },
-    [createIseSource],
-  );
-
-  const updateIse = useCallback(
-    async (sourceId: string, values: ISESourceUpdatePayload) => {
-      await updateIseSource.mutateAsync({ sourceId, data: values });
-      setDialog({ type: "closed" });
-    },
-    [updateIseSource],
-  );
-
-  const savePyats = useCallback(
-    async (values: PyATSSourceCreatePayload) => {
-      await createPyatsSource.mutateAsync(values);
-      setDialog({ type: "closed" });
-    },
-    [createPyatsSource],
-  );
-
-  const updatePyats = useCallback(
-    async (sourceId: string, values: PyATSSourceUpdatePayload) => {
-      await updatePyatsSource.mutateAsync({ sourceId, data: values });
-      setDialog({ type: "closed" });
-    },
-    [updatePyatsSource],
-  );
-
-  const saveMattermost = useCallback(
-    async (values: MattermostSourceCreatePayload) => {
-      await createMattermostSource.mutateAsync(values);
-      setDialog({ type: "closed" });
-    },
-    [createMattermostSource],
-  );
-
-  const updateMattermost = useCallback(
-    async (sourceId: string, values: MattermostSourceUpdatePayload) => {
-      await updateMattermostSource.mutateAsync({ sourceId, data: values });
-      setDialog({ type: "closed" });
-    },
-    [updateMattermostSource],
-  );
-
-  const confirmDelete = useCallback(async () => {
-    if (dialog.type !== "delete") {
-      return;
-    }
-    if (dialog.sourceType === "ise") {
-      await deleteIseSource.mutateAsync(dialog.sourceId);
-    } else if (dialog.sourceType === "pyats") {
-      await deletePyatsSource.mutateAsync(dialog.sourceId);
-    } else if (dialog.sourceType === "mattermost") {
-      await deleteMattermostSource.mutateAsync(dialog.sourceId);
-    } else {
-      await deleteSetting.mutateAsync(dialog.key);
-    }
-    setDialog({ type: "closed" });
-  }, [dialog, deleteSetting, deleteIseSource, deletePyatsSource, deleteMattermostSource]);
-
-  const handlePullGit = useCallback(
-    async (sourceId: string) => {
-      await pullGitSource.mutateAsync(sourceId);
-    },
-    [pullGitSource],
-  );
-
-  const confirmRemoveAndClone = useCallback(async () => {
-    if (dialog.type !== "remove-and-clone") {
-      return;
-    }
-    await removeAndCloneGitSource.mutateAsync(dialog.sourceId);
-    setDialog({ type: "closed" });
-  }, [dialog, removeAndCloneGitSource]);
-
-  const nautobotDialogOpen =
-    dialog.type === "nautobot" ? dialog : null;
-  const gitDialogOpen = dialog.type === "git" ? dialog : null;
-  const iseDialogOpen = dialog.type === "ise" ? dialog : null;
-  const pyatsDialogOpen = dialog.type === "pyats" ? dialog : null;
-  const mattermostDialogOpen = dialog.type === "mattermost" ? dialog : null;
-  const deleteDialogOpen = dialog.type === "delete" ? dialog : null;
-  const removeAndCloneDialogOpen =
-    dialog.type === "remove-and-clone" ? dialog : null;
-
-  const editingNautobot: NautobotSourceConfig | null =
-    nautobotDialogOpen?.mode === "edit" && nautobotDialogOpen.sourceId
-      ? (nautobotById.get(nautobotDialogOpen.sourceId) ?? null)
-      : null;
-  const editingGit: GitSourceConfig | null =
-    gitDialogOpen?.mode === "edit" && gitDialogOpen.sourceId
-      ? (gitById.get(gitDialogOpen.sourceId) ?? null)
-      : null;
-  const editingIse =
-    iseDialogOpen?.mode === "edit" && iseDialogOpen.sourceId
-      ? (iseById.get(iseDialogOpen.sourceId) ?? null)
-      : null;
-  const editingIseValue = editingIse
-    ? {
-        sourceId: editingIse.source_id,
-        url: editingIse.url,
-        verifySsl: editingIse.verify_ssl,
-        timeout: editingIse.timeout,
-      }
-    : null;
-  const editingPyats =
-    pyatsDialogOpen?.mode === "edit" && pyatsDialogOpen.sourceId
-      ? (pyatsById.get(pyatsDialogOpen.sourceId) ?? null)
-      : null;
-  const editingPyatsValue = editingPyats
-    ? {
-        sourceId: editingPyats.source_id,
-        url: editingPyats.url,
-        verifySsl: editingPyats.verify_ssl,
-        timeout: editingPyats.timeout,
-      }
-    : null;
-  const editingMattermost =
-    mattermostDialogOpen?.mode === "edit" && mattermostDialogOpen.sourceId
-      ? (mattermostById.get(mattermostDialogOpen.sourceId) ?? null)
-      : null;
-  const editingMattermostValue = editingMattermost
-    ? {
-        sourceId: editingMattermost.source_id,
-        url: editingMattermost.url,
-        verifySsl: editingMattermost.verify_ssl,
-        timeout: editingMattermost.timeout,
-      }
-    : null;
-
-  const isDeletePending =
-    deleteDialogOpen?.sourceType === "ise"
-      ? deleteIseSource.isPending
-      : deleteDialogOpen?.sourceType === "pyats"
-        ? deletePyatsSource.isPending
-        : deleteDialogOpen?.sourceType === "mattermost"
-          ? deleteMattermostSource.isPending
-          : deleteSetting.isPending;
+  const sources = useSourcesSettings();
 
   return (
     <>
@@ -378,22 +66,22 @@ export function SourcesSettingsCanvas() {
               title="Nautobot"
               description="Inventory and device API connections"
               icon={Network}
-              isLoading={isLoading}
+              isLoading={sources.isLoading}
               emptyLabel="No Nautobot sources yet."
               addLabel="Add Nautobot"
-              items={nautobot.map((item) => ({
+              items={sources.nautobot.map((item) => ({
                 sourceId: item.sourceId,
                 summary: item.url,
                 detail: item.verifySsl ? undefined : "TLS verification disabled",
               }))}
               onAdd={() =>
-                setDialog({ type: "nautobot", mode: "create" })
+                sources.setDialog({ type: "nautobot", mode: "create" })
               }
               onEdit={(sourceId) =>
-                setDialog({ type: "nautobot", mode: "edit", sourceId })
+                sources.setDialog({ type: "nautobot", mode: "edit", sourceId })
               }
               onDelete={(sourceId) =>
-                setDialog({
+                sources.setDialog({
                   type: "delete",
                   sourceType: "nautobot",
                   sourceId,
@@ -406,31 +94,31 @@ export function SourcesSettingsCanvas() {
               title="Git repositories"
               description="Version-controlled configuration repositories"
               icon={GitBranch}
-              isLoading={isLoading}
+              isLoading={sources.isLoading}
               emptyLabel="No Git repositories yet."
               addLabel="Add Git"
-              items={git.map((item) => ({
+              items={sources.git.map((item) => ({
                 sourceId: item.sourceId,
                 summary: item.url,
                 detail: item.verifySsl
                   ? `branch: ${item.branch}`
                   : `branch: ${item.branch} · TLS verification disabled`,
               }))}
-              onAdd={() => setDialog({ type: "git", mode: "create" })}
+              onAdd={() => sources.setDialog({ type: "git", mode: "create" })}
               onEdit={(sourceId) =>
-                setDialog({ type: "git", mode: "edit", sourceId })
+                sources.setDialog({ type: "git", mode: "edit", sourceId })
               }
               onDelete={(sourceId) =>
-                setDialog({
+                sources.setDialog({
                   type: "delete",
                   sourceType: "git",
                   sourceId,
                   key: buildSourceSettingKey("git", sourceId),
                 })
               }
-              onPull={handlePullGit}
+              onPull={sources.handlePullGit}
               onRemoveAndClone={(sourceId) =>
-                setDialog({ type: "remove-and-clone", sourceId })
+                sources.setDialog({ type: "remove-and-clone", sourceId })
               }
             />
 
@@ -438,20 +126,20 @@ export function SourcesSettingsCanvas() {
               title="Cisco ISE"
               description="Identity Services Engine network device management"
               icon={ShieldCheck}
-              isLoading={isIseLoading}
+              isLoading={sources.isIseLoading}
               emptyLabel="No Cisco ISE sources yet."
               addLabel="Add Cisco ISE"
-              items={ise.map((item) => ({
+              items={sources.ise.map((item) => ({
                 sourceId: item.source_id,
                 summary: item.url,
                 detail: item.verify_ssl ? undefined : "TLS verification disabled",
               }))}
-              onAdd={() => setDialog({ type: "ise", mode: "create" })}
+              onAdd={() => sources.setDialog({ type: "ise", mode: "create" })}
               onEdit={(sourceId) =>
-                setDialog({ type: "ise", mode: "edit", sourceId })
+                sources.setDialog({ type: "ise", mode: "edit", sourceId })
               }
               onDelete={(sourceId) =>
-                setDialog({
+                sources.setDialog({
                   type: "delete",
                   sourceType: "ise",
                   sourceId,
@@ -464,20 +152,20 @@ export function SourcesSettingsCanvas() {
               title="pyATS"
               description="Cisco pyATS/Genie shim for network testing steps"
               icon={FlaskConical}
-              isLoading={isPyatsLoading}
+              isLoading={sources.isPyatsLoading}
               emptyLabel="No pyATS sources yet."
               addLabel="Add pyATS"
-              items={pyats.map((item) => ({
+              items={sources.pyats.map((item) => ({
                 sourceId: item.source_id,
                 summary: item.url,
                 detail: item.verify_ssl ? undefined : "TLS verification disabled",
               }))}
-              onAdd={() => setDialog({ type: "pyats", mode: "create" })}
+              onAdd={() => sources.setDialog({ type: "pyats", mode: "create" })}
               onEdit={(sourceId) =>
-                setDialog({ type: "pyats", mode: "edit", sourceId })
+                sources.setDialog({ type: "pyats", mode: "edit", sourceId })
               }
               onDelete={(sourceId) =>
-                setDialog({
+                sources.setDialog({
                   type: "delete",
                   sourceType: "pyats",
                   sourceId,
@@ -490,20 +178,20 @@ export function SourcesSettingsCanvas() {
               title="Mattermost"
               description="Chat notifications for workflow runs"
               icon={MessageSquare}
-              isLoading={isMattermostLoading}
+              isLoading={sources.isMattermostLoading}
               emptyLabel="No Mattermost sources yet."
               addLabel="Add Mattermost"
-              items={mattermost.map((item) => ({
+              items={sources.mattermost.map((item) => ({
                 sourceId: item.source_id,
                 summary: item.url,
                 detail: item.verify_ssl ? undefined : "TLS verification disabled",
               }))}
-              onAdd={() => setDialog({ type: "mattermost", mode: "create" })}
+              onAdd={() => sources.setDialog({ type: "mattermost", mode: "create" })}
               onEdit={(sourceId) =>
-                setDialog({ type: "mattermost", mode: "edit", sourceId })
+                sources.setDialog({ type: "mattermost", mode: "edit", sourceId })
               }
               onDelete={(sourceId) =>
-                setDialog({
+                sources.setDialog({
                   type: "delete",
                   sourceType: "mattermost",
                   sourceId,
@@ -516,68 +204,70 @@ export function SourcesSettingsCanvas() {
       </div>
 
       <NautobotSourceDialog
-        open={nautobotDialogOpen !== null}
-        mode={nautobotDialogOpen?.mode ?? "create"}
-        initialValue={editingNautobot}
-        existingSourceIds={existingNautobotIds}
-        isSaving={upsertSetting.isPending}
-        onClose={() => setDialog({ type: "closed" })}
-        onSave={saveNautobot}
+        open={sources.nautobotDialogOpen !== null}
+        mode={sources.nautobotDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingNautobot}
+        existingSourceIds={sources.existingNautobotIds}
+        isSaving={sources.upsertSettingIsPending}
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onSave={sources.saveNautobot}
       />
 
       <GitSourceDialog
-        open={gitDialogOpen !== null}
-        mode={gitDialogOpen?.mode ?? "create"}
-        initialValue={editingGit}
-        existingSourceIds={existingGitIds}
-        isSaving={upsertSetting.isPending}
-        onClose={() => setDialog({ type: "closed" })}
-        onSave={saveGit}
+        open={sources.gitDialogOpen !== null}
+        mode={sources.gitDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingGit}
+        existingSourceIds={sources.existingGitIds}
+        isSaving={sources.upsertSettingIsPending}
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onSave={sources.saveGit}
       />
 
       <ISESourceDialog
-        open={iseDialogOpen !== null}
-        mode={iseDialogOpen?.mode ?? "create"}
-        initialValue={editingIseValue}
-        existingSourceIds={existingIseIds}
-        isSaving={createIseSource.isPending || updateIseSource.isPending}
-        onClose={() => setDialog({ type: "closed" })}
-        onCreate={saveIse}
-        onUpdate={updateIse}
+        open={sources.iseDialogOpen !== null}
+        mode={sources.iseDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingIseValue}
+        existingSourceIds={sources.existingIseIds}
+        isSaving={sources.createIseSourceIsPending || sources.updateIseSourceIsPending}
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onCreate={sources.saveIse}
+        onUpdate={sources.updateIse}
       />
 
       <PyATSSourceDialog
-        open={pyatsDialogOpen !== null}
-        mode={pyatsDialogOpen?.mode ?? "create"}
-        initialValue={editingPyatsValue}
-        existingSourceIds={existingPyatsIds}
-        isSaving={createPyatsSource.isPending || updatePyatsSource.isPending}
-        onClose={() => setDialog({ type: "closed" })}
-        onCreate={savePyats}
-        onUpdate={updatePyats}
+        open={sources.pyatsDialogOpen !== null}
+        mode={sources.pyatsDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingPyatsValue}
+        existingSourceIds={sources.existingPyatsIds}
+        isSaving={sources.createPyatsSourceIsPending || sources.updatePyatsSourceIsPending}
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onCreate={sources.savePyats}
+        onUpdate={sources.updatePyats}
       />
 
       <MattermostSourceDialog
-        open={mattermostDialogOpen !== null}
-        mode={mattermostDialogOpen?.mode ?? "create"}
-        initialValue={editingMattermostValue}
-        existingSourceIds={existingMattermostIds}
-        isSaving={createMattermostSource.isPending || updateMattermostSource.isPending}
-        onClose={() => setDialog({ type: "closed" })}
-        onCreate={saveMattermost}
-        onUpdate={updateMattermost}
+        open={sources.mattermostDialogOpen !== null}
+        mode={sources.mattermostDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingMattermostValue}
+        existingSourceIds={sources.existingMattermostIds}
+        isSaving={
+          sources.createMattermostSourceIsPending || sources.updateMattermostSourceIsPending
+        }
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onCreate={sources.saveMattermost}
+        onUpdate={sources.updateMattermost}
       />
 
       <Dialog
-        open={removeAndCloneDialogOpen !== null}
-        onOpenChange={(open: boolean) => !open && setDialog({ type: "closed" })}
+        open={sources.removeAndCloneDialogOpen !== null}
+        onOpenChange={(open: boolean) => !open && sources.setDialog({ type: "closed" })}
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Remove and re-clone?</DialogTitle>
             <DialogDescription>
-              {removeAndCloneDialogOpen
-                ? `This will delete the local copy of "${removeAndCloneDialogOpen.sourceId}" and clone it fresh from the remote. Any uncommitted local changes will be lost.`
+              {sources.removeAndCloneDialogOpen
+                ? `This will delete the local copy of "${sources.removeAndCloneDialogOpen.sourceId}" and clone it fresh from the remote. Any uncommitted local changes will be lost.`
                 : null}
             </DialogDescription>
           </DialogHeader>
@@ -585,32 +275,32 @@ export function SourcesSettingsCanvas() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDialog({ type: "closed" })}
+              onClick={() => sources.setDialog({ type: "closed" })}
             >
               Cancel
             </Button>
             <Button
-              disabled={removeAndCloneGitSource.isPending}
+              disabled={sources.removeAndCloneGitSourceIsPending}
               type="button"
               variant="destructive"
-              onClick={confirmRemoveAndClone}
+              onClick={sources.confirmRemoveAndClone}
             >
-              {removeAndCloneGitSource.isPending ? "Cloning…" : "Remove and Clone"}
+              {sources.removeAndCloneGitSourceIsPending ? "Cloning…" : "Remove and Clone"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog
-        open={deleteDialogOpen !== null}
-        onOpenChange={(open: boolean) => !open && setDialog({ type: "closed" })}
+        open={sources.deleteDialogOpen !== null}
+        onOpenChange={(open: boolean) => !open && sources.setDialog({ type: "closed" })}
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete source?</DialogTitle>
             <DialogDescription>
-              {deleteDialogOpen
-                ? `Remove ${deleteDialogOpen.sourceType} source "${deleteDialogOpen.sourceId}"? Workflow steps referencing this ID will need to be updated.`
+              {sources.deleteDialogOpen
+                ? `Remove ${sources.deleteDialogOpen.sourceType} source "${sources.deleteDialogOpen.sourceId}"? Workflow steps referencing this ID will need to be updated.`
                 : null}
             </DialogDescription>
           </DialogHeader>
@@ -618,17 +308,17 @@ export function SourcesSettingsCanvas() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDialog({ type: "closed" })}
+              onClick={() => sources.setDialog({ type: "closed" })}
             >
               Cancel
             </Button>
             <Button
-              disabled={isDeletePending}
+              disabled={sources.isDeletePending}
               type="button"
               variant="destructive"
-              onClick={confirmDelete}
+              onClick={sources.confirmDelete}
             >
-              {isDeletePending ? "Deleting…" : "Delete"}
+              {sources.isDeletePending ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

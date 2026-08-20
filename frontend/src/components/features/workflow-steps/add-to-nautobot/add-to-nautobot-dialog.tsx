@@ -1,9 +1,7 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,13 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 import {
@@ -30,8 +21,14 @@ import {
   interfacesSourceFromConfig,
   parseDeviceFieldsConfig,
   patchDeviceFieldSpec,
-  requiredFieldSpec,
 } from "./add-to-nautobot-config";
+import { CustomFieldsSection } from "./custom-fields-section";
+import {
+  OptionalDeviceFieldsSection,
+  RackFieldsSection,
+  RequiredDeviceFieldsSection,
+} from "./device-fields-section";
+import { InterfacesSection } from "./interfaces-section";
 import type {
   AddToNautobotConfig,
   CustomFieldRow,
@@ -43,12 +40,8 @@ import type {
   UpdateFieldSpec,
   VirtualChassisConfig,
 } from "./types";
-import {
-  DEVICE_FIELD_VALUE_HELP,
-  OPTIONAL_DEVICE_FIELD_DEFINITIONS,
-  RACK_FIELD_DEFINITIONS,
-  REQUIRED_DEVICE_FIELD_DEFINITIONS,
-} from "./types";
+import { OPTIONAL_DEVICE_FIELD_DEFINITIONS } from "./types";
+import { VirtualChassisSection } from "./virtual-chassis-section";
 
 interface AddToNautobotDialogProps {
   open: boolean;
@@ -58,7 +51,6 @@ interface AddToNautobotDialogProps {
 }
 
 const EMPTY_INTERFACES: InterfaceCreateConfig[] = [];
-const EMPTY_FIELD_SPEC: UpdateFieldSpec = { enabled: false, value: "" };
 const DEFAULT_VIRTUAL_CHASSIS: VirtualChassisConfig = { mode: "none", id: "", name: "" };
 
 function newInterfaceRow(): InterfaceCreateConfig {
@@ -82,71 +74,6 @@ function withInterfaceIds(
     description: item.description,
     is_primary_ipv4: item.is_primary_ipv4,
   }));
-}
-
-function RequiredFieldRow({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const isEmpty = !value.trim();
-  return (
-    <div
-      className={`space-y-1 rounded-lg border p-2.5 ${
-        isEmpty ? "border-warning-border bg-warning" : "border-border bg-muted"
-      }`}
-    >
-      <Label className="text-[11px] font-medium text-muted-foreground">
-        {label} <span className="text-warning-foreground">*</span>
-      </Label>
-      <Input
-        className="h-8 text-xs focus-visible:ring-step/40"
-        placeholder={placeholder}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </div>
-  );
-}
-
-function OptionalFieldRow({
-  label,
-  placeholder,
-  spec,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  spec: UpdateFieldSpec;
-  onChange: (patch: Partial<UpdateFieldSpec>) => void;
-}) {
-  return (
-    <div className="space-y-1 rounded-lg border border-border bg-muted p-2.5">
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={spec.enabled}
-          onChange={(event) => onChange({ enabled: event.target.checked })}
-          className="size-4 rounded border accent-step"
-          aria-label={`Enable ${label}`}
-        />
-        <Label className="text-[11px] font-medium text-muted-foreground">{label}</Label>
-      </div>
-      <Input
-        className="h-8 text-xs focus-visible:ring-step/40 disabled:opacity-50"
-        disabled={!spec.enabled}
-        placeholder={placeholder}
-        value={spec.value}
-        onChange={(event) => onChange({ value: event.target.value })}
-      />
-    </div>
-  );
 }
 
 function interfaceForSave({ id, ...rest }: InterfaceCreateConfig) {
@@ -285,290 +212,36 @@ function AddToNautobotDialogForm({
       </DialogHeader>
 
       <div className="space-y-4 overflow-y-auto bg-muted p-4">
-        <section className="space-y-2 rounded-xl border border-border bg-card p-3 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs font-medium">device_fields</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              required
-            </Badge>
-          </div>
-          <p className="text-[11px] leading-4 text-muted-foreground">{DEVICE_FIELD_VALUE_HELP}</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {REQUIRED_DEVICE_FIELD_DEFINITIONS.map(({ key, label, placeholder }) => (
-              <RequiredFieldRow
-                key={key}
-                label={label}
-                placeholder={placeholder}
-                value={requiredFieldSpec(deviceFields, key).value}
-                onChange={(text) => patchRequiredField(key, text)}
-              />
-            ))}
-          </div>
-        </section>
+        <RequiredDeviceFieldsSection
+          deviceFields={deviceFields}
+          onPatchRequiredField={patchRequiredField}
+        />
 
-        <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs font-medium">device_fields</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              optional
-            </Badge>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {OPTIONAL_DEVICE_FIELD_DEFINITIONS.map(({ key, label, placeholder }) => (
-              <OptionalFieldRow
-                key={key}
-                label={label}
-                placeholder={placeholder}
-                spec={deviceFields[key] ?? EMPTY_FIELD_SPEC}
-                onChange={(patch) => patchOptionalField(key, patch)}
-              />
-            ))}
-          </div>
+        <OptionalDeviceFieldsSection
+          deviceFields={deviceFields}
+          enabledOptionalCount={enabledOptionalCount}
+          onPatchOptionalField={patchOptionalField}
+        >
+          <CustomFieldsSection
+            customFieldRows={customFieldRows}
+            customFieldsSource={customFieldsSource}
+            onAddRow={addCustomFieldRow}
+            onPatchRow={patchCustomFieldRow}
+            onRemoveRow={removeCustomFieldRow}
+            onSourceChange={setCustomFieldsSource}
+          />
+        </OptionalDeviceFieldsSection>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-xs font-medium">custom_fields</span>
-              {customFieldsSource === "manual" ? (
-                <Button
-                  className="h-7 bg-step text-step-foreground hover:bg-step-hover"
-                  size="sm"
-                  type="button"
-                  onClick={addCustomFieldRow}
-                >
-                  <Plus className="mr-1 size-3.5" />
-                  Add
-                </Button>
-              ) : null}
-            </div>
-            <Select
-              value={customFieldsSource}
-              onValueChange={(source) => setCustomFieldsSource(source as CustomFieldsSource)}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="manual">Manual — rows below</SelectItem>
-                <SelectItem value="nautobot_origin">All from Nautobot origin</SelectItem>
-              </SelectContent>
-            </Select>
+        <RackFieldsSection deviceFields={deviceFields} onPatchOptionalField={patchOptionalField} />
 
-            {customFieldsSource === "nautobot_origin" ? (
-              <p className="text-[11px] text-muted-foreground">
-                Every custom field present in the device&apos;s nautobot attribute bag is sent
-                as-is — however many there are, whatever they&apos;re named. The rows below are
-                ignored while this is selected.
-              </p>
-            ) : customFieldRows.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">No custom fields configured.</p>
-            ) : (
-              <div className="space-y-2">
-                {customFieldRows.map((row) => (
-                  <div
-                    className="space-y-2 rounded-lg border border-border bg-muted p-2.5"
-                    key={row.id}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={row.enabled}
-                          onChange={(event) =>
-                            patchCustomFieldRow(row.id, { enabled: event.target.checked })
-                          }
-                          className="size-4 rounded border accent-step"
-                          aria-label={`Enable custom field ${row.name || "row"}`}
-                        />
-                        <span className="text-xs font-medium text-step-muted-foreground">Custom field</span>
-                      </div>
-                      <Button
-                        className="h-7 px-2 text-destructive hover:text-destructive"
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                        onClick={() => removeCustomFieldRow(row.id)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <Input
-                        className="h-8 text-xs disabled:opacity-50"
-                        disabled={!row.enabled}
-                        placeholder="field_name"
-                        value={row.name}
-                        onChange={(event) =>
-                          patchCustomFieldRow(row.id, { name: event.target.value })
-                        }
-                      />
-                      <Input
-                        className="h-8 text-xs disabled:opacity-50"
-                        disabled={!row.enabled}
-                        placeholder="{custom.site | default('N/A')}"
-                        value={row.value}
-                        onChange={(event) =>
-                          patchCustomFieldRow(row.id, { value: event.target.value })
-                        }
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <p className="text-[11px] text-muted-foreground">
-            {enabledOptionalCount} optional field{enabledOptionalCount === 1 ? "" : "s"} enabled.
-          </p>
-        </section>
-
-        <section className="space-y-2 rounded-xl border border-border bg-card p-3 shadow-sm">
-          <span className="font-mono text-xs font-medium">rack</span>
-          <p className="text-[11px] text-muted-foreground">
-            Optional — leave rack empty to skip placement entirely.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {RACK_FIELD_DEFINITIONS.map(({ key, label, placeholder }) => (
-              <OptionalFieldRow
-                key={key}
-                label={label}
-                placeholder={placeholder}
-                spec={deviceFields[key] ?? EMPTY_FIELD_SPEC}
-                onChange={(patch) => patchOptionalField(key, patch)}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-medium">interfaces</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                object_list
-              </Badge>
-            </div>
-            {interfacesSource === "manual" ? (
-              <Button
-                className="h-7 bg-step text-step-foreground hover:bg-step-hover"
-                size="sm"
-                type="button"
-                onClick={addInterface}
-              >
-                <Plus className="mr-1 size-3.5" />
-                Add
-              </Button>
-            ) : null}
-          </div>
-
-          <Select
-            value={interfacesSource}
-            onValueChange={(source) => setInterfacesSource(source as InterfacesSource)}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="manual">Manual — rows below</SelectItem>
-              <SelectItem value="nautobot_origin">All from Nautobot origin</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {interfacesSource === "nautobot_origin" ? (
-            <p className="text-[11px] text-muted-foreground">
-              Every interface present in the device&apos;s nautobot attribute bag is created —
-              however many there are, each with however many IP addresses it has. The rows below
-              are ignored while this is selected.
-            </p>
-          ) : interfaces.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">No interfaces configured.</p>
-          ) : (
-            <div className="space-y-3">
-              {interfaces.map((iface) => {
-                const rowId = iface.id ?? iface.name;
-                return (
-                  <div
-                    className="space-y-2 rounded-lg border border-border bg-muted p-3"
-                    key={rowId}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-step-muted-foreground">Interface</span>
-                      <Button
-                        className="h-7 px-2 text-destructive hover:text-destructive"
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                        onClick={() => removeInterface(rowId)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">Name</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          value={iface.name}
-                          onChange={(event) => patchInterface(rowId, { name: event.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">Type</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          placeholder="1000base-t"
-                          value={iface.type ?? ""}
-                          onChange={(event) => patchInterface(rowId, { type: event.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">Status</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          placeholder="active"
-                          value={iface.status ?? ""}
-                          onChange={(event) =>
-                            patchInterface(rowId, { status: event.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">IP address</Label>
-                        <Input
-                          className="h-8 font-mono text-xs"
-                          placeholder="10.0.0.1/24"
-                          value={iface.ip_address ?? ""}
-                          onChange={(event) =>
-                            patchInterface(rowId, { ip_address: event.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1 sm:col-span-2">
-                        <Label className="text-[11px] text-muted-foreground">Description</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          value={iface.description ?? ""}
-                          onChange={(event) =>
-                            patchInterface(rowId, { description: event.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label className="text-[11px] text-muted-foreground">Primary IPv4</Label>
-                      <Switch
-                        checked={iface.is_primary_ipv4 ?? false}
-                        onCheckedChange={(checked) =>
-                          patchInterface(rowId, { is_primary_ipv4: checked })
-                        }
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+        <InterfacesSection
+          interfaces={interfaces}
+          interfacesSource={interfacesSource}
+          onAddInterface={addInterface}
+          onPatchInterface={patchInterface}
+          onRemoveInterface={removeInterface}
+          onSourceChange={setInterfacesSource}
+        />
 
         <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center justify-between">
@@ -592,51 +265,7 @@ function AddToNautobotDialogForm({
           </div>
         </section>
 
-        <section className="space-y-2 border-t pt-3">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-xs font-medium">virtual_chassis</span>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Optionally join or create a virtual chassis for this device.
-          </p>
-          <Select
-            value={virtualChassis.mode}
-            onValueChange={(mode) => patchVirtualChassis({ mode: mode as VirtualChassisConfig["mode"] })}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              <SelectItem value="join">Join existing virtual chassis</SelectItem>
-              <SelectItem value="create">Create new virtual chassis (device = master)</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {virtualChassis.mode === "join" ? (
-            <div className="space-y-1 pl-1">
-              <Label className="text-[11px] text-muted-foreground">Virtual chassis UUID</Label>
-              <Input
-                className="h-8 font-mono text-xs"
-                placeholder="550e8400-e29b-41d4-a716-446655440000"
-                value={virtualChassis.id ?? ""}
-                onChange={(event) => patchVirtualChassis({ id: event.target.value })}
-              />
-            </div>
-          ) : null}
-
-          {virtualChassis.mode === "create" ? (
-            <div className="space-y-1 pl-1">
-              <Label className="text-[11px] text-muted-foreground">New virtual chassis name</Label>
-              <Input
-                className="h-8 text-xs"
-                placeholder="stack-1"
-                value={virtualChassis.name ?? ""}
-                onChange={(event) => patchVirtualChassis({ name: event.target.value })}
-              />
-            </div>
-          ) : null}
-        </section>
+        <VirtualChassisSection virtualChassis={virtualChassis} onPatch={patchVirtualChassis} />
 
         <section className="space-y-2 border-t pt-3">
           <div className="flex items-center justify-between">

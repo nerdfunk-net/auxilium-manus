@@ -8,77 +8,27 @@ import {
   EMPTY_WORKFLOW_NODES,
 } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
-import { ContentSourcePicker } from "@/components/features/workflow-steps/shared/content-source-picker";
-import {
-  CONTENT_SOURCE_OPTIONS,
-  type ContentSource,
-} from "@/components/features/workflow-steps/shared/content-source-options";
+import { type ContentSource } from "@/components/features/workflow-steps/shared/content-source-options";
+import { FILENAME_PLACEHOLDERS } from "@/components/features/workflow-steps/shared/filename-placeholders";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
 
+import {
+  COMPARE_DATA_SOURCE_OPTIONS,
+  CompareDataContentFields,
+  VALID_COMPARE_SOURCES,
+} from "./content-fields";
 import { CompareDataHelpPanel } from "./help-panel";
-
-const VALID_COMPARE_SOURCES = new Set([
-  "running_config",
-  "startup_config",
-  "command_output",
-  "latest_command_output",
-  "rendered_template",
-  "merged_content",
-  "filtered_output",
-  "pyats_snapshot",
-]);
-
-// compare-data can't reference "comparison_diff" (itself) or "updated_content"
-// (not an available upstream source for a comparison) — filtered from the
-// shared master list rather than duplicating it with a smaller hand-picked set.
-const COMPARE_DATA_SOURCE_OPTIONS = CONTENT_SOURCE_OPTIONS.filter(
-  (option) => option.value === "upstream_output" || VALID_COMPARE_SOURCES.has(option.value),
-);
-
-type ReferenceLocation = "filesystem" | "git";
-
-const REFERENCE_LOCATION_OPTIONS = [
-  {
-    value: "filesystem",
-    label: "Filesystem",
-    hint: "Read from DATA_DIRECTORY/references/ (or reference_subdirectory).",
-  },
-  {
-    value: "git",
-    label: "Git repository",
-    hint: "Read from a git source configured under Settings → Sources.",
-  },
-] as const;
-
-const FILENAME_PLACEHOLDERS = [
-  "{device.name}",
-  "{device.hostname}",
-  "{device.primary_ip4}",
-  "{nautobot.location.name}",
-  "{nautobot.role.name}",
-  "{git.source_file}",
-  "{command.name}",
-  "{parsed.output_key}",
-  "{run.timestamp}",
-  "{run.date}",
-  "{run.id}",
-];
+import {
+  CompareDataReferenceFields,
+  type ReferenceLocation,
+} from "./reference-fields";
 
 function buildCompareDataConfig(
   config: Record<string, unknown>,
@@ -198,15 +148,9 @@ function CompareDataConfigPanel({
     return null;
   }, [upstream, contentSource, sourceStepNodeId]);
 
-  const referenceHint = useMemo(
-    () =>
-      REFERENCE_LOCATION_OPTIONS.find((option) => option.value === referenceLocation)?.hint,
-    [referenceLocation],
-  );
-
-  const handleReferenceLocationChange = useCallback(
-    (value: string) => {
-      onChange(buildCompareDataConfig(config, { reference_location: value }));
+  const patchConfig = useCallback(
+    (patch: Record<string, unknown>) => {
+      onChange(buildCompareDataConfig(config, patch));
     },
     [config, onChange],
   );
@@ -215,32 +159,16 @@ function CompareDataConfigPanel({
     (value: string) => {
       if (value === "upstream_output") {
         if (upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource)) {
-          onChange(
-            buildCompareDataConfig(config, {
-              content_source: upstream.contentSource,
-              source_step_node_id: upstream.sourceNodeId,
-            }),
-          );
+          patchConfig({
+            content_source: upstream.contentSource,
+            source_step_node_id: upstream.sourceNodeId,
+          });
         }
         return;
       }
-      onChange(buildCompareDataConfig(config, { content_source: value }));
+      patchConfig({ content_source: value });
     },
-    [config, onChange, upstream],
-  );
-
-  const handleFilenameTemplateChange = useCallback(
-    (value: string) => {
-      onChange(buildCompareDataConfig(config, { filename_template: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleSourceStepNodeIdChange = useCallback(
-    (value: string) => {
-      onChange(buildCompareDataConfig(config, { source_step_node_id: value }));
-    },
-    [config, onChange],
+    [patchConfig, upstream],
   );
 
   const handleSourceStepSelect = useCallback(
@@ -257,9 +185,9 @@ function CompareDataConfigPanel({
           patch.parsed_output_key = step.outputKey;
         }
       }
-      onChange(buildCompareDataConfig(config, patch));
+      patchConfig(patch);
     },
-    [config, contentSource, onChange, sourceSteps],
+    [config, contentSource, patchConfig, sourceSteps],
   );
 
   useEffect(() => {
@@ -268,41 +196,6 @@ function CompareDataConfigPanel({
     }
     handleSourceStepSelect(sourceSteps[0].nodeId);
   }, [needsStepNodeId, sourceStepNodeId, sourceSteps, handleSourceStepSelect]);
-
-  const handleParsedOutputKeyChange = useCallback(
-    (value: string) => {
-      onChange(buildCompareDataConfig(config, { parsed_output_key: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleReferenceSubdirectoryChange = useCallback(
-    (value: string) => {
-      onChange(buildCompareDataConfig(config, { reference_subdirectory: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleGitSourceIdChange = useCallback(
-    (value: string) => {
-      onChange(buildCompareDataConfig(config, { git_source_id: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleRepositorySubdirectoryChange = useCallback(
-    (value: string) => {
-      onChange(buildCompareDataConfig(config, { repository_subdirectory: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleBooleanChange = useCallback(
-    (key: string, checked: boolean) => {
-      onChange(buildCompareDataConfig(config, { [key]: checked }));
-    },
-    [config, onChange],
-  );
 
   const strictTemplates = config.strict_templates !== false;
   const normalizeLineEndings = config.normalize_line_endings !== false;
@@ -341,234 +234,52 @@ function CompareDataConfigPanel({
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">content_source</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <ContentSourcePicker
-          value={contentSource}
-          onChange={handleContentSourceChange}
-          options={COMPARE_DATA_SOURCE_OPTIONS}
-          isOptionDisabled={(value) =>
-            value === "upstream_output" &&
-            !(upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource))
-          }
-        />
-        {autoDetected ? (
-          <p className="text-[11px] text-step-muted-foreground">
-            ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})
-          </p>
-        ) : selectedHint ? (
-          <p className="text-[11px] text-muted-foreground">{selectedHint}</p>
-        ) : null}
-      </div>
+      <CompareDataContentFields
+        contentSource={contentSource}
+        selectedHint={selectedHint}
+        autoDetected={autoDetected}
+        upstreamAvailable={Boolean(
+          upstream && VALID_COMPARE_SOURCES.has(upstream.contentSource),
+        )}
+        needsStepNodeId={needsStepNodeId}
+        needsParsedOutputKey={needsParsedOutputKey}
+        sourceSteps={sourceSteps}
+        sourceStepNodeId={sourceStepNodeId}
+        selectedSourceStep={selectedSourceStep}
+        parsedOutputKey={
+          typeof config.parsed_output_key === "string" ? config.parsed_output_key : ""
+        }
+        onContentSourceChange={handleContentSourceChange}
+        onSourceStepSelect={handleSourceStepSelect}
+        onSourceStepNodeIdChange={(value) => patchConfig({ source_step_node_id: value })}
+        onParsedOutputKeyChange={(value) => patchConfig({ parsed_output_key: value })}
+      />
 
-      {needsStepNodeId ? (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">source_step</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              step
-            </Badge>
-          </div>
-          {sourceSteps.length > 0 ? (
-            <Select
-              value={sourceStepNodeId || undefined}
-              onValueChange={handleSourceStepSelect}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue
-                  placeholder={
-                    contentSource === "rendered_template"
-                      ? "Choose render step…"
-                      : contentSource === "merged_content"
-                        ? "Choose merge-content step…"
-                        : contentSource === "filtered_output"
-                          ? "Choose filter-output step…"
-                          : contentSource === "pyats_snapshot"
-                            ? "Choose get-pyats-snapshot step…"
-                            : "Choose run-command step…"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {sourceSteps.map((step) => (
-                  <SelectItem key={step.nodeId} value={step.nodeId}>
-                    {step.title} ({step.nodeId})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <p className="text-[11px] text-warning-foreground">
-              {contentSource === "rendered_template"
-                ? "Add a Render Jinja Template step to this workflow first."
-                : contentSource === "merged_content"
-                  ? "Add a Merge Content step to this workflow first."
-                  : contentSource === "filtered_output"
-                    ? "Add a Filter Output step to this workflow first."
-                    : contentSource === "pyats_snapshot"
-                      ? "Add a Get Snapshot step to this workflow first."
-                      : "Add a Run Command step to this workflow first."}
-            </p>
-          )}
-          {selectedSourceStep ? (
-            <p className="text-[11px] text-muted-foreground">
-              Selected{" "}
-              <span className="font-mono">{selectedSourceStep.nodeId}</span>
-              {selectedSourceStep.outputKey
-                ? ` · output_key ${selectedSourceStep.outputKey}`
-                : ""}
-            </p>
-          ) : null}
-          <Input
-            value={sourceStepNodeId}
-            onChange={(event) => handleSourceStepNodeIdChange(event.target.value)}
-            placeholder={
-              contentSource === "pyats_snapshot" ? "get-pyats-snapshot-3" : "run-command-3"
-            }
-            className="h-8 font-mono text-xs"
-          />
-        </div>
-      ) : null}
-
-      {needsParsedOutputKey ? (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">parsed_output_key</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              string
-            </Badge>
-          </div>
-          <Input
-            value={
-              typeof config.parsed_output_key === "string" ? config.parsed_output_key : ""
-            }
-            onChange={(event) => handleParsedOutputKeyChange(event.target.value)}
-            placeholder={contentSource === "pyats_snapshot" ? "pyats_snapshot" : "device_config"}
-            className="h-8 font-mono text-xs"
-          />
-        </div>
-      ) : null}
-
-      <div className="space-y-1.5 border-t pt-3">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">reference_location</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <Select value={referenceLocation} onValueChange={handleReferenceLocationChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {REFERENCE_LOCATION_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {referenceHint ? (
-          <p className="text-[11px] text-muted-foreground">{referenceHint}</p>
-        ) : null}
-      </div>
-
-      {isGitReference ? (
-        <>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">git_source_id</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                git
-              </Badge>
-            </div>
-            {gitSourceId ? (
-              <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
-            ) : (
-              <p className="text-[11px] text-warning-foreground">Not configured</p>
-            )}
-            <Button
-              className="h-7 w-full text-xs"
-              size="sm"
-              type="button"
-              variant="outline"
-              onClick={() => setGitSourceOpen(true)}
-            >
-              {gitSourceId ? "Change repository" : "Choose repository"}
-            </Button>
-          </div>
-
-          <GitSourceSelectDialog
-            open={gitSourceOpen}
-            selectedSourceId={gitSourceId}
-            onClose={() => setGitSourceOpen(false)}
-            onSave={handleGitSourceIdChange}
-          />
-
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">repository_subdirectory</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                string
-              </Badge>
-            </div>
-            <Input
-              value={
-                typeof config.repository_subdirectory === "string"
-                  ? config.repository_subdirectory
-                  : ""
-              }
-              onChange={(event) =>
-                handleRepositorySubdirectoryChange(event.target.value)
-              }
-              placeholder="network/backups"
-              className="h-8 font-mono text-xs"
-            />
-          </div>
-
-          <Label className="flex cursor-pointer items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={config.pull_before_read === true}
-              onChange={(event) =>
-                handleBooleanChange("pull_before_read", event.target.checked)
-              }
-              className="accent-step"
-              aria-hidden={false}
-            />
-            <span className="font-mono text-xs font-medium">pull_before_read</span>
-          </Label>
-          <p className="pl-5 text-[11px] text-muted-foreground">
-            Pull latest changes once before reading the reference file.
-          </p>
-        </>
-      ) : (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">reference_subdirectory</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              string
-            </Badge>
-          </div>
-          <Input
-            value={
-              typeof config.reference_subdirectory === "string"
-                ? config.reference_subdirectory
-                : "references"
-            }
-            onChange={(event) => handleReferenceSubdirectoryChange(event.target.value)}
-            className="h-8 font-mono text-xs"
-          />
-          <p className="text-[11px] text-muted-foreground">
-            Files are read from DATA_DIRECTORY/&lt;reference_subdirectory&gt;/.
-          </p>
-        </div>
-      )}
+      <CompareDataReferenceFields
+        referenceLocation={referenceLocation}
+        isGitReference={isGitReference}
+        gitSourceId={gitSourceId}
+        gitSourceOpen={gitSourceOpen}
+        onGitSourceOpenChange={setGitSourceOpen}
+        referenceSubdirectory={
+          typeof config.reference_subdirectory === "string"
+            ? config.reference_subdirectory
+            : "references"
+        }
+        repositorySubdirectory={
+          typeof config.repository_subdirectory === "string"
+            ? config.repository_subdirectory
+            : ""
+        }
+        pullBeforeRead={config.pull_before_read === true}
+        onReferenceLocationChange={(value) => patchConfig({ reference_location: value })}
+        onReferenceSubdirectoryChange={(value) => patchConfig({ reference_subdirectory: value })}
+        onGitSourceIdChange={(value) => patchConfig({ git_source_id: value })}
+        onRepositorySubdirectoryChange={(value) =>
+          patchConfig({ repository_subdirectory: value })
+        }
+        onPullBeforeReadChange={(checked) => patchConfig({ pull_before_read: checked })}
+      />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
@@ -581,7 +292,7 @@ function CompareDataConfigPanel({
           value={
             typeof config.filename_template === "string" ? config.filename_template : ""
           }
-          onChange={(event) => handleFilenameTemplateChange(event.target.value)}
+          onChange={(event) => patchConfig({ filename_template: event.target.value })}
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] text-muted-foreground">
@@ -597,9 +308,7 @@ function CompareDataConfigPanel({
           <input
             type="checkbox"
             checked={strictTemplates}
-            onChange={(event) =>
-              onChange(buildCompareDataConfig(config, { strict_templates: event.target.checked }))
-            }
+            onChange={(event) => patchConfig({ strict_templates: event.target.checked })}
             className="accent-step"
             aria-hidden={false}
           />
@@ -609,13 +318,7 @@ function CompareDataConfigPanel({
           <input
             type="checkbox"
             checked={normalizeLineEndings}
-            onChange={(event) =>
-              onChange(
-                buildCompareDataConfig(config, {
-                  normalize_line_endings: event.target.checked,
-                }),
-              )
-            }
+            onChange={(event) => patchConfig({ normalize_line_endings: event.target.checked })}
             className="accent-step"
             aria-hidden={false}
           />
@@ -626,11 +329,7 @@ function CompareDataConfigPanel({
             type="checkbox"
             checked={config.ignore_trailing_whitespace === true}
             onChange={(event) =>
-              onChange(
-                buildCompareDataConfig(config, {
-                  ignore_trailing_whitespace: event.target.checked,
-                }),
-              )
+              patchConfig({ ignore_trailing_whitespace: event.target.checked })
             }
             className="accent-step"
             aria-hidden={false}

@@ -1,12 +1,11 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -30,6 +29,11 @@ import { Switch } from "@/components/ui/switch";
 import { useLoggingSettingsMutations } from "@/hooks/queries/use-logging-settings-mutations";
 import { useLoggingSettingsQuery } from "@/hooks/queries/use-logging-settings-query";
 
+import {
+  LoggingOverridesCard,
+  type MutedLoggerRow,
+} from "./logging-overrides-card";
+
 const LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 
 const formSchema = z.object({
@@ -41,11 +45,6 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
-
-interface MutedLoggerRow {
-  name: string;
-  level: (typeof LOG_LEVELS)[number];
-}
 
 const EMPTY_DEFAULTS: FormValues = {
   default_log_level: "INFO",
@@ -61,29 +60,6 @@ function recordToRows(muted: Record<string, string>): MutedLoggerRow[] {
   return Object.entries(muted)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, level]) => ({ name, level: level as MutedLoggerRow["level"] }));
-}
-
-function LevelSelect({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-32">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {LOG_LEVELS.map((level) => (
-          <SelectItem key={level} value={level}>
-            {level}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
 }
 
 export function LoggingSettingsCanvas() {
@@ -320,66 +296,14 @@ export function LoggingSettingsCanvas() {
               </CardContent>
             </Card>
 
-            {/* Muted loggers */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Muted Loggers</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Third-party loggers that are noisy below the level shown. Set a logger to
-                  DEBUG or INFO here to see it again.
-                </p>
-
-                <div className="space-y-2">
-                  {mutedLoggers.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No loggers muted.</p>
-                  )}
-                  {mutedLoggers.map((row) => (
-                    <div
-                      key={row.name}
-                      className="flex items-center justify-between gap-2 rounded-lg border p-2"
-                    >
-                      <Badge variant="outline" className="font-mono text-xs">
-                        {row.name}
-                      </Badge>
-                      <div className="flex items-center gap-2">
-                        <LevelSelect
-                          value={row.level}
-                          onChange={(level) => handleLoggerLevelChange(row.name, level)}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveLogger(row.name)}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="logger name, e.g. urllib3"
-                    value={newLoggerName}
-                    onChange={(e) => setNewLoggerName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddLogger();
-                      }
-                    }}
-                  />
-                  <Button type="button" variant="outline" onClick={handleAddLogger}>
-                    <Plus className="mr-2 size-4" />
-                    Add
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <LoggingOverridesCard
+              mutedLoggers={mutedLoggers}
+              newLoggerName={newLoggerName}
+              onNewLoggerNameChange={setNewLoggerName}
+              onAddLogger={handleAddLogger}
+              onRemoveLogger={handleRemoveLogger}
+              onLoggerLevelChange={handleLoggerLevelChange}
+            />
 
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">

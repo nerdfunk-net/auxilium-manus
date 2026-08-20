@@ -1,6 +1,6 @@
 # Migration Plan: `middleware.ts` → `proxy.ts`
 
-**Direction note:** despite this file's name, the migration runs **from the deprecated `middleware`
+**Direction note:** 
 convention to the new `proxy` convention** — i.e. `frontend/src/middleware.ts` becomes
 `frontend/src/proxy.ts`. There is no `proxy.ts` in the repo today; `middleware.ts` is the one file
 that exists and needs to move. See the "How this plan came about" note at the bottom for why the

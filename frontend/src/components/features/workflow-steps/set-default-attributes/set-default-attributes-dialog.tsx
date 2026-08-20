@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  NautobotCustomFieldRow,
+  NautobotOptionalFieldRow,
+} from "@/components/features/workflow-steps/shared/nautobot-field-rows";
 
 import {
   customFieldRowsFromConfig,
@@ -35,40 +39,6 @@ interface SetDefaultAttributesDialogProps {
   value: Record<string, unknown>;
   onClose: () => void;
   onChange: (attributes: AttributesConfig) => void;
-}
-
-function OptionalFieldRow({
-  label,
-  placeholder,
-  spec,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  spec: AttributeFieldSpec;
-  onChange: (patch: Partial<AttributeFieldSpec>) => void;
-}) {
-  return (
-    <div className="space-y-1 rounded-lg border border-border bg-muted p-2.5">
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={spec.enabled}
-          onChange={(event) => onChange({ enabled: event.target.checked })}
-          className="size-4 rounded border accent-step"
-          aria-label={`Enable ${label}`}
-        />
-        <Label className="text-[11px] font-medium text-muted-foreground">{label}</Label>
-      </div>
-      <Input
-        className="h-8 text-xs focus-visible:ring-step/40 disabled:opacity-50"
-        disabled={!spec.enabled}
-        placeholder={placeholder}
-        value={spec.value}
-        onChange={(event) => onChange({ value: event.target.value })}
-      />
-    </div>
-  );
 }
 
 function ipAddressesToText(ipAddresses: string[]): string {
@@ -163,7 +133,7 @@ function SetDefaultAttributesDialogForm({
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             {OPTIONAL_ATTRIBUTE_FIELD_DEFINITIONS.map(({ key, label, placeholder }) => (
-              <OptionalFieldRow
+              <NautobotOptionalFieldRow
                 key={key}
                 label={label}
                 placeholder={placeholder}
@@ -216,7 +186,7 @@ function SetDefaultAttributesDialogForm({
           </p>
           <div className="grid gap-2 sm:grid-cols-3">
             {RACK_FIELD_DEFINITIONS.map(({ key, label, placeholder }) => (
-              <OptionalFieldRow
+              <NautobotOptionalFieldRow
                 key={key}
                 label={label}
                 placeholder={placeholder}
@@ -245,50 +215,13 @@ function SetDefaultAttributesDialogForm({
           ) : (
             <div className="space-y-2">
               {customFieldRows.map((row) => (
-                <div
-                  className="space-y-2 rounded-lg border border-border bg-muted p-2.5"
+                <NautobotCustomFieldRow
                   key={row.id}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={row.enabled}
-                        onChange={(event) =>
-                          patchCustomFieldRow(row.id, { enabled: event.target.checked })
-                        }
-                        className="size-4 rounded border accent-step"
-                        aria-label={`Enable custom field ${row.name || "row"}`}
-                      />
-                      <span className="text-xs font-medium text-step-muted-foreground">Custom field</span>
-                    </div>
-                    <Button
-                      className="h-7 px-2 text-destructive hover:text-destructive"
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                      onClick={() => removeCustomFieldRow(row.id)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Input
-                      className="h-8 text-xs disabled:opacity-50"
-                      disabled={!row.enabled}
-                      placeholder="field_name"
-                      value={row.name}
-                      onChange={(event) => patchCustomFieldRow(row.id, { name: event.target.value })}
-                    />
-                    <Input
-                      className="h-8 text-xs disabled:opacity-50"
-                      disabled={!row.enabled}
-                      placeholder="lab"
-                      value={row.value}
-                      onChange={(event) => patchCustomFieldRow(row.id, { value: event.target.value })}
-                    />
-                  </div>
-                </div>
+                  row={row}
+                  valuePlaceholder="lab"
+                  onChange={(patch) => patchCustomFieldRow(row.id, patch)}
+                  onRemove={() => removeCustomFieldRow(row.id)}
+                />
               ))}
             </div>
           )}

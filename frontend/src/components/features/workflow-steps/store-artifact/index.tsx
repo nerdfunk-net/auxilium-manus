@@ -8,64 +8,27 @@ import {
   EMPTY_WORKFLOW_NODES,
 } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
-import { ContentSourcePicker } from "@/components/features/workflow-steps/shared/content-source-picker";
 import {
   CONTENT_SOURCE_OPTIONS,
   type ContentSource,
 } from "@/components/features/workflow-steps/shared/content-source-options";
+import { FILENAME_PLACEHOLDERS } from "@/components/features/workflow-steps/shared/filename-placeholders";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
 
+import { StoreArtifactContentFields } from "./content-fields";
+import { StoreArtifactDestinationFields } from "./destination-fields";
 import { StoreArtifactHelpPanel } from "./help-panel";
 
 type Destination = "filesystem" | "git";
 
-const DESTINATION_OPTIONS = [
-  {
-    value: "filesystem",
-    label: "Filesystem",
-    hint: "Write under the default export directory (Settings → General) → exports/<workflow_id>/<run_id>/.",
-  },
-  {
-    value: "git",
-    label: "Git repository",
-    hint: "Write into a git source configured under Settings → Sources.",
-  },
-] as const;
-
-const FILENAME_PLACEHOLDERS = [
-  "{device.name}",
-  "{device.hostname}",
-  "{device.primary_ip4}",
-  "{nautobot.location.name}",
-  "{nautobot.role.name}",
-  "{nautobot.custom_fields.<slug>}",
-  "{git.source_file}",
-  "{command.name}",
-  "{parsed.output_key}",
-  "{run.timestamp}",
-  "{run.date}",
-  "{run.id}",
-];
-
-const COMMIT_MESSAGE_PLACEHOLDERS = ["{timestamp}", "{run.id}", "{workflow.id}"];
-
-function buildStoreArtifactConfig(
+export function buildStoreArtifactConfig(
   config: Record<string, unknown>,
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
@@ -193,11 +156,6 @@ function StoreArtifactConfigPanel({
     return null;
   }, [upstream, contentSource, sourceStepNodeId]);
 
-  const destinationHint = useMemo(
-    () => DESTINATION_OPTIONS.find((option) => option.value === destination)?.hint,
-    [destination],
-  );
-
   const handleDestinationChange = useCallback(
     (value: string) => {
       onChange(buildStoreArtifactConfig(config, { destination: value }));
@@ -277,357 +235,53 @@ function StoreArtifactConfigPanel({
     [config, onChange],
   );
 
-  const handleGitSourceIdChange = useCallback(
-    (value: string) => {
-      onChange(buildStoreArtifactConfig(config, { git_source_id: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleRepositorySubdirectoryChange = useCallback(
-    (value: string) => {
-      onChange(buildStoreArtifactConfig(config, { repository_subdirectory: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleCommitMessageTemplateChange = useCallback(
-    (value: string) => {
-      onChange(buildStoreArtifactConfig(config, { commit_message_template: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleBooleanChange = useCallback(
-    (key: string, checked: boolean) => {
-      onChange(buildStoreArtifactConfig(config, { [key]: checked }));
-    },
-    [config, onChange],
-  );
-
   const strictTemplates = config.strict_templates !== false;
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">destination</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <Select value={destination} onValueChange={handleDestinationChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {DESTINATION_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {destinationHint ? (
-          <p className="text-[11px] text-muted-foreground">{destinationHint}</p>
-        ) : null}
-      </div>
+      <StoreArtifactDestinationFields
+        destination={destination}
+        isGitDestination={isGitDestination}
+        gitSourceId={gitSourceId}
+        gitSourceOpen={gitSourceOpen}
+        onGitSourceOpenChange={setGitSourceOpen}
+        repositorySubdirectory={
+          typeof config.repository_subdirectory === "string"
+            ? config.repository_subdirectory
+            : ""
+        }
+        pullBeforeWrite={config.pull_before_write === true}
+        commitAfterWrite={config.commit_after_write === true}
+        pushAfterWrite={config.push_after_write === true}
+        commitMessageTemplate={
+          typeof config.commit_message_template === "string"
+            ? config.commit_message_template
+            : "commit {timestamp}"
+        }
+        onDestinationChange={handleDestinationChange}
+        onGitDestinationChange={(patch) =>
+          onChange(buildStoreArtifactConfig(config, patch))
+        }
+      />
 
-      {isGitDestination ? (
-        <>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">git_source_id</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                git
-              </Badge>
-            </div>
-            {gitSourceId ? (
-              <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
-            ) : (
-              <p className="text-[11px] text-warning-foreground">Not configured</p>
-            )}
-            <Button
-              className="h-7 w-full text-xs"
-              size="sm"
-              type="button"
-              variant="outline"
-              onClick={() => setGitSourceOpen(true)}
-            >
-              {gitSourceId ? "Change repository" : "Choose repository"}
-            </Button>
-            <p className="text-[11px] text-muted-foreground">
-              Uses the same git sources as get-git-devices (Settings → Sources).
-            </p>
-          </div>
-
-          <GitSourceSelectDialog
-            open={gitSourceOpen}
-            selectedSourceId={gitSourceId}
-            onClose={() => setGitSourceOpen(false)}
-            onSave={handleGitSourceIdChange}
-          />
-
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">repository_subdirectory</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                string
-              </Badge>
-            </div>
-            <Input
-              value={
-                typeof config.repository_subdirectory === "string"
-                  ? config.repository_subdirectory
-                  : ""
-              }
-              onChange={(event) =>
-                handleRepositorySubdirectoryChange(event.target.value)
-              }
-              placeholder="network/backups"
-              className="h-8 font-mono text-xs"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Optional prefix inside the repository before the filename template path.
-            </p>
-          </div>
-
-          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Git sync options
-            </p>
-            <div className="flex items-start gap-2">
-              <input
-                id="pull-before-write"
-                type="checkbox"
-                checked={config.pull_before_write === true}
-                onChange={(event) =>
-                  handleBooleanChange("pull_before_write", event.target.checked)
-                }
-                className="mt-0.5 size-4 rounded border"
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="pull-before-write" className="font-mono text-xs font-medium">
-                  pull_before_write
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Pull latest changes once before writing. Fails the step if pull fails.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <input
-                id="commit-after-write"
-                type="checkbox"
-                checked={config.commit_after_write === true}
-                onChange={(event) =>
-                  handleBooleanChange("commit_after_write", event.target.checked)
-                }
-                className="mt-0.5 size-4 rounded border"
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="commit-after-write" className="font-mono text-xs font-medium">
-                  commit_after_write
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Create one commit for all files written in this step.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <input
-                id="push-after-write"
-                type="checkbox"
-                checked={config.push_after_write === true}
-                onChange={(event) =>
-                  handleBooleanChange("push_after_write", event.target.checked)
-                }
-                className="mt-0.5 size-4 rounded border"
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="push-after-write" className="font-mono text-xs font-medium">
-                  push_after_write
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Push after commit. Disable for batch workflows that use a separate push step.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">commit_message_template</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                string
-              </Badge>
-            </div>
-            <Input
-              value={
-                typeof config.commit_message_template === "string"
-                  ? config.commit_message_template
-                  : "commit {timestamp}"
-              }
-              onChange={(event) =>
-                handleCommitMessageTemplateChange(event.target.value)
-              }
-              className="h-8 font-mono text-xs"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Placeholders: {COMMIT_MESSAGE_PLACEHOLDERS.join(", ")}.
-            </p>
-          </div>
-        </>
-      ) : null}
-
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">content_source</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <ContentSourcePicker
-          value={contentSource}
-          onChange={handleContentSourceChange}
-          options={CONTENT_SOURCE_OPTIONS}
-          isOptionDisabled={(value) => value === "upstream_output" && !upstream}
-        />
-        {autoDetected ? (
-          <p className="text-[11px] text-step-muted-foreground">
-            ↑ Auto-detected from &ldquo;{autoDetected.stepTitle}&rdquo; ({autoDetected.stepKind})
-          </p>
-        ) : selectedHint ? (
-          <p className="text-[11px] text-muted-foreground">{selectedHint}</p>
-        ) : null}
-      </div>
-
-      {needsStepNodeId ? (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">source_step</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              step
-            </Badge>
-          </div>
-          {sourceSteps.length > 0 ? (
-            <Select
-              value={sourceStepNodeId || undefined}
-              onValueChange={handleSourceStepSelect}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue
-                  placeholder={
-                    contentSource === "rendered_template"
-                      ? "Choose render step…"
-                      : contentSource === "merged_content"
-                        ? "Choose merge-content step…"
-                        : contentSource === "comparison_diff"
-                          ? "Choose compare-data step…"
-                          : contentSource === "filtered_output"
-                            ? "Choose filter-output step…"
-                            : contentSource === "pyats_snapshot"
-                              ? "Choose get-pyats-snapshot step…"
-                              : contentSource === "updated_content"
-                                ? "Choose update-content step…"
-                                : "Choose run-command step…"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {sourceSteps.map((step) => (
-                  <SelectItem key={step.nodeId} value={step.nodeId}>
-                    {step.title} ({step.nodeId})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <p className="text-[11px] text-warning-foreground">
-              {contentSource === "rendered_template"
-                ? "Add a Render Jinja Template step to this workflow first."
-                : contentSource === "merged_content"
-                  ? "Add a Merge Content step to this workflow first."
-                  : contentSource === "comparison_diff"
-                    ? "Add a Compare Data step to this workflow first."
-                    : contentSource === "filtered_output"
-                      ? "Add a Filter Output step to this workflow first."
-                      : contentSource === "pyats_snapshot"
-                        ? "Add a Get Snapshot step to this workflow first."
-                        : contentSource === "updated_content"
-                          ? "Add an Update Content step to this workflow first."
-                          : "Add a Run Command step to this workflow first."}
-            </p>
-          )}
-          {selectedSourceStep ? (
-            <p className="text-[11px] text-muted-foreground">
-              Selected{" "}
-              <span className="font-mono">{selectedSourceStep.nodeId}</span>
-              {selectedSourceStep.outputKey
-                ? ` · output_key ${selectedSourceStep.outputKey}`
-                : ""}
-            </p>
-          ) : sourceStepNodeId && sourceSteps.length > 0 ? (
-            <p className="text-[11px] text-warning-foreground">
-              Saved node id{" "}
-              <span className="font-mono">{sourceStepNodeId}</span> is not on this
-              canvas. Pick a step above or enter an id manually.
-            </p>
-          ) : null}
-          <details className="rounded-lg border bg-muted/20 px-3 py-2">
-            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
-              Advanced: enter node id manually
-            </summary>
-            <div className="mt-2 space-y-1.5">
-              <Input
-                value={sourceStepNodeId}
-                onChange={(event) => handleSourceStepNodeIdChange(event.target.value)}
-                placeholder={
-                  contentSource === "rendered_template"
-                    ? "render-jinja-template-3"
-                    : contentSource === "merged_content"
-                      ? "merge-content-3"
-                      : contentSource === "comparison_diff"
-                        ? "compare-data-3"
-                        : contentSource === "pyats_snapshot"
-                          ? "get-pyats-snapshot-3"
-                          : contentSource === "updated_content"
-                            ? "update-content-3"
-                            : "run-command-3"
-                }
-                className="h-8 font-mono text-xs"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Only needed when reusing an id from an older workflow or run results.
-              </p>
-            </div>
-          </details>
-        </div>
-      ) : null}
-
-      {needsParsedOutputKey ? (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">parsed_output_key</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              string
-            </Badge>
-          </div>
-          <Input
-            value={
-              typeof config.parsed_output_key === "string" ? config.parsed_output_key : ""
-            }
-            onChange={(event) => handleParsedOutputKeyChange(event.target.value)}
-            placeholder={contentSource === "pyats_snapshot" ? "pyats_snapshot" : "device_config"}
-            className="h-8 font-mono text-xs"
-          />
-          <p className="text-[11px] text-muted-foreground">
-            {contentSource === "pyats_snapshot"
-              ? "Optional output_key from the Get Snapshot step. Leave empty to export all snapshots produced by the selected step."
-              : "Optional output_key from the render step. Leave empty to export all templates produced by the selected step."}
-          </p>
-        </div>
-      ) : null}
+      <StoreArtifactContentFields
+        contentSource={contentSource}
+        selectedHint={selectedHint}
+        autoDetected={autoDetected}
+        upstreamAvailable={Boolean(upstream)}
+        needsStepNodeId={needsStepNodeId}
+        needsParsedOutputKey={needsParsedOutputKey}
+        sourceSteps={sourceSteps}
+        sourceStepNodeId={sourceStepNodeId}
+        selectedSourceStep={selectedSourceStep}
+        parsedOutputKey={
+          typeof config.parsed_output_key === "string" ? config.parsed_output_key : ""
+        }
+        onContentSourceChange={handleContentSourceChange}
+        onSourceStepSelect={handleSourceStepSelect}
+        onSourceStepNodeIdChange={handleSourceStepNodeIdChange}
+        onParsedOutputKeyChange={handleParsedOutputKeyChange}
+      />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

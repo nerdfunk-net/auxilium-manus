@@ -1,18 +1,10 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Download, FileCode, Play, RefreshCw, Save } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense } from "react";
 
 import { CanvasErrorBoundary } from "@/components/features/workflows/components/canvas-error-boundary";
 import { Button } from "@/components/ui/button";
-import { useDeviceAttributesQuery } from "@/hooks/queries/use-device-attributes-query";
-import { useNautobotSourceCredentials } from "@/hooks/queries/use-nautobot-source-credentials";
-import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
-import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
-import { useApi } from "@/hooks/use-api";
-import { useToast } from "@/hooks/use-toast";
 
 import { AddVariableDialog } from "./components/add-variable-dialog";
 import { CodeEditorPanel } from "./components/code-editor-panel";
@@ -24,446 +16,12 @@ import { LinkWorkflowDialog } from "./components/link-workflow-dialog";
 import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
 import { VariablesPanel } from "./components/variables-panel";
-import { TEMPLATE_CATEGORY } from "./constants";
-import { useNautobotSources } from "./hooks/use-nautobot-sources";
-import { useTemplateMutations } from "./hooks/use-template-mutations";
-import { useTemplateQuery } from "./hooks/use-template-query";
-import { useTemplateRender } from "./hooks/use-template-render";
-import { useTemplateVariables } from "./hooks/use-template-variables";
-import type {
-  CommandEntry,
-  DeviceSummary,
-  GetConfigsResponse,
-  TemplateType,
-  TemplateVariableRecord,
-} from "./types";
-import {
-  buildTemplateExportFile,
-  downloadTemplateExportFile,
-} from "./utils/template-export";
-
-function bareIp(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-  return value.split("/")[0] || null;
-}
+import { useTemplateEditor } from "./hooks/use-template-editor";
 
 function TemplateEditorContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { toast } = useToast();
-  const { apiCall } = useApi();
+  const editor = useTemplateEditor();
 
-  const idParam = searchParams.get("id");
-  const templateId = idParam ? Number(idParam) : null;
-  const isEditMode = templateId !== null;
-
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [templateType, setTemplateType] = useState<TemplateType>("jinja2");
-  const [content, setContent] = useState("");
-  const [sourceId, setSourceId] = useState("");
-  const [selectedDevice, setSelectedDevice] = useState<DeviceSummary | null>(null);
-  const [commands, setCommands] = useState<string[]>([]);
-  const [useTextfsm, setUseTextfsm] = useState(false);
-  const [credentialId, setCredentialId] = useState("none");
-  const [attributes, setAttributes] = useState<string[]>([]);
-  const [selectedVariableId, setSelectedVariableId] = useState<string | null>(null);
-  const [addVariableOpen, setAddVariableOpen] = useState(false);
-  const [variablesHelpOpen, setVariablesHelpOpen] = useState(false);
-  const [commandsDialogOpen, setCommandsDialogOpen] = useState(false);
-  const [attributesDialogOpen, setAttributesDialogOpen] = useState(false);
-  const [isExecutingCommands, setIsExecutingCommands] = useState(false);
-  const [getDeviceConfigs, setGetDeviceConfigs] = useState(false);
-  // Reference workflow whose static attributes are previewed as the
-  // `run_input` variable — a per-session discovery aid, never persisted with
-  // the template (see doc/WORKFLOW-STEPS.md "Static attributes").
-  const [referenceWorkflowId, setReferenceWorkflowId] = useState<number | null>(null);
-  const [linkWorkflowDialogOpen, setLinkWorkflowDialogOpen] = useState(false);
-
-  const variableManager = useTemplateVariables();
-  const renderer = useTemplateRender();
-  const { createTemplate, updateTemplate } = useTemplateMutations();
-  const { sources } = useNautobotSources();
-  const workflowsQuery = useWorkflowsQuery();
-  const referenceWorkflowQuery = useWorkflowQuery(referenceWorkflowId);
-
-  // Fall back to the first configured source until the user picks another.
-  const effectiveSourceId = sourceId || sources[0]?.sourceId || "";
-  const sourceCredentials = useNautobotSourceCredentials({
-    sourceId: effectiveSourceId || undefined,
-    enabled: Boolean(effectiveSourceId),
-  });
-  const templateQuery = useTemplateQuery({ templateId, enabled: isEditMode });
-  const deviceAttributesQuery = useDeviceAttributesQuery({
-    deviceId: selectedDevice?.id ?? null,
-    sourceId: sourceCredentials.sourceId,
-    attributes,
-    enabled: sourceCredentials.isReady,
-  });
-
-  const loadedRef = useRef(false);
-  const {
-    setDeviceInfo,
-    setNautobotAttributes,
-    toggleCommandVariables,
-    setCommandResults,
-    toggleParsedConfigVariable,
-    setParsedConfig,
-    setRunInputSource,
-    loadCustomVariables,
-  } = variableManager;
-
-  const cleanedCommands = useMemo(
-    () => commands.map((command) => command.trim()).filter(Boolean),
-    [commands],
-  );
-
-  // Populate the editor once when an existing template loads.
-  useEffect(() => {
-    if (!isEditMode || loadedRef.current || !templateQuery.data) {
-      return;
-    }
-    const template = templateQuery.data;
-    loadedRef.current = true;
-    setName(template.name);
-    setDescription(template.description ?? "");
-    setTemplateType((template.template_type as TemplateType) ?? "jinja2");
-    setContent(template.content ?? "");
-    setCommands(template.pre_run_commands ?? []);
-    setUseTextfsm(Boolean(template.pre_run_use_textfsm));
-    setAttributes(template.nautobot_attributes ?? []);
-    setCredentialId(
-      template.credential_id != null ? String(template.credential_id) : "none",
-    );
-    loadCustomVariables(template.variables ?? {});
-  }, [isEditMode, templateQuery.data, loadCustomVariables]);
-
-  // Show/hide the command variables based on whether any command is configured.
-  useEffect(() => {
-    toggleCommandVariables(cleanedCommands.length > 0);
-  }, [cleanedCommands.length, toggleCommandVariables]);
-
-  // Show/hide the parsed-config variable based on the "Get Configs" checkbox.
-  useEffect(() => {
-    toggleParsedConfigVariable(getDeviceConfigs);
-  }, [getDeviceConfigs, toggleParsedConfigVariable]);
-
-  // Build the `device` variable from the selected test device (matches the
-  // workflow step's device.* namespace).
-  useEffect(() => {
-    if (!selectedDevice) {
-      setDeviceInfo(null);
-      return;
-    }
-    setDeviceInfo({
-      name: selectedDevice.name,
-      hostname: selectedDevice.name,
-      id: selectedDevice.id,
-      primary_ip4: selectedDevice.primary_ip4?.split("/")[0] ?? "",
-      platform: selectedDevice.platform ?? "",
-      network_driver: selectedDevice.network_driver ?? "",
-      source: effectiveSourceId,
-      source_id: selectedDevice.id,
-    });
-  }, [selectedDevice, effectiveSourceId, setDeviceInfo]);
-
-  // Mirror the device-attributes query result into the `nautobot` variable
-  // bag, using the same query as the workflow step.
-  useEffect(() => {
-    if (!selectedDevice) {
-      setNautobotAttributes(null);
-      return;
-    }
-    if (deviceAttributesQuery.data) {
-      setNautobotAttributes(deviceAttributesQuery.data);
-    } else if (deviceAttributesQuery.error) {
-      setNautobotAttributes({});
-    }
-  }, [
-    selectedDevice,
-    deviceAttributesQuery.data,
-    deviceAttributesQuery.error,
-    setNautobotAttributes,
-  ]);
-
-  // Reset the parsed-config preview whenever the inputs that would
-  // invalidate it change — but do NOT auto-fetch. Fetching live device
-  // config over SSH is an explicit action (see fetchDeviceConfigsMutation /
-  // the "Fetch configs" button).
-  useEffect(() => {
-    if (!getDeviceConfigs || !selectedDevice || credentialId === "none") {
-      setParsedConfig(null);
-    }
-  }, [getDeviceConfigs, selectedDevice, credentialId, setParsedConfig]);
-
-  const fetchDeviceConfigsMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedDevice || credentialId === "none") {
-        throw new Error("Select a device and credential first");
-      }
-      const host = bareIp(selectedDevice.primary_ip4) ?? selectedDevice.name ?? "";
-      return apiCall<GetConfigsResponse>("netmiko/get-configs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          host,
-          platform: selectedDevice.platform,
-          network_driver: selectedDevice.network_driver,
-          credential_id: Number(credentialId),
-        }),
-      });
-    },
-    onSuccess: (response) => {
-      if (!response.success) {
-        toast({
-          title: "Get Configs failed",
-          description: response.error ?? "Unknown error",
-          variant: "destructive",
-        });
-        setParsedConfig(null);
-        return;
-      }
-      setParsedConfig(response.parsed);
-    },
-    onError: (error) => {
-      toast({
-        title: "Get Configs failed",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      });
-      setParsedConfig(null);
-    },
-  });
-
-  const handleFetchConfigs = useCallback(() => {
-    fetchDeviceConfigsMutation.mutate();
-  }, [fetchDeviceConfigsMutation]);
-
-  // Preview the linked reference workflow's static_attributes as the
-  // `run_input` variable. Purely a discovery aid — never saved with the
-  // template (see doc/WORKFLOW-STEPS.md "Static attributes").
-  useEffect(() => {
-    if (referenceWorkflowId === null) {
-      setRunInputSource(null);
-      return;
-    }
-    const workflow = referenceWorkflowQuery.data;
-    if (!workflow) {
-      return;
-    }
-    setRunInputSource({
-      workflowName: workflow.name,
-      attributes: workflow.static_attributes ?? [],
-    });
-  }, [referenceWorkflowId, referenceWorkflowQuery.data, setRunInputSource]);
-
-  const existingVariableNames = useMemo(
-    () => variableManager.variables.map((variable) => variable.name),
-    [variableManager.variables],
-  );
-
-  const canExecuteCommands = Boolean(
-    selectedDevice && credentialId !== "none" && cleanedCommands.length > 0,
-  );
-
-  const executeHint = !selectedDevice
-    ? "Select a test device to execute commands."
-    : credentialId === "none"
-      ? "Select SSH credentials to execute commands."
-      : cleanedCommands.length === 0
-        ? "Add at least one command to execute."
-        : undefined;
-
-  const handleExecuteCommands = useCallback(async () => {
-    if (!selectedDevice || credentialId === "none" || cleanedCommands.length === 0) {
-      return;
-    }
-
-    const host = bareIp(selectedDevice.primary_ip4) ?? selectedDevice.name ?? "";
-    if (!host) {
-      toast({
-        title: "No device address",
-        description: "The selected device has no primary IP or name",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsExecutingCommands(true);
-    try {
-      const response = await apiCall<{
-        success: boolean;
-        commands: CommandEntry[];
-        error: string | null;
-      }>("netmiko/run-commands", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          host,
-          platform: selectedDevice.platform,
-          network_driver: selectedDevice.network_driver,
-          credential_id: Number(credentialId),
-          commands: cleanedCommands,
-          use_textfsm: useTextfsm,
-        }),
-      });
-
-      setCommandResults(response.commands ?? []);
-      if (!response.success) {
-        throw new Error(response.error ?? "Command execution failed");
-      }
-
-      toast({
-        title: "Commands executed",
-        description: `Populated command, commands and commands_by_name from ${
-          response.commands?.length ?? 0
-        } command(s)`,
-      });
-    } catch (error) {
-      toast({
-        title: "Execution failed",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      });
-    } finally {
-      setIsExecutingCommands(false);
-    }
-  }, [
-    selectedDevice,
-    credentialId,
-    cleanedCommands,
-    useTextfsm,
-    apiCall,
-    toast,
-    setCommandResults,
-  ]);
-
-  const handleRender = useCallback(() => {
-    renderer.render(content, variableManager.variables);
-  }, [renderer, content, variableManager.variables]);
-
-  const handleExport = useCallback(() => {
-    if (!name.trim()) {
-      toast({
-        title: "Validation error",
-        description: "Template name is required before export",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const variables: Record<string, TemplateVariableRecord> = {};
-    for (const variable of variableManager.variables) {
-      if (variable.name && !variable.isAutoFilled) {
-        variables[variable.name] = {
-          value: variable.value,
-          type: variable.type || "custom",
-        };
-      }
-    }
-
-    const envelope = buildTemplateExportFile({
-      name: name.trim(),
-      description: description || null,
-      template_type: templateType,
-      category: TEMPLATE_CATEGORY,
-      content,
-      variables,
-      pre_run_commands: cleanedCommands,
-      pre_run_use_textfsm: useTextfsm,
-      nautobot_attributes: attributes,
-    });
-    downloadTemplateExportFile(envelope);
-    toast({
-      title: "Export complete",
-      description: "Template JSON was downloaded.",
-    });
-  }, [
-    name,
-    description,
-    templateType,
-    content,
-    cleanedCommands,
-    useTextfsm,
-    attributes,
-    variableManager.variables,
-    toast,
-  ]);
-
-  const handleAddVariable = useCallback(
-    (variableName: string, value: string) => {
-      const id = variableManager.addVariable(variableName, value);
-      setSelectedVariableId(id);
-    },
-    [variableManager],
-  );
-
-  const handleSave = useCallback(async () => {
-    if (!name.trim()) {
-      toast({
-        title: "Validation error",
-        description: "Template name is required",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const variables: Record<string, TemplateVariableRecord> = {};
-    for (const variable of variableManager.variables) {
-      if (variable.name && !variable.isAutoFilled) {
-        variables[variable.name] = {
-          value: variable.value,
-          type: variable.type || "custom",
-        };
-      }
-    }
-
-    const payload = {
-      name: name.trim(),
-      description: description || null,
-      template_type: templateType,
-      category: TEMPLATE_CATEGORY,
-      content,
-      variables,
-      pre_run_commands: cleanedCommands,
-      pre_run_use_textfsm: useTextfsm,
-      nautobot_attributes: attributes,
-      credential_id: credentialId !== "none" ? Number(credentialId) : null,
-    };
-
-    try {
-      if (isEditMode && templateId !== null) {
-        await updateTemplate.mutateAsync({ templateId, payload });
-      } else {
-        await createTemplate.mutateAsync(payload);
-      }
-      router.push("/templates");
-    } catch {
-      // error toast handled by mutation hooks
-    }
-  }, [
-    name,
-    description,
-    templateType,
-    content,
-    cleanedCommands,
-    useTextfsm,
-    attributes,
-    credentialId,
-    variableManager.variables,
-    isEditMode,
-    templateId,
-    updateTemplate,
-    createTemplate,
-    router,
-    toast,
-  ]);
-
-  const isSaving = createTemplate.isPending || updateTemplate.isPending;
-
-  if (isEditMode && templateQuery.isLoading) {
+  if (editor.isLoading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
         <RefreshCw className="mr-2 size-5 animate-spin" />
@@ -482,64 +40,68 @@ function TemplateEditorContent() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-foreground">
-                {isEditMode ? "Edit Template" : "Template Editor"}
+                {editor.isEditMode ? "Edit Template" : "Template Editor"}
               </h1>
               <p className="mt-1 text-muted-foreground">
                 Create and edit Jinja2 templates with variable support and live preview
               </p>
             </div>
           </div>
-          <Button type="button" variant="outline" onClick={() => router.push("/templates")}>
+          <Button type="button" variant="outline" onClick={() => editor.router.push("/templates")}>
             <ArrowLeft className="size-4" />
             Back
           </Button>
         </div>
 
         <GeneralPanel
-          name={name}
-          description={description}
-          templateType={templateType}
-          onNameChange={setName}
-          onDescriptionChange={setDescription}
-          onTemplateTypeChange={setTemplateType}
+          name={editor.name}
+          description={editor.description}
+          templateType={editor.templateType}
+          onNameChange={editor.setName}
+          onDescriptionChange={editor.setDescription}
+          onTemplateTypeChange={editor.setTemplateType}
         />
 
         <NetmikoOptionsPanel
-          sources={sources}
-          sourceId={effectiveSourceId}
-          sourceReady={sourceCredentials.isReady}
-          commandCount={cleanedCommands.length}
-          attributeCount={attributes.length}
-          credentialId={credentialId}
-          getConfigs={getDeviceConfigs}
-          isFetchingConfigs={fetchDeviceConfigsMutation.isPending}
-          canFetchConfigs={Boolean(selectedDevice) && credentialId !== "none"}
-          onFetchConfigs={handleFetchConfigs}
-          onSourceChange={setSourceId}
-          onSelectDevice={setSelectedDevice}
-          onConfigureCommands={() => setCommandsDialogOpen(true)}
-          onConfigureAttributes={() => setAttributesDialogOpen(true)}
-          onCredentialChange={setCredentialId}
-          onGetConfigsChange={setGetDeviceConfigs}
+          sources={editor.sources}
+          sourceId={editor.effectiveSourceId}
+          sourceReady={editor.sourceReady}
+          commandCount={editor.cleanedCommandCount}
+          attributeCount={editor.attributeCount}
+          credentialId={editor.credentialId}
+          getConfigs={editor.getDeviceConfigs}
+          isFetchingConfigs={editor.isFetchingConfigs}
+          canFetchConfigs={editor.canFetchConfigs}
+          onFetchConfigs={editor.handleFetchConfigs}
+          onSourceChange={editor.setSourceId}
+          onSelectDevice={editor.setSelectedDevice}
+          onConfigureCommands={() => editor.setCommandsDialogOpen(true)}
+          onConfigureAttributes={() => editor.setAttributesDialogOpen(true)}
+          onCredentialChange={editor.setCredentialId}
+          onGetConfigsChange={editor.setGetDeviceConfigs}
         />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]" style={{ minHeight: 480 }}>
           <div className="overflow-hidden rounded-lg border bg-card">
             <VariablesPanel
-              variables={variableManager.variables}
-              selectedId={selectedVariableId}
-              onSelect={setSelectedVariableId}
-              onAdd={() => setAddVariableOpen(true)}
-              onHelp={() => setVariablesHelpOpen(true)}
-              onRemove={variableManager.removeVariable}
-              onUpdateValue={variableManager.updateVariableValue}
-              onLinkWorkflow={() => setLinkWorkflowDialogOpen(true)}
+              variables={editor.variableManager.variables}
+              selectedId={editor.selectedVariableId}
+              onSelect={editor.setSelectedVariableId}
+              onAdd={() => editor.setAddVariableOpen(true)}
+              onHelp={() => editor.setVariablesHelpOpen(true)}
+              onRemove={editor.variableManager.removeVariable}
+              onUpdateValue={editor.variableManager.updateVariableValue}
+              onLinkWorkflow={() => editor.setLinkWorkflowDialogOpen(true)}
             />
           </div>
 
           <div className="min-h-[480px] overflow-hidden rounded-lg border">
             <CanvasErrorBoundary fallbackTitle="The editor failed to render">
-              <CodeEditorPanel value={content} language={templateType} onChange={setContent} />
+              <CodeEditorPanel
+                value={editor.content}
+                language={editor.templateType}
+                onChange={editor.setContent}
+              />
             </CanvasErrorBoundary>
           </div>
         </div>
@@ -548,10 +110,10 @@ function TemplateEditorContent() {
           <Button
             type="button"
             variant="outline"
-            disabled={renderer.isRendering || !content.trim()}
-            onClick={handleRender}
+            disabled={editor.renderer.isRendering || !editor.content.trim()}
+            onClick={editor.handleRender}
           >
-            {renderer.isRendering ? (
+            {editor.renderer.isRendering ? (
               <RefreshCw className="size-4 animate-spin" />
             ) : (
               <Play className="size-4" />
@@ -563,64 +125,68 @@ function TemplateEditorContent() {
             <Button
               type="button"
               variant="outline"
-              disabled={!name.trim()}
-              onClick={handleExport}
+              disabled={!editor.name.trim()}
+              onClick={editor.handleExport}
             >
               <Download className="size-4" />
               Export
             </Button>
-            <Button type="button" disabled={isSaving} onClick={handleSave}>
-              {isSaving ? <RefreshCw className="size-4 animate-spin" /> : <Save className="size-4" />}
-              {isEditMode ? "Update Template" : "Save Template"}
+            <Button type="button" disabled={editor.isSaving} onClick={editor.handleSave}>
+              {editor.isSaving ? (
+                <RefreshCw className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              {editor.isEditMode ? "Update Template" : "Save Template"}
             </Button>
           </div>
         </div>
       </div>
 
       <RenderedOutputDialog
-        open={renderer.showDialog}
-        result={renderer.result}
-        onOpenChange={renderer.setShowDialog}
+        open={editor.renderer.showDialog}
+        result={editor.renderer.result}
+        onOpenChange={editor.renderer.setShowDialog}
       />
 
       <AddVariableDialog
-        open={addVariableOpen}
-        existingNames={existingVariableNames}
-        onClose={() => setAddVariableOpen(false)}
-        onAdd={handleAddVariable}
+        open={editor.addVariableOpen}
+        existingNames={editor.existingVariableNames}
+        onClose={() => editor.setAddVariableOpen(false)}
+        onAdd={editor.handleAddVariable}
       />
 
       <JinjaHelpDialog
-        open={variablesHelpOpen}
-        onClose={() => setVariablesHelpOpen(false)}
+        open={editor.variablesHelpOpen}
+        onClose={() => editor.setVariablesHelpOpen(false)}
       />
 
       <ConfigureCommandsDialog
-        open={commandsDialogOpen}
-        commands={commands}
-        useTextfsm={useTextfsm}
-        canExecute={canExecuteCommands}
-        isExecuting={isExecutingCommands}
-        executeHint={executeHint}
-        onOpenChange={setCommandsDialogOpen}
-        onCommandsChange={setCommands}
-        onUseTextfsmChange={setUseTextfsm}
-        onExecute={handleExecuteCommands}
+        open={editor.commandsDialogOpen}
+        commands={editor.commands}
+        useTextfsm={editor.useTextfsm}
+        canExecute={editor.canExecuteCommands}
+        isExecuting={editor.isExecutingCommands}
+        executeHint={editor.executeHint}
+        onOpenChange={editor.setCommandsDialogOpen}
+        onCommandsChange={editor.setCommands}
+        onUseTextfsmChange={editor.setUseTextfsm}
+        onExecute={editor.handleExecuteCommands}
       />
 
       <AttributesDialog
-        open={attributesDialogOpen}
-        value={attributes}
-        onOpenChange={setAttributesDialogOpen}
-        onChange={setAttributes}
+        open={editor.attributesDialogOpen}
+        value={editor.attributes}
+        onOpenChange={editor.setAttributesDialogOpen}
+        onChange={editor.setAttributes}
       />
 
       <LinkWorkflowDialog
-        open={linkWorkflowDialogOpen}
-        workflows={workflowsQuery.data?.workflows ?? []}
-        selectedId={referenceWorkflowId}
-        onSelect={setReferenceWorkflowId}
-        onClose={() => setLinkWorkflowDialogOpen(false)}
+        open={editor.linkWorkflowDialogOpen}
+        workflows={editor.workflows}
+        selectedId={editor.referenceWorkflowId}
+        onSelect={editor.setReferenceWorkflowId}
+        onClose={() => editor.setLinkWorkflowDialogOpen(false)}
       />
     </div>
   );

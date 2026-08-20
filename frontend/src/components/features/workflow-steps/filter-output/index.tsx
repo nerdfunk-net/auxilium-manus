@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Plus, X } from "lucide-react";
 
 import {
   EMPTY_PLUGINS,
@@ -9,7 +8,6 @@ import {
   EMPTY_WORKFLOW_NODES,
 } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -26,14 +24,10 @@ import { ContentSourcePicker } from "@/components/features/workflow-steps/shared
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 import { findUpstreamOutput } from "@/components/features/workflows/utils/upstream-output";
 
+import { FilterRulesFields, type FilterRule } from "./filter-rules-fields";
 import { FilterOutputHelpPanel } from "./help-panel";
 
 type RuleType = "pattern" | "path";
-
-interface FilterRule {
-  type: RuleType;
-  value: string;
-}
 
 const EMPTY_RULES: FilterRule[] = [];
 
@@ -251,8 +245,8 @@ function FilterOutputConfigPanel({
       <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
         <p className="font-medium">Remove volatile fields before comparison</p>
         <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Applies regex patterns or dot-path selectors to clean up command output.
-          The filtered result is stored and consumed by downstream steps via{" "}
+          Applies regex patterns or dot-path selectors to clean up command output. The filtered
+          result is stored and consumed by downstream steps via{" "}
           <span className="font-mono">filtered_output</span>.
         </p>
       </div>
@@ -336,85 +330,19 @@ function FilterOutputConfigPanel({
             className="h-8 font-mono text-xs"
           />
           <p className="text-[11px] text-muted-foreground">
-            Leave empty to use the first command output. Enter the exact command string to
-            filter a specific command from a multi-command step.
+            Leave empty to use the first command output. Enter the exact command string to filter
+            a specific command from a multi-command step.
           </p>
         </div>
       )}
 
-      <div className="space-y-2 border-t pt-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">filter_rules</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              list
-            </Badge>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-6 gap-1 px-2 text-[11px]"
-            onClick={handleAddRule}
-          >
-            <Plus className="size-3" aria-hidden />
-            Add rule
-          </Button>
-        </div>
-
-        {rules.length === 0 ? (
-          <p className="text-[11px] text-warning-foreground">Add at least one filter rule.</p>
-        ) : null}
-
-        <div className="space-y-2">
-          {rules.map((rule, index) => (
-            <div key={index} className="flex items-center gap-1.5">
-              <Select
-                value={rule.type}
-                onValueChange={(value) => handleRuleTypeChange(index, value as RuleType)}
-              >
-                <SelectTrigger className="h-7 w-[80px] shrink-0 text-[11px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pattern">pattern</SelectItem>
-                  <SelectItem value="path">path</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                value={rule.value}
-                onChange={(e) => handleRuleValueChange(index, e.target.value)}
-                placeholder={rule.type === "pattern" ? "^uptime" : "route.ospf"}
-                className="h-7 flex-1 font-mono text-xs"
-              />
-              <button
-                type="button"
-                onClick={() => handleRemoveRule(index)}
-                className="shrink-0 text-muted-foreground hover:text-destructive"
-                aria-label="Remove rule"
-              >
-                <X className="size-3.5" aria-hidden />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="rounded-lg bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
-          <p className="font-medium text-foreground">Rule types</p>
-          <p className="mt-1">
-            <span className="font-mono">pattern</span> — regex on key names (JSON,
-            recursive) or line content (text). E.g.{" "}
-            <span className="font-mono">^uptime</span> removes all keys starting with
-            uptime.
-          </p>
-          <p className="mt-1">
-            <span className="font-mono">path</span> — dot-notation path to remove a
-            specific nested JSON key. E.g.{" "}
-            <span className="font-mono">route.ospf</span> removes{" "}
-            <span className="font-mono">data.route.ospf</span>.
-          </p>
-        </div>
-      </div>
+      <FilterRulesFields
+        rules={rules}
+        onAddRule={handleAddRule}
+        onRuleTypeChange={handleRuleTypeChange}
+        onRuleValueChange={handleRuleValueChange}
+        onRemoveRule={handleRemoveRule}
+      />
     </div>
   );
 }

@@ -9,16 +9,12 @@ import { Button } from "@/components/ui/button";
 import { UserPlus } from "lucide-react";
 
 import { ConditionTreeBuilder } from "./condition-tree-builder";
+import { DeviceSelectorModals } from "./device-selector-modals";
 import { DeviceTable } from "./device-table";
 import { SelectedInventoryList } from "./selected-inventory-list";
-import { HelpModal } from "../dialogs/help-modal";
-import { LoadInventoryModal } from "../dialogs/load-inventory-modal";
-import { LogicalTreeModal } from "../dialogs/logical-tree-modal";
-import { ManageInventoryModal } from "../dialogs/manage-inventory-modal";
-import { SaveDeviceListModal } from "../dialogs/save-device-list-modal";
-import { SaveInventoryModal } from "../dialogs/save-inventory-modal";
 import { useConditionTree } from "../hooks/use-condition-tree";
 import { useDeviceFilter } from "../hooks/use-device-filter";
+import { useDeviceSelectorModals } from "../hooks/use-device-selector-modals";
 import { mapPreviewDevices, useDevicePreview } from "../hooks/use-device-preview";
 import type { LoadedInventoryData } from "../hooks/use-saved-inventories";
 import { useSavedInventories } from "../hooks/use-saved-inventories";
@@ -91,13 +87,11 @@ export function DeviceSelector({
   const saved = useSavedInventories();
   const selection = useSelectedInventory();
 
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [showSaveDeviceListModal, setShowSaveDeviceListModal] = useState(false);
-  const [showLoadModal, setShowLoadModal] = useState(false);
-  const [showManageModal, setShowManageModal] = useState(false);
-  const [showLogicalTreeModal, setShowLogicalTreeModal] = useState(false);
-  const [showHelpModal, setShowHelpModal] = useState(false);
-  const [selectionMode, setSelectionMode] = useState(false);
+  const modals = useDeviceSelectorModals({
+    saved,
+    conditionTreeItemCount: conditionTree.items.length,
+    selectedDeviceCount: selection.selectedCount,
+  });
 
   const [loadedInventory, setLoadedInventory] = useState<Pick<
     LoadedInventoryData,
@@ -109,29 +103,6 @@ export function DeviceSelector({
       setConditionTree(flatConditionsToTree(initialConditions));
     }
   }, [initialConditions, flatConditionsToTree, setConditionTree]);
-
-  const handleOpenSaveModal = useCallback(async () => {
-    if (conditionTree.items.length === 0) {
-      toast({
-        title: "Nothing to save",
-        description: "Please add at least one condition before saving.",
-        variant: "destructive",
-      });
-      return;
-    }
-    await saved.loadSavedInventories();
-    setShowSaveModal(true);
-  }, [conditionTree.items.length, saved, toast]);
-
-  const handleOpenLoadModal = useCallback(async () => {
-    await saved.loadSavedInventories();
-    setShowLoadModal(true);
-  }, [saved]);
-
-  const handleOpenManageModal = useCallback(async () => {
-    await saved.loadSavedInventories();
-    setShowManageModal(true);
-  }, [saved]);
 
   const handleSaveInventory = useCallback(
     async (
@@ -185,13 +156,13 @@ export function DeviceSelector({
             `sources/nautobot/${id}/devices?${params.toString()}`,
           );
           selection.replaceAll(mapPreviewDevices(response.devices));
-          setSelectionMode(true);
+          modals.setSelectionMode(true);
         } else if (result.tree) {
           setConditionTree(result.tree);
           preview.setShowPreviewResults(false);
         }
 
-        setShowLoadModal(false);
+        modals.closeLoadModal();
         onInventoryLoaded?.(id);
       } catch (error) {
         toast({
@@ -210,6 +181,7 @@ export function DeviceSelector({
       sourceId,
       onInventoryLoaded,
       toast,
+      modals,
     ],
   );
 
@@ -243,19 +215,6 @@ export function DeviceSelector({
     },
     [saved, selection.selectedDevices, toast],
   );
-
-  const handleOpenSaveDeviceListModal = useCallback(async () => {
-    if (selection.selectedCount === 0) {
-      toast({
-        title: "Nothing to save",
-        description: "Add at least one device to the selection before saving.",
-        variant: "destructive",
-      });
-      return;
-    }
-    await saved.loadSavedInventories();
-    setShowSaveDeviceListModal(true);
-  }, [selection.selectedCount, saved, toast]);
 
   const handleAddToSelection = useCallback(() => {
     const devicesToAdd = preview.previewDevices.filter((device) =>
@@ -340,18 +299,18 @@ export function DeviceSelector({
         isLoadingPreview={preview.isLoadingPreview}
         isSavingCurrent={saved.isSavingInventory}
         loadedInventoryName={loadedInventory?.name}
-        onOpenLoadModal={handleOpenLoadModal}
-        onOpenManageModal={handleOpenManageModal}
-        onOpenSaveAsModal={handleOpenSaveModal}
+        onOpenLoadModal={modals.handleOpenLoadModal}
+        onOpenManageModal={modals.handleOpenManageModal}
+        onOpenSaveAsModal={modals.handleOpenSaveModal}
         onPreview={preview.loadPreview}
         onSaveCurrent={handleDirectSave}
-        onShowHelp={() => setShowHelpModal(true)}
-        onShowLogicalTree={() => setShowLogicalTreeModal(true)}
-        onToggleSelectionMode={() => setSelectionMode((v) => !v)}
+        onShowHelp={modals.openHelpModal}
+        onShowLogicalTree={modals.openLogicalTreeModal}
+        onToggleSelectionMode={modals.toggleSelectionMode}
         operatorOptions={deviceFilter.operatorOptions}
         removeItemFromTree={removeItemFromTree}
         selectedCustomField={deviceFilter.selectedCustomField}
-        selectionMode={selectionMode}
+        selectionMode={modals.selectionMode}
         setConditionTree={setConditionTree}
         setCurrentField={deviceFilter.setCurrentField}
         setCurrentGroupPath={setCurrentGroupPath}
@@ -369,7 +328,7 @@ export function DeviceSelector({
         currentPage={preview.currentPage}
         currentPageDevices={preview.currentPageDevices}
         devices={preview.previewDevices}
-        enableSelection={enableSelection || selectionMode}
+        enableSelection={enableSelection || modals.selectionMode}
         onClearSelection={() => preview.setSelectedIds(new Set())}
         onPageChange={preview.handlePageChange}
         onSelectAll={preview.handleSelectAll}
@@ -383,7 +342,7 @@ export function DeviceSelector({
         totalPages={preview.totalPages}
       />
 
-      {selectionMode && preview.selectedIds.size > 0 ? (
+      {modals.selectionMode && preview.selectedIds.size > 0 ? (
         <div className="flex justify-end">
           <Button
             className="flex items-center space-x-2 border-0 bg-step-hover text-step-foreground hover:bg-step-hover/90"
@@ -396,75 +355,31 @@ export function DeviceSelector({
         </div>
       ) : null}
 
-      {selectionMode ? (
+      {modals.selectionMode ? (
         <SelectedInventoryList
           devices={selection.selectedDevices}
           isSaving={saved.isSavingInventory}
           onRemoveDevice={selection.removeDevice}
           onRemoveSelected={selection.removeSelectedDevices}
-          onSave={handleOpenSaveDeviceListModal}
+          onSave={modals.handleOpenSaveDeviceListModal}
           onSelectAllForRemoval={selection.selectAllForRemoval}
           onToggleRemovalSelect={selection.toggleRemovalSelect}
           removalSelectedIds={selection.removalSelectedIds}
         />
       ) : null}
 
-      <SaveInventoryModal
-        currentConditionTree={conditionTree}
-        initialDescription={loadedInventory?.description}
-        initialGroupPath={loadedInventory?.group_path}
-        initialName={loadedInventory?.name}
-        isOpen={showSaveModal}
-        isSaving={saved.isSavingInventory}
-        onClose={() => setShowSaveModal(false)}
-        onSave={handleSaveInventory}
-        savedInventories={saved.savedInventories}
-      />
-
-      <SaveDeviceListModal
-        devices={selection.selectedDevices}
-        initialDescription={
-          loadedInventory?.inventory_type === "static" ? loadedInventory.description : undefined
-        }
-        initialGroupPath={
-          loadedInventory?.inventory_type === "static" ? loadedInventory.group_path : undefined
-        }
-        initialName={
-          loadedInventory?.inventory_type === "static" ? loadedInventory.name : undefined
-        }
-        isOpen={showSaveDeviceListModal}
-        isSaving={saved.isSavingInventory}
-        onClose={() => setShowSaveDeviceListModal(false)}
-        onSave={handleSaveDeviceList}
-        savedInventories={saved.savedInventories}
-      />
-
-      <LoadInventoryModal
-        isLoading={saved.isLoadingInventories}
-        isOpen={showLoadModal}
-        onClose={() => setShowLoadModal(false)}
-        onLoad={handleLoadInventory}
-        savedInventories={saved.savedInventories}
-      />
-
-      <ManageInventoryModal
-        isLoading={saved.isLoadingInventories}
-        isOpen={showManageModal}
-        onClose={() => setShowManageModal(false)}
-        onDelete={saved.deleteInventory}
-        onExport={handleExportInventory}
-        onImport={handleImportInventory}
-        onUpdate={saved.updateInventoryDetails}
-        savedInventories={saved.savedInventories}
-      />
-
-      <LogicalTreeModal
+      <DeviceSelectorModals
         conditionTree={conditionTree}
-        isOpen={showLogicalTreeModal}
-        onClose={() => setShowLogicalTreeModal(false)}
+        loadedInventory={loadedInventory}
+        modals={modals}
+        onExportInventory={handleExportInventory}
+        onImportInventory={handleImportInventory}
+        onLoadInventory={handleLoadInventory}
+        onSaveDeviceList={handleSaveDeviceList}
+        onSaveInventory={handleSaveInventory}
+        saved={saved}
+        selection={selection}
       />
-
-      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
     </div>
   );
 }

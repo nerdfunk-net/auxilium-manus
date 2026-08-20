@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MutableRefObject } from "react";
 
-import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useApi } from "@/hooks/use-api";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -15,9 +14,10 @@ import type {
   WorkflowVisibility,
 } from "../types/workflow-persistence";
 import { canvasFromWorkflowResponse } from "../utils/apply-loaded-workflow";
-import { validateCanvasWorkflow } from "../utils/workflow-validation";
+import { canvasPersistPayload } from "../utils/canvas-persist-payload";
 import type { UseWorkflowCanvasResult } from "./use-workflow-canvas";
 import { useWorkflowBuilderStore } from "./use-workflow-builder-store";
+import { useWorkflowSave } from "./use-workflow-save";
 
 export interface UseWorkflowPersistenceOptions {
   canvas: UseWorkflowCanvasResult;
@@ -66,22 +66,40 @@ export function useWorkflowPersistence({
   const [isOpenConfirmOpen, setIsOpenConfirmOpen] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [isNewConfirmOpen, setIsNewConfirmOpen] = useState(false);
-  // When the user chooses "Save & Open" but has no workflowId, Save As runs first.
-  // This flag tells handleSaveAs to open the Open dialog once saving completes.
   const [openAfterSave, setOpenAfterSave] = useState(false);
-  // When the user chooses "Save & Run" but has no workflowId, Save As runs first.
   const [runAfterSave, setRunAfterSave] = useState(false);
 
-  const { createWorkflow, updateWorkflow } = useWorkflowMutations();
   const { apiCall } = useApi();
 
-  // Fallback for when no matching draft was found above (true first mount of
-  // the editor in this browser session with a workflow already recorded in
-  // the store, or the store's draft belongs to a different workflow): fetch
-  // the last saved canvas from the backend so it isn't shown blank.
-  // This is a one-shot rehydration fetch, not a live-syncing query: it should
-  // run once when a mount without a local draft becomes ready, then never
-  // refetch (no window-focus refetch, no auto-retry).
+  const canvasPayload = useMemo(
+    () => canvasPersistPayload(allNodes, allEdges, groups, staticAttributes),
+    [allNodes, allEdges, groups, staticAttributes],
+  );
+
+  const {
+    handleSave,
+    handleSaveAs,
+    handleOverwrite,
+    handleSaveAndOpen,
+    createWorkflow,
+    updateWorkflow,
+  } = useWorkflowSave({
+    canvas,
+    workflowId,
+    workflowName,
+    canvasPayload,
+    markSaved,
+    markError,
+    loadWorkflow,
+    setIsSaveAsOpen,
+    openAfterSave,
+    runAfterSave,
+    setOpenAfterSave,
+    setRunAfterSave,
+    setIsOpenDialogOpen,
+    requestRunRef,
+  });
+
   const rehydrateCanvasQuery = useQuery({
     queryKey: queryKeys.workflows.detail(mountWorkflowId ?? 0),
     queryFn: () => apiCall<WorkflowResponse>(`workflows/${mountWorkflowId}`),
@@ -117,158 +135,6 @@ export function useWorkflowPersistence({
     }
   }, [isDirty, confirmNew]);
 
-  const handleSaveAs = useCallback(
-    async (values: {
-      name: string;
-      description?: string;
-      folder?: string;
-      visibility: WorkflowVisibility;
-    }) => {
-      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
-      if (!validation.isValid) {
-        markError(`Cannot save: ${validation.issues[0]}`);
-        return;
-      }
-      try {
-        const saved = await createWorkflow.mutateAsync({
-          name: values.name,
-          description: values.description,
-          folder: values.folder,
-          visibility: values.visibility,
-          canvas_nodes: allNodes as unknown as Record<string, unknown>[],
-          canvas_edges: allEdges as unknown as Record<string, unknown>[],
-          canvas_groups: groups as unknown as Record<string, unknown>[],
-          static_attributes: staticAttributes,
-        });
-        loadWorkflow({
-          workflowId: saved.id,
-          workflowUuid: saved.uuid ?? null,
-          workflowName: saved.name,
-          workflowDescription: saved.description ?? "",
-          workflowFolder: saved.folder ?? "/",
-          workflowVisibility: saved.visibility as WorkflowVisibility,
-        });
-        setIsSaveAsOpen(false);
-        markSaved(`Saved as "${saved.name}"`);
-        if (openAfterSave) {
-          setOpenAfterSave(false);
-          setIsOpenDialogOpen(true);
-        }
-        if (runAfterSave) {
-          setRunAfterSave(false);
-          requestRunRef.current(saved.id);
-        }
-      } catch {
-        markError("Failed to save workflow");
-      }
-    },
-    [
-      allNodes,
-      allEdges,
-      groups,
-      staticAttributes,
-      createWorkflow,
-      loadWorkflow,
-      markSaved,
-      markError,
-      openAfterSave,
-      runAfterSave,
-      requestRunRef,
-    ],
-  );
-
-  const handleOverwrite = useCallback(
-    async (
-      values: {
-        name: string;
-        description?: string;
-        folder?: string;
-        visibility: WorkflowVisibility;
-      },
-      existingId: number,
-    ) => {
-      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
-      if (!validation.isValid) {
-        markError(`Cannot save: ${validation.issues[0]}`);
-        return;
-      }
-      try {
-        const saved = await updateWorkflow.mutateAsync({
-          id: existingId,
-          data: {
-            name: values.name,
-            description: values.description,
-            folder: values.folder,
-            visibility: values.visibility,
-            canvas_nodes: allNodes as unknown as Record<string, unknown>[],
-            canvas_edges: allEdges as unknown as Record<string, unknown>[],
-            canvas_groups: groups as unknown as Record<string, unknown>[],
-            static_attributes: staticAttributes,
-          },
-        });
-        loadWorkflow({
-          workflowId: saved.id,
-          workflowUuid: saved.uuid ?? null,
-          workflowName: saved.name,
-          workflowDescription: saved.description ?? "",
-          workflowFolder: saved.folder ?? "/",
-          workflowVisibility: saved.visibility as WorkflowVisibility,
-        });
-        setIsSaveAsOpen(false);
-        markSaved(`Saved as "${saved.name}"`);
-      } catch {
-        markError("Failed to overwrite workflow");
-      }
-    },
-    [
-      allNodes,
-      allEdges,
-      groups,
-      staticAttributes,
-      updateWorkflow,
-      loadWorkflow,
-      markSaved,
-      markError,
-    ],
-  );
-
-  const handleSave = useCallback(() => {
-    if (!workflowId) {
-      setIsSaveAsOpen(true);
-      return;
-    }
-    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
-    if (!validation.isValid) {
-      markError(`Cannot save: ${validation.issues[0]}`);
-      return;
-    }
-    updateWorkflow.mutate(
-      {
-        id: workflowId,
-        data: {
-          canvas_nodes: allNodes as unknown as Record<string, unknown>[],
-          canvas_edges: allEdges as unknown as Record<string, unknown>[],
-          canvas_groups: groups as unknown as Record<string, unknown>[],
-          static_attributes: staticAttributes,
-        },
-      },
-      {
-        onSuccess: () => markSaved(`Saved "${workflowName}"`),
-        onError: () => markError("Failed to save workflow"),
-      },
-    );
-  }, [
-    workflowId,
-    allNodes,
-    allEdges,
-    groups,
-    staticAttributes,
-    updateWorkflow,
-    markSaved,
-    markError,
-    workflowName,
-  ]);
-
   const handleOpen = useCallback(() => {
     if (isDirty) {
       setIsOpenConfirmOpen(true);
@@ -277,45 +143,10 @@ export function useWorkflowPersistence({
     }
   }, [isDirty]);
 
-  const handleSaveAndOpen = useCallback(async () => {
+  const handleSaveAndOpenWithConfirm = useCallback(async () => {
     setIsOpenConfirmOpen(false);
-    if (!workflowId) {
-      // No saved ID yet — delegate naming to Save As, then open when done.
-      setOpenAfterSave(true);
-      setIsSaveAsOpen(true);
-      return;
-    }
-    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
-    if (!validation.isValid) {
-      markError(`Cannot save: ${validation.issues[0]}`);
-      return;
-    }
-    try {
-      await updateWorkflow.mutateAsync({
-        id: workflowId,
-        data: {
-          canvas_nodes: allNodes as unknown as Record<string, unknown>[],
-          canvas_edges: allEdges as unknown as Record<string, unknown>[],
-          canvas_groups: groups as unknown as Record<string, unknown>[],
-          static_attributes: staticAttributes,
-        },
-      });
-      markSaved(`Saved "${workflowName}"`);
-      setIsOpenDialogOpen(true);
-    } catch {
-      markError("Failed to save workflow");
-    }
-  }, [
-    workflowId,
-    allNodes,
-    allEdges,
-    groups,
-    staticAttributes,
-    updateWorkflow,
-    markSaved,
-    markError,
-    workflowName,
-  ]);
+    await handleSaveAndOpen();
+  }, [handleSaveAndOpen]);
 
   const handleDiscardAndOpen = useCallback(() => {
     setIsOpenConfirmOpen(false);
@@ -377,7 +208,7 @@ export function useWorkflowPersistence({
       handleSaveAs,
       handleOverwrite,
       handleOpen,
-      handleSaveAndOpen,
+      handleSaveAndOpen: handleSaveAndOpenWithConfirm,
       handleDiscardAndOpen,
       handleLoadWorkflow,
       beginSaveAsThenRun,
@@ -404,7 +235,7 @@ export function useWorkflowPersistence({
       handleSaveAs,
       handleOverwrite,
       handleOpen,
-      handleSaveAndOpen,
+      handleSaveAndOpenWithConfirm,
       handleDiscardAndOpen,
       handleLoadWorkflow,
       beginSaveAsThenRun,

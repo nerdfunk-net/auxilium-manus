@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -18,77 +16,15 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+import { FILENAME_PLACEHOLDERS } from "@/components/features/workflow-steps/shared/filename-placeholders";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
+import { buildComparePyatsSnapshotConfig } from "./compare-pyats-config";
+import { ComparePyatsReferenceFields } from "./compare-pyats-reference-fields";
+import { ExcludeKeysFields } from "./exclude-keys-fields";
 import { ComparePyatsSnapshotHelpPanel } from "./help-panel";
 
 type ReferenceLocation = "filesystem" | "git";
-
-const REFERENCE_LOCATION_OPTIONS = [
-  {
-    value: "filesystem",
-    label: "Filesystem",
-    hint: "Read from DATA_DIRECTORY/pyats-snapshots/ (or reference_subdirectory).",
-  },
-  {
-    value: "git",
-    label: "Git repository",
-    hint: "Read from a git source configured under Settings → Sources.",
-  },
-] as const;
-
-const FILENAME_PLACEHOLDERS = [
-  "{device.name}",
-  "{device.hostname}",
-  "{device.primary_ip4}",
-  "{nautobot.location.name}",
-  "{nautobot.role.name}",
-  "{git.source_file}",
-  "{command.name}",
-  "{parsed.output_key}",
-  "{run.timestamp}",
-  "{run.date}",
-  "{run.id}",
-];
-
-function excludeKeysFromConfig(config: Record<string, unknown>): string[] {
-  return Array.isArray(config.exclude_keys)
-    ? config.exclude_keys.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-function buildComparePyatsSnapshotConfig(
-  config: Record<string, unknown>,
-  patch: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    feature: typeof config.feature === "string" ? config.feature : "",
-    source_step_node_id:
-      typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
-    parsed_output_key:
-      typeof config.parsed_output_key === "string" ? config.parsed_output_key : "",
-    exclude_keys: excludeKeysFromConfig(config),
-    reference_location:
-      config.reference_location === "git" || config.reference_location === "filesystem"
-        ? config.reference_location
-        : "filesystem",
-    reference_subdirectory:
-      typeof config.reference_subdirectory === "string"
-        ? config.reference_subdirectory
-        : "pyats-snapshots",
-    git_source_id:
-      typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "",
-    repository_subdirectory:
-      typeof config.repository_subdirectory === "string" ? config.repository_subdirectory : "",
-    pull_before_read: config.pull_before_read === true,
-    filename_template:
-      typeof config.filename_template === "string"
-        ? config.filename_template
-        : "{device.name}.pyats-snapshot.json",
-    ...patch,
-  };
-}
 
 function ComparePyatsSnapshotConfigPanel({
   config,
@@ -97,7 +33,6 @@ function ComparePyatsSnapshotConfigPanel({
   workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
-  const [gitSourceOpen, setGitSourceOpen] = useState(false);
 
   useEffect(() => {
     if (initializedForNode.current === nodeId) {
@@ -109,28 +44,8 @@ function ComparePyatsSnapshotConfigPanel({
     }
   }, [nodeId, config, onChange]);
 
-  // Local text buffer for exclude_keys: the persisted config value is an
-  // array (parsed by splitting on ","), so deriving the input's display
-  // value from that array on every keystroke drops in-progress trailing
-  // commas/spaces (e.g. typing "updated," would immediately snap back to
-  // "updated"). Buffer the raw text and only resync it from config when the
-  // selected node actually changes.
-  const excludeKeysInitializedFor = useRef<string | null>(null);
-  const [excludeKeysText, setExcludeKeysText] = useState("");
-
-  useEffect(() => {
-    if (excludeKeysInitializedFor.current === nodeId) {
-      return;
-    }
-    excludeKeysInitializedFor.current = nodeId;
-    setExcludeKeysText(excludeKeysFromConfig(config).join(", "));
-  }, [nodeId, config]);
-
   const feature = typeof config.feature === "string" ? config.feature : "";
   const referenceLocation = (config.reference_location as ReferenceLocation) || "filesystem";
-  const isGitReference = referenceLocation === "git";
-  const gitSourceId =
-    typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "";
 
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, "pyats_snapshot", nodeId),
@@ -141,11 +56,6 @@ function ComparePyatsSnapshotConfigPanel({
   const selectedSourceStep = useMemo(
     () => sourceSteps.find((step) => step.nodeId === sourceStepNodeId) ?? null,
     [sourceSteps, sourceStepNodeId],
-  );
-
-  const referenceHint = useMemo(
-    () => REFERENCE_LOCATION_OPTIONS.find((option) => option.value === referenceLocation)?.hint,
-    [referenceLocation],
   );
 
   const handleFeatureChange = useCallback(
@@ -202,18 +112,6 @@ function ComparePyatsSnapshotConfigPanel({
   const handleParsedOutputKeyChange = useCallback(
     (value: string) => {
       onChange(buildComparePyatsSnapshotConfig(config, { parsed_output_key: value }));
-    },
-    [config, onChange],
-  );
-
-  const handleExcludeKeysChange = useCallback(
-    (value: string) => {
-      setExcludeKeysText(value);
-      const excludeKeys = value
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      onChange(buildComparePyatsSnapshotConfig(config, { exclude_keys: excludeKeys }));
     },
     [config, onChange],
   );
@@ -353,140 +251,17 @@ function ComparePyatsSnapshotConfigPanel({
         />
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">exclude_keys</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            optional
-          </Badge>
-        </div>
-        <Input
-          value={excludeKeysText}
-          onChange={(event) => handleExcludeKeysChange(event.target.value)}
-          placeholder="updated, last_change, uptime"
-          className="h-8 font-mono text-xs"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Comma-separated dict keys to ignore during the diff (passed to Genie&rsquo;s{" "}
-          <span className="font-mono">Diff(..., exclude=[...])</span>). Genie does{" "}
-          <span className="font-medium text-foreground">not</span> ignore volatile fields
-          like <span className="font-mono">updated</span> automatically — list any keys
-          whose values change on their own (timers, counters, uptime) to avoid false
-          mismatches.
-        </p>
-      </div>
+      <ExcludeKeysFields nodeId={nodeId} config={config} onChange={onChange} />
 
-      <div className="space-y-1.5 border-t pt-3">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">reference_location</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
-          </Badge>
-        </div>
-        <Select value={referenceLocation} onValueChange={handleReferenceLocationChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {REFERENCE_LOCATION_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {referenceHint ? (
-          <p className="text-[11px] text-muted-foreground">{referenceHint}</p>
-        ) : null}
-      </div>
-
-      {isGitReference ? (
-        <>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">git_source_id</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                git
-              </Badge>
-            </div>
-            {gitSourceId ? (
-              <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
-            ) : (
-              <p className="text-[11px] text-warning-foreground">Not configured</p>
-            )}
-            <Button
-              className="h-7 w-full text-xs"
-              size="sm"
-              type="button"
-              variant="outline"
-              onClick={() => setGitSourceOpen(true)}
-            >
-              {gitSourceId ? "Change repository" : "Choose repository"}
-            </Button>
-          </div>
-
-          <GitSourceSelectDialog
-            open={gitSourceOpen}
-            selectedSourceId={gitSourceId}
-            onClose={() => setGitSourceOpen(false)}
-            onSave={handleGitSourceIdChange}
-          />
-
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">repository_subdirectory</span>
-              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                string
-              </Badge>
-            </div>
-            <Input
-              value={
-                typeof config.repository_subdirectory === "string"
-                  ? config.repository_subdirectory
-                  : ""
-              }
-              onChange={(event) => handleRepositorySubdirectoryChange(event.target.value)}
-              placeholder="network/snapshots"
-              className="h-8 font-mono text-xs"
-            />
-          </div>
-
-          <Label className="flex cursor-pointer items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={config.pull_before_read === true}
-              onChange={(event) => handlePullBeforeReadChange(event.target.checked)}
-              className="accent-step"
-              aria-hidden={false}
-            />
-            <span className="font-mono text-xs font-medium">pull_before_read</span>
-          </Label>
-          <p className="pl-5 text-[11px] text-muted-foreground">
-            Pull latest changes once before reading the reference file.
-          </p>
-        </>
-      ) : (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">reference_subdirectory</span>
-            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              string
-            </Badge>
-          </div>
-          <Input
-            value={
-              typeof config.reference_subdirectory === "string"
-                ? config.reference_subdirectory
-                : "pyats-snapshots"
-            }
-            onChange={(event) => handleReferenceSubdirectoryChange(event.target.value)}
-            className="h-8 font-mono text-xs"
-          />
-          <p className="text-[11px] text-muted-foreground">
-            Files are read from DATA_DIRECTORY/&lt;reference_subdirectory&gt;/.
-          </p>
-        </div>
-      )}
+      <ComparePyatsReferenceFields
+        config={config}
+        referenceLocation={referenceLocation}
+        onReferenceLocationChange={handleReferenceLocationChange}
+        onReferenceSubdirectoryChange={handleReferenceSubdirectoryChange}
+        onGitSourceIdChange={handleGitSourceIdChange}
+        onRepositorySubdirectoryChange={handleRepositorySubdirectoryChange}
+        onPullBeforeReadChange={handlePullBeforeReadChange}
+      />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

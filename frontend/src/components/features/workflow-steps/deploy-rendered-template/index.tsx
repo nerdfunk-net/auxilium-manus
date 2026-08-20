@@ -17,9 +17,9 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
+import { DeployCredentialFields, DeployReadTimeoutFields } from "./deploy-fields";
 import { DeployRenderedTemplateHelpPanel } from "./help-panel";
 
 const DEFAULT_READ_TIMEOUT = 60;
@@ -85,15 +85,6 @@ function DeployRenderedTemplateConfigPanel({
       onChange(buildDeployRenderedTemplateConfig(config));
     }
   }, [nodeId, config, onChange]);
-
-  const { data, isLoading } = useCredentialsQuery();
-  const sshCredentials = useMemo(
-    () =>
-      (data?.credentials ?? []).filter(
-        (credential) => credential.type === "ssh" && credential.status !== "expired",
-      ),
-    [data?.credentials],
-  );
 
   const credentialReference =
     typeof config.credential_reference === "string" ? config.credential_reference : "";
@@ -211,41 +202,10 @@ function DeployRenderedTemplateConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">credential_reference</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            credential_ref
-          </Badge>
-        </div>
-
-        {isLoading ? (
-          <p className="text-[11px] text-muted-foreground">Loading credentials…</p>
-        ) : sshCredentials.length === 0 && !credentialReference ? (
-          <p className="text-[11px] text-warning-foreground">
-            No SSH credentials in Settings → Credentials
-          </p>
-        ) : (
-          <Select value={credentialReference} onValueChange={handleCredentialChange}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select SSH credential" />
-            </SelectTrigger>
-            <SelectContent>
-              {credentialReference &&
-                !sshCredentials.some((credential) => credential.name === credentialReference) && (
-                  <SelectItem value={credentialReference} disabled>
-                    {credentialReference} (not accessible)
-                  </SelectItem>
-                )}
-              {sshCredentials.map((credential) => (
-                <SelectItem key={credential.id} value={credential.name}>
-                  {credential.name} ({credential.username})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
+      <DeployCredentialFields
+        credentialReference={credentialReference}
+        onCredentialChange={handleCredentialChange}
+      />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
@@ -315,8 +275,8 @@ function DeployRenderedTemplateConfigPanel({
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] text-muted-foreground">
-          Optional output_key from the render step. Leave empty to use the template
-          produced by the selected step.
+          Optional output_key from the render step. Leave empty to use the template produced by
+          the selected step.
         </p>
       </div>
 
@@ -362,27 +322,10 @@ function DeployRenderedTemplateConfigPanel({
         </p>
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">read_timeout</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            integer
-          </Badge>
-        </div>
-        <Input
-          type="number"
-          min={MIN_READ_TIMEOUT}
-          max={MAX_READ_TIMEOUT}
-          value={readTimeout}
-          onChange={(event) => handleReadTimeoutChange(event.target.value)}
-          className="h-8 font-mono text-xs"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Seconds to wait for each command&apos;s response. Raise this if a
-          &ldquo;Pattern not detected&rdquo; timeout appears for commands with slow or
-          multi-line output.
-        </p>
-      </div>
+      <DeployReadTimeoutFields
+        readTimeout={readTimeout}
+        onReadTimeoutChange={handleReadTimeoutChange}
+      />
 
       <div className="flex items-start gap-2">
         <input
@@ -400,9 +343,8 @@ function DeployRenderedTemplateConfigPanel({
             write_config_after_execution
           </Label>
           <p className="text-[11px] text-muted-foreground">
-            After a successful deployment, run &ldquo;copy running-config
-            startup-config&rdquo; and confirm the prompt automatically. Skipped when the
-            deployment itself fails.
+            After a successful deployment, run &ldquo;copy running-config startup-config&rdquo; and
+            confirm the prompt automatically. Skipped when the deployment itself fails.
           </p>
         </div>
       </div>
@@ -421,17 +363,16 @@ function DeployRenderedTemplateConfigPanel({
               auto_confirm_prompts
             </Label>
             <p className="text-[11px] text-muted-foreground">
-              Automatically press Enter to accept a device&apos;s interactive
-              confirmation (e.g. &ldquo;...Do you want to continue? [confirm]&rdquo;)
-              instead of failing.
+              Automatically press Enter to accept a device&apos;s interactive confirmation (e.g.
+              &ldquo;...Do you want to continue? [confirm]&rdquo;) instead of failing.
             </p>
           </div>
         </div>
         {autoConfirmPrompts ? (
           <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
-            Risky: any command in the rendered template that raises a confirmation
-            prompt will be accepted automatically, with no human review. Only enable
-            this when every command is expected and safe to auto-accept.
+            Risky: any command in the rendered template that raises a confirmation prompt will be
+            accepted automatically, with no human review. Only enable this when every command is
+            expected and safe to auto-accept.
           </p>
         ) : null}
       </div>
