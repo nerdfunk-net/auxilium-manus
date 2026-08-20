@@ -25,6 +25,7 @@ import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
 import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
 import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
 import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
+import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import { useWorkflowCanvas } from "./hooks/use-workflow-canvas";
 import { useWorkflowPersistence } from "./hooks/use-workflow-persistence";
@@ -32,10 +33,12 @@ import { useWorkflowRunActions } from "./hooks/use-workflow-run-actions";
 
 export function WorkflowBuilderPage() {
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
+  const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
   const autoLayoutDirection = useWorkflowBuilderStore((state) => state.autoLayoutDirection);
   const setAutoLayoutDirection = useWorkflowBuilderStore(
     (state) => state.setAutoLayoutDirection,
   );
+  useUnsavedChangesWarning(isDirty);
   const {
     data: pluginResponse,
     error: pluginError,
