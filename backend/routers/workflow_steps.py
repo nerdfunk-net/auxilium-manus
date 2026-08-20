@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-import importlib.util
 import logging
-from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
 
 from core.auth import get_current_user, require_permission
 from models.plugins import (
+    PluginConfigResponse,
     PluginDefinition,
     PluginListResponse,
     PluginRegistryResponse,
 )
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
-
-_WORKFLOW_STEPS_ROOT = Path(__file__).resolve().parent.parent / "workflow_steps"
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +23,6 @@ router = APIRouter(
         Depends(require_permission("workflow_steps", "read")),
     ],
 )
-
-
-class PluginConfigResponse(BaseModel):
-    plugin_id: str
-    config: dict[str, Any]
 
 
 def get_plugin_service(request: Request) -> PluginRegistryService:
@@ -69,31 +59,8 @@ async def get_plugin_config(
     plugin = service.get_plugin(plugin_id)
     if plugin is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin not found")
-
-    config_module_path = _WORKFLOW_STEPS_ROOT / plugin.directory / "config.py"
-    if not config_module_path.is_file():
-        return PluginConfigResponse(plugin_id=plugin_id, config={})
-
-    module_name = f"workflow_steps.{plugin.directory}.config"
-    spec = importlib.util.spec_from_file_location(module_name, config_module_path)
-    if spec is None or spec.loader is None:
-        logger.warning("Cannot load config module for plugin '%s'", plugin_id)
-        return PluginConfigResponse(plugin_id=plugin_id, config={})
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
-
-    get_config = getattr(module, "get_config", None)
-    if not callable(get_config):
-        return PluginConfigResponse(plugin_id=plugin_id, config={})
-
-    try:
-        cfg = get_config()
-    except Exception:
-        logger.exception("get_config() failed for plugin '%s'", plugin_id)
-        return PluginConfigResponse(plugin_id=plugin_id, config={})
-
-    return PluginConfigResponse(plugin_id=plugin_id, config=cfg)
+    cfg = service.get_plugin_config(plugin_id)
+    return PluginConfigResponse(plugin_id=plugin_id, config=cfg or {})
 
 
 @router.get("/{plugin_id}", response_model=PluginDefinition)

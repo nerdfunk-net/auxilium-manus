@@ -4,10 +4,15 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.config import settings
+from core.domain_exceptions import (
+    AccessDeniedError,
+    ConflictError,
+    NotFoundError,
+    ValidationFailedError,
+)
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.workflows import Workflow
 from core.safe_http_errors import raise_internal_server_error
@@ -111,10 +116,10 @@ class RunService:
     def _assert_workflow_access(self, workflow_id: int, user_id: int) -> Workflow:
         wf_result = self.wf_repo.get_by_id(workflow_id)
         if wf_result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+            raise NotFoundError("Workflow not found")
         workflow, _ = wf_result
         if workflow.visibility == "private" and workflow.creator_id != user_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+            raise AccessDeniedError("Access denied")
         return workflow
 
     def trigger_run(
@@ -128,7 +133,7 @@ class RunService:
         try:
             run_inputs = resolve_run_inputs(workflow.static_attributes, data.run_inputs)
         except RunInputValidationError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            raise ValidationFailedError(str(exc)) from exc
 
         run = self.run_repo.create_run(
             workflow_id=workflow_id,
@@ -181,10 +186,7 @@ class RunService:
         if statuses:
             invalid = [s for s in statuses if s not in RUN_LIST_STATUS_FILTERS]
             if invalid:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid status filter(s): {', '.join(invalid)}",
-                )
+                raise ValidationFailedError(f"Invalid status filter(s): {', '.join(invalid)}")
         rows = self.run_repo.list_runs_for_workflow(
             workflow_id,
             statuses=statuses,
@@ -197,7 +199,7 @@ class RunService:
     def get_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+            raise NotFoundError("Run not found")
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
         step_results = self.run_repo.get_step_results_for_run(run_id)
@@ -208,7 +210,7 @@ class RunService:
     ) -> ArtifactContentResponse:
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+            raise NotFoundError("Run not found")
         run, _username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
@@ -217,10 +219,7 @@ class RunService:
                 run_uuid=run.uuid, artifact_id=artifact_id
             )
         except ArtifactNotFoundError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Artifact not found",
-            ) from exc
+            raise NotFoundError("Artifact not found") from exc
 
         return ArtifactContentResponse(
             artifact_id=ref.artifact_id,
@@ -233,15 +232,12 @@ class RunService:
     def cancel_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+            raise NotFoundError("Run not found")
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
         if run.status not in ("pending", "running", "paused"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot cancel a run with status {run.status!r}",
-            )
+            raise ValidationFailedError(f"Cannot cancel a run with status {run.status!r}")
 
         if run.hatchet_run_id:
             try:
@@ -258,41 +254,32 @@ class RunService:
     def delete_run(self, run_id: int, user_id: int) -> None:
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+            raise NotFoundError("Run not found")
         run, _username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
         if run.status not in TERMINAL_RUN_STATUSES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Cannot delete a run with status {run.status!r}; "
-                    "only finished runs can be deleted"
-                ),
+            raise ValidationFailedError(
+                f"Cannot delete a run with status {run.status!r}; "
+                "only finished runs can be deleted"
             )
         self.run_repo.delete_run(run)
         self.artifact_service.delete_for_run(run.uuid)
 
     def _assert_not_awaiting_batch_approval(self, run: WorkflowRun) -> None:
         if run.approval_state is not None and run.approval_state.get("awaiting"):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Run is awaiting batch approval, not a debug step",
-            )
+            raise ConflictError("Run is awaiting batch approval, not a debug step")
 
     def step_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         """Advance a paused debug-mode run by exactly one node."""
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+            raise NotFoundError("Run not found")
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
         if run.status != "paused" or not run.current_node_id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Run is not paused and awaiting a step (status={run.status!r})",
-            )
+            raise ConflictError(f"Run is not paused and awaiting a step (status={run.status!r})")
         self._assert_not_awaiting_batch_approval(run)
 
         self._push_continue_event(run)
@@ -303,15 +290,12 @@ class RunService:
         """Resume a paused debug-mode run to completion without further pauses."""
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+            raise NotFoundError("Run not found")
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
         if run.status != "paused" or not run.current_node_id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Run is not paused and awaiting a step (status={run.status!r})",
-            )
+            raise ConflictError(f"Run is not paused and awaiting a step (status={run.status!r})")
         self._assert_not_awaiting_batch_approval(run)
 
         run = self.run_repo.update_run_status(run, status="paused", run_mode="normal")
@@ -343,16 +327,13 @@ class RunService:
     ) -> tuple[WorkflowRun, str | None, dict]:
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+            raise NotFoundError("Run not found")
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
 
         state = run.approval_state or {}
         if run.status != "paused" or not state.get("awaiting"):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Run is not awaiting batch approval (status={run.status!r})",
-            )
+            raise ConflictError(f"Run is not awaiting batch approval (status={run.status!r})")
         return run, username, state
 
     def _push_continue_event(self, run: WorkflowRun) -> None:

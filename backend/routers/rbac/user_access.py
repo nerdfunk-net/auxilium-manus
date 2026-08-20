@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.domain_exceptions import AccessDeniedError
 from core.models.users import User
 from models.rbac import (
     Permission,
@@ -84,13 +85,17 @@ async def assign_user_role(
     payload: UserRoleAssignment,
     db: Session = Depends(get_db),
     service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
 ) -> None:
     if UserService(db).get_user(user_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if service.get_role(payload.role_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
 
-    service.assign_role_to_user(user_id, payload.role_id)
+    try:
+        service.assign_role_to_user(user_id, payload.role_id, actor_user_id=current_user.id)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.delete(

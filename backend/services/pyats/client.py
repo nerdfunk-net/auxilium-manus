@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -171,6 +172,11 @@ class PyATSShimService:
         timeout: float,
         **kwargs: Any,
     ) -> httpx.Response:
+        if not verify_ssl:
+            logger.warning(
+                "pyATS shim request with verify_ssl=False url_host=%s",
+                urlparse(url).hostname,
+            )
         client = self._client_for(verify_ssl)
         if client is not None:
             return await client.request(method, url, timeout=timeout, **kwargs)

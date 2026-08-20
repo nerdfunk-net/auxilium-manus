@@ -10,4 +10,4 @@ class PyATSCredentials:
     base_url: str
     token: str
     timeout: float = 30.0
-    verify_ssl: bool = False
+    verify_ssl: bool = True

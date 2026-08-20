@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from core.domain_exceptions import AccessDeniedError, DomainError, NotFoundError, ValidationFailedError
 from core.models.workflows import Workflow
 from models.workflows import (
     StaticAttributeDef,
@@ -32,7 +32,7 @@ def _validate_no_cycle(canvas_nodes: list[dict], canvas_edges: list[dict]) -> No
     try:
         topological_order(canvas_nodes, canvas_edges)
     except GraphCycleError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise ValidationFailedError(str(exc)) from exc
 
 
 def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttributeDef]) -> None:
@@ -48,10 +48,7 @@ def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttri
             else StaticAttributeDef.model_validate(raw)
         )
         if attr.name in seen:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Duplicate static attribute name: {attr.name!r}",
-            )
+            raise ValidationFailedError(f"Duplicate static attribute name: {attr.name!r}")
         seen.add(attr.name)
         if attr.default is None:
             continue
@@ -62,9 +59,8 @@ def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttri
             or (attr.type == "boolean" and isinstance(attr.default, bool))
         )
         if not type_ok:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Static attribute {attr.name!r}: default does not match type {attr.type!r}",
+            raise ValidationFailedError(
+                f"Static attribute {attr.name!r}: default does not match type {attr.type!r}"
             )
 
 
@@ -118,10 +114,10 @@ class WorkflowService:
         logger.debug("Getting workflow id=%s user_id=%s", workflow_id, user_id)
         result = self.repo.get_by_id(workflow_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+            raise NotFoundError("Workflow not found")
         workflow, creator_username = result
         if workflow.visibility == "private" and workflow.creator_id != user_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+            raise AccessDeniedError("Access denied")
         return _to_response(workflow, creator_username)
 
     def create_workflow(self, data: WorkflowCreate, user_id: int) -> WorkflowResponse:
@@ -142,14 +138,16 @@ class WorkflowService:
             )
             result = self.repo.get_by_id(workflow.id)
             if result is None:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Workflow created but could not be retrieved",
+                logger.error(
+                    "Workflow created but could not be retrieved id=%s user_id=%s",
+                    workflow.id,
+                    user_id,
                 )
+                raise RuntimeError("Workflow created but could not be retrieved")
             wf, creator_username = result
             logger.info("Workflow created id=%s name=%r user_id=%s", wf.id, wf.name, user_id)
             return _to_response(wf, creator_username)
-        except HTTPException:
+        except DomainError:
             raise
         except Exception:
             logger.info(
@@ -164,12 +162,10 @@ class WorkflowService:
         try:
             result = self.repo.get_by_id(workflow_id)
             if result is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
-                )
+                raise NotFoundError("Workflow not found")
             workflow, creator_username = result
             if workflow.creator_id != user_id:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+                raise AccessDeniedError("Access denied")
             updated_fields = data.model_dump(exclude_unset=True)
             if "canvas_nodes" in updated_fields or "canvas_edges" in updated_fields:
                 _validate_no_cycle(
@@ -181,7 +177,7 @@ class WorkflowService:
             workflow = self.repo.update(workflow, updated_fields)
             logger.info("Workflow updated id=%s user_id=%s", workflow_id, user_id)
             return _to_response(workflow, creator_username)
-        except HTTPException:
+        except DomainError:
             raise
         except Exception:
             logger.info(
@@ -215,9 +211,9 @@ class WorkflowService:
     def delete_workflow(self, workflow_id: int, user_id: int) -> None:
         result = self.repo.get_by_id(workflow_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+            raise NotFoundError("Workflow not found")
         workflow, _ = result
         if workflow.creator_id != user_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+            raise AccessDeniedError("Access denied")
         ScheduleService(self.db).delete_schedule_for_workflow_unchecked(workflow_id)
         self.repo.delete(workflow)

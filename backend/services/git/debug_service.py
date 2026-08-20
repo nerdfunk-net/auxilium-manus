@@ -11,7 +11,8 @@ from typing import Any
 
 from services.git.config import set_git_author
 from services.git.env import set_ssl_env
-from services.git.shared_utils import get_git_repo_by_id, git_repo_manager
+from services.git.repository_service import GitRepositoryService
+from services.git.shared_utils import get_git_repo_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -380,13 +381,16 @@ def _push_debug_commit(
 class GitDebugService:
     """Encapsulates all debug/diagnostic operations for a git repository."""
 
+    def __init__(self, repos: GitRepositoryService | None = None) -> None:
+        self._repos = repos or GitRepositoryService()
+
     def test_read(self, repo_id: int) -> dict[str, Any]:
         """Test reading the debug sentinel file from the repository."""
-        repository = git_repo_manager.get_repository(repo_id)
+        repository = self._repos.get_repository(repo_id)
         if not repository:
             raise ValueError(f"Repository {repo_id} not found")
 
-        repo = get_git_repo_by_id(repo_id)
+        repo = get_git_repo_by_id(repo_id, self._repos)
         repo_path = Path(repo.working_dir)
         test_file_path = repo_path / ".cockpit_debug_test.txt"
 
@@ -438,11 +442,11 @@ class GitDebugService:
 
     def test_write(self, repo_id: int) -> dict[str, Any]:
         """Test writing the debug sentinel file to the repository."""
-        repository = git_repo_manager.get_repository(repo_id)
+        repository = self._repos.get_repository(repo_id)
         if not repository:
             raise ValueError(f"Repository {repo_id} not found")
 
-        repo = get_git_repo_by_id(repo_id)
+        repo = get_git_repo_by_id(repo_id, self._repos)
         repo_path = Path(repo.working_dir)
         test_file_path = repo_path / ".cockpit_debug_test.txt"
 
@@ -530,11 +534,11 @@ class GitDebugService:
 
     def test_delete(self, repo_id: int) -> dict[str, Any]:
         """Test deleting the debug sentinel file from the repository."""
-        repository = git_repo_manager.get_repository(repo_id)
+        repository = self._repos.get_repository(repo_id)
         if not repository:
             raise ValueError(f"Repository {repo_id} not found")
 
-        repo = get_git_repo_by_id(repo_id)
+        repo = get_git_repo_by_id(repo_id, self._repos)
         repo_path = Path(repo.working_dir)
         test_file_path = repo_path / ".cockpit_debug_test.txt"
 
@@ -602,11 +606,11 @@ class GitDebugService:
 
     def test_push(self, repo_id: int, git_auth_service) -> dict[str, Any]:
         """Test pushing a commit to the remote repository."""
-        repository = git_repo_manager.get_repository(repo_id)
+        repository = self._repos.get_repository(repo_id)
         if not repository:
             raise ValueError(f"Repository {repo_id} not found")
 
-        repo = get_git_repo_by_id(repo_id)
+        repo = get_git_repo_by_id(repo_id, self._repos)
         repo_path = Path(repo.working_dir)
         test_file_path = repo_path / ".cockpit_debug_test.txt"
 
@@ -657,7 +661,7 @@ class GitDebugService:
 
     def get_diagnostics(self, repo_id: int, git_auth_service) -> dict[str, Any]:
         """Return comprehensive diagnostic information for the repository."""
-        repository = git_repo_manager.get_repository(repo_id)
+        repository = self._repos.get_repository(repo_id)
         if not repository:
             raise ValueError(f"Repository {repo_id} not found")
 

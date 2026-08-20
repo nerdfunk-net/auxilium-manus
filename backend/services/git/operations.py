@@ -15,16 +15,28 @@ import logging
 import os
 import shutil
 import time
+import uuid
 from typing import Any
 
 from git import GitCommandError, Repo
 
+from core.domain_exceptions import NotFoundError
 from core.safe_urls import UnsafeURLError
 from models.git import SyncResult
 from services.git.paths import repo_path as get_repo_path
+from services.git.repository_service import GitRepositoryService
 from services.git.service import GitService
+from services.git.shared_utils import get_git_repo_by_id
 
 logger = logging.getLogger(__name__)
+
+
+class SyncExecutionError(RuntimeError):
+    """A sync/remove-and-sync operation failed after being recorded on the repo."""
+
+    def __init__(self, error_id: str, log_message: str) -> None:
+        super().__init__(log_message)
+        self.error_id = error_id
 
 
 def _empty_repository_status(repository: dict[str, Any], repo_path: str) -> dict[str, Any]:
@@ -173,8 +185,9 @@ class GitOperationsService:
     enforces ``core.safe_urls.validate_git_remote_url``.
     """
 
-    def __init__(self):
+    def __init__(self, repos: GitRepositoryService | None = None):
         self._git_service = GitService()
+        self._repos = repos or GitRepositoryService()
 
     def sync_repository(self, repository: dict[str, Any], force_clone: bool = False) -> SyncResult:
         """Sync a repository (clone if not exists, pull if exists).
@@ -293,3 +306,113 @@ class GitOperationsService:
             logger.warning("Error checking Git repository status: %s", e)
 
         return status_info
+
+    def get_status_payload(self, repo_id: int) -> dict[str, Any]:
+        repository = self._repos.get_repository(repo_id)
+        if not repository:
+            raise NotFoundError("Repository not found")
+        status_info = self.get_repository_status(repository, repo_id)
+        return {"success": True, "data": status_info}
+
+    def sync_and_record(self, repo_id: int, git_cache_service: Any) -> dict[str, Any]:
+        repository = self._repos.get_repository(repo_id)
+        if not repository:
+            raise NotFoundError("Repository not found")
+
+        self._repos.update_sync_status(repo_id, "syncing")
+        result = self.sync_repository(repository)
+
+        if result.success:
+            self._repos.update_sync_status(repo_id, "synced")
+            git_cache_service.invalidate_repo(repo_id)
+            return {
+                "success": True,
+                "message": result.message,
+                "repository_path": result.repository_path,
+            }
+
+        error_id = str(uuid.uuid4())
+        self._repos.update_sync_status(repo_id, f"error:{error_id}")
+        logger.error(
+            "Sync failed for repository %s: %s (error_id=%s)", repo_id, result.message, error_id
+        )
+        raise SyncExecutionError(error_id, f"Sync failed for repository {repo_id}: {result.message}")
+
+    def remove_and_sync_and_record(self, repo_id: int, git_cache_service: Any) -> dict[str, Any]:
+        repository = self._repos.get_repository(repo_id)
+        if not repository:
+            raise NotFoundError("Repository not found")
+
+        self._repos.update_sync_status(repo_id, "removing-and-syncing")
+        result = self.remove_and_sync(repository)
+
+        if result.success:
+            self._repos.update_sync_status(repo_id, "synced")
+            git_cache_service.invalidate_repo(repo_id)
+            return {
+                "success": True,
+                "message": result.message,
+                "repository_path": result.repository_path,
+            }
+
+        error_id = str(uuid.uuid4())
+        self._repos.update_sync_status(repo_id, f"error:{error_id}")
+        logger.error(
+            "Remove-and-sync failed for repository %s: %s (error_id=%s)",
+            repo_id,
+            result.message,
+            error_id,
+        )
+        raise SyncExecutionError(
+            error_id, f"Remove-and-sync failed for repository {repo_id}: {result.message}"
+        )
+
+    def get_info_payload(self, repo_id: int) -> dict[str, Any]:
+        repository = self._repos.get_repository(repo_id)
+        if not repository:
+            raise NotFoundError(f"Repository with ID {repo_id} not found")
+
+        repo = get_git_repo_by_id(repo_id, self._repos)
+
+        try:
+            total_commits = sum(1 for _ in repo.iter_commits())
+        except (AttributeError, OSError, ValueError):
+            total_commits = 0
+
+        try:
+            total_branches = len(list(repo.branches))
+        except (AttributeError, OSError):
+            total_branches = 0
+
+        try:
+            current_branch = repo.active_branch.name if repo.active_branch else None
+        except (AttributeError, TypeError):
+            current_branch = None
+
+        return {
+            "id": repository["id"],
+            "name": repository["name"],
+            "category": repository["category"],
+            "url": repository["url"],
+            "branch": repository["branch"],
+            "path": repository.get("path"),
+            "is_active": repository["is_active"],
+            "description": repository.get("description"),
+            "created_at": repository.get("created_at"),
+            "last_sync": repository.get("last_sync"),
+            "sync_status": repository.get("sync_status"),
+            "git_stats": {
+                "current_branch": current_branch,
+                "total_commits": total_commits,
+                "total_branches": total_branches,
+                "working_directory": repo.working_dir,
+            },
+        }
+
+    def get_debug_payload(self, repo_id: int) -> dict[str, Any]:
+        repo = get_git_repo_by_id(repo_id, self._repos)
+        return {
+            "status": "success",
+            "repo_path": repo.working_dir,
+            "branch": repo.active_branch.name,
+        }

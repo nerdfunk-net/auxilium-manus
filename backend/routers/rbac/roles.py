@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.domain_exceptions import AccessDeniedError
+from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.rbac import (
     Permission,
@@ -59,13 +61,24 @@ async def list_roles(service: RBACService = Depends(_service)) -> list[Role]:
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("rbac.roles", "write"))],
 )
-async def create_role(payload: RoleCreate, service: RBACService = Depends(_service)) -> Role:
+async def create_role(
+    payload: RoleCreate,
+    service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
+) -> Role:
     if service.role_name_exists(payload.name):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Role name already exists")
 
     try:
-        role = service.create_role(payload.name, payload.description, payload.is_system)
+        role = service.create_role(
+            payload.name,
+            payload.description,
+            payload.is_system,
+            actor_user_id=current_user.id,
+        )
         return Role.model_validate(role)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise_internal_server_error(logger, "Failed to create role", exc)
 
@@ -145,13 +158,19 @@ async def assign_role_permission(
     role_id: int,
     payload: RolePermissionAssignment,
     service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
 ) -> None:
     if service.get_role(role_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     if service.get_permission_by_id(payload.permission_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")
 
-    service.assign_permission_to_role(role_id, payload.permission_id, payload.granted)
+    try:
+        service.assign_permission_to_role(
+            role_id, payload.permission_id, payload.granted, actor_user_id=current_user.id
+        )
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.delete(
@@ -163,8 +182,14 @@ async def remove_role_permission(
     role_id: int,
     permission_id: int,
     service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
 ) -> None:
-    removed = service.remove_permission_from_role(role_id, permission_id)
+    try:
+        removed = service.remove_permission_from_role(
+            role_id, permission_id, actor_user_id=current_user.id
+        )
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if not removed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -50,5 +50,19 @@ class LoginRateLimiterRedisTests(unittest.TestCase):
             self.limiter.check("1.2.3.4:bob")
 
 
+class LoginRateLimiterFailClosedTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.limiter = LoginRateLimiter(
+            redis_url="redis://localhost:6379/0", fail_closed=True
+        )
+        self.limiter._redis = MagicMock()
+
+    def test_raises_immediately_when_redis_unreachable(self) -> None:
+        self.limiter._redis.pipeline.side_effect = redis.ConnectionError("down")
+
+        with self.assertRaises(RateLimitExceededError):
+            self.limiter.check("1.2.3.4:carol")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@
 **Goal:** Implement this document top-to-bottom with no further codebase analysis.  
 **Out of scope (already accepted in `doc/SECURITY-NOTES.md`):** Netmiko SSH host-key checking, Nautobot/ISE `verify_ssl=False`, git HTTPS credentials in process argv, pyATS shim credentials over plain HTTP.
 
-Low findings, dead-code deletions, and god-object file splits (`step_runner.py`, `workflow_run.py`) are **not** in this plan.
+Low findings, dead-code deletions, and god-object file splits (`step_runner.py`, `workflow_run.py`) are **not** in this plan. (Exception: **M5** deletes two small unused wrapper functions — `build_git_repository_service`, `get_git_service` — as a required side effect of session-scoping the git repository; that is not a general dead-code pass.)
 
 ---
 
@@ -237,9 +237,27 @@ No new permission catalog entries. System-role mutations require the actor to ho
 3. **Creating a role with `is_system=True`**: actor must have role `admin`.
 4. `admin_reseed_rbac` / `assign_role_to_user_by_name` used at startup stay unchanged (no actor). Add an optional `actor_user_id: int | None = None` to the mutating methods; when `None`, skip the elevation check (seed/lifespan only).
 
-Raise `AccessDeniedError` (created in **H4** — if you implement H3 first, raise a local `PermissionError("Admin role required to modify system roles")` and in H4 switch it to `AccessDeniedError` with detail `"Admin role required to modify system roles"`). **Preferred:** implement the exception types from H4 first if you touch both in one sitting; otherwise use `PermissionError` and map it in the two routers as 403 until H4 lands.
+Raise `AccessDeniedError`. H3 runs before H4 in the work order, so **H3 creates `backend/core/domain_exceptions.py`** now, with only the base class and this one exception type:
 
-This plan assumes **H4 types exist**. If coding H3 in isolation, create only `AccessDeniedError` in `backend/core/domain_exceptions.py` (the rest of H4 can fill the file).
+```python
+from __future__ import annotations
+
+
+class DomainError(Exception):
+    """Business error mapped to a 4xx HTTP response by the FastAPI handler."""
+
+    status_code: int = 400
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+class AccessDeniedError(DomainError):
+    status_code = 403
+```
+
+H4 **extends** this same file — it does not recreate it — by appending `NotFoundError`, `ConflictError`, and `ValidationFailedError` (see H4's "Extend `backend/core/domain_exceptions.py`" step).
 
 ### Code after — add to `RBACService`
 
@@ -335,7 +353,9 @@ Existing `test_rbac_service.py` calls `assign_role_to_user(self.user.id, role.id
 
 This is the largest item. Do it as one mechanical pass after creating the types and the FastAPI handler.
 
-### New file `backend/core/domain_exceptions.py` (entire file)
+### Extend `backend/core/domain_exceptions.py` (created in H3)
+
+H3 already created this file with `DomainError` and `AccessDeniedError`. Append the remaining classes so the file reads in full:
 
 ```python
 from __future__ import annotations
@@ -366,6 +386,8 @@ class ConflictError(DomainError):
 class ValidationFailedError(DomainError):
     status_code = 400
 ```
+
+(If H4 is somehow implemented before H3 — it shouldn't be, per the work order — create the file fresh with all four classes.)
 
 Do **not** add a 5xx domain exception. Unexpected failures stay as ordinary exceptions and are converted with `raise_internal_server_error` in routers **or** by the catch-all handler below.
 
@@ -576,37 +598,18 @@ Keep the `/status` **non-raising** error envelope (`success: False`) — that is
 ```python
     try:
         return git_operations_service.sync_and_record(repo_id, git_cache_service)
+    except SyncExecutionError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=internal_error_detail(error_id=e.error_id),
+        ) from e
     except DomainError:
         raise
     except Exception as e:
         raise_internal_server_error(logger, f"Error syncing repository {repo_id}", e)
 ```
 
-`sync_and_record` itself must persist `error:{error_id}` **before** raising, using the same `error_id` the router puts in `internal_error_detail`. To keep correlation: have `sync_and_record` catch failure, write `error:{uuid}`, then raise `RuntimeError` with that uuid in `e.args`, **or** return a `SyncResult` and let the router call a small `record_sync_failure(repo_id, error_id)` — simplest:
-
-```python
-def record_sync_failure(self, repo_id: int, error_id: str) -> None:
-    git_repo_manager.update_sync_status(repo_id, f"error:{error_id}")
-```
-
-Router:
-
-```python
-    try:
-        repository = ...  # NO — that stays in service
-        return git_operations_service.sync_and_record(repo_id, git_cache_service)
-    except DomainError:
-        raise
-    except Exception as e:
-        error_id = str(uuid.uuid4())
-        git_operations_service.record_sync_failure(repo_id, error_id)
-        logger.error("Error syncing repository %s (error_id=%s)", repo_id, error_id, exc_info=True)
-        raise HTTPException(status_code=500, detail=internal_error_detail(error_id=error_id)) from e
-```
-
-Wait — that splits orchestration again. **Do this instead:** `sync_and_record` catches all exceptions internally, writes `error:{id}`, and raises `HTTPException` via `raise_internal_server_error`? That puts HTTP back in the service, which H4 forbids.
-
-**Final contract for sync failure:**
+`sync_and_record` must persist `error:{error_id}` **before** raising, using the same `error_id` the router puts in `internal_error_detail`, and must not raise `HTTPException` itself (that would put HTTP back in the service, which H4 forbids). Use a typed exception that carries the `error_id`:
 
 ```python
 class SyncExecutionError(RuntimeError):
@@ -630,21 +633,7 @@ In `sync_and_record`:
         raise SyncExecutionError(error_id, result.message)
 ```
 
-Router:
-
-```python
-    except SyncExecutionError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=internal_error_detail(error_id=e.error_id),
-        ) from e
-    except DomainError:
-        raise
-    except Exception as e:
-        raise_internal_server_error(logger, f"Error syncing repository {repo_id}", e)
-```
-
-Mirror for `remove_and_sync_and_record`.
+The router pattern above (with the `SyncExecutionError` catch) is the final contract — apply it to both `/sync` and `/remove-and-sync`, and mirror `sync_and_record`'s body in `remove_and_sync_and_record`.
 
 Delete `_fail_sync_with_error_id` from the router. Target router size: ~80 lines.
 
@@ -1513,6 +1502,18 @@ rg 'relax_redirect=True' backend --glob '*.py'
 ```
 
 `ENABLE_DEV_TOOLS=true ENV=production` process start must raise `RuntimeError` before serving.
+
+---
+
+## Optional — `CLAUDE.md` documentation drift
+
+Not part of the numbered work order (doc-only, no tests, no behavior change). Do this pass whenever convenient, ideally in its own commit:
+
+- Table count: "14 tables (9 domain + 5 RBAC)" → 17 tables (12 domain + 5 RBAC); list `notifications`, `workflow_schedules`, `user_preferences` among the domain tables.
+- "Never call `text()` from routers, services, or Celery tasks" → replace "Celery tasks" with "Hatchet workers" (no Celery in this codebase).
+- "Python 3.12+" / "Python/Celery projects" under Python Conventions → Python 3.14; Hatchet, not Celery.
+
+Source: `doc/analysis/GROK_46.md` §7.
 
 ---
 

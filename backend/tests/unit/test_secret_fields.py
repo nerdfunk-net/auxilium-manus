@@ -116,6 +116,28 @@ class RedactSecretsInDataTests(unittest.TestCase):
         redacted = redact_secrets_in_data(data)
         self.assertEqual(redacted, data)
 
+    def test_redacts_password_key_outside_bags(self) -> None:
+        data = {"output": {"password": "clear", "hostname": "r1"}}
+        redacted = redact_secrets_in_data(data)
+        self.assertEqual(redacted["output"]["password"], REDACTED_PLACEHOLDER)
+        self.assertEqual(redacted["output"]["hostname"], "r1")
+
+    def test_does_not_redact_non_string_secret_named_values(self) -> None:
+        data = {"config": {"enableKeyWrap": True, "token_count": 3}}
+        redacted = redact_secrets_in_data(data)
+        self.assertEqual(redacted, data)
+
+    def test_redacts_dash_and_suffix_variants_of_secret_names(self) -> None:
+        data = {
+            "a": {"snmp-community": "public"},
+            "b": {"api_key": "abc123"},
+            "c": {"radius_password": "clear"},
+        }
+        redacted = redact_secrets_in_data(data)
+        self.assertEqual(redacted["a"]["snmp-community"], REDACTED_PLACEHOLDER)
+        self.assertEqual(redacted["b"]["api_key"], REDACTED_PLACEHOLDER)
+        self.assertEqual(redacted["c"]["radius_password"], REDACTED_PLACEHOLDER)
+
 
 if __name__ == "__main__":
     unittest.main()

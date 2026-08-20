@@ -8,11 +8,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
 from core.database import get_db
+from core.domain_exceptions import ValidationFailedError
 from core.models.users import User
 from models.settings import SettingCreate, SettingUpdate
 from routers.sources.nautobot.ops import router as nautobot_source_ops_router
@@ -163,7 +164,7 @@ class TestSettingsTokenRedaction:
         service = _service()
         service.repo.get_by_key.return_value = None
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(ValidationFailedError):
             service.create_setting(
                 SettingCreate(
                     key="sources.git.lab",

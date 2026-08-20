@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from fastapi import HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from core.domain_exceptions import AccessDeniedError, DomainError, NotFoundError, ValidationFailedError
 from core.models.schedules import WorkflowSchedule
 from core.safe_http_errors import raise_internal_server_error
 from hatchet.client import hatchet
@@ -43,10 +43,10 @@ class ScheduleService:
     def _assert_workflow_access(self, workflow_id: int, user_id: int) -> None:
         wf_result = self.wf_repo.get_by_id(workflow_id)
         if wf_result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+            raise NotFoundError("Workflow not found")
         workflow, _ = wf_result
         if workflow.visibility == "private" and workflow.creator_id != user_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+            raise AccessDeniedError("Access denied")
 
     def _delete_hatchet_entry(self, schedule: WorkflowSchedule) -> None:
         try:
@@ -73,21 +73,12 @@ class ScheduleService:
 
         if data.schedule_type == "cron":
             if not data.cron_expression:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="cron_expression is required for a recurring schedule",
-                )
+                raise ValidationFailedError("cron_expression is required for a recurring schedule")
         else:
             if data.run_at is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="run_at is required for a one-time schedule",
-                )
+                raise ValidationFailedError("run_at is required for a one-time schedule")
             if data.run_at <= datetime.now(UTC):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="run_at must be in the future",
-                )
+                raise ValidationFailedError("run_at must be in the future")
 
         existing = self.repo.get_by_workflow_id(workflow_id)
         if existing is not None and (existing.hatchet_cron_id or existing.hatchet_scheduled_id):
@@ -125,11 +116,8 @@ class ScheduleService:
                         schedule, hatchet_scheduled_id=str(result.metadata.id)
                     )
             except ValidationError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid schedule configuration: {exc}",
-                ) from exc
-            except HTTPException:
+                raise ValidationFailedError(f"Invalid schedule configuration: {exc}") from exc
+            except DomainError:
                 raise
             except Exception as exc:
                 raise_internal_server_error(
@@ -151,7 +139,7 @@ class ScheduleService:
         self._assert_workflow_access(workflow_id, user_id)
         schedule = self.repo.get_by_workflow_id(workflow_id)
         if schedule is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+            raise NotFoundError("Schedule not found")
         self._delete_hatchet_entry(schedule)
         self.repo.delete(schedule)
         logger.info("Deleted schedule workflow_id=%s user_id=%s", workflow_id, user_id)

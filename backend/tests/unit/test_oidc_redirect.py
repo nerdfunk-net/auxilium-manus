@@ -56,14 +56,14 @@ class ValidateOidcRedirectUriTests(unittest.TestCase):
                 environment="production",
             )
 
-    def test_dev_tools_skips_allowlist(self) -> None:
-        result = validate_oidc_redirect_uri(
-            "https://manus.example.com/login/oidc-test-callback",
-            allowlist=[],
-            environment="production",
-            dev_tools=True,
-        )
-        self.assertEqual(result, "https://manus.example.com/login/oidc-test-callback")
+    def test_dev_tools_does_not_skip_allowlist(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_oidc_redirect_uri(
+                "https://evil.example/callback",
+                allowlist=[],
+                environment="production",
+                dev_tools=True,
+            )
 
     def test_dev_tools_still_requires_http_scheme(self) -> None:
         with self.assertRaises(ValueError):

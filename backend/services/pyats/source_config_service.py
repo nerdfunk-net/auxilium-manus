@@ -62,7 +62,7 @@ class PyATSSourceConfigService:
         source_id: str,
         url: str,
         token: str,
-        verify_ssl: bool = False,
+        verify_ssl: bool = True,
         timeout: float = 30.0,
     ) -> dict[str, Any]:
         key = build_source_key("pyats", source_id)
@@ -169,7 +169,7 @@ class PyATSSourceConfigService:
             token=resolved_token,
             timeout=float(timeout if timeout is not None else value.get("timeout", 30.0)),
             verify_ssl=bool(
-                verify_ssl if verify_ssl is not None else value.get("verify_ssl", False)
+                verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
             ),
         )
 

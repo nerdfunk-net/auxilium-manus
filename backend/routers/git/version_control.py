@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from git import GitCommandError, InvalidGitRepositoryError
 
 from core.auth import get_current_user, require_permission
+from core.domain_exceptions import DomainError
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_cache_service, get_git_version_control_service
 
@@ -78,7 +79,7 @@ async def compare_commits(
 
         return vc_service.compare_commits(repo_id, commit1, commit2, file_path)
 
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise
     except Exception as e:
         raise_internal_server_error(logger, "Failed to compare commits: ", e)

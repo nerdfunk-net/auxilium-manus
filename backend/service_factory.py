@@ -116,7 +116,10 @@ def build_cache_service() -> RedisCacheService | None:
 def build_login_rate_limiter() -> LoginRateLimiter:
     global _login_rate_limiter
     if _login_rate_limiter is None:
-        _login_rate_limiter = LoginRateLimiter(redis_url=settings.redis_url)
+        _login_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            fail_closed=settings.environment != "development",
+        )
     return _login_rate_limiter
 
 
@@ -187,12 +190,6 @@ def build_git_cache_service():
 
     cache = build_cache_service()
     return GitCacheService(cache)
-
-
-def build_git_repository_service():
-    from services.git.repository_service import GitRepositoryService
-
-    return GitRepositoryService()
 
 
 def build_git_operations_service():

@@ -9,12 +9,18 @@ import uuid
 from typing import Any
 
 import yaml
-from fastapi import HTTPException, status
 from git import GitCommandError, InvalidGitRepositoryError
 
+from core.domain_exceptions import (
+    AccessDeniedError,
+    DomainError,
+    NotFoundError,
+    ValidationFailedError,
+)
 from core.safe_http_errors import raise_internal_server_error
 from services.git.paths import repo_path as git_repo_path
-from services.git.shared_utils import get_git_repo_by_id, git_repo_manager
+from services.git.repository_service import GitRepositoryService
+from services.git.shared_utils import get_git_repo_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -129,19 +135,13 @@ def _resolve_directory_listing_path(repo_path: str, path: str) -> str | None:
     repo_path_resolved = os.path.realpath(repo_path)
 
     if not target_path_resolved.startswith(repo_path_resolved):
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: path is outside repository",
-        )
+        raise AccessDeniedError("Access denied: path is outside repository")
 
     if not os.path.exists(target_path_resolved):
         return None
 
     if not os.path.isdir(target_path_resolved):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Path is not a directory: {path}",
-        )
+        raise ValidationFailedError(f"Path is not a directory: {path}")
 
     return target_path_resolved
 
@@ -229,15 +229,9 @@ def _resolve_commits_for_file(repo, file_path: str, start_commit: str) -> list[A
             head_commit.tree[file_path]
             commits = list(repo.iter_commits("HEAD", paths=file_path))
             if not commits:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"No commits found for file: {file_path}",
-                )
+                raise NotFoundError(f"No commits found for file: {file_path}")
         except (KeyError, AttributeError):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File not found: {file_path}",
-            ) from None
+            raise NotFoundError(f"File not found: {file_path}") from None
 
     return commits
 
@@ -297,6 +291,9 @@ def _maybe_prepend_selected_commit(
 class GitFileService:
     """Read-only operations on files within a managed Git repository."""
 
+    def __init__(self, repos: GitRepositoryService | None = None) -> None:
+        self._repos = repos or GitRepositoryService()
+
     def search_files(
         self,
         repo_id: int,
@@ -305,9 +302,9 @@ class GitFileService:
     ) -> dict[str, Any]:
         """Scan directory, filter by query, sort by relevance, paginate."""
         try:
-            repository = git_repo_manager.get_repository(repo_id)
+            repository = self._repos.get_repository(repo_id)
             if not repository:
-                raise HTTPException(status_code=404, detail="Repository not found")
+                raise NotFoundError("Repository not found")
 
             repo_path = str(git_repo_path(repository))
             if not os.path.exists(repo_path):
@@ -332,7 +329,7 @@ class GitFileService:
                 ),
             }
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception:
             error_id = str(uuid.uuid4())
@@ -356,7 +353,7 @@ class GitFileService:
     ) -> Any:
         """List files in a commit, or return single file content when file_path given."""
         try:
-            repo = get_git_repo_by_id(repo_id)
+            repo = get_git_repo_by_id(repo_id, self._repos)
             commit = repo.commit(commit_hash)
 
             if file_path:
@@ -368,9 +365,8 @@ class GitFileService:
                         "commit": commit_hash[:8],
                     }
                 except KeyError:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"File '{file_path}' not found in commit {commit_hash[:8]}",
+                    raise NotFoundError(
+                        f"File '{file_path}' not found in commit {commit_hash[:8]}"
                     ) from None
 
             files = []
@@ -383,7 +379,7 @@ class GitFileService:
             config_extensions = settings.allowed_file_extensions
             config_files = [f for f in files if any(f.endswith(ext) for ext in config_extensions)]
             return sorted(config_files)
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Failed to get files", e)
@@ -395,14 +391,11 @@ class GitFileService:
     ) -> dict[str, Any]:
         """Return the most recent commit metadata for a file."""
         try:
-            repo = get_git_repo_by_id(repo_id)
+            repo = get_git_repo_by_id(repo_id, self._repos)
             commits = list(repo.iter_commits(paths=file_path, max_count=1))
 
             if not commits:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"No commits found for file: {file_path}",
-                )
+                raise NotFoundError(f"No commits found for file: {file_path}")
 
             last_commit = commits[0]
 
@@ -432,7 +425,7 @@ class GitFileService:
                 },
             }
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Failed to get file history", e)
@@ -448,7 +441,7 @@ class GitFileService:
     ) -> dict[str, Any]:
         """Return full commit chain for a file back to its creation."""
         try:
-            repo = get_git_repo_by_id(repo_id)
+            repo = get_git_repo_by_id(repo_id, self._repos)
             cache_key = _file_history_cache_key(repo_id, file_path, from_commit)
             if cache_enabled and cache_service:
                 cached = cache_service.get(cache_key)
@@ -481,10 +474,8 @@ class GitFileService:
             return result
 
         except (InvalidGitRepositoryError, GitCommandError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Git repository not found or commit not found: {str(e)}",
-            ) from e
+            logger.warning("Git repository or commit not found: %s", e, exc_info=True)
+            raise NotFoundError("Git repository or commit not found") from e
         except Exception as e:
             raise_internal_server_error(logger, "Git file complete history error", e)
 
@@ -496,48 +487,33 @@ class GitFileService:
     ) -> str:
         """Return raw file content at HEAD (working directory)."""
         try:
-            repository = git_repo_manager.get_repository(repo_id)
+            repository = self._repos.get_repository(repo_id)
             if not repository:
-                raise HTTPException(status_code=404, detail="Repository not found")
+                raise NotFoundError("Repository not found")
 
             repo_path = git_repo_path(repository)
 
             if not os.path.exists(repo_path):
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Repository directory not found: {repo_path}",
-                )
+                raise NotFoundError(f"Repository directory not found: {repo_path}")
 
             file_path = os.path.join(repo_path, path)
             file_path_resolved = os.path.realpath(file_path)
             repo_path_resolved = os.path.realpath(repo_path)
 
             if not file_path_resolved.startswith(repo_path_resolved):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Access denied: file path is outside repository",
-                )
+                raise AccessDeniedError("Access denied: file path is outside repository")
 
             if not os.path.exists(file_path_resolved):
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"File not found: {path}",
-                )
+                raise NotFoundError(f"File not found: {path}")
 
             if not os.path.isfile(file_path_resolved):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Path is not a file: {path}",
-                )
+                raise ValidationFailedError(f"Path is not a file: {path}")
 
             try:
                 with open(file_path_resolved, encoding="utf-8") as f:
                     content = f.read()
             except UnicodeDecodeError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"File is not a text file: {path}",
-                ) from None
+                raise ValidationFailedError(f"File is not a text file: {path}") from None
 
             if username:
                 logger.info(
@@ -549,7 +525,7 @@ class GitFileService:
 
             return content
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Error reading file content", e)
@@ -562,50 +538,39 @@ class GitFileService:
     ) -> dict[str, Any]:
         """Return file content and its parsed representation (YAML)."""
         try:
-            repository = git_repo_manager.get_repository(repo_id)
+            repository = self._repos.get_repository(repo_id)
             if not repository:
-                raise HTTPException(status_code=404, detail="Repository not found")
+                raise NotFoundError("Repository not found")
 
             repo_path = git_repo_path(repository)
 
             if not os.path.exists(repo_path):
-                raise HTTPException(
-                    status_code=404,
-                    detail="Repository directory not found",
-                )
+                raise NotFoundError("Repository directory not found")
 
             file_path = os.path.join(repo_path, path)
             file_path_resolved = os.path.realpath(file_path)
             repo_path_resolved = os.path.realpath(repo_path)
 
             if not file_path_resolved.startswith(repo_path_resolved):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Access denied: file path is outside repository",
-                )
+                raise AccessDeniedError("Access denied: file path is outside repository")
 
             if not os.path.exists(file_path_resolved):
-                raise HTTPException(status_code=404, detail=f"File not found: {path}")
+                raise NotFoundError(f"File not found: {path}")
 
             if not os.path.isfile(file_path_resolved):
-                raise HTTPException(status_code=400, detail=f"Path is not a file: {path}")
+                raise ValidationFailedError(f"Path is not a file: {path}")
 
             try:
                 with open(file_path_resolved, encoding="utf-8") as f:
                     content = f.read()
             except UnicodeDecodeError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"File is not a text file: {path}",
-                ) from None
+                raise ValidationFailedError(f"File is not a text file: {path}") from None
 
             try:
                 parsed = yaml.safe_load(content)
             except yaml.YAMLError as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"YAML parse error: {str(e)}",
-                ) from e
+                logger.info("YAML parse error for %s: %s", path, e, exc_info=True)
+                raise ValidationFailedError("YAML parse error") from e
 
             if username:
                 logger.info(
@@ -617,7 +582,7 @@ class GitFileService:
 
             return {"parsed": parsed, "file_path": path}
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Error parsing file content", e)
@@ -629,9 +594,9 @@ class GitFileService:
     ) -> dict[str, Any]:
         """Return nested directory tree for a commit."""
         try:
-            repository = git_repo_manager.get_repository(repo_id)
+            repository = self._repos.get_repository(repo_id)
             if not repository:
-                raise HTTPException(status_code=404, detail="Repository not found")
+                raise NotFoundError("Repository not found")
 
             repo_path = str(git_repo_path(repository))
 
@@ -649,22 +614,13 @@ class GitFileService:
             repo_path_resolved = os.path.realpath(repo_path)
 
             if not target_path_resolved.startswith(repo_path_resolved):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Access denied: path is outside repository",
-                )
+                raise AccessDeniedError("Access denied: path is outside repository")
 
             if not os.path.exists(target_path_resolved):
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Path not found: {path}",
-                )
+                raise NotFoundError(f"Path not found: {path}")
 
             if not os.path.isdir(target_path_resolved):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Path is not a directory: {path}",
-                )
+                raise ValidationFailedError(f"Path is not a directory: {path}")
 
             def build_tree(dir_path: str, rel_path: str = "") -> dict:
                 children = []
@@ -710,16 +666,13 @@ class GitFileService:
             tree = build_tree(target_path_resolved, path)
 
             if tree is None:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Permission denied accessing directory",
-                )
+                raise AccessDeniedError("Permission denied accessing directory")
 
             tree["repository_name"] = repository["name"]
 
             return tree
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Error building directory tree", e)
@@ -731,11 +684,11 @@ class GitFileService:
     ) -> dict[str, Any]:
         """Return flat list of files in a specific directory."""
         try:
-            repository = git_repo_manager.get_repository(repo_id)
+            repository = self._repos.get_repository(repo_id)
             if not repository:
-                raise HTTPException(status_code=404, detail="Repository not found")
+                raise NotFoundError("Repository not found")
 
-            repo = get_git_repo_by_id(repo_id)
+            repo = get_git_repo_by_id(repo_id, self._repos)
             repo_path = str(git_repo_path(repository))
             if not os.path.exists(repo_path):
                 return {"path": path, "files": [], "directory_exists": False}
@@ -747,17 +700,14 @@ class GitFileService:
             try:
                 items = os.listdir(target)
             except PermissionError:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Permission denied accessing directory",
-                ) from None
+                raise AccessDeniedError("Permission denied accessing directory") from None
 
             files_data = _list_directory_file_entries(
                 repo=repo, target_path=target, path=path, items=items
             )
             return {"path": path, "files": files_data, "directory_exists": True}
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Error listing directory files", e)

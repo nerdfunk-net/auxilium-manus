@@ -9,17 +9,25 @@ feature use — so there is a single place that talks to git and a single place 
 
 from __future__ import annotations
 
+import asyncio
 import glob
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from core.safe_urls import UnsafeURLError
 from git import GitCommandError
 from models.git_repositories import GitAuthType, GitConnectionTestRequest
+from models.sources_git import GitSourceTestConnectionRequest
 from services.git.connection import GitConnectionService
+from services.network.cisco_config_parsing import parse_cisco_config_text
+from services.settings.settings_service import SettingsService
+from services.sources.git.git_content_search_service import GitContentSearchService
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +208,120 @@ def _parse_yaml_file(path: Path) -> list[dict[str, Any]]:
         if parsed is not None:
             results.append(parsed)
     return results
+
+
+async def test_connection_from_request(
+    request: GitSourceTestConnectionRequest, db: Session
+) -> dict[str, Any]:
+    """Resolve credentials (saved source or ad-hoc form values) and test connectivity."""
+    if request.source_id:
+        config = SettingsService(db).get_source_config("git", request.source_id)
+        url = str(config.get("url") or "")
+        branch = str(config.get("branch") or "main")
+        username = str(config.get("username") or "")
+        token = str(config.get("token") or "")
+        verify_ssl = bool(config.get("verify_ssl", True))
+    else:
+        url = request.url or ""
+        branch = request.branch
+        username = request.username
+        token = request.token
+        verify_ssl = request.verify_ssl
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: test_connection(
+            url=url,
+            branch=branch,
+            username=username,
+            token=token,
+            verify_ssl=verify_ssl,
+        ),
+    )
+
+
+async def preview_devices_from_source(
+    source_id: str, filename_pattern: str, db: Session
+) -> tuple[list[dict[str, Any]], int]:
+    """Resolve the saved source config and fetch matching devices."""
+    source_config = SettingsService(db).get_source_config("git", source_id)
+    service = GitDeviceService()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: service.fetch_devices(source_config, filename_pattern))
+
+
+async def preview_content_search_from_source(
+    *,
+    source_id: str,
+    directory: str,
+    file_filter: str,
+    recursive: bool,
+    include_history: bool,
+    search_text: str,
+    case_sensitive: bool,
+    db: Session,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Resolve the saved source config, sync it, and search its content.
+
+    Returns (matches as {file_path, line_content, hostname, commit} dicts,
+    total_matches, files_scanned).
+    """
+    source_config = SettingsService(db).get_source_config("git", source_id)
+
+    loop = asyncio.get_running_loop()
+    repo_dir = await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
+
+    search_service = GitContentSearchService()
+    matches, files_scanned = await loop.run_in_executor(
+        None,
+        lambda: search_service.search(
+            repo_dir,
+            source_config,
+            directory=directory,
+            file_filter=file_filter,
+            recursive=recursive,
+            include_history=include_history,
+            search_text=search_text,
+            case_sensitive=case_sensitive,
+        ),
+    )
+
+    preview_matches: list[dict[str, Any]] = []
+    for match in matches:
+        hostname: str | None = None
+        try:
+            parsed = parse_cisco_config_text(match.content, None)
+            candidate = str(parsed.get("hostname") or "").strip()
+            hostname = candidate or None
+        except ValueError:
+            hostname = None
+        preview_matches.append(
+            {
+                "file_path": match.file_path,
+                "line_content": match.line_content,
+                "hostname": hostname,
+                "commit": match.commit,
+            }
+        )
+
+    return preview_matches, len(preview_matches), files_scanned
+
+
+async def pull_from_source(source_id: str, db: Session) -> str:
+    """Resolve the saved source config and pull (or clone) it; return the source_id."""
+    source_config = SettingsService(db).get_source_config("git", source_id)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
+    return str(source_config["source_id"])
+
+
+async def remove_and_clone_from_source(source_id: str, db: Session) -> str:
+    """Resolve the saved source config and remove + re-clone it; return the source_id."""
+    source_config = SettingsService(db).get_source_config("git", source_id)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: remove_and_clone(source_config))
+    return str(source_config["source_id"])
 
 
 class GitDeviceService:

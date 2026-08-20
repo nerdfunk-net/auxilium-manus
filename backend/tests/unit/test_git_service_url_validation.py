@@ -55,20 +55,24 @@ class GitServiceUrlValidationTests(unittest.TestCase):
         self.assertIn("https or ssh", result.message)
 
     def test_clone_with_ssh_url_is_not_blocked(self) -> None:
-        """ssh:// is allowed and skips DNS resolution, so this needs no network mocking
-        beyond the actual git clone subprocess call."""
+        """ssh:// is allowed, but is now subject to the same IP allow-list as https
+        (H2), so DNS resolution must be mocked to a public/RFC1918 address."""
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "repo"
-            with patch("services.git.service.Repo.clone_from") as clone_from:
-                clone_from.return_value = MagicMock()
-                repo = self.git_service.clone(
-                    {
-                        "url": "ssh://git@example.com/org/repo.git",
-                        "name": "x",
-                        "branch": "main",
-                    },
-                    target_path=target,
-                )
+            with patch(
+                "core.safe_urls.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+            ):
+                with patch("services.git.service.Repo.clone_from") as clone_from:
+                    clone_from.return_value = MagicMock()
+                    repo = self.git_service.clone(
+                        {
+                            "url": "ssh://git@example.com/org/repo.git",
+                            "name": "x",
+                            "branch": "main",
+                        },
+                        target_path=target,
+                    )
             clone_from.assert_called_once()
             self.assertIs(repo, clone_from.return_value)
 

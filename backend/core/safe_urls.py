@@ -78,14 +78,12 @@ def validate_git_remote_url(url: str, *, resolve_dns: bool = True) -> str:
 
     if scheme in ("ssh", "git+ssh"):
         host = (parsed.hostname or "").strip()
-        if not host:
-            raise UnsafeURLError("URL host is required")
+        _assert_git_host_allowed(host, resolve_dns=resolve_dns)
         return raw
 
     if scheme == "http" and settings.environment == "development":
         host = (parsed.hostname or "").strip()
-        if not host:
-            raise UnsafeURLError("URL host is required")
+        _assert_git_host_allowed(host, resolve_dns=resolve_dns)
         return raw.rstrip("/")
 
     if scheme:
@@ -94,11 +92,26 @@ def validate_git_remote_url(url: str, *, resolve_dns: bool = True) -> str:
     if not raw.startswith(("/", "\\")) and _SCP_LIKE_PATTERN.match(raw):
         host_part = raw.split(":", 1)[0]
         host = host_part.split("@", 1)[-1] if "@" in host_part else host_part
-        if not host:
-            raise UnsafeURLError("URL host is required")
+        _assert_git_host_allowed(host, resolve_dns=resolve_dns)
         return raw
 
     raise UnsafeURLError("Git remote URL must use https or ssh, not a filesystem path")
+
+
+def _assert_git_host_allowed(host: str, *, resolve_dns: bool) -> None:
+    normalized = (host or "").strip().lower()
+    if not normalized:
+        raise UnsafeURLError("URL host is required")
+    if normalized in _BLOCKED_HOSTNAMES:
+        raise UnsafeURLError(f"URL host is not allowed: {normalized}")
+    try:
+        literal_ip = ipaddress.ip_address(normalized)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None:
+        _assert_ip_allowed(literal_ip)
+    if resolve_dns:
+        _assert_resolved_hosts_allowed(normalized)
 
 
 def _assert_resolved_hosts_allowed(host: str) -> None:

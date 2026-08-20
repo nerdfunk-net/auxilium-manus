@@ -6,7 +6,7 @@ import socket
 import unittest
 from unittest.mock import MagicMock, patch
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_git_remote_url, validate_outbound_http_url
 
 
 def _addrinfo(ip: str):
@@ -61,6 +61,42 @@ class SafeUrlsTests(unittest.TestCase):
         ):
             with self.assertRaises(UnsafeURLError):
                 validate_outbound_http_url("https://evil.example.com")
+
+
+class GitRemoteUrlSshPolicyTests(unittest.TestCase):
+    """SSH/scp-like git remotes must go through the same IP policy as https (H2)."""
+
+    def test_ssh_url_public_dns_ok(self) -> None:
+        with patch("core.safe_urls.socket.getaddrinfo", return_value=_addrinfo("203.0.113.10")):
+            result = validate_git_remote_url("ssh://git@git.example.com/org/repo.git")
+        self.assertEqual(result, "ssh://git@git.example.com/org/repo.git")
+
+    def test_ssh_url_literal_link_local_blocked(self) -> None:
+        with self.assertRaises(UnsafeURLError):
+            validate_git_remote_url(
+                "ssh://git@169.254.169.254/org/repo.git", resolve_dns=False
+            )
+
+    def test_ssh_url_loopback_blocked_by_default(self) -> None:
+        with patch("core.safe_urls.settings") as settings_mock:
+            settings_mock.allow_loopback_source_urls = False
+            with self.assertRaises(UnsafeURLError):
+                validate_git_remote_url("ssh://git@127.0.0.1/org/repo.git", resolve_dns=False)
+
+    def test_scp_like_literal_link_local_blocked(self) -> None:
+        with self.assertRaises(UnsafeURLError):
+            validate_git_remote_url("git@169.254.169.254:org/repo.git", resolve_dns=False)
+
+    def test_scp_like_rfc1918_dns_allowed(self) -> None:
+        with patch("core.safe_urls.socket.getaddrinfo", return_value=_addrinfo("10.0.0.5")):
+            result = validate_git_remote_url("git@git.example.com:org/repo.git")
+        self.assertEqual(result, "git@git.example.com:org/repo.git")
+
+    def test_ssh_url_blocked_metadata_hostname(self) -> None:
+        with self.assertRaises(UnsafeURLError):
+            validate_git_remote_url(
+                "ssh://git@metadata.google.internal/org/repo.git", resolve_dns=False
+            )
 
 
 class ClientUrlValidationTests(unittest.IsolatedAsyncioTestCase):

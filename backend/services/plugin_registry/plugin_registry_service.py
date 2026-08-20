@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
+import logging
+from typing import Any
+
 from pydantic import ValidationError
 
 from models.plugins import PluginDefinition, PluginRegistry
 from repositories.plugin_repository import PluginRepository, PluginRepositoryError
+
+logger = logging.getLogger(__name__)
 
 
 class PluginRegistryError(RuntimeError):
@@ -53,6 +59,41 @@ class PluginRegistryService:
             ),
             None,
         )
+
+    def get_plugin_config(self, plugin_id: str) -> dict[str, Any] | None:
+        """Return a plugin's ``config.py::get_config()`` result.
+
+        ``None`` means the plugin id is unknown (caller raises 404); ``{}``
+        means the plugin has no config module, or its ``get_config()`` failed
+        or returned something other than a dict.
+        """
+        plugin = self.get_plugin(plugin_id)
+        if plugin is None:
+            return None
+
+        config_path = self.repository.plugins_file.parent / plugin.directory / "config.py"
+        if not config_path.is_file():
+            return {}
+
+        module_name = f"workflow_steps.{plugin.directory}.config"
+        spec = importlib.util.spec_from_file_location(module_name, config_path)
+        if spec is None or spec.loader is None:
+            logger.warning("Cannot load config module for plugin '%s'", plugin_id)
+            return {}
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        get_config = getattr(module, "get_config", None)
+        if not callable(get_config):
+            return {}
+        try:
+            cfg = get_config()
+        except Exception:
+            logger.exception("get_config() failed for plugin '%s'", plugin_id)
+            return {}
+        if not isinstance(cfg, dict):
+            return {}
+        return cfg
 
     @staticmethod
     def _validate_unique_plugins(registry: PluginRegistry) -> None:

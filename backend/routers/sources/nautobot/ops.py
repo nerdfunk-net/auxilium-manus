@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 import service_factory
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.domain_exceptions import AccessDeniedError, DomainError, NotFoundError
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import (
@@ -38,10 +39,9 @@ from services.nautobot.common.exceptions import (
     NautobotValidationError,
 )
 from services.nautobot.credentials import NautobotCredentials
-from services.settings.settings_service import SettingsService
+from services.sources.nautobot.connection import test_nautobot_connection
 from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
-from utils.inventory_converter import convert_saved_inventory_to_operations
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -74,37 +74,8 @@ async def test_connection(
     db: Session = Depends(get_db),
 ) -> NautobotTestConnectionResponse:
     """Test Nautobot connectivity using form values or a saved source."""
-    if request.source_id:
-        config = SettingsService(db).get_source_config("nautobot", request.source_id)
-        credentials = service_factory.credentials_from_connection(
-            str(config.get("url") or ""),
-            str(config.get("token") or ""),
-            request.timeout,
-            verify_ssl=config.get("verify_ssl", True),
-        )
-    else:
-        credentials = service_factory.credentials_from_connection(
-            (request.url or "").strip(),
-            (request.token or "").strip(),
-            request.timeout,
-            verify_ssl=request.verify_ssl,
-        )
-    nautobot = service_factory.get_nautobot_app_service()
     try:
-        status_payload = await nautobot.test_connection(credentials)
-        version = ""
-        if isinstance(status_payload, dict):
-            version = str(
-                status_payload.get("nautobot-version")
-                or status_payload.get("nautobot_version")
-                or ""
-            ).strip()
-        message = (
-            f"Connection successful (Nautobot {version})"
-            if version
-            else "Connection successful"
-        )
-        return NautobotTestConnectionResponse(success=True, message=message)
+        return await test_nautobot_connection(request, db)
     except NautobotValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except NautobotAPIError as exc:
@@ -117,6 +88,8 @@ async def test_connection(
                 "Check the URL, token, and network reachability."
             ),
         )
+    except DomainError:
+        raise
     except Exception as exc:
         raise_internal_server_error(logger, "Nautobot test connection failed: ", exc)
 
@@ -338,52 +311,13 @@ async def resolve_inventory_to_devices(
     try:
         inventory = persistence.get_inventory(inventory_id, username=current_user.username)
         if not inventory:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Inventory with ID {inventory_id} not found",
-            )
+            raise NotFoundError(f"Inventory with ID {inventory_id} not found")
 
         source_service = _build_source_service(credentials, persistence)
-
-        if inventory.get("inventory_type") == "static":
-            static_ids = inventory.get("device_ids") or []
-            if not static_ids:
-                return {
-                    "device_ids": [],
-                    "device_count": 0,
-                    "inventory_id": inventory_id,
-                    "inventory_name": inventory.get("name", ""),
-                }
-            devices = await source_service.resolve_devices_by_ids(static_ids)
-            device_ids = [device.id for device in devices]
-            return {
-                "device_ids": device_ids,
-                "device_count": len(device_ids),
-                "inventory_id": inventory_id,
-                "inventory_name": inventory.get("name", ""),
-            }
-
-        conditions = inventory.get("conditions", [])
-        if not conditions:
-            return {
-                "device_ids": [],
-                "device_count": 0,
-                "inventory_id": inventory_id,
-                "inventory_name": inventory.get("name", ""),
-            }
-
-        operations = convert_saved_inventory_to_operations(conditions)
-        devices, _ = await source_service.preview_inventory(operations)
-        device_ids = [device.id for device in devices]
-        return {
-            "device_ids": device_ids,
-            "device_count": len(device_ids),
-            "inventory_id": inventory_id,
-            "inventory_name": inventory.get("name", ""),
-        }
+        return await source_service.resolve_saved_inventory_ids(inventory, inventory_id)
     except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except HTTPException:
+        raise AccessDeniedError(str(exc)) from exc
+    except DomainError:
         raise
     except Exception as exc:
         raise_internal_server_error(
@@ -404,70 +338,13 @@ async def resolve_inventory_to_devices_detailed(
     try:
         inventory = persistence.get_inventory(inventory_id, username=current_user.username)
         if not inventory:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Inventory with ID {inventory_id} not found",
-            )
+            raise NotFoundError(f"Inventory with ID {inventory_id} not found")
 
         source_service = _build_source_service(credentials, persistence)
-
-        if inventory.get("inventory_type") == "static":
-            static_ids = inventory.get("device_ids") or []
-            if not static_ids:
-                return {
-                    "devices": [],
-                    "device_details": [],
-                    "device_count": 0,
-                    "inventory_id": inventory_id,
-                    "inventory_name": inventory.get("name", ""),
-                }
-            devices = await source_service.resolve_devices_by_ids(static_ids)
-        else:
-            conditions = inventory.get("conditions", [])
-            if not conditions:
-                return {
-                    "devices": [],
-                    "device_details": [],
-                    "device_count": 0,
-                    "inventory_id": inventory_id,
-                    "inventory_name": inventory.get("name", ""),
-                }
-
-            operations = convert_saved_inventory_to_operations(conditions)
-            devices, _ = await source_service.preview_inventory(operations)
-
-        device_details = []
-        device_list = []
-        for device in devices:
-            try:
-                detail = await source_service.device_query_service.get_device_details(
-                    device_id=device.id,
-                    use_cache=True,
-                )
-                device_details.append(detail)
-                primary_ip4 = detail.get("primary_ip4")
-                address = primary_ip4.get("address") if isinstance(primary_ip4, dict) else None
-                device_list.append(
-                    {"id": detail.get("id"), "name": detail.get("name"), "primary_ip4": address}
-                )
-            except Exception as exc:
-                logger.error(
-                    "Error fetching details for device %s (%s): %s",
-                    device.id,
-                    device.name,
-                    exc,
-                )
-
-        return {
-            "devices": device_list,
-            "device_details": device_details,
-            "device_count": len(device_list),
-            "inventory_id": inventory_id,
-            "inventory_name": inventory.get("name", ""),
-        }
+        return await source_service.resolve_saved_inventory_detailed(inventory, inventory_id)
     except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except HTTPException:
+        raise AccessDeniedError(str(exc)) from exc
+    except DomainError:
         raise
     except Exception as exc:
         raise_internal_server_error(
@@ -489,35 +366,13 @@ async def get_inventory_devices(
     try:
         inventory = persistence.get_inventory(inventory_id, username=current_user.username)
         if not inventory:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Inventory with ID {inventory_id} not found",
-            )
+            raise NotFoundError(f"Inventory with ID {inventory_id} not found")
 
         source_service = _build_source_service(credentials, persistence)
-
-        if inventory.get("inventory_type") == "static":
-            devices = await source_service.resolve_devices_by_ids(
-                inventory.get("device_ids") or []
-            )
-            return InventoryPreviewResponse(
-                devices=devices, total_count=len(devices), operations_executed=0
-            )
-
-        conditions = inventory.get("conditions", [])
-        if not conditions:
-            return InventoryPreviewResponse(devices=[], total_count=0, operations_executed=0)
-
-        operations = convert_saved_inventory_to_operations(conditions)
-        devices, operations_executed = await source_service.preview_inventory(operations)
-        return InventoryPreviewResponse(
-            devices=devices,
-            total_count=len(devices),
-            operations_executed=operations_executed,
-        )
+        return await source_service.resolve_saved_inventory_devices(inventory)
     except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except HTTPException:
+        raise AccessDeniedError(str(exc)) from exc
+    except DomainError:
         raise
     except Exception as exc:
         raise_internal_server_error(

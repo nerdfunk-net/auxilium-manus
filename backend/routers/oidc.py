@@ -104,7 +104,6 @@ async def initiate_test_login(
         response_type=body.response_type or "code",
         client_id=body.client_id,
         oidc_service=oidc_service,
-        relax_redirect=True,
     )
 
 
@@ -116,7 +115,6 @@ async def _build_login_response(
     response_type: str = "code",
     client_id: str | None = None,
     oidc_service: OIDCService,
-    relax_redirect: bool = False,
 ) -> OIDCLoginResponse:
     cache = _cache_or_503()
 
@@ -125,7 +123,7 @@ async def _build_login_response(
             redirect_uri,
             allowlist=settings.oidc_redirect_uri_allowlist,
             environment=settings.environment,
-            dev_tools=relax_redirect,
+            dev_tools=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

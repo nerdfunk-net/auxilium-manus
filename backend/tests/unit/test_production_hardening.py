@@ -24,6 +24,7 @@ from core.database import get_db
 from core.dev_tools import dev_tools_enabled, require_dev_tools
 from core.models.users import User
 from core.oidc_redirect import assert_redirect_matches_state, validate_oidc_redirect_uri
+from core.config import validate_trusted_proxy_ips
 from core.production_guards import validate_non_development_secrets
 from core.safe_hosts import validate_netmiko_preview_host
 from core.safe_urls import UnsafeURLError, validate_git_remote_url
@@ -233,6 +234,54 @@ class TestR2ProductionGuards(unittest.TestCase):
             initial_password="x" * 12,
             credential_encryption_key="y" * 40,
             database_password="strongpw",
+            redis_password="strong-redis",
+        )
+
+    def test_production_rejects_enable_dev_tools(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "ENABLE_DEV_TOOLS"):
+            validate_non_development_secrets(
+                environment="production",
+                secret_key="x" * 40,
+                initial_password="x" * 12,
+                credential_encryption_key="y" * 40,
+                database_password="strongpw",
+                redis_password="strong-redis",
+                enable_dev_tools=True,
+            )
+
+    def test_production_rejects_empty_redis_password(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "MANUS_REDIS_PASSWORD"):
+            validate_non_development_secrets(
+                environment="production",
+                secret_key="x" * 40,
+                initial_password="x" * 12,
+                credential_encryption_key="y" * 40,
+                database_password="strongpw",
+                redis_password="",
+            )
+
+    def test_production_rejects_allow_netmiko_arbitrary_hosts(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "ALLOW_NETMIKO_ARBITRARY_HOSTS"):
+            validate_non_development_secrets(
+                environment="production",
+                secret_key="x" * 40,
+                initial_password="x" * 12,
+                credential_encryption_key="y" * 40,
+                database_password="strongpw",
+                redis_password="strong-redis",
+                allow_netmiko_arbitrary_hosts=True,
+            )
+
+    def test_development_allows_dev_tools_and_empty_redis_password(self) -> None:
+        validate_non_development_secrets(
+            environment="development",
+            secret_key="change-in-production-use-at-least-32-characters",
+            initial_password="admin",
+            credential_encryption_key="",
+            database_password="postgres",
+            enable_dev_tools=True,
+            redis_password="",
+            allow_netmiko_arbitrary_hosts=True,
         )
 
 
@@ -250,7 +299,9 @@ class TestR3GitRemoteUrl(unittest.TestCase):
             "https://git.example.com/org/repo.git",
         )
 
-    def test_accepts_scp_like(self) -> None:
+    @patch("core.safe_urls.socket.getaddrinfo")
+    def test_accepts_scp_like(self, mock_getaddrinfo: MagicMock) -> None:
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
         self.assertEqual(
             validate_git_remote_url("git@git.example.com:org/repo.git"),
             "git@git.example.com:org/repo.git",
@@ -265,7 +316,9 @@ class TestR3GitRemoteUrl(unittest.TestCase):
             with self.assertRaises(UnsafeURLError):
                 validate_git_remote_url("http://git.example.com/org/repo.git")
 
-    def test_allows_http_scheme_in_development(self) -> None:
+    @patch("core.safe_urls.socket.getaddrinfo")
+    def test_allows_http_scheme_in_development(self, mock_getaddrinfo: MagicMock) -> None:
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
         with patch("core.safe_urls.settings.environment", "development"):
             self.assertEqual(
                 validate_git_remote_url("http://git.example.com/org/repo.git"),
@@ -570,6 +623,32 @@ class TestR10Ready(unittest.TestCase):
         )
         self.assertEqual(status_code, 503)
         self.assertEqual(body.status, "unavailable")
+
+
+# ---------------------------------------------------------------------------
+# M8 — TRUSTED_PROXY_IPS hardening
+# ---------------------------------------------------------------------------
+
+
+class TestM8TrustedProxyIps(unittest.TestCase):
+    def test_accepts_valid_ips(self) -> None:
+        result = validate_trusted_proxy_ips({"10.0.0.1", "192.168.1.1"})
+        self.assertEqual(result, {"10.0.0.1", "192.168.1.1"})
+
+    def test_empty_set_is_allowed(self) -> None:
+        self.assertEqual(validate_trusted_proxy_ips(set()), set())
+
+    def test_rejects_invalid_ip(self) -> None:
+        with self.assertRaises(RuntimeError):
+            validate_trusted_proxy_ips({"not-an-ip"})
+
+    def test_rejects_unspecified_ipv4(self) -> None:
+        with self.assertRaises(RuntimeError):
+            validate_trusted_proxy_ips({"0.0.0.0"})
+
+    def test_rejects_unspecified_ipv6(self) -> None:
+        with self.assertRaises(RuntimeError):
+            validate_trusted_proxy_ips({"::"})
 
 
 if __name__ == "__main__":

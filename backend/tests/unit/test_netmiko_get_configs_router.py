@@ -6,12 +6,14 @@ from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
 from core.config import settings
 from core.database import get_db
+from core.domain_exceptions import DomainError
 from core.models.users import User
 from routers.netmiko import _credentials_service
 from routers.netmiko import router as netmiko_router
@@ -34,6 +36,11 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
     monkeypatch.setattr(settings, "allow_netmiko_arbitrary_hosts", True)
     app = FastAPI()
+
+    @app.exception_handler(DomainError)
+    async def _domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
     app.include_router(netmiko_router, prefix="/api")
     app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
     app.dependency_overrides[get_current_user] = _make_user
@@ -60,8 +67,8 @@ def test_get_configs_returns_parsed_running_and_startup(app: FastAPI) -> None:
     app.dependency_overrides[_credentials_service] = lambda: mock_credentials_service
 
     with (
-        patch("routers.netmiko.NetmikoService") as netmiko_cls,
-        patch("routers.netmiko.parse_cisco_config_text") as parse_text,
+        patch("services.network.netmiko.preview_service.NetmikoService") as netmiko_cls,
+        patch("services.network.netmiko.preview_service.parse_cisco_config_text") as parse_text,
     ):
         netmiko = netmiko_cls.return_value
 
@@ -94,7 +101,7 @@ def test_get_configs_connection_failure_returns_graceful_error(app: FastAPI) -> 
     mock_credentials_service.get_decrypted_password.return_value = "secret"
     app.dependency_overrides[_credentials_service] = lambda: mock_credentials_service
 
-    with patch("routers.netmiko.NetmikoService") as netmiko_cls:
+    with patch("services.network.netmiko.preview_service.NetmikoService") as netmiko_cls:
         netmiko = netmiko_cls.return_value
 
         async def _raise(**_kwargs):
@@ -135,8 +142,8 @@ def test_get_configs_scopes_credential_lookup_to_acting_user(app: FastAPI) -> No
     app.dependency_overrides[_credentials_service] = lambda: mock_credentials_service
 
     with (
-        patch("routers.netmiko.NetmikoService") as netmiko_cls,
-        patch("routers.netmiko.parse_cisco_config_text"),
+        patch("services.network.netmiko.preview_service.NetmikoService") as netmiko_cls,
+        patch("services.network.netmiko.preview_service.parse_cisco_config_text"),
     ):
         netmiko = netmiko_cls.return_value
 

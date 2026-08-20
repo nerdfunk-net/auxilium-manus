@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.models import GitRepository
 from repositories import GitRepositoryRepository
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +26,18 @@ class GitRepositoryService:
     This service only manages the database records.
     """
 
-    def __init__(self) -> None:
-        self._repo = GitRepositoryRepository()
+    def __init__(self, db: Session | None = None) -> None:
+        self._db = db
+        self._repo = GitRepositoryRepository(db)
 
     def create_repository(self, repo_data: dict[str, Any]) -> int:
         """Create a new git repository record. Returns new ID."""
         try:
-            if self._repo.name_exists(repo_data["name"]):
+            if self._repo.name_exists(repo_data["name"], db=self._db):
                 raise ValueError(f"Repository with name '{repo_data['name']}' already exists")
 
             new_repo = self._repo.create(
+                db=self._db,
                 name=repo_data["name"],
                 category=repo_data["category"],
                 url=repo_data["url"],
@@ -57,7 +62,7 @@ class GitRepositoryService:
     def get_repository(self, repo_id: int) -> dict[str, Any] | None:
         """Get a git repository by ID."""
         try:
-            repo = self._repo.get_by_id(repo_id)
+            repo = self._repo.get_by_id(repo_id, db=self._db)
             return self._to_dict(repo) if repo else None
         except Exception as e:
             logger.error("Error getting git repository %s: %s", repo_id, e)
@@ -69,11 +74,11 @@ class GitRepositoryService:
         """Get all git repositories, optionally filtered by category and active status."""
         try:
             if category:
-                repos = self._repo.get_by_category(category, active_only)
+                repos = self._repo.get_by_category(category, active_only, db=self._db)
             elif active_only:
-                repos = self._repo.get_all_active()
+                repos = self._repo.get_all_active(db=self._db)
             else:
-                repos = self._repo.get_all()
+                repos = self._repo.get_all(db=self._db)
             return [self._to_dict(r) for r in repos]
         except Exception as e:
             logger.error("Error getting git repositories: %s", e)
@@ -101,14 +106,14 @@ class GitRepositoryService:
                 return False
 
             if "name" in update_kwargs:
-                existing = self._repo.get_by_name(update_kwargs["name"])
+                existing = self._repo.get_by_name(update_kwargs["name"], db=self._db)
                 if existing and existing.id != repo_id:
                     raise ValueError(
                         f"Repository with name '{update_kwargs['name']}' already exists"
                     )
 
             update_kwargs["updated_at"] = datetime.now(UTC)
-            self._repo.update(repo_id, **update_kwargs)
+            self._repo.update(repo_id, db=self._db, **update_kwargs)
             logger.info("Updated git repository ID: %s", repo_id)
             return True
         except ValueError:
@@ -121,10 +126,12 @@ class GitRepositoryService:
         """Delete a git repository."""
         try:
             if hard_delete:
-                self._repo.delete(repo_id)
+                self._repo.delete(repo_id, db=self._db)
                 action = "Deleted"
             else:
-                self._repo.update(repo_id, is_active=False, updated_at=datetime.now(UTC))
+                self._repo.update(
+                    repo_id, db=self._db, is_active=False, updated_at=datetime.now(UTC)
+                )
                 action = "Deactivated"
             logger.info("%s git repository ID: %s", action, repo_id)
             return True
@@ -141,6 +148,7 @@ class GitRepositoryService:
                 last_sync = datetime.now(UTC)
             self._repo.update(
                 repo_id,
+                db=self._db,
                 sync_status=status,
                 last_sync=last_sync,
                 updated_at=datetime.now(UTC),
@@ -153,7 +161,7 @@ class GitRepositoryService:
     def health_check(self) -> dict[str, Any]:
         """Check the health of the git repository management system."""
         try:
-            all_repos = self._repo.get_all()
+            all_repos = self._repo.get_all(db=self._db)
             active_repos = [r for r in all_repos if r.is_active]
             category_counts: dict[str, int] = {}
             for repo in all_repos:
@@ -165,9 +173,9 @@ class GitRepositoryService:
                 "categories": category_counts,
                 "database": "PostgreSQL",
             }
-        except Exception as e:
-            logger.error("Health check failed: %s", e)
-            return {"status": "error", "error": str(e), "database": "PostgreSQL"}
+        except Exception:
+            logger.exception("Health check failed")
+            return {"status": "error", "error": "unavailable", "database": "PostgreSQL"}
 
     def _to_dict(self, repo: GitRepository) -> dict[str, Any]:
         """Convert GitRepository model to dictionary."""

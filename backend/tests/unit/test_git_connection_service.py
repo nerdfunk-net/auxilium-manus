@@ -63,9 +63,11 @@ class GitConnectionServiceTests(unittest.TestCase):
 
     @patch("services.git.connection.subprocess.run")
     @patch("services.git.connection.set_ssl_env")
-    def test_redacts_token_from_failure_message(
+    def test_failure_details_never_include_stderr(
         self, mock_ssl_env: MagicMock, mock_run: MagicMock
     ) -> None:
+        """M6: client-facing details must never carry raw clone stderr (which may
+        contain the auth URL/token) — only a sanitized message and return_code."""
         mock_ssl_env.return_value.__enter__ = MagicMock(return_value=None)
         mock_ssl_env.return_value.__exit__ = MagicMock(return_value=False)
         mock_run.return_value = MagicMock(
@@ -77,9 +79,28 @@ class GitConnectionServiceTests(unittest.TestCase):
         result = GitConnectionService().test_connection(_request())
 
         self.assertFalse(result.success)
-        details_error = (result.details or {}).get("error", "")
-        self.assertNotIn("secret-token", details_error)
-        self.assertIn("github.com/org/repo.git", details_error)
+        self.assertNotIn("error", result.details or {})
+        self.assertEqual((result.details or {}).get("return_code"), 128)
+
+    @patch("services.git.connection.subprocess.run")
+    @patch("services.git.connection.set_ssl_env")
+    def test_logs_redact_token_from_failure_stderr(
+        self, mock_ssl_env: MagicMock, mock_run: MagicMock
+    ) -> None:
+        mock_ssl_env.return_value.__enter__ = MagicMock(return_value=None)
+        mock_ssl_env.return_value.__exit__ = MagicMock(return_value=False)
+        mock_run.return_value = MagicMock(
+            returncode=128,
+            stdout="",
+            stderr="fatal: could not read from 'https://git:secret-token@github.com/org/repo.git'",
+        )
+
+        with self.assertLogs("services.git.connection", level="WARNING") as logs:
+            GitConnectionService().test_connection(_request())
+
+        log_output = "\n".join(logs.output)
+        self.assertNotIn("secret-token", log_output)
+        self.assertIn("github.com/org/repo.git", log_output)
 
     @patch("services.git.connection.subprocess.run")
     def test_unsafe_url_rejected_without_clone(self, mock_run: MagicMock) -> None:

@@ -69,8 +69,10 @@ def nautobot_credentials_from_source_ref(
     return _credentials_from_source_config(config, ref.timeout)
 
 
-def get_git_service():
-    return service_factory.build_git_service()
+def get_git_repository_service(db: Session = Depends(get_db)):
+    from services.git.repository_service import GitRepositoryService
+
+    return GitRepositoryService(db)
 
 
 def get_git_auth_service():
@@ -81,8 +83,12 @@ def get_git_cache_service():
     return service_factory.build_git_cache_service()
 
 
-def get_git_operations_service():
-    return service_factory.build_git_operations_service()
+def get_git_operations_service(
+    repos=Depends(get_git_repository_service),
+):
+    from services.git.operations import GitOperationsService
+
+    return GitOperationsService(repos)
 
 
 def get_git_connection_service():
@@ -93,20 +99,32 @@ def get_cache_service():
     return service_factory.build_cache_service()
 
 
-def get_git_debug_service():
-    return service_factory.build_git_debug_service()
+def get_git_debug_service(
+    repos=Depends(get_git_repository_service),
+):
+    from services.git.debug_service import GitDebugService
+
+    return GitDebugService(repos)
 
 
 def get_git_version_control_service():
     return service_factory.build_git_version_control_service()
 
 
-def get_git_file_service():
-    return service_factory.build_git_file_service()
+def get_git_file_service(
+    repos=Depends(get_git_repository_service),
+):
+    from services.git.file_service import GitFileService
+
+    return GitFileService(repos)
 
 
-def get_git_csv_service():
-    return service_factory.build_git_csv_service()
+def get_git_csv_service(
+    repos=Depends(get_git_repository_service),
+):
+    from services.git.csv_service import GitCsvService
+
+    return GitCsvService(repos)
 
 
 def get_oidc_config_service():

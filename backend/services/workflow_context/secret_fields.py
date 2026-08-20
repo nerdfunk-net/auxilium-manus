@@ -36,6 +36,32 @@ SECRET_BAG_PATHS: tuple[tuple[str, ...], ...] = (
     ("pyats_testbed", "password"),
 )
 
+# Dict keys whose lowercase (dash/underscore-normalized) name marks the value
+# as secret, anywhere in the structure — not just under attribute_bags. This
+# catches e.g. command-output JSON that happens to carry a "password" field.
+_SECRET_KEY_NAMES = frozenset(
+    {
+        "password",
+        "secret",
+        "token",
+        "community",
+        "shared_secret",
+        "sharedsecret",
+        "passphrase",
+        "api_key",
+        "apikey",
+        "enable_secret",
+        "snmp_community",
+    }
+)
+
+
+def _key_is_secret_name(key: str) -> bool:
+    lowered = key.replace("-", "_").lower()
+    if lowered in _SECRET_KEY_NAMES:
+        return True
+    return lowered.endswith(("_password", "_secret", "_token", "_passphrase"))
+
 
 def path_is_known_secret(dotted_path: str) -> bool:
     """True when *dotted_path* (e.g. ``"tacacs.shared_secret"``) is a known secret path."""
@@ -113,6 +139,8 @@ def _redact_inplace(node: Any) -> None:
             _redact_bag_paths(bags)
         for key, value in list(node.items()):
             if is_sealed_secret(value):
+                node[key] = REDACTED_PLACEHOLDER
+            elif isinstance(value, str) and _key_is_secret_name(key):
                 node[key] = REDACTED_PLACEHOLDER
             else:
                 _redact_inplace(value)

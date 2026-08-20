@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import unittest
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
+from core.domain_exceptions import DomainError
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
@@ -120,20 +120,20 @@ class RunServiceDeleteTests(unittest.TestCase):
             with self.subTest(status=status_value):
                 run = self._make_run(uuid=f"run-{status_value}", status=status_value)
 
-                with self.assertRaises(HTTPException) as ctx:
+                with self.assertRaises(DomainError) as ctx:
                     self.service.delete_run(run_id=run.id, user_id=USER_ID)
                 self.assertEqual(ctx.exception.status_code, 400)
                 self.assertIsNotNone(self.service.run_repo.get_run_by_id(run.id))
 
     def test_delete_run_404_for_missing_run(self) -> None:
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             self.service.delete_run(run_id=999, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_delete_run_403_for_private_workflow_not_owned(self) -> None:
         run = self._make_run(workflow_id=self.private_workflow.id, status="success")
 
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             self.service.delete_run(run_id=run.id, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 403)
         self.assertIsNotNone(self.service.run_repo.get_run_by_id(run.id))

@@ -5,53 +5,32 @@ Consolidates common functions to avoid duplication.
 
 import logging
 
-from fastapi import HTTPException, status
-
-from core.safe_http_errors import raise_internal_server_error
-from services.git.repository_service import (
-    GitRepositoryService as GitRepositoryManager,
-)
+from core.domain_exceptions import NotFoundError, ValidationFailedError
+from services.git.repository_service import GitRepositoryService
 
 logger = logging.getLogger(__name__)
 
-# Initialize git repository manager - shared instance
-git_repo_manager = GitRepositoryManager()
 
-
-def get_git_repo_by_id(repo_id: int):
+def get_git_repo_by_id(repo_id: int, repos: GitRepositoryService | None = None):
     """Get Git repository instance by ID (shared utility function)."""
+    repos = repos or GitRepositoryService()
+
+    # Get repository details directly by ID
+    repository = repos.get_repository(repo_id)
+
+    if not repository:
+        raise NotFoundError(f"Git repository with ID {repo_id} not found.")
+
+    if not repository["is_active"]:
+        raise ValidationFailedError(
+            f"Git repository '{repository['name']}' is inactive. Please activate it first."
+        )
+
+    # Open the repository (or clone if needed) using central git_service
     try:
-        # Get repository details directly by ID
-        repository = git_repo_manager.get_repository(repo_id)
+        import service_factory
 
-        if not repository:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Git repository with ID {repo_id} not found.",
-            )
-
-        if not repository["is_active"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Git repository '{repository['name']}' is inactive. Please activate it first."
-                ),
-            )
-
-        # Open the repository (or clone if needed) using central git_service
-        try:
-            import service_factory
-
-            repo = service_factory.build_git_service().open_or_clone(repository)
-            return repo
-        except Exception as e:
-            raise_internal_server_error(
-                logger,
-                f"Failed to open/clone Git repository {repository['name']}",
-                e,
-            )
-
-    except HTTPException:
-        raise
+        return service_factory.build_git_service().open_or_clone(repository)
     except Exception as e:
-        raise_internal_server_error(logger, "Git repository error: ", e)
+        logger.exception("Failed to open/clone Git repository %s", repository["name"])
+        raise RuntimeError(f"Failed to open/clone Git repository {repository['name']}") from e

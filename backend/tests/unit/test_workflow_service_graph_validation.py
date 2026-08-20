@@ -6,8 +6,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import HTTPException
 
+from core.domain_exceptions import ValidationFailedError
 from models.workflows import WorkflowCreate
 from services.workflow.workflow_service import WorkflowService
 
@@ -30,7 +30,7 @@ def test_create_workflow_rejects_cyclic_graph() -> None:
         canvas_edges=edges,
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(ValidationFailedError) as exc_info:
         service.create_workflow(data, user_id=1)
 
     assert exc_info.value.status_code == 400

@@ -4,9 +4,11 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 
 from core.config import settings
+from core.domain_exceptions import DomainError
 from core.logging_config import configure_logging
 
 # Fallback for direct uvicorn imports. start.py passes an explicit uvicorn log_config.
@@ -115,6 +117,11 @@ app = FastAPI(
     redoc_url="/redoc" if settings.docs_enabled else None,
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(DomainError)
+async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(oidc_router, prefix=settings.api_prefix)

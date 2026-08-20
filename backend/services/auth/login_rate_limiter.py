@@ -39,12 +39,15 @@ class LoginRateLimiter:
     once touched.
     """
 
-    def __init__(self, redis_url: str, key_prefix: str = "manus-login-rl") -> None:
+    def __init__(
+        self, redis_url: str, key_prefix: str = "manus-login-rl", *, fail_closed: bool = False
+    ) -> None:
         # redis.from_url does not connect eagerly, so constructing this is
         # always safe even if Redis is down — failures only surface, and are
         # only handled, inside check()/clear().
         self._redis = redis.from_url(redis_url, decode_responses=True)
         self._prefix = key_prefix
+        self._fail_closed = fail_closed
         self._fallback_attempts: defaultdict[str, deque[float]] = defaultdict(deque)
 
     def check(self, key: str) -> None:
@@ -52,6 +55,9 @@ class LoginRateLimiter:
         try:
             self._check_redis(key)
         except redis.RedisError:
+            if self._fail_closed:
+                logger.error("Login rate limiter: Redis unavailable, failing closed")
+                raise RateLimitExceededError(key) from None
             logger.warning(
                 "Login rate limiter: Redis unavailable, using in-process fallback for this check"
             )

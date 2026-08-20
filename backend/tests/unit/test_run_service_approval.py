@@ -10,10 +10,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from core.domain_exceptions import DomainError
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
@@ -73,7 +73,7 @@ class RunServiceApprovalTests(unittest.TestCase):
     def test_approve_batch_409_when_run_not_paused(self) -> None:
         run = self._make_run(status="running")
 
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             self.service.approve_batch(run_id=run.id, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 409)
 
@@ -81,7 +81,7 @@ class RunServiceApprovalTests(unittest.TestCase):
         # A debug-mode pause: paused + current_node_id, but no approval_state.
         run = self._make_run(status="paused", current_node_id="n1")
 
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             self.service.approve_batch(run_id=run.id, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 409)
         self.mock_hatchet.event.push.assert_not_called()
@@ -133,7 +133,7 @@ class RunServiceApprovalTests(unittest.TestCase):
         self.assertEqual(args[0], expected_key)
 
     def test_approve_batch_404_for_missing_run(self) -> None:
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             self.service.approve_batch(run_id=999, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 404)
 
@@ -146,7 +146,7 @@ class RunServiceApprovalTests(unittest.TestCase):
             approval_state={"awaiting": True, "next_batch_index": 0, "total_batches": 2},
         )
 
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             self.service.step_run(run_id=run.id, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 409)
         self.mock_hatchet.event.push.assert_not_called()
@@ -158,7 +158,7 @@ class RunServiceApprovalTests(unittest.TestCase):
             approval_state={"awaiting": True, "next_batch_index": 0, "total_batches": 2},
         )
 
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(DomainError) as ctx:
             self.service.continue_run(run_id=run.id, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 409)
         self.mock_hatchet.event.push.assert_not_called()

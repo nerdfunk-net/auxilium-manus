@@ -14,6 +14,9 @@ def validate_non_development_secrets(
     initial_password: str,
     credential_encryption_key: str,
     database_password: str,
+    enable_dev_tools: bool = False,
+    redis_password: str = "",
+    allow_netmiko_arbitrary_hosts: bool = False,
 ) -> None:
     if environment == "development":
         return
@@ -27,3 +30,9 @@ def validate_non_development_secrets(
         raise RuntimeError("CREDENTIAL_ENCRYPTION_KEY must differ from SECRET_KEY")
     if database_password in WEAK_DATABASE_PASSWORDS:
         raise RuntimeError("DATABASE_PASSWORD must be configured outside development")
+    if enable_dev_tools:
+        raise RuntimeError("ENABLE_DEV_TOOLS must not be set outside development")
+    if not redis_password.strip():
+        raise RuntimeError("MANUS_REDIS_PASSWORD must be configured outside development")
+    if allow_netmiko_arbitrary_hosts:
+        raise RuntimeError("ALLOW_NETMIKO_ARBITRARY_HOSTS must not be enabled outside development")

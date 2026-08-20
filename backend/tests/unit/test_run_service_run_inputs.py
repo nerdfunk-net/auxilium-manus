@@ -10,10 +10,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from core.domain_exceptions import ValidationFailedError
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
@@ -69,7 +69,7 @@ class RunServiceRunInputsTests(unittest.TestCase):
     def test_trigger_run_400_when_required_attribute_missing(self) -> None:
         workflow = self._make_workflow(STATIC_ATTRIBUTES)
 
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ValidationFailedError) as ctx:
             self.service.trigger_run(
                 workflow_id=workflow.id, data=WorkflowRunCreate(), user_id=USER_ID
             )
@@ -80,7 +80,7 @@ class RunServiceRunInputsTests(unittest.TestCase):
     def test_trigger_run_400_on_unknown_run_input_key(self) -> None:
         workflow = self._make_workflow(STATIC_ATTRIBUTES)
 
-        with self.assertRaises(HTTPException) as ctx:
+        with self.assertRaises(ValidationFailedError) as ctx:
             self.service.trigger_run(
                 workflow_id=workflow.id,
                 data=WorkflowRunCreate(run_inputs={"vlan_id": 100, "bogus": "x"}),

@@ -20,6 +20,7 @@ from core.safe_urls import UnsafeURLError, validate_git_remote_url
 from models.git_repositories import GitConnectionTestRequest, GitConnectionTestResponse
 from services.git.auth import GitAuthenticationService
 from services.git.env import set_ssl_env
+from services.git.ssh_command import build_git_ssh_command
 
 logger = logging.getLogger(__name__)
 
@@ -149,12 +150,12 @@ class GitConnectionService:
                 message="Git connection test timed out",
                 details={"error": "Connection timeout after 30 seconds"},
             )
-        except Exception as e:
-            logger.error("Error testing git connection: %s", e)
+        except Exception:
+            logger.exception("Error testing git connection")
             return GitConnectionTestResponse(
                 success=False,
-                message=f"Git connection test error: {str(e)}",
-                details={"error": str(e)},
+                message="Git connection test failed",
+                details={},
             )
 
     def _validate_credentials(
@@ -279,10 +280,7 @@ class GitConnectionService:
 
         # Handle SSH key authentication
         if auth_type == "ssh_key" and ssh_key_path:
-            env["GIT_SSH_COMMAND"] = (
-                f'ssh -i "{ssh_key_path}" '
-                "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-            )
+            env["GIT_SSH_COMMAND"] = build_git_ssh_command(ssh_key_path)
 
         # Build shallow clone command
         cmd = [
@@ -331,5 +329,5 @@ class GitConnectionService:
             return GitConnectionTestResponse(
                 success=False,
                 message="Git connection failed",
-                details={"error": safe_stderr, "return_code": result.returncode},
+                details={"return_code": result.returncode},
             )

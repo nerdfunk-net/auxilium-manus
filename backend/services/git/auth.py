@@ -20,6 +20,8 @@ from contextlib import contextmanager
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse, urlunparse
 
+from services.git.ssh_command import build_git_ssh_command
+
 logger = logging.getLogger(__name__)
 
 
@@ -283,9 +285,7 @@ class GitAuthenticationService:
         try:
             if auth_type == "ssh_key" and ssh_key_path:
                 # Set up SSH command for SSH key auth
-                os.environ["GIT_SSH_COMMAND"] = (
-                    f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes"
-                )
+                os.environ["GIT_SSH_COMMAND"] = build_git_ssh_command(ssh_key_path)
                 logger.info(
                     "Using SSH key authentication for repository '%s'",
                     repository.get("name"),

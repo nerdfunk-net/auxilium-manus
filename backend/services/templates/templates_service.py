@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 
 from core.models.templates import Template
 from repositories.templates_repository import TemplatesRepository
+from services.credentials.credentials_service import CredentialsService
 from services.templates.exceptions import (
+    TemplateCredentialNotFoundError,
     TemplateNameConflictError,
     TemplateNotFoundError,
 )
@@ -35,7 +37,21 @@ _jinja_env = SandboxedEnvironment(
 
 class TemplatesService:
     def __init__(self, db: Session) -> None:
+        self.db = db
         self._repo = TemplatesRepository(db)
+
+    def _assert_credential_visible(
+        self, credential_id: int | None, *, acting_user_id: int
+    ) -> None:
+        """Prevent wiring a template's pre-run credential to another user's
+        private credential (also prevents ID-probing another user's credential)."""
+        if credential_id is None:
+            return
+        credential = CredentialsService(self.db).get_credential_by_id(
+            credential_id, acting_user_id=acting_user_id
+        )
+        if credential is None:
+            raise TemplateCredentialNotFoundError(credential_id)
 
     # ------------------------------------------------------------------
     # Read
@@ -77,7 +93,9 @@ class TemplatesService:
         nautobot_attributes: list[str] | None,
         credential_id: int | None,
         created_by: str | None,
+        acting_user_id: int,
     ) -> dict[str, Any]:
+        self._assert_credential_visible(credential_id, acting_user_id=acting_user_id)
         if self._repo.get_active_by_name(name) is not None:
             raise TemplateNameConflictError(name)
 
@@ -115,7 +133,9 @@ class TemplatesService:
         pre_run_use_textfsm: bool | None = None,
         nautobot_attributes: list[str] | None = None,
         credential_id: int | None = None,
+        acting_user_id: int,
     ) -> dict[str, Any]:
+        self._assert_credential_visible(credential_id, acting_user_id=acting_user_id)
         template = self._repo.get_by_id(template_id)
         if template is None or not template.is_active:
             raise TemplateNotFoundError(template_id)

@@ -1,3 +1,4 @@
+from ipaddress import ip_address
 from os import environ
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -14,6 +15,20 @@ DEFAULT_SECRET_KEY = "change-in-production-use-at-least-32-characters"
 DEFAULT_INITIAL_PASSWORD = "admin"
 
 load_dotenv(DEFAULT_ENV_FILE)
+
+
+def validate_trusted_proxy_ips(values: set[str]) -> set[str]:
+    """Reject unparsable or unspecified (0.0.0.0 / ::) TRUSTED_PROXY_IPS entries."""
+    cleaned: set[str] = set()
+    for raw in values:
+        try:
+            parsed = ip_address(raw)
+        except ValueError as exc:
+            raise RuntimeError(f"TRUSTED_PROXY_IPS contains an invalid IP: {raw}") from exc
+        if parsed.is_unspecified:
+            raise RuntimeError(f"TRUSTED_PROXY_IPS must not include unspecified address {raw}")
+        cleaned.add(str(parsed))
+    return cleaned
 
 
 class Settings:
@@ -64,7 +79,9 @@ class Settings:
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
-        self.trusted_proxy_ips = set(self._get_csv("TRUSTED_PROXY_IPS", ""))
+        self.trusted_proxy_ips = validate_trusted_proxy_ips(
+            set(self._get_csv("TRUSTED_PROXY_IPS", ""))
+        )
         self.docs_enabled = self._get_bool("DOCS_ENABLED", self.environment == "development")
         self.plugins_file = Path(environ.get("PLUGINS_FILE", DEFAULT_PLUGINS_FILE)).resolve()
         self.secret_key = self._get_secret_key()
@@ -116,12 +133,17 @@ class Settings:
         self.allow_netmiko_arbitrary_hosts = self._get_bool(
             "ALLOW_NETMIKO_ARBITRARY_HOSTS", self.environment == "development"
         )
+        from core.dev_tools import dev_tools_enabled
+
         validate_non_development_secrets(
             environment=self.environment,
             secret_key=self.secret_key,
             initial_password=self.initial_password,
             credential_encryption_key=self.credential_encryption_key,
             database_password=self.database_password,
+            enable_dev_tools=dev_tools_enabled(),
+            redis_password=self.redis_password,
+            allow_netmiko_arbitrary_hosts=self.allow_netmiko_arbitrary_hosts,
         )
 
     def _validate_run_retention(self) -> None:

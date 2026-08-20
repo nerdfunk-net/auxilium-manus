@@ -89,3 +89,8 @@ class PluginListResponse(BaseModel):
 class PluginRegistryResponse(BaseModel):
     schema_version: int
     plugins: list[PluginDefinition]
+
+
+class PluginConfigResponse(BaseModel):
+    plugin_id: str
+    config: dict[str, Any]

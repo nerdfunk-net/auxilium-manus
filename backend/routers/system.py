@@ -8,9 +8,8 @@ from sqlalchemy.orm import Session
 from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.dev_tools import require_dev_tools
-from core.schema_manager import SchemaManager
 from models.system import RbacSeedResponse, SchemaMigrationResponse, SchemaStatusResponse
-from services.auth.rbac_seed import admin_reseed_rbac
+from services.system.system_service import SystemService
 
 router = APIRouter(
     prefix="/system",
@@ -19,13 +18,17 @@ router = APIRouter(
 )
 
 
+def _service() -> SystemService:
+    return SystemService()
+
+
 @router.get(
     "/schema/status",
     response_model=SchemaStatusResponse,
     dependencies=[Depends(require_permission("system.database", "read"))],
 )
-async def get_schema_status() -> SchemaStatusResponse:
-    return SchemaManager().get_schema_status()
+async def get_schema_status(service: SystemService = Depends(_service)) -> SchemaStatusResponse:
+    return service.schema_status()
 
 
 @router.post(
@@ -36,8 +39,10 @@ async def get_schema_status() -> SchemaStatusResponse:
         Depends(require_permission("system.database", "write")),
     ],
 )
-async def migrate_schema(force: bool = False) -> SchemaMigrationResponse:
-    return SchemaManager().perform_migration(force=force)
+async def migrate_schema(
+    force: bool = False, service: SystemService = Depends(_service)
+) -> SchemaMigrationResponse:
+    return service.migrate_schema(force=force)
 
 
 @router.post(
@@ -51,16 +56,6 @@ async def migrate_schema(force: bool = False) -> SchemaMigrationResponse:
 async def reseed_rbac(
     remove_existing: bool = False,
     db: Session = Depends(get_db),
+    service: SystemService = Depends(_service),
 ) -> RbacSeedResponse:
-    result = admin_reseed_rbac(db, remove_existing=remove_existing)
-    return RbacSeedResponse(
-        success=True,
-        message=(
-            "RBAC data wiped and re-seeded."
-            if result.removed_existing
-            else "RBAC catalog synchronized."
-        ),
-        permissions_seeded=result.permissions_seeded,
-        roles_seeded=result.roles_seeded,
-        removed_existing=result.removed_existing,
-    )
+    return service.reseed_rbac(db, remove_existing=remove_existing)

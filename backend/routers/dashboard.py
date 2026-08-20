@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from core.auth import get_current_user
+from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from models.dashboard import (
@@ -47,7 +47,11 @@ async def update_dashboard_layout(
     return service.update_dashboard_layout(current_user.id, body)
 
 
-@router.get("/schedules", response_model=DashboardScheduleListResponse)
+@router.get(
+    "/schedules",
+    response_model=DashboardScheduleListResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
 async def get_dashboard_schedules(
     current_user: User = Depends(get_current_user),
     service: DashboardService = Depends(_dashboard_service),
@@ -55,7 +59,11 @@ async def get_dashboard_schedules(
     return service.list_schedules(current_user.id)
 
 
-@router.get("/recent-runs", response_model=DashboardRecentRunsResponse)
+@router.get(
+    "/recent-runs",
+    response_model=DashboardRecentRunsResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
 async def get_dashboard_recent_runs(
     limit: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -64,7 +72,11 @@ async def get_dashboard_recent_runs(
     return service.list_recent_runs(current_user.id, limit=limit)
 
 
-@router.get("/notifications", response_model=DashboardNotificationListResponse)
+@router.get(
+    "/notifications",
+    response_model=DashboardNotificationListResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
 async def get_dashboard_notifications(
     limit: int = Query(10, ge=1, le=100),
     current_user: User = Depends(get_current_user),

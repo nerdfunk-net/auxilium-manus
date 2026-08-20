@@ -7,8 +7,12 @@ particularly SSL-related settings and environment cleanup.
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
+from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -37,6 +41,12 @@ def set_ssl_env(repository: dict):
     }
     try:
         if not repository.get("verify_ssl", True):
+            host = "unknown"
+            try:
+                host = urlparse(repository.get("url") or "").hostname or "unknown"
+            except ValueError:
+                pass
+            logger.warning("Git SSL verification disabled for repository url_host=%s", host)
             os.environ["GIT_SSL_NO_VERIFY"] = "1"
         if repository.get("ssl_ca_info"):
             os.environ["GIT_SSL_CA_INFO"] = str(repository["ssl_ca_info"])

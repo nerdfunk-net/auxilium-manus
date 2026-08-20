@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -12,22 +11,19 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.domain_exceptions import DomainError
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.sources_git import (
     GitSourceTestConnectionRequest,
     GitSourceTestConnectionResponse,
 )
-from services.network.cisco_config_parsing import parse_cisco_config_text
-from services.settings.settings_service import SettingsService
-from services.sources.git.git_content_search_service import GitContentSearchService
 from services.sources.git.git_source_service import (
-    GitDeviceService,
-    clone_or_pull,
-    remove_and_clone,
-)
-from services.sources.git.git_source_service import (
-    test_connection as test_git_source_connection,
+    preview_content_search_from_source,
+    preview_devices_from_source,
+    pull_from_source,
+    remove_and_clone_from_source,
+    test_connection_from_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,32 +80,9 @@ async def test_connection(
 ) -> GitSourceTestConnectionResponse:
     """Test Git connectivity using form values or a saved source."""
     try:
-        if request.source_id:
-            config = SettingsService(db).get_source_config("git", request.source_id)
-            url = str(config.get("url") or "")
-            branch = str(config.get("branch") or "main")
-            username = str(config.get("username") or "")
-            token = str(config.get("token") or "")
-            verify_ssl = bool(config.get("verify_ssl", True))
-        else:
-            url = request.url or ""
-            branch = request.branch
-            username = request.username
-            token = request.token
-            verify_ssl = request.verify_ssl
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: test_git_source_connection(
-                url=url,
-                branch=branch,
-                username=username,
-                token=token,
-                verify_ssl=verify_ssl,
-            ),
-        )
+        result = await test_connection_from_request(request, db)
         return GitSourceTestConnectionResponse(**result)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Git test connection failed: ", exc)
@@ -126,43 +99,25 @@ async def preview_git_devices(
     db: Session = Depends(get_db),
 ) -> GitPreviewResponse:
     source_id = request.git_source_id.strip()
-    logger.info(
-        "[DEBUG] preview_git_devices ENTER — source_id=%r pattern=%r",
-        source_id,
-        request.filename_pattern,
-    )
-
-    if not request.filename_pattern.strip():
+    pattern = request.filename_pattern.strip()
+    if not pattern:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="filename_pattern is required",
         )
 
-    source_config = SettingsService(db).get_source_config("git", source_id)
-    logger.info("[DEBUG] preview_git_devices — setting found, calling fetch_devices in executor")
-
     try:
-        service = GitDeviceService()
-        pattern = request.filename_pattern.strip()
-        loop = asyncio.get_running_loop()
-        devices, files_read = await loop.run_in_executor(
-            None, lambda: service.fetch_devices(source_config, pattern)
-        )
-        logger.info(
-            "[DEBUG] preview_git_devices — executor returned %d device(s), %d file(s)",
-            len(devices),
-            files_read,
-        )
+        devices, files_read = await preview_devices_from_source(source_id, pattern, db)
         return GitPreviewResponse(
             devices=devices,
             total_count=len(devices),
             files_read=files_read,
         )
+    except (HTTPException, DomainError):
+        raise
     except ValueError as exc:
-        logger.info("[DEBUG] preview_git_devices — ValueError: %s", exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
-        logger.info("[DEBUG] preview_git_devices — unexpected exception: %s", exc)
         raise_internal_server_error(logger, "Failed to preview git source: ", exc)
 
 
@@ -182,50 +137,24 @@ async def preview_git_content_search(
             detail="search_text is required",
         )
 
-    source_config = SettingsService(db).get_source_config("git", request.git_source_id)
-
     try:
-        loop = asyncio.get_running_loop()
-        repo_dir = await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
-
-        search_service = GitContentSearchService()
-        matches, files_scanned = await loop.run_in_executor(
-            None,
-            lambda: search_service.search(
-                repo_dir,
-                source_config,
-                directory=request.directory,
-                file_filter=request.file_filter,
-                recursive=request.recursive,
-                include_history=request.include_history,
-                search_text=request.search_text,
-                case_sensitive=request.case_sensitive,
-            ),
+        matches, total_matches, files_scanned = await preview_content_search_from_source(
+            source_id=request.git_source_id,
+            directory=request.directory,
+            file_filter=request.file_filter,
+            recursive=request.recursive,
+            include_history=request.include_history,
+            search_text=request.search_text,
+            case_sensitive=request.case_sensitive,
+            db=db,
         )
-
-        preview_matches: list[GitContentSearchPreviewMatch] = []
-        for match in matches:
-            hostname: str | None = None
-            try:
-                parsed = parse_cisco_config_text(match.content, None)
-                candidate = str(parsed.get("hostname") or "").strip()
-                hostname = candidate or None
-            except ValueError:
-                hostname = None
-            preview_matches.append(
-                GitContentSearchPreviewMatch(
-                    file_path=match.file_path,
-                    line_content=match.line_content,
-                    hostname=hostname,
-                    commit=match.commit,
-                )
-            )
-
         return GitContentSearchPreviewResponse(
-            matches=preview_matches,
-            total_matches=len(preview_matches),
+            matches=[GitContentSearchPreviewMatch(**match) for match in matches],
+            total_matches=total_matches,
             files_scanned=files_scanned,
         )
+    except (HTTPException, DomainError):
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
@@ -242,12 +171,11 @@ async def pull_git_source(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Pull latest changes for a git source (clone if not yet cloned)."""
-    source_config = SettingsService(db).get_source_config("git", request.git_source_id)
     try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
-        sid = source_config["source_id"]
+        sid = await pull_from_source(request.git_source_id, db)
         return {"success": True, "message": f"Git source '{sid}' pulled successfully"}
+    except (HTTPException, DomainError):
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
@@ -264,13 +192,12 @@ async def remove_and_clone_git_source(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Remove existing local copy of a git source and clone fresh."""
-    source_config = SettingsService(db).get_source_config("git", request.git_source_id)
     try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: remove_and_clone(source_config))
-        sid = source_config["source_id"]
+        sid = await remove_and_clone_from_source(request.git_source_id, db)
         msg = f"Git source '{sid}' removed and re-cloned successfully"
         return {"success": True, "message": msg}
+    except (HTTPException, DomainError):
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:

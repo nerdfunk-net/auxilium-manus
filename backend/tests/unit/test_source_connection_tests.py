@@ -146,11 +146,15 @@ class ValidateGitRemoteUrlTests(unittest.TestCase):
         result = validate_git_remote_url("https://git.example.com/org/repo.git")
         self.assertEqual(result, "https://git.example.com/org/repo.git")
 
-    def test_accepts_scp_like_syntax(self) -> None:
+    @patch("core.safe_urls.socket.getaddrinfo")
+    def test_accepts_scp_like_syntax(self, mock_getaddrinfo: MagicMock) -> None:
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
         result = validate_git_remote_url("git@git.example.com:org/repo.git")
         self.assertEqual(result, "git@git.example.com:org/repo.git")
 
-    def test_accepts_ssh_scheme(self) -> None:
+    @patch("core.safe_urls.socket.getaddrinfo")
+    def test_accepts_ssh_scheme(self, mock_getaddrinfo: MagicMock) -> None:
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
         result = validate_git_remote_url("ssh://git@git.example.com/org/repo.git")
         self.assertEqual(result, "ssh://git@git.example.com/org/repo.git")
 
@@ -163,7 +167,9 @@ class ValidateGitRemoteUrlTests(unittest.TestCase):
             with self.assertRaises(UnsafeURLError):
                 validate_git_remote_url("http://git.example.com/org/repo.git")
 
-    def test_allows_http_scheme_in_development(self) -> None:
+    @patch("core.safe_urls.socket.getaddrinfo")
+    def test_allows_http_scheme_in_development(self, mock_getaddrinfo: MagicMock) -> None:
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
         with patch("core.safe_urls.settings.environment", "development"):
             result = validate_git_remote_url("http://git.example.com/org/repo.git")
         self.assertEqual(result, "http://git.example.com/org/repo.git")

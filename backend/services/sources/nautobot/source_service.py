@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from models.sources_nautobot import DeviceInfo, LogicalOperation
+from models.sources_nautobot import DeviceInfo, InventoryPreviewResponse, LogicalOperation
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.devices.query import DeviceQueryService
@@ -14,6 +14,7 @@ from services.sources.nautobot.export_service import NautobotSourceExportService
 from services.sources.nautobot.metadata_service import NautobotSourceMetadataService
 from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.query_service import NautobotSourceQueryService
+from utils.inventory_converter import convert_saved_inventory_to_operations
 
 logger = logging.getLogger(__name__)
 
@@ -137,3 +138,119 @@ class NautobotSourceService:
 
     async def get_field_values(self, field_name: str) -> list[dict[str, str]]:
         return await self.metadata_service.get_field_values(field_name)
+
+    async def resolve_saved_inventory_ids(self, inventory: dict, inventory_id: int) -> dict:
+        """Resolve a saved inventory (static or dynamic) to a list of device ids."""
+        if inventory.get("inventory_type") == "static":
+            static_ids = inventory.get("device_ids") or []
+            if not static_ids:
+                return {
+                    "device_ids": [],
+                    "device_count": 0,
+                    "inventory_id": inventory_id,
+                    "inventory_name": inventory.get("name", ""),
+                }
+            devices = await self.resolve_devices_by_ids(static_ids)
+            device_ids = [device.id for device in devices]
+            return {
+                "device_ids": device_ids,
+                "device_count": len(device_ids),
+                "inventory_id": inventory_id,
+                "inventory_name": inventory.get("name", ""),
+            }
+
+        conditions = inventory.get("conditions", [])
+        if not conditions:
+            return {
+                "device_ids": [],
+                "device_count": 0,
+                "inventory_id": inventory_id,
+                "inventory_name": inventory.get("name", ""),
+            }
+
+        operations = convert_saved_inventory_to_operations(conditions)
+        devices, _ = await self.preview_inventory(operations)
+        device_ids = [device.id for device in devices]
+        return {
+            "device_ids": device_ids,
+            "device_count": len(device_ids),
+            "inventory_id": inventory_id,
+            "inventory_name": inventory.get("name", ""),
+        }
+
+    async def resolve_saved_inventory_detailed(self, inventory: dict, inventory_id: int) -> dict:
+        """Resolve a saved inventory (static or dynamic) to full device detail records."""
+        if inventory.get("inventory_type") == "static":
+            static_ids = inventory.get("device_ids") or []
+            if not static_ids:
+                return {
+                    "devices": [],
+                    "device_details": [],
+                    "device_count": 0,
+                    "inventory_id": inventory_id,
+                    "inventory_name": inventory.get("name", ""),
+                }
+            devices = await self.resolve_devices_by_ids(static_ids)
+        else:
+            conditions = inventory.get("conditions", [])
+            if not conditions:
+                return {
+                    "devices": [],
+                    "device_details": [],
+                    "device_count": 0,
+                    "inventory_id": inventory_id,
+                    "inventory_name": inventory.get("name", ""),
+                }
+
+            operations = convert_saved_inventory_to_operations(conditions)
+            devices, _ = await self.preview_inventory(operations)
+
+        device_details = []
+        device_list = []
+        for device in devices:
+            try:
+                detail = await self.device_query_service.get_device_details(
+                    device_id=device.id,
+                    use_cache=True,
+                )
+                device_details.append(detail)
+                primary_ip4 = detail.get("primary_ip4")
+                address = primary_ip4.get("address") if isinstance(primary_ip4, dict) else None
+                device_list.append(
+                    {"id": detail.get("id"), "name": detail.get("name"), "primary_ip4": address}
+                )
+            except Exception as exc:
+                logger.error(
+                    "Error fetching details for device %s (%s): %s",
+                    device.id,
+                    device.name,
+                    exc,
+                )
+
+        return {
+            "devices": device_list,
+            "device_details": device_details,
+            "device_count": len(device_list),
+            "inventory_id": inventory_id,
+            "inventory_name": inventory.get("name", ""),
+        }
+
+    async def resolve_saved_inventory_devices(self, inventory: dict) -> InventoryPreviewResponse:
+        """Resolve a saved inventory (either type) to full DeviceInfo records."""
+        if inventory.get("inventory_type") == "static":
+            devices = await self.resolve_devices_by_ids(inventory.get("device_ids") or [])
+            return InventoryPreviewResponse(
+                devices=devices, total_count=len(devices), operations_executed=0
+            )
+
+        conditions = inventory.get("conditions", [])
+        if not conditions:
+            return InventoryPreviewResponse(devices=[], total_count=0, operations_executed=0)
+
+        operations = convert_saved_inventory_to_operations(conditions)
+        devices, operations_executed = await self.preview_inventory(operations)
+        return InventoryPreviewResponse(
+            devices=devices,
+            total_count=len(devices),
+            operations_executed=operations_executed,
+        )

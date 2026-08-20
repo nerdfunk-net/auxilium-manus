@@ -28,8 +28,7 @@ def validate_oidc_redirect_uri(
     if parsed.fragment:
         raise ValueError("redirect_uri must not contain a fragment")
 
-    if dev_tools:
-        return raw
+    # dev_tools is accepted for call-site compatibility and ignored.
 
     normalized_allowlist = [entry.strip() for entry in allowlist if entry.strip()]
     if normalized_allowlist:

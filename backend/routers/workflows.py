@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.domain_exceptions import DomainError
 from core.models.users import User
+from core.safe_http_errors import raise_internal_server_error
 from models.workflows import (
     WorkflowCreate,
     WorkflowListResponse,
@@ -88,7 +90,12 @@ async def create_workflow(
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
 ) -> WorkflowResponse:
-    return service.create_workflow(data=body, user_id=current_user.id)
+    try:
+        return service.create_workflow(data=body, user_id=current_user.id)
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to create workflow", exc)
 
 
 @router.put(
@@ -102,7 +109,12 @@ async def update_workflow(
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
 ) -> WorkflowResponse:
-    return service.update_workflow(workflow_id=workflow_id, data=body, user_id=current_user.id)
+    try:
+        return service.update_workflow(workflow_id=workflow_id, data=body, user_id=current_user.id)
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to update workflow", exc)
 
 
 @router.delete(
@@ -115,4 +127,9 @@ async def delete_workflow(
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
 ) -> None:
-    service.delete_workflow(workflow_id=workflow_id, user_id=current_user.id)
+    try:
+        service.delete_workflow(workflow_id=workflow_id, user_id=current_user.id)
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to delete workflow", exc)

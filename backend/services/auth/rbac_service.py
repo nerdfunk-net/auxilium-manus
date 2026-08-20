@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from core.domain_exceptions import AccessDeniedError
 from core.models.rbac import Permission
 from repositories.rbac_repository import RBACRepository
 
@@ -9,6 +10,12 @@ from repositories.rbac_repository import RBACRepository
 class RBACService:
     def __init__(self, db: Session) -> None:
         self._repo = RBACRepository(db)
+
+    def _require_admin_actor(self, actor_user_id: int | None) -> None:
+        if actor_user_id is None:
+            return
+        if not self.has_role(actor_user_id, "admin"):
+            raise AccessDeniedError("Admin role required to modify system roles")
 
     def has_permission(self, user_id: int, resource: str, action: str) -> bool:
         permission = self._repo.get_permission(resource, action)
@@ -86,7 +93,16 @@ class RBACService:
         return self._repo.delete_permission(permission_id)
 
     # Roles CRUD passthroughs
-    def create_role(self, name: str, description: str | None = None, is_system: bool = False):
+    def create_role(
+        self,
+        name: str,
+        description: str | None = None,
+        is_system: bool = False,
+        *,
+        actor_user_id: int | None = None,
+    ):
+        if is_system:
+            self._require_admin_actor(actor_user_id)
         return self._repo.create_role(name, description, is_system)
 
     def get_role(self, role_id: int):
@@ -108,17 +124,35 @@ class RBACService:
         return self._repo.role_name_exists(name, exclude_role_id)
 
     # Role <-> Permission
-    def assign_permission_to_role(self, role_id: int, permission_id: int, granted: bool = True):
+    def assign_permission_to_role(
+        self,
+        role_id: int,
+        permission_id: int,
+        granted: bool = True,
+        *,
+        actor_user_id: int | None = None,
+    ):
+        role = self.get_role(role_id)
+        if role is not None and role.is_system:
+            self._require_admin_actor(actor_user_id)
         return self._repo.assign_permission_to_role(role_id, permission_id, granted)
 
-    def remove_permission_from_role(self, role_id: int, permission_id: int) -> bool:
+    def remove_permission_from_role(
+        self, role_id: int, permission_id: int, *, actor_user_id: int | None = None
+    ) -> bool:
+        role = self.get_role(role_id)
+        if role is not None and role.is_system:
+            self._require_admin_actor(actor_user_id)
         return self._repo.remove_permission_from_role(role_id, permission_id)
 
     def get_role_permissions(self, role_id: int) -> list[Permission]:
         return self._repo.get_role_permissions(role_id)
 
     # User <-> Role
-    def assign_role_to_user(self, user_id: int, role_id: int):
+    def assign_role_to_user(self, user_id: int, role_id: int, *, actor_user_id: int | None = None):
+        role = self.get_role(role_id)
+        if role is not None and role.is_system:
+            self._require_admin_actor(actor_user_id)
         return self._repo.assign_role_to_user(user_id, role_id)
 
     def remove_role_from_user(self, user_id: int, role_id: int) -> bool:

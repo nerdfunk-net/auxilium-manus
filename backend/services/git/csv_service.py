@@ -8,17 +8,24 @@ import logging
 import os
 from typing import Any
 
-from fastapi import HTTPException
-
+from core.domain_exceptions import (
+    AccessDeniedError,
+    DomainError,
+    NotFoundError,
+    ValidationFailedError,
+)
 from core.safe_http_errors import raise_internal_server_error
 from services.git.paths import repo_path as git_repo_path
-from services.git.shared_utils import git_repo_manager
+from services.git.repository_service import GitRepositoryService
 
 logger = logging.getLogger(__name__)
 
 
 class GitCsvService:
     """CSV-specific read helpers for managed Git repositories."""
+
+    def __init__(self, repos: GitRepositoryService | None = None) -> None:
+        self._repos = repos or GitRepositoryService()
 
     def list_csv_files(
         self,
@@ -28,9 +35,9 @@ class GitCsvService:
     ) -> dict[str, Any]:
         """Return all CSV files found in a repository's working directory."""
         try:
-            repository = git_repo_manager.get_repository(repo_id)
+            repository = self._repos.get_repository(repo_id)
             if not repository:
-                raise HTTPException(status_code=404, detail="Repository not found")
+                raise NotFoundError("Repository not found")
 
             repo_path = str(git_repo_path(repository))
 
@@ -73,7 +80,7 @@ class GitCsvService:
                 "data": {"files": csv_files[:limit], "total_count": total},
             }
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Error listing CSV files", e)
@@ -87,37 +94,33 @@ class GitCsvService:
     ) -> dict[str, Any]:
         """Return the header row of a CSV file from the working directory."""
         try:
-            repository = git_repo_manager.get_repository(repo_id)
+            repository = self._repos.get_repository(repo_id)
             if not repository:
-                raise HTTPException(status_code=404, detail="Repository not found")
+                raise NotFoundError("Repository not found")
 
             repo_path_str = str(git_repo_path(repository))
 
             if not os.path.exists(repo_path_str):
-                raise HTTPException(status_code=404, detail="Repository directory not found")
+                raise NotFoundError("Repository directory not found")
 
             file_path = os.path.join(repo_path_str, path)
             file_path_resolved = os.path.realpath(file_path)
             repo_path_resolved = os.path.realpath(repo_path_str)
 
             if not file_path_resolved.startswith(repo_path_resolved):
-                raise HTTPException(
-                    status_code=403, detail="Access denied: path is outside repository"
-                )
+                raise AccessDeniedError("Access denied: path is outside repository")
 
             if not os.path.exists(file_path_resolved):
-                raise HTTPException(status_code=404, detail=f"File not found: {path}")
+                raise NotFoundError(f"File not found: {path}")
 
             if not os.path.isfile(file_path_resolved):
-                raise HTTPException(status_code=400, detail=f"Path is not a file: {path}")
+                raise ValidationFailedError(f"Path is not a file: {path}")
 
             try:
                 with open(file_path_resolved, encoding="utf-8") as f:
                     content = f.read()
             except UnicodeDecodeError:
-                raise HTTPException(
-                    status_code=400, detail=f"File is not a text file: {path}"
-                ) from None
+                raise ValidationFailedError(f"File is not a text file: {path}") from None
 
             reader = csv.reader(
                 io.StringIO(content),
@@ -132,7 +135,7 @@ class GitCsvService:
 
             return {"success": True, "headers": headers}
 
-        except HTTPException:
+        except DomainError:
             raise
         except Exception as e:
             raise_internal_server_error(logger, "Error reading CSV headers", e)
