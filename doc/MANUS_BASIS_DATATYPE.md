@@ -6,11 +6,20 @@ All workflow steps in Auxilium Manus operate on a single shared data structure c
 the **WorkflowContext**. Every step receives a WorkflowContext, does its work (adds
 devices, populates config references, appends commands, enriches attributes), and returns
 one or more **StepOutcome** values — each carrying an updated WorkflowContext routed
-down a named edge.
+down a named edge. A step is invoked **once per node per run**, with the whole current
+device set in that one `WorkflowContext` — never once per device (see
+`doc/ARCHITECTURAL_OVERVIEW.md` → "Step execution granularity" for the execution-model
+side of this; this document covers the data shape itself).
 
 This document defines the canonical shape of WorkflowContext, how it accumulates data as
 it travels through a workflow, how **capability sets** on each node enforce that only
 compatible steps can be connected at design time, and the rules step authors must follow.
+
+**Note on the worked examples below:** they use real, currently-registered steps
+(`get-nautobot-devices`, `get-device-configs`, `parse-cisco-config`, `run-command`, ...),
+simplified to show the pattern — not verbatim dumps of the real executors, which have
+more error handling and step-specific detail. Follow the file paths given to see the
+full implementation.
 
 ---
 
@@ -62,18 +71,28 @@ The asymmetry is intentional and must be covered by tests:
 - **Per-device**: union — a device has a capability if *any* branch gave it.
 - **Context-level guarantee**: intersection — what's safe for all downstream steps.
 
-### Typed parser outputs
+### Typed parser outputs: schema exists, no shipped step uses it yet
 
-`PARSED` alone is too coarse — a step that needs BGP data must know BGP was parsed, not
-just "something" was. Parser steps declare a **parser key**, and capability checks may be
-parameterised:
+The intent, still expressed in the schema: `PARSED` alone is too coarse — a step that
+needs BGP data should be able to declare that it needs *BGP specifically*, not just
+"something" parsed. `PluginDefinition` (`backend/models/plugins.py`) has
+`requires_parsed` / `produces_parsed` fields for exactly this, and the runtime machinery
+is real: `WorkflowContext.provided_parsed_keys()` (intersection of `device.parsed.keys()`
+across devices), `StepCapabilitySpec.requires_parsed` and the parsed-key check in
+`pre_step_guard` (`backend/services/workflow_context/guards.py`), and a matching
+`parsedKeys`/`isCompatible` check on the frontend (`frontend/src/lib/capability-types.ts`).
 
-```
-requires_parsed: [bgp]   →  device.parsed must contain key "bgp"
-```
-
-The registry expresses this as `requires_parsed` / `produces_parsed` lists (see Registry
-section).
+**In practice, no currently-registered step sets `requires_parsed` or `produces_parsed`**
+(grep `backend/workflow_steps/registry.yaml` for either — zero hits). Every real
+parser-producing step (`parse-cisco-config`, `get-pyats-config`, `get-pyats-snapshot`,
+`render-jinja-template`, ...) instead exposes a **user-configured `output_key`** string
+(e.g. `cisco_config`, `pyats_config`) and writes to `device.parsed[output_key]`.
+Downstream steps read that key via a dotted-path expression
+(`{output_key.field}` in Jinja, or `parsed.<output_key>.<field>` in Update Attribute's
+`source_path`) resolved at **runtime**, not validated by the canvas at connect time — the
+canvas only ever checks the coarse `PARSED` capability for these steps today. A workflow
+author who mistypes an `output_key` reference gets a missing-value error at run time, not
+a blocked connection at design time. See "Open Decisions" below.
 
 ---
 
@@ -87,7 +106,7 @@ free-form **content** lives in artifact storage and is referenced by an `Artifac
 | Device identity, attribute bags  | Running / startup config text       |
 | Parsed structured data (bounded) | Raw command output                  |
 | Capability flags, device status  | Generated config bundles, backups   |
-| ArtifactRef pointers             | Reports, diffs                      |
+| ArtifactRef pointers             | Reports, diffs, pyATS Genie snapshots |
 
 A step that retrieves a running config:
 1. Writes the config bytes to artifact storage via `ArtifactService`.
@@ -99,12 +118,17 @@ envelope — and therefore every persisted step result — stays small.
 > **Rule:** never inline content larger than a small bounded structure into the envelope.
 > If it can grow with device config size, it is content and must be an `ArtifactRef`.
 
+`ArtifactService` currently has one real backend, `FilesystemArtifactService`
+(`backend/services/artifacts/filesystem_artifact_service.py`), plus an in-memory
+implementation for tests; the abstract interface (`store`/`resolve`) stays backend-agnostic
+if an object-store backend is added later.
+
 ---
 
 ## The Canonical Python Types
 
-All types live in `backend/models/workflow_context.py`. The full import block is shown
-once here; individual snippets below omit it.
+All types live in `backend/models/workflow_context.py`. This is the actual current file,
+shown in full; individual snippets below omit the shared import block.
 
 ```python
 # backend/models/workflow_context.py
@@ -129,11 +153,14 @@ class Capability(StrEnum):
     RUNNING_CONFIG    = "running_config"    # running config retrieved (as ArtifactRef)
     STARTUP_CONFIG    = "startup_config"    # startup config retrieved
     PARSED            = "parsed"            # at least one parser ran
-    PENDING_COMMANDS  = "pending_commands"  # build step queued commands
+    PENDING_COMMANDS  = "pending_commands"  # queued commands awaiting a drain step (unused today — see "Open Decisions")
+    PYATS_TESTBED     = "pyats_testbed"     # pyATS shim device/credential bundle (add-pyats-testbed)
 
 
 class ArtifactRef(BaseModel):
     """A pointer to content stored outside the envelope."""
+    model_config = ConfigDict(extra="forbid")
+
     artifact_id: str           # storage key / DB id
     kind: str                  # "running_config" | "command_output" | "backup" | ...
     media_type: str = "text/plain"
@@ -144,6 +171,8 @@ class ArtifactRef(BaseModel):
 
 class CommandResult(BaseModel):
     """Metadata for one CLI command. Raw output is an ArtifactRef, not inlined."""
+    model_config = ConfigDict(extra="forbid")
+
     node_id: str                               # graph node that issued this command
     command: str
     success: bool
@@ -160,8 +189,10 @@ class DeviceStatus(StrEnum):
 
 
 class DeviceError(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     node_id: str    # graph node where the error occurred
-    step_id: str    # step type e.g. "get-running-config"
+    step_id: str    # step type e.g. "get-device-configs"
     code: str       # "timeout" | "auth_failed" | "unreachable" | "parse_error" | ...
     message: str    # human-readable, safe to surface in the UI
     occurred_at: str = Field(default_factory=now_iso)
@@ -185,10 +216,12 @@ class DeviceContext(BaseModel):
     # --- Enrichment --------------------------------------------------------------
     attribute_bags: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # Namespaced attribute maps, keyed by source/producer, e.g.:
-    #   attribute_bags["nautobot"]  = {role, device_type, location, custom_fields,
-    #                                   interfaces, tags, config_context, ...}
-    #   attribute_bags["tacacs"]    = {shared_secret: <sealed>, ...}
-    #   attribute_bags["run_input"] = {<static_attributes the operator supplied>}
+    #   attribute_bags["nautobot"]      = {role, device_type, location, custom_fields,
+    #                                       interfaces, tags, config_context, ...}
+    #   attribute_bags["tacacs"]        = {shared_secret: <sealed>, ...}
+    #   attribute_bags["pyats_testbed"] = {pyats_source_id, host, os, username,
+    #                                       password: <sealed>}  (add-pyats-testbed)
+    #   attribute_bags["run_input"]     = {<static_attributes the operator supplied>}
     # "run_input" is a reserved bag name seeded by the engine (see
     # doc/WORKFLOW-STEPS.md → "Static attributes"). update-attribute and other
     # generic writers may create/extend any other bag; reads use dotted-path
@@ -201,9 +234,10 @@ class DeviceContext(BaseModel):
     startup_config_ref: ArtifactRef | None = None
 
     parsed: dict[str, Any] = Field(default_factory=dict)
-    # Keyed by parser key. Document each key in the producing step, e.g.:
-    #   parsed["bgp"]   = {"neighbors": [{"peer": "10.0.0.1", "asn": 65001}]}
-    #   parsed["vlans"] = [10, 20, 30]
+    # Keyed by a per-step, user-configured output_key (not a fixed parser name —
+    # see "Typed parser outputs" above). Document the shape in the producing step:
+    #   parsed["cisco_config"]   = {"hostname": ..., "vlans": [...], ...}  ← parse-cisco-config
+    #   parsed["pyats_config"]   = {"running": {...}}                     ← get-pyats-config
 
     command_results: dict[str, list[CommandResult]] = Field(default_factory=dict)
     # Keyed by node_id → the list of CommandResults that node produced for this
@@ -228,7 +262,9 @@ class DeviceContext(BaseModel):
     def parse_capabilities(cls, value: Any) -> set[Capability]:
         if value is None:
             return set()
-        if isinstance(value, (list, tuple, set)):
+        if isinstance(value, set):
+            return {Capability(item) if not isinstance(item, Capability) else item for item in value}
+        if isinstance(value, (list, tuple)):
             return {Capability(item) for item in value}
         raise TypeError(f"capabilities must be a set or list, got {type(value)!r}")
 
@@ -251,13 +287,10 @@ class WorkflowContext(BaseModel):
     # --- Pending commands (keyed by device id, then by node id) ------------------
     pending_commands: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
     # Structure: { device_id: { node_id: ["cmd1", "cmd2", ...] } }
-    # Keying by node_id makes merge idempotent — the same node's commands can
-    # never be counted twice even in a diamond-shaped graph.
-    # send-config flattens per device in TOPOLOGICAL order of the producing nodes
-    # before sending (NOT lexical node_id order): config push order is significant
-    # (e.g. an ACL must be defined before it is referenced), so commands must be
-    # applied in the order their build nodes ran. The engine supplies the
-    # topological node ordering; see "Pending command ordering" below.
+    # Real merge machinery exists for this field (see "Immutability and Merge"
+    # below), but no shipped step currently populates or drains it — see "Open
+    # Decisions". The one real command-execution step, run-command, builds and
+    # sends commands in a single step instead of queuing them here.
 
     # --- Namespaced scratch space ------------------------------------------------
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -291,6 +324,8 @@ class WorkflowContext(BaseModel):
 
 class StepOutcome(BaseModel):
     """A named exit path from a step, carrying the enriched context."""
+    model_config = ConfigDict(extra="forbid")
+
     name: str                 # "success" | "failure" | "ios" | "nxos" | ...
     context: WorkflowContext
     summary: str | None = None  # short, bounded status text; surfaced in run/step UI and logs
@@ -339,12 +374,15 @@ type); use it when writing to `pending_commands`, `command_results`, `errors`, a
 and ignore it (import `DeviceSessionPool` under `TYPE_CHECKING` there — see
 `doc/WORKFLOW-STEPS.md` → "Device sessions" for the full pooling contract).
 
-- The engine assembles the input context by `merge()`-ing all parent step results, then
-  calls `execute()`. Steps never call other steps directly.
+- `StepRunner` (`backend/services/execution/step_runner.py`) calls `execute()` **exactly
+  once per node per run**, after assembling the input context by `merge()`-ing all parent
+  step results. Steps never call other steps directly. See
+  `doc/ARCHITECTURAL_OVERVIEW.md` → "Step execution granularity" for what this implies
+  about how a step should process `context.devices`.
 - A simple linear step returns `[StepOutcome(name="success", context=...)]`.
 - A branching step returns multiple outcomes; the engine routes each along the edge bound
   to that outcome handle.
-- **Credentials** are passed as references in `config` (e.g. `config["credential_ref"]`),
+- **Credentials** are passed as references in `config` (e.g. `config["credential_reference"]`),
   resolved through the credential service inside the step. Credentials never live in the
   envelope (which is persisted).
 
@@ -390,15 +428,15 @@ new capability), so every downstream step will fail its pre-step guard.
 
 Raising is reserved for whole-step failures. Per-device failures are data, not exceptions.
 
-### Post-step guard (`touched_by_step` defined)
+### Post-step guard (`touched` devices)
 
-After a step returns, the engine checks:
+After a step returns, the engine checks (canonical implementation:
+`backend/services/workflow_context/guards.py::post_step_guard`; see "Runtime Validation
+Guards" below for the real code):
 
 ```python
 # "touched" = devices present in the success outcome that the step attempted to enrich
 # (i.e. devices from context.devices that are now in success_outcome.context.devices)
-# See "Runtime Validation Guards" for the canonical guard, which also enforces
-# `consumes` (a consumed capability must NOT remain on the success path).
 touched = set(success_outcome.context.devices.keys()) & set(context.devices.keys())
 for device_id in touched:
     device = success_outcome.context.devices[device_id]
@@ -415,17 +453,20 @@ declared capability — a bug in the step implementation, not in the workflow gr
 
 ## Executor Examples
 
-The examples below show the full pattern. `artifact_service` and `node_id` are received
-as parameters (see Executor Contract above).
+Simplified illustrations of the pattern using real, currently-registered steps —
+`artifact_service` and `node_id` are received as parameters (see Executor Contract
+above). Follow the file path in each heading for the real implementation.
 
 ### get-nautobot-devices (source step)
+
+`backend/workflow_steps/get_nautobot_devices/executor.py` — `requires: []`, `produces: [identity]`.
 
 ```python
 async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    devices_raw = await fetch_devices_from_nautobot(config)
+    devices_raw = await fetch_devices_from_nautobot(config)  # real: resolves via GraphQL
 
     # bare_hostname() is the shared helper (models/workflow_context.py) — strips the
     # CIDR mask from primary_ip4, falling back to the device name. Every source step
@@ -453,98 +494,140 @@ async def execute(*, config, context, run, artifact_service, node_id, device_ses
     return [StepOutcome(name="success", context=new_context)]
 ```
 
-### get-running-config
+### get-device-configs
+
+`backend/workflow_steps/get_device_configs/executor.py` — `requires: [identity]`,
+`produces: [running_config, startup_config]` narrowed by `config_format`
+(`"running" | "startup" | "both"`) via `effective_produces()` (see "Runtime Validation
+Guards" below) — a step's static `produces` isn't always what it guarantees on a given
+run.
 
 ```python
 async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
+    config_format = config.get("config_format", "both")
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
 
     for device_id, device in context.devices.items():
         try:
-            config_text = await fetch_running_config(device, config)
-            ref = await artifact_service.store(
-                content=config_text,
-                kind="running_config",
-                device_id=device_id,
-                run_id=context.run_id,
-            )
-            success_devices[device_id] = device.model_copy(update={
-                "running_config_ref": ref,
-                "capabilities": device.capabilities | {Capability.RUNNING_CONFIG},
-                "status": DeviceStatus.OK,
-            })
+            update: dict[str, Any] = {"status": DeviceStatus.OK}
+            capabilities = set(device.capabilities)
+            if config_format in ("running", "both"):
+                text = await fetch_running_config(device, config, device_sessions)
+                update["running_config_ref"] = await artifact_service.store(
+                    content=text, kind="running_config", device_id=device_id, run_id=context.run_id,
+                )
+                capabilities.add(Capability.RUNNING_CONFIG)
+            if config_format in ("startup", "both"):
+                text = await fetch_startup_config(device, config, device_sessions)
+                update["startup_config_ref"] = await artifact_service.store(
+                    content=text, kind="startup_config", device_id=device_id, run_id=context.run_id,
+                )
+                capabilities.add(Capability.STARTUP_CONFIG)
+            update["capabilities"] = capabilities
+            success_devices[device_id] = device.model_copy(update=update)
         except (TimeoutError, AuthError) as exc:
             err = DeviceError(
-                node_id=node_id,
-                step_id="get-running-config",
-                code=type(exc).__name__.lower(),
-                message=str(exc),
+                node_id=node_id, step_id="get-device-configs",
+                code=type(exc).__name__.lower(), message=str(exc),
             )
             failed_devices[device_id] = device.model_copy(update={
-                "status": DeviceStatus.FAILED,
-                "errors": [*device.errors, err],
+                "status": DeviceStatus.FAILED, "errors": [*device.errors, err],
             })
 
     # SUCCESS carries only enriched devices — never mix with failed ones (see rule 5).
-    success_ctx = context.model_copy(update={"devices": success_devices})
-    failure_ctx = context.model_copy(update={"devices": failed_devices})
-
-    outcomes = [StepOutcome(name="success", context=success_ctx)]
+    outcomes = [StepOutcome(
+        name="success", context=context.model_copy(update={"devices": success_devices}),
+    )]
     if failed_devices:
-        outcomes.append(StepOutcome(name="failure", context=failure_ctx))
+        outcomes.append(StepOutcome(
+            name="failure", context=context.model_copy(update={"devices": failed_devices}),
+        ))
     return outcomes
 ```
 
-### parse-bgp (parser step)
+### parse-cisco-config (parser step)
+
+`backend/workflow_steps/parse_cisco_config/executor.py` — `requires: [identity]`,
+`produces: [parsed]`. Writes to a **user-configured** `output_key`, not a fixed parser
+name — see "Typed parser outputs" above for why this means the specific key isn't
+canvas-validated.
 
 ```python
 async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
+    output_key = config["output_key"]  # e.g. "cisco_config" — arbitrary, author-chosen
     updated: dict[str, DeviceContext] = {}
     for device_id, device in context.devices.items():
         if device.running_config_ref is None:
             updated[device_id] = device
             continue
         config_text = await artifact_service.resolve(device.running_config_ref)
-        bgp_data = parse_bgp(config_text)
+        parsed_data = cisco_config_parser.parse(config_text)  # real: cisco-config-parser lib
         updated[device_id] = device.model_copy(update={
-            "parsed": {**device.parsed, "bgp": bgp_data},
+            "parsed": {**device.parsed, output_key: parsed_data},
             "capabilities": device.capabilities | {Capability.PARSED},
         })
     new_ctx = context.model_copy(update={"devices": updated})
     return [StepOutcome(name="success", context=new_ctx)]
 ```
 
-### build-config (command-building step)
+### run-command (self-contained command execution)
+
+`backend/workflow_steps/run_command/executor.py` — `requires: [identity]`,
+`produces: []`. There is no separate "build commands" step feeding a "send commands"
+step: `run-command` takes its own `commands` list in config and executes directly against
+each device in one pass, storing raw output as an `ArtifactRef` per command via
+`command_results`. This is the real shape of command execution today — `pending_commands`
+(a build-then-drain queue) exists in the model but isn't used by this or any other
+shipped step; see "Open Decisions".
 
 ```python
 async def execute(*, config, context, run, artifact_service, node_id, device_sessions) -> list[StepOutcome]:
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    new_pending = {k: dict(v) for k, v in context.pending_commands.items()}
-    updated: dict[str, DeviceContext] = {}
+    commands = config["commands"]
+    success_devices: dict[str, DeviceContext] = {}
+    failed_devices: dict[str, DeviceContext] = {}
 
     for device_id, device in context.devices.items():
-        commands = generate_commands(device, config)
-        # Key by node_id — idempotent across diamond merges
-        device_cmds = new_pending.setdefault(device_id, {})
-        device_cmds[node_id] = commands
-        updated[device_id] = device.model_copy(update={
-            "capabilities": device.capabilities | {Capability.PENDING_COMMANDS},
-        })
+        try:
+            results: list[CommandResult] = []
+            for command in commands:
+                raw = await execute_on_device(device, command, config, device_sessions)
+                ref = await artifact_service.store(
+                    content=raw, kind="command_output", device_id=device_id, run_id=context.run_id,
+                )
+                results.append(CommandResult(
+                    node_id=node_id, command=command, success=True, output_ref=ref,
+                ))
+            success_devices[device_id] = device.model_copy(update={
+                "command_results": {**device.command_results, node_id: results},
+                "status": DeviceStatus.OK,
+            })
+        except (TimeoutError, AuthError) as exc:
+            err = DeviceError(
+                node_id=node_id, step_id="run-command",
+                code=type(exc).__name__.lower(), message=str(exc),
+            )
+            failed_devices[device_id] = device.model_copy(update={
+                "status": DeviceStatus.FAILED, "errors": [*device.errors, err],
+            })
 
-    new_ctx = context.model_copy(update={
-        "devices": updated,
-        "pending_commands": new_pending,
-    })
-    return [StepOutcome(name="success", context=new_ctx)]
+    outcomes = [StepOutcome(
+        name="success", context=context.model_copy(update={"devices": success_devices}),
+    )]
+    if failed_devices:
+        outcomes.append(StepOutcome(
+            name="failure", context=context.model_copy(update={"devices": failed_devices}),
+        ))
+    return outcomes
 ```
 
 ---
@@ -558,9 +641,10 @@ step.
 ### Linear flow
 
 ```
-[get-nautobot-devices] ──→ [get-running-config] ──→ [parse-bgp] ──→ [build-config] ──→ [send-config]
-   produces: IDENTITY          +RUNNING_CONFIG         +PARSED         +PENDING_CMDS     drains cmds
-   status: OK                  failed → failure edge                                    results stored
+[get-nautobot-devices] ──→ [get-device-configs] ──→ [parse-cisco-config] ──→ [run-command]
+   produces: IDENTITY          +RUNNING_CONFIG,          +PARSED                results stored
+   status: OK                  +STARTUP_CONFIG                                  in command_results
+                                failed → failure edge
 ```
 
 At each step the StepRunner:
@@ -574,9 +658,9 @@ At each step the StepRunner:
 ### Branching and failure routing
 
 ```
-[get-running-config]
-  ├── success ──→ [parse-bgp] ──→ [build-config] ──→ [send-config]
-  └── failure ──→ [notify-team]
+[get-device-configs]
+  ├── success ──→ [parse-cisco-config] ──→ [run-command]
+  └── failure ──→ [notify-on-error]
 ```
 
 Each outcome carries the same envelope type — only the routing and the device subset differ.
@@ -593,10 +677,10 @@ inlined, copies are small even for large device fleets.
 
 ### Deterministic merge
 
-When branches converge, the engine merges parent contexts:
+When branches converge, the engine merges parent contexts. This is the real
+implementation, not a paraphrase — `backend/services/workflow_context/merge.py`:
 
 ```python
-# services/workflow_context/merge.py
 def merge_workflow_contexts(contexts: list[WorkflowContext]) -> WorkflowContext: ...
 ```
 
@@ -604,20 +688,20 @@ def merge_workflow_contexts(contexts: list[WorkflowContext]) -> WorkflowContext:
 |-------|------|
 | `run_id`, `workflow_id`, `schema_version` | Must be identical; mismatch → `ValueError`. |
 | `devices` | Union by device id. For the same id, merge `DeviceContext` field-by-field (below). |
-| `pending_commands` | Dict-union per device, then dict-union per node_id within each device. Idempotent: the same node's commands are never duplicated even in a diamond graph. |
+| `pending_commands` | Dict-union per device, then dict-union per node_id within each device. Idempotent: the same node's commands are never duplicated even in a diamond graph. Real machinery, but currently unused by any shipped step — see "Open Decisions". |
 | `metadata` | Shallow merge by key; conflict → raise unless values are equal. |
 
-**DeviceContext merge per id:**
+**DeviceContext merge per id** (`merge_device_contexts` / `_merge_two_devices`):
 
 | Field | Rule |
 |-------|------|
-| Scalar identity fields | Must be equal or one side `None`; conflict → record `DeviceError`, keep first parent's value. |
+| Scalar identity fields (`id`, `name`, `hostname`, `platform`, `network_driver`, `primary_ip4`, `source`, `source_id`) | Equal or one side `None` → keep the non-`None` value silently. Both non-`None` and different → keep the left value, append a `DeviceError` (`step_id="merge"`, `code="identity_conflict"`). |
 | `attribute_bags` | Dict-union by bag name, then shallow key-union **within** each bag; conflicting keys raise unless equal. |
 | `parsed` | Shallow key-union; conflicting keys raise unless equal. |
 | `*_config_ref` | Take the non-None value; conflict (both non-None and different) → raise. |
 | `command_results` | Dict-union by `node_id`; each value is the node's full `list[CommandResult]`. The same `node_id` always carries the same list, so union is idempotent; conflict (same node_id, different list) → raise. |
 | `capabilities` | Union — a device has a capability if any branch gave it. |
-| `status` | Worst-case wins: `FAILED` > `SKIPPED` > `PENDING` > `OK`. |
+| `status` | Worst-case wins: `FAILED` > `SKIPPED` > `PENDING` > `OK` (`worst_device_status`). |
 | `errors` | Concatenate; dedupe by `(node_id, step_id)` pair. |
 
 #### Why pending_commands uses node_id keys
@@ -626,22 +710,21 @@ In a diamond graph, two branches B and C both inherit ancestor A's `pending_comm
 A naïve list concatenation at the merge point D would double-count A's commands. Keying
 by `node_id` makes the dict-union idempotent: `{A: [...]}` merged with `{A: [...]}` is
 still `{A: [...]}`. This is why both `pending_commands` (context level) and
-`command_results` (device level) are dicts keyed by node_id rather than plain lists.
+`command_results` (device level) are dicts keyed by node_id rather than plain lists —
+`command_results` is real and load-bearing (`run-command` uses it today);
+`pending_commands` has the same idempotent-merge design but is currently dormant (built,
+tested, unused — see "Open Decisions").
 
 #### Pending command ordering
 
-Keying by `node_id` solves double-counting but discards ordering — and config push
-order is significant. `send-config` must therefore flatten each device's
-`{node_id: [cmds]}` map in **topological order of the producing nodes**, never in
-lexical `node_id` order (node ids are opaque and unrelated to graph order).
-
-The engine already computes a topological ordering of the graph to drive execution; it
-passes that node ordering to `send-config` (e.g. via `config` or a context helper) so the
-step can sort the contributing `node_id`s by their position in that ordering before
-concatenating. Two build nodes that must run in a fixed sequence must therefore have an
-explicit edge between them (or a shared chain) so the topological order is well-defined;
-commands from unordered parallel build nodes have no guaranteed relative order and must
-not depend on one.
+Keying by `node_id` solves double-counting but discards ordering — and for any future
+step that *does* build a command queue, push order would be significant (e.g. an ACL must
+be defined before it is referenced). `merge.py::flatten_pending_commands(pending_by_node,
+node_order)` already exists and is unit-tested for this
+(`backend/tests/unit/test_workflow_context_merge.py`) — it flattens a device's
+`{node_id: [cmds]}` map in **topological order of the producing nodes**, never in lexical
+`node_id` order. No step calls it today (see "Open Decisions"); a future queue-building
+step would pass it the engine's topological node ordering before concatenating.
 
 ---
 
@@ -649,7 +732,9 @@ not depend on one.
 
 Each step in `registry.yaml` declares the capabilities it **requires** and **produces**,
 plus its named **outcomes**. The frontend loads this at boot and uses it for canvas
-validation and palette rendering.
+validation and palette rendering. Schema: `backend/models/plugins.py::PluginDefinition`.
+These are real entries from `backend/workflow_steps/registry.yaml` (`configuration_input`
+lists trimmed for brevity — see the real file for every field):
 
 ```yaml
 # backend/workflow_steps/registry.yaml
@@ -658,121 +743,91 @@ schema_version: 1
 
 plugins:
   - id: get-nautobot-devices
-    name: Get Devices from Nautobot
-    description: Fetches a filtered device list from a Nautobot source.
+    name: Get from Nautobot
+    overview: Select devices from the Nautobot inventory.
+    description: Select one or more target devices from the inventory.
     artifact_type: inventory_selector
+    palette_category: nautobot
     directory: get_nautobot_devices
     enabled: true
-    requires: []               # source node — takes no upstream context
+    requires: []                # source node — takes no upstream context
     produces: [identity]
     outcomes:
       - name: success
       - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
 
-  - id: get-git-devices
-    name: Get Devices from Git
-    description: Reads device definitions from a Git repository.
-    artifact_type: inventory_selector
-    directory: get_git_devices
-    enabled: true
-    requires: []
-    produces: [identity]
-    outcomes:
-      - name: success
-      - name: failure
-
-  - id: get-nautobot-attributes
-    name: Get Nautobot Attributes
-    description: Enriches devices with full attribute data from Nautobot.
+  - id: get-device-configs
+    name: Get Configs
+    overview: Get device configuration in the chosen format.
+    description: Get device configuration in the specified format.
     artifact_type: configuration_retrieval
-    directory: get_nautobot_attributes
+    directory: get_device_configs
     enabled: true
     requires: [identity]
-    produces: [attributes]
+    produces: [running_config, startup_config]
+    primary_output: running_config
     outcomes:
       - name: success
       - name: failure
 
-  - id: get-running-config
-    name: Get Running Config
-    description: Connects to each device via SSH and retrieves the running configuration.
+  - id: parse-cisco-config
+    name: Parse Cisco Config
+    overview: Parse a Cisco running/startup config into structured data.
     artifact_type: configuration_retrieval
-    directory: get_running_config
+    palette_category: cisco
+    directory: parse_cisco_config
     enabled: true
     requires: [identity]
-    produces: [running_config]
-    outcomes:
-      - name: success
-      - name: failure
-
-  - id: get-startup-config
-    name: Get Startup Config
-    description: Retrieves the startup configuration from each device.
-    artifact_type: configuration_retrieval
-    directory: get_startup_config
-    enabled: true
-    requires: [identity]
-    produces: [startup_config]
-    outcomes:
-      - name: success
-      - name: failure
-
-  - id: parse-bgp
-    name: Parse BGP
-    description: Extracts BGP neighbour data from the running configuration.
-    artifact_type: configuration_retrieval
-    directory: parse_bgp
-    enabled: true
-    requires: [running_config]
     produces: [parsed]
-    produces_parsed: [bgp]
+    consumes: []
+    primary_output: cisco_config
     outcomes:
       - name: success
+      - name: failure
 
-  - id: build-config
-    name: Build Config Commands
-    description: Generates configuration commands from device data or templates.
+  - id: run-command
+    name: Run Command
+    overview: Execute CLI commands on connected devices.
     artifact_type: command_execution
-    directory: build_config
+    directory: run_command
     enabled: true
     requires: [identity]
-    produces: [pending_commands]
-    outcomes:
-      - name: success
-
-  - id: send-config
-    name: Send Config to Devices
-    description: Pushes pending_commands to each device via SSH.
-    artifact_type: command_execution
-    directory: send_config
-    enabled: true
-    requires: [pending_commands]
-    consumes: [pending_commands]   # drains the queue; capability is removed after
-    produces: []                   # adds command_results (content), no new capability
+    produces: []                 # adds command_results (content), no new capability
+    primary_output: command_output
     outcomes:
       - name: success
       - name: failure
 ```
 
 `requires: []` marks a **source node** — it has no input handle on the canvas.
-Each entry in `outcomes` maps to one output handle.
+Each entry in `outcomes` maps to one output handle. `palette_category` groups the step in
+the frontend palette (e.g. `"nautobot"`, `"pyats"`, `"cisco"`) and is optional — steps
+without one fall into a default grouping.
 
 **`requires` vs `consumes` vs `produces`:**
 - `requires` — capabilities that must be present on the input edge (read-only gate).
 - `produces` — capabilities the step *adds* to the devices on its success outcome.
 - `consumes` — capabilities the step *removes* after it runs, because it drains the
-  underlying data. `send-config` consumes `pending_commands`: it requires the queue to be
-  present, drains it, and clears the capability so a downstream step cannot assume commands
-  are still queued. Most steps have an empty `consumes`. A step's success outcome therefore
-  guarantees `(provided_on_input ∪ produces) \ consumes`.
+  underlying data. A step's success outcome guarantees
+  `(provided_on_input ∪ produces) \ consumes`. **No shipped step currently declares a
+  non-empty `consumes`** — every entry that sets it explicitly sets `consumes: []`. The
+  field, and the post-step "leaked consumes" guard below, exist for a future step that
+  needs to drain something (e.g. a `pending_commands`-consuming step, if one is ever
+  built — see "Open Decisions").
 
 `consumes` defaults to `[]` when omitted.
 
-At runtime the step is responsible for making its returned context match its declared
-`consumes`: when `send-config` drains `pending_commands` it must also remove
-`Capability.PENDING_COMMANDS` from each device it processed (and empty that device's
-`pending_commands` entry). The engine asserts this in the post-step guard — a device on the
-success path must not retain a consumed capability:
+At runtime a step that *did* declare `consumes` would be responsible for making its
+returned context match it — removing the corresponding capability from each device it
+processed. The engine asserts this in the post-step guard — a device on the success path
+must not retain a consumed capability:
 
 ```python
 for device_id in touched:
@@ -790,8 +845,8 @@ for device_id in touched:
 The TypeScript `Capability` union must stay in sync with the Python `Capability` enum.
 **As implemented, this is maintained by hand** (no codegen, no cross-language parity
 test yet — see Open Decision 5 below); a `registry.yaml`-vs-enum test exists on the
-backend side only. Treat any change to the Python `Capability` enum as requiring a
-matching manual edit here.
+backend side only (`backend/tests/unit/test_plugin_registry_capabilities.py`). Treat any
+change to the Python `Capability` enum as requiring a matching manual edit here.
 
 ```typescript
 // frontend/src/lib/capability-types.ts
@@ -803,20 +858,17 @@ export type Capability =
   | "running_config"
   | "startup_config"
   | "parsed"
-  | "pending_commands";
+  | "pending_commands"
+  | "pyats_testbed";
 
 export const ALL_CAPABILITIES: Capability[] = [
-  "identity",
-  "attributes",
-  "running_config",
-  "startup_config",
-  "parsed",
-  "pending_commands",
+  "identity", "attributes", "running_config", "startup_config",
+  "parsed", "pending_commands", "pyats_testbed",
 ];
 
 export interface Provided {
   capabilities: Capability[]
-  parsedKeys: string[]        // parser keys guaranteed on this edge (e.g. ["bgp"])
+  parsedKeys: string[]        // parser keys guaranteed on this edge (currently always [] — see "Typed parser outputs")
 }
 
 export interface Required {
@@ -833,14 +885,20 @@ export function isCompatible(provided: Provided, required: Required): boolean {
 }
 ```
 
-Parser keys are validated alongside coarse capabilities. A step with
-`requires_parsed: [bgp]` only connects to an upstream chain whose `transitiveProvides`
-includes the `bgp` parser key — `PARSED` alone is not sufficient.
+### Computing what an outcome handle guarantees
+
+Unlike an earlier design where each node statically stored its own transitive
+capabilities, the canvas now computes them on demand by walking the graph:
+`computeOutcomeProvides()` (`frontend/src/components/features/workflows/utils/capability-graph.ts`)
+starts from an empty `{capabilities: [], parsedKeys: []}` state at each source node and,
+for every node along a chain, applies `provided_out = (provided_in ∪ produces) \ consumes`
+and `parsed_out = parsed_in ∪ producesParsed` — the same rule the doc has always
+described, just implemented as a graph walk rather than stored per-node fields.
 
 ### React Flow connection validation
 
 ```typescript
-// frontend/src/components/features/workflow-canvas/workflow-canvas.tsx
+// frontend/src/components/features/workflows/components/workflow-canvas.tsx
 
 const isValidConnection = useCallback(
   (connection: Connection): boolean => {
@@ -848,110 +906,110 @@ const isValidConnection = useCallback(
     const targetNode = nodes.find(n => n.id === connection.target)
     if (!sourceNode || !targetNode) return false
 
-    // Each outcome handle carries the transitive capabilities + parser keys it provides
-    const outcome = sourceNode.data.outcomes.find(
-      o => o.handle === connection.sourceHandle,
-    )
-    const provided: Provided = {
-      capabilities: outcome?.transitiveProvides ?? [],
-      parsedKeys: outcome?.transitiveParsedKeys ?? [],
-    }
-    const required: Required = {
+    // Canvas decorations (label/background) never accept or emit edges; funnels
+    // have their own connection rules (unlimited in, exactly one out, no chaining,
+    // and skip capability checking — see doc/WORKFLOW-STEPS.md "Fan-out execution").
+    // ... decoration/funnel handling omitted here, see the real file ...
+
+    const provided = getOutcomeProvides(outcomeProvides, connection.source ?? "", connection.sourceHandle)
+    const required = {
       capabilities: targetNode.data.requires ?? [],
       parsedKeys: targetNode.data.requiresParsed ?? [],
     }
 
     return isCompatible(provided, required)
   },
-  [nodes],
+  [nodes, edges, outcomeProvides],
 )
 ```
 
-`transitiveProvides` (and `transitiveParsedKeys`) is what the upstream chain guarantees on
-that specific outcome handle. The canvas computes both per node at render time by walking
-the chain: for each node, `provided_out = (provided_in ∪ produces) \ consumes`, and
-`parsed_out = parsed_in ∪ produces_parsed`. `consumes` removes a capability (e.g.
-`send-config` consuming `pending_commands`) so downstream nodes cannot rely on it.
+`outcomeProvides` is precomputed per node/handle by `computeOutcomeProvides()` above and
+passed in from the parent component; `getOutcomeProvides` looks up one node+handle's
+entry in it.
 
 ### Node data shape
 
 ```typescript
-// frontend/src/components/features/workflow-canvas/types/node-data.ts
+// frontend/src/components/features/workflows/types/workflow-canvas.ts
 
-import { Capability } from "@/lib/capability-types"
+import type { Capability } from "@/lib/capability-types"
 
-export interface OutcomeHandle {
-  name: string                      // "success" | "failure" | "ios" | ...
-  handle: string                    // React Flow handle id
-  transitiveProvides: Capability[]  // capabilities guaranteed on this edge
-  transitiveParsedKeys: string[]    // parser keys guaranteed on this edge (e.g. ["bgp"])
-}
-
-export interface WorkflowNodeData {
-  stepId: string                    // matches registry id, e.g. "get-nautobot-devices"
-  label: string
-  requires: Capability[]            // capabilities needed on the input edge
-  requiresParsed: string[]          // parser keys needed on the input edge
-  produces: Capability[]            // capabilities this step adds
-  producesParsed: string[]          // parser keys this step adds
-  consumes: Capability[]            // capabilities this step removes (e.g. pending_commands)
-  outcomes: OutcomeHandle[]         // one per output handle
-  pluginConfig: Record<string, unknown>
+export interface WorkflowNodeData extends Record<string, unknown> {
+  kind: string                      // step id, matches registry, e.g. "get-nautobot-devices"
+  title: string
+  description: string
+  requires?: Capability[]           // capabilities needed on the input edge
+  requiresParsed?: string[]         // parser keys needed on the input edge
+  produces?: Capability[]           // capabilities this step adds
+  producesParsed?: string[]         // parser keys this step adds
+  consumes?: Capability[]           // capabilities this step removes
+  outcomes?: { name: string }[]     // one per output handle — no per-outcome capability fields
+  pluginConfig?: Record<string, unknown>
+  // ...canvas-only fields (handle sides, group-view annotations) omitted here
 }
 ```
+
+`outcomes` here is just the handle names — it does **not** carry per-handle
+`transitiveProvides`/`transitiveParsedKeys` the way an earlier design had it; those are
+computed separately by `computeOutcomeProvides()` (above), not stored as static node
+data.
 
 ---
 
 ## Runtime Validation Guards
 
-Design-time canvas checks are not enough. The engine validates at runtime too. The
-canonical implementation lives in `backend/services/workflow_context/guards.py`
-(`pre_step_guard`, `post_step_guard`, `effective_produces`) — the snippets below show
-the logic, not a literal copy of that file.
+Design-time canvas checks are not enough. The engine validates at runtime too. This is
+the real, current file: `backend/services/workflow_context/guards.py`.
 
-**Pre-step guard** — before calling a step, check for empty inventory (no-op) then assert
-both coarse capabilities and parser keys:
 ```python
-if context.devices:  # skip guard for empty inventory — no-op pass-through
-    missing = set(step.requires) - context.provided_capabilities()
-    if missing:
-        raise ValueError(f"Step {step_id}: missing required capabilities {missing}")
+@dataclass(frozen=True)
+class StepCapabilitySpec:
+    """Declared capability contract for a workflow step (from registry)."""
+    step_id: str
+    requires: frozenset[Capability] = field(default_factory=frozenset)
+    produces: frozenset[Capability] = field(default_factory=frozenset)
+    consumes: frozenset[Capability] = field(default_factory=frozenset)
+    requires_parsed: frozenset[str] = field(default_factory=frozenset)
 
-    # Parser-key check — PARSED alone is not enough; the specific keys must exist
-    # on every device (intersection), mirroring provided_capabilities().
-    missing_keys = set(step.requires_parsed) - context.provided_parsed_keys()
-    if missing_keys:
-        raise ValueError(f"Step {step_id}: missing required parsed keys {missing_keys}")
-```
 
-`provided_parsed_keys()` is the intersection of `device.parsed.keys()` across all devices
-(full/vacuous for an empty map), exactly like `provided_capabilities()`.
+def pre_step_guard(*, spec: StepCapabilitySpec, context: WorkflowContext) -> None:
+    """Validate required capabilities and parser keys before a step runs."""
+    if not context.devices:
+        return  # skip guard for empty inventory — no-op pass-through
 
-**Post-step guard** — after a step returns, check the success outcome only:
-```python
-# touched = devices the step attempted to enrich (present in both input and success output)
-touched = set(success_outcome.context.devices) & set(context.devices)
-for device_id in touched:
-    device = success_outcome.context.devices[device_id]
-    missing = set(step.produces) - device.capabilities
-    if missing:
-        raise RuntimeError(
-            f"Step {step_id} declared produces={step.produces} but device "
-            f"{device_id} is missing {missing} on the success path"
-        )
-    leaked = set(step.consumes) & device.capabilities
-    if leaked:
-        raise RuntimeError(
-            f"Step {step_id} declared consumes={step.consumes} but device "
-            f"{device_id} still has {leaked} on the success path"
-        )
+    missing_capabilities = set(spec.requires) - context.provided_capabilities()
+    if missing_capabilities:
+        raise ValueError(f"Step {spec.step_id}: missing required capabilities {missing_capabilities}")
+
+    missing_parsed_keys = set(spec.requires_parsed) - context.provided_parsed_keys()
+    if missing_parsed_keys:
+        raise ValueError(f"Step {spec.step_id}: missing required parsed keys {missing_parsed_keys}")
 ```
 
 **Config-dependent `produces`** — the post-step guard normally checks the static
 `produces` list from `registry.yaml`, but a handful of steps only guarantee a subset of
 their declared capabilities depending on `pluginConfig`, and the registry format has no
 way to express a conditional. `effective_produces()` computes the actual expected set for
-these before the guard runs:
+these before the guard runs — this is the real function, in full:
+
+```python
+def effective_produces(*, spec: StepCapabilitySpec, step_type: str, config: dict) -> frozenset[Capability]:
+    """Return capabilities a step must add on the success path for this config."""
+    if step_type == "get-device-configs":
+        config_format = str(config.get("config_format") or "both").strip().lower()
+        if config_format == "running":
+            return frozenset({Capability.RUNNING_CONFIG})
+        if config_format == "startup":
+            return frozenset({Capability.STARTUP_CONFIG})
+        return frozenset({Capability.RUNNING_CONFIG, Capability.STARTUP_CONFIG})
+    if step_type == "render-jinja-template":
+        return frozenset({Capability.PARSED})
+    if step_type == "update-attribute":
+        if _update_attribute_has_guaranteed_write(config):
+            return frozenset({Capability.ATTRIBUTES})
+        return frozenset()
+    return spec.produces
+```
 
 | Step | Config that narrows `produces` |
 |------|---------------------------------|
@@ -962,6 +1020,33 @@ these before the guard runs:
 Every other step uses its registry `produces` unchanged. A new step should only need
 `effective_produces()` if its declared capability is genuinely conditional on config —
 prefer a `produces` list that's always true instead, when possible.
+
+**Post-step guard** — after a step returns, check the success outcome only:
+
+```python
+def post_step_guard(
+    *, spec: StepCapabilitySpec, input_context: WorkflowContext,
+    outcomes: list[StepOutcome], expected_produces: frozenset[Capability] | None = None,
+) -> None:
+    produces = expected_produces if expected_produces is not None else spec.produces
+    success_outcome = next((o for o in outcomes if o.name == "success"), None)
+    if success_outcome is None:
+        return
+
+    touched = set(success_outcome.context.devices) & set(input_context.devices)
+    for device_id in touched:
+        device = success_outcome.context.devices[device_id]
+
+        missing_produces = set(produces) - device.capabilities
+        if missing_produces:
+            raise RuntimeError(f"Step {spec.step_id} expected produces={set(produces)} but device "
+                                f"{device_id} is missing {missing_produces} on the success path")
+
+        leaked_consumes = set(spec.consumes) & device.capabilities
+        if leaked_consumes:
+            raise RuntimeError(f"Step {spec.step_id} declared consumes={set(spec.consumes)} but device "
+                                f"{device_id} still has {leaked_consumes} on the success path")
+```
 
 **Schema validation** — every persisted/loaded context is `model_validate`-d with
 `extra="forbid"`. Unknown fields are rejected.
@@ -979,19 +1064,23 @@ and coerce back on load. Pin this with a round-trip test.
 
 ## What Each Step Reads and Writes
 
-Quick reference for step authors.
+Quick reference for step authors, using real steps.
 
 | Step                       | Requires            | Reads from context                            | Writes to context                                    |
-|----------------------------|---------------------|-----------------------------------------------|------------------------------------------------------|
+|----------------------------|---------------------|-----------------------------------------------|--------------------------------------------------------|
 | `get-nautobot-devices`     | *(source)*          | nothing                                       | `devices[*]` identity fields + `IDENTITY`            |
 | `get-git-devices`          | *(source)*          | nothing                                       | `devices[*]` identity fields + `IDENTITY`            |
 | `get-nautobot-attributes`  | `IDENTITY`          | `devices[*].id`                               | `devices[*].attribute_bags["nautobot"]` + `ATTRIBUTES` |
-| `get-running-config`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].running_config_ref` + `RUNNING_CONFIG`   |
-| `get-startup-config`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].startup_config_ref` + `STARTUP_CONFIG`   |
-| `parse-bgp`                | `RUNNING_CONFIG`    | `devices[*].running_config_ref`               | `devices[*].parsed["bgp"]` + `PARSED`               |
+| `get-device-configs`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].running_config_ref` and/or `startup_config_ref` + `RUNNING_CONFIG`/`STARTUP_CONFIG` (per `config_format`) |
+| `parse-cisco-config`       | `IDENTITY`          | `devices[*].running_config_ref` and/or `startup_config_ref` | `devices[*].parsed[output_key]` + `PARSED`   |
+| `add-pyats-testbed`        | `IDENTITY`          | `devices[*].id`, credential/source config     | `devices[*].attribute_bags["pyats_testbed"]` + `PYATS_TESTBED` |
+| `get-pyats-config`         | `IDENTITY`, `PYATS_TESTBED` | `devices[*].attribute_bags["pyats_testbed"]` | `devices[*].parsed[output_key]` + `PARSED` |
+| `run-command`              | `IDENTITY`          | `devices[*]` (hostname, credential config)    | `devices[*].command_results[node_id]` (list, `ArtifactRef`-backed) |
 | `filter-output`            | `IDENTITY`          | `devices[*].command_results` or `devices[*].parsed["{src}.merged_content"]` | `devices[*].parsed["{node_id}.filtered_output"]` + `PARSED` |
-| `build-config`             | `IDENTITY`          | `devices[*]` (any fields needed by template)  | `pending_commands[*][node_id]` + `PENDING_COMMANDS`  |
-| `send-config`              | `PENDING_COMMANDS`  | `pending_commands`, `devices[*].hostname`     | `devices[*].command_results[node_id]` (list); **consumes** `PENDING_COMMANDS` (drains & clears the queue) |
+| `update-attribute`         | `IDENTITY`          | `devices[*]` (any dotted-path source, incl. `parsed.*`) | `devices[*].attribute_bags[bag]` + `ATTRIBUTES` (conditionally — see `effective_produces()`) |
+
+Full step-by-step catalogue: `doc/WORKFLOW-STEPS.md`; pyATS-specific steps:
+`doc/PYATS_INTEGRATION.md`.
 
 ---
 
@@ -1000,9 +1089,9 @@ Quick reference for step authors.
 - Persist with `model_dump(mode="json")`; rehydrate with `model_validate`.
 - `schema_version` is persisted with every step result. On load, if older than the
   current code, run a registered migration function before use.
-- One step result is stored per node per run. Because content is referenced via
-  `ArtifactRef`, a step result is the small enriched context — not a copy of every
-  device's configuration.
+- One step result is stored per node per run (`workflow_step_results` table). Because
+  content is referenced via `ArtifactRef`, a step result is the small enriched context —
+  not a copy of every device's configuration.
 
 ---
 
@@ -1031,6 +1120,24 @@ Quick reference for step authors.
    test asserting the Python enum and `frontend/src/lib/capability-types.ts`'s
    `Capability` union stay identical to each other. Still open — add that parity check
    (or codegen) before relying on the frontend union being trustworthy.
+6. **Typed parser outputs (`requires_parsed`/`produces_parsed`) are unused.** The schema
+   and runtime guard machinery are real (see "Typed parser outputs" above), but every
+   shipped parser-producing step uses a dynamic, user-configured `output_key` instead of
+   a statically-declared parser key, so the canvas cannot catch a mistyped/missing
+   `output_key` reference at design time — only at run time, as a missing value. Either
+   (a) migrate real steps to declare `produces_parsed: [output_key-ish-name]` so the
+   canvas can validate it (non-trivial: `output_key` is user-chosen per step instance,
+   not a fixed step-level constant, so the registry's static declaration model would need
+   to change), or (b) remove the unused fields/guard checks and rely on run-time errors,
+   accepting the design-time gap. Still open.
+7. **`pending_commands` (queue-and-drain command building) is unused.** The field, its
+   merge logic, and `flatten_pending_commands()`'s topological-ordering helper are real
+   and tested, but no shipped step produces, requires, or consumes it —
+   `run-command` proved a single self-contained step (build + execute in one pass) is
+   sufficient for today's use cases. Either keep the machinery for a future step that
+   genuinely needs to build a queue across multiple upstream nodes before one downstream
+   step drains it (e.g. composing config from several independent template/attribute
+   steps before a single push), or remove it if no such step is planned. Still open.
 
 ---
 
@@ -1038,11 +1145,10 @@ Quick reference for step authors.
 
 - [ ] Capabilities are a **set**; compatibility is **subset** (`required ⊆ provided`), never rank `>=`.
 - [ ] Capabilities tracked per device; context guarantee = intersection across devices (vacuously full for empty inventory).
-- [ ] Parser outputs keyed by parser key; `requires_parsed` / `produces_parsed` in registry.
-- [ ] Parser keys validated at BOTH canvas (`isCompatible`) and runtime (pre-step guard via `provided_parsed_keys()`), not just coarse `PARSED`.
+- [ ] Parser outputs keyed by a per-step `output_key`; `requires_parsed`/`produces_parsed` exist in the schema but are not populated by any shipped step today (see Open Decision 6).
 - [ ] `command_results` is `{ node_id: list[CommandResult] }` — supports multiple commands per node, idempotent on merge.
-- [ ] `consumes` honoured: capability removed after the step (e.g. `send-config` drains `pending_commands`); `transitiveProvides = (in ∪ produces) \ consumes`.
-- [ ] `pending_commands` flattened in TOPOLOGICAL node order (not lexical node_id) before sending.
+- [ ] `consumes` honoured when a step declares it: capability removed after the step; `transitiveProvides = (in ∪ produces) \ consumes`. No shipped step declares a non-empty `consumes` today (see Open Decision 7).
+- [ ] `pending_commands`, if ever populated by a future step, must be flattened in TOPOLOGICAL node order (not lexical node_id) via `flatten_pending_commands()` before sending.
 - [ ] All bulky content is an `ArtifactRef`; envelope/step-results stay small.
 - [ ] Per-device `status` + append-only `errors`; runtime failures never raise.
 - [ ] **Success outcome carries only successfully enriched devices** — failed devices on `failure` only.
@@ -1050,12 +1156,12 @@ Quick reference for step authors.
 - [ ] `pending_commands` and `command_results` keyed by `node_id` — merge is idempotent, no diamond double-counting.
 - [ ] Credentials passed as references in `config`, resolved in-step, never in the envelope.
 - [ ] `merge()` is total and deterministic; per-device capability union, cross-device intersection.
-- [ ] `model_config = extra="forbid"`; `set[Capability]` serialisation pinned by round-trip test.
+- [ ] `model_config = extra="forbid"` on every envelope type; `set[Capability]` serialisation pinned by round-trip test.
 - [ ] `schema_version` persisted with a migration hook.
 - [ ] Pre-step guard skips empty inventory (no-op); checks `requires ⊆ provided_capabilities()` otherwise.
-- [ ] Post-step guard checks `produces ⊆ device.capabilities` for `touched` devices on success path.
+- [ ] Post-step guard checks `produces ⊆ device.capabilities` for `touched` devices on success path (using `effective_produces()` where a step's config narrows it).
 - [ ] `hostname` invariant (no CIDR mask) enforced at the source step.
-- [ ] Capability enum sync strategy decided and documented before second step ships.
+- [ ] Capability enum sync strategy decided and documented (still open — see Open Decision 5).
 
 ---
 
@@ -1069,18 +1175,19 @@ WorkflowContext                                           schema_version: int
 │   │   network_driver, primary_ip4, source               ← source steps
 │   ├── attribute_bags: { bag_name: { ... } }              ← "nautobot" (get-nautobot-attributes),
 │   │                                                         "tacacs"/"ise" (ISE/TACACS+ steps),
+│   │                                                         "pyats_testbed" (add-pyats-testbed),
 │   │                                                         "run_input" (reserved, seeded by engine)
-│   ├── running_config_ref, startup_config_ref            ← get-*-config  (ArtifactRef)
-│   ├── parsed: { parser_key: structured_data }           ← parse-* steps
+│   ├── running_config_ref, startup_config_ref            ← get-device-configs  (ArtifactRef)
+│   ├── parsed: { output_key: structured_data }           ← parse-cisco-config, get-pyats-config, ...
 │   │   ├── "{node_id}.merged_content": { artifact_ref, step_node_id, output_key, kind, size_bytes }
 │   │   │                                                 ← merge-content
 │   │   └── "{node_id}.filtered_output": { artifact_ref, step_node_id, output_key, kind, size_bytes }
 │   │                                                     ← filter-output (cleaned JSON or text blob)
-│   ├── command_results: { node_id: [ CommandResult ] }   ← send-* steps  (output as ArtifactRef)
+│   ├── command_results: { node_id: [ CommandResult ] }   ← run-command  (output as ArtifactRef)
 │   ├── capabilities: set[Capability]                     ← added by each enriching step
 │   ├── status: DeviceStatus                              ← set per operation
 │   └── errors: [ DeviceError ]                           ← append-only, deduped by (node_id, step_id)
-├── pending_commands: { device_id: { node_id: [cmds] } }  ← build-config, drained by send-config
+├── pending_commands: { device_id: { node_id: [cmds] } }  ← modelled + merge-tested, unused by any shipped step
 └── metadata: { "<node-id>.key": value }                  ← namespaced scratch space
 
 Compatibility check:  required_capabilities ⊆ provided_capabilities()

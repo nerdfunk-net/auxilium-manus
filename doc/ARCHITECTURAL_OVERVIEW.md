@@ -3,10 +3,64 @@
 Deep-dive notes on how specific parts of the system behave, aimed at answering
 "how does this actually work" questions that aren't obvious from the code
 layout alone. Complements `doc/WORKFLOW-STEPS.md` (step contracts, registry,
-fan-out) rather than repeating it — this file references that doc instead of
-duplicating it.
+fan-out) and `doc/MANUS_BASIS_DATATYPE.md` (the canonical `WorkflowContext`/
+`DeviceContext` shape, capability model, merge rules) rather than repeating
+them — this file references those docs instead of duplicating them.
 
 More topics will be added here over time.
+
+---
+
+## Step execution granularity: once per node, not once per device
+
+**Question:** When a workflow step runs against many devices, does the engine
+call that step's code once per device, or once for the whole batch? If I add
+a new step, do I need to worry about it being invoked repeatedly per device?
+
+**Answer:** Once per node, per run. A step's `execute()` (the contract is
+documented in full in `doc/WORKFLOW-STEPS.md` → "executor.py — required for
+every executable step") is called **exactly once** by `StepRunner`
+(`backend/services/execution/step_runner.py`) each time execution reaches
+that node — never once per device. It receives the **entire** current device
+set in a single `context: WorkflowContext` argument, where
+`WorkflowContext.devices` is a `dict[str, DeviceContext]` holding every
+device that reached this node from upstream (canonical shape defined in
+`doc/MANUS_BASIS_DATATYPE.md`; see "Per-device data isolation" below for the
+isolation guarantees). There is no per-device invocation of `execute()`
+anywhere in the engine — `doc/WORKFLOW-STEPS.md`'s "Execution path" diagram
+(`StepRunner.execute_all() → STEP_REGISTRY[step_type] → execute()`) is the
+whole call chain, and it runs once per node.
+
+### What a step does with that dict is entirely up to the step
+
+Since `execute()` gets the whole `context.devices` dict at once, how it
+processes those devices — sequentially, concurrently via `asyncio.gather`,
+one external call per device, or several devices batched into one external
+call — is a private implementation choice inside that step, invisible to the
+engine and to every other step. Nothing about `StepRunner`, the registry, or
+the canvas/config changes based on that choice.
+
+A concrete example: `get-pyats-config` and `get-pyats-snapshot`
+(`backend/workflow_steps/get_pyats_config/executor.py`,
+`get_pyats_snapshot/executor.py`) originally looped over `context.devices`
+and made one HTTP call to the pyATS shim per device. They were later changed
+to group devices by `pyats_source_id` and make one shim call per chunk of up
+to 5 devices instead (`backend/workflow_steps/common/pyats_batch.py`; full
+rationale in `doc/PYATS_INTEGRATION.md` → "Get & Parse Config"). Both before
+and after that change, `StepRunner` still called each step's `execute()`
+exactly once per node, with the same full `context.devices` dict — only the
+loop *inside* the executor changed.
+
+### The one exception: fan-out
+
+Under `fan_out.enabled: true` (`doc/WORKFLOW-STEPS.md` → "Fan-out
+execution"), each device or chunk runs as its own independent Hatchet child
+workflow. Inside that child branch, every step's `execute()` is still called
+exactly once per node — but now once **per child**, each with its own
+disjoint subset of `context.devices` (one device in `per_device` mode, one
+chunk in `chunked` mode), not once for the parent's whole device set. The
+"once per node" rule still holds; fan-out just means there are now multiple
+parallel node-executions, each scoped to fewer devices.
 
 ---
 

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useApi } from "@/hooks/use-api";
 import {
@@ -29,6 +29,26 @@ export interface LoadedInventoryData {
   group_path?: string | null;
 }
 
+// Module-level and pure, so it never needs to be a hook dependency.
+function flatConditionsToTree(flatConditions: LogicalCondition[]): ConditionTree {
+  const tree: ConditionTree = {
+    type: "root",
+    internalLogic: "AND",
+    items: [],
+  };
+
+  flatConditions.forEach((condition) => {
+    tree.items.push({
+      id: generateId(),
+      field: condition.field,
+      operator: condition.operator,
+      value: condition.value,
+    });
+  });
+
+  return tree;
+}
+
 export function useSavedInventories() {
   const [isSavingInventory, setIsSavingInventory] = useState(false);
   const { apiCall } = useApi();
@@ -45,204 +65,227 @@ export function useSavedInventories() {
   const exportMutation = useInventoryExportMutation();
   const importMutation = useInventoryImportMutation();
 
+  const { mutateAsync: createInventory } = createMutation;
+  const { mutateAsync: updateInventory } = updateMutation;
+  const { mutateAsync: deleteInventoryMutation } = deleteMutation;
+  const { mutateAsync: exportInventoryMutation } = exportMutation;
+  const { mutateAsync: importInventoryMutation } = importMutation;
+
   const loadSavedInventories = useCallback(async () => {
     await reloadInventories();
   }, [reloadInventories]);
 
-  const flatConditionsToTree = (flatConditions: LogicalCondition[]): ConditionTree => {
-    const tree: ConditionTree = {
-      type: "root",
-      internalLogic: "AND",
-      items: [],
-    };
+  const saveInventory = useCallback(
+    async (
+      name: string,
+      description: string,
+      scope: string,
+      conditionTree: ConditionTree,
+      isUpdate: boolean = false,
+      existingId?: number,
+      group_path?: string | null,
+    ) => {
+      setIsSavingInventory(true);
+      try {
+        const conditions = conditionTreeToSavedConditions(conditionTree);
 
-    flatConditions.forEach((condition) => {
-      tree.items.push({
-        id: generateId(),
-        field: condition.field,
-        operator: condition.operator,
-        value: condition.value,
-      });
-    });
+        if (isUpdate && existingId) {
+          await updateInventory({
+            id: existingId,
+            description: description || null,
+            conditions,
+            inventory_type: "filter",
+            group_path: group_path ?? null,
+          });
+        } else {
+          await createInventory({
+            name,
+            description: description || null,
+            conditions,
+            inventory_type: "filter",
+            scope,
+            group_path: group_path ?? null,
+          });
+        }
 
-    return tree;
-  };
+        return true;
+      } finally {
+        setIsSavingInventory(false);
+      }
+    },
+    [createInventory, updateInventory],
+  );
 
-  const saveInventory = async (
-    name: string,
-    description: string,
-    scope: string,
-    conditionTree: ConditionTree,
-    isUpdate: boolean = false,
-    existingId?: number,
-    group_path?: string | null,
-  ) => {
-    setIsSavingInventory(true);
-    try {
-      const conditions = conditionTreeToSavedConditions(conditionTree);
+  const saveDeviceList = useCallback(
+    async (
+      name: string,
+      description: string,
+      scope: string,
+      deviceIds: string[],
+      isUpdate: boolean = false,
+      existingId?: number,
+      group_path?: string | null,
+    ) => {
+      setIsSavingInventory(true);
+      try {
+        if (isUpdate && existingId) {
+          await updateInventory({
+            id: existingId,
+            description: description || null,
+            inventory_type: "static",
+            device_ids: deviceIds,
+            group_path: group_path ?? null,
+          });
+        } else {
+          await createInventory({
+            name,
+            description: description || null,
+            inventory_type: "static",
+            device_ids: deviceIds,
+            conditions: [],
+            scope,
+            group_path: group_path ?? null,
+          });
+        }
 
-      if (isUpdate && existingId) {
-        await updateMutation.mutateAsync({
-          id: existingId,
-          description: description || null,
-          conditions,
-          inventory_type: "filter",
-          group_path: group_path ?? null,
-        });
-      } else {
-        await createMutation.mutateAsync({
-          name,
-          description: description || null,
-          conditions,
-          inventory_type: "filter",
-          scope,
-          group_path: group_path ?? null,
-        });
+        return true;
+      } finally {
+        setIsSavingInventory(false);
+      }
+    },
+    [createInventory, updateInventory],
+  );
+
+  const loadInventory = useCallback(
+    async (inventoryId: number): Promise<LoadedInventoryData | null> => {
+      const response = await apiCall<{
+        id: number;
+        name: string;
+        description?: string;
+        scope: string;
+        group_path?: string | null;
+        conditions: unknown[];
+        inventory_type?: InventoryType;
+        device_ids?: string[];
+      }>(`sources/nautobot/${inventoryId}`);
+
+      if (!response) {
+        return null;
       }
 
-      return true;
-    } finally {
-      setIsSavingInventory(false);
-    }
-  };
-
-  const saveDeviceList = async (
-    name: string,
-    description: string,
-    scope: string,
-    deviceIds: string[],
-    isUpdate: boolean = false,
-    existingId?: number,
-    group_path?: string | null,
-  ) => {
-    setIsSavingInventory(true);
-    try {
-      if (isUpdate && existingId) {
-        await updateMutation.mutateAsync({
-          id: existingId,
-          description: description || null,
+      if (response.inventory_type === "static") {
+        return {
           inventory_type: "static",
-          device_ids: deviceIds,
-          group_path: group_path ?? null,
-        });
-      } else {
-        await createMutation.mutateAsync({
-          name,
-          description: description || null,
-          inventory_type: "static",
-          device_ids: deviceIds,
-          conditions: [],
-          scope,
-          group_path: group_path ?? null,
-        });
+          device_ids: response.device_ids ?? [],
+          id: response.id,
+          name: response.name,
+          description: response.description,
+          scope: response.scope,
+          group_path: response.group_path ?? null,
+        };
       }
 
-      return true;
-    } finally {
-      setIsSavingInventory(false);
-    }
-  };
+      let tree: ConditionTree | null = null;
+      if (response.conditions && response.conditions.length > 0) {
+        const firstItem = response.conditions[0];
 
-  const loadInventory = async (inventoryId: number): Promise<LoadedInventoryData | null> => {
-    const response = await apiCall<{
-      id: number;
-      name: string;
-      description?: string;
-      scope: string;
-      group_path?: string | null;
-      conditions: unknown[];
-      inventory_type?: InventoryType;
-      device_ids?: string[];
-    }>(`sources/nautobot/${inventoryId}`);
+        if (
+          firstItem &&
+          typeof firstItem === "object" &&
+          "version" in firstItem &&
+          (firstItem as { version: number }).version === 2 &&
+          "tree" in firstItem
+        ) {
+          tree = savedTreeToConditionTree((firstItem as { tree: unknown }).tree);
+        } else {
+          tree = flatConditionsToTree(response.conditions as LogicalCondition[]);
+        }
+      }
 
-    if (!response) {
-      return null;
-    }
+      if (!tree) {
+        return null;
+      }
 
-    if (response.inventory_type === "static") {
       return {
-        inventory_type: "static",
-        device_ids: response.device_ids ?? [],
+        inventory_type: "filter",
+        tree,
         id: response.id,
         name: response.name,
         description: response.description,
         scope: response.scope,
         group_path: response.group_path ?? null,
       };
-    }
+    },
+    [apiCall],
+  );
 
-    let tree: ConditionTree | null = null;
-    if (response.conditions && response.conditions.length > 0) {
-      const firstItem = response.conditions[0];
+  const updateInventoryDetails = useCallback(
+    async (
+      inventoryId: number,
+      name: string,
+      description: string,
+      scope: string,
+      group_path?: string | null,
+    ) => {
+      await updateInventory({
+        id: inventoryId,
+        name,
+        description: description || null,
+        scope,
+        group_path: group_path ?? null,
+      });
+    },
+    [updateInventory],
+  );
 
-      if (
-        firstItem &&
-        typeof firstItem === "object" &&
-        "version" in firstItem &&
-        (firstItem as { version: number }).version === 2 &&
-        "tree" in firstItem
-      ) {
-        tree = savedTreeToConditionTree((firstItem as { tree: unknown }).tree);
-      } else {
-        tree = flatConditionsToTree(response.conditions as LogicalCondition[]);
-      }
-    }
+  const deleteInventory = useCallback(
+    async (inventoryId: number) => {
+      await deleteInventoryMutation(inventoryId);
+    },
+    [deleteInventoryMutation],
+  );
 
-    if (!tree) {
-      return null;
-    }
+  const exportInventory = useCallback(
+    async (inventoryId: number) => {
+      await exportInventoryMutation(inventoryId);
+    },
+    [exportInventoryMutation],
+  );
 
-    return {
-      inventory_type: "filter",
-      tree,
-      id: response.id,
-      name: response.name,
-      description: response.description,
-      scope: response.scope,
-      group_path: response.group_path ?? null,
-    };
-  };
+  const importInventory = useCallback(
+    async (file: File) => {
+      await importInventoryMutation(file);
+      await reloadInventories();
+    },
+    [importInventoryMutation, reloadInventories],
+  );
 
-  const updateInventoryDetails = async (
-    inventoryId: number,
-    name: string,
-    description: string,
-    scope: string,
-    group_path?: string | null,
-  ) => {
-    await updateMutation.mutateAsync({
-      id: inventoryId,
-      name,
-      description: description || null,
-      scope,
-      group_path: group_path ?? null,
-    });
-  };
-
-  const deleteInventory = async (inventoryId: number) => {
-    await deleteMutation.mutateAsync(inventoryId);
-  };
-
-  const exportInventory = async (inventoryId: number) => {
-    await exportMutation.mutateAsync(inventoryId);
-  };
-
-  const importInventory = async (file: File) => {
-    await importMutation.mutateAsync(file);
-    await reloadInventories();
-  };
-
-  return {
-    savedInventories,
-    isLoadingInventories,
-    isSavingInventory,
-    loadSavedInventories,
-    saveInventory,
-    saveDeviceList,
-    loadInventory,
-    updateInventoryDetails,
-    deleteInventory,
-    exportInventory,
-    importInventory,
-  };
+  return useMemo(
+    () => ({
+      savedInventories,
+      isLoadingInventories,
+      isSavingInventory,
+      loadSavedInventories,
+      saveInventory,
+      saveDeviceList,
+      loadInventory,
+      updateInventoryDetails,
+      deleteInventory,
+      exportInventory,
+      importInventory,
+    }),
+    [
+      savedInventories,
+      isLoadingInventories,
+      isSavingInventory,
+      loadSavedInventories,
+      saveInventory,
+      saveDeviceList,
+      loadInventory,
+      updateInventoryDetails,
+      deleteInventory,
+      exportInventory,
+      importInventory,
+    ],
+  );
 }

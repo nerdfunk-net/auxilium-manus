@@ -5,6 +5,14 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   treeToOperations,
 } from "@/components/features/workflow-steps/get-nautobot-devices/condition-builder/tree-to-operation";
 import type { FilterTree } from "@/components/features/workflow-steps/get-nautobot-devices/condition-builder/types";
@@ -83,48 +91,29 @@ export function DeviceSelectionPreviewDialog({
     retry: false,
   });
 
-  if (!open) return null;
-
   return (
-    <div
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-    >
-      <div aria-hidden="true" className="absolute inset-0 bg-black/50" onClick={onClose} />
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Device Preview</DialogTitle>
+          <DialogDescription>
+            {inventoryName ? (
+              <>
+                Devices from{" "}
+                <span className="font-medium">&ldquo;{inventoryName}&rdquo;</span> via{" "}
+                <span className="font-medium">{config.source_id || "—"}</span>
+              </>
+            ) : (
+              <>
+                Devices from{" "}
+                <span className="font-medium">{config.source_id || "—"}</span> matching
+                selected inventory
+              </>
+            )}
+          </DialogDescription>
+        </DialogHeader>
 
-      <div className="relative z-10 mx-4 flex w-full max-w-lg flex-col rounded-lg border bg-card shadow-lg">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div>
-            <p className="text-sm font-semibold">Device Preview</p>
-            <p className="text-xs text-muted-foreground">
-              {inventoryName ? (
-                <>
-                  Devices from{" "}
-                  <span className="font-medium">&ldquo;{inventoryName}&rdquo;</span> via{" "}
-                  <span className="font-medium">{config.source_id || "—"}</span>
-                </>
-              ) : (
-                <>
-                  Devices from{" "}
-                  <span className="font-medium">{config.source_id || "—"}</span> matching
-                  selected inventory
-                </>
-              )}
-            </p>
-          </div>
-          <Button
-            aria-label="Close preview"
-            className="h-7 w-7 p-0"
-            onClick={onClose}
-            size="sm"
-            variant="ghost"
-          >
-            ×
-          </Button>
-        </div>
-
-        <div className="min-h-[160px] p-4">
+        <div className="min-h-[160px]">
           {isLoading && (
             <div className="space-y-2">
               {[...Array(4)].map((_, index) => (
@@ -190,12 +179,12 @@ export function DeviceSelectionPreviewDialog({
           )}
         </div>
 
-        <div className="flex justify-end border-t px-4 py-3">
+        <DialogFooter>
           <Button onClick={onClose} size="sm" variant="outline">
             Close
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

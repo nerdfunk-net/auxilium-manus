@@ -1,9 +1,9 @@
 # Frontend Analysis
 
-**Date:** 2026-08-20  
-**Scope:** `/frontend` (~497 TypeScript/TSX files, ~65k lines under `frontend/src`).  
+**Date:** 2026-08-21 (scorecard re-check after code updates; original review 2026-08-20)  
+**Scope:** `/frontend` (~560 TypeScript/TSX files under `frontend/src`).  
 **Standards:** `CLAUDE.md` frontend architecture, UI, TanStack Query, React anti-patterns, auth/proxy, and security checklist.  
-**Method:** Static review of App Router routes, the Next.js proxy, auth cookies, query hooks, feature modules, workflow canvas, settings/tools, and the largest source files. Runtime pentest was not performed.
+**Method:** Static review of App Router routes, the Next.js proxy, auth cookies, query hooks, feature modules, workflow canvas, settings/tools, and the largest source files. Runtime pentest was not performed. Scorecard statuses below were re-verified against the current tree.
 
 This document records **compliance with `CLAUDE.md`**, **security risks**, **oversized modules**, and **duplication**. Backend-owned risks already captured in `doc/analysis/GROK_46.md` and `doc/SECURITY-NOTES.md` are referenced rather than re-litigated.
 
@@ -22,9 +22,9 @@ The frontend is in **good structural health** relative to `CLAUDE.md`:
 - Shadcn/Radix + Tailwind semantic tokens are the UI system. No `alert()` / `confirm()`. No `dangerouslySetInnerHTML`.
 - Security headers (CSP, `X-Frame-Options: DENY`, `nosniff`, HSTS in production) are set in `next.config.ts`.
 
-The main gaps are **layering inside features** (fat hooks and ConfigPanels), **TanStack Query not used uniformly** (template editor and a few dialogs still `useEffect` + `apiCall`), **almost no frontend tests**, and **hardening** that `CLAUDE.md` does not fully specify: CSP `'unsafe-eval'`/`'unsafe-inline'` (Monaco), `ENABLE_DEV_TOOLS` only gated by env (not by `NODE_ENV`), sensitive run/artifact payloads cached in the QueryClient, and product-direction drift (device-first flow, GraphQL helper, RHF on step forms).
+The main gaps are **layering inside features** (fat hooks and ConfigPanels), **almost no frontend tests**, and **hardening** that `CLAUDE.md` does not fully specify: CSP `'unsafe-eval'`/`'unsafe-inline'` (Monaco), `ENABLE_DEV_TOOLS` only gated by env (not by `NODE_ENV`), sensitive run/artifact payloads cached in the QueryClient, and product-direction drift (device-first flow, RHF on step forms). TanStack Query is now the default for the former template-editor / Netmiko-search / render / canvas-rehydrate fetches; leftover server calls are mostly event-handler `apiCall`s rather than `useEffect`.
 
-`CLAUDE.md` itself is **stale** in a few frontend places (Next.js version, port, GraphQL client path). Those drifts are listed in §7.
+`CLAUDE.md` itself is **stale** on the frontend port (architecture still says 3000). Next.js version and the GraphQL-helper path were brought in line. Remaining drifts are listed in §7.
 
 ---
 
@@ -40,24 +40,24 @@ The main gaps are **layering inside features** (fat hooks and ConfigPanels), **T
 | API proxy only (never direct backend from the browser) | **Pass** | `useApi` always hits `/api/proxy/...`. Auth uses `/api/auth/*`. `BACKEND_URL` is server-only in `lib/api-proxy.ts`. |
 | JWT not in `localStorage`; cookie auth | **Pass** | httpOnly cookie set by login/refresh/OIDC BFF routes. |
 | Frontend permission checks are UX-only | **Pass** | `lib/permissions.ts` documents this. Sidebar/settings/tools hide UI; backend still enforces. |
-| Central `queryKeys` factory | **Pass** | Two inline fallback keys for disabled queries: `use-workflow-run-query.ts` and `use-workflow-schedule-query.ts`. |
-| TanStack Query for server data (not `useState`+`useEffect`) | **Partial** | Dominant pattern. Exceptions: template editor, Netmiko device search, workflow persistence load-by-id, several ConfigPanels. |
-| Query hooks in `/hooks/queries/` | **Partial** | 59 files there. Templates, credentials, and RBAC hooks live under `features/*/hooks/` (allowed by feature layout, conflicts with the centralized-hooks sentence). |
-| `DEFAULT_OPTIONS = {}` constant | **Partial** | Followed in several query hooks. `use-saved-inventories-query.ts` still uses `options = {}`. |
-| Custom hooks memoize returned objects | **Partial** | `useApi` and `useSessionManager` memoize. Unmemoized returns: `useToast`, `useConditionTree`, `useSavedInventories`, several mutation hooks. |
+| Central `queryKeys` factory | **Pass** | Two inline fallback keys for disabled queries: `use-workflow-run-query.ts` (`["workflow-runs", "disabled"]`) and `use-workflow-schedule-query.ts` (`["workflows", "schedule", "disabled"]`). |
+| TanStack Query for server data (not `useState`+`useEffect`) | **Mostly pass** | Dominant pattern. Template editor (device attributes, Netmiko search, render, Get Configs) and canvas rehydrate now use `useQuery`/`useMutation`. Remaining: event-handler `apiCall` for load-workflow / load-inventory / execute-commands; ConfigPanel `useEffect` is local form init, not a fetch. |
+| Query hooks in `/hooks/queries/` | **Partial** | 61 files there. Templates, credentials, and RBAC hooks still live under `features/*/hooks/` (allowed by feature layout, conflicts with the centralized-hooks sentence). |
+| `DEFAULT_OPTIONS = {}` constant | **Partial** | Followed in every optional-options query hook except `use-saved-inventories-query.ts` (`options = {}` on two exports). |
+| Custom hooks memoize returned objects | **Partial** | `useApi`, `useSessionManager`, `useTemplateRender`, `useSavedInventories` (fixed 2026-08-21 — see `doc/READ_BEFORE_FRONTEND_ANALYSIS.md`), and most mutation hooks now memoize. Unmemoized returns: `useToast`, `useConditionTree`, `useTemplateEditorDevice`, `useDashboardLayoutMutations`, `useNautobotSourceCredentials`. |
 | Zustand for editor-only state, not server data | **Pass** | `use-workflow-builder-store.ts` is canvas draft + UI chrome. Auth store holds `/me` user (session, not a list resource). |
 | React Flow for canvas; definition separate from UI state | **Pass** | Persist payload is `canvas_nodes` / `canvas_edges` / `canvas_groups` / `static_attributes`. Backend owns executable conversion. |
 | Shared canvas node (`w-80` × `h-32`), registry-driven ConfigPanel | **Pass** | `workflow-node.tsx` is the shared step tile. Extra React Flow types (`groupNode`, `labelNode`, `backgroundNode`, `funnelNode`) are canvas decorations, not per-step render forks. |
 | `PLUGIN_UI_REGISTRY` for step ConfigPanels | **Pass** | 49 step packages under `workflow-steps/`, registered in `lib/plugin-ui-registry.ts`. |
-| React Hook Form + Zod for forms | **Partial** | Settings/source/credential/user/import dialogs use it. Login and most workflow step ConfigPanels are uncontrolled `useState`. |
-| Shadcn for all primitives | **Mostly pass** | 17 `components/ui/*` primitives. One custom overlay modal in `get-nautobot-devices/preview-dialog.tsx` bypasses `Dialog`. |
+| React Hook Form + Zod for forms | **Partial** | Settings/source/credential/user dialogs plus workflow save-as / manage / import / run-inputs / schedule and template import use it. Login and most workflow step ConfigPanels are still uncontrolled `useState`. |
+| Shadcn for all primitives | **Pass** | 17 `components/ui/*` primitives. `get-nautobot-devices/preview-dialog.tsx` now uses Shadcn `Dialog` (fixed 2026-08-21; previously a custom overlay missing Escape/focus-trap/portal behavior). |
 | Tailwind semantic tokens (no `bg-blue-500`) | **Mostly pass** | Inventory condition tree and step category chips use palette colors (`purple-*`, `indigo-*`, `sky-*`). |
 | No `alert()` / `confirm()` | **Pass** | Confirmations use `Dialog`. `AlertDialog` is unused. |
-| No inline GraphQL in components | **Pass** (pattern changed) | There is **no** `frontend/src/services/nautobot-graphql.ts`. Inventory/Nautobot goes through backend REST via the proxy. Better than the documented client GraphQL helper. |
-| Server Components by default | **Partial / expected** | ~343 `'use client'` files of 497. Appropriate for an interactive SPA-like dashboard. Root layout, dashboard layout (auth), and route stubs are server. |
+| No inline GraphQL in components | **Pass** | There is **no** `frontend/src/services/nautobot-graphql.ts`. Inventory/Nautobot goes through backend REST via the proxy. `CLAUDE.md` now documents this; no client GraphQL layer to add. |
+| Server Components by default | **Partial / expected** | Majority of ~560 TS/TSX files are `'use client'`. Appropriate for an interactive SPA-like dashboard. Root layout, dashboard layout (auth), and route stubs are server. |
 | Monaco only for advanced templates | **Pass** | `@monaco-editor/react` is used in the template editor (`code-editor-panel.tsx`), self-hosted under `public/vs` (no CDN). |
 | Device-first product flow | **Gap** | Inventory is a standalone builder. Workflows pick devices **inside steps** (`get-nautobot-devices`, etc.), not “select devices, then compose steps” as the primary UI. |
-| Tests / BEST_PRACTICES.md | **Fail** | Three Vitest files. `hooks/queries/BEST_PRACTICES.md` and `OPTIMISTIC_UPDATES.md` (cited by `CLAUDE.md`) are missing. |
+| Tests / BEST_PRACTICES.md | **Fail** | Four Vitest files (`api-proxy`, `oidc-state`, `auto-layout`, `schedule-cron`). `hooks/queries/BEST_PRACTICES.md` and `OPTIMISTIC_UPDATES.md` are still missing; current `CLAUDE.md` no longer cites them. |
 
 ---
 
@@ -137,42 +137,55 @@ No `dangerouslySetInnerHTML`, `innerHTML`, `eval`, or `new Function`. Step resul
 
 Findings are ordered by architectural impact, not file size.
 
-### 4.1 Server fetches outside TanStack Query (medium)
+### 4.1 Server fetches outside TanStack Query (low)
 
-`CLAUDE.md` forbids `useState` + `useEffect` for server data. These call sites still do it:
+The `useState` + `useEffect` fetches from the first review have moved onto Query:
+
+| Location | Current state |
+|----------|----------------|
+| Device attributes | `useDeviceAttributesQuery` |
+| Netmiko device search | `useNetmikoDeviceSearchQuery` (debounce `useEffect` is local UI, not a fetch) |
+| Template render | `useMutation` in `use-template-render.ts` |
+| Get Configs (SSH) | `useMutation` + explicit button in `use-template-editor-device.ts` |
+| Canvas rehydrate | `useQuery` in `use-workflow-persistence.ts` |
+
+Remaining **event-handler** `apiCall`s (not `useEffect`, still not `useMutation`):
 
 | Location | What it fetches |
 |----------|-----------------|
-| `templates/template-editor-page.tsx` | Nautobot device attributes (`sources/nautobot/devices/attributes`) and live SSH configs (`netmiko/get-configs`) inside `useEffect` |
-| `templates/components/netmiko-options-panel.tsx` | Debounced device search (`sources/nautobot/devices/search`) inside `useEffect` |
-| `templates/hooks/use-template-render.ts` | `POST templates/render` via local `useState` instead of `useMutation` |
-| `workflows/hooks/use-workflow-persistence.ts` | `GET workflows/{id}` with raw `apiCall` (create/update correctly go through `useWorkflowMutations`) |
-| Several workflow-step ConfigPanels | Local `useEffect` to sync props → form state (acceptable) mixed with a few preview calls |
+| `workflows/hooks/use-workflow-persistence.ts` `handleLoadWorkflow` | `GET workflows/{id}` when opening a workflow from the dialog |
+| `inventory/hooks/use-saved-inventories.ts` `loadInventory` | `GET sources/nautobot/{id}` |
+| `templates/hooks/use-template-editor-device.ts` `handleExecuteCommands` | `POST netmiko/run-commands` |
+| `inventory/components/device-selector.tsx` | `GET sources/nautobot/{id}/devices` after loading a static inventory |
 
-**Why it matters:** No shared cache, no cancellation via QueryClient, easier to miss error/401 handling, and the template editor can fire SSH `get-configs` as a side effect of selecting a device.
+ConfigPanel `useEffect`s only initialize node config / pick a unique upstream step. That is local form state, not a server fetch.
 
-**Fix:** Move each call onto an existing or new hook under `hooks/queries/` (or the feature `hooks/` folder, but still `useQuery`/`useMutation`).
+**Why it matters:** One-shot open/load/execute paths skip QueryClient cache and cancellation. Lower impact than the old auto-SSH-on-select `useEffect`.
 
-### 4.2 Inline `useQuery` in a dialog (low)
+**Fix:** Wrap the remaining handlers in `useMutation` (or `useQuery` with `enabled` for load-by-id).
 
-`workflow-steps/get-nautobot-devices/preview-dialog.tsx` calls `useQuery` directly and also draws a **custom** modal (`fixed inset-0` + `bg-black/50`) instead of Shadcn `Dialog`. A dedicated `use-get-nautobot-devices-preview-mutation.ts` already exists for the inventory builder — the step dialog should reuse it (or a query hook) and the shared `Dialog` primitive.
+### 4.2 Inline `useQuery` in a dialog (fixed 2026-08-21)
+
+`workflow-steps/get-nautobot-devices/preview-dialog.tsx` called `useQuery` directly (fine — that's compliant TanStack Query usage) but drew a **custom** modal (`fixed inset-0` + `bg-black/50`) instead of Shadcn `Dialog`. That was a real, if minor, accessibility gap versus Radix `Dialog`: no Escape-key handling, no focus trap, no Portal rendering. Fixed by swapping to `Dialog`/`DialogContent`/`DialogHeader`/`DialogFooter` (same pattern as the parallel `get-ise-devices/preview-dialog.tsx`), keeping the inline `useQuery` as-is.
+
+The other observation — reuse `use-get-nautobot-devices-preview-mutation.ts` — turned out weaker on inspection: that hook only covers the filter-operations request, not the static device-ID preview this dialog also needs, so full reuse would require extending the hook first. Not done as part of this fix.
 
 ### 4.3 Query-hook location split (low)
 
 `CLAUDE.md` asks for TanStack hooks in `/hooks/queries/*` **and** for feature folders to contain `hooks/`. The repo does both:
 
-- Central: workflows, settings (hatchet/redis/logging/general), dashboard, sources, certificates, schema, artifacts.
+- Central (61 files): workflows, settings (hatchet/redis/logging/general), dashboard, sources, certificates, schema, artifacts, plus the newer `use-device-attributes-query` and `use-netmiko-device-search-query`.
 - Feature-local: templates, credentials, RBAC users/roles/permissions.
 
 This is readable, but invalidation and discovery suffer (e.g. `queryKeys.templates` is used from `features/templates/hooks/`). Pick one convention and document it. Feature-local hooks for a bounded domain are fine if they still use `queryKeys`.
 
-`use-saved-inventories-query.ts` uses `options = {}` (new object every call). Other hooks already use `const DEFAULT_OPTIONS = {}`.
+`use-saved-inventories-query.ts` still uses `options = {}` (new object every call) on both exports. Other optional-options hooks already use `const DEFAULT_OPTIONS = {}`.
 
 ### 4.4 React Hook Form not used on step ConfigPanels (low)
 
-Settings dialogs (Git/Nautobot/ISE/Mattermost/pyATS, credentials, users, roles) correctly use `react-hook-form` + Zod.
+Settings dialogs (Git/Nautobot/ISE/Mattermost/pyATS, credentials, users, roles) correctly use `react-hook-form` + Zod, as do workflow save-as / manage / import / run-inputs / schedule and template import.
 
-Workflow step ConfigPanels (the majority of `workflow-steps/*/index.tsx`) are hand-rolled `useState` forms. That is the largest remaining gap versus “RHF + Zod for node configuration forms.”
+Workflow step ConfigPanels (the majority of `workflow-steps/*/index.tsx`) and the login form are still hand-rolled `useState`. That is the largest remaining gap versus “RHF + Zod for node configuration forms.”
 
 ### 4.5 `useToast` return is not memoized (low)
 
@@ -186,7 +199,7 @@ export function useToast() {
 
 This returns a new object every render and subscribes to the whole toast store (no selector). It has not produced an obvious loop, but it is exactly the anti-pattern `CLAUDE.md` calls out. Prefer `useToastStore((s) => s.addToast)` plus a memoized return.
 
-Same pattern in `inventory/hooks/use-condition-tree.ts` and `use-saved-inventories.ts`. `useApi` also uses `init: RequestInit = {}` as a default argument (harmless for a callback, still the documented anti-pattern).
+Same unmemoized return in `inventory/hooks/use-condition-tree.ts`, `use-template-editor-device.ts`, `use-dashboard-layout-mutations.ts`, and `use-nautobot-source-credentials.ts`. `use-saved-inventories.ts` was fixed 2026-08-21 (see `doc/READ_BEFORE_FRONTEND_ANALYSIS.md`) after its unmemoized return was found to actually defeat downstream `useCallback` stability in `device-selector.tsx`. Most other mutation hooks now wrap their return in `useMemo`. `useApi` still uses `init: RequestInit = {}` as a default argument (harmless for a callback, still the documented anti-pattern).
 
 ### 4.6 Arbitrary Tailwind palette colors (low)
 
@@ -200,8 +213,8 @@ These are visual language for categories, not a second UI kit. Still a documente
 ### 4.7 Product-direction gaps (medium, product)
 
 - **Device-first:** The primary UI is the workflow canvas (`/` redirects to `/workflows`). Inventory is a separate page. Device targeting is a **step** (`get-nautobot-devices`, `get-ise-devices`, `get-git-devices`), not a first-class “selected inventory → then design steps” shell.
-- **GraphQL helper:** `CLAUDE.md` still requires `frontend/src/services/nautobot-graphql.ts`. The app correctly talks to backend source APIs instead. Update the doc rather than adding a client GraphQL layer.
-- **Port / Next version:** `package.json` runs `next dev --port 3001` and depends on Next `16.2.12`; `CLAUDE.md` still says port 3000 and Next 16.2.6.
+- **GraphQL helper:** Resolved in `CLAUDE.md` — it now forbids a client GraphQL layer and documents backend-proxied REST. Do not add `frontend/src/services/nautobot-graphql.ts`.
+- **Port / Next version:** `package.json` runs `next dev --port 3001` and depends on Next `16.2.12`. `CLAUDE.md` now matches the Next version; the architecture bullet still says frontend port 3000 (the development-workflow section already lists 3001).
 
 ---
 
@@ -246,7 +259,7 @@ That is required for the product, but:
 - Shared-browser / leftover DevTools can retain the last run.
 - Workflow steps such as `get-ise-tacacs-key` put shared secrets into device attributes by design; the UI then displays them as JSON.
 
-**Hardening (optional):** `gcTime: 0` for artifacts; avoid caching TACACS/credential fields; clear QueryClient on logout (logout currently only clears the auth store + cookie).
+**Hardening (optional):** `gcTime: 0` for artifacts; avoid caching TACACS/credential fields. Logout already calls `queryClient.clear()` (auth store + idle timeout).
 
 ### 5.4 High if mis-set — `ENABLE_DEV_TOOLS` is env, not `NODE_ENV`
 
@@ -292,7 +305,7 @@ Database migration + RBAC seed are destructive. Keep them off production or requ
 
 Selecting a test device with “Get Configs” enabled calls `POST /api/proxy/netmiko/get-configs` from the browser. `doc/SECURITY-NOTES.md` notes the backend denies arbitrary hosts outside development unless `ALLOW_NETMIKO_ARBITRARY_HOSTS=true`. The frontend does not add its own host allow-list (correct — it must not be the only check).
 
-Still: this is a powerful action triggered from a `useEffect`, not an explicit “Fetch configs” confirmation in all paths. Prefer a mutation + button.
+Still: this is a powerful action. It is now an explicit “Fetch configs” button (`fetchDeviceConfigsMutation`), not a `useEffect` side effect of selecting a device. Prefer keeping it as a mutation + confirmation.
 
 ### 5.9 Low — OIDC `state` in `sessionStorage`
 
@@ -362,11 +375,8 @@ Help panels (many 200–350 lines of static JSX) are documentation, not logic. D
 
 ### 6.3 Duplication to collapse
 
-1. **Content source picker** — copied in `store-artifact`, `compare-data`, `upload-config`, `filter-output`, `merge-content`, `route-on-content` (and related `*-config.ts` files). One shared module under `workflow-steps/shared/`.
-2. **Git source select dialog** — nearly identical files:
-   - `workflow-steps/get-git-devices/git-source-select-dialog.tsx`
-   - `workflow-steps/set-default-attributes/git-source-select-dialog.tsx`  
-   Move to `workflow-steps/shared/` (ISE/Nautobot/pyATS already have shared selects).
+1. **Content source picker** — extracted to `workflow-steps/shared/content-source-picker.tsx` and used by store-artifact, compare-data, upload-config, filter-output, merge-content, route-on-content. A few panels still keep a local options list (`MERGE_CONTENT_SOURCE_OPTIONS`, `ROUTE_ON_CONTENT_SOURCE_OPTIONS`, `update-content`).
+2. **Git source select dialog** — extracted to `workflow-steps/shared/git-source-select-dialog.tsx` (the per-step copies are gone).
 3. **Condition trees** — inventory builder vs `get-nautobot-devices/condition-builder/`. Different types (`ConditionTree` vs `FilterTree`) but the same UX. Long-term: one builder.
 4. **`parseUserResponse`** — copy-pasted in `app/api/auth/login`, `me`, `refresh`, and OIDC callback routes. Extract next to `lib/auth.ts`.
 5. **Source dialogs** — Git/Nautobot/ISE/Mattermost/pyATS dialogs are ~300–350 lines each with the same RHF + test-connection shape. A thin shared shell would shrink `sources-settings-canvas.tsx` dependents.
@@ -383,10 +393,10 @@ Help panels (many 200–350 lines of static JSX) are documentation, not logic. D
 
 | Claim in `CLAUDE.md` | Reality |
 |----------------------|---------|
-| Next.js 16.2.6 | `frontend/package.json`: Next **16.2.12** |
-| Frontend port 3000 | `next dev --port **3001**` |
-| GraphQL via `frontend/src/services/nautobot-graphql.ts` | File does not exist; Nautobot is backend-proxied REST |
-| Query docs `hooks/queries/BEST_PRACTICES.md` and `OPTIMISTIC_UPDATES.md` | Missing |
+| Next.js 16.2.12 | Matches `frontend/package.json` (resolved since the 2026-08-20 review, which still listed 16.2.6 in `CLAUDE.md`) |
+| Frontend port 3000 (architecture bullet) | `next dev --port **3001**`. The development-workflow section already lists 3001. |
+| GraphQL via `frontend/src/services/nautobot-graphql.ts` | Resolved: `CLAUDE.md` now forbids a client GraphQL layer; Nautobot is backend-proxied REST |
+| Query docs `hooks/queries/BEST_PRACTICES.md` and `OPTIMISTIC_UPDATES.md` | Still missing; `CLAUDE.md` no longer cites them |
 | Server Components default | True for routes/layouts; the product UI is client-heavy by necessity |
 
 ---
@@ -395,7 +405,7 @@ Help panels (many 200–350 lines of static JSX) are documentation, not logic. D
 
 | Area | State |
 |------|--------|
-| Vitest | 3 files: `api-proxy.test.ts`, `oidc-state.test.ts`, `auto-layout.test.ts` |
+| Vitest | 4 files: `api-proxy.test.ts`, `oidc-state.test.ts`, `auto-layout.test.ts`, `schedule-cron.test.ts` |
 | ESLint | `eslint-config-next` core-web-vitals + typescript. React hooks plugin comes with that; few `eslint-disable` (OIDC callback exhaustive-deps, unused vars in Nautobot step configs). |
 | Playwright / e2e | Not in `frontend/package.json` |
 | Regression scripts | Backend has AST guards; frontend has none (e.g. no check that `page.tsx` stays stub-only, or that `fetch(` only targets `/api/`) |
@@ -406,11 +416,11 @@ High-value tests if the suite grows: dashboard layout redirect, cookie flags on 
 
 ## 9. Recommended order of work
 
-1. **Do not add a client GraphQL layer.** Update `CLAUDE.md` to match backend-proxied sources.
-2. **Extract `ContentSourcePicker` + shared Git source dialog** — small diffs, large file-count win on the biggest ConfigPanels.
-3. **Move template-editor and Netmiko search onto `useQuery`/`useMutation`** — standards + avoid surprise SSH from `useEffect`.
+1. **Do not add a client GraphQL layer.** `CLAUDE.md` already matches backend-proxied sources.
+2. **Finish remaining content-source option lists** — `ContentSourcePicker` and the shared Git source dialog already exist; a few panels still keep a local options array.
+3. **Wrap remaining event-handler `apiCall`s in `useMutation`/`useQuery`** — load-workflow, load-inventory, execute-commands. Template-editor attributes/search/render/Get Configs already moved.
 4. **Split `use-workflow-canvas.ts`** when the canvas is next changed (do not boil the ocean otherwise).
-5. **Clear QueryClient on logout**; consider shorter `gcTime` for artifacts.
+5. **Shorter `gcTime` for artifacts** (QueryClient is already cleared on logout).
 6. **Document CSP `'unsafe-eval'`** and `ENABLE_DEV_TOOLS` as accepted or blocked in production (alongside `doc/SECURITY-NOTES.md`). If the OIDC test UI stays, keep token display behind the env gate and never route it through the generic proxy in production.
 7. **Strip `Location` on proxy responses** (or set client `redirect: "manual"`) so a backend 302 cannot become a browser follow.
 8. **Add a handful of frontend tests** around proxy, auth cookie, and OIDC state (the security-sensitive BFF).
@@ -422,6 +432,6 @@ High-value tests if the suite grows: dashboard layout redirect, cookie flags on 
 
 | Question | Answer |
 |----------|--------|
-| Is the `CLAUDE.md` frontend standard implemented? | **Mostly yes.** Layout, proxy, cookies, query keys, Shadcn, React Flow, step registry, and route stubs are in place. Gaps: mixed fetch patterns, RHF not on step forms, hook-folder split, almost no tests, product “device-first” not the primary shell. |
+| Is the `CLAUDE.md` frontend standard implemented? | **Mostly yes.** Layout, proxy, cookies, query keys, Shadcn, React Flow, step registry, route stubs, and TanStack Query for the former template-editor fetches are in place. Gaps: RHF not on step forms, hook-folder split, `DEFAULT_OPTIONS` / hook-return memoization leftovers, almost no tests, product “device-first” not the primary shell. |
 | Serious security risks in the frontend? | **No critical holes found.** Residual risk is XSS amplification (weak CSP + cached secrets), mis-set `ENABLE_DEV_TOOLS`, and admin tools reachable by URL for any login. Real enforcement is the backend. |
 | Large files to refactor? | **Yes.** `use-workflow-canvas.ts` (922), then store-artifact / compare-data / template-editor / add-to-nautobot dialog, then sources canvas and inventory/workflow import modals. Prefer extracting shared pickers before heroic splits. |
