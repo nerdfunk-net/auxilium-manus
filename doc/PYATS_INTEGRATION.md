@@ -92,6 +92,15 @@ backend/main.py                            # PyATSShimService lifespan startup/s
 backend/hatchet/worker.py                  # PyATSShimService lifespan startup/shutdown (Hatchet worker process)
 backend/services/auth/rbac_seed.py         # sources.pyats read/write/delete permissions
 
+backend/workflow_steps/common/pyats_batch.py # shared: group devices by pyats_source_id, chunk, one
+                                              # run_job() per chunk -- used by get-pyats-config and
+                                              # get-pyats-snapshot (see "Get & Parse Config" below)
+backend/workflow_steps/get_pyats_config/
+├── executor.py                            # POST /v1/jobs (operation="parse"), batched via pyats_batch
+└── config.py
+backend/workflow_steps/get_pyats_snapshot/
+├── executor.py                            # POST /v1/jobs (operation="learn"), batched via pyats_batch
+└── config.py
 backend/workflow_steps/compare_pyats_snapshot/
 ├── executor.py                            # diffs one feature between a live snapshot and a stored reference
 └── config.py
@@ -99,6 +108,9 @@ backend/workflow_steps/compare_pyats_snapshot/
 backend/tests/unit/test_pyats_source_config_service.py
 backend/tests/unit/test_pyats_router_auth.py
 backend/tests/unit/test_pyats_client.py
+backend/tests/unit/test_pyats_batch.py
+backend/tests/unit/test_get_pyats_config_executor.py
+backend/tests/unit/test_get_pyats_snapshot_executor.py
 backend/tests/unit/test_compare_pyats_snapshot_executor.py
 pyats-shim/tests/test_diff.py                # genie-gated -- see "Genie-native snapshot comparison" below
 ```
@@ -295,25 +307,50 @@ across every pyATS step in the workflow.
 
 ### Get & Parse Config (`get-pyats-config`)
 
-`requires: [identity, pyats_testbed]`, `produces: [parsed]`. For each
-device, reads its `pyats_testbed` bag, `unwrap_secret()`s the password
+`requires: [identity, pyats_testbed]`, `produces: [parsed]`. For every
+device, reads its `pyats_testbed` bag and `unwrap_secret()`s the password
 (in-memory only, to build the shim request body — never copied elsewhere),
-and calls the shim **once per device**:
+then calls the shim via the shared `workflow_steps/common/pyats_batch.py`
+helper, which **groups devices by `pyats_source_id` and batches each
+group's devices into one `run_job()` call per chunk** (rather than one call
+per device):
 
 ```python
 shim.run_job(
     shim_credentials, operation="parse",
-    devices=[{"name": device_id, "host": ..., "os": ..., "username": ..., "password": ...}],
+    devices=[{"name": device_id, "host": ..., "os": ..., "username": ..., "password": ...}, ...],
     commands=["show running-config"],
+    timeout_seconds=BASE_TIMEOUT_SECONDS + PER_DEVICE_TIMEOUT_SECONDS * len(chunk),
 )
 ```
 
-One call per device rather than Phase 1's "batch every device into one
-call" — because devices may in principle reference different
-`pyats_source_id`s, and per-device isolation keeps partial-failure handling
-simple (one bad device's shim call failing doesn't block the others). If
-job-startup overhead × device count proves too slow in practice, grouping
-devices by `pyats_source_id` and batching is a possible follow-up.
+**Why chunked rather than one call per source, and why not one call for the
+whole step.** Device connects and command executions run *sequentially*
+inside a single shim job (`pyats-shim/app/job_scripts/generic_script.py`
+loops `for name, device in testbed.devices.items()`, one device at a time —
+there's no per-device concurrency inside one `pyats run job` subprocess).
+Batching therefore trades "N concurrent pyATS subprocesses" for "fewer
+subprocesses, each doing sequential per-device work" — an unbounded batch
+would mean a single slow or unreachable device serially delays every other
+device queued behind it in the same job, and a chunk-level failure (timeout,
+network error) fails every device in that chunk, not just one. `pyats_batch.py`
+caps this at `DEFAULT_CHUNK_SIZE = 5` devices per `run_job()` call, chosen to
+roughly saturate the shim's own `PYATS_SHIM_MAX_CONCURRENT_JOBS` (default 4)
+concurrency slot when chunks run concurrently via `asyncio.gather`, while
+still cutting subprocess/`easypy`-startup count by 5x per step. `timeout_seconds`
+is computed per chunk (`BASE_TIMEOUT_SECONDS=60.0 + PER_DEVICE_TIMEOUT_SECONDS=90.0
+× chunk device count`) and passed explicitly to `run_job()` — no caller did
+this before batching, since a flat single-device call could rely on
+`PyATSCredentials.timeout`'s 30s default, but a multi-device chunk needs
+headroom scaled to its size (90s/device matches the "well over 90 seconds"
+worst-case unreachable-device hang noted in "Open items" below) to avoid a
+spurious timeout on an otherwise-healthy chunk. Devices are still grouped by
+`pyats_source_id` first (not flattened across sources into one call) because
+a workflow can have multiple Add Testbed step instances each pointing at a
+different `pyats_source_id` feeding into one downstream step's
+`context.devices`, and each source has its own shim `base_url`/credentials —
+a single `run_job()` call can only target one shim instance at a time.
+`get-pyats-snapshot` (below) shares this same batching path.
 
 Only `show running-config` is requested — `show startup-config` was dropped
 after real-world testing hit `ParserNotFound` on every device. Confirmed
@@ -336,8 +373,10 @@ from a step" section.
 
 A third step, `get-pyats-snapshot` ("Get Snapshot"), captures Genie
 `device.learn(feature)` output (BGP, OSPF, interfaces, platform, ... or
-`"all"`) the same way — one `operation="learn"` shim call per device, with
-each feature's `Ops.to_dict()` result stored per feature and tolerant of
+`"all"`) the same way — batched via the same `pyats_batch.py` helper as
+Get & Parse Config above (grouped by `pyats_source_id`, chunked
+`operation="learn"` calls) — with each feature's `Ops.to_dict()` result
+stored per feature and tolerant of
 partial per-feature failure (a device only fails if *every* requested
 feature fails to learn, since feature support varies a lot by platform).
 Not detailed further here; see `workflow_steps/get_pyats_snapshot/executor.py`.
@@ -492,12 +531,21 @@ bag written by an upstream Add Testbed step. See
   currently uses pyATS/Unicon's own default timeout, which was observed
   taking well over 90 seconds against an unreachable address in testing.
   The outer `JobRunner` timeout bounds worst-case latency, but hitting it
-  fails the **entire batch**, not just the unreachable device. Before
-  relying on this against real device inventories, either tune a short,
-  reliable per-connect timeout (the exact Unicon kwarg needs verifying
-  against the pinned `pyats[full]` version — `connection_timeout` did not
-  visibly shorten the hang in a quick local test) or keep batches small
-  enough that one bad device doesn't stall the rest.
+  fails the **entire batch**, not just the unreachable device. This item's
+  priority went up once `get-pyats-config`/`get-pyats-snapshot` started
+  batching multiple devices into one `run_job()` call (see "Get & Parse
+  Config" above): device connects run sequentially inside a job, so a
+  hung/unreachable device now serially delays every other device queued
+  behind it in the same chunk (bounded, per chunk, by
+  `pyats_batch.py`'s `PER_DEVICE_TIMEOUT_SECONDS`-scaled outer timeout —
+  `DEFAULT_CHUNK_SIZE=5` keeps this bounded rather than growing with the
+  whole step's device count, but a chunk of several unreachable devices is
+  still a multi-minute wait today). Before relying on this against real
+  device inventories, tune a short, reliable per-connect timeout (the exact
+  Unicon kwarg needs verifying against the pinned `pyats[full]` version —
+  `connection_timeout` did not visibly shorten the hang in a quick local
+  test); this would directly shrink both the worst-case chunk latency above
+  and the padding `pyats_batch.py`'s timeout formula currently needs.
 - **pyATS/Genie version pin.** `pyats-shim/requirements.txt` pins
   `pyats[full]>=26.0,<27.0` (pyATS uses CalVer tied to the release year).
   Re-verify this range resolves before bumping past the current year.

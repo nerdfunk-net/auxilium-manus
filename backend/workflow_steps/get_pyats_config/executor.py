@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -38,19 +37,15 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
-from services.pyats.credentials import PyATSCredentials
-from services.pyats.source_config_service import (
-    PyATSSourceConfigService,
-    PyATSSourceNotFoundError,
-)
-from services.workflow_context.secret_fields import unwrap_secret
 from workflow_steps.common.jinja_render import parse_output_key
+from workflow_steps.common.pyats_batch import (
+    resolve_source_credentials,
+    run_batched,
+    validate_and_group_devices,
+)
 from workflow_steps.get_pyats_config.config import get_config
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
-
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
@@ -60,153 +55,41 @@ _RUNNING_COMMAND = "show running-config"
 _COMMANDS = [_RUNNING_COMMAND]
 
 
-def _resolve_source_credentials(
-    db: Session, source_ids: set[str]
-) -> tuple[dict[str, PyATSCredentials], dict[str, str]]:
-    """Resolve every distinct pyats_source_id once. Returns (credentials_by_id, error_by_id)."""
-    config_service = PyATSSourceConfigService(db)
-    credentials: dict[str, PyATSCredentials] = {}
-    errors: dict[str, str] = {}
-    for source_id in source_ids:
-        try:
-            credentials[source_id] = config_service.resolve_credentials(source_id)
-        except (PyATSSourceNotFoundError, PyATSValidationError) as exc:
-            errors[source_id] = str(exc)
-    return credentials, errors
-
-
 def _fail_device(
-    *, device: DeviceContext, device_id: str, node_id: str, code: str, message: str
-) -> tuple[str, DeviceContext, bool]:
+    *, device: DeviceContext, node_id: str, code: str, message: str
+) -> DeviceContext:
     err = DeviceError(node_id=node_id, step_id=_STEP_ID, code=code, message=message)
-    failed = device.model_copy(
+    return device.model_copy(
         update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
     )
-    return device_id, failed, False
 
 
-async def _fetch_one_device(
+def _shape_result(
     *,
     device_id: str,
     device: DeviceContext,
     node_id: str,
     output_key: str,
-    source_credentials: dict[str, PyATSCredentials],
-    source_errors: dict[str, str],
+    result: dict[str, Any] | None,
 ) -> tuple[str, DeviceContext, bool]:
-    bag = device.attribute_bags.get("pyats_testbed")
-    if not isinstance(bag, dict):
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_testbed",
-            message="No pyats_testbed bag found -- add an Add Testbed step upstream",
-        )
-
-    source_id = str(bag.get("pyats_source_id") or "")
-    if source_id in source_errors:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="source_error",
-            message=source_errors[source_id],
-        )
-    shim_credentials = source_credentials.get(source_id)
-    if shim_credentials is None:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="source_error",
-            message=f"pyATS source {source_id!r} could not be resolved",
-        )
-
-    password = unwrap_secret(bag.get("password"))
-    if not password:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_credential",
-            message="pyats_testbed bag has no usable password",
-        )
-
-    shim_device = {
-        "name": device_id,
-        "host": bag.get("host"),
-        "os": bag.get("os"),
-        "username": bag.get("username"),
-        "password": password,
-    }
-
-    logger.info(
-        "%s calling shim device=%s host=%s os=%s source=%s",
-        _STEP_ID,
-        device_id,
-        bag.get("host"),
-        bag.get("os"),
-        source_id,
-    )
-    started = time.monotonic()
-    try:
-        shim = service_factory.get_pyats_app_service()
-        response = await shim.run_job(
-            shim_credentials,
-            operation="parse",
-            devices=[shim_device],
-            commands=_COMMANDS,
-        )
-    except PyATSAPIError as exc:
-        logger.warning(
-            "%s shim call failed device=%s host=%s elapsed=%.1fs error=%s",
-            _STEP_ID,
-            device_id,
-            bag.get("host"),
-            time.monotonic() - started,
-            exc,
-        )
-        return _fail_device(
-            device=device, device_id=device_id, node_id=node_id, code="shim_error", message=str(exc)
-        )
-
-    logger.info(
-        "%s shim call returned device=%s host=%s elapsed=%.1fs",
-        _STEP_ID,
-        device_id,
-        bag.get("host"),
-        time.monotonic() - started,
-    )
-
-    result = (response.get("results") or {}).get(device_id)
     if not result or not result.get("success", False):
         message = (result or {}).get("error") or "pyATS shim reported failure for this device"
         logger.warning(
-            "%s device connect/parse failed device=%s host=%s error=%s",
-            _STEP_ID,
-            device_id,
-            bag.get("host"),
-            message,
+            "%s device connect/parse failed device=%s error=%s", _STEP_ID, device_id, message
         )
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="device_error",
-            message=message,
-        )
+        failed = _fail_device(device=device, node_id=node_id, code="device_error", message=message)
+        return device_id, failed, False
 
     commands = result.get("commands") or {}
     running_entry = commands.get(_RUNNING_COMMAND) or {}
     if running_entry.get("error"):
-        return _fail_device(
+        failed = _fail_device(
             device=device,
-            device_id=device_id,
             node_id=node_id,
             code="parse_failed",
             message=f"{_RUNNING_COMMAND}: {running_entry['error']}",
         )
+        return device_id, failed, False
 
     entry = {"running": running_entry.get("parsed")}
     parsed = dict(device.parsed)
@@ -266,22 +149,46 @@ async def execute(
         if isinstance(device.attribute_bags.get("pyats_testbed"), dict)
         and device.attribute_bags["pyats_testbed"].get("pyats_source_id")
     }
-    source_credentials, source_errors = _resolve_source_credentials(db, source_ids)
-
-    results = await asyncio.gather(
-        *[
-            _fetch_one_device(
-                device_id=device_id,
-                device=device,
-                node_id=node_id,
-                output_key=output_key,
-                source_credentials=source_credentials,
-                source_errors=source_errors,
-            )
-            for device_id, device in context.devices.items()
-        ]
+    source_credentials, source_errors = resolve_source_credentials(db, source_ids)
+    groups, failed_devices = validate_and_group_devices(
+        devices=context.devices,
+        node_id=node_id,
+        step_id=_STEP_ID,
+        source_credentials=source_credentials,
+        source_errors=source_errors,
     )
-    success_devices, failed_devices = _partition(results)
+
+    raw_results: dict[str, dict[str, Any]] = {}
+    if groups:
+        shim = service_factory.get_pyats_app_service()
+        group_results = await asyncio.gather(
+            *[
+                run_batched(
+                    shim=shim,
+                    credentials=source_credentials[source_id],
+                    operation="parse",
+                    commands=_COMMANDS,
+                    device_group=device_group,
+                )
+                for source_id, device_group in groups.items()
+            ]
+        )
+        for group_result in group_results:
+            raw_results.update(group_result)
+
+    shaped = [
+        _shape_result(
+            device_id=device_id,
+            device=context.devices[device_id],
+            node_id=node_id,
+            output_key=output_key,
+            result=raw_results.get(device_id),
+        )
+        for source_id, device_group in groups.items()
+        for device_id, _shim_device in device_group
+    ]
+    success_devices, newly_failed = _partition(shaped)
+    failed_devices.update(newly_failed)
 
     logger.info(
         "%s finished success=%d failure=%d run_id=%s",
