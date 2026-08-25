@@ -88,6 +88,45 @@ class PyATSShimService:
             raise PyATSAPIError(f"pyATS shim job request failed with status {response.status_code}")
         return response.json()
 
+    async def parse_batch(
+        self,
+        credentials: PyATSCredentials,
+        *,
+        devices: dict[str, dict[str, Any]],
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        base = self._base_url(credentials)
+        body: dict[str, Any] = {"devices": devices}
+        request_timeout = timeout_seconds or credentials.timeout
+        headers = {"Authorization": f"Bearer {credentials.token}"}
+
+        try:
+            response = await self._do_request(
+                "POST",
+                f"{base}/v1/parse",
+                credentials.verify_ssl,
+                request_timeout,
+                json=body,
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise PyATSAPIError(
+                f"pyATS shim parse request timed out after {request_timeout} seconds"
+            ) from exc
+        except PyATSAPIError:
+            raise
+        except Exception as exc:
+            logger.error("pyATS shim parse request failed: %s", exc)
+            raise PyATSAPIError("pyATS shim parse request failed") from exc
+
+        if response.status_code == 400:
+            raise PyATSValidationError(self._extract_error_message(response))
+        if response.status_code >= 400:
+            raise PyATSAPIError(
+                f"pyATS shim parse request failed with status {response.status_code}"
+            )
+        return response.json()
+
     async def diff(
         self,
         credentials: PyATSCredentials,

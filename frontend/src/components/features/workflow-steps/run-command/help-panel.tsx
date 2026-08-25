@@ -119,6 +119,44 @@ export function RunCommandHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="Use Genie">
+        <p>
+          When <HelpCode>use_genie</HelpCode> is enabled, the raw output already
+          captured for each command is sent to the pyATS shim, which parses it with
+          Genie (Cisco&apos;s structured-parsing library) and sends the result back —
+          no second device connection is made. Only available once a pyATS source is
+          configured under Settings → Sources; the checkbox is hidden otherwise.
+        </p>
+        <HelpExample>
+          use_genie: true
+          <br />
+          pyats_source_id: lab-pyats
+          <br />
+          genie_output_key: genie
+          <br />
+          <span className="text-muted-foreground">
+            → device.parsed.genie.&quot;show version&quot;.parsed holds the structured result
+          </span>
+        </HelpExample>
+        <p>
+          <HelpCode>genie_output_key</HelpCode> names where the parsed result lands on
+          each device (<HelpCode>device.parsed.&lt;genie_output_key&gt;</HelpCode>),
+          nested per command as <HelpCode>{"{parsed, error}"}</HelpCode>. Give each
+          Run Command instance a distinct key if a workflow uses more than one.
+        </p>
+        <HelpWarning title="Per-command failures don't fail the device">
+          <p>
+            Genie has no parser for every command. A command Genie can&apos;t parse
+            comes back with <HelpCode>error</HelpCode> set and{" "}
+            <HelpCode>parsed: null</HelpCode> for that command only — the device still
+            reports success as long as the raw command execution itself succeeded.
+            The same applies if the pyATS shim itself is unreachable: Genie parsing is
+            skipped entirely for that run rather than failing already-successful
+            devices.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>

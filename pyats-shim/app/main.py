@@ -13,6 +13,7 @@ from app.diff import router as diff_router
 from app.health import router as health_router
 from app.job_runner import JobRunner
 from app.jobs import router as jobs_router
+from app.parse import router as parse_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,3 +36,4 @@ app = FastAPI(title="pyATS Shim", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(jobs_router)
 app.include_router(diff_router)
+app.include_router(parse_router)

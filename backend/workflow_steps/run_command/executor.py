@@ -7,10 +7,12 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy.orm import object_session
+from sqlalchemy.orm import Session, object_session
 
+import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
+    Capability,
     CommandResult,
     DeviceContext,
     DeviceError,
@@ -23,7 +25,14 @@ from services.artifacts import ArtifactService
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
+from services.network.pyats.platform import resolve_pyats_os
+from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
+from services.pyats.source_config_service import (
+    PyATSSourceConfigService,
+    PyATSSourceNotFoundError,
+)
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.jinja_render import parse_output_key
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +66,20 @@ def _parse_commands(config: dict[str, Any]) -> list[str]:
     return commands
 
 
-def _parse_use_textfsm(config: dict[str, Any]) -> bool:
-    value = config.get("use_textfsm", False)
+def _parse_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _parse_use_textfsm(config: dict[str, Any]) -> bool:
+    return _parse_bool(config.get("use_textfsm", False))
+
+
+def _parse_use_genie(config: dict[str, Any]) -> bool:
+    return _parse_bool(config.get("use_genie", False))
 
 
 def _build_summary(*, content: str, use_textfsm: bool) -> str:
@@ -116,16 +132,17 @@ async def _run_on_device(
     credential_reference: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
+) -> tuple[str, DeviceContext, bool, dict[str, str]]:
     host = bare_hostname(device.primary_ip4, device.hostname)
     if not host:
-        return _fail_device(
+        dev_id, failed, ok = _fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
             code="missing_host",
             message=f"Device {device_id} has no hostname or primary IP",
         )
+        return dev_id, failed, ok, {}
 
     device_type = resolve_connection_device_type(
         network_driver=device.network_driver,
@@ -147,9 +164,11 @@ async def _run_on_device(
         )
 
         step_results: list[CommandResult] = []
+        raw_outputs: dict[str, str] = {}
         media_type = "application/json" if use_textfsm else "text/plain"
         for command in commands:
             output = result.command_outputs.get(command, "")
+            raw_outputs[command] = output
             output_ref = await artifact_service.store(
                 content=output,
                 kind="command_output",
@@ -171,7 +190,7 @@ async def _run_on_device(
         updated_command_results[node_id] = step_results
 
         if not result.success:
-            return _fail_device(
+            dev_id, failed, ok = _fail_device(
                 device=device,
                 device_id=device_id,
                 node_id=node_id,
@@ -179,6 +198,7 @@ async def _run_on_device(
                 message=result.error or "Command execution failed",
                 command_results=updated_command_results,
             )
+            return dev_id, failed, ok, {}
 
         enriched = device.model_copy(
             update={
@@ -186,15 +206,16 @@ async def _run_on_device(
                 "command_results": updated_command_results,
             }
         )
-        return device_id, enriched, True
+        return device_id, enriched, True, raw_outputs
     except Exception as exc:
-        return _fail_device(
+        dev_id, failed, ok = _fail_device(
             device=device,
             device_id=device_id,
             node_id=node_id,
             code=type(exc).__name__.lower(),
             message=str(exc),
         )
+        return dev_id, failed, ok, {}
 
 
 async def _run_on_device_logged(
@@ -214,7 +235,7 @@ async def _run_on_device_logged(
     credential_reference: str,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
-) -> tuple[str, DeviceContext, bool]:
+) -> tuple[str, DeviceContext, bool, dict[str, str]]:
     host = bare_hostname(device.primary_ip4, device.hostname) or "(no host)"
     logger.info(
         "run-command device %d/%d id=%s host=%s: connecting run_id=%s",
@@ -238,7 +259,7 @@ async def _run_on_device_logged(
         netmiko=netmiko,
         artifact_service=artifact_service,
     )
-    _, _, ok = result
+    _, _, ok, _ = result
     logger.info(
         "run-command device %d/%d id=%s host=%s: %s run_id=%s",
         index,
@@ -252,16 +273,102 @@ async def _run_on_device_logged(
 
 
 def _partition_device_results(
-    results: list[tuple[str, DeviceContext, bool]],
-) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext]]:
+    results: list[tuple[str, DeviceContext, bool, dict[str, str]]],
+) -> tuple[dict[str, DeviceContext], dict[str, DeviceContext], dict[str, dict[str, str]]]:
     success_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
-    for device_id, updated_device, ok in results:
+    raw_outputs_by_device: dict[str, dict[str, str]] = {}
+    for device_id, updated_device, ok, raw_outputs in results:
         if ok:
             success_devices[device_id] = updated_device
+            raw_outputs_by_device[device_id] = raw_outputs
         else:
             failed_devices[device_id] = updated_device
-    return success_devices, failed_devices
+    return success_devices, failed_devices, raw_outputs_by_device
+
+
+async def _enrich_with_genie(
+    *,
+    success_devices: dict[str, DeviceContext],
+    raw_outputs_by_device: dict[str, dict[str, str]],
+    pyats_source_id: str,
+    genie_output_key: str,
+    network_driver_override: str | None,
+    db: Session,
+    run_id: Any,
+) -> dict[str, DeviceContext]:
+    """Genie-parse each device's already-fetched raw output via the pyATS shim.
+
+    Non-fatal by design: a device whose raw command execution already
+    succeeded must not become FAILED just because Genie infrastructure is
+    unreachable or has no parser for a given command -- see "Chosen design"
+    in the plan this implements.
+    """
+    payload: dict[str, dict[str, Any]] = {}
+    for device_id, device in success_devices.items():
+        raw_outputs = raw_outputs_by_device.get(device_id) or {}
+        if not raw_outputs:
+            continue
+        os_name = resolve_pyats_os(
+            network_driver=device.network_driver,
+            platform=device.platform,
+            override=network_driver_override,
+        )
+        payload[device_id] = {
+            "os": os_name,
+            "commands": [
+                {"command": command, "output": output} for command, output in raw_outputs.items()
+            ],
+        }
+
+    if not payload:
+        return success_devices
+
+    try:
+        credentials = PyATSSourceConfigService(db).resolve_credentials(pyats_source_id)
+        shim = service_factory.get_pyats_app_service()
+        response = await shim.parse_batch(credentials, devices=payload)
+    except (PyATSSourceNotFoundError, PyATSValidationError, PyATSAPIError) as exc:
+        logger.warning(
+            "run-command genie parsing unavailable, skipping enrichment run_id=%s error=%s",
+            run_id,
+            exc,
+        )
+        return success_devices
+
+    raw_results: dict[str, Any] = response.get("results") or {}
+    enriched: dict[str, DeviceContext] = dict(success_devices)
+    ok_count = 0
+    error_count = 0
+    for device_id, device_result in raw_results.items():
+        device = enriched.get(device_id)
+        if device is None:
+            continue
+        commands = device_result.get("commands") or {}
+        parsed_entry: dict[str, Any] = {}
+        for command, entry in commands.items():
+            parsed_entry[command] = {"parsed": entry.get("parsed"), "error": entry.get("error")}
+            if entry.get("error"):
+                error_count += 1
+            else:
+                ok_count += 1
+        parsed = dict(device.parsed)
+        parsed[genie_output_key] = parsed_entry
+        enriched[device_id] = device.model_copy(
+            update={
+                "parsed": parsed,
+                "capabilities": device.capabilities | {Capability.PARSED},
+            }
+        )
+
+    logger.info(
+        "run-command genie parsing finished run_id=%s devices=%d commands_ok=%d commands_error=%d",
+        run_id,
+        len(raw_results),
+        ok_count,
+        error_count,
+    )
+    return enriched
 
 
 def _build_outcomes(
@@ -306,6 +413,16 @@ async def execute(
     use_textfsm = _parse_use_textfsm(config)
     network_driver_override = str(config.get("network_driver_override") or "").strip() or None
 
+    use_genie = _parse_use_genie(config)
+    pyats_source_id = str(config.get("pyats_source_id") or "").strip()
+    genie_output_key = ""
+    if use_genie:
+        if not pyats_source_id:
+            raise ValueError("run-command: pyats_source_id is required when use_genie is enabled")
+        genie_output_key = parse_output_key(
+            config.get("genie_output_key") or _default_config()["genie_output_key"]
+        )
+
     db = object_session(run)
     if db is None:
         raise RuntimeError("run-command: WorkflowRun has no active DB session")
@@ -317,13 +434,15 @@ async def execute(
     total = len(context.devices)
 
     logger.info(
-        "run-command run_id=%s devices=%d credential=%s commands=%d textfsm=%s override=%s",
+        "run-command run_id=%s devices=%d credential=%s commands=%d textfsm=%s override=%s "
+        "genie=%s",
         run.id,
         total,
         credential_reference,
         len(commands),
         use_textfsm,
         network_driver_override,
+        use_genie,
     )
 
     results = await asyncio.gather(
@@ -349,7 +468,18 @@ async def execute(
         ]
     )
 
-    success_devices, failed_devices = _partition_device_results(results)
+    success_devices, failed_devices, raw_outputs_by_device = _partition_device_results(results)
+
+    if use_genie:
+        success_devices = await _enrich_with_genie(
+            success_devices=success_devices,
+            raw_outputs_by_device=raw_outputs_by_device,
+            pyats_source_id=pyats_source_id,
+            genie_output_key=genie_output_key,
+            network_driver_override=network_driver_override,
+            db=db,
+            run_id=run.id,
+        )
 
     logger.info(
         "run-command returning %d/%d devices run_id=%s",

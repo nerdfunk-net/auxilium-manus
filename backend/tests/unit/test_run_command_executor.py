@@ -6,9 +6,10 @@ import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
+from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
+from services.pyats.common.exceptions import PyATSAPIError
 from workflow_steps.run_command.executor import execute
 
 
@@ -220,6 +221,262 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes[0].context.devices["device-1"].command_results["node-1"][0].command,
             "show version",
         )
+
+
+    async def test_use_genie_without_source_id_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "use_genie": True,
+                    "pyats_source_id": "",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_genie_disabled_leaves_parsed_empty(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="Cisco IOS",
+                    command_outputs={"show version": "Cisco IOS"},
+                )
+            )
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "use_genie": False,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        device = outcomes[0].context.devices["device-1"]
+        self.assertEqual(device.parsed, {})
+        self.assertNotIn(Capability.PARSED, device.capabilities)
+
+    async def test_genie_parsing_populates_parsed_and_capability(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+            patch(
+                "workflow_steps.run_command.executor.PyATSSourceConfigService"
+            ) as source_service_cls,
+            patch("workflow_steps.run_command.executor.service_factory") as service_factory_mock,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="Cisco IOS",
+                    command_outputs={"show version": "Cisco IOS raw output"},
+                )
+            )
+            source_service_cls.return_value.resolve_credentials.return_value = MagicMock()
+            shim = MagicMock()
+            shim.parse_batch = AsyncMock(
+                return_value={
+                    "results": {
+                        "device-1": {
+                            "commands": {
+                                "show version": {"parsed": {"version": "16.9"}, "error": None}
+                            }
+                        }
+                    }
+                }
+            )
+            service_factory_mock.get_pyats_app_service.return_value = shim
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "use_genie": True,
+                    "pyats_source_id": "lab-pyats",
+                    "genie_output_key": "genie",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        device = outcomes[0].context.devices["device-1"]
+        self.assertEqual(
+            device.parsed["genie"]["show version"]["parsed"], {"version": "16.9"}
+        )
+        self.assertIn(Capability.PARSED, device.capabilities)
+        shim.parse_batch.assert_awaited_once()
+
+    async def test_genie_per_command_error_does_not_fail_device(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+            patch(
+                "workflow_steps.run_command.executor.PyATSSourceConfigService"
+            ) as source_service_cls,
+            patch("workflow_steps.run_command.executor.service_factory") as service_factory_mock,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="Cisco IOS",
+                    command_outputs={"show version": "nonsense"},
+                )
+            )
+            source_service_cls.return_value.resolve_credentials.return_value = MagicMock()
+            shim = MagicMock()
+            shim.parse_batch = AsyncMock(
+                return_value={
+                    "results": {
+                        "device-1": {
+                            "commands": {
+                                "show version": {"parsed": None, "error": "ParserNotFound"}
+                            }
+                        }
+                    }
+                }
+            )
+            service_factory_mock.get_pyats_app_service.return_value = shim
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "use_genie": True,
+                    "pyats_source_id": "lab-pyats",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        device = outcomes[0].context.devices["device-1"]
+        self.assertEqual(device.status, DeviceStatus.OK)
+        self.assertIsNone(device.parsed["genie"]["show version"]["parsed"])
+        self.assertEqual(device.parsed["genie"]["show version"]["error"], "ParserNotFound")
+
+    async def test_genie_infra_failure_does_not_fail_device(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+            patch(
+                "workflow_steps.run_command.executor.PyATSSourceConfigService"
+            ) as source_service_cls,
+            patch("workflow_steps.run_command.executor.service_factory") as service_factory_mock,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="Cisco IOS",
+                    command_outputs={"show version": "Cisco IOS"},
+                )
+            )
+            source_service_cls.return_value.resolve_credentials.return_value = MagicMock()
+            shim = MagicMock()
+            shim.parse_batch = AsyncMock(side_effect=PyATSAPIError("shim unreachable"))
+            service_factory_mock.get_pyats_app_service.return_value = shim
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "use_genie": True,
+                    "pyats_source_id": "lab-pyats",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        device = outcomes[0].context.devices["device-1"]
+        self.assertEqual(device.status, DeviceStatus.OK)
+        self.assertNotIn("genie", device.parsed)
 
 
 if __name__ == "__main__":

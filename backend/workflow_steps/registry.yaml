@@ -1148,7 +1148,7 @@ plugins:
     directory: run_command
     enabled: true
     requires: [identity]
-    produces: []
+    produces: [parsed]
     primary_output: command_output
     outcomes:
       - name: success
@@ -1176,6 +1176,28 @@ plugins:
           data_type: string
           required: false
           example: cisco_ios
+        - name: use_genie
+          description: >
+            Parse command output with Genie via the pyATS shim. Only available when a
+            pyATS source is configured under Settings → Sources.
+          data_type: boolean
+          required: false
+          default: false
+        - name: pyats_source_id
+          description: >
+            ID of a pyATS source configured under Settings → Sources. Required when
+            use_genie is true.
+          data_type: string
+          required: false
+          example: lab-pyats
+        - name: genie_output_key
+          description: >
+            Unique key for this step's Genie-parsed output on each device (used by
+            downstream Jinja templates and Log Attributes as
+            device.parsed.<genie_output_key>). Nested per command.
+          data_type: string
+          required: false
+          default: genie
 
   - id: deploy-rendered-template
     name: Deploy rendered Template
