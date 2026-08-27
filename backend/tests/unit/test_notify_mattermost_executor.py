@@ -92,7 +92,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("router1", message)
         self.assertIn("router2", message)
 
-    async def test_device_placeholder_resolves_against_first_device(self) -> None:
+    async def test_device_placeholder_resolves_against_single_device(self) -> None:
         device = _device(
             "d1", name="router1", attribute_bags={"nautobot": {"location": {"name": "core"}}}
         )
@@ -114,7 +114,7 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
         message = client.create_post.call_args.args[2]
         self.assertEqual(message, "router1 at core")
 
-    async def test_zero_devices_leaves_device_placeholder_unresolved(self) -> None:
+    async def test_zero_devices_with_only_run_level_placeholders_still_posts(self) -> None:
         context = _context({})
         client = _client()
         session_p, config_p, client_p = _patches(client=client)
@@ -132,6 +132,53 @@ class NotifyMattermostExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].name, "success")
         message = client.create_post.call_args.args[2]
         self.assertEqual(message, "count=0 devices=()")
+
+    async def test_zero_devices_with_device_placeholder_skips_post(self) -> None:
+        context = _context({})
+        client = _client()
+        session_p, config_p, client_p = _patches(client=client)
+        config = {**_BASE_CONFIG, "message": "Snapshot of device {device.name} does not match"}
+        with session_p, config_p, client_p:
+            outcomes = await execute(
+                config=config,
+                context=context,
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-mattermost-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].name, "success")
+        self.assertIn("skipped", outcomes[0].summary or "")
+        client.get_channel_by_name.assert_not_awaited()
+        client.create_post.assert_not_awaited()
+
+    async def test_multiple_devices_render_device_placeholder_per_device(self) -> None:
+        device1 = _device("d1", name="LAB")
+        device2 = _device("d2", name="lab-2")
+        context = _context({"d1": device1, "d2": device2})
+
+        client = _client()
+        session_p, config_p, client_p = _patches(client=client)
+        config = {**_BASE_CONFIG, "message": "Snapshot of device {device.name} matches"}
+        with session_p, config_p, client_p:
+            outcomes = await execute(
+                config=config,
+                context=context,
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="notify-mattermost-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        client.create_post.assert_awaited_once()
+        message = client.create_post.call_args.args[2]
+        self.assertEqual(
+            message,
+            "Snapshot of device LAB matches\nSnapshot of device lab-2 matches",
+        )
 
     async def test_channel_lookup_failure_returns_failure_outcome(self) -> None:
         client = _client()
