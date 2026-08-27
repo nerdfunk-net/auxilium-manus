@@ -32,6 +32,7 @@ workflow = hatchet.workflow(name="ScheduledWorkflowTrigger", input_validator=Sch
 @workflow.task(name="dispatch", execution_timeout=timedelta(seconds=30))
 async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
     from core.database import SessionLocal
+    from hatchet.workflows.dispatch import resolve_dispatch_workflow
     from hatchet.workflows.workflow_run import WorkflowRunInput
     from hatchet.workflows.workflow_run import workflow as workflow_execution
     from repositories.run_repository import RunRepository
@@ -97,7 +98,10 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
         run.run_inputs = run_inputs
         db.commit()
 
-        ref = workflow_execution.run_no_wait(WorkflowRunInput(run_id=run.id))
+        dispatch_workflow = (
+            resolve_dispatch_workflow(wf_result[0], db) if wf_result else workflow_execution
+        )
+        ref = dispatch_workflow.run_no_wait(WorkflowRunInput(run_id=run.id))
         run_repo.update_run_status(
             run, status="pending", hatchet_run_id=str(ref.workflow_run_id or "")
         )

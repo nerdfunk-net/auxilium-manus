@@ -232,17 +232,148 @@ the worker process when triggered:
    attribute with no default fails the run immediately
    (`status="failed"`, `error_category="configuration"`) rather than
    dispatching with an incomplete input bag.
-5. Dispatches into the normal execution engine exactly like a manual "Run"
-   click would: `workflow_execution.run_no_wait(WorkflowRunInput(run_id=run.id))`.
+5. Dispatches into the execution engine exactly like a manual "Run" click
+   would, via the same resolver both paths share:
+   `resolve_dispatch_workflow(workflow, db).run_no_wait(WorkflowRunInput(run_id=run.id))`
+   (`hatchet/workflows/dispatch.py`) — see "Background-tier workflows" below
+   for what that resolver actually picks.
 
 ### Summary
 
 - The schedule lives in Hatchet's own scheduler from the moment it's saved —
   not in application memory, not tied to a browser session.
-- Only two things need to be up for a scheduled run to actually execute: the
-  **Hatchet worker process** and **PostgreSQL**. The API process and frontend
-  can be down.
+- For a workflow on the default (unpublished) tier, only two things need to
+  be up for a scheduled run to actually execute: the **Hatchet worker
+  process** (`hatchet/worker.py`) and **PostgreSQL**. The API process and
+  frontend can be down. A workflow published to the background tier
+  additionally needs the **dynamic worker process** (`hatchet/dynamic_worker.py`)
+  up — see "Background-tier workflows" below.
 - A workflow with a **required static attribute that has no default** is
   effectively manual-trigger-only: every scheduled/cron run for it will fail
   immediately with a configuration error instead of executing, since nothing
   can supply that value unattended.
+
+---
+
+## Background-tier workflows: per-workflow Hatchet identity
+
+**Question:** Every workflow dispatches through one shared Hatchet workflow,
+`"WorkflowExecution"` — so how can I get Hatchet's own per-workflow
+concurrency limit (e.g. "never run two overlapping instances of this specific
+workflow") when Hatchet only sees one workflow type across the whole app?
+
+**Answer:** A workflow can be **published** to a second, opt-in tier that
+gives it its own dedicated Hatchet workflow name, registered on a **second,
+separate worker process** — without changing anything about the default,
+unpublished path.
+
+### The two tiers
+
+- **Default (unpublished):** every workflow starts here. Dispatch always
+  targets the single static `"WorkflowExecution"` workflow
+  (`hatchet/workflows/workflow_run.py`), run by `hatchet/worker.py`. Zero
+  friction — create, edit, and run a workflow with no extra step, exactly as
+  before this feature existed.
+- **Published (background tier):** an admin (`workflows:publish` permission)
+  toggles "Publish to background tier" in the workflow's Properties panel,
+  optionally setting a concurrency limit. This writes one row to
+  `workflow_background_tier` (`core/models/background_tier.py`) — existence
+  of the row *is* the published flag — assigning the workflow a permanent,
+  deterministic name, `f"WorkflowBackground-{workflow_id}"`, keyed on the
+  workflow's own database ID — deliberately not its display name, which has
+  no uniqueness guarantee in this app (`repositories/workflow_repository.py::name_exists`
+  only enforces uniqueness within `(name, folder, creator_id/visibility)`,
+  and only as a soft check at save time, not a database constraint).
+
+### Dispatch resolution
+
+Both dispatch call sites — `RunService.trigger_run` (manual "Run") and
+`scheduled_trigger.py`'s `dispatch` task (scheduled/cron) — resolve the
+target through one shared helper, `resolve_dispatch_workflow(workflow, db)`
+(`hatchet/workflows/dispatch.py`): unpublished → the existing
+`workflow_execution` object; published → a lightweight client handle built
+from `hatchet_workflow_name`. Both paths call `.run_no_wait()` on whichever
+object comes back — a run doesn't know or care which tier it's on beyond that
+one lookup.
+
+### The second worker
+
+A dedicated worker process, `hatchet/dynamic_worker.py`, registers one
+Hatchet workflow per published row at startup — each attaching the *same*
+`prepare`/`execute_steps` task functions `WorkflowExecution` uses (via a
+shared `build_workflow_execution()` factory), just under a different name and
+optional `concurrency=` limit. It also registers `DeviceGroupExecution`
+alongside them, so fan-out from a published workflow still works.
+
+Because Hatchet's worker action registration is fixed for a process's
+lifetime, a newly published/edited/unpublished workflow only becomes
+dispatchable once this process restarts. It handles that itself.
+
+### How the restart is triggered — no Redis, no pub/sub, no event
+
+Publishing (or unpublishing, or editing a concurrency limit) writes **only** a
+row to `workflow_background_tier` — `BackgroundTierService.publish` /
+`BackgroundTierRepository.publish` (`services/execution/background_tier_service.py`,
+`repositories/background_tier_repository.py`). Nothing is sent to Redis,
+Hatchet, or any other process at that moment; the API request just commits
+and returns.
+
+The dynamic worker independently polls that same table for a change — it is
+the one doing the watching, not the one being notified:
+
+```python
+# hatchet/dynamic_worker.py::_self_restart_on_change
+while True:
+    await asyncio.sleep(poll_interval_seconds)   # HATCHET_DYNAMIC_WORKER_POLL_INTERVAL_SECONDS, default 30s
+    with SessionLocal() as db:
+        fingerprint = BackgroundTierRepository(db).fingerprint()
+    if fingerprint != initial_fingerprint:
+        os.kill(os.getpid(), signal.SIGTERM)
+        return
+```
+
+`fingerprint()` is one cheap aggregate — `SELECT COUNT(*), MAX(updated_at)
+FROM workflow_background_tier` — captured once at the worker's own startup
+and re-checked on every tick; a publish, unpublish, or edited concurrency
+limit always changes the count or `updated_at`, so one query catches all
+three cases. On a mismatch the process sends itself `SIGTERM` — the same
+signal a normal supervised stop already uses, so it exercises Hatchet's
+existing graceful-shutdown path (drains in-flight slots, respects
+`stopwaitsecs=600` under supervisord) rather than a new one — then exits;
+`main()` re-runs `_load_published_workflows()` from scratch on the next
+start, so the new process doesn't need to know *what* changed, only *that*
+something did.
+
+Postgres was chosen deliberately over adding a Redis pub/sub channel or an
+event: it's already the source of truth for `workflow_background_tier`, so
+polling it directly means there's nothing to keep in sync and no delivery
+guarantee to worry about (a missed pub/sub message would mean a publish
+silently never takes effect; a missed poll tick just gets caught by the next
+one). The cost is a bounded propagation delay — up to one poll interval
+between publishing and the workflow becoming dispatchable — which the
+Properties panel's "Publish" UI states explicitly.
+
+In production the restart is brought back up by `supervisord`'s
+`autorestart=true` in its own container, `manus-background-worker`
+(`docker/supervisord-background-worker.conf` → `[program:hatchet-dynamic-worker]`)
+— a separate container from the live worker's `manus-worker`
+(`docker/supervisord-worker.conf`), so a self-restart to pick up a
+publish/unpublish/edit never touches a live/interactive run on the other
+container; in local dev, `scripts/run_dynamic_worker_dev.py` does the same
+(it does not use `watchfiles.run_process` for this, since that utility only
+reacts to file changes, not the process exiting on its own — the script
+wraps the process directly and respawns it on any exit).
+
+### What this does *not* change
+
+- Fan-out per-device concurrency (`fan_out.max_concurrency`) is untouched —
+  a background-tier concurrency limit governs *top-level runs* of one
+  workflow, not devices within a run.
+- `cancel_run`, the debug-mode step gate, and Wait & Run batch approval are
+  all already workflow-name-agnostic (keyed by opaque Hatchet run id or by
+  `hatchet.event.push` event scope) — publishing a workflow doesn't change
+  how any of those behave.
+- Cron/scheduled trigger *registration* (`hatchet.cron.create`/`hatchet.scheduled.create`
+  against the fixed `"ScheduledWorkflowTrigger"` workflow, described above)
+  is unaffected — only what `"ScheduledWorkflowTrigger"`'s `dispatch` task
+  does with the run once it fires changes.

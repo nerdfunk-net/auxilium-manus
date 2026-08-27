@@ -4,7 +4,12 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from core.domain_exceptions import AccessDeniedError, DomainError, NotFoundError, ValidationFailedError
+from core.domain_exceptions import (
+    AccessDeniedError,
+    DomainError,
+    NotFoundError,
+    ValidationFailedError,
+)
 from core.models.workflows import Workflow
 from models.workflows import (
     StaticAttributeDef,
@@ -16,6 +21,7 @@ from models.workflows import (
     WorkflowUpdate,
 )
 from repositories.workflow_repository import WorkflowRepository
+from services.execution.background_tier_service import BackgroundTierService
 from services.execution.graph import GraphCycleError, topological_order
 from services.execution.schedule_service import ScheduleService
 
@@ -216,4 +222,5 @@ class WorkflowService:
         if workflow.creator_id != user_id:
             raise AccessDeniedError("Access denied")
         ScheduleService(self.db).delete_schedule_for_workflow_unchecked(workflow_id)
+        BackgroundTierService(self.db).unpublish_for_workflow_unchecked(workflow_id)
         self.repo.delete(workflow)

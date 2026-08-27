@@ -7,6 +7,11 @@ from datetime import UTC, datetime
 from importlib.metadata import version as package_version
 
 from hatchet.client import hatchet
+from hatchet.dynamic_worker_config import (
+    DYNAMIC_WORKER_NAME,
+    DYNAMIC_WORKER_POLL_INTERVAL_SECONDS,
+    DYNAMIC_WORKER_SLOTS,
+)
 from hatchet.worker_config import WORKER_NAME, WORKER_SLOTS
 from models.hatchet import HatchetConfigResponse, HatchetStatusResponse
 
@@ -27,6 +32,9 @@ def _build_config() -> HatchetConfigResponse:
         token_configured=bool(config.token),
         worker_name=WORKER_NAME,
         worker_slots=WORKER_SLOTS,
+        dynamic_worker_name=DYNAMIC_WORKER_NAME,
+        dynamic_worker_slots=DYNAMIC_WORKER_SLOTS,
+        dynamic_worker_poll_interval_seconds=DYNAMIC_WORKER_POLL_INTERVAL_SECONDS,
         sdk_version=package_version("hatchet-sdk"),
     )
 

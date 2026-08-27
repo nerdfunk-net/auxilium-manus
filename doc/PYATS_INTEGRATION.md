@@ -89,7 +89,7 @@ backend/routers/sources/pyats/
 backend/service_factory.py                 # get/set_pyats_app_service, build_pyats_source_config_service
 backend/dependencies.py                    # get_pyats_source_config_service (FastAPI dependency)
 backend/main.py                            # PyATSShimService lifespan startup/shutdown (API process), router registration
-backend/hatchet/worker.py                  # PyATSShimService lifespan startup/shutdown (Hatchet worker process)
+backend/hatchet/worker_services.py         # PyATSShimService lifespan startup/shutdown (shared by both Hatchet workers)
 backend/services/auth/rbac_seed.py         # sources.pyats read/write/delete permissions
 
 backend/workflow_steps/common/pyats_batch.py # shared: group devices by pyats_source_id, chunk, one
@@ -115,14 +115,18 @@ backend/tests/unit/test_compare_pyats_snapshot_executor.py
 pyats-shim/tests/test_diff.py                # genie-gated -- see "Genie-native snapshot comparison" below
 ```
 
-**Two independent processes, two independent lifespans.** The FastAPI API
-process and the Hatchet worker process each construct their own
-`PyATSShimService` and register it via `service_factory.set_pyats_app_service`
-in their own startup path — `main.py`'s `lifespan()` for the API process,
-`hatchet/worker.py`'s `lifespan()` for the worker. Workflow steps always run
-in the **worker** process, so registering a new app-scoped service only in
-`main.py` (as this integration initially did) leaves
-`service_factory.get_pyats_app_service()` raising
+**Three independent processes, two independent lifespans.** The FastAPI API
+process, the live Hatchet worker, and the background Hatchet worker
+(`hatchet/dynamic_worker.py` — see `doc/ARCHITECTURAL_OVERVIEW.md` →
+"Background-tier workflows") each construct their own `PyATSShimService` and
+register it via `service_factory.set_pyats_app_service` in their own process,
+but only **two** distinct lifespan implementations are involved: `main.py`'s
+`lifespan()` for the API process, and the shared `hatchet/worker_services.py::start_all()`
+for *both* workers (`hatchet/worker.py` and `hatchet/dynamic_worker.py` each
+just do `async with worker_services.start_all(): yield`). Workflow steps
+always run in one of the **worker** processes, so registering a new
+app-scoped service only in `main.py` (as this integration initially did)
+leaves `service_factory.get_pyats_app_service()` raising
 `RuntimeError: PyATSShimService is not initialized` for every step that
 calls it, while the API's own `/sources/pyats/{id}/test-connection`
 endpoint works fine — the failure is worker-only, which makes it easy to

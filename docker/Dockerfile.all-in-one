@@ -107,6 +107,7 @@ COPY --from=frontend-builder /app/frontend/tsconfig.json ./frontend/
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY docker/supervisord-web.conf /etc/supervisor/conf.d/supervisord-web.conf
 COPY docker/supervisord-worker.conf /etc/supervisor/conf.d/supervisord-worker.conf
+COPY docker/supervisord-background-worker.conf /etc/supervisor/conf.d/supervisord-background-worker.conf
 COPY docker/start.sh ./start.sh
 RUN chmod +x start.sh
 

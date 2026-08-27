@@ -17,6 +17,9 @@ export interface HatchetStatusData {
   token_configured: boolean;
   worker_name: string;
   worker_slots: number;
+  dynamic_worker_name: string;
+  dynamic_worker_slots: number;
+  dynamic_worker_poll_interval_seconds: number;
   sdk_version: string;
   reachable: boolean;
   message: string;

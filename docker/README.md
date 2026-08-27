@@ -25,7 +25,7 @@ docker network create --internal hatchet 2>/dev/null || true
 | Network | Purpose |
 |---|---|
 | `internal` | Hatchet private infra (postgres, rabbitmq, migrate, setup) |
-| `hatchet` | Isolated (`--internal`): engine/dashboard ↔ `manus-web` / `manus-worker` (no outside routing) |
+| `hatchet` | Isolated (`--internal`): engine/dashboard ↔ `manus-web` / `manus-worker` / `manus-background-worker` (no outside routing) |
 | `frontend` | App-stack bridge (created by compose): postgres, redis, web, worker; published ports for users |
 
 ### 2. Start Hatchet
@@ -57,7 +57,16 @@ Or run the helper script:
 ./start-docker.sh
 ```
 
-`manus-web` and `manus-worker` join both `frontend` (users + app DB/Redis) and `hatchet` (gRPC to `hatchet-engine:7070`).
+`manus-web`, `manus-worker`, and `manus-background-worker` all join both `frontend` (users + app DB/Redis) and `hatchet` (gRPC to `hatchet-engine:7070`).
+
+There are **two** Hatchet worker containers, each running one process: `manus-worker`
+(`supervisord-worker.conf` → `hatchet-worker`, `python -m hatchet.worker`) handles
+every workflow by default; `manus-background-worker` (`supervisord-background-worker.conf`
+→ `hatchet-dynamic-worker`, `python -m hatchet.dynamic_worker`) only handles workflows
+explicitly published to the background tier. They're separate containers (not just
+separate supervisord programs in one container) so restarting one to pick up a
+publish/unpublish never disrupts a live/interactive run on the other. See
+`doc/ARCHITECTURAL_OVERVIEW.md` → "Background-tier workflows" for what that split is for.
 
 ### Access URLs
 
@@ -70,16 +79,16 @@ Or run the helper script:
 ## Networking
 
 ```
-┌── network: frontend (bridge) ──────────────────────────────┐
-│  postgres · redis · manus-web · manus-worker               │
-│  ports 3000 / 8000 published from manus-web → host/users   │
-└───────────────────────────┬────────────────────────────────┘
-                            │ manus-web / manus-worker
-┌───────────────────────────┴────────────────────────────────┐
-│  network: hatchet (external, --internal)                   │
-│  manus-web · manus-worker ──gRPC :7070──► hatchet-engine   │
-│                              hatchet-dashboard (:8888 host) │
-└────────────────────────────────────────────────────────────┘
+┌── network: frontend (bridge) ──────────────────────────────────────┐
+│  postgres · redis · manus-web · manus-worker · manus-background-worker │
+│  ports 3000 / 8000 published from manus-web → host/users           │
+└───────────────────────────┬──────────────────────────────────────────┘
+                            │ manus-web / manus-worker / manus-background-worker
+┌───────────────────────────┴──────────────────────────────────────────┐
+│  network: hatchet (external, --internal)                             │
+│  manus-web · manus-worker · manus-background-worker ──gRPC :7070──►  │
+│    hatchet-engine                    hatchet-dashboard (:8888 host)  │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 | Setting | Value |
@@ -87,6 +96,7 @@ Or run the helper script:
 | `HATCHET_CLIENT_HOST_PORT` | `hatchet-engine:7070` |
 | `manus-web` networks | `frontend` + `hatchet` |
 | `manus-worker` networks | `frontend` + `hatchet` |
+| `manus-background-worker` networks | `frontend` + `hatchet` |
 | TLS | `HATCHET_CLIENT_TLS_STRATEGY=none` for local Hatchet |
 
 The `hatchet` network has no inter-network routing. Host access to the dashboard (and optional bare-metal gRPC on `:7077`) uses published ports, not the `hatchet` network.
@@ -140,7 +150,7 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 | `Dockerfile.all-in-one` | Self-contained production image (air-gap) |
 | `Dockerfile.basic` | Faster online development build |
 | `Dockerfile.worker` | Standalone Hatchet worker (optional) |
-| `docker-compose.yml` | App stack: postgres, redis, web, worker (`frontend` + `hatchet` networks) |
+| `docker-compose.yml` | App stack: postgres, redis, web, live worker, background worker (`frontend` + `hatchet` networks) |
 | `.env.example` | Optional template (prefer editing `x-manus-app-env` in compose) |
 | `hatchet/docker-compose.yml` | Hatchet stack (engine, dashboard, dependencies) |
 | `pyats/docker-compose.yml` | Optional pyATS shim stack (see `pyats/README.md`) |
@@ -220,5 +230,6 @@ docker network inspect hatchet
 
 # Worker / backend Hatchet connection logs
 docker logs manus-worker
+docker logs manus-background-worker
 docker logs manus-web
 ```

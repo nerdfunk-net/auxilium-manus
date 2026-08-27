@@ -1,3 +1,4 @@
+from core.models.background_tier import WorkflowBackgroundTier
 from core.models.base import Base
 from core.models.credentials import Credential
 from core.models.git import GitRepository
@@ -28,6 +29,7 @@ __all__ = [
     "UserPreference",
     "UserRole",
     "Workflow",
+    "WorkflowBackgroundTier",
     "WorkflowRun",
     "WorkflowSchedule",
     "WorkflowStepResult",

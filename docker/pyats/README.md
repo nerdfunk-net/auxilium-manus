@@ -74,6 +74,8 @@ operation=... success=N/M`. **If you see nothing at all** when running a
 workflow, the request never reached the container — that's a connectivity
 problem (wrong source URL, backend/worker running outside the network the
 shim is reachable from, or the worker process not yet restarted after a
-source URL change), not a pyATS/Genie problem. Check `docker ps` for the
+source URL change — remember a published/background-tier workflow executes
+on the background worker, not the live one, so restart whichever process
+actually ran it), not a pyATS/Genie problem. Check `docker ps` for the
 container's healthy status and re-confirm the URL from **Quick start** step 5
 above matches where your backend process actually runs.

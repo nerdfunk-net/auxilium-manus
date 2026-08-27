@@ -78,9 +78,13 @@ docker run -d \
 | Health check | http://localhost:8000/health |
 | API docs (if enabled) | http://localhost:8000/docs |
 
-## Hatchet worker
+## Hatchet workers
 
-The image includes a Hatchet worker configuration (`supervisord-worker.conf`). For workflow execution, run a separate worker container using the same image:
+The image includes configuration for **two** Hatchet worker processes, each
+run as its own container from the same image — see
+`doc/ARCHITECTURAL_OVERVIEW.md` → "Background-tier workflows" for what the
+split is for. The live worker (`supervisord-worker.conf`) handles every
+workflow by default:
 
 ```bash
 docker run -d \
@@ -93,6 +97,27 @@ docker run -d \
   auxilium-manus:all-in-one \
   /app/start.sh
 ```
+
+The background worker (`supervisord-background-worker.conf`) only handles
+workflows explicitly published to the background tier — run it as a second,
+separate container with the same environment:
+
+```bash
+docker run -d \
+  --name auxilium-manus-background-worker \
+  -v auxilium-manus-data:/app/data \
+  -e SUPERVISORD_CONF=/etc/supervisor/conf.d/supervisord-background-worker.conf \
+  -e HATCHET_CLIENT_TOKEN=<token> \
+  -e HATCHET_CLIENT_HOST_PORT=<hatchet-host>:7077 \
+  -e DATABASE_HOST=<postgres-host> \
+  auxilium-manus:all-in-one \
+  /app/start.sh
+```
+
+Run both containers — the background worker is required alongside the live
+worker (`docker-compose.yml` starts both unconditionally for exactly this
+reason). It only executes workflows explicitly published to the background
+tier, but needs to be up for that to work whenever you use it.
 
 ## Useful commands
 

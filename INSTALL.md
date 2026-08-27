@@ -53,7 +53,7 @@ cd frontend && npm install
 
 ## Running the app
 
-Open three terminals:
+Open four terminals:
 
 **Terminal 1 — Backend API**
 ```bash
@@ -63,13 +63,13 @@ cd backend && python start.py
 
 API available at [http://localhost:8001](http://localhost:8001) · Swagger docs at [http://localhost:8001/docs](http://localhost:8001/docs)
 
-**Terminal 2 — Workflow worker**
+**Terminal 2 — Live worker**
 ```bash
 source .venv/bin/activate
 cd backend && python -m hatchet.worker
 ```
 
-The worker receives workflow execution jobs from Hatchet and runs them on your machine. Every network device connection (SSH, config retrieval, command execution) happens inside this process.
+The live worker receives workflow execution jobs from Hatchet and runs them on your machine. Every network device connection (SSH, config retrieval, command execution) happens inside this process. It handles every workflow run by default.
 
 **Terminal 3 — Frontend**
 ```bash
@@ -77,6 +77,20 @@ cd frontend && npm run dev
 ```
 
 App available at [http://localhost:3000](http://localhost:3000) · Default credentials: `admin / admin`
+
+**Terminal 4 — Background worker**
+```bash
+source .venv/bin/activate
+cd backend && python -m hatchet.dynamic_worker
+```
+
+A second, separate worker process, required alongside the live worker. It only
+executes workflows explicitly **published** to the background tier (Properties
+panel → "Publish to background tier") — e.g. a nightly backup job that should
+get its own Hatchet-native concurrency limit, isolated from live/interactive
+runs. Unpublished workflows still run on the live worker as normal; this
+process just needs to be up so publishing works whenever you use it. See
+`doc/ARCHITECTURAL_OVERVIEW.md` → "Background-tier workflows" for how it works.
 
 ## Services overview
 
@@ -101,9 +115,9 @@ docker compose down -v
 ## Development notes
 
 - The backend restarts automatically on code changes (uvicorn `--reload`).
-- The worker does **not** hot-reload — restart it manually after changing code in `backend/hatchet/` or `backend/services/execution/`.
+- Neither worker hot-reloads — restart manually after changing code in `backend/hatchet/` or `backend/services/execution/`. For auto-restart during development, use `python scripts/run_worker_dev.py` (live worker) or `python scripts/run_dynamic_worker_dev.py` (background worker) instead of the bare `python -m hatchet.*` commands above — the background worker's script also auto-restarts when a workflow is published/unpublished, not just on code changes.
 - Database migrations run automatically on backend startup.
-- Hatchet Docker containers only manage job scheduling. All actual workflow execution happens in the worker process on your machine.
+- Hatchet Docker containers only manage job scheduling. All actual workflow execution happens in the worker processes on your machine.
 
 ## Docker / production deployment
 

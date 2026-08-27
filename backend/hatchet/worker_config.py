@@ -15,5 +15,5 @@ from __future__ import annotations
 
 import os
 
-WORKER_NAME = os.environ.get("HATCHET_WORKER_NAME", "auxilium-manus-worker")
+WORKER_NAME = os.environ.get("HATCHET_WORKER_NAME", "auxilium-manus-live-worker")
 WORKER_SLOTS = int(os.environ.get("HATCHET_WORKER_SLOTS", "10"))

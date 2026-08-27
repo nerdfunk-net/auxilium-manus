@@ -10,6 +10,12 @@ every option. For the full step contract and fan-out mechanics, see
 [`doc/WORKFLOW-STEPS.md`](./WORKFLOW-STEPS.md) → **Fan-out execution**; this
 document is the practical, example-driven companion to that reference.
 
+Everything through "Quick decision table" below controls devices *within one
+run*. A separate, later section — "A separate axis: overlapping runs of the
+same workflow" — covers the complementary question: what stops the *same
+workflow* from running twice at once and doubling your concurrent device
+load, regardless of how it's configured internally.
+
 ---
 
 ## The example: backing up 300 devices overnight
@@ -290,3 +296,52 @@ Hatchet) is a **separate, global** cap on how many Hatchet tasks the worker
 process runs at once, shared with every other workflow running on it at the
 time. It is not a per-workflow setting and does not substitute for configuring
 `max_concurrency` on a specific fan-out step.
+
+---
+
+## A separate axis: overlapping *runs* of the same workflow (background tier)
+
+Everything above controls devices *within one run*. It says nothing about
+what happens if the **same workflow gets triggered twice** before the first
+run finishes — a slow device holds up run 1 past its next scheduled fire, an
+operator manually re-triggers while yesterday's run is still draining, or a
+retry fires on top of an in-flight run. By default nothing prevents that:
+both runs execute fully independently, each opening its own
+`fan_out.max_concurrency` devices — so your real concurrent SSH load can
+silently become `2 × max_concurrency` (or worse) with nothing in the fan-out
+config reflecting it, because fan-out concurrency is scoped to one run, not
+to the workflow as a whole.
+
+**Publishing a workflow to the background tier** (Properties panel →
+"Publish to background tier", admin-only) closes that gap — see
+`doc/ARCHITECTURAL_OVERVIEW.md` → "Background-tier workflows" for the full
+mechanism. It assigns the workflow its own dedicated Hatchet workflow
+identity and an optional native **concurrency limit**, which caps
+**overlapping runs**, not devices:
+
+```
+Nightly Backup, published, concurrency_limit: 1
+
+ run A (triggered 02:00)   [████████ still running (slow device) ████████]
+ run B (triggered 02:05,                                                  │ queued by
+        cron re-fires)                                                    │ Hatchet
+                                                                            └►[████████]
+```
+
+With `concurrency_limit: 1`, run B simply waits in Hatchet's queue until run
+A finishes — it never starts a second, overlapping set of devices. That makes
+`fan_out.max_concurrency` a real ceiling on total concurrent SSH load for
+that workflow, not just a per-run one.
+
+**This is orthogonal to fan-out, not a replacement for it** — set both:
+`fan_out.max_concurrency` still controls devices-per-run exactly as described
+above; `concurrency_limit` on publish controls how many runs can hold that
+allowance at once. For the 300-device nightly backup, publishing with
+`concurrency_limit: 1` on top of `fan_out: per_device, max_concurrency: 10`
+guarantees "never more than 10 devices in flight for this workflow, ever,"
+regardless of how many times it happens to get triggered.
+
+Worth doing for any workflow that runs unattended on a schedule (the whole
+point is a safety net for triggers you don't control in the moment); lower
+value for a workflow only ever run manually by one operator who watches it
+finish before running it again.

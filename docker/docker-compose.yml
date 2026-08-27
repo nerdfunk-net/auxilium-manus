@@ -8,18 +8,22 @@
 # Then start the application stack from this directory:
 #   docker compose up -d
 #
-# Backend settings for manus-web / manus-worker are declared in x-manus-app-env
-# below (mirrors backend/.env.example). Edit values here — not via docker/.env.
+# Backend settings for manus-web / manus-worker / manus-background-worker are
+# declared in x-manus-app-env below (mirrors backend/.env.example). Edit
+# values here — not via docker/.env.
 #
 # Networks:
 #   frontend — user-facing + app data (postgres, redis, web, worker); published ports
 #   hatchet  — isolated (--internal): gRPC to hatchet-engine (no outside routing)
 #
 # manus-web: bind address, backend port, BACKEND_URL, and NODE_ENV are set by
-# supervisord-web.conf. manus-worker only runs the Hatchet worker process.
-# Optional URL overrides (DATABASE_URL, MAINTENANCE_DATABASE_URL, MANUS_REDIS_URL,
-# PLUGINS_FILE) are omitted — values are built from the fields below.
-# INITIAL_PERMISSIONS is omitted (unused by the backend).
+# supervisord-web.conf. manus-worker runs only the live Hatchet worker
+# (python -m hatchet.worker); manus-background-worker runs only the
+# background-tier Hatchet worker (python -m hatchet.dynamic_worker) — see
+# doc/ARCHITECTURAL_OVERVIEW.md "Background-tier workflows" for what that
+# split is for. Optional URL overrides (DATABASE_URL, MAINTENANCE_DATABASE_URL,
+# MANUS_REDIS_URL, PLUGINS_FILE) are omitted — values are built from the
+# fields below. INITIAL_PERMISSIONS is omitted (unused by the backend).
 
 x-manus-app-env: &manus-app-env
   # Application
@@ -156,8 +160,41 @@ services:
     container_name: manus-worker
     environment:
       <<: *manus-app-env
-      # Worker runs python -m hatchet.worker only (no API bootstrap / frontend).
+      # Live worker: runs python -m hatchet.worker only (no API bootstrap /
+      # frontend). Handles every unpublished workflow — the default for all
+      # workflows. See doc/ARCHITECTURAL_OVERVIEW.md "Background-tier workflows".
       SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-worker.conf
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/data/logs
+    depends_on:
+      manus-postgres:
+        condition: service_healthy
+      manus-redis:
+        condition: service_healthy
+      # Wait for web so init_db / admin seed finish before the worker accepts jobs.
+      manus-web:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - backend
+    command: ["/app/start.sh"]
+
+  manus-background-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.all-in-one
+    container_name: manus-background-worker
+    environment:
+      <<: *manus-app-env
+      # Background worker: runs python -m hatchet.dynamic_worker only. Only
+      # handles workflows explicitly published to the background tier (see
+      # doc/ARCHITECTURAL_OVERVIEW.md "Background-tier workflows") — a
+      # separate container from manus-worker so it can restart itself to pick
+      # up a publish/unpublish/edit (polls every
+      # HATCHET_DYNAMIC_WORKER_POLL_INTERVAL_SECONDS) without ever disrupting
+      # a live/interactive run on manus-worker.
+      SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-background-worker.conf
     volumes:
       - ./data:/app/data
       - ./logs:/app/data/logs

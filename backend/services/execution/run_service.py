@@ -146,10 +146,11 @@ class RunService:
         logger.info("Created run id=%s workflow_id=%s user_id=%s", run.id, workflow_id, user_id)
 
         try:
+            from hatchet.workflows.dispatch import resolve_dispatch_workflow
             from hatchet.workflows.workflow_run import WorkflowRunInput
-            from hatchet.workflows.workflow_run import workflow as workflow_execution
 
-            ref = workflow_execution.run_no_wait(WorkflowRunInput(run_id=run.id))
+            dispatch_workflow = resolve_dispatch_workflow(workflow, self.db)
+            ref = dispatch_workflow.run_no_wait(WorkflowRunInput(run_id=run.id))
             hatchet_run_id = str(ref.workflow_run_id or "")
             self.run_repo.update_run_status(run, status="pending", hatchet_run_id=hatchet_run_id)
             logger.info("Dispatched run_id=%s hatchet_run_id=%s", run.id, hatchet_run_id)

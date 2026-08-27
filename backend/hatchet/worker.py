@@ -23,9 +23,8 @@ _backend_root = Path(__file__).resolve().parents[1]
 if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
-import service_factory  # noqa: E402
-from core.database import SessionLocal  # noqa: E402
 from core.logging_config import configure_logging  # noqa: E402
+from hatchet import worker_services  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
 from hatchet.worker_config import WORKER_NAME, WORKER_SLOTS  # noqa: E402
 from hatchet.workflows.cache_devices import workflow as cache_devices_workflow  # noqa: E402
@@ -35,46 +34,14 @@ from hatchet.workflows.device_group_execution import (  # noqa: E402
 from hatchet.workflows.purge_retention import workflow as purge_retention_workflow  # noqa: E402
 from hatchet.workflows.scheduled_trigger import workflow as scheduled_trigger_workflow  # noqa: E402
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
-from services.ise.client import ISEService  # noqa: E402
-from services.logging.logging_settings_service import LoggingSettingsService  # noqa: E402
-from services.mattermost.client import MattermostService  # noqa: E402
-from services.nautobot.client import NautobotService  # noqa: E402
-from services.pyats.client import PyATSShimService  # noqa: E402
 
 configure_logging("worker")
 logger = logging.getLogger(__name__)
 
 
 async def lifespan() -> AsyncGenerator[None, None]:
-    with SessionLocal() as db:
-        LoggingSettingsService(db).apply_to_current_process("worker")
-
-    nautobot_service = NautobotService()
-    await nautobot_service.startup()
-    service_factory.set_nautobot_app_service(nautobot_service)
-
-    ise_service = ISEService()
-    await ise_service.startup()
-    service_factory.set_ise_app_service(ise_service)
-
-    pyats_service = PyATSShimService()
-    await pyats_service.startup()
-    service_factory.set_pyats_app_service(pyats_service)
-
-    mattermost_service = MattermostService()
-    await mattermost_service.startup()
-    service_factory.set_mattermost_app_service(mattermost_service)
-
-    service_factory.build_cache_service()
-    logger.info("Worker services initialized")
-    try:
+    async with worker_services.start_all():
         yield
-    finally:
-        await nautobot_service.shutdown()
-        await ise_service.shutdown()
-        await pyats_service.shutdown()
-        await mattermost_service.shutdown()
-        logger.info("Worker services shut down")
 
 
 def main() -> None:

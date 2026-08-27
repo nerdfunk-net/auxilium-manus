@@ -18,6 +18,8 @@ from services.execution.run_events import (
 )
 
 if TYPE_CHECKING:
+    from hatchet_sdk.runnables.workflow import Workflow as HatchetWorkflow
+
     from models.workflow_context import WorkflowContext
 
 logger = logging.getLogger(__name__)
@@ -32,14 +34,6 @@ class WorkflowRunInput(BaseModel):
     run_id: int
 
 
-workflow = hatchet.workflow(
-    name="WorkflowExecution",
-    on_events=["workflow:run"],
-    input_validator=WorkflowRunInput,
-)
-
-
-@workflow.task(name="prepare", execution_timeout=timedelta(seconds=30))
 async def prepare(input: WorkflowRunInput, ctx: Context) -> dict:
     logger.info("Preparing workflow run run_id=%s", input.run_id)
 
@@ -384,9 +378,6 @@ async def _finalize_fan_out_parent(
     return final_status
 
 
-@workflow.durable_task(
-    name="execute_steps", parents=[prepare], execution_timeout=timedelta(hours=24)
-)
 async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
     logger.info("Executing steps for run_id=%s", input.run_id)
 
@@ -436,6 +427,35 @@ async def execute_steps(input: WorkflowRunInput, ctx: DurableContext) -> dict:
     )
     logger.info("Run finished (fan-out) run_id=%s status=%s", input.run_id, final_status)
     return {"run_id": input.run_id, "status": final_status}
+
+
+def build_workflow_execution(
+    *, name: str, concurrency: int | None = None
+) -> HatchetWorkflow[WorkflowRunInput]:
+    """Construct one Hatchet workflow with the standard prepare -> execute_steps
+    shape, attaching the shared task implementations above. Used both for the
+    single static WorkflowExecution registration below and, per published
+    background-tier row, by hatchet/dynamic_worker.py — zero duplicated
+    business logic either way, since prepare/execute_steps here are the same
+    plain async functions in both cases, just registered under a different
+    workflow name/concurrency limit.
+    """
+    wf = hatchet.workflow(
+        name=name,
+        on_events=["workflow:run"] if name == "WorkflowExecution" else None,
+        input_validator=WorkflowRunInput,
+        concurrency=concurrency,
+    )
+    prepare_task = wf.task(name="prepare", execution_timeout=timedelta(seconds=30))(prepare)
+    wf.durable_task(
+        name="execute_steps", parents=[prepare_task], execution_timeout=timedelta(hours=24)
+    )(execute_steps)
+    return wf
+
+
+# Static registration — unchanged for every existing importer
+# (`from hatchet.workflows.workflow_run import workflow as workflow_execution`).
+workflow = build_workflow_execution(name="WorkflowExecution")
 
 
 def _build_approval_state(

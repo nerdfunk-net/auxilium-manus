@@ -56,12 +56,14 @@ export function HatchetSettingsCanvas() {
         <div className="flex items-start gap-2 rounded-md bg-warning px-3 py-2 text-xs text-warning-foreground">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <p>
-            Hatchet is configured entirely via <code>HATCHET_CLIENT_*</code> and{" "}
-            <code>HATCHET_WORKER_*</code> environment variables (in{" "}
-            <code>backend/.env</code> or your docker environment) — this page is
-            read-only and reflects the values the backend process actually resolved
-            at startup. Changing an env var requires restarting the backend and the
-            Hatchet worker process.
+            Hatchet is configured entirely via <code>HATCHET_CLIENT_*</code>,{" "}
+            <code>HATCHET_WORKER_*</code>, and <code>HATCHET_DYNAMIC_WORKER_*</code>{" "}
+            environment variables (in <code>backend/.env</code> or your docker
+            environment) — this page is read-only and reflects the values this
+            backend (API) process resolved for itself and for both worker
+            processes at its own startup, not a live check of either worker.
+            Changing an env var requires restarting the backend and the
+            corresponding Hatchet worker process.
           </p>
         </div>
 
@@ -154,14 +156,29 @@ export function HatchetSettingsCanvas() {
                   }
                 />
                 <InfoRow
-                  label="Worker Name"
+                  label="Live Worker Name"
                   value={data.worker_name}
-                  hint="Identifies this worker process to Hatchet (HATCHET_WORKER_NAME). Multiple worker processes can register under different names to add capacity."
+                  hint="Identifies the live worker process to Hatchet (HATCHET_WORKER_NAME). Handles every unpublished workflow — the default for all workflows."
                 />
                 <InfoRow
-                  label="Worker Slots"
+                  label="Live Worker Slots"
                   value={data.worker_slots}
-                  hint="How many Hatchet tasks this worker process runs concurrently, across every workflow type it handles — top-level workflow runs, fan-out device-group children, cache-devices, scheduled triggers, and retention purges all draw from this same pool. It is not the per-step fan-out chunk size (set per-node in the canvas) and is not scoped to a single run — other workflow activity on this worker competes for the same slots."
+                  hint="How many Hatchet tasks the live worker process runs concurrently, across every workflow type it handles — top-level workflow runs, fan-out device-group children, cache-devices, scheduled triggers, and retention purges all draw from this same pool. It is not the per-step fan-out chunk size (set per-node in the canvas) and is not scoped to a single run — other workflow activity on this worker competes for the same slots."
+                />
+                <InfoRow
+                  label="Background Worker Name"
+                  value={data.dynamic_worker_name}
+                  hint="Identifies the second worker process to Hatchet (HATCHET_DYNAMIC_WORKER_NAME). Only handles workflows explicitly published to the background tier — see the Properties panel's 'Publish to background tier' toggle."
+                />
+                <InfoRow
+                  label="Background Worker Slots"
+                  value={data.dynamic_worker_slots}
+                  hint="Concurrency cap for the background worker process — independent of Live Worker Slots above; a published workflow's throughput is governed by this pool, not the live worker's."
+                />
+                <InfoRow
+                  label="Background Worker Poll Interval"
+                  value={`${data.dynamic_worker_poll_interval_seconds}s`}
+                  hint="How often the background worker checks for a newly published, edited, or unpublished workflow and restarts itself to pick it up (HATCHET_DYNAMIC_WORKER_POLL_INTERVAL_SECONDS)."
                 />
                 <InfoRow label="SDK Version" value={data.sdk_version} />
               </div>
@@ -195,6 +212,16 @@ export function HatchetSettingsCanvas() {
               finish&quot; boundary. Raising Worker Slots increases how much a
               single worker process can run in parallel overall; it does not change
               how any one workflow groups its devices.
+            </p>
+            <p>
+              A workflow published to the background tier runs on the{" "}
+              <span className="font-medium text-foreground">background worker</span>,
+              with its own independent Worker Slots pool and, optionally, its own
+              Hatchet-native concurrency limit set at publish time (capping
+              overlapping <em>runs</em> of that one workflow, not devices within a
+              run). See{" "}
+              <code>doc/HOWTO_BUILD_WORKFLOWS.md</code> for how that combines with
+              fan-out.
             </p>
           </CardContent>
         </Card>
