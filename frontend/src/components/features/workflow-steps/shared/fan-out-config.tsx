@@ -94,6 +94,17 @@ export function FanOutConfigSection({ value, onChange }: FanOutConfigSectionProp
         Process each device (or chunk) as an independent Hatchet child workflow.
       </p>
 
+      {!value.enabled && (
+        <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
+          ! Fan-out is off: every device this step matches will be processed in a
+          single run, with no concurrency limit — check how many devices you&apos;re
+          about to target. Large device counts (dozens or more) can open that many
+          SSH sessions at once and overwhelm devices, credentials, or a
+          TACACS+/RADIUS server. For large inventories, enable fan-out (mode: per
+          device, max concurrency ~10–20) instead.
+        </p>
+      )}
+
       {value.enabled && (
         <div className="space-y-2 pl-1">
           <div className="space-y-1">
@@ -143,6 +154,17 @@ export function FanOutConfigSection({ value, onChange }: FanOutConfigSectionProp
               }
             />
           </div>
+
+          {value.max_concurrency === 0 && (
+            <p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
+              ! Unlimited: every {value.mode === "chunked" ? "chunk" : "device"} is
+              dispatched at once — this step places no cap of its own. Actual
+              concurrency then falls back to Hatchet&apos;s Worker Slots setting
+              (Settings → Hatchet), which is shared with every other workflow
+              running on that worker, not scoped to this run. Set an explicit
+              limit (e.g. 10–20) to control load deliberately.
+            </p>
+          )}
 
           <div className="space-y-2 border-t pt-2">
             <div className="flex items-center justify-between">

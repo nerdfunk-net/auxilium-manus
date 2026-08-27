@@ -1,21 +1,40 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, CheckCircle2, ExternalLink, HelpCircle, Loader2, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   type HatchetStatusData,
   useHatchetSettingsMutations,
 } from "@/hooks/queries/use-hatchet-settings-mutations";
 import { useHatchetSettingsQuery } from "@/hooks/queries/use-hatchet-settings-query";
 
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+function InfoRow({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
-      <span className="text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-1.5 text-muted-foreground">
+        {label}
+        {hint && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <HelpCircle className="size-3.5 cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent side="top">{hint}</TooltipContent>
+          </Tooltip>
+        )}
+      </span>
       <span className="min-w-0 truncate font-mono text-[13px]">{value}</span>
     </div>
   );
@@ -134,11 +153,49 @@ export function HatchetSettingsCanvas() {
                     )
                   }
                 />
-                <InfoRow label="Worker Name" value={data.worker_name} />
-                <InfoRow label="Worker Slots" value={data.worker_slots} />
+                <InfoRow
+                  label="Worker Name"
+                  value={data.worker_name}
+                  hint="Identifies this worker process to Hatchet (HATCHET_WORKER_NAME). Multiple worker processes can register under different names to add capacity."
+                />
+                <InfoRow
+                  label="Worker Slots"
+                  value={data.worker_slots}
+                  hint="How many Hatchet tasks this worker process runs concurrently, across every workflow type it handles — top-level workflow runs, fan-out device-group children, cache-devices, scheduled triggers, and retention purges all draw from this same pool. It is not the per-step fan-out chunk size (set per-node in the canvas) and is not scoped to a single run — other workflow activity on this worker competes for the same slots."
+                />
                 <InfoRow label="SDK Version" value={data.sdk_version} />
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Worker Slots vs. Fan-Out Batching</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">Worker Slots</span> is a
+              global concurrency cap on this worker process: the maximum number of
+              Hatchet tasks it will execute at once, shared across{" "}
+              <em>all</em> workflow runs and workflow types currently in flight —
+              not just one workflow&apos;s fan-out.
+            </p>
+            <p>
+              A workflow step&apos;s{" "}
+              <span className="font-medium text-foreground">fan-out</span> settings
+              (mode, chunk size, max concurrency) are configured independently, per
+              inventory node, in the canvas — they default to fan-out disabled and
+              are unrelated to this env var.
+            </p>
+            <p>
+              When fan-out dispatches more concurrent device groups than there are
+              free worker slots, the extra ones queue in Hatchet and start as slots
+              free up — a rolling pool, not a &quot;wait for the whole batch to
+              finish&quot; boundary. Raising Worker Slots increases how much a
+              single worker process can run in parallel overall; it does not change
+              how any one workflow groups its devices.
+            </p>
           </CardContent>
         </Card>
       </div>
