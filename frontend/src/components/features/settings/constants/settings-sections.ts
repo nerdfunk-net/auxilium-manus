@@ -78,9 +78,9 @@ export const SETTINGS_SECTIONS: {
     canShow: (user) => hasPermission(user, "logging_settings", "read"),
   },
   {
-    id: "version-control",
-    label: "Version Control",
-    description: "Git-backed history for workflow definitions.",
+    id: "git-repositories",
+    label: "Git Repositories",
+    description: "Git repositories used by workflow steps and workflow version control.",
     icon: GitBranch,
     canShow: (user) => hasPermission(user, "git.repositories", "read"),
   },

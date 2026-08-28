@@ -7,18 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 import { GitPushHelpPanel } from "./help-panel";
 
-const GIT_SOURCE_ID_KEY = "git_source_id";
+const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 const COMMIT_MESSAGE_TEMPLATE_KEY = "commit_message_template";
 const COMMIT_BEFORE_PUSH_KEY = "commit_before_push";
 
 const COMMIT_MESSAGE_PLACEHOLDERS = ["{timestamp}", "{run.id}", "{workflow.id}"];
 
-function gitSourceIdFromConfig(config: Record<string, unknown>): string {
-  const raw = config[GIT_SOURCE_ID_KEY];
-  return typeof raw === "string" && raw.trim() ? raw.trim().toLowerCase() : "";
+function gitRepositoryIdFromConfig(config: Record<string, unknown>): number | null {
+  const raw = config[GIT_REPOSITORY_ID_KEY];
+  return typeof raw === "number" ? raw : null;
 }
 
 function buildGitPushConfig(
@@ -26,7 +26,7 @@ function buildGitPushConfig(
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    git_source_id: gitSourceIdFromConfig(config),
+    git_repository_id: gitRepositoryIdFromConfig(config),
     [COMMIT_BEFORE_PUSH_KEY]: config[COMMIT_BEFORE_PUSH_KEY] !== false,
     commit_message_template:
       typeof config.commit_message_template === "string"
@@ -46,8 +46,8 @@ function GitPushConfigPanel({
   nodeId: string;
 }) {
   const initializedForNode = useRef<string | null>(null);
-  const [sourceOpen, setSourceOpen] = useState(false);
-  const sourceId = gitSourceIdFromConfig(config);
+  const [repositoryOpen, setRepositoryOpen] = useState(false);
+  const repositoryId = gitRepositoryIdFromConfig(config);
   const commitBeforePush = config[COMMIT_BEFORE_PUSH_KEY] !== false;
 
   useEffect(() => {
@@ -55,14 +55,14 @@ function GitPushConfigPanel({
       return;
     }
     initializedForNode.current = nodeId;
-    if (!config[GIT_SOURCE_ID_KEY] || !config[COMMIT_MESSAGE_TEMPLATE_KEY]) {
+    if (config[GIT_REPOSITORY_ID_KEY] === undefined || !config[COMMIT_MESSAGE_TEMPLATE_KEY]) {
       onChange(buildGitPushConfig(config));
     }
   }, [nodeId, config, onChange]);
 
-  const handleSourceIdChange = useCallback(
-    (newSourceId: string) => {
-      onChange(buildGitPushConfig(config, { git_source_id: newSourceId }));
+  const handleRepositoryIdChange = useCallback(
+    (newRepositoryId: number) => {
+      onChange(buildGitPushConfig(config, { git_repository_id: newRepositoryId }));
     },
     [config, onChange],
   );
@@ -85,13 +85,13 @@ function GitPushConfigPanel({
     <div className="flex flex-col gap-4">
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{GIT_SOURCE_ID_KEY}</span>
+          <span className="font-mono text-xs font-medium">{GIT_REPOSITORY_ID_KEY}</span>
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
             git
           </Badge>
         </div>
-        {sourceId ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{sourceId}</p>
+        {repositoryId !== null ? (
+          <p className="font-mono text-[11px] text-muted-foreground">{repositoryId}</p>
         ) : (
           <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
@@ -100,20 +100,20 @@ function GitPushConfigPanel({
           size="sm"
           type="button"
           variant="outline"
-          onClick={() => setSourceOpen(true)}
+          onClick={() => setRepositoryOpen(true)}
         >
-          {sourceId ? "Change repository" : "Choose repository"}
+          {repositoryId !== null ? "Change repository" : "Choose repository"}
         </Button>
         <p className="text-[11px] text-muted-foreground">
-          Uses the same git sources as get-git-devices (Settings → Sources).
+          Uses the same Git repositories as get-git-devices (Settings → Git Repositories).
         </p>
       </div>
 
-      <GitSourceSelectDialog
-        open={sourceOpen}
-        selectedSourceId={sourceId}
-        onClose={() => setSourceOpen(false)}
-        onSave={handleSourceIdChange}
+      <GitRepositorySelectDialog
+        open={repositoryOpen}
+        selectedRepositoryId={repositoryId}
+        onClose={() => setRepositoryOpen(false)}
+        onSave={handleRepositoryIdChange}
       />
 
       <div className="flex items-start gap-2">

@@ -80,11 +80,10 @@ class TestR1TokenAtRest(unittest.TestCase):
         ):
             response = service.create_setting(
                 SettingCreate(
-                    key="sources.git.lab",
+                    key="sources.nautobot.lab",
                     value={
-                        "url": "https://git.example.com/org/repo.git",
-                        "token": "git-secret",
-                        "branch": "main",
+                        "url": "https://nautobot.example.com",
+                        "token": "nb-secret",
                     },
                 ),
             )
@@ -96,24 +95,24 @@ class TestR1TokenAtRest(unittest.TestCase):
     def test_get_source_config_decrypts_token(self) -> None:
         service = _settings_service()
         service.repo.get_by_key.return_value = _setting(
-            "sources.git.lab",
-            {"url": "https://git.example.com/org/repo.git", "credential_id": 99},
+            "sources.nautobot.lab",
+            {"url": "https://nautobot.example.com", "credential_id": 99},
         )
-        service._credentials.get_decrypted_password.return_value = "git-secret"
+        service._credentials.get_decrypted_password.return_value = "nb-secret"
 
-        config = service.get_source_config("git", "lab")
+        config = service.get_source_config("nautobot", "lab")
 
-        self.assertEqual(config["token"], "git-secret")
+        self.assertEqual(config["token"], "nb-secret")
         self.assertNotIn("credential_id", config)
 
     def test_get_setting_hides_credential_id_and_token(self) -> None:
         service = _settings_service()
         service.repo.get_by_key.return_value = _setting(
-            "sources.git.lab",
-            {"url": "https://git.example.com/org/repo.git", "credential_id": 99},
+            "sources.nautobot.lab",
+            {"url": "https://nautobot.example.com", "credential_id": 99},
         )
 
-        result = service.get_setting("sources.git.lab")
+        result = service.get_setting("sources.nautobot.lab")
 
         self.assertEqual(result.value["token"], "")
         self.assertTrue(result.value["token_configured"])
@@ -122,8 +121,8 @@ class TestR1TokenAtRest(unittest.TestCase):
     def test_update_blank_token_does_not_rotate_credential(self) -> None:
         service = _settings_service()
         existing = _setting(
-            "sources.git.lab",
-            {"url": "https://git.example.com/org/repo.git", "credential_id": 99},
+            "sources.nautobot.lab",
+            {"url": "https://nautobot.example.com", "credential_id": 99},
         )
         service.repo.get_by_key.return_value = existing
         service.repo.update.side_effect = lambda setting, fields: SimpleNamespace(
@@ -134,12 +133,11 @@ class TestR1TokenAtRest(unittest.TestCase):
             SettingsService, "_validate_source_url", staticmethod(lambda t, v: v)
         ):
             service.update_setting(
-                "sources.git.lab",
+                "sources.nautobot.lab",
                 SettingUpdate(
                     value={
-                        "url": "https://git.example.com/org/repo.git",
+                        "url": "https://nautobot.example.com",
                         "token": "",
-                        "branch": "main",
                     }
                 ),
             )
@@ -150,23 +148,23 @@ class TestR1TokenAtRest(unittest.TestCase):
     def test_delete_setting_deletes_linked_credential(self) -> None:
         service = _settings_service()
         existing = _setting(
-            "sources.git.lab",
-            {"url": "https://git.example.com/org/repo.git", "credential_id": 99},
+            "sources.nautobot.lab",
+            {"url": "https://nautobot.example.com", "credential_id": 99},
         )
         service.repo.get_by_key.return_value = existing
 
-        service.delete_setting("sources.git.lab")
+        service.delete_setting("sources.nautobot.lab")
 
         service._credentials.delete_credential.assert_called_once_with(99)
 
     def test_legacy_plaintext_row_still_resolves_in_get_source_config(self) -> None:
         service = _settings_service()
         service.repo.get_by_key.return_value = _setting(
-            "sources.git.lab",
-            {"url": "https://git.example.com/org/repo.git", "token": "legacy-secret"},
+            "sources.nautobot.lab",
+            {"url": "https://nautobot.example.com", "token": "legacy-secret"},
         )
 
-        config = service.get_source_config("git", "lab")
+        config = service.get_source_config("nautobot", "lab")
 
         self.assertEqual(config["token"], "legacy-secret")
         service._credentials.get_decrypted_password.assert_not_called()
@@ -330,14 +328,16 @@ class TestR3GitRemoteUrl(unittest.TestCase):
             validate_git_remote_url("/var/git/repo.git")
 
     @patch("services.git.connection.subprocess.run")
-    def test_git_source_service_test_connection_rejects_file_scheme(
-        self, mock_run: MagicMock
-    ) -> None:
-        from services.sources.git import git_source_service
+    def test_git_connection_service_rejects_file_scheme(self, mock_run: MagicMock) -> None:
+        from models.git_repositories import GitAuthType, GitConnectionTestRequest
+        from services.git.connection import GitConnectionService
 
-        result = git_source_service.test_connection(url="file:///tmp/x", token="secret")
+        request = GitConnectionTestRequest(
+            url="file:///tmp/x", auth_type=GitAuthType.TOKEN, token="secret"
+        )
+        result = GitConnectionService().test_connection(request)
 
-        self.assertFalse(result["success"])
+        self.assertFalse(result.success)
         mock_run.assert_not_called()
 
 

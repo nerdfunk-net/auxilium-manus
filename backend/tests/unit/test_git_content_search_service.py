@@ -9,7 +9,7 @@ from pathlib import Path
 
 from git import Repo
 
-from services.sources.git.git_content_search_service import (
+from services.git.content_search_service import (
     MAX_CONTENT_SEARCH_FILE_SIZE,
     GitContentSearchService,
 )
@@ -46,7 +46,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches, files_scanned = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -66,7 +65,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -78,7 +76,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches_cs, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -93,7 +90,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches_recursive, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -105,7 +101,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches_flat, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=False,
@@ -121,7 +116,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="*.cfg",
             recursive=True,
@@ -138,7 +132,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="site-a",
             file_filter="",
             recursive=True,
@@ -159,7 +152,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches_no_history, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -171,7 +163,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches_history, _ = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -190,7 +181,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches, files_scanned = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -209,7 +199,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
 
         matches, files_scanned = self.service.search(
             self.repo_dir,
-            {},
             directory="",
             file_filter="",
             recursive=True,
@@ -224,7 +213,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.search(
                 self.repo_dir,
-                {},
                 directory="",
                 file_filter="",
                 recursive=True,
@@ -237,7 +225,6 @@ class GitContentSearchServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.search(
                 self.repo_dir,
-                {},
                 directory="../../etc",
                 file_filter="",
                 recursive=True,

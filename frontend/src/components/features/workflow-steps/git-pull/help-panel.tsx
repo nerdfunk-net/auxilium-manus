@@ -29,16 +29,16 @@ export function GitPullHelpPanel() {
         </p>
       </HelpSection>
 
-      <HelpSection title="git_source_id">
+      <HelpSection title="git_repository_id">
         <p>
           Click{" "}
           <span className="font-medium text-foreground">Choose repository</span>{" "}
-          (or Change repository) and select a git source from Settings → Sources.
-          Stored as <HelpCode>git_source_id</HelpCode> (lowercase). Must match the
-          source used by Git Clone and other git steps in this workflow.
+          (or Change repository) and select a repository from Settings → Git Repositories.
+          Stored as <HelpCode>git_repository_id</HelpCode>. Must match the repository
+          used by Git Clone and other git steps in this workflow.
         </p>
         <HelpExample>
-          git_source_id: network-configs
+          git_repository_id: 3
           <br />
           <span className="text-muted-foreground">
             → git pull on the cached clone for that source
@@ -46,7 +46,7 @@ export function GitPullHelpPanel() {
         </HelpExample>
         <HelpWarning title="Source required">
           <p>
-            Without <HelpCode>git_source_id</HelpCode> the step cannot pull. Ensure
+            Without <HelpCode>git_repository_id</HelpCode> the step cannot pull. Ensure
             the source exists in Settings and a clone is available.
           </p>
         </HelpWarning>
@@ -55,7 +55,7 @@ export function GitPullHelpPanel() {
       <HelpWarning title="Not fan-out-safe">
         <p>
           Do not run Git Pull on a fanned-out branch for the same{" "}
-          <HelpCode>git_source_id</HelpCode> — parallel children pull and write
+          <HelpCode>git_repository_id</HelpCode> — parallel children pull and write
           concurrently and can corrupt the shared working tree.
         </p>
         <p>
@@ -81,7 +81,7 @@ export function GitPullHelpPanel() {
 
       <HelpSection title="Typical setup">
         <ol className="list-decimal space-y-1.5 pl-4">
-          <li>Git Clone (or prior run) for the same <HelpCode>git_source_id</HelpCode>.</li>
+          <li>Git Clone (or prior run) for the same <HelpCode>git_repository_id</HelpCode>.</li>
           <li>Git Pull immediately before Store Artifact or Get from Git when freshness matters.</li>
           <li>On fanned-out workflows, place Git Pull only after Fan In.</li>
         </ol>

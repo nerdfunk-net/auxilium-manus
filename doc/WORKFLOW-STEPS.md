@@ -853,7 +853,7 @@ the **same external resources**. A step is fan-out-safe when it:
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent children overwrite/race. |
-| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` | ❌ | All open **one shared on-disk working tree per git source** (`load_git_source_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. |
+| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. |
 
 **Guidance for git-backed exports under fan-out:** place a **Fan In** node between the
 per-device branch and the git/store steps. The per-device work (configs, commands,

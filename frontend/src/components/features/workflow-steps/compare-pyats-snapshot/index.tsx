@@ -123,9 +123,9 @@ function ComparePyatsSnapshotConfigPanel({
     [config, onChange],
   );
 
-  const handleGitSourceIdChange = useCallback(
-    (value: string) => {
-      onChange(buildComparePyatsSnapshotConfig(config, { git_source_id: value }));
+  const handleGitRepositoryIdChange = useCallback(
+    (value: number) => {
+      onChange(buildComparePyatsSnapshotConfig(config, { git_repository_id: value }));
     },
     [config, onChange],
   );
@@ -258,7 +258,7 @@ function ComparePyatsSnapshotConfigPanel({
         referenceLocation={referenceLocation}
         onReferenceLocationChange={handleReferenceLocationChange}
         onReferenceSubdirectoryChange={handleReferenceSubdirectoryChange}
-        onGitSourceIdChange={handleGitSourceIdChange}
+        onGitRepositoryIdChange={handleGitRepositoryIdChange}
         onRepositorySubdirectoryChange={handleRepositorySubdirectoryChange}
         onPullBeforeReadChange={handlePullBeforeReadChange}
       />

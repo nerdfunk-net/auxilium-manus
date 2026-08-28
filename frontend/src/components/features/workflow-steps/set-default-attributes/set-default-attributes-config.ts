@@ -112,11 +112,13 @@ export function parseGitConfig(config: Record<string, unknown>): GitDefaultsConf
   const record =
     raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   return {
-    git_source_id: typeof record.git_source_id === "string" ? record.git_source_id : "",
+    git_repository_id:
+      typeof record.git_repository_id === "number" ? record.git_repository_id : null,
     filename_pattern:
       typeof record.filename_pattern === "string" && record.filename_pattern
         ? record.filename_pattern
         : "*.yaml",
+    directory: typeof record.directory === "string" ? record.directory : "",
   };
 }
 

@@ -229,7 +229,7 @@ export function WorkflowSaveAsDialog({
               <p className="text-xs text-muted-foreground">
                 {hasConfiguredGitRepository
                   ? "Every save is also committed to the configured Git repository."
-                  : "Configure a Git repository in Settings → Version Control first."}
+                  : "Configure a Git repository in Settings → Git Repositories first."}
               </p>
             </div>
             <Controller

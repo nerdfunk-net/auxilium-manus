@@ -188,7 +188,7 @@ class SetDefaultAttributesGitModeTests(unittest.IsolatedAsyncioTestCase):
         config = {
             **get_config(),
             "mode": "git",
-            "git": {"git_source_id": "prod-lab", "filename_pattern": "defaults.yaml"},
+            "git": {"git_repository_id": 7, "filename_pattern": "defaults.yaml"},
         }
         with patch(
             "workflow_steps.set_default_attributes.executor.load_yaml_from_git_source",
@@ -204,9 +204,10 @@ class SetDefaultAttributesGitModeTests(unittest.IsolatedAsyncioTestCase):
             )
 
         mocked.assert_called_once_with(
-            git_source_id="prod-lab",
+            git_repository_id=7,
             filename_pattern="defaults.yaml",
             step_id="set-default-attributes",
+            directory="",
         )
         device = outcomes[0].context.devices["dev-1"]
         self.assertEqual(device.attribute_bags["nautobot"]["role"], {"name": "Network"})
@@ -216,7 +217,7 @@ class SetDefaultAttributesGitModeTests(unittest.IsolatedAsyncioTestCase):
         config = {
             **get_config(),
             "mode": "git",
-            "git": {"git_source_id": "prod-lab", "filename_pattern": "defaults.yaml"},
+            "git": {"git_repository_id": 7, "filename_pattern": "defaults.yaml"},
         }
         with patch(
             "workflow_steps.set_default_attributes.executor.load_yaml_from_git_source",
@@ -236,11 +237,13 @@ class SetDefaultAttributesGitModeTests(unittest.IsolatedAsyncioTestCase):
         config = {
             **get_config(),
             "mode": "git",
-            "git": {"git_source_id": "", "filename_pattern": ""},
+            "git": {"git_repository_id": None, "filename_pattern": ""},
         }
         with patch(
             "workflow_steps.set_default_attributes.executor.load_yaml_from_git_source",
-            side_effect=ValueError("set-default-attributes: git_source_id is not configured"),
+            side_effect=ValueError(
+                "set-default-attributes: git_repository_id is not configured"
+            ),
         ):
             with self.assertRaises(ValueError):
                 await execute(

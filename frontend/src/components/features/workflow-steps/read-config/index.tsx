@@ -17,7 +17,7 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 
 import { ReadConfigHelpPanel } from "./help-panel";
 
@@ -30,7 +30,7 @@ const SOURCE_OPTIONS = [
   {
     value: "git",
     label: "Git repository",
-    hint: "Read from a git source configured under Settings → Sources.",
+    hint: "Read from a repository configured under Settings → Git Repositories.",
   },
 ] as const;
 
@@ -52,8 +52,7 @@ function buildReadConfigConfig(
 ): Record<string, unknown> {
   return {
     source: config.source === "git" ? "git" : "filesystem",
-    git_source_id:
-      typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "",
+    git_repository_id: typeof config.git_repository_id === "number" ? config.git_repository_id : null,
     path_template: typeof config.path_template === "string" ? config.path_template : "{device.name}.cfg",
     overwrite_existing: config.overwrite_existing === true,
     ...patch,
@@ -61,12 +60,11 @@ function buildReadConfigConfig(
 }
 
 function ReadConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
-  const [gitSourceOpen, setGitSourceOpen] = useState(false);
+  const [gitRepositoryOpen, setGitRepositoryOpen] = useState(false);
 
   const source = (config.source as Source) || "filesystem";
   const isGitSource = source === "git";
-  const gitSourceId =
-    typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "";
+  const gitRepositoryId = typeof config.git_repository_id === "number" ? config.git_repository_id : null;
   const pathTemplate =
     typeof config.path_template === "string" ? config.path_template : "{device.name}.cfg";
   const overwriteExisting = config.overwrite_existing === true;
@@ -83,9 +81,9 @@ function ReadConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     [config, onChange],
   );
 
-  const handleGitSourceIdChange = useCallback(
-    (value: string) => {
-      onChange(buildReadConfigConfig(config, { git_source_id: value }));
+  const handleGitRepositoryIdChange = useCallback(
+    (value: number) => {
+      onChange(buildReadConfigConfig(config, { git_repository_id: value }));
     },
     [config, onChange],
   );
@@ -131,13 +129,13 @@ function ReadConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       {isGitSource ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">git_source_id</span>
+            <span className="font-mono text-xs font-medium">git_repository_id</span>
             <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
               git
             </Badge>
           </div>
-          {gitSourceId ? (
-            <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
+          {gitRepositoryId !== null ? (
+            <p className="font-mono text-[11px] text-muted-foreground">{gitRepositoryId}</p>
           ) : (
             <p className="text-[11px] text-warning-foreground">Not configured</p>
           )}
@@ -146,19 +144,20 @@ function ReadConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
             size="sm"
             type="button"
             variant="outline"
-            onClick={() => setGitSourceOpen(true)}
+            onClick={() => setGitRepositoryOpen(true)}
           >
-            {gitSourceId ? "Change repository" : "Choose repository"}
+            {gitRepositoryId !== null ? "Change repository" : "Choose repository"}
           </Button>
           <p className="text-[11px] text-muted-foreground">
-            Uses the same git sources as Get from Git / Store Artifact (Settings → Sources).
+            Uses the same Git repositories as Get from Git / Store Artifact (Settings → Git
+            Repositories).
           </p>
 
-          <GitSourceSelectDialog
-            open={gitSourceOpen}
-            selectedSourceId={gitSourceId}
-            onClose={() => setGitSourceOpen(false)}
-            onSave={handleGitSourceIdChange}
+          <GitRepositorySelectDialog
+            open={gitRepositoryOpen}
+            selectedRepositoryId={gitRepositoryId}
+            onClose={() => setGitRepositoryOpen(false)}
+            onSave={handleGitRepositoryIdChange}
           />
         </div>
       ) : null}

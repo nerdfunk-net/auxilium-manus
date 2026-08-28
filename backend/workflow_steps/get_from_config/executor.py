@@ -7,17 +7,15 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.git.content_search_service import GitContentSearchService
+from services.git.sync import clone_or_pull
 from services.network.cisco_config_parsing import parse_cisco_config_text
-from services.settings.exceptions import SourceConfigError
-from services.settings.settings_service import SettingsService
-from services.sources.git.git_content_search_service import GitContentSearchService
-from services.sources.git.git_source_service import clone_or_pull
 from workflow_steps.common.device_builders import device_context_from_config_match
 from workflow_steps.common.fan_out import build_fan_out_metadata
+from workflow_steps.common.git_repository_loader import load_git_repository
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -27,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _ParsedGetFromConfig:
-    git_source_id: str
+    git_repository_id: int
     search_text: str
     directory: str
     file_filter: str
@@ -37,14 +35,14 @@ class _ParsedGetFromConfig:
 
 
 def _parse_get_from_config(config: dict[str, Any]) -> _ParsedGetFromConfig:
-    git_source_id = (config.get("git_source_id") or "").strip()
+    raw_repository_id = config.get("git_repository_id")
     search_text = (config.get("search_text") or "").strip()
-    if not git_source_id:
-        raise ValueError("get-from-config: git_source_id is not configured")
+    if raw_repository_id in (None, ""):
+        raise ValueError("get-from-config: git_repository_id is not configured")
     if not search_text:
         raise ValueError("get-from-config: search_text is not configured")
     return _ParsedGetFromConfig(
-        git_source_id=git_source_id,
+        git_repository_id=int(raw_repository_id),
         search_text=search_text,
         directory=(config.get("directory") or "").strip(),
         file_filter=(config.get("file_filter") or "").strip(),
@@ -55,26 +53,18 @@ def _parse_get_from_config(config: dict[str, Any]) -> _ParsedGetFromConfig:
 
 
 async def _load_git_repo_for_search(
-    git_source_id: str,
+    git_repository_id: int,
     loop: asyncio.AbstractEventLoop,
 ) -> tuple[Any, Any]:
-    db = get_db_session()
-    try:
-        try:
-            source_config = SettingsService(db).get_source_config_for_step("git", git_source_id)
-        except SourceConfigError as exc:
-            raise ValueError(f"get-from-config: {exc}") from exc
-    finally:
-        db.close()
-
-    repo_dir = await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
-    return source_config, repo_dir
+    repository = await loop.run_in_executor(None, lambda: load_git_repository(git_repository_id))
+    repo_dir = await loop.run_in_executor(None, lambda: clone_or_pull(repository))
+    return repository, repo_dir
 
 
 def _devices_from_config_matches(
     matches: list[Any],
     *,
-    git_source_id: str,
+    git_repository_id: int,
     run_id: Any,
 ) -> dict[str, DeviceContext]:
     new_devices: dict[str, DeviceContext] = {}
@@ -104,7 +94,7 @@ def _devices_from_config_matches(
 
         new_devices[key] = device_context_from_config_match(
             hostname,
-            source_id=git_source_id,
+            source_id=str(git_repository_id),
             file_path=match.file_path,
             commit=match.commit,
         )
@@ -117,7 +107,7 @@ def _build_get_from_config_outcome(
     context: WorkflowContext,
     node_id: str,
     config: dict[str, Any],
-    git_source_id: str,
+    git_repository_id: int,
     devices_by_id: dict[str, DeviceContext],
     matches_found: int,
     files_scanned: int,
@@ -126,7 +116,7 @@ def _build_get_from_config_outcome(
 
     metadata_update: dict[str, Any] = {
         **context.metadata,
-        f"{node_id}.source_id": git_source_id,
+        f"{node_id}.git_repository_id": git_repository_id,
         f"{node_id}.total": len(devices_by_id),
         f"{node_id}.files_scanned": files_scanned,
         f"{node_id}.matches_found": matches_found,
@@ -163,19 +153,18 @@ async def execute(
     parsed = _parse_get_from_config(config)
 
     logger.info(
-        "get-from-config started run_id=%s git_source_id=%s search_text_len=%d",
+        "get-from-config started run_id=%s git_repository_id=%s search_text_len=%d",
         run.id,
-        parsed.git_source_id,
+        parsed.git_repository_id,
         len(parsed.search_text),
     )
 
     loop = asyncio.get_running_loop()
-    source_config, repo_dir = await _load_git_repo_for_search(parsed.git_source_id, loop)
+    _repository, repo_dir = await _load_git_repo_for_search(parsed.git_repository_id, loop)
     matches, files_scanned = await loop.run_in_executor(
         None,
         lambda: GitContentSearchService().search(
             repo_dir,
-            source_config,
             directory=parsed.directory,
             file_filter=parsed.file_filter,
             recursive=parsed.recursive,
@@ -185,7 +174,7 @@ async def execute(
         ),
     )
     devices_by_id = _devices_from_config_matches(
-        matches, git_source_id=parsed.git_source_id, run_id=run.id
+        matches, git_repository_id=parsed.git_repository_id, run_id=run.id
     )
     logger.info(
         "get-from-config finished devices=%d matches=%d files_scanned=%d run_id=%s",
@@ -198,7 +187,7 @@ async def execute(
         context=context,
         node_id=node_id,
         config=config,
-        git_source_id=parsed.git_source_id,
+        git_repository_id=parsed.git_repository_id,
         devices_by_id=devices_by_id,
         matches_found=len(matches),
         files_scanned=files_scanned,

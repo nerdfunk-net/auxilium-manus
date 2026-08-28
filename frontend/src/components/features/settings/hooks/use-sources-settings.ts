@@ -8,10 +8,7 @@ import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
 import { useSettingsListQuery } from "@/hooks/queries/use-settings-query";
 
 import { SOURCES_KEY_PREFIX } from "../constants/setting-keys";
-import type {
-  GitSourceConfig,
-  NautobotSourceConfig,
-} from "../types/settings-api";
+import type { NautobotSourceConfig } from "../types/settings-api";
 import {
   collectExistingSourceIds,
   groupSourceSettings,
@@ -63,7 +60,7 @@ export function useSourcesSettings() {
     [mattermost],
   );
 
-  const { nautobot, git } = useMemo(
+  const { nautobot } = useMemo(
     () => groupSourceSettings(data?.settings ?? []),
     [data?.settings],
   );
@@ -72,17 +69,9 @@ export function useSourcesSettings() {
     () => new Map(nautobot.map((item) => [item.sourceId, item])),
     [nautobot],
   );
-  const gitById = useMemo(
-    () => new Map(git.map((item) => [item.sourceId, item])),
-    [git],
-  );
 
   const existingNautobotIds = useMemo(
     () => collectExistingSourceIds(data?.settings ?? [], "nautobot"),
-    [data?.settings],
-  );
-  const existingGitIds = useMemo(
-    () => collectExistingSourceIds(data?.settings ?? [], "git"),
     [data?.settings],
   );
 
@@ -90,25 +79,17 @@ export function useSourcesSettings() {
     dialog,
     setDialog,
     nautobotById,
-    gitById,
   });
 
   const nautobotDialogOpen = dialog.type === "nautobot" ? dialog : null;
-  const gitDialogOpen = dialog.type === "git" ? dialog : null;
   const iseDialogOpen = dialog.type === "ise" ? dialog : null;
   const pyatsDialogOpen = dialog.type === "pyats" ? dialog : null;
   const mattermostDialogOpen = dialog.type === "mattermost" ? dialog : null;
   const deleteDialogOpen = dialog.type === "delete" ? dialog : null;
-  const removeAndCloneDialogOpen =
-    dialog.type === "remove-and-clone" ? dialog : null;
 
   const editingNautobot: NautobotSourceConfig | null =
     nautobotDialogOpen?.mode === "edit" && nautobotDialogOpen.sourceId
       ? (nautobotById.get(nautobotDialogOpen.sourceId) ?? null)
-      : null;
-  const editingGit: GitSourceConfig | null =
-    gitDialogOpen?.mode === "edit" && gitDialogOpen.sourceId
-      ? (gitById.get(gitDialogOpen.sourceId) ?? null)
       : null;
   const editingIseValue = useMemo(() => {
     if (iseDialogOpen?.mode !== "edit" || !iseDialogOpen.sourceId) {
@@ -171,7 +152,6 @@ export function useSourcesSettings() {
       setDialog,
       isLoading,
       nautobot,
-      git,
       ise,
       pyats,
       mattermost,
@@ -179,12 +159,10 @@ export function useSourcesSettings() {
       isPyatsLoading,
       isMattermostLoading,
       existingNautobotIds,
-      existingGitIds,
       existingIseIds,
       existingPyatsIds,
       existingMattermostIds,
       saveNautobot: saveHandlers.saveNautobot,
-      saveGit: saveHandlers.saveGit,
       saveIse: saveHandlers.saveIse,
       updateIse: saveHandlers.updateIse,
       savePyats: saveHandlers.savePyats,
@@ -192,17 +170,12 @@ export function useSourcesSettings() {
       saveMattermost: saveHandlers.saveMattermost,
       updateMattermost: saveHandlers.updateMattermost,
       confirmDelete: saveHandlers.confirmDelete,
-      handlePullGit: saveHandlers.handlePullGit,
-      confirmRemoveAndClone: saveHandlers.confirmRemoveAndClone,
       nautobotDialogOpen,
-      gitDialogOpen,
       iseDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
       deleteDialogOpen,
-      removeAndCloneDialogOpen,
       editingNautobot,
-      editingGit,
       editingIseValue,
       editingPyatsValue,
       editingMattermostValue,
@@ -214,13 +187,11 @@ export function useSourcesSettings() {
       updatePyatsSourceIsPending: saveHandlers.updatePyatsSourceIsPending,
       createMattermostSourceIsPending: saveHandlers.createMattermostSourceIsPending,
       updateMattermostSourceIsPending: saveHandlers.updateMattermostSourceIsPending,
-      removeAndCloneGitSourceIsPending: saveHandlers.removeAndCloneGitSourceIsPending,
     }),
     [
       dialog,
       isLoading,
       nautobot,
-      git,
       ise,
       pyats,
       mattermost,
@@ -228,20 +199,16 @@ export function useSourcesSettings() {
       isPyatsLoading,
       isMattermostLoading,
       existingNautobotIds,
-      existingGitIds,
       existingIseIds,
       existingPyatsIds,
       existingMattermostIds,
       saveHandlers,
       nautobotDialogOpen,
-      gitDialogOpen,
       iseDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
       deleteDialogOpen,
-      removeAndCloneDialogOpen,
       editingNautobot,
-      editingGit,
       editingIseValue,
       editingPyatsValue,
       editingMattermostValue,

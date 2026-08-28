@@ -74,7 +74,7 @@ def _push_operation(
     return {
         "success": True,
         "operation": "push",
-        "git_source_id": repository.get("source_id") or repository.get("name"),
+        "git_repository_id": repository.get("id"),
         "path": str(repo_path),
         "branch": push_result.branch or repository.get("branch", "main"),
         "committed": committed,

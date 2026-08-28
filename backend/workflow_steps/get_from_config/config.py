@@ -1,6 +1,6 @@
 def get_config() -> dict:
     return {
-        "git_source_id": "",
+        "git_repository_id": None,
         "directory": "",
         "file_filter": "",
         "recursive": True,

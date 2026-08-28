@@ -2,17 +2,12 @@
 
 import { useCallback } from "react";
 
-import {
-  usePullGitSourceMutation,
-  useRemoveAndCloneGitSourceMutation,
-} from "@/hooks/queries/use-git-source-operations-mutations";
 import { useISESourcesMutations } from "@/hooks/queries/use-ise-sources-mutations";
 import { useMattermostSourcesMutations } from "@/hooks/queries/use-mattermost-sources-mutations";
 import { usePyATSSourcesMutations } from "@/hooks/queries/use-pyats-sources-mutations";
 import { useSettingsMutations } from "@/hooks/queries/use-settings-mutations";
 
 import type {
-  GitSourceValue,
   ISESourceCreatePayload,
   ISESourceUpdatePayload,
   MattermostSourceCreatePayload,
@@ -24,34 +19,28 @@ import type {
 export type SourcesDialogState =
   | { type: "closed" }
   | { type: "nautobot"; mode: "create" | "edit"; sourceId?: string }
-  | { type: "git"; mode: "create" | "edit"; sourceId?: string }
   | { type: "ise"; mode: "create" | "edit"; sourceId?: string }
   | { type: "pyats"; mode: "create" | "edit"; sourceId?: string }
   | { type: "mattermost"; mode: "create" | "edit"; sourceId?: string }
   | {
       type: "delete";
-      sourceType: "nautobot" | "git" | "ise" | "pyats" | "mattermost";
+      sourceType: "nautobot" | "ise" | "pyats" | "mattermost";
       sourceId: string;
       key: string;
-    }
-  | { type: "remove-and-clone"; sourceId: string };
+    };
 
 interface UseSourcesSettingsSaveOptions {
   dialog: SourcesDialogState;
   setDialog: (state: SourcesDialogState) => void;
   nautobotById: Map<string, unknown>;
-  gitById: Map<string, unknown>;
 }
 
 export function useSourcesSettingsSave({
   dialog,
   setDialog,
   nautobotById,
-  gitById,
 }: UseSourcesSettingsSaveOptions) {
   const { upsertSetting, deleteSetting } = useSettingsMutations();
-  const pullGitSource = usePullGitSourceMutation();
-  const removeAndCloneGitSource = useRemoveAndCloneGitSourceMutation();
 
   const {
     createSource: createIseSource,
@@ -90,30 +79,6 @@ export function useSourcesSettingsSave({
       setDialog({ type: "closed" });
     },
     [nautobotById, upsertSetting, setDialog],
-  );
-
-  const saveGit = useCallback(
-    async (values: GitSourceValue, settingKey: string, token?: string) => {
-      const exists = gitById.has(values.sourceId);
-      const value: Record<string, unknown> = {
-        url: values.url,
-        branch: values.branch,
-        username: values.username,
-        repository_path: values.repository_path,
-        verify_ssl: values.verifySsl,
-      };
-      if (token) {
-        value.token = token;
-      }
-      await upsertSetting.mutateAsync({
-        key: settingKey,
-        value,
-        description: `Git source ${values.sourceId}`,
-        exists,
-      });
-      setDialog({ type: "closed" });
-    },
-    [gitById, upsertSetting, setDialog],
   );
 
   const saveIse = useCallback(
@@ -180,24 +145,8 @@ export function useSourcesSettingsSave({
     setDialog({ type: "closed" });
   }, [dialog, deleteSetting, deleteIseSource, deletePyatsSource, deleteMattermostSource, setDialog]);
 
-  const handlePullGit = useCallback(
-    async (sourceId: string) => {
-      await pullGitSource.mutateAsync(sourceId);
-    },
-    [pullGitSource],
-  );
-
-  const confirmRemoveAndClone = useCallback(async () => {
-    if (dialog.type !== "remove-and-clone") {
-      return;
-    }
-    await removeAndCloneGitSource.mutateAsync(dialog.sourceId);
-    setDialog({ type: "closed" });
-  }, [dialog, removeAndCloneGitSource, setDialog]);
-
   return {
     saveNautobot,
-    saveGit,
     saveIse,
     updateIse,
     savePyats,
@@ -205,8 +154,6 @@ export function useSourcesSettingsSave({
     saveMattermost,
     updateMattermost,
     confirmDelete,
-    handlePullGit,
-    confirmRemoveAndClone,
     upsertSettingIsPending: upsertSetting.isPending,
     createIseSourceIsPending: createIseSource.isPending,
     updateIseSourceIsPending: updateIseSource.isPending,
@@ -214,7 +161,6 @@ export function useSourcesSettingsSave({
     updatePyatsSourceIsPending: updatePyatsSource.isPending,
     createMattermostSourceIsPending: createMattermostSource.isPending,
     updateMattermostSourceIsPending: updateMattermostSource.isPending,
-    removeAndCloneGitSourceIsPending: removeAndCloneGitSource.isPending,
     deleteIseSourceIsPending: deleteIseSource.isPending,
     deletePyatsSourceIsPending: deletePyatsSource.isPending,
     deleteMattermostSourceIsPending: deleteMattermostSource.isPending,

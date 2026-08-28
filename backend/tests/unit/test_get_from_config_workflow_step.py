@@ -7,8 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from models.workflow_context import Capability, WorkflowContext
-from services.settings.exceptions import SourceConfigError
-from services.sources.git.git_content_search_service import GitContentMatch
+from services.git.content_search_service import GitContentMatch
 from workflow_steps.get_from_config.executor import execute as get_from_config
 
 _MODULE = "workflow_steps.get_from_config.executor"
@@ -20,20 +19,19 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.run.id = 7
         self.artifact_service = MagicMock()
         self.context = WorkflowContext(run_id="run-uuid-1", workflow_id="wf-1")
-        self.source_config = {"source_id": "prod-lab", "url": "https://example.com/repo.git"}
+        self.repository = {
+            "id": 7,
+            "name": "prod-lab",
+            "url": "https://example.com/repo.git",
+        }
 
     def _patch_common(self, *, matches: list[GitContentMatch]):
         search_service = MagicMock()
         search_service.search.return_value = (matches, len(matches))
         search_service_cls = MagicMock(return_value=search_service)
 
-        settings_service = MagicMock()
-        settings_service.get_source_config_for_step.return_value = self.source_config
-        settings_service_cls = MagicMock(return_value=settings_service)
-
         return (
-            patch(f"{_MODULE}.get_db_session", return_value=MagicMock()),
-            patch(f"{_MODULE}.SettingsService", settings_service_cls),
+            patch(f"{_MODULE}.load_git_repository", return_value=self.repository),
             patch(f"{_MODULE}.clone_or_pull", return_value=Path("/tmp/prod-lab")),
             patch(f"{_MODULE}.GitContentSearchService", search_service_cls),
         )
@@ -52,9 +50,9 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         patches = self._patch_common(matches=matches)
-        with patches[0], patches[1], patches[2], patches[3]:
+        with patches[0], patches[1], patches[2]:
             outcomes = await get_from_config(
-                config={"git_source_id": "prod-lab", "search_text": "FINDME"},
+                config={"git_repository_id": 7, "search_text": "FINDME"},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -96,9 +94,9 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         patches = self._patch_common(matches=matches)
-        with patches[0], patches[1], patches[2], patches[3]:
+        with patches[0], patches[1], patches[2]:
             outcomes = await get_from_config(
-                config={"git_source_id": "prod-lab", "search_text": "FINDME"},
+                config={"git_repository_id": 7, "search_text": "FINDME"},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -126,9 +124,9 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         patches = self._patch_common(matches=matches)
-        with patches[0], patches[1], patches[2], patches[3]:
+        with patches[0], patches[1], patches[2]:
             outcomes = await get_from_config(
-                config={"git_source_id": "prod-lab", "search_text": "FINDME"},
+                config={"git_repository_id": 7, "search_text": "FINDME"},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -140,9 +138,9 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_zero_matches_is_trivial_success(self) -> None:
         patches = self._patch_common(matches=[])
-        with patches[0], patches[1], patches[2], patches[3]:
+        with patches[0], patches[1], patches[2]:
             outcomes = await get_from_config(
-                config={"git_source_id": "prod-lab", "search_text": "NOTHING"},
+                config={"git_repository_id": 7, "search_text": "NOTHING"},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -168,10 +166,10 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         patches = self._patch_common(matches=matches)
-        with patches[0], patches[1], patches[2], patches[3]:
+        with patches[0], patches[1], patches[2]:
             outcomes = await get_from_config(
                 config={
-                    "git_source_id": "prod-lab",
+                    "git_repository_id": 7,
                     "search_text": "FINDME",
                     "fan_out": {"enabled": True, "mode": "per_device"},
                 },
@@ -186,7 +184,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(fan_out["enabled"])
         self.assertEqual(fan_out["mode"], "per_device")
 
-    async def test_missing_git_source_id_raises(self) -> None:
+    async def test_missing_git_repository_id_raises(self) -> None:
         with self.assertRaises(ValueError):
             await get_from_config(
                 config={"search_text": "FINDME"},
@@ -200,7 +198,7 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_search_text_raises(self) -> None:
         with self.assertRaises(ValueError):
             await get_from_config(
-                config={"git_source_id": "prod-lab"},
+                config={"git_repository_id": 7},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -208,20 +206,16 @@ class GetFromConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-    async def test_source_config_error_surfaces_as_value_error(self) -> None:
-        settings_service = MagicMock()
-        settings_service.get_source_config_for_step.side_effect = SourceConfigError(
-            "Git source 'prod-lab' not found in settings"
-        )
-        settings_service_cls = MagicMock(return_value=settings_service)
-
+    async def test_repository_lookup_error_surfaces_as_value_error(self) -> None:
         with (
-            patch(f"{_MODULE}.get_db_session", return_value=MagicMock()),
-            patch(f"{_MODULE}.SettingsService", settings_service_cls),
+            patch(
+                f"{_MODULE}.load_git_repository",
+                side_effect=ValueError("Git repository 7 not found"),
+            ),
             self.assertRaises(ValueError),
         ):
             await get_from_config(
-                config={"git_source_id": "prod-lab", "search_text": "FINDME"},
+                config={"git_repository_id": 7, "search_text": "FINDME"},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,

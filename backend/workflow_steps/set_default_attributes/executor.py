@@ -70,13 +70,15 @@ def _defaults_from_manual_config(attributes: dict[str, Any]) -> dict[str, Any]:
 
 def _defaults_from_git(config: dict[str, Any]) -> dict[str, Any]:
     git_config = config.get("git") or {}
-    git_source_id = str(git_config.get("git_source_id") or "").strip()
+    raw_repository_id = git_config.get("git_repository_id")
+    git_repository_id = int(raw_repository_id) if raw_repository_id not in (None, "") else None
     filename_pattern = str(git_config.get("filename_pattern") or "").strip()
 
     parsed = load_yaml_from_git_source(
-        git_source_id=git_source_id,
+        git_repository_id=git_repository_id,
         filename_pattern=filename_pattern,
         step_id=_STEP_ID,
+        directory=str(git_config.get("directory") or "").strip(),
     )
     devices_block = parsed.get("devices") if isinstance(parsed, dict) else None
     if not isinstance(devices_block, dict):

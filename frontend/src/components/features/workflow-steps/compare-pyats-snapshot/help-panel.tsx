@@ -116,7 +116,7 @@ export function ComparePyatsSnapshotHelpPanel() {
           <li>
             <span className="font-medium text-foreground">Git repository</span> —{" "}
             <HelpCode>reference_location: git</HelpCode>. Files from a git source in
-            Settings → Sources.
+            Settings → Git Repositories.
           </li>
         </ul>
       </HelpSection>
@@ -144,7 +144,7 @@ export function ComparePyatsSnapshotHelpPanel() {
         <p>When reference location is git, configure:</p>
         <ul className="list-disc space-y-1 pl-4">
           <li>
-            <HelpCode>git_source_id</HelpCode> — repository from Settings → Sources
+            <HelpCode>git_repository_id</HelpCode> — repository from Settings → Git Repositories
             (click Choose repository).
           </li>
           <li>
@@ -159,7 +159,7 @@ export function ComparePyatsSnapshotHelpPanel() {
         <HelpExample>
           reference_location: git
           <br />
-          git_source_id: config-repo
+          git_repository_id: 3
           <br />
           repository_subdirectory: network/snapshots
           <br />

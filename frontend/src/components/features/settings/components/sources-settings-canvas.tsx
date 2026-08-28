@@ -1,6 +1,6 @@
 "use client";
 
-import { FlaskConical, GitBranch, MessageSquare, Network, ShieldCheck } from "lucide-react";
+import { FlaskConical, MessageSquare, Network, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/dialog";
 
 import { buildSourceSettingKey } from "../constants/setting-keys";
-import { GitSourceDialog } from "../dialogs/git-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
 import { MattermostSourceDialog } from "../dialogs/mattermost-source-dialog";
 import { NautobotSourceDialog } from "../dialogs/nautobot-source-dialog";
@@ -35,28 +34,25 @@ export function SourcesSettingsCanvas() {
             <div>
               <p className="text-sm font-semibold">Sources</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add multiple Nautobot, Git, Cisco ISE, and pyATS connections.
-                Each instance needs a unique source ID for workflow step
-                references (e.g.{" "}
+                Add multiple Nautobot, Cisco ISE, and pyATS connections. Each
+                instance needs a unique source ID for workflow step references
+                (e.g.{" "}
                 <code className="rounded bg-muted px-1 text-xs">prod-lab</code>
-                ).
+                ). Git repositories are configured under Settings → Git
+                Repositories.
               </p>
             </div>
           </div>
 
           <div className="space-y-8 rounded-xl border border-dashed bg-muted/30 p-6">
             <p className="text-sm text-muted-foreground">
-              Nautobot and Git connections are stored in PostgreSQL via{" "}
+              Nautobot connections are stored in PostgreSQL via{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 /api/settings
               </code>{" "}
               as{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 sources.nautobot.&lt;id&gt;
-              </code>{" "}
-              and{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                sources.git.&lt;id&gt;
               </code>
               . Cisco ISE connections are stored the same way, with the
               password kept in the encrypted credentials store.
@@ -87,38 +83,6 @@ export function SourcesSettingsCanvas() {
                   sourceId,
                   key: buildSourceSettingKey("nautobot", sourceId),
                 })
-              }
-            />
-
-            <SourceListSection
-              title="Git repositories"
-              description="Version-controlled configuration repositories"
-              icon={GitBranch}
-              isLoading={sources.isLoading}
-              emptyLabel="No Git repositories yet."
-              addLabel="Add Git"
-              items={sources.git.map((item) => ({
-                sourceId: item.sourceId,
-                summary: item.url,
-                detail: item.verifySsl
-                  ? `branch: ${item.branch}`
-                  : `branch: ${item.branch} · TLS verification disabled`,
-              }))}
-              onAdd={() => sources.setDialog({ type: "git", mode: "create" })}
-              onEdit={(sourceId) =>
-                sources.setDialog({ type: "git", mode: "edit", sourceId })
-              }
-              onDelete={(sourceId) =>
-                sources.setDialog({
-                  type: "delete",
-                  sourceType: "git",
-                  sourceId,
-                  key: buildSourceSettingKey("git", sourceId),
-                })
-              }
-              onPull={sources.handlePullGit}
-              onRemoveAndClone={(sourceId) =>
-                sources.setDialog({ type: "remove-and-clone", sourceId })
               }
             />
 
@@ -213,16 +177,6 @@ export function SourcesSettingsCanvas() {
         onSave={sources.saveNautobot}
       />
 
-      <GitSourceDialog
-        open={sources.gitDialogOpen !== null}
-        mode={sources.gitDialogOpen?.mode ?? "create"}
-        initialValue={sources.editingGit}
-        existingSourceIds={sources.existingGitIds}
-        isSaving={sources.upsertSettingIsPending}
-        onClose={() => sources.setDialog({ type: "closed" })}
-        onSave={sources.saveGit}
-      />
-
       <ISESourceDialog
         open={sources.iseDialogOpen !== null}
         mode={sources.iseDialogOpen?.mode ?? "create"}
@@ -257,39 +211,6 @@ export function SourcesSettingsCanvas() {
         onCreate={sources.saveMattermost}
         onUpdate={sources.updateMattermost}
       />
-
-      <Dialog
-        open={sources.removeAndCloneDialogOpen !== null}
-        onOpenChange={(open: boolean) => !open && sources.setDialog({ type: "closed" })}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Remove and re-clone?</DialogTitle>
-            <DialogDescription>
-              {sources.removeAndCloneDialogOpen
-                ? `This will delete the local copy of "${sources.removeAndCloneDialogOpen.sourceId}" and clone it fresh from the remote. Any uncommitted local changes will be lost.`
-                : null}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => sources.setDialog({ type: "closed" })}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={sources.removeAndCloneGitSourceIsPending}
-              type="button"
-              variant="destructive"
-              onClick={sources.confirmRemoveAndClone}
-            >
-              {sources.removeAndCloneGitSourceIsPending ? "Cloning…" : "Remove and Clone"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={sources.deleteDialogOpen !== null}

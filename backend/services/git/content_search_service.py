@@ -1,9 +1,4 @@
-"""Search text inside files of a cloned Git source (current tree + optional history).
-
-Adapted from ``cockpit/backend/services/git/file_search_service.py`` (a separate
-application — logic ported, not imported) for use by the ``get-from-config``
-workflow step and its preview endpoint.
-"""
+"""Search text inside files of a cloned Git repository (current tree + optional history)."""
 
 from __future__ import annotations
 
@@ -12,7 +7,6 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from git import Repo
 
@@ -59,12 +53,11 @@ def _first_match_in_text(content: str, query: str, case_sensitive: bool) -> tupl
 
 
 class GitContentSearchService:
-    """Finds files in a cloned Git source whose content matches a text query."""
+    """Finds files in a cloned Git repository whose content matches a text query."""
 
     def search(
         self,
         repo_dir: Path,
-        source_config: dict[str, Any],
         *,
         directory: str,
         file_filter: str,
@@ -79,11 +72,7 @@ class GitContentSearchService:
             raise ValueError("search_text is required")
 
         repo_root = str(repo_dir)
-        sub_path = "/".join(
-            part.strip("/\\")
-            for part in (source_config.get("repository_path", ""), directory)
-            if part and part.strip("/\\")
-        )
+        sub_path = directory.strip("/\\")
         search_root = _resolve_within_repo(repo_root, sub_path)
 
         candidates = self._list_candidate_files(repo_root, search_root, file_filter, recursive)

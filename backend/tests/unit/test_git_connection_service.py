@@ -1,6 +1,5 @@
 """Unit tests for GitConnectionService — the shared "test connection" implementation
-used by both the Git Repositories feature and (via services.sources.git.git_source_service)
-Settings-based git sources.
+used by the Git Repositories feature.
 """
 
 from __future__ import annotations

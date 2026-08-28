@@ -1,9 +1,5 @@
 import { parseSourceSettingKey } from "../constants/setting-keys";
-import type {
-  GitSourceConfig,
-  NautobotSourceConfig,
-  SettingRecord,
-} from "../types/settings-api";
+import type { NautobotSourceConfig, SettingRecord } from "../types/settings-api";
 
 function parseNautobotValue(
   sourceId: string,
@@ -24,29 +20,6 @@ function parseNautobotValue(
   };
 }
 
-function parseGitValue(
-  sourceId: string,
-  value: Record<string, unknown>,
-  record: SettingRecord,
-): GitSourceConfig | null {
-  if (typeof value.url !== "string" || !value.url) {
-    return null;
-  }
-  return {
-    sourceId,
-    key: record.key,
-    url: value.url,
-    branch: typeof value.branch === "string" ? value.branch : "main",
-    tokenConfigured: Boolean(value.token_configured),
-    username: typeof value.username === "string" ? value.username : "",
-    repository_path:
-      typeof value.repository_path === "string" ? value.repository_path : "",
-    verifySsl: resolveVerifySsl(value),
-    description: record.description,
-    updatedAt: record.updated_at,
-  };
-}
-
 function resolveVerifySsl(value: Record<string, unknown>): boolean {
   if (typeof value.verify_ssl === "boolean") {
     return value.verify_ssl;
@@ -59,30 +32,17 @@ function resolveVerifySsl(value: Record<string, unknown>): boolean {
 
 export function groupSourceSettings(settings: SettingRecord[]): {
   nautobot: NautobotSourceConfig[];
-  git: GitSourceConfig[];
 } {
   const nautobot: NautobotSourceConfig[] = [];
-  const git: GitSourceConfig[] = [];
 
   for (const record of settings) {
     const parsed = parseSourceSettingKey(record.key);
-    if (!parsed) {
+    if (!parsed || parsed.sourceType !== "nautobot") {
       continue;
     }
-    if (parsed.sourceType === "nautobot") {
-      const config = parseNautobotValue(
-        parsed.sourceId,
-        record.value,
-        record,
-      );
-      if (config) {
-        nautobot.push(config);
-      }
-    } else {
-      const config = parseGitValue(parsed.sourceId, record.value, record);
-      if (config) {
-        git.push(config);
-      }
+    const config = parseNautobotValue(parsed.sourceId, record.value, record);
+    if (config) {
+      nautobot.push(config);
     }
   }
 
@@ -91,13 +51,12 @@ export function groupSourceSettings(settings: SettingRecord[]): {
 
   return {
     nautobot: nautobot.sort(byId),
-    git: git.sort(byId),
   };
 }
 
 export function collectExistingSourceIds(
   settings: SettingRecord[],
-  sourceType: "nautobot" | "git",
+  sourceType: "nautobot",
 ): string[] {
   return settings
     .map((record) => parseSourceSettingKey(record.key))

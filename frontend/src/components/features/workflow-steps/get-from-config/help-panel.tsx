@@ -32,11 +32,11 @@ export function GetFromConfigHelpPanel() {
         </p>
       </HelpSection>
 
-      <HelpSection title="Git source">
+      <HelpSection title="Git repository">
         <p>
-          Choose a source created under Settings → Sources → Git. The step
-          stores that source&apos;s ID as <HelpCode>git_source_id</HelpCode>{" "}
-          (normalised to lowercase).
+          Choose a repository created under Settings → Git Repositories. The step
+          stores that repository&apos;s numeric ID as{" "}
+          <HelpCode>git_repository_id</HelpCode>.
         </p>
         <HelpWarning title="Source required">
           <p>

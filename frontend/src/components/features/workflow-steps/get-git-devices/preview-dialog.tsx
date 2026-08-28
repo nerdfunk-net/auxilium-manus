@@ -16,14 +16,14 @@ interface GitDevicesPreviewDialogProps {
   open: boolean;
   onClose: () => void;
   devices: GitDevicePreview[];
-  sourceId: string;
+  repositoryId: number | null;
 }
 
 export function GitDevicesPreviewDialog({
   open,
   onClose,
   devices,
-  sourceId,
+  repositoryId,
 }: GitDevicesPreviewDialogProps) {
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -32,9 +32,9 @@ export function GitDevicesPreviewDialog({
           <DialogTitle>Device Preview</DialogTitle>
           <DialogDescription>
             {devices.length} device{devices.length !== 1 ? "s" : ""} found in
-            source{" "}
+            repository{" "}
             <code className="rounded bg-muted px-1 font-mono text-xs">
-              {sourceId}
+              {repositoryId}
             </code>
           </DialogDescription>
         </DialogHeader>

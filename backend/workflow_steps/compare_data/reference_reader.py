@@ -10,7 +10,7 @@ from typing import Any
 from core.config import settings
 from services.git.paths import repo_path as get_repo_path
 from services.workflow_context.device_template import sanitize_relative_path
-from workflow_steps.common.git_source_loader import load_git_source_repository
+from workflow_steps.common.git_repository_loader import load_git_repository
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +92,11 @@ async def _read_git_async(config: dict[str, Any], relative_path: str) -> str:
     from workflow_steps.compare_data.config import get_config
 
     defaults = get_config()
-    git_source_id = str(config.get("git_source_id") or "").strip().lower()
-    if not git_source_id:
-        raise ValueError("compare-data: git_source_id is required when reference_location=git")
+    raw_repository_id = config.get("git_repository_id")
+    if raw_repository_id in (None, ""):
+        raise ValueError("compare-data: git_repository_id is required when reference_location=git")
 
-    repository = load_git_source_repository(git_source_id)
+    repository = load_git_repository(int(raw_repository_id))
     repository_subdirectory = str(
         config.get("repository_subdirectory") or defaults.get("repository_subdirectory") or ""
     )

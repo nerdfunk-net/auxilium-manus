@@ -22,7 +22,7 @@ import type { GitContentSearchPreviewMatch } from "@/hooks/queries/use-get-from-
 import { GetFromConfigPreviewDialog } from "./preview-dialog";
 import { GetFromConfigHelpPanel } from "./help-panel";
 
-const GIT_SOURCE_ID_KEY = "git_source_id";
+const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 const DIRECTORY_KEY = "directory";
 const FILE_FILTER_KEY = "file_filter";
 const RECURSIVE_KEY = "recursive";
@@ -30,9 +30,9 @@ const INCLUDE_HISTORY_KEY = "include_history";
 const SEARCH_TEXT_KEY = "search_text";
 const CASE_SENSITIVE_KEY = "case_sensitive";
 
-function gitSourceIdFromConfig(config: Record<string, unknown>): string {
-  const raw = config[GIT_SOURCE_ID_KEY];
-  return typeof raw === "string" && raw.trim() ? raw.trim().toLowerCase() : "";
+function gitRepositoryIdFromConfig(config: Record<string, unknown>): number | null {
+  const raw = config[GIT_REPOSITORY_ID_KEY];
+  return typeof raw === "number" ? raw : null;
 }
 
 function stringFromConfig(config: Record<string, unknown>, key: string): string {
@@ -48,7 +48,7 @@ function boolFromConfig(config: Record<string, unknown>, key: string, fallback: 
 function GetFromConfigConfigPanel(props: PluginConfigPanelProps) {
   const { config, onChange } = props;
 
-  const sourceId = useMemo(() => gitSourceIdFromConfig(config), [config]);
+  const repositoryId = useMemo(() => gitRepositoryIdFromConfig(config), [config]);
   const directory = useMemo(() => stringFromConfig(config, DIRECTORY_KEY), [config]);
   const fileFilter = useMemo(() => stringFromConfig(config, FILE_FILTER_KEY), [config]);
   const searchText = useMemo(() => stringFromConfig(config, SEARCH_TEXT_KEY), [config]);
@@ -94,12 +94,15 @@ function GetFromConfigConfigPanel(props: PluginConfigPanelProps) {
     [config, fanOut, onChange],
   );
 
-  const isConfigured = Boolean(sourceId) && Boolean(searchText.trim());
+  const isConfigured = repositoryId !== null && Boolean(searchText.trim());
 
   const handleShowPreview = useCallback(async () => {
+    if (repositoryId === null) {
+      return;
+    }
     try {
       const result = await runPreview({
-        git_source_id: sourceId,
+        git_repository_id: repositoryId,
         directory,
         file_filter: fileFilter,
         recursive,
@@ -114,7 +117,7 @@ function GetFromConfigConfigPanel(props: PluginConfigPanelProps) {
     }
   }, [
     runPreview,
-    sourceId,
+    repositoryId,
     directory,
     fileFilter,
     recursive,
@@ -127,7 +130,7 @@ function GetFromConfigConfigPanel(props: PluginConfigPanelProps) {
     <div className="flex flex-col gap-4">
       <GitSourceConfigPanel
         {...props}
-        description="Git source to search for matching config files."
+        description="Git repository to search for matching config files."
       />
 
       <div className="space-y-1.5">
@@ -224,7 +227,7 @@ function GetFromConfigConfigPanel(props: PluginConfigPanelProps) {
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         matches={previewMatches}
-        sourceId={sourceId}
+        repositoryId={repositoryId}
       />
     </div>
   );

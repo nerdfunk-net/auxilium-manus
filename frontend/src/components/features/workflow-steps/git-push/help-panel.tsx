@@ -29,16 +29,16 @@ export function GitPushHelpPanel() {
         </p>
       </HelpSection>
 
-      <HelpSection title="git_source_id">
+      <HelpSection title="git_repository_id">
         <p>
           Click{" "}
           <span className="font-medium text-foreground">Choose repository</span>{" "}
-          (or Change repository) and select a git source from Settings → Sources.
-          Stored as <HelpCode>git_source_id</HelpCode> (lowercase). Must match Git
-          Clone, Store Artifact, and Git Pull steps in the same workflow.
+          (or Change repository) and select a repository from Settings → Git Repositories.
+          Stored as <HelpCode>git_repository_id</HelpCode>. Must match Git Clone, Store
+          Artifact, and Git Pull steps in the same workflow.
         </p>
         <HelpExample>
-          git_source_id: network-configs
+          git_repository_id: 3
           <br />
           <span className="text-muted-foreground">
             → push the local branch for that source to its configured remote
@@ -46,7 +46,7 @@ export function GitPushHelpPanel() {
         </HelpExample>
         <HelpWarning title="Source required">
           <p>
-            Without <HelpCode>git_source_id</HelpCode> the step cannot push. Ensure a
+            Without <HelpCode>git_repository_id</HelpCode> the step cannot push. Ensure a
             clone exists and commits are present if you expect changes on the remote.
           </p>
         </HelpWarning>
@@ -112,7 +112,7 @@ export function GitPushHelpPanel() {
 
       <HelpSection title="Typical setup">
         <ol className="list-decimal space-y-1.5 pl-4">
-          <li>Git Clone for <HelpCode>git_source_id</HelpCode>.</li>
+          <li>Git Clone for <HelpCode>git_repository_id</HelpCode>.</li>
           <li>Store Artifact (git) with commits; or filesystem exports then Fan In.</li>
           <li>
             Git Push after Fan In with <HelpCode>commit_before_push</HelpCode> and a

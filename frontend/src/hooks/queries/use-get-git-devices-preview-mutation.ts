@@ -22,8 +22,9 @@ export interface GitPreviewResponse {
 }
 
 interface GitPreviewRequest {
-  git_source_id: string;
+  git_repository_id: number;
   filename_pattern: string;
+  directory: string;
 }
 
 export function useGetGitDevicesPreviewMutation() {
@@ -31,10 +32,11 @@ export function useGetGitDevicesPreviewMutation() {
 
   return useMutation({
     mutationFn: async (request: GitPreviewRequest) => {
-      return apiCall<GitPreviewResponse>("sources/git/preview", {
+      const { git_repository_id, ...body } = request;
+      return apiCall<GitPreviewResponse>(`git/${git_repository_id}/preview-devices`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
+        body: JSON.stringify(body),
       });
     },
   });

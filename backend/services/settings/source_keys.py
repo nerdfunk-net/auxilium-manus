@@ -3,18 +3,16 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-SourceType = Literal["nautobot", "git", "ise", "pyats", "mattermost"]
+SourceType = Literal["nautobot", "ise", "pyats", "mattermost"]
 
 SOURCE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 NAUTOBOT_KEY_PREFIX = "sources.nautobot."
-GIT_KEY_PREFIX = "sources.git."
 ISE_KEY_PREFIX = "sources.ise."
 PYATS_KEY_PREFIX = "sources.pyats."
 MATTERMOST_KEY_PREFIX = "sources.mattermost."
 
 _PREFIX_BY_TYPE: dict[SourceType, str] = {
     "nautobot": NAUTOBOT_KEY_PREFIX,
-    "git": GIT_KEY_PREFIX,
     "ise": ISE_KEY_PREFIX,
     "pyats": PYATS_KEY_PREFIX,
     "mattermost": MATTERMOST_KEY_PREFIX,

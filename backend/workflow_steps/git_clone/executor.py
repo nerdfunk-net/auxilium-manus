@@ -25,7 +25,7 @@ def _clone_operation(
     return {
         "success": True,
         "operation": "clone",
-        "git_source_id": repository.get("source_id") or repository.get("name"),
+        "git_repository_id": repository.get("id"),
         "path": str(repo_path),
         "branch": repository.get("branch", "main"),
         "message": "Repository cloned successfully",

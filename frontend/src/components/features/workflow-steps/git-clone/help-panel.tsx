@@ -23,26 +23,26 @@ export function GitCloneHelpPanel() {
         </p>
         <p>
           Downstream steps such as Get from Git, Store Artifact (git), Git Pull, and
-          Git Push all reference the same <HelpCode>git_source_id</HelpCode> working
+          Git Push all reference the same <HelpCode>git_repository_id</HelpCode> working
           tree once it exists.
         </p>
       </HelpSection>
 
-      <HelpSection title="git_source_id">
+      <HelpSection title="git_repository_id">
         <p>
           Click{" "}
           <span className="font-medium text-foreground">Choose repository</span>{" "}
-          (or Change repository) and select a git source created under Settings →
-          Sources. The step stores that source&apos;s ID as{" "}
-          <HelpCode>git_source_id</HelpCode> (normalized to lowercase).
+          (or Change repository) and select a repository created under Settings →
+          Git Repositories. The step stores that repository&apos;s numeric ID as{" "}
+          <HelpCode>git_repository_id</HelpCode>.
         </p>
         <p>
-          Credentials and remote URL are resolved from settings at run time — they are
-          not pasted into the step config. Same source picker as Get from Git and
-          Store Artifact.
+          Credentials and remote URL are resolved from the repository configuration
+          at run time — they are not pasted into the step config. Same repository
+          picker as Get from Git and Store Artifact.
         </p>
         <HelpExample>
-          git_source_id: network-configs
+          git_repository_id: 3
           <br />
           <span className="text-muted-foreground">
             → clone https://git.example.com/network/configs.git into the worker cache
@@ -50,7 +50,7 @@ export function GitCloneHelpPanel() {
         </HelpExample>
         <HelpWarning title="Source required">
           <p>
-            Without a valid <HelpCode>git_source_id</HelpCode> the step cannot clone.
+            Without a valid <HelpCode>git_repository_id</HelpCode> the step cannot clone.
             Configuration shows &quot;Not configured&quot; until you pick a repository.
           </p>
         </HelpWarning>
@@ -59,7 +59,7 @@ export function GitCloneHelpPanel() {
       <HelpWarning title="Not fan-out-safe for the same source">
         <p>
           If the workflow fans out per device, do not run Git Clone on every child
-          against the same <HelpCode>git_source_id</HelpCode> — parallel clones and
+          against the same <HelpCode>git_repository_id</HelpCode> — parallel clones and
           writes contend for one working tree.
         </p>
         <p>
@@ -79,7 +79,7 @@ export function GitCloneHelpPanel() {
           </li>
           <li>
             <span className="font-medium text-foreground">failure</span> — clone failed
-            (bad credentials, network, or missing source). Fix Settings → Sources and
+            (bad credentials, network, or missing source). Fix Settings → Git Repositories and
             check run logs.
           </li>
         </ul>
@@ -87,10 +87,10 @@ export function GitCloneHelpPanel() {
 
       <HelpSection title="Typical setup">
         <ol className="list-decimal space-y-1.5 pl-4">
-          <li>Configure a git source under Settings → Sources.</li>
+          <li>Configure a git source under Settings → Git Repositories.</li>
           <li>
             Add Git Clone as the first git step; select the same{" "}
-            <HelpCode>git_source_id</HelpCode> later steps will use.
+            <HelpCode>git_repository_id</HelpCode> later steps will use.
           </li>
           <li>
             Follow with Get from Git, Store Artifact, or Git Pull/Push as needed — after

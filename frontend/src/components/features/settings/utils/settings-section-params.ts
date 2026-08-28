@@ -8,7 +8,7 @@ const VALID_SECTIONS: SettingsSection[] = [
   "hatchet",
   "redis",
   "logging",
-  "version-control",
+  "git-repositories",
 ];
 
 export function parseSettingsSection(value: string): SettingsSection | null {

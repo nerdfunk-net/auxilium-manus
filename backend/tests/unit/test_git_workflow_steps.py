@@ -45,7 +45,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                "workflow_steps.common.git_workflow_step.load_git_repository",
                 return_value=self.repository,
             ),
             patch(
@@ -54,7 +54,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             outcomes = await git_clone(
-                config={"git_source_id": "prod-configs"},
+                config={"git_repository_id": 7},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -76,7 +76,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                "workflow_steps.common.git_workflow_step.load_git_repository",
                 return_value=self.repository,
             ),
             patch(
@@ -85,7 +85,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             outcomes = await git_pull(
-                config={"git_source_id": "prod-configs"},
+                config={"git_repository_id": 7},
                 context=self.context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -124,7 +124,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                "workflow_steps.common.git_workflow_step.load_git_repository",
                 return_value=self.repository,
             ),
             patch(
@@ -134,7 +134,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
         ):
             outcomes = await git_push(
                 config={
-                    "git_source_id": "prod-configs",
+                    "git_repository_id": 7,
                     "commit_message_template": "backup {run.id}",
                 },
                 context=context,
@@ -173,7 +173,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "workflow_steps.common.git_workflow_step.load_git_source_repository",
+                "workflow_steps.common.git_workflow_step.load_git_repository",
                 return_value=self.repository,
             ),
             patch(
@@ -182,7 +182,7 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             outcomes = await git_push(
-                config={"git_source_id": "prod-configs"},
+                config={"git_repository_id": 7},
                 context=empty_context,
                 run=self.run,
                 artifact_service=self.artifact_service,
@@ -195,9 +195,9 @@ class GitWorkflowStepTests(unittest.IsolatedAsyncioTestCase):
         operation = outcomes[0].context.metadata["git-push-1.git_operation"]
         self.assertTrue(operation["pushed"])
 
-    async def test_missing_git_source_id_returns_failure(self) -> None:
+    async def test_missing_git_repository_id_returns_failure(self) -> None:
         outcomes = await git_clone(
-            config={"git_source_id": ""},
+            config={"git_repository_id": None},
             context=WorkflowContext(run_id="run-uuid-1", workflow_id="wf-1"),
             run=self.run,
             artifact_service=self.artifact_service,

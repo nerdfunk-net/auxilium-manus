@@ -20,13 +20,12 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.general.general_settings_service import GeneralSettingsService
-from services.settings.exceptions import SourceConfigError
-from services.settings.settings_service import SettingsService
-from services.sources.git.git_source_service import clone_or_pull
+from services.git.sync import clone_or_pull
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     render_device_template,
 )
+from workflow_steps.common.git_repository_loader import load_git_repository
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -40,7 +39,7 @@ _SOURCES = frozenset({"filesystem", "git"})
 @dataclass(frozen=True)
 class _ParsedReadConfig:
     source: str
-    git_source_id: str
+    git_repository_id: int | None
     path_template: str
     overwrite_existing: bool
 
@@ -59,9 +58,10 @@ def _parse_read_config(config: dict[str, Any]) -> _ParsedReadConfig:
     if source not in _SOURCES:
         raise ValueError(f"{_STEP_ID}: source must be one of {sorted(_SOURCES)}")
 
-    git_source_id = str(config.get("git_source_id") or "").strip().lower()
-    if source == "git" and not git_source_id:
-        raise ValueError(f"{_STEP_ID}: git_source_id is required when source=git")
+    raw_repository_id = config.get("git_repository_id")
+    git_repository_id = int(raw_repository_id) if raw_repository_id not in (None, "") else None
+    if source == "git" and git_repository_id is None:
+        raise ValueError(f"{_STEP_ID}: git_repository_id is required when source=git")
 
     path_template = str(config.get("path_template") or "").strip()
     if not path_template:
@@ -69,7 +69,7 @@ def _parse_read_config(config: dict[str, Any]) -> _ParsedReadConfig:
 
     return _ParsedReadConfig(
         source=source,
-        git_source_id=git_source_id,
+        git_repository_id=git_repository_id,
         path_template=path_template,
         overwrite_existing=_parse_bool(config, "overwrite_existing"),
     )
@@ -83,17 +83,9 @@ def _resolve_filesystem_root() -> Path:
         db.close()
 
 
-async def _resolve_git_root(git_source_id: str, loop: asyncio.AbstractEventLoop) -> Path:
-    db = get_db_session()
-    try:
-        try:
-            source_config = SettingsService(db).get_source_config_for_step("git", git_source_id)
-        except SourceConfigError as exc:
-            raise ValueError(f"{_STEP_ID}: {exc}") from exc
-    finally:
-        db.close()
-
-    return await loop.run_in_executor(None, lambda: clone_or_pull(source_config))
+async def _resolve_git_root(git_repository_id: int, loop: asyncio.AbstractEventLoop) -> Path:
+    repository = await loop.run_in_executor(None, lambda: load_git_repository(git_repository_id))
+    return await loop.run_in_executor(None, lambda: clone_or_pull(repository))
 
 
 def _resolve_target_path(root: Path, relative_path: str) -> Path:
@@ -224,7 +216,7 @@ async def execute(
 
     loop = asyncio.get_running_loop()
     if parsed.source == "git":
-        root = await _resolve_git_root(parsed.git_source_id, loop)
+        root = await _resolve_git_root(parsed.git_repository_id, loop)
     else:
         root = await loop.run_in_executor(None, _resolve_filesystem_root)
 

@@ -33,7 +33,6 @@ from routers.netmiko import router as netmiko_router
 from routers.oidc import router as oidc_router
 from routers.rbac import router as rbac_router
 from routers.settings import router as settings_router
-from routers.sources.git.ops import router as git_source_ops_router
 from routers.sources.ise import ise_source_crud_router, ise_source_ops_router
 from routers.sources.mattermost import (
     mattermost_source_crud_router,
@@ -127,7 +126,6 @@ async def domain_error_handler(_request: Request, exc: DomainError) -> JSONRespo
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(oidc_router, prefix=settings.api_prefix)
 app.include_router(git_router, prefix=settings.api_prefix)
-app.include_router(git_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_crud_router, prefix=settings.api_prefix)

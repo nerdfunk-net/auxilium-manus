@@ -23,8 +23,8 @@ export function buildComparePyatsSnapshotConfig(
       typeof config.reference_subdirectory === "string"
         ? config.reference_subdirectory
         : "pyats-snapshots",
-    git_source_id:
-      typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "",
+    git_repository_id:
+      typeof config.git_repository_id === "number" ? config.git_repository_id : null,
     repository_subdirectory:
       typeof config.repository_subdirectory === "string" ? config.repository_subdirectory : "",
     pull_before_read: config.pull_before_read === true,

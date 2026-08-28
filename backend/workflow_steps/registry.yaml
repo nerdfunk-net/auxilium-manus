@@ -510,9 +510,9 @@ plugins:
           data_type: string
           required: false
           default: pyats-snapshots
-        - name: git_source_id
-          description: Git source id from Settings → Sources when reference_location is git.
-          data_type: string
+        - name: git_repository_id
+          description: Git repository id from Settings → Git Repositories when reference_location is git.
+          data_type: integer
           required: false
         - name: repository_subdirectory
           description: Optional path prefix inside the git repository before filename_template.
@@ -674,16 +674,21 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
-        - name: git_source_id
-          description: ID of a Git source configured under Settings → Sources.
-          data_type: string
+        - name: git_repository_id
+          description: ID of a Git repository configured under Settings → Git Repositories.
+          data_type: integer
           required: true
-          example: prod-lab
+          example: 3
         - name: filename_pattern
           description: Pattern to identify relevant files in the Git repository.
           data_type: string
           required: true
           example: 'configs/*.yaml'
+        - name: directory
+          description: Directory inside the Git repository to search (blank = repo root).
+          data_type: string
+          required: false
+          example: configs/
         - name: device_mapping
           description: Mapping that extracts device identifiers from file contents.
           data_type: object
@@ -717,13 +722,13 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
-        - name: git_source_id
-          description: ID of a Git source configured under Settings → Sources.
-          data_type: string
+        - name: git_repository_id
+          description: ID of a Git repository configured under Settings → Git Repositories.
+          data_type: integer
           required: true
-          example: prod-lab
+          example: 3
         - name: directory
-          description: Directory inside the Git source to search (blank = repo root).
+          description: Directory inside the Git repository to search (blank = repo root).
           data_type: string
           required: false
           example: configs/
@@ -817,7 +822,7 @@ plugins:
         - name: mode
           description: >
             Where the default values come from: "manual" (the attributes panel below)
-            or "git" (read a YAML file from a configured git source).
+            or "git" (read a YAML file from a configured git repository).
           data_type: string
           required: true
           example: manual
@@ -842,15 +847,17 @@ plugins:
             status: {enabled: true, value: Active}
         - name: git
           description: >
-            Git-mode source — git_source_id (from Settings → Sources) and
-            filename_pattern (glob, e.g. "*.yaml"). The matched file must contain a
-            top-level "devices" mapping of default attribute values. Used only when
-            mode is "git".
+            Git-mode source — git_repository_id (from Settings → Git Repositories),
+            filename_pattern (glob, e.g. "*.yaml"), and an optional directory to
+            search within the repository. The matched file must contain a top-level
+            "devices" mapping of default attribute values. Used only when mode is
+            "git".
           data_type: object
           required: false
           example:
-            git_source_id: prod-lab
+            git_repository_id: 3
             filename_pattern: defaults.yaml
+            directory: ""
 
   - id: config-to-attributes
     name: Config to Attributes
@@ -1114,13 +1121,13 @@ plugins:
           required: true
           default: filesystem
           example: git
-        - name: git_source_id
+        - name: git_repository_id
           description: >
-            ID of a Git source configured under Settings → Sources. Required when source is
-            git; ignored otherwise.
-          data_type: string
+            ID of a Git repository configured under Settings → Git Repositories.
+            Required when source is git; ignored otherwise.
+          data_type: integer
           required: false
-          example: prod-lab
+          example: 3
         - name: path_template
           description: >
             Relative file path to read, resolved per device. Supports {device.name},
@@ -2036,9 +2043,9 @@ plugins:
           data_type: string
           required: false
           default: references
-        - name: git_source_id
-          description: Git source id from Settings → Sources when reference_location is git.
-          data_type: string
+        - name: git_repository_id
+          description: Git repository id from Settings → Git Repositories when reference_location is git.
+          data_type: integer
           required: false
         - name: repository_subdirectory
           description: Optional path prefix inside the git repository before filename_template.
@@ -2288,13 +2295,13 @@ plugins:
           required: false
           default: filesystem
           example: git
-        - name: git_source_id
+        - name: git_repository_id
           description: >
-            Git source id from Settings → Sources when destination is git
-            (same identifier as get-git-devices).
-          data_type: string
+            Git repository id from Settings → Git Repositories when destination is
+            git (same repository as get-git-devices).
+          data_type: integer
           required: false
-          example: prod-configs
+          example: 3
         - name: repository_subdirectory
           description: Optional path prefix inside the git repository before filename_template.
           data_type: string
@@ -2388,11 +2395,11 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
-        - name: git_source_id
-          description: ID of a Git source configured under Settings → Sources.
-          data_type: string
+        - name: git_repository_id
+          description: ID of a Git repository configured under Settings → Git Repositories.
+          data_type: integer
           required: true
-          example: prod-configs
+          example: 3
 
   - id: git-pull
     name: Git Pull
@@ -2411,11 +2418,11 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
-        - name: git_source_id
-          description: ID of a Git source configured under Settings → Sources.
-          data_type: string
+        - name: git_repository_id
+          description: ID of a Git repository configured under Settings → Git Repositories.
+          data_type: integer
           required: true
-          example: prod-configs
+          example: 3
 
   - id: git-push
     name: Git Push
@@ -2435,11 +2442,11 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
-        - name: git_source_id
-          description: ID of a Git source configured under Settings → Sources.
-          data_type: string
+        - name: git_repository_id
+          description: ID of a Git repository configured under Settings → Git Repositories.
+          data_type: integer
           required: true
-          example: prod-configs
+          example: 3
         - name: commit_before_push
           description: Stage and commit workflow exports before pushing to the remote.
           data_type: boolean

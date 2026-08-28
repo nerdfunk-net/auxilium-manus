@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 
 export type ReferenceLocation = "filesystem" | "git";
 
@@ -24,22 +24,22 @@ const REFERENCE_LOCATION_OPTIONS = [
   {
     value: "git",
     label: "Git repository",
-    hint: "Read from a git source configured under Settings → Sources.",
+    hint: "Read from a repository configured under Settings → Git Repositories.",
   },
 ] as const;
 
 export interface CompareDataReferenceFieldsProps {
   referenceLocation: ReferenceLocation;
   isGitReference: boolean;
-  gitSourceId: string;
-  gitSourceOpen: boolean;
-  onGitSourceOpenChange: (open: boolean) => void;
+  gitRepositoryId: number | null;
+  gitRepositoryOpen: boolean;
+  onGitRepositoryOpenChange: (open: boolean) => void;
   referenceSubdirectory: string;
   repositorySubdirectory: string;
   pullBeforeRead: boolean;
   onReferenceLocationChange: (value: string) => void;
   onReferenceSubdirectoryChange: (value: string) => void;
-  onGitSourceIdChange: (value: string) => void;
+  onGitRepositoryIdChange: (value: number) => void;
   onRepositorySubdirectoryChange: (value: string) => void;
   onPullBeforeReadChange: (checked: boolean) => void;
 }
@@ -47,15 +47,15 @@ export interface CompareDataReferenceFieldsProps {
 export function CompareDataReferenceFields({
   referenceLocation,
   isGitReference,
-  gitSourceId,
-  gitSourceOpen,
-  onGitSourceOpenChange,
+  gitRepositoryId,
+  gitRepositoryOpen,
+  onGitRepositoryOpenChange,
   referenceSubdirectory,
   repositorySubdirectory,
   pullBeforeRead,
   onReferenceLocationChange,
   onReferenceSubdirectoryChange,
-  onGitSourceIdChange,
+  onGitRepositoryIdChange,
   onRepositorySubdirectoryChange,
   onPullBeforeReadChange,
 }: CompareDataReferenceFieldsProps) {
@@ -93,13 +93,13 @@ export function CompareDataReferenceFields({
         <>
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">git_source_id</span>
+              <span className="font-mono text-xs font-medium">git_repository_id</span>
               <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
                 git
               </Badge>
             </div>
-            {gitSourceId ? (
-              <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
+            {gitRepositoryId !== null ? (
+              <p className="font-mono text-[11px] text-muted-foreground">{gitRepositoryId}</p>
             ) : (
               <p className="text-[11px] text-warning-foreground">Not configured</p>
             )}
@@ -108,17 +108,17 @@ export function CompareDataReferenceFields({
               size="sm"
               type="button"
               variant="outline"
-              onClick={() => onGitSourceOpenChange(true)}
+              onClick={() => onGitRepositoryOpenChange(true)}
             >
-              {gitSourceId ? "Change repository" : "Choose repository"}
+              {gitRepositoryId !== null ? "Change repository" : "Choose repository"}
             </Button>
           </div>
 
-          <GitSourceSelectDialog
-            open={gitSourceOpen}
-            selectedSourceId={gitSourceId}
-            onClose={() => onGitSourceOpenChange(false)}
-            onSave={onGitSourceIdChange}
+          <GitRepositorySelectDialog
+            open={gitRepositoryOpen}
+            selectedRepositoryId={gitRepositoryId}
+            onClose={() => onGitRepositoryOpenChange(false)}
+            onSave={onGitRepositoryIdChange}
           />
 
           <div className="space-y-1.5">

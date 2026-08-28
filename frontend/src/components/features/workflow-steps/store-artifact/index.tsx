@@ -56,8 +56,8 @@ export function buildStoreArtifactConfig(
       typeof config.retention_policy === "string"
         ? config.retention_policy
         : "standard-90-days",
-    git_source_id:
-      typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "",
+    git_repository_id:
+      typeof config.git_repository_id === "number" ? config.git_repository_id : null,
     repository_subdirectory:
       typeof config.repository_subdirectory === "string"
         ? config.repository_subdirectory
@@ -82,7 +82,7 @@ function StoreArtifactConfigPanel({
   plugins = EMPTY_PLUGINS,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
-  const [gitSourceOpen, setGitSourceOpen] = useState(false);
+  const [gitRepositoryOpen, setGitRepositoryOpen] = useState(false);
 
   const upstream = useMemo(
     () =>
@@ -113,8 +113,8 @@ function StoreArtifactConfigPanel({
 
   const destination = (config.destination as Destination) || "filesystem";
   const isGitDestination = destination === "git";
-  const gitSourceId =
-    typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "";
+  const gitRepositoryId =
+    typeof config.git_repository_id === "number" ? config.git_repository_id : null;
 
   const contentSource = (config.content_source as ContentSource) || "running_config";
   const needsStepNodeId =
@@ -242,9 +242,9 @@ function StoreArtifactConfigPanel({
       <StoreArtifactDestinationFields
         destination={destination}
         isGitDestination={isGitDestination}
-        gitSourceId={gitSourceId}
-        gitSourceOpen={gitSourceOpen}
-        onGitSourceOpenChange={setGitSourceOpen}
+        gitRepositoryId={gitRepositoryId}
+        gitRepositoryOpen={gitRepositoryOpen}
+        onGitRepositoryOpenChange={setGitRepositoryOpen}
         repositorySubdirectory={
           typeof config.repository_subdirectory === "string"
             ? config.repository_subdirectory

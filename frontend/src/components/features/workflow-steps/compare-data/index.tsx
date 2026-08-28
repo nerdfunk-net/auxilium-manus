@@ -49,8 +49,8 @@ function buildCompareDataConfig(
       typeof config.reference_subdirectory === "string"
         ? config.reference_subdirectory
         : "references",
-    git_source_id:
-      typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "",
+    git_repository_id:
+      typeof config.git_repository_id === "number" ? config.git_repository_id : null,
     repository_subdirectory:
       typeof config.repository_subdirectory === "string"
         ? config.repository_subdirectory
@@ -76,7 +76,7 @@ function CompareDataConfigPanel({
   plugins = EMPTY_PLUGINS,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
-  const [gitSourceOpen, setGitSourceOpen] = useState(false);
+  const [gitRepositoryOpen, setGitRepositoryOpen] = useState(false);
 
   const upstream = useMemo(
     () =>
@@ -107,8 +107,8 @@ function CompareDataConfigPanel({
 
   const referenceLocation = (config.reference_location as ReferenceLocation) || "filesystem";
   const isGitReference = referenceLocation === "git";
-  const gitSourceId =
-    typeof config.git_source_id === "string" ? config.git_source_id.trim().toLowerCase() : "";
+  const gitRepositoryId =
+    typeof config.git_repository_id === "number" ? config.git_repository_id : null;
 
   const contentSource = (config.content_source as ContentSource) || "running_config";
   const needsStepNodeId =
@@ -258,9 +258,9 @@ function CompareDataConfigPanel({
       <CompareDataReferenceFields
         referenceLocation={referenceLocation}
         isGitReference={isGitReference}
-        gitSourceId={gitSourceId}
-        gitSourceOpen={gitSourceOpen}
-        onGitSourceOpenChange={setGitSourceOpen}
+        gitRepositoryId={gitRepositoryId}
+        gitRepositoryOpen={gitRepositoryOpen}
+        onGitRepositoryOpenChange={setGitRepositoryOpen}
         referenceSubdirectory={
           typeof config.reference_subdirectory === "string"
             ? config.reference_subdirectory
@@ -274,7 +274,7 @@ function CompareDataConfigPanel({
         pullBeforeRead={config.pull_before_read === true}
         onReferenceLocationChange={(value) => patchConfig({ reference_location: value })}
         onReferenceSubdirectoryChange={(value) => patchConfig({ reference_subdirectory: value })}
-        onGitSourceIdChange={(value) => patchConfig({ git_source_id: value })}
+        onGitRepositoryIdChange={(value) => patchConfig({ git_repository_id: value })}
         onRepositorySubdirectoryChange={(value) =>
           patchConfig({ repository_subdirectory: value })
         }

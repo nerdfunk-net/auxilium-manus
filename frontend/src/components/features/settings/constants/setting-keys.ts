@@ -2,7 +2,6 @@ export const SOURCES_KEY_PREFIX = "sources.";
 
 export const SOURCE_KEY_PREFIXES = {
   nautobot: "sources.nautobot.",
-  git: "sources.git.",
 } as const;
 
 /** User-defined reference ID: lowercase letter first, then letters, digits, _ - */
@@ -24,7 +23,7 @@ export function buildSourceSettingKey(
 export function parseSourceSettingKey(
   key: string,
 ): { sourceType: SourceType; sourceId: string } | null {
-  for (const sourceType of ["nautobot", "git"] as const) {
+  for (const sourceType of ["nautobot"] as const) {
     const prefix = SOURCE_KEY_PREFIXES[sourceType];
     if (!key.startsWith(prefix)) {
       continue;

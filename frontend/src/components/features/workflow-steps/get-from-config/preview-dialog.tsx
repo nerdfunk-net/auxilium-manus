@@ -16,14 +16,14 @@ interface GetFromConfigPreviewDialogProps {
   open: boolean;
   onClose: () => void;
   matches: GitContentSearchPreviewMatch[];
-  sourceId: string;
+  repositoryId: number | null;
 }
 
 export function GetFromConfigPreviewDialog({
   open,
   onClose,
   matches,
-  sourceId,
+  repositoryId,
 }: GetFromConfigPreviewDialogProps) {
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -31,8 +31,8 @@ export function GetFromConfigPreviewDialog({
         <DialogHeader>
           <DialogTitle>Search Preview</DialogTitle>
           <DialogDescription>
-            {matches.length} matching file{matches.length !== 1 ? "s" : ""} found in source{" "}
-            <code className="rounded bg-muted px-1 font-mono text-xs">{sourceId}</code>
+            {matches.length} matching file{matches.length !== 1 ? "s" : ""} found in repository{" "}
+            <code className="rounded bg-muted px-1 font-mono text-xs">{repositoryId}</code>
           </DialogDescription>
         </DialogHeader>
 

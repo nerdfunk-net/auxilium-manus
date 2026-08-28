@@ -3,12 +3,12 @@
 import type { SettingsSection } from "../types/settings-section";
 import { CredentialsSettingsCanvas } from "./credentials-settings-canvas";
 import { GeneralSettingsCanvas } from "./general-settings-canvas";
+import { GitRepositoriesSettingsCanvas } from "./git-repositories-settings-canvas";
 import { HatchetSettingsCanvas } from "./hatchet-settings-canvas";
 import { LoggingSettingsCanvas } from "./logging-settings-canvas";
 import { PermissionsSettingsCanvas } from "./permissions-settings-canvas";
 import { RedisSettingsCanvas } from "./redis-settings-canvas";
 import { SourcesSettingsCanvas } from "./sources-settings-canvas";
-import { VersionControlSettingsCanvas } from "./version-control-settings-canvas";
 
 interface SettingsSectionCanvasProps {
   section: SettingsSection;
@@ -43,8 +43,8 @@ export function SettingsSectionCanvas({ section }: SettingsSectionCanvasProps) {
     return <LoggingSettingsCanvas />;
   }
 
-  if (section === "version-control") {
-    return <VersionControlSettingsCanvas />;
+  if (section === "git-repositories") {
+    return <GitRepositoriesSettingsCanvas />;
   }
 
   return null;

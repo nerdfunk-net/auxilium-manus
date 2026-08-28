@@ -397,7 +397,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={
                     "destination": "git",
-                    "git_source_id": "prod-configs",
+                    "git_repository_id": 7,
                     "content_source": "running_config",
                     "pull_before_write": True,
                 },
@@ -458,7 +458,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
             outcomes = await execute(
                 config={
                     "destination": "git",
-                    "git_source_id": "prod-configs",
+                    "git_repository_id": 7,
                     "content_source": "running_config",
                     "filename_template": "{device.name}.cfg",
                 },

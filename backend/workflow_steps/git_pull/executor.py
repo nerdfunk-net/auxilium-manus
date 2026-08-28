@@ -27,7 +27,7 @@ def _pull_operation(
     return {
         "success": True,
         "operation": "pull",
-        "git_source_id": repository.get("source_id") or repository.get("name"),
+        "git_repository_id": repository.get("id"),
         "path": str(repo_path),
         "branch": result.branch or repository.get("branch", "main"),
         "commits_pulled": result.commits_pulled,

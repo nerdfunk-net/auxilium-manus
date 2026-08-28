@@ -21,6 +21,7 @@ from fastapi import APIRouter
 
 from core.dev_tools import dev_tools_enabled
 from routers.git.debug import router as debug_router
+from routers.git.devices import router as devices_router
 from routers.git.files import router as files_router
 from routers.git.operations import router as operations_router
 
@@ -36,5 +37,6 @@ router.include_router(repositories_router)  # /api/git-repositories/
 router.include_router(operations_router)  # /api/git/{repo_id}/
 router.include_router(version_control_router)  # /api/git/{repo_id}/
 router.include_router(files_router)  # /api/git/{repo_id}/
+router.include_router(devices_router)  # /api/git/{repo_id}/
 if dev_tools_enabled():
     router.include_router(debug_router)  # /api/git-repositories/{repo_id}/debug/

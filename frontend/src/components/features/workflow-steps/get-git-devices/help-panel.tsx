@@ -28,20 +28,20 @@ export function GetGitDevicesHelpPanel() {
         </p>
       </HelpSection>
 
-      <HelpSection title="Git source">
+      <HelpSection title="Git repository">
         <p>
           Click{" "}
-          <span className="font-medium text-foreground">Configure Source</span>{" "}
-          (or Edit Source) and choose a source created under Settings → Sources
-          → Git. The step stores that source&apos;s ID as{" "}
-          <HelpCode>git_source_id</HelpCode> (normalised to lowercase).
+          <span className="font-medium text-foreground">Configure Repository</span>{" "}
+          (or Edit Repository) and choose a repository created under Settings → Git
+          Repositories. The step stores that repository&apos;s numeric ID as{" "}
+          <HelpCode>git_repository_id</HelpCode>.
         </p>
         <p>
-          Clone URL, branch, credentials, and optional subdirectory are resolved
-          from settings at preview and run time.
+          Clone URL, branch, credentials, and optional directory are resolved from
+          the repository configuration at preview and run time.
         </p>
         <HelpExample>
-          git_source_id: device-inventory
+          git_repository_id: 3
         </HelpExample>
         <HelpWarning title="Source required">
           <p>
@@ -110,7 +110,7 @@ export function GetGitDevicesHelpPanel() {
           clones or refreshes the repo, applies the filename pattern, parses
           matching YAML files, and lists discovered devices before you save or
           run the workflow. The button stays disabled until both{" "}
-          <HelpCode>git_source_id</HelpCode> and a non-empty{" "}
+          <HelpCode>git_repository_id</HelpCode> and a non-empty{" "}
           <HelpCode>filename_pattern</HelpCode> are set.
         </p>
         <p>

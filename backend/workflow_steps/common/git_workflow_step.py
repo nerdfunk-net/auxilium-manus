@@ -16,7 +16,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from workflow_steps.common.git_source_loader import load_git_source_repository
+from workflow_steps.common.git_repository_loader import load_git_repository
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,14 @@ GitOperation = Callable[
 ]
 
 
-def _git_source_id(config: dict[str, Any]) -> str:
-    return str(config.get("git_source_id") or "").strip().lower()
+def _git_repository_id(config: dict[str, Any]) -> int | None:
+    raw = config.get("git_repository_id")
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _metadata_key(node_id: str) -> str:
@@ -64,7 +70,7 @@ def _failure_outcomes(
     node_id: str,
     step_id: str,
     operation: str,
-    git_source_id: str,
+    git_repository_id: int | None,
     message: str,
 ) -> list[StepOutcome]:
     metadata = {
@@ -72,7 +78,7 @@ def _failure_outcomes(
         _metadata_key(node_id): {
             "success": False,
             "operation": operation,
-            "git_source_id": git_source_id,
+            "git_repository_id": git_repository_id,
             "message": message,
         },
     }
@@ -121,29 +127,29 @@ async def run_git_workflow_step(
 ) -> list[StepOutcome]:
     del run, artifact_service
 
-    source_id = _git_source_id(config)
-    if not source_id:
-        message = f"{step_id}: git_source_id is not configured"
+    repository_id = _git_repository_id(config)
+    if repository_id is None:
+        message = f"{step_id}: git_repository_id is not configured"
         return _failure_outcomes(
             context=context,
             node_id=node_id,
             step_id=step_id,
             operation=operation_name,
-            git_source_id=source_id,
+            git_repository_id=repository_id,
             message=message,
         )
 
-    logger.info("%s started run_id=%s source=%s", step_id, context.run_id, source_id)
+    logger.info("%s started run_id=%s repository_id=%s", step_id, context.run_id, repository_id)
 
     try:
-        repository = load_git_source_repository(source_id)
+        repository = load_git_repository(repository_id)
     except ValueError as exc:
         return _failure_outcomes(
             context=context,
             node_id=node_id,
             step_id=step_id,
             operation=operation_name,
-            git_source_id=source_id,
+            git_repository_id=repository_id,
             message=str(exc),
         )
 
@@ -160,13 +166,15 @@ async def run_git_workflow_step(
             context,
         )
     except Exception as exc:
-        logger.error("%s failed run_id=%s source=%s: %s", step_id, context.run_id, source_id, exc)
+        logger.error(
+            "%s failed run_id=%s repository_id=%s: %s", step_id, context.run_id, repository_id, exc
+        )
         return _failure_outcomes(
             context=context,
             node_id=node_id,
             step_id=step_id,
             operation=operation_name,
-            git_source_id=source_id,
+            git_repository_id=repository_id,
             message=str(exc),
         )
 
@@ -175,10 +183,10 @@ async def run_git_workflow_step(
         _metadata_key(node_id): result,
     }
     logger.info(
-        "%s succeeded run_id=%s source=%s operation=%s",
+        "%s succeeded run_id=%s repository_id=%s operation=%s",
         step_id,
         context.run_id,
-        source_id,
+        repository_id,
         operation_name,
     )
     return [

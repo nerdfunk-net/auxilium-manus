@@ -8,7 +8,7 @@ export const GitClonePlugin: PluginUIComponent = {
   ConfigPanel: (props) => (
     <GitSourceConfigPanel
       {...props}
-      description="Clone or re-clone the selected Settings git source before other steps run."
+      description="Clone or re-clone the selected Git repository before other steps run."
     />
   ),
   HelpPanel: GitCloneHelpPanel,

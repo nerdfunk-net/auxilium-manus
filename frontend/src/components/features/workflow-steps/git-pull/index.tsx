@@ -8,7 +8,7 @@ export const GitPullPlugin: PluginUIComponent = {
   ConfigPanel: (props) => (
     <GitSourceConfigPanel
       {...props}
-      description="Pull the latest remote changes once for the selected Settings git source."
+      description="Pull the latest remote changes once for the selected Git repository."
     />
   ),
   HelpPanel: GitPullHelpPanel,

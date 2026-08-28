@@ -105,8 +105,45 @@ export function useGitRepositoriesMutations() {
     },
   });
 
+  const syncRepository = useMutation({
+    mutationFn: (id: number) => apiCall<unknown>(`git/${id}/sync`, { method: "POST" }),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Synced", description: "Repository cloned or pulled." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Sync failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeAndSyncRepository = useMutation({
+    mutationFn: (id: number) =>
+      apiCall<unknown>(`git/${id}/remove-and-sync`, { method: "POST" }),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: "Re-cloned", description: "Local copy removed and cloned fresh." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Remove and re-clone failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   return useMemo(
-    () => ({ createRepository, updateRepository, deleteRepository, testConnection }),
-    [createRepository, updateRepository, deleteRepository, testConnection],
+    () => ({
+      createRepository,
+      updateRepository,
+      deleteRepository,
+      testConnection,
+      syncRepository,
+      removeAndSyncRepository,
+    }),
+    [
+      createRepository,
+      updateRepository,
+      deleteRepository,
+      testConnection,
+      syncRepository,
+      removeAndSyncRepository,
+    ],
   );
 }

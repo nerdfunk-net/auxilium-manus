@@ -19,7 +19,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 
 import {
   countConfiguredFields,
@@ -43,7 +43,7 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
   const configuredCount = useMemo(() => countConfiguredFields(attributes), [attributes]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [sourceOpen, setSourceOpen] = useState(false);
+  const [repositoryOpen, setRepositoryOpen] = useState(false);
 
   const handleTypeChange = useCallback(
     (value: string) => {
@@ -73,9 +73,9 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
     [config, onChange],
   );
 
-  const handleGitSourceChange = useCallback(
-    (git_source_id: string) => {
-      onChange({ ...config, git: { ...git, git_source_id } });
+  const handleGitRepositoryChange = useCallback(
+    (git_repository_id: number) => {
+      onChange({ ...config, git: { ...git, git_repository_id } });
     },
     [config, git, onChange],
   );
@@ -167,13 +167,15 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
         <div className="space-y-3 border-t pt-3">
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-medium">git_source_id</span>
+              <span className="font-mono text-xs font-medium">git_repository_id</span>
               <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
                 git
               </Badge>
             </div>
-            {git.git_source_id ? (
-              <p className="font-mono text-[11px] text-muted-foreground">{git.git_source_id}</p>
+            {git.git_repository_id !== null ? (
+              <p className="font-mono text-[11px] text-muted-foreground">
+                {git.git_repository_id}
+              </p>
             ) : (
               <p className="text-[11px] text-warning-foreground">Not configured</p>
             )}
@@ -182,9 +184,9 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
               size="sm"
               type="button"
               variant="outline"
-              onClick={() => setSourceOpen(true)}
+              onClick={() => setRepositoryOpen(true)}
             >
-              {git.git_source_id ? "Edit Source" : "Configure Source"}
+              {git.git_repository_id !== null ? "Edit Repository" : "Configure Repository"}
             </Button>
           </div>
 
@@ -219,14 +221,13 @@ function SetDefaultAttributesConfigPanel({ config, onChange }: PluginConfigPanel
         onChange={handleAttributesSave}
       />
 
-      <GitSourceSelectDialog
-        open={sourceOpen}
-        selectedSourceId={git.git_source_id}
-        onClose={() => setSourceOpen(false)}
-        onSave={handleGitSourceChange}
-        idPrefix="set-default-attributes-git-source"
-        description="A configured Git repository is required. Choose which saved source (from Settings → Sources) this step should read the defaults YAML file from. Only the source ID is stored on the step; URL and token are loaded from settings at runtime."
-        showReferenceHint={false}
+      <GitRepositorySelectDialog
+        open={repositoryOpen}
+        selectedRepositoryId={git.git_repository_id}
+        onClose={() => setRepositoryOpen(false)}
+        onSave={handleGitRepositoryChange}
+        idPrefix="set-default-attributes-git-repository"
+        description="A configured Git repository is required. Choose which repository (from Settings → Git Repositories) this step should read the defaults YAML file from."
       />
     </div>
   );

@@ -40,7 +40,7 @@ export function ReadConfigHelpPanel() {
           <li>
             <span className="font-medium text-foreground">Git repository</span> —{" "}
             <HelpCode>source: git</HelpCode>. Reads from a git source configured under Settings →
-            Sources, selected via <HelpCode>git_source_id</HelpCode>. The repository is always
+            Sources, selected via <HelpCode>git_repository_id</HelpCode>. The repository is always
             refreshed (cloned or pulled) before reading, so the latest committed content is used.
           </li>
         </ul>

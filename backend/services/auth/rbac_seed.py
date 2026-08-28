@@ -19,8 +19,6 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("git.files", "read", "Browse files inside a git repository"),
     ("git.debug", "read", "View git repository diagnostics"),
     ("git.debug", "execute", "Run git debug probes (read/write/delete/push)"),
-    ("sources.git", "read", "Preview git-backed inventory sources"),
-    ("sources.git", "execute", "Pull or re-clone git-backed inventory sources"),
     ("sources.nautobot", "read", "View Nautobot-backed inventory sources"),
     ("sources.nautobot", "write", "Create or update Nautobot-backed inventory sources"),
     ("sources.nautobot", "delete", "Delete Nautobot-backed inventory sources"),

@@ -23,7 +23,8 @@ def get_config() -> dict:
             "interfaces": [],
         },
         "git": {
-            "git_source_id": "",
+            "git_repository_id": None,
             "filename_pattern": "*.yaml",
+            "directory": "",
         },
     }

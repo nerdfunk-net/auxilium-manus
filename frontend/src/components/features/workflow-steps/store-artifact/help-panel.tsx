@@ -18,7 +18,7 @@ export function StoreArtifactHelpPanel() {
         <p>
           Exports content from the workflow context — running config, command output,
           rendered templates, merged content, diffs, or filtered output — to the
-          local filesystem or a Git repository configured under Settings → Sources.
+          local filesystem or a Git repository configured under Settings → Git Repositories.
         </p>
         <p>
           Pick what to export (<HelpCode>content_source</HelpCode>), name files with
@@ -67,16 +67,16 @@ export function StoreArtifactHelpPanel() {
           Shown when <HelpCode>destination</HelpCode> is <HelpCode>git</HelpCode>.
         </p>
 
-        <p className="font-medium text-foreground">git_source_id</p>
+        <p className="font-medium text-foreground">git_repository_id</p>
         <p>
           Click{" "}
           <span className="font-medium text-foreground">Choose repository</span>{" "}
-          (or Change repository) and select a git source from Settings → Sources.
-          Same sources as Get from Git. Stored lowercased as{" "}
-          <HelpCode>git_source_id</HelpCode>.
+          (or Change repository) and select a repository from Settings → Git Repositories.
+          Same repositories as Get from Git. Stored as{" "}
+          <HelpCode>git_repository_id</HelpCode>.
         </p>
         <HelpExample>
-          git_source_id: network-configs
+          git_repository_id: 3
           <br />
           <span className="text-muted-foreground">
             → writes into the cloned working tree for that source
@@ -117,7 +117,7 @@ export function StoreArtifactHelpPanel() {
         <HelpExample>
           destination: git
           <br />
-          git_source_id: network-configs
+          git_repository_id: 3
           <br />
           repository_subdirectory: devices
           <br />

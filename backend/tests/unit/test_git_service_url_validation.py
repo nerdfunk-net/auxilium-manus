@@ -2,8 +2,8 @@
 
 Regression coverage for the gap where store-artifact/git-push (which go through
 GitService) never validated the remote URL scheme, while read-config/get-from-config
-(which went through services.sources.git.git_source_service) did — see
-services/sources/git/git_source_service.py and doc/WORKFLOW-STEPS.md.
+(which resolve a GitRepository and then also call GitService) did — see
+doc/WORKFLOW-STEPS.md.
 """
 
 from __future__ import annotations

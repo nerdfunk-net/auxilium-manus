@@ -21,16 +21,16 @@ const DESTINATION_OPTIONS = [
   {
     value: "git",
     label: "Git repository",
-    hint: "Write into a git source configured under Settings → Sources.",
+    hint: "Write into a repository configured under Settings → Git Repositories.",
   },
 ] as const;
 
 export interface StoreArtifactDestinationFieldsProps {
   destination: Destination;
   isGitDestination: boolean;
-  gitSourceId: string;
-  gitSourceOpen: boolean;
-  onGitSourceOpenChange: (open: boolean) => void;
+  gitRepositoryId: number | null;
+  gitRepositoryOpen: boolean;
+  onGitRepositoryOpenChange: (open: boolean) => void;
   repositorySubdirectory: string;
   pullBeforeWrite: boolean;
   commitAfterWrite: boolean;
@@ -38,7 +38,7 @@ export interface StoreArtifactDestinationFieldsProps {
   commitMessageTemplate: string;
   onDestinationChange: (value: string) => void;
   onGitDestinationChange: (patch: {
-    git_source_id?: string;
+    git_repository_id?: number | null;
     repository_subdirectory?: string;
     pull_before_write?: boolean;
     commit_after_write?: boolean;
@@ -50,9 +50,9 @@ export interface StoreArtifactDestinationFieldsProps {
 export function StoreArtifactDestinationFields({
   destination,
   isGitDestination,
-  gitSourceId,
-  gitSourceOpen,
-  onGitSourceOpenChange,
+  gitRepositoryId,
+  gitRepositoryOpen,
+  onGitRepositoryOpenChange,
   repositorySubdirectory,
   pullBeforeWrite,
   commitAfterWrite,
@@ -94,10 +94,10 @@ export function StoreArtifactDestinationFields({
       {isGitDestination ? (
         <GitDestinationFields
           idPrefix="store-artifact"
-          gitSourceOpen={gitSourceOpen}
-          onGitSourceOpenChange={onGitSourceOpenChange}
+          gitRepositoryOpen={gitRepositoryOpen}
+          onGitRepositoryOpenChange={onGitRepositoryOpenChange}
           values={{
-            git_source_id: gitSourceId,
+            git_repository_id: gitRepositoryId,
             repository_subdirectory: repositorySubdirectory,
             pull_before_write: pullBeforeWrite,
             commit_after_write: commitAfterWrite,

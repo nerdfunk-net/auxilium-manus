@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.domain_exceptions import ConflictError, DomainError, NotFoundError, ValidationFailedError
 from core.models.settings import Setting
-from core.safe_urls import UnsafeURLError, validate_git_remote_url, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url
 from models.settings import (
     SettingCreate,
     SettingListResponse,
@@ -28,10 +28,9 @@ from services.settings.source_keys import (
 logger = logging.getLogger(__name__)
 
 
-_TOKEN_SOURCE_TYPES = frozenset({"nautobot", "git"})
+_TOKEN_SOURCE_TYPES = frozenset({"nautobot"})
 _TOKEN_USERNAME = {
     "nautobot": "nautobot-token",
-    "git": "git-token",
 }
 
 
@@ -248,17 +247,14 @@ class SettingsService:
 
     @staticmethod
     def _validate_source_url(source_type: SourceType, value: dict) -> dict:
-        """Validate outbound URLs for ISE/Nautobot (HTTP) and Git (HTTPS/SSH) source settings."""
-        if source_type not in ("nautobot", "ise", "git"):
+        """Validate outbound URLs for ISE/Nautobot (HTTP) source settings."""
+        if source_type not in ("nautobot", "ise"):
             return value
         raw_url = value.get("url")
         if raw_url is None:
             return value
         try:
-            if source_type == "git":
-                safe_url = validate_git_remote_url(str(raw_url), resolve_dns=True)
-            else:
-                safe_url = validate_outbound_http_url(str(raw_url), resolve_dns=True)
+            safe_url = validate_outbound_http_url(str(raw_url), resolve_dns=True)
         except UnsafeURLError as exc:
             raise ValidationFailedError(str(exc)) from exc
         return {**value, "url": safe_url}

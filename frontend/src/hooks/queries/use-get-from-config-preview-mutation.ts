@@ -18,7 +18,7 @@ export interface GitContentSearchPreviewResponse {
 }
 
 interface GitContentSearchPreviewRequest {
-  git_source_id: string;
+  git_repository_id: number;
   directory: string;
   file_filter: string;
   recursive: boolean;
@@ -32,11 +32,15 @@ export function useGetFromConfigPreviewMutation() {
 
   return useMutation({
     mutationFn: async (request: GitContentSearchPreviewRequest) => {
-      return apiCall<GitContentSearchPreviewResponse>("sources/git/content-search-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
+      const { git_repository_id, ...body } = request;
+      return apiCall<GitContentSearchPreviewResponse>(
+        `git/${git_repository_id}/content-search-preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
     },
   });
 }

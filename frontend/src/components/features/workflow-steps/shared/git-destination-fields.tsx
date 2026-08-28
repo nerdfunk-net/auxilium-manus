@@ -6,10 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { COMMIT_MESSAGE_PLACEHOLDERS } from "./filename-placeholders";
-import { GitSourceSelectDialog } from "./git-source-select-dialog";
+import { GitRepositorySelectDialog } from "./git-repository-select-dialog";
 
 export interface GitDestinationValues {
-  git_source_id: string;
+  git_repository_id: number | null;
   repository_subdirectory: string;
   pull_before_write: boolean;
   commit_after_write: boolean;
@@ -19,20 +19,20 @@ export interface GitDestinationValues {
 
 interface GitDestinationFieldsProps {
   values: GitDestinationValues;
-  gitSourceOpen: boolean;
-  onGitSourceOpenChange: (open: boolean) => void;
+  gitRepositoryOpen: boolean;
+  onGitRepositoryOpenChange: (open: boolean) => void;
   onChange: (patch: Partial<GitDestinationValues>) => void;
   idPrefix: string;
 }
 
 export function GitDestinationFields({
   values,
-  gitSourceOpen,
-  onGitSourceOpenChange,
+  gitRepositoryOpen,
+  onGitRepositoryOpenChange,
   onChange,
   idPrefix,
 }: GitDestinationFieldsProps) {
-  const gitSourceId = values.git_source_id;
+  const gitRepositoryId = values.git_repository_id;
   const pullId = `${idPrefix}-pull-before-write`;
   const commitId = `${idPrefix}-commit-after-write`;
   const pushId = `${idPrefix}-push-after-write`;
@@ -41,13 +41,13 @@ export function GitDestinationFields({
     <>
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">git_source_id</span>
+          <span className="font-mono text-xs font-medium">git_repository_id</span>
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
             git
           </Badge>
         </div>
-        {gitSourceId ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{gitSourceId}</p>
+        {gitRepositoryId !== null ? (
+          <p className="font-mono text-[11px] text-muted-foreground">{gitRepositoryId}</p>
         ) : (
           <p className="text-[11px] text-warning-foreground">Not configured</p>
         )}
@@ -56,20 +56,20 @@ export function GitDestinationFields({
           size="sm"
           type="button"
           variant="outline"
-          onClick={() => onGitSourceOpenChange(true)}
+          onClick={() => onGitRepositoryOpenChange(true)}
         >
-          {gitSourceId ? "Change repository" : "Choose repository"}
+          {gitRepositoryId !== null ? "Change repository" : "Choose repository"}
         </Button>
         <p className="text-[11px] text-muted-foreground">
-          Uses the same git sources as get-git-devices (Settings → Sources).
+          Uses the same Git repositories as get-git-devices (Settings → Git Repositories).
         </p>
       </div>
 
-      <GitSourceSelectDialog
-        open={gitSourceOpen}
-        selectedSourceId={gitSourceId}
-        onClose={() => onGitSourceOpenChange(false)}
-        onSave={(value) => onChange({ git_source_id: value })}
+      <GitRepositorySelectDialog
+        open={gitRepositoryOpen}
+        selectedRepositoryId={gitRepositoryId}
+        onClose={() => onGitRepositoryOpenChange(false)}
+        onSave={(value) => onChange({ git_repository_id: value })}
       />
 
       <div className="space-y-1.5">

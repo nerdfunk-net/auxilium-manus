@@ -36,7 +36,7 @@ from workflow_steps.common.content_resolver import (
     list_exportable_content,
     parse_content_source,
 )
-from workflow_steps.common.git_source_loader import load_git_source_repository
+from workflow_steps.common.git_repository_loader import load_git_repository
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -76,8 +76,8 @@ def _parse_store_config(config: dict[str, Any]) -> _ParsedStoreConfig:
     )
 
 
-def _load_git_repository(git_source_id: str) -> dict[str, Any]:
-    return load_git_source_repository(git_source_id)
+def _load_git_repository(git_repository_id: int) -> dict[str, Any]:
+    return load_git_repository(git_repository_id)
 
 
 def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
@@ -95,10 +95,10 @@ def _build_sink(config: dict[str, Any], *, base_dir: Path) -> ArtifactSink:
             output_subdirectory=output_subdirectory,
         )
     if destination == "git":
-        git_source_id = str(config.get("git_source_id") or "").strip().lower()
-        if not git_source_id:
-            raise ValueError("store-artifact: git_source_id is required when destination=git")
-        repository = _load_git_repository(git_source_id)
+        raw_repository_id = config.get("git_repository_id")
+        if raw_repository_id in (None, ""):
+            raise ValueError("store-artifact: git_repository_id is required when destination=git")
+        repository = _load_git_repository(int(raw_repository_id))
         return GitArtifactSink(
             repository,
             repository_subdirectory=str(
@@ -314,7 +314,7 @@ async def _finalize_git_sink(
         finalize_result = await git_sink.finalize(_render_commit_message(config, context))
         if finalize_result is not None:
             metadata[f"{node_id}.git_export"] = {
-                "git_source_id": git_sink.repository_ref,
+                "git_repository_id": git_sink.repository_ref,
                 "committed": finalize_result.committed,
                 "pushed": finalize_result.pushed,
                 "commit_sha": finalize_result.commit_sha,

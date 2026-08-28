@@ -13,15 +13,6 @@ export interface NautobotTestConnectionPayload {
   source_id?: string;
 }
 
-export interface GitSourceTestConnectionPayload {
-  url?: string;
-  branch?: string;
-  username?: string;
-  token?: string;
-  verify_ssl: boolean;
-  source_id?: string;
-}
-
 export function useNautobotTestConnectionMutation() {
   const { apiCall } = useApi();
   const { toast } = useToast();
@@ -29,34 +20,6 @@ export function useNautobotTestConnectionMutation() {
   return useMutation({
     mutationFn: (payload: NautobotTestConnectionPayload) =>
       apiCall<SourceTestConnectionResponse>("sources/nautobot/test-connection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: (data) => {
-      toast({
-        title: data.success ? "Connection successful" : "Connection failed",
-        description: data.message,
-        variant: data.success ? "default" : "destructive",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Connection failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-}
-
-export function useGitSourceTestConnectionMutation() {
-  const { apiCall } = useApi();
-  const { toast } = useToast();
-
-  return useMutation({
-    mutationFn: (payload: GitSourceTestConnectionPayload) =>
-      apiCall<SourceTestConnectionResponse>("sources/git/test-connection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

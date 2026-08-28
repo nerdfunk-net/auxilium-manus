@@ -39,8 +39,9 @@ export interface AttributesConfig {
 }
 
 export interface GitDefaultsConfig {
-  git_source_id: string;
+  git_repository_id: number | null;
   filename_pattern: string;
+  directory: string;
 }
 
 export interface SetDefaultAttributesConfig {

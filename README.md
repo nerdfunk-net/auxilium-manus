@@ -25,6 +25,11 @@ with a visual, repeatable workflow model:
 - **Keep an audit trail** — every run is stored separately from the workflow definition,
   with per-step status, logs, and results. Command output, device configuration backups,
   and other generated artifacts are persisted as durable, downloadable artifacts.
+- **Version-control workflow definitions (optional)** — turn version control on for a
+  workflow and every save is also committed and pushed to a configured Git repository, so
+  you get commit history, a side-by-side diff between versions, and one-click restore of an
+  older version. The database stays the source of truth either way; Git is an additional,
+  best-effort mirror, not a replacement for it.
 - **Get notified when something goes wrong** — wire a workflow's failure paths to a
   shared error-sink step that posts to a Mattermost channel (and/or the in-app
   Notifications dashboard) with the failing device, step, and error message, instead of
@@ -54,7 +59,10 @@ trigger specific workflows and settings.
 - Notifications: write in-app notifications and/or post to a Mattermost channel, either
   per-step or from a shared error sink that reports every accumulated failure across a
   run's fanned-out devices
-- Credential vault (encrypted at rest) and RBAC-protected settings, users, and workflows
+- Optional Git-backed version control for workflow definitions: per-workflow opt-in,
+  auto-commit and push on save, commit history with a diff view, and one-click restore
+- Credential vault (encrypted at rest, with SSH login/SSH key/token credential types) and
+  RBAC-protected settings, users, and workflows
 
 ## Tech stack
 
@@ -73,7 +81,7 @@ GitPython, pyATS/Genie
 | `/workflows` | Workflow editor (React Flow canvas) |
 | `/workflows/runs` | Workflow execution history and step results |
 | `/inventory` | Inventory builder |
-| `/settings/[section]` | Settings (`general`, `sources`, `credentials`, `users`, `hatchet`, `redis`) |
+| `/settings/[section]` | Settings (`general`, `sources`, `credentials`, `users`, `hatchet`, `redis`, `logging`, `version-control`) |
 
 `/settings` redirects to `/settings/general`. `/` redirects to `/workflows`.
 

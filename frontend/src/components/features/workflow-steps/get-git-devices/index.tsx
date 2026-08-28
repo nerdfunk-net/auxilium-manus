@@ -25,17 +25,18 @@ import {
   fanOutFromConfig,
   type FanOutConfig,
 } from "../shared/fan-out-config";
-import { GitSourceSelectDialog } from "@/components/features/workflow-steps/shared/git-source-select-dialog";
+import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 import { GitDevicesPreviewDialog } from "./preview-dialog";
 import { GetGitDevicesHelpPanel } from "./help-panel";
 
-const GIT_SOURCE_ID_KEY = "git_source_id";
+const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 const FILENAME_PATTERN_KEY = "filename_pattern";
+const DIRECTORY_KEY = "directory";
 const DEVICE_MAPPING_KEY = "device_mapping";
 
-function gitSourceIdFromConfig(config: Record<string, unknown>): string {
-  const raw = config[GIT_SOURCE_ID_KEY];
-  return typeof raw === "string" && raw.trim() ? raw.trim().toLowerCase() : "";
+function gitRepositoryIdFromConfig(config: Record<string, unknown>): number | null {
+  const raw = config[GIT_REPOSITORY_ID_KEY];
+  return typeof raw === "number" ? raw : null;
 }
 
 function filenamePatternFromConfig(config: Record<string, unknown>): string {
@@ -43,15 +44,21 @@ function filenamePatternFromConfig(config: Record<string, unknown>): string {
   return typeof raw === "string" ? raw : "*.yaml";
 }
 
+function directoryFromConfig(config: Record<string, unknown>): string {
+  const raw = config[DIRECTORY_KEY];
+  return typeof raw === "string" ? raw : "";
+}
+
 function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
-  const sourceId = useMemo(() => gitSourceIdFromConfig(config), [config]);
+  const repositoryId = useMemo(() => gitRepositoryIdFromConfig(config), [config]);
   const filenamePattern = useMemo(
     () => filenamePatternFromConfig(config),
     [config],
   );
+  const directory = useMemo(() => directoryFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
 
-  const [sourceOpen, setSourceOpen] = useState(false);
+  const [repositoryOpen, setRepositoryOpen] = useState(false);
   const [mappingOpen, setMappingOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevices, setPreviewDevices] = useState<GitDevicePreview[]>([]);
@@ -63,9 +70,9 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     error: previewError,
   } = useGetGitDevicesPreviewMutation();
 
-  const handleSourceIdChange = useCallback(
-    (newSourceId: string) => {
-      onChange({ ...config, [GIT_SOURCE_ID_KEY]: newSourceId });
+  const handleRepositoryIdChange = useCallback(
+    (newRepositoryId: number) => {
+      onChange({ ...config, [GIT_REPOSITORY_ID_KEY]: newRepositoryId });
     },
     [config, onChange],
   );
@@ -73,6 +80,13 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const handlePatternChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       onChange({ ...config, [FILENAME_PATTERN_KEY]: e.target.value });
+    },
+    [config, onChange],
+  );
+
+  const handleDirectoryChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...config, [DIRECTORY_KEY]: e.target.value });
     },
     [config, onChange],
   );
@@ -85,36 +99,40 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   );
 
   const handleShowPreview = useCallback(async () => {
+    if (repositoryId === null) {
+      return;
+    }
     try {
       const result = await runPreview({
-        git_source_id: sourceId,
+        git_repository_id: repositoryId,
         filename_pattern: filenamePattern,
+        directory,
       });
       setPreviewDevices(result.devices);
       setPreviewOpen(true);
     } catch {
       // error state is surfaced via previewIsError / previewError below
     }
-  }, [runPreview, sourceId, filenamePattern]);
+  }, [runPreview, repositoryId, filenamePattern, directory]);
 
-  const isConfigured = Boolean(sourceId) && Boolean(filenamePattern.trim());
+  const isConfigured = repositoryId !== null && Boolean(filenamePattern.trim());
 
   return (
     <div className="flex flex-col gap-4">
-      {/* git_source_id */}
+      {/* git_repository_id */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">
-            {GIT_SOURCE_ID_KEY}
+            {GIT_REPOSITORY_ID_KEY}
           </span>
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
             git
           </Badge>
         </div>
 
-        {sourceId ? (
+        {repositoryId !== null ? (
           <p className="font-mono text-[11px] text-muted-foreground">
-            {sourceId}
+            {repositoryId}
           </p>
         ) : (
           <p className="text-[11px] text-warning-foreground">Not configured</p>
@@ -125,9 +143,9 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           size="sm"
           type="button"
           variant="outline"
-          onClick={() => setSourceOpen(true)}
+          onClick={() => setRepositoryOpen(true)}
         >
-          {sourceId ? "Edit Source" : "Configure Source"}
+          {repositoryId !== null ? "Edit Repository" : "Configure Repository"}
         </Button>
       </div>
 
@@ -153,7 +171,24 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         />
         <p className="text-[11px] text-muted-foreground">
           Glob pattern relative to the repository root (or configured
-          subdirectory).
+          directory below).
+        </p>
+      </div>
+
+      {/* directory */}
+      <div className="space-y-1.5">
+        <Label className="font-mono text-xs font-medium" htmlFor="git-devices-directory">
+          {DIRECTORY_KEY}
+        </Label>
+        <Input
+          id="git-devices-directory"
+          className="h-7 font-mono text-xs"
+          placeholder="inventory/"
+          value={directory}
+          onChange={handleDirectoryChange}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Directory inside the repository to search (blank = repo root).
         </p>
       </div>
 
@@ -205,11 +240,11 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       <FanOutConfigSection value={fanOut} onChange={handleFanOutChange} />
 
       {/* Dialogs */}
-      <GitSourceSelectDialog
-        open={sourceOpen}
-        selectedSourceId={sourceId}
-        onClose={() => setSourceOpen(false)}
-        onSave={handleSourceIdChange}
+      <GitRepositorySelectDialog
+        open={repositoryOpen}
+        selectedRepositoryId={repositoryId}
+        onClose={() => setRepositoryOpen(false)}
+        onSave={handleRepositoryIdChange}
       />
 
       <Dialog open={mappingOpen} onOpenChange={(isOpen) => !isOpen && setMappingOpen(false)}>
@@ -249,7 +284,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         devices={previewDevices}
-        sourceId={sourceId}
+        repositoryId={repositoryId}
       />
     </div>
   );

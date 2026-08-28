@@ -36,17 +36,15 @@ def _mock_export_directory(export_dir: Path):
 
 @contextmanager
 def _mock_git_repository(repo_dir: Path):
-    """Patch source-config lookup + clone_or_pull for source=git."""
-    settings_service_mock = MagicMock()
-    settings_service_mock.get_source_config_for_step.return_value = {
-        "source_id": "prod-lab",
-        "url": "https://example.invalid/repo.git",
-    }
+    """Patch repository lookup + clone_or_pull for source=git."""
     with (
-        patch("workflow_steps.read_config.executor.get_db_session", return_value=MagicMock()),
         patch(
-            "workflow_steps.read_config.executor.SettingsService",
-            return_value=settings_service_mock,
+            "workflow_steps.read_config.executor.load_git_repository",
+            return_value={
+                "id": 7,
+                "name": "prod-lab",
+                "url": "https://example.invalid/repo.git",
+            },
         ),
         patch(
             "workflow_steps.read_config.executor.clone_or_pull",
@@ -248,7 +246,7 @@ class ReadConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 outcomes = await execute(
                     config={
                         "source": "git",
-                        "git_source_id": "prod-lab",
+                        "git_repository_id": 7,
                         "path_template": "{device.name}.cfg",
                     },
                     context=WorkflowContext(

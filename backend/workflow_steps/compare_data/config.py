@@ -5,7 +5,7 @@ def get_config() -> dict:
         "parsed_output_key": "",
         "reference_location": "filesystem",
         "reference_subdirectory": "references",
-        "git_source_id": "",
+        "git_repository_id": None,
         "repository_subdirectory": "",
         "pull_before_read": False,
         "filename_template": "{device.name}.cfg",

@@ -377,3 +377,68 @@ wraps the process directly and respawns it on any exit).
   against the fixed `"ScheduledWorkflowTrigger"` workflow, described above)
   is unaffected — only what `"ScheduledWorkflowTrigger"`'s `dispatch` task
   does with the run once it fires changes.
+
+---
+
+## Version-controlled workflows: Git is a mirror, not a source of truth
+
+**Question:** When a workflow has version control turned on, does its JSON
+move into Git and out of the database? If a run executes while the two
+disagree, which one wins — and what happens to a save if Git is
+unreachable?
+
+**Answer:** PostgreSQL is unconditionally the full, authoritative store for
+every workflow. Git — when enabled — is an additional, best-effort mirror
+written *after* the database save already succeeded, purely for history,
+diffing, and rollback. Turning version control on never moves data out of
+the database, and a Git failure never blocks or rolls back a save.
+
+### The database always holds the complete definition
+
+The `workflows` table's `canvas_nodes`, `canvas_edges`, `canvas_groups`, and
+`static_attributes` columns hold the full workflow graph for *every*
+workflow — version-controlled or not. `is_version_controlled`
+(`core/models/workflows.py`) is just a boolean opt-in flag on that same row;
+flipping it off doesn't delete or move anything, it only stops the mirroring
+described below. A triggered run always reads this live database row at
+execution time (`StepRunner`/`load_execution_graph`) — there is no
+run-to-git-commit pinning. This was a deliberate scope decision: Git exists
+for a human to browse/diff/roll back, not to make runs reproducible against
+a specific commit, so the execution path is completely unchanged by whether
+a workflow is version-controlled.
+
+### What gets mirrored, and when
+
+`WorkflowGitService.sync_workflow_to_git`
+(`backend/services/workflow/workflow_git_service.py`) runs at the end of
+`WorkflowService.create_workflow` / `update_workflow`
+(`backend/services/workflow/workflow_service.py`) — strictly *after* the
+database transaction has already committed. If the workflow is
+version-controlled and a repository is configured, it serializes the same
+content that's in the database (minus DB-only bookkeeping like `id` and
+timestamps) to pretty-printed JSON, writes it to `workflows/<uuid>.json` in
+the repo's working tree, then commits and pushes. There is exactly one
+global repository for all version-controlled workflows — enforced as the
+single `GitRepository` row with `category="workflows"`, configured once
+under Settings → Git Repositories — not a per-workflow repo choice.
+
+### Best-effort, not transactional
+
+`sync_workflow_to_git` never raises. On any failure (repo unreachable, auth
+failure, nothing configured, workflow not version-controlled) it returns a
+`status` of `"failed"` or `"skipped"` instead, which rides back to the
+frontend as a `git_sync` field on the save response — surfaced as a
+non-blocking toast, never a rolled-back save. A workflow that isn't
+version-controlled short-circuits before any Git or even repository-lookup
+call, so the common case (most workflows) pays no cost for this feature
+existing.
+
+### Restore is forward-only
+
+Restoring an older commit (`WorkflowGitService.restore_version` →
+`WorkflowService.restore_workflow_version`) reads that commit's JSON and
+applies it through the exact same `update_workflow` path a normal save
+uses — full validation, then a *new* mirrored commit. Restore never runs
+`git reset`/`git revert`/history rewrite, so Git history only ever grows
+forward, and a "bad" restore is itself just one more commit to restore away
+from.
