@@ -63,7 +63,7 @@ export function WorkflowOpenDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="flex max-h-[80vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="flex h-[80vh] max-h-[80vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>Open Workflow</DialogTitle>
           <DialogDescription>Browse and open a saved workflow.</DialogDescription>

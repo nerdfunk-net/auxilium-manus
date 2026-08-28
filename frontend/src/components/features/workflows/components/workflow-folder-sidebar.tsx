@@ -47,10 +47,8 @@ export function WorkflowFolderSidebar({
           expanded={rootExpanded}
           icon={<Folder className="size-4" />}
           label="Root"
-          onClick={() => {
-            onSelectFolder(FOLDER_ROOT);
-            setRootExpanded((prev) => !prev);
-          }}
+          onClick={() => onSelectFolder(FOLDER_ROOT)}
+          onToggleExpand={() => setRootExpanded((prev) => !prev)}
         />
       )}
 
@@ -79,6 +77,7 @@ interface FolderButtonProps {
   indented?: boolean;
   label: string;
   onClick: () => void;
+  onToggleExpand?: () => void;
 }
 
 export function FolderButton({
@@ -90,6 +89,7 @@ export function FolderButton({
   indented = false,
   label,
   onClick,
+  onToggleExpand,
 }: FolderButtonProps) {
   return (
     <button
@@ -103,11 +103,28 @@ export function FolderButton({
     >
       <span className="flex items-center gap-2">
         {expandable ? (
-          expanded ? (
-            <ChevronDown className="size-3" />
-          ) : (
-            <ChevronRight className="size-3" />
-          )
+          <span
+            role="button"
+            tabIndex={0}
+            className="rounded p-0.5 hover:bg-muted"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleExpand?.();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleExpand?.();
+              }
+            }}
+          >
+            {expanded ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+          </span>
         ) : null}
         {icon}
         {label}
