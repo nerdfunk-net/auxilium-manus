@@ -54,15 +54,25 @@ export function WorkflowHistoryDialog({
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
 
   const { reset: resetDiff } = diffMutation;
+
+  // Unmount Monaco's DiffEditor (by clearing the selection, in its own
+  // commit) before the Dialog's portal unmounts in a later commit — doing
+  // both in the same tick races Monaco's internal diff-worker teardown
+  // against Radix ripping the whole subtree out of the DOM, which throws
+  // "TextModel got disposed before DiffEditorWidget model got reset".
+  const closeAfterUnmountingDiff = useCallback(() => {
+    setSelectedHash(null);
+    resetDiff();
+    setTimeout(onClose, 0);
+  }, [onClose, resetDiff]);
+
   const handleOpenChange = useCallback(
     (next: boolean) => {
       if (!next) {
-        setSelectedHash(null);
-        resetDiff();
-        onClose();
+        closeAfterUnmountingDiff();
       }
     },
-    [onClose, resetDiff],
+    [closeAfterUnmountingDiff],
   );
 
   const selectedIndex = commits.findIndex((c) => c.hash === selectedHash);
@@ -85,7 +95,7 @@ export function WorkflowHistoryDialog({
           description: `Workflow restored to ${selectedCommit.short_hash}.`,
         });
         onRestored(updated);
-        onClose();
+        closeAfterUnmountingDiff();
       },
       onError: (err: Error) => {
         toast({ title: "Restore failed", description: err.message, variant: "destructive" });
@@ -166,24 +176,33 @@ export function WorkflowHistoryDialog({
               <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                 This is the initial version — nothing to compare it to.
               </div>
-            ) : diffMutation.isPending ? (
-              <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                Loading diff…
+            ) : diff ? (
+              // Stays mounted across later commit switches (TanStack Query
+              // keeps the previous mutation result until the next one
+              // resolves) — swapping Monaco's DiffEditor in and out on every
+              // click destabilizes its internal diff-worker teardown.
+              <div className="relative min-h-0 flex-1">
+                <WorkflowGitDiffViewer original={originalContent} modified={modifiedContent} />
+                {diffMutation.isPending ? (
+                  <div className="absolute inset-x-0 top-0 bg-muted/90 px-3 py-1 text-center text-xs text-muted-foreground">
+                    Updating…
+                  </div>
+                ) : null}
               </div>
             ) : diffMutation.isError ? (
               <div className="flex flex-1 items-center justify-center text-sm text-destructive">
                 Failed to load diff.
               </div>
-            ) : diff ? (
-              <div className="min-h-0 flex-1">
-                <WorkflowGitDiffViewer original={originalContent} modified={modifiedContent} />
+            ) : (
+              <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                Loading diff…
               </div>
-            ) : null}
+            )}
           </div>
         </div>
 
         <DialogFooter className="border-t px-6 py-4">
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={closeAfterUnmountingDiff}>
             Close
           </Button>
           <Button
