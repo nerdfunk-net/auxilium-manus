@@ -603,6 +603,7 @@ The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/e
 - ❌ No custom canvas render branch per step in `workflow-node.tsx` — equal size, registry-driven title/description, standard outcome colours
 - ❌ External code must never import `workflow_steps` packages directly; only `StepRunner` calls executors
 - ✅ Raise `ValueError` for config/input errors, `RuntimeError` for execution failures
+- ✅ If the step needs a git repository, store `git_repository_id: int` in its config and resolve it via `workflow_steps.common.git_repository_loader.load_git_repository` — see Git Repository Architecture below
 
 ## Security Checklist
 - ✅ Change `SECRET_KEY` and default admin password
@@ -785,6 +786,72 @@ ip_id = await ip_manager.ensure_ip_address_exists(...)
 - ❌ Create monolithic service classes
 - ❌ Mix validation logic with API calls
 
+## Git Repository Architecture
+
+**IMPORTANT:** There is exactly **one** git configuration system in this codebase: the
+`GitRepository` DB model. A second, Settings-KV-backed git config system
+(`sources.git.*`) existed until 2026-08-28 and was fully removed — never re-add a
+KV-based or ad-hoc-string git config path. Any feature that needs to talk to a git
+remote creates/uses a `GitRepository` row.
+
+### Core Pieces
+- `backend/core/models/git.py` — `GitRepository` SQLAlchemy model: `name` (unique),
+  `category`, `url`, `branch`, `auth_type` (`none`/`token`/`ssh_key`/`generic`),
+  `credential_name`, `path` (on-disk clone-dir override), `verify_ssl`,
+  `git_author_name`/`git_author_email`, `is_active`, `sync_status`.
+- `backend/models/git_repositories.py` — Pydantic request/response models,
+  `GitCategory` enum (`device_configs`, `cockpit_configs`, `templates`, `agent`,
+  `csv_imports`, `csv_exports`, `workflows`, `workflow_steps`), `GitAuthType` enum.
+- `backend/services/git/repository_service.py` — `GitRepositoryService`: CRUD for the
+  `git_repositories` table only (no git operations). `_to_dict()` is the canonical
+  "repository dict" shape every git operation below consumes.
+- `backend/services/git/service.py` — `GitService` (via
+  `service_factory.build_git_service()`): the one engine for clone/pull/push/commit/
+  fetch. Takes a plain `repository: dict`, not a `GitRepository` ORM object.
+- `backend/services/git/auth.py` — `GitAuthenticationService`: resolves
+  `credential_name` → username/token/ssh_key_path from the shared `Credential` table.
+  Background jobs have no acting user, so **only `visibility="global"` credentials
+  resolve** — private credentials are silently treated as not found.
+- `backend/services/git/sync.py` — `clone_or_pull`/`remove_and_clone`: "ensure the
+  local working tree exists" helpers for callers that just need to read files.
+- `backend/services/git/device_service.py`, `content_search_service.py` —
+  device-YAML discovery and text search over an already-cloned repo.
+- `backend/workflow_steps/common/git_repository_loader.py` — `load_git_repository
+  (repository_id: int)`: the **one** resolver every workflow step must use to turn a
+  `git_repository_id` config value into a `GitService`-ready repository dict.
+- `backend/routers/git/*` — `repositories.py` (CRUD + test-connection),
+  `operations.py` (`/api/git/{repo_id}/sync`, `/remove-and-sync`, `/status`, `/info`),
+  `version_control.py` (branches/commits/diff), `files.py` (browsing/history),
+  `devices.py` (`/preview-devices`, `/content-search-preview`), `debug.py`.
+- Frontend: Settings → **Git Repositories**
+  (`frontend/src/components/features/settings/components/git-repositories-settings-canvas.tsx`)
+  is the only UI for creating/editing repositories, backed by
+  `hooks/queries/use-git-repositories-{query,mutations}.ts`.
+  `workflow-steps/shared/git-repository-select-dialog.tsx` (`GitRepositorySelectDialog`)
+  is the only picker workflow steps use to choose a repository.
+
+### Workflow Steps
+Every git-consuming step (`git-clone`, `git-pull`, `git-push`, `get-git-devices`,
+`store-artifact`, `get-from-config`, `read-config`, `compare-data`,
+`compare-pyats-snapshot`, `set-default-attributes`) stores `git_repository_id: int`
+(FK to `git_repositories.id`) in its plugin config — never a string source id.
+Resolve it via `workflow_steps.common.git_repository_loader.load_git_repository`,
+never by re-implementing a lookup inline in the executor.
+
+### DO:
+- ✅ Add a `GitRepository` row (via the CRUD API/Settings UI) for any new git-backed
+  feature; reuse an existing `GitCategory` or extend the enum if genuinely new
+- ✅ Reuse `GitService` / `GitRepositoryService` / `git_repository_loader` — one
+  resolution path, no parallel implementations
+- ✅ Reference credentials by name via `credential_name` on the `GitRepository` row
+
+### DON'T:
+- ❌ Add a `sources.<type>.*`-style Settings KV entry for git configuration
+- ❌ Store a git source as a bare string id/URL in workflow step config —
+  always `git_repository_id: int`
+- ❌ Write a second "resolve git config" helper — extend
+  `git_repository_loader.py` instead
+
 ## Key Patterns Summary
 
 **Backend:**
@@ -827,6 +894,7 @@ ip_id = await ip_manager.ensure_ip_address_exists(...)
 - ❌ Mixing validation/transformation logic with API calls
 - ❌ using f-string in Logging
 - ❌ Embedding raw exception text (`str(e)`, `{exc}`, f-strings interpolating exceptions, etc.) in `HTTPException(detail=…)` for any **5xx** response. Use `core.safe_http_errors.raise_internal_server_error` and let the client see only `{message, error_id}` (optionally pass `status_code` for sanitized 502/503 responses).
+- ❌ Creating a second git-configuration storage path (Settings KV, ad-hoc string source ids) instead of a `GitRepository` row — see Git Repository Architecture above.
 
 **Frontend:**
 - ❌ Placing components at `/components/` root without feature grouping
