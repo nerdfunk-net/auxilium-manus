@@ -96,7 +96,7 @@ export function FolderButton({
       type="button"
       className={cn(
         "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/50",
-        indented && "pl-7",
+        indented && "pl-8",
         active && "bg-primary/10 font-medium text-primary",
       )}
       onClick={onClick}
