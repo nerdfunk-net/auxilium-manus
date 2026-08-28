@@ -31,6 +31,8 @@ export interface CredentialCreatePayload {
   username: string;
   type: CredentialType;
   password?: string;
+  ssh_private_key?: string;
+  ssh_passphrase?: string;
   valid_until?: string;
   visibility: CredentialVisibility;
 }
@@ -40,6 +42,8 @@ export interface CredentialUpdatePayload {
   username?: string;
   type?: CredentialType;
   password?: string;
+  ssh_private_key?: string;
+  ssh_passphrase?: string;
   valid_until?: string;
   visibility?: CredentialVisibility;
 }

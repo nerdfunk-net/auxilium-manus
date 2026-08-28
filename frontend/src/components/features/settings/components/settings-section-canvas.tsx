@@ -8,6 +8,7 @@ import { LoggingSettingsCanvas } from "./logging-settings-canvas";
 import { PermissionsSettingsCanvas } from "./permissions-settings-canvas";
 import { RedisSettingsCanvas } from "./redis-settings-canvas";
 import { SourcesSettingsCanvas } from "./sources-settings-canvas";
+import { VersionControlSettingsCanvas } from "./version-control-settings-canvas";
 
 interface SettingsSectionCanvasProps {
   section: SettingsSection;
@@ -40,6 +41,10 @@ export function SettingsSectionCanvas({ section }: SettingsSectionCanvasProps) {
 
   if (section === "logging") {
     return <LoggingSettingsCanvas />;
+  }
+
+  if (section === "version-control") {
+    return <VersionControlSettingsCanvas />;
   }
 
   return null;

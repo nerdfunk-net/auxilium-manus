@@ -103,10 +103,18 @@ export const queryKeys = {
   },
   gitRepositories: {
     all: ["git-repositories"] as const,
-    list: (activeOnly?: boolean) =>
-      activeOnly
-        ? ([...queryKeys.gitRepositories.all, "list", "active"] as const)
-        : ([...queryKeys.gitRepositories.all, "list"] as const),
+    list: (activeOnly?: boolean, category?: string) =>
+      [
+        ...queryKeys.gitRepositories.all,
+        "list",
+        activeOnly ? "active" : "all",
+        category ?? "any",
+      ] as const,
+  },
+  workflowVersionControl: {
+    all: ["workflow-version-control"] as const,
+    history: (workflowId: number) =>
+      [...queryKeys.workflowVersionControl.all, "history", workflowId] as const,
   },
   templates: {
     all: ["templates"] as const,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Upload } from "lucide-react";
@@ -24,6 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { useGitRepositoriesQuery } from "@/hooks/queries/use-git-repositories-query";
 import { useWorkflowExportMutation } from "@/hooks/queries/use-workflow-export-mutation";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
@@ -49,6 +51,7 @@ const editSchema = z.object({
   description: z.string().max(2000).optional(),
   folder: z.string().max(500).optional(),
   visibility: z.enum(["public", "private"]),
+  is_version_controlled: z.boolean(),
 });
 
 type EditFormValues = z.infer<typeof editSchema>;
@@ -66,6 +69,11 @@ export function WorkflowManageDialog({
   const { updateWorkflow, deleteWorkflow } = useWorkflowMutations();
   const exportWorkflow = useWorkflowExportMutation();
   const queryClient = useQueryClient();
+  const { data: gitRepoData } = useGitRepositoriesQuery({
+    activeOnly: true,
+    category: "workflows",
+  });
+  const hasConfiguredGitRepository = (gitRepoData?.repositories.length ?? 0) > 0;
 
   const workflows = useMemo(() => data?.workflows ?? [], [data]);
 
@@ -116,6 +124,7 @@ export function WorkflowManageDialog({
         description: wf.description ?? "",
         folder: wf.folder ?? "/",
         visibility: wf.visibility,
+        is_version_controlled: wf.is_version_controlled,
       });
     },
     [reset],
@@ -153,6 +162,7 @@ export function WorkflowManageDialog({
                           description: updated.description,
                           folder: updated.folder,
                           visibility: updated.visibility,
+                          is_version_controlled: updated.is_version_controlled,
                           updated_at: updated.updated_at,
                         }
                       : wf,
@@ -315,6 +325,31 @@ export function WorkflowManageDialog({
                           <SelectItem value="public">Public</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    <div className="col-span-2 flex items-center justify-between rounded-lg border px-3 py-2">
+                      <div>
+                        <Label className="mb-0 text-xs" htmlFor="edit-version-controlled">
+                          Version controlled
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          {hasConfiguredGitRepository
+                            ? "Every save is also committed to the configured Git repository."
+                            : "Configure a Git repository in Settings → Version Control first."}
+                        </p>
+                      </div>
+                      <Controller
+                        control={control}
+                        name="is_version_controlled"
+                        render={({ field }) => (
+                          <Switch
+                            id="edit-version-controlled"
+                            checked={field.value}
+                            disabled={!hasConfiguredGitRepository && !field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        )}
+                      />
                     </div>
 
                     {saveError ? (

@@ -21,6 +21,7 @@ import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel"
 import { WorkflowRunControls } from "./components/workflow-run-controls";
 import { WorkflowTopbar } from "./components/workflow-topbar";
 import { EMPTY_PLUGINS } from "./constants/empty-canvas";
+import { WorkflowHistoryDialog } from "./dialogs/workflow-history-dialog";
 import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
 import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
 import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
@@ -71,6 +72,7 @@ export function WorkflowBuilderPage() {
         onRun={run.handleRun}
         onSave={persistence.handleSave}
         onSaveAs={() => persistence.setIsSaveAsOpen(true)}
+        onVersionControl={() => persistence.setIsHistoryOpen(true)}
       />
       <main className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
@@ -143,6 +145,7 @@ export function WorkflowBuilderPage() {
         defaultDescription={persistence.workflowDescription}
         defaultFolder={persistence.workflowFolder}
         defaultVisibility={persistence.workflowVisibility}
+        defaultIsVersionControlled={persistence.workflowIsVersionControlled}
         isSaving={persistence.createWorkflow.isPending || persistence.updateWorkflow.isPending}
         onSave={persistence.handleSaveAs}
         onOverwrite={persistence.handleOverwrite}
@@ -158,6 +161,14 @@ export function WorkflowBuilderPage() {
       <WorkflowManageDialog
         open={persistence.isManageOpen}
         onClose={() => persistence.setIsManageOpen(false)}
+      />
+
+      <WorkflowHistoryDialog
+        open={persistence.isHistoryOpen}
+        workflowId={persistence.workflowId}
+        workflowName={persistence.workflowName}
+        onClose={() => persistence.setIsHistoryOpen(false)}
+        onRestored={persistence.handleRestored}
       />
 
       <Dialog

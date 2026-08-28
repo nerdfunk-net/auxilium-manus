@@ -4,8 +4,9 @@ import { useCallback } from "react";
 import type { MutableRefObject } from "react";
 
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
+import { useToast } from "@/hooks/use-toast";
 
-import type { WorkflowVisibility } from "../types/workflow-persistence";
+import type { WorkflowGitSyncStatus, WorkflowVisibility } from "../types/workflow-persistence";
 import { canvasPersistPayload } from "../utils/canvas-persist-payload";
 import { validateCanvasWorkflow } from "../utils/workflow-validation";
 import type { UseWorkflowCanvasResult } from "./use-workflow-canvas";
@@ -24,6 +25,7 @@ export interface UseWorkflowSaveOptions {
     workflowDescription: string;
     workflowFolder: string;
     workflowVisibility: WorkflowVisibility;
+    workflowIsVersionControlled: boolean;
   }) => void;
   setIsSaveAsOpen: (open: boolean) => void;
   openAfterSave: boolean;
@@ -52,6 +54,19 @@ export function useWorkflowSave({
 }: UseWorkflowSaveOptions) {
   const { allNodes, allEdges, groups, staticAttributes } = canvas;
   const { createWorkflow, updateWorkflow } = useWorkflowMutations();
+  const { toast } = useToast();
+
+  const warnIfGitSyncFailed = useCallback(
+    (gitSync: WorkflowGitSyncStatus | null) => {
+      if (gitSync?.status !== "failed") return;
+      toast({
+        title: "Saved, but Git sync failed",
+        description: gitSync.message ?? "The workflow was saved, but committing to Git failed.",
+        variant: "destructive",
+      });
+    },
+    [toast],
+  );
 
   const handleSaveAs = useCallback(
     async (values: {
@@ -59,6 +74,7 @@ export function useWorkflowSave({
       description?: string;
       folder?: string;
       visibility: WorkflowVisibility;
+      is_version_controlled?: boolean;
     }) => {
       const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
       if (!validation.isValid) {
@@ -71,6 +87,7 @@ export function useWorkflowSave({
           description: values.description,
           folder: values.folder,
           visibility: values.visibility,
+          is_version_controlled: values.is_version_controlled,
           ...canvasPayload,
         });
         loadWorkflow({
@@ -80,9 +97,11 @@ export function useWorkflowSave({
           workflowDescription: saved.description ?? "",
           workflowFolder: saved.folder ?? "/",
           workflowVisibility: saved.visibility as WorkflowVisibility,
+          workflowIsVersionControlled: saved.is_version_controlled,
         });
         setIsSaveAsOpen(false);
         markSaved(`Saved as "${saved.name}"`);
+        warnIfGitSyncFailed(saved.git_sync);
         if (openAfterSave) {
           setOpenAfterSave(false);
           setIsOpenDialogOpen(true);
@@ -112,6 +131,7 @@ export function useWorkflowSave({
       setRunAfterSave,
       setIsOpenDialogOpen,
       requestRunRef,
+      warnIfGitSyncFailed,
     ],
   );
 
@@ -122,6 +142,7 @@ export function useWorkflowSave({
         description?: string;
         folder?: string;
         visibility: WorkflowVisibility;
+        is_version_controlled?: boolean;
       },
       existingId: number,
     ) => {
@@ -138,6 +159,7 @@ export function useWorkflowSave({
             description: values.description,
             folder: values.folder,
             visibility: values.visibility,
+            is_version_controlled: values.is_version_controlled,
             ...canvasPayload,
           },
         });
@@ -148,9 +170,11 @@ export function useWorkflowSave({
           workflowDescription: saved.description ?? "",
           workflowFolder: saved.folder ?? "/",
           workflowVisibility: saved.visibility as WorkflowVisibility,
+          workflowIsVersionControlled: saved.is_version_controlled,
         });
         setIsSaveAsOpen(false);
         markSaved(`Saved as "${saved.name}"`);
+        warnIfGitSyncFailed(saved.git_sync);
       } catch {
         markError("Failed to overwrite workflow");
       }
@@ -166,6 +190,7 @@ export function useWorkflowSave({
       markSaved,
       markError,
       setIsSaveAsOpen,
+      warnIfGitSyncFailed,
     ],
   );
 
@@ -185,7 +210,10 @@ export function useWorkflowSave({
         data: canvasPayload,
       },
       {
-        onSuccess: () => markSaved(`Saved "${workflowName}"`),
+        onSuccess: (saved) => {
+          markSaved(`Saved "${workflowName}"`);
+          warnIfGitSyncFailed(saved.git_sync);
+        },
         onError: () => markError("Failed to save workflow"),
       },
     );
@@ -201,6 +229,7 @@ export function useWorkflowSave({
     markError,
     workflowName,
     setIsSaveAsOpen,
+    warnIfGitSyncFailed,
   ]);
 
   const handleSaveAndOpen = useCallback(async () => {
@@ -215,11 +244,12 @@ export function useWorkflowSave({
       return;
     }
     try {
-      await updateWorkflow.mutateAsync({
+      const saved = await updateWorkflow.mutateAsync({
         id: workflowId,
         data: canvasPayload,
       });
       markSaved(`Saved "${workflowName}"`);
+      warnIfGitSyncFailed(saved.git_sync);
       setIsOpenDialogOpen(true);
     } catch {
       markError("Failed to save workflow");
@@ -238,6 +268,7 @@ export function useWorkflowSave({
     setOpenAfterSave,
     setIsSaveAsOpen,
     setIsOpenDialogOpen,
+    warnIfGitSyncFailed,
   ]);
 
   return {

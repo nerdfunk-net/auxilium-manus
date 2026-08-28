@@ -14,6 +14,7 @@ export function generateStaticParams() {
     { section: "hatchet" },
     { section: "redis" },
     { section: "logging" },
+    { section: "version-control" },
   ];
 }
 

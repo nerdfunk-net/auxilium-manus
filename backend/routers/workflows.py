@@ -12,6 +12,10 @@ from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.workflows import (
     WorkflowCreate,
+    WorkflowGitDiffRequest,
+    WorkflowGitDiffResponse,
+    WorkflowGitHistoryResponse,
+    WorkflowGitRestoreRequest,
     WorkflowListResponse,
     WorkflowNameCheckResponse,
     WorkflowResponse,
@@ -91,7 +95,9 @@ async def create_workflow(
     service: WorkflowService = Depends(_service),
 ) -> WorkflowResponse:
     try:
-        return service.create_workflow(data=body, user_id=current_user.id)
+        return service.create_workflow(
+            data=body, user_id=current_user.id, actor_username=current_user.username
+        )
     except DomainError:
         raise
     except Exception as exc:
@@ -110,11 +116,82 @@ async def update_workflow(
     service: WorkflowService = Depends(_service),
 ) -> WorkflowResponse:
     try:
-        return service.update_workflow(workflow_id=workflow_id, data=body, user_id=current_user.id)
+        return service.update_workflow(
+            workflow_id=workflow_id,
+            data=body,
+            user_id=current_user.id,
+            actor_username=current_user.username,
+        )
     except DomainError:
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to update workflow", exc)
+
+
+@router.get(
+    "/{workflow_id}/version-control/history",
+    response_model=WorkflowGitHistoryResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
+async def get_workflow_git_history(
+    workflow_id: int,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+) -> WorkflowGitHistoryResponse:
+    try:
+        return service.get_workflow_git_history(workflow_id=workflow_id, user_id=current_user.id)
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to get workflow git history", exc)
+
+
+@router.post(
+    "/{workflow_id}/version-control/diff",
+    response_model=WorkflowGitDiffResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
+async def diff_workflow_git_versions(
+    workflow_id: int,
+    body: WorkflowGitDiffRequest,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+) -> WorkflowGitDiffResponse:
+    try:
+        return service.get_workflow_git_diff(
+            workflow_id=workflow_id,
+            commit_a=body.commit_a,
+            commit_b=body.commit_b,
+            user_id=current_user.id,
+        )
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to diff workflow git versions", exc)
+
+
+@router.post(
+    "/{workflow_id}/version-control/restore",
+    response_model=WorkflowResponse,
+    dependencies=[Depends(require_permission("workflows", "write"))],
+)
+async def restore_workflow_git_version(
+    workflow_id: int,
+    body: WorkflowGitRestoreRequest,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+) -> WorkflowResponse:
+    try:
+        return service.restore_workflow_version(
+            workflow_id=workflow_id,
+            commit_sha=body.commit_sha,
+            user_id=current_user.id,
+            actor_username=current_user.username,
+        )
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to restore workflow git version", exc)
 
 
 @router.delete(

@@ -5,6 +5,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { CredentialStatusBadge } from "../components/credential-status-badge";
+import { CredentialTypeBadge } from "../components/credential-type-badge";
 import { CredentialVisibilityBadge } from "../components/credential-visibility-badge";
 import type { Credential } from "../types";
 import { formatValidUntil } from "../utils/credential-utils";
@@ -23,7 +24,7 @@ export function CredentialsTable({
   if (credentials.length === 0) {
     return (
       <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-        No SSH login credentials configured yet.
+        No credentials configured yet.
       </p>
     );
   }
@@ -33,7 +34,7 @@ export function CredentialsTable({
       {credentials.map((credential) => (
         <li
           key={credential.id}
-          className="grid gap-3 rounded-lg border bg-background px-4 py-3 md:grid-cols-[4rem_1fr_1fr_8rem_7rem_7rem_auto]"
+          className="grid gap-3 rounded-lg border bg-background px-4 py-3 md:grid-cols-[4rem_1fr_1fr_7rem_8rem_7rem_7rem_auto]"
         >
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -52,6 +53,12 @@ export function CredentialsTable({
               Username
             </p>
             <p className="truncate text-sm">{credential.username}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Type
+            </p>
+            <CredentialTypeBadge type={credential.type} />
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

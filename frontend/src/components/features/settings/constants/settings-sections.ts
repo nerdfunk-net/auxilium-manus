@@ -1,4 +1,13 @@
-import { Database, KeyRound, Plug, ScrollText, Settings2, Users, Workflow } from "lucide-react";
+import {
+  Database,
+  GitBranch,
+  KeyRound,
+  Plug,
+  ScrollText,
+  Settings2,
+  Users,
+  Workflow,
+} from "lucide-react";
 
 import type { AuthUser } from "@/lib/auth";
 import { hasPermission } from "@/lib/permissions";
@@ -67,5 +76,12 @@ export const SETTINGS_SECTIONS: {
     description: "Log levels, the workflow execution log, and noisy loggers to mute.",
     icon: ScrollText,
     canShow: (user) => hasPermission(user, "logging_settings", "read"),
+  },
+  {
+    id: "version-control",
+    label: "Version Control",
+    description: "Git-backed history for workflow definitions.",
+    icon: GitBranch,
+    canShow: (user) => hasPermission(user, "git.repositories", "read"),
   },
 ];

@@ -31,6 +31,7 @@ class WorkflowCreate(BaseModel):
     canvas_edges: list[dict[str, Any]] = Field(default_factory=list)
     canvas_groups: list[dict[str, Any]] = Field(default_factory=list)
     static_attributes: list[StaticAttributeDef] = Field(default_factory=list)
+    is_version_controlled: bool = False
 
 
 class WorkflowUpdate(BaseModel):
@@ -42,6 +43,7 @@ class WorkflowUpdate(BaseModel):
     canvas_edges: list[dict[str, Any]] | None = None
     canvas_groups: list[dict[str, Any]] | None = None
     static_attributes: list[StaticAttributeDef] | None = None
+    is_version_controlled: bool | None = None
 
 
 class WorkflowSummary(BaseModel):
@@ -53,8 +55,22 @@ class WorkflowSummary(BaseModel):
     description: str | None
     folder: str | None
     visibility: str
+    is_version_controlled: bool
     created_at: datetime
     updated_at: datetime
+
+
+class WorkflowGitSyncStatus(BaseModel):
+    """Outcome of the best-effort Git sync performed as part of a save.
+
+    Git is a backup/history layer, not a transactional partner for the DB
+    save — this is always reported, never raised as an error response.
+    """
+
+    status: Literal["ok", "failed", "skipped"]
+    commit_sha: str | None = None
+    pushed: bool = False
+    message: str | None = None
 
 
 class WorkflowResponse(WorkflowSummary):
@@ -62,6 +78,7 @@ class WorkflowResponse(WorkflowSummary):
     canvas_edges: list[dict[str, Any]] | None
     canvas_groups: list[dict[str, Any]] | None
     static_attributes: list[StaticAttributeDef] | None
+    git_sync: WorkflowGitSyncStatus | None = None
 
 
 class WorkflowListResponse(BaseModel):
@@ -73,3 +90,33 @@ class WorkflowNameCheckResponse(BaseModel):
     available: bool
     message: str | None = None
     existing_id: int | None = None
+
+
+class WorkflowGitCommitEntry(BaseModel):
+    hash: str
+    short_hash: str
+    message: str
+    author: dict[str, str]
+    date: str
+    change_type: str | None = None
+
+
+class WorkflowGitHistoryResponse(BaseModel):
+    commits: list[WorkflowGitCommitEntry]
+    repository_name: str
+
+
+class WorkflowGitDiffRequest(BaseModel):
+    commit_a: str = Field(..., min_length=4)
+    commit_b: str = Field(..., min_length=4)
+
+
+class WorkflowGitDiffResponse(BaseModel):
+    diff_lines: list[str]
+    left_lines: list[dict[str, Any]]
+    right_lines: list[dict[str, Any]]
+    stats: dict[str, int]
+
+
+class WorkflowGitRestoreRequest(BaseModel):
+    commit_sha: str = Field(..., min_length=4)

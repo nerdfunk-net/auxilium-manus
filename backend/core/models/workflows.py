@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base
@@ -27,6 +27,9 @@ class Workflow(Base):
     # supplied at trigger time are seeded into every device's attribute_bags
     # under the "run_input" bag — see services/workflow_context/run_inputs.py.
     static_attributes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    is_version_controlled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -6,6 +6,7 @@ import {
   FilePlus,
   FolderOpen,
   FolderCog,
+  History,
   Play,
   Save,
   SaveAll,
@@ -43,6 +44,7 @@ interface WorkflowTopbarProps {
   onManage: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onVersionControl: () => void;
   onRun: () => void;
 }
 
@@ -52,6 +54,7 @@ export function WorkflowTopbar({
   onManage,
   onSave,
   onSaveAs,
+  onVersionControl,
   onRun,
 }: WorkflowTopbarProps) {
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
@@ -173,6 +176,11 @@ export function WorkflowTopbar({
             <DropdownMenuItem onSelect={onSaveAs}>
               <SaveAll className="size-4" />
               Save As…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onVersionControl} disabled={!workflowId}>
+              <History className="size-4" />
+              Version Control…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

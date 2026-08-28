@@ -42,6 +42,7 @@ class GitRepositoryService:
                 category=repo_data["category"],
                 url=repo_data["url"],
                 branch=repo_data.get("branch", "main"),
+                auth_type=repo_data.get("auth_type", "token"),
                 credential_name=repo_data.get("credential_name"),
                 path=repo_data.get("path"),
                 verify_ssl=repo_data.get("verify_ssl", True),

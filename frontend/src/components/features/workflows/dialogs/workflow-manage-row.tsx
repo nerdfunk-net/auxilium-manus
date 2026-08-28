@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, FileText, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Download, FileText, GitBranch, Loader2, Pencil, Trash2 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,12 @@ export function WorkflowRow({
           <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
             {getFolderLabel(workflow.folder)}
           </span>
+          {workflow.is_version_controlled ? (
+            <Badge variant="outline" className="gap-1 text-xs">
+              <GitBranch className="size-3" />
+              Versioned
+            </Badge>
+          ) : null}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {workflow.creator_username ?? "—"} ·{" "}

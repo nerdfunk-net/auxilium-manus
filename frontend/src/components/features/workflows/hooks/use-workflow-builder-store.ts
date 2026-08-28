@@ -35,6 +35,7 @@ interface WorkflowMetadata {
   workflowDescription: string;
   workflowFolder: string;
   workflowVisibility: WorkflowVisibility;
+  workflowIsVersionControlled: boolean;
 }
 
 interface WorkflowBuilderState extends WorkflowMetadata {
@@ -95,6 +96,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   setWorkflowDescription: (description: string) => void;
   setWorkflowFolder: (folder: string) => void;
   setWorkflowVisibility: (visibility: WorkflowVisibility) => void;
+  setWorkflowIsVersionControlled: (isVersionControlled: boolean) => void;
   loadWorkflow: (meta: WorkflowMetadata) => void;
   resetToNew: () => void;
 }
@@ -106,6 +108,7 @@ const NEW_WORKFLOW_DEFAULTS: WorkflowMetadata = {
   workflowDescription: "",
   workflowFolder: "/",
   workflowVisibility: "private",
+  workflowIsVersionControlled: false,
 };
 
 export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
@@ -199,13 +202,17 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   setWorkflowDescription: (workflowDescription) => set({ workflowDescription }),
   setWorkflowFolder: (workflowFolder) => set({ workflowFolder }),
   setWorkflowVisibility: (workflowVisibility) => set({ workflowVisibility }),
+  setWorkflowIsVersionControlled: (workflowIsVersionControlled) =>
+    set({ workflowIsVersionControlled }),
   loadWorkflow: (meta) =>
     set({
       workflowId: meta.workflowId,
+      workflowUuid: meta.workflowUuid,
       workflowName: meta.workflowName,
       workflowDescription: meta.workflowDescription,
       workflowFolder: meta.workflowFolder,
       workflowVisibility: meta.workflowVisibility,
+      workflowIsVersionControlled: meta.workflowIsVersionControlled,
       workflowStatus: "Saved",
       isDirty: false,
       activeRunId: null,

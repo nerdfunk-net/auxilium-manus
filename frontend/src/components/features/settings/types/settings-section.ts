@@ -5,4 +5,5 @@ export type SettingsSection =
   | "users"
   | "hatchet"
   | "redis"
-  | "logging";
+  | "logging"
+  | "version-control";

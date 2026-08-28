@@ -27,7 +27,7 @@ router = APIRouter(prefix="/git-repositories", tags=["git-repositories"])
 
 
 @router.get(
-    "/",
+    "",
     response_model=GitRepositoryListResponse,
     dependencies=[Depends(require_permission("git.repositories", "read"))],
 )
@@ -101,7 +101,7 @@ async def get_repository_for_edit(
 
 
 @router.post(
-    "/",
+    "",
     response_model=GitRepositoryResponse,
     dependencies=[Depends(require_permission("git.repositories", "write"))],
 )

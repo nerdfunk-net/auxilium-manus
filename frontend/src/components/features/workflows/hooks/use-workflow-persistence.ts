@@ -54,6 +54,9 @@ export function useWorkflowPersistence({
   const workflowVisibility = useWorkflowBuilderStore(
     (state) => state.workflowVisibility,
   );
+  const workflowIsVersionControlled = useWorkflowBuilderStore(
+    (state) => state.workflowIsVersionControlled,
+  );
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
   const markSaved = useWorkflowBuilderStore((state) => state.markSaved);
   const markDirty = useWorkflowBuilderStore((state) => state.markDirty);
@@ -65,6 +68,7 @@ export function useWorkflowPersistence({
   const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);
   const [isOpenConfirmOpen, setIsOpenConfirmOpen] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isNewConfirmOpen, setIsNewConfirmOpen] = useState(false);
   const [openAfterSave, setOpenAfterSave] = useState(false);
   const [runAfterSave, setRunAfterSave] = useState(false);
@@ -166,6 +170,7 @@ export function useWorkflowPersistence({
             workflowDescription: full.description ?? "",
             workflowFolder: full.folder ?? "/",
             workflowVisibility: full.visibility as WorkflowVisibility,
+            workflowIsVersionControlled: full.is_version_controlled,
           });
           if (loaded.migrated) {
             markDirty();
@@ -174,6 +179,24 @@ export function useWorkflowPersistence({
         .catch(() => markError("Failed to load workflow"));
     },
     [apiCall, loadWorkflow, markError, markDirty, plugins, applyLoadedCanvas],
+  );
+
+  const handleRestored = useCallback(
+    (full: WorkflowResponse) => {
+      const loaded = canvasFromWorkflowResponse(full, plugins);
+      applyLoadedCanvas(loaded);
+      loadWorkflow({
+        workflowId: full.id,
+        workflowUuid: full.uuid ?? null,
+        workflowName: full.name,
+        workflowDescription: full.description ?? "",
+        workflowFolder: full.folder ?? "/",
+        workflowVisibility: full.visibility as WorkflowVisibility,
+        workflowIsVersionControlled: full.is_version_controlled,
+      });
+      markSaved(`Restored "${full.name}"`);
+    },
+    [applyLoadedCanvas, loadWorkflow, markSaved, plugins],
   );
 
   const beginSaveAsThenRun = useCallback(() => {
@@ -193,6 +216,7 @@ export function useWorkflowPersistence({
       isOpenDialogOpen,
       isOpenConfirmOpen,
       isManageOpen,
+      isHistoryOpen,
       isNewConfirmOpen,
       openAfterSave,
       runAfterSave,
@@ -200,6 +224,7 @@ export function useWorkflowPersistence({
       setIsOpenDialogOpen,
       setIsOpenConfirmOpen,
       setIsManageOpen,
+      setIsHistoryOpen,
       setIsNewConfirmOpen,
       closeSaveAs,
       confirmNew,
@@ -211,6 +236,7 @@ export function useWorkflowPersistence({
       handleSaveAndOpen: handleSaveAndOpenWithConfirm,
       handleDiscardAndOpen,
       handleLoadWorkflow,
+      handleRestored,
       beginSaveAsThenRun,
       createWorkflow,
       updateWorkflow,
@@ -219,12 +245,14 @@ export function useWorkflowPersistence({
       workflowDescription,
       workflowFolder,
       workflowVisibility,
+      workflowIsVersionControlled,
     }),
     [
       isSaveAsOpen,
       isOpenDialogOpen,
       isOpenConfirmOpen,
       isManageOpen,
+      isHistoryOpen,
       isNewConfirmOpen,
       openAfterSave,
       runAfterSave,
@@ -238,6 +266,7 @@ export function useWorkflowPersistence({
       handleSaveAndOpenWithConfirm,
       handleDiscardAndOpen,
       handleLoadWorkflow,
+      handleRestored,
       beginSaveAsThenRun,
       createWorkflow,
       updateWorkflow,
@@ -246,6 +275,7 @@ export function useWorkflowPersistence({
       workflowDescription,
       workflowFolder,
       workflowVisibility,
+      workflowIsVersionControlled,
     ],
   );
 }

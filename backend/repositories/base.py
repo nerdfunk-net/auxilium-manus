@@ -39,7 +39,7 @@ class BaseRepository[T]:
         if db is not None:
             obj = self.model(**kwargs)
             db.add(obj)
-            db.flush()
+            db.commit()
             db.refresh(obj)
             return obj
 
@@ -57,7 +57,7 @@ class BaseRepository[T]:
                 for key, value in kwargs.items():
                     if hasattr(obj, key):
                         setattr(obj, key, value)
-                db.flush()
+                db.commit()
                 db.refresh(obj)
             return obj
 
@@ -76,7 +76,7 @@ class BaseRepository[T]:
             obj = db.query(self.model).filter(self.model.id == id).first()
             if obj:
                 db.delete(obj)
-                db.flush()
+                db.commit()
                 return True
             return False
 

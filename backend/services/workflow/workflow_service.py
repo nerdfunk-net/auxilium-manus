@@ -14,6 +14,9 @@ from core.models.workflows import Workflow
 from models.workflows import (
     StaticAttributeDef,
     WorkflowCreate,
+    WorkflowGitDiffResponse,
+    WorkflowGitHistoryResponse,
+    WorkflowGitSyncStatus,
     WorkflowListResponse,
     WorkflowNameCheckResponse,
     WorkflowResponse,
@@ -24,6 +27,7 @@ from repositories.workflow_repository import WorkflowRepository
 from services.execution.background_tier_service import BackgroundTierService
 from services.execution.graph import GraphCycleError, topological_order
 from services.execution.schedule_service import ScheduleService
+from services.workflow.workflow_git_service import WorkflowGitService, WorkflowGitSyncResult
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +84,28 @@ def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSum
         description=workflow.description,
         folder=workflow.folder,
         visibility=workflow.visibility,
+        is_version_controlled=workflow.is_version_controlled,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
     )
 
 
-def _to_response(workflow: Workflow, creator_username: str | None) -> WorkflowResponse:
+def _to_git_sync_status(result: WorkflowGitSyncResult | None) -> WorkflowGitSyncStatus | None:
+    if result is None:
+        return None
+    return WorkflowGitSyncStatus(
+        status=result.status,
+        commit_sha=result.commit_sha,
+        pushed=result.pushed,
+        message=result.message,
+    )
+
+
+def _to_response(
+    workflow: Workflow,
+    creator_username: str | None,
+    git_sync: WorkflowGitSyncResult | None = None,
+) -> WorkflowResponse:
     return WorkflowResponse(
         id=workflow.id,
         uuid=workflow.uuid,
@@ -95,12 +115,14 @@ def _to_response(workflow: Workflow, creator_username: str | None) -> WorkflowRe
         description=workflow.description,
         folder=workflow.folder,
         visibility=workflow.visibility,
+        is_version_controlled=workflow.is_version_controlled,
         canvas_nodes=workflow.canvas_nodes,
         canvas_edges=workflow.canvas_edges,
         canvas_groups=workflow.canvas_groups,
         static_attributes=workflow.static_attributes,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
+        git_sync=_to_git_sync_status(git_sync),
     )
 
 
@@ -108,6 +130,7 @@ class WorkflowService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.repo = WorkflowRepository(db)
+        self.git = WorkflowGitService(db)
 
     def list_workflows(self, user_id: int) -> WorkflowListResponse:
         logger.debug("Listing accessible workflows user_id=%s", user_id)
@@ -126,7 +149,9 @@ class WorkflowService:
             raise AccessDeniedError("Access denied")
         return _to_response(workflow, creator_username)
 
-    def create_workflow(self, data: WorkflowCreate, user_id: int) -> WorkflowResponse:
+    def create_workflow(
+        self, data: WorkflowCreate, user_id: int, actor_username: str | None = None
+    ) -> WorkflowResponse:
         logger.info("Creating workflow name=%r user_id=%s", data.name, user_id)
         _validate_no_cycle(data.canvas_nodes, data.canvas_edges)
         _validate_static_attributes(data.static_attributes)
@@ -141,6 +166,7 @@ class WorkflowService:
                 canvas_edges=data.canvas_edges,
                 canvas_groups=data.canvas_groups,
                 static_attributes=[attr.model_dump() for attr in data.static_attributes],
+                is_version_controlled=data.is_version_controlled,
             )
             result = self.repo.get_by_id(workflow.id)
             if result is None:
@@ -152,7 +178,10 @@ class WorkflowService:
                 raise RuntimeError("Workflow created but could not be retrieved")
             wf, creator_username = result
             logger.info("Workflow created id=%s name=%r user_id=%s", wf.id, wf.name, user_id)
-            return _to_response(wf, creator_username)
+            git_result = self.git.sync_workflow_to_git(
+                wf, action="create", actor_username=actor_username
+            )
+            return _to_response(wf, creator_username, git_result)
         except DomainError:
             raise
         except Exception:
@@ -162,7 +191,11 @@ class WorkflowService:
             raise
 
     def update_workflow(
-        self, workflow_id: int, data: WorkflowUpdate, user_id: int
+        self,
+        workflow_id: int,
+        data: WorkflowUpdate,
+        user_id: int,
+        actor_username: str | None = None,
     ) -> WorkflowResponse:
         logger.info("Updating workflow id=%s user_id=%s", workflow_id, user_id)
         try:
@@ -182,7 +215,10 @@ class WorkflowService:
                 _validate_static_attributes(updated_fields["static_attributes"] or [])
             workflow = self.repo.update(workflow, updated_fields)
             logger.info("Workflow updated id=%s user_id=%s", workflow_id, user_id)
-            return _to_response(workflow, creator_username)
+            git_result = self.git.sync_workflow_to_git(
+                workflow, action="update", actor_username=actor_username
+            )
+            return _to_response(workflow, creator_username, git_result)
         except DomainError:
             raise
         except Exception:
@@ -190,6 +226,57 @@ class WorkflowService:
                 "Failed to update workflow id=%s user_id=%s", workflow_id, user_id, exc_info=True
             )
             raise
+
+    def restore_workflow_version(
+        self,
+        workflow_id: int,
+        commit_sha: str,
+        user_id: int,
+        actor_username: str | None = None,
+    ) -> WorkflowResponse:
+        logger.info(
+            "Restoring workflow id=%s to commit=%s user_id=%s", workflow_id, commit_sha, user_id
+        )
+        result = self.repo.get_by_id(workflow_id)
+        if result is None:
+            raise NotFoundError("Workflow not found")
+        workflow, _creator_username = result
+        if workflow.creator_id != user_id:
+            raise AccessDeniedError("Access denied")
+        if not workflow.is_version_controlled:
+            raise ValidationFailedError("Workflow is not version controlled")
+        update_data = self.git.restore_version(workflow, commit_sha)
+        return self.update_workflow(workflow_id, update_data, user_id, actor_username)
+
+    def get_workflow_git_history(
+        self, workflow_id: int, user_id: int
+    ) -> WorkflowGitHistoryResponse:
+        workflow = self._get_readable_workflow(workflow_id, user_id)
+        history = self.git.get_history(workflow)
+        return WorkflowGitHistoryResponse(
+            commits=history["commits"], repository_name=history["repository_name"]
+        )
+
+    def get_workflow_git_diff(
+        self, workflow_id: int, commit_a: str, commit_b: str, user_id: int
+    ) -> WorkflowGitDiffResponse:
+        workflow = self._get_readable_workflow(workflow_id, user_id)
+        diff = self.git.get_diff(workflow, commit_a, commit_b)
+        return WorkflowGitDiffResponse(
+            diff_lines=diff["diff_lines"],
+            left_lines=diff["left_lines"],
+            right_lines=diff["right_lines"],
+            stats=diff["stats"],
+        )
+
+    def _get_readable_workflow(self, workflow_id: int, user_id: int) -> Workflow:
+        result = self.repo.get_by_id(workflow_id)
+        if result is None:
+            raise NotFoundError("Workflow not found")
+        workflow, _creator_username = result
+        if workflow.visibility == "private" and workflow.creator_id != user_id:
+            raise AccessDeniedError("Access denied")
+        return workflow
 
     def check_name_available(
         self,

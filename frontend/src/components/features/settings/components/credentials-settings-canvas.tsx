@@ -11,7 +11,7 @@ import { CredentialFormDialog } from "../credentials/dialogs/credential-form-dia
 import { DeleteCredentialDialog } from "../credentials/dialogs/delete-credential-dialog";
 import { useCredentialMutations } from "../credentials/hooks/use-credential-mutations";
 import { useCredentialsQuery } from "../credentials/hooks/use-credentials-query";
-import type { Credential, CredentialVisibility } from "../credentials/types";
+import type { Credential, CredentialType, CredentialVisibility } from "../credentials/types";
 
 type DialogState =
   | { type: "closed" }
@@ -36,7 +36,10 @@ export function CredentialsSettingsCanvas() {
     (values: {
       name: string;
       username: string;
+      type: CredentialType;
       password?: string;
+      ssh_private_key?: string;
+      ssh_passphrase?: string;
       valid_until?: string;
       visibility: CredentialVisibility;
     }) => {
@@ -44,8 +47,10 @@ export function CredentialsSettingsCanvas() {
         {
           name: values.name.trim(),
           username: values.username.trim(),
-          type: "ssh",
+          type: values.type,
           password: values.password,
+          ssh_private_key: values.ssh_private_key,
+          ssh_passphrase: values.ssh_passphrase,
           valid_until: values.valid_until || undefined,
           visibility: values.visibility,
         },
@@ -62,6 +67,8 @@ export function CredentialsSettingsCanvas() {
         name: string;
         username: string;
         password?: string;
+        ssh_private_key?: string;
+        ssh_passphrase?: string;
         valid_until?: string;
         visibility: CredentialVisibility;
       },
@@ -70,6 +77,8 @@ export function CredentialsSettingsCanvas() {
         name: string;
         username: string;
         password?: string;
+        ssh_private_key?: string;
+        ssh_passphrase?: string;
         valid_until?: string;
         visibility?: CredentialVisibility;
       } = {
@@ -80,6 +89,12 @@ export function CredentialsSettingsCanvas() {
       };
       if (values.password?.trim()) {
         payload.password = values.password;
+      }
+      if (values.ssh_private_key?.trim()) {
+        payload.ssh_private_key = values.ssh_private_key;
+      }
+      if (values.ssh_passphrase?.trim()) {
+        payload.ssh_passphrase = values.ssh_passphrase;
       }
 
       updateCredential.mutate(
@@ -110,8 +125,8 @@ export function CredentialsSettingsCanvas() {
             <div>
               <h1 className="text-lg font-semibold">Credential vault</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Configure SSH login credentials for network device access.
-                Passwords are encrypted in the database.
+                Configure SSH login, SSH key, and token credentials for network device access and
+                Git repositories. Secrets are encrypted in the database.
               </p>
             </div>
           </div>
@@ -120,7 +135,7 @@ export function CredentialsSettingsCanvas() {
             onClick={() => setDialog({ type: "create" })}
           >
             <Plus className="size-4" />
-            Add SSH login
+            Add credential
           </Button>
         </div>
 

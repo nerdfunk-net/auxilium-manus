@@ -51,6 +51,7 @@ class WorkflowRepository:
         canvas_edges: list[dict[str, Any]] | None,
         canvas_groups: list[dict[str, Any]] | None = None,
         static_attributes: list[dict[str, Any]] | None = None,
+        is_version_controlled: bool = False,
     ) -> Workflow:
         workflow = Workflow(
             uuid=str(uuid_mod.uuid4()),
@@ -63,6 +64,7 @@ class WorkflowRepository:
             canvas_edges=canvas_edges or [],
             canvas_groups=canvas_groups or [],
             static_attributes=static_attributes or [],
+            is_version_controlled=is_version_controlled,
         )
         self.db.add(workflow)
         self.db.commit()
