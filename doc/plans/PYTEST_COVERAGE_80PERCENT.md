@@ -1,6 +1,6 @@
 # Plan: Reach ≥ 80 % Backend Test Coverage
 
-**Status:** proposed
+**Status:** in progress — Phase 0 ✅, Phase 1 ✅, Phase 2 ✅, Phase 3 ✅ (2026-08-30); suite at 74.7 %
 **Owner:** backend
 **Created:** 2026-08-30
 **Scope:** `backend/` pytest suite (`tests/unit`), measured by `pytest-cov` with the
@@ -105,33 +105,31 @@ Each phase is independently shippable and raises the floor. Percentages are the
 target for that package after the phase. "Δcov" = estimated additional covered
 statements.
 
-### Phase 0 — Tooling & guard rails (0.5 day)
+### Phase 0 — Tooling & guard rails (0.5 day) — ✅ done 2026-08-30
 
 No coverage change; makes the rest measurable and non-regressing.
 
-1. Add a ratchet threshold to `backend/pyproject.toml`:
-   ```toml
-   [tool.pytest.ini_options]
-   addopts = "-q --cov --cov-report=term-missing --cov-fail-under=60"
-   ```
-   Start at the current floor (60). Raise the number at the end of every phase
-   so coverage can only go up.
-2. Add `fakeredis` to `backend/requirements-dev.txt` (needed for Phase 4).
-3. CI: run `pytest` (which now enforces `--cov-fail-under`) on every PR; publish
-   `coverage.json` / `htmlcov/` as a build artifact. `coverage.json` is now
-   git-ignored.
+1. ✅ Ratchet threshold added to `backend/pyproject.toml` `[tool.pytest.ini_options]`:
+   `addopts = "-q --cov --cov-report=term-missing --cov-fail-under=70"`.
+   Started at the current floor (60); raised to **65** after Phase 1 (66.8 %),
+   **70** after Phase 2 (71.3 %), **74** after Phase 3 (74.7 %). Raise again after
+   every phase so coverage can only go up. Running a subset of tests? Add
+   `--no-cov` to skip the whole-suite threshold check.
+2. ✅ `fakeredis==2.37.1` added to `backend/requirements-dev.txt` (needed for Phase 4).
+3. ⏳ CI: deferred — the repo has no `.github/workflows/` yet. When CI is added,
+   run `pytest` (which now enforces `--cov-fail-under`) on every PR and publish
+   `coverage.json` / `htmlcov/` as a build artifact. `coverage.json` is git-ignored.
 4. Document the per-package target table below in the PR description so reviewers
    can see the ratchet.
 
-### Phase 1 — Nautobot service layer → 80 % (3–4 days) · Δcov ≈ +1 070
+### Phase 1 — Nautobot service layer → 80 % (3–4 days) · Δcov ≈ +1 070 — ✅ done 2026-08-30
 
 Files: `services/nautobot/resolvers/*`, `services/nautobot/managers/*`,
 `services/nautobot/devices/*`, `services/nautobot/client.py`,
 `services/nautobot/common/*`.
 
 - Unit-test resolvers/managers against a **`MagicMock` `NautobotService`** whose
-  `graphql()` / `rest()` return canned dict payloads (fixtures under
-  `tests/unit/fixtures/nautobot/`). No network.
+  `graphql()` / `rest()` return canned dict payloads. No network.
 - `common/validators.py` + `common/utils.py` are pure functions — table-driven
   tests, cheap 100 %.
 - `devices/interface_workflow.py`, `devices/update.py`, `devices/creation.py`:
@@ -140,7 +138,32 @@ Files: `services/nautobot/resolvers/*`, `services/nautobot/managers/*`,
   error branches (`is_valid_uuid` false, missing status, etc.).
 - Target: `services/nautobot` 24 % → 80 %.
 
-### Phase 2 — Git service layer → 80 % (3–4 days) · Δcov ≈ +965
+**Result:** `services/nautobot` **24 % → 94 %** (1908 stmts, 111 missing;
+Δcov ≈ +1 338, ahead of the +1 070 estimate). Full-suite line coverage
+60.8 % → **66.8 %**; `1097 → 1373` tests pass. New test modules (fixtures kept
+inline rather than under `tests/unit/fixtures/nautobot/` — the canned payloads
+are small and local to each test):
+
+| Module | Covers |
+|---|---|
+| `test_nautobot_common_validators.py` | `common/validators.py` → 100 % |
+| `test_nautobot_common_utils.py` | `common/utils.py` → 100 % |
+| `test_nautobot_common_exceptions.py` | `common/exceptions.py` → 100 % |
+| `test_nautobot_resolvers.py` | base/device/metadata/network resolvers (86–100 %) |
+| `test_nautobot_managers.py` | ip/interface/prefix/device managers (96–100 %) |
+| `test_nautobot_client.py` | `client.py` → 90 % (httpx pools + validator mocked) |
+| `test_nautobot_devices_common_facade.py` | `devices/common.py` → 100 %, `metadata_service.py` → 100 % |
+| `test_nautobot_devices_query.py` | `devices/query.py` + `attribute_bag.py` → 100 % |
+| `test_nautobot_interface_workflow.py` | `devices/interface_workflow.py` → 93 % |
+| `test_nautobot_device_creation.py` | `devices/creation.py` → 91 % |
+| `test_nautobot_device_update.py` | `devices/update.py` → 94 % |
+| `test_nautobot_types_and_bound_client.py` | `devices/types.py` → 100 %, `credentials_bound_client.py` → 100 % |
+
+Residual misses are `except Exception` / `exc_info=True` logging branches in the
+resolvers and a few defensive guards in the three `devices/*` orchestrators —
+left for the Phase 7 sweep.
+
+### Phase 2 — Git service layer → 80 % (3–4 days) · Δcov ≈ +965 — ✅ done 2026-08-30
 
 Files: `services/git/file_service.py`, `operations.py`, `service.py`,
 `cache.py`, `debug_service.py`, `repository_service.py`, `csv_service.py`,
@@ -160,7 +183,36 @@ Files: `services/git/file_service.py`, `operations.py`, `service.py`,
   cover `_to_dict()` shape and uniqueness/`not found` errors.
 - Target: `services/git` 31 % → 80 %; `routers/git` covered in Phase 5.
 
-### Phase 3 — `sources/*` query & persistence → 80 % (2–3 days) · Δcov ≈ +520
+**Result:** `services/git` **31 % → 80 %** (1967 stmts, 393 missing; Δcov ≈ +972,
+on the +965 estimate). Full-suite line coverage 66.8 % → **71.3 %**;
+`1373 → 1509` tests pass. `--cov-fail-under` raised **65 → 70**.
+
+Shared helper `tests/unit/_git_repo_builder.py` builds real throwaway repos
+(`git init`, seeded commits, `file://` bare remote). New test modules:
+
+| Module | Covers |
+|---|---|
+| `test_git_repository_service.py` | `repository_service.py` → 81 % (SQLite CRUD) |
+| `test_git_cache_service.py` | `cache.py` → 91 % (real repo + mock cache) |
+| `test_git_service_engine.py` | `service.py` → 79 % (real `file://` clone/pull/push/commit/fetch) |
+| `test_git_file_service.py` | `file_service.py` → 76 % (search/history/tree/content, path-escape + binary branches) |
+| `test_git_csv_service.py` | `csv_service.py` → 91 % |
+| `test_git_device_service.py` | `device_service.py` → 98 % |
+| `test_git_version_control_service.py` | `version_control_service.py` → 93 % |
+| `test_git_operations_service.py` | `operations.py` → 74 % (sync/remove/record/status/info) |
+| `test_git_debug_service.py` | `debug_service.py` → 72 % (read/write/delete/push roundtrip/diagnostics) |
+| `test_git_misc_helpers.py` | `shared_utils.py` → 100 %, `env.py` → 93 % |
+
+`config.py` (71 %) is exercised transitively via `set_git_author` in the service
+tests. The outbound-URL guard (`validate_git_remote_url`) is patched to a no-op in
+`test_git_service_engine.py` so `file://` remotes work; everywhere else the real
+policy still applies. Residual misses: `except`/re-raise branches in
+`repository_service.py`, `auth.py` credential-manager paths (needs the RBAC
+credential stack — deferred to Phase 4), and `file_service.get_commit_files`'s
+no-`file_path` branch (a latent `from config import settings` import that always
+raises — left as a pre-existing bug, not masked by a test).
+
+### Phase 3 — `sources/*` query & persistence → 80 % (2–3 days) · Δcov ≈ +520 — ✅ done 2026-08-30
 
 Files: `services/sources/nautobot/{query_service,persistence_service,evaluator,source_service,live_query_mixin,metadata_service}.py`.
 
@@ -171,6 +223,26 @@ Files: `services/sources/nautobot/{query_service,persistence_service,evaluator,s
 - `persistence_service.py`: in-memory SQLite; assert upsert/delete/diff
   behaviour against seeded rows.
 - Target: `services/sources` 23 % → 80 %.
+
+**Result:** `services/sources` **23 % → 93 %** (916 stmts, 65 missing; Δcov ≈ +640,
+ahead of the +520 estimate). Full-suite line coverage 71.3 % → **74.7 %**;
+`1509 → 1618` tests pass. `--cov-fail-under` raised **70 → 74**. Two Phase-4
+targets fell out for free: `utils/inventory_converter.py` **10 % → 97 %** and
+`repositories/inventory_repository.py` **22 % → 95 %** (the persistence tests run
+against a real `InventoryRepository` on in-memory SQLite).
+
+| Module | Covers |
+|---|---|
+| `test_inventory_converter.py` | `utils/inventory_converter.py` → 97 % (tree → LogicalOperation, version-2 guards) |
+| `test_sources_nautobot_evaluator.py` | `evaluator.py` → 96 % (AND/OR/NOT combine, native vs client negation, custom-field) |
+| `test_sources_nautobot_query_service.py` | `query_service.py` → 94 %, `live_query_mixin.py` → 93 % (cache-first filters, live GraphQL, CIDR/custom-field) |
+| `test_sources_nautobot_persistence_service.py` | `persistence_service.py` → 82 %, `inventory_repository.py` → 95 % (SQLite CRUD, scopes, group rename, access control) |
+| `test_sources_nautobot_metadata_service.py` | `metadata_service.py` → 97 % (custom-field transform, field-value endpoints) |
+| `test_sources_nautobot_source_service.py` | `source_service.py` → 94 % (preview combine logic, saved-inventory resolution) |
+| `test_sources_nautobot_export_and_connection.py` | `export_service.py` → 100 %, `connection.py` → 100 % |
+
+Residual misses in `persistence_service.py` are the `except Exception → log + return []/raise`
+guards; the package as a whole is at 93 %.
 
 ### Phase 4 — Redis cache + smaller service gaps → 85 % (2 days) · Δcov ≈ +540
 
@@ -261,9 +333,9 @@ no running PostgreSQL/Redis/Hatchet/Nautobot; all external I/O mocked;
 | Phase | Focus | Est. effort | Cum. Δcov | Projected total |
 |---|---|---:|---:|---:|
 | 0 | Tooling / ratchet | 0.5 d | 0 | 60.8 % |
-| 1 | Nautobot services | 3–4 d | +1 070 | 65.6 % |
-| 2 | Git services | 3–4 d | +2 035 | 70.2 % |
-| 3 | `sources/*` layer | 2–3 d | +2 555 | 72.5 % |
+| 1 | Nautobot services | 3–4 d | +1 070 (actual +1 338) | 65.6 % (actual **66.8 %**) |
+| 2 | Git services | 3–4 d | +2 035 (actual +2 310) | 70.2 % (actual **71.3 %**) |
+| 3 | `sources/*` layer | 2–3 d | +2 555 (actual +2 950) | 72.5 % (actual **74.7 %**) |
 | 4 | Redis cache + small gaps | 2 d | +3 095 | 74.9 % |
 | 5 | Routers | 3 d | +3 995 | 78.9 % |
 | 6 | Workflow steps + engine | 2–3 d | +4 645 | 81.9 % |
@@ -279,28 +351,28 @@ it in.
 
 Raise `--cov-fail-under` after each phase; track packages here.
 
-| Package | Baseline | Target | Phase |
-|---|---:|---:|---|
-| `services/nautobot` | 24 % | 80 % | 1 |
-| `services/git` | 31 % | 80 % | 2 |
-| `services/sources` | 23 % | 80 % | 3 |
-| `services/cache` | 15 % | 85 % | 4 |
-| `services/credentials` | 40 % | 88 % | 4 |
-| `utils/inventory_converter.py` | 10 % | 90 % | 4 |
-| `repositories/inventory_repository.py` | 22 % | 90 % | 4 |
-| `routers/sources` | 34 % | 80 % | 5 |
-| `routers/git` | 43 % | 85 % | 5 |
-| `routers/oidc.py` | 29 % | 85 % | 5 |
-| `workflow_steps/common` | 76 % | 92 % | 6 |
-| `workflow_steps/filter_output` | 22 % | 90 % | 6 |
-| `workflow_steps/merge_content` | 23 % | 90 % | 6 |
-| `workflow_steps/update_content` | 23 % | 88 % | 6 |
-| `workflow_steps/update_nautobot_device` | 44 % | 88 % | 6 |
-| `workflow_steps/get_nautobot_attributes` | 30 % | 85 % | 6 |
-| `workflow_steps/reachable` | 26 % | 80 % | 6 |
-| `services/execution` | 68 % | 88 % | 6 |
-| `hatchet/workflows` | 51 % | 82 % | 6 |
-| **TOTAL** | **60.8 %** | **≥ 80 %** | 7 |
+| Package | Baseline | Target | Phase | Achieved |
+|---|---:|---:|---|---:|
+| `services/nautobot` | 24 % | 80 % | 1 | **94 %** ✅ |
+| `services/git` | 31 % | 80 % | 2 | **80 %** ✅ |
+| `services/sources` | 23 % | 80 % | 3 | **93 %** ✅ |
+| `services/cache` | 15 % | 85 % | 4 | — |
+| `services/credentials` | 40 % | 88 % | 4 | — |
+| `utils/inventory_converter.py` | 10 % | 90 % | 4 | **97 %** ✅ (Phase 3) |
+| `repositories/inventory_repository.py` | 22 % | 90 % | 4 | **95 %** ✅ (Phase 3) |
+| `routers/sources` | 34 % | 80 % | 5 | — |
+| `routers/git` | 43 % | 85 % | 5 | — |
+| `routers/oidc.py` | 29 % | 85 % | 5 | — |
+| `workflow_steps/common` | 76 % | 92 % | 6 | — |
+| `workflow_steps/filter_output` | 22 % | 90 % | 6 | — |
+| `workflow_steps/merge_content` | 23 % | 90 % | 6 | — |
+| `workflow_steps/update_content` | 23 % | 88 % | 6 | — |
+| `workflow_steps/update_nautobot_device` | 44 % | 88 % | 6 | — |
+| `workflow_steps/get_nautobot_attributes` | 30 % | 85 % | 6 | — |
+| `workflow_steps/reachable` | 26 % | 80 % | 6 | — |
+| `services/execution` | 68 % | 88 % | 6 | — |
+| `hatchet/workflows` | 51 % | 82 % | 6 | — |
+| **TOTAL** | **60.8 %** | **≥ 80 %** | 7 | — |
 
 ---
 
