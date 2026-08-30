@@ -112,6 +112,24 @@ class GitFileServiceTests(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             self.service.get_commit_files(1, head, file_path="does/not/exist")
 
+    def test_get_commit_files_lists_config_files_when_no_path(self) -> None:
+        head = self.repo.head.commit.hexsha
+        # Builder repo holds README.md, config/router1.cfg, data.bin — the binary
+        # is filtered out by settings.allowed_file_extensions.
+        self.assertEqual(
+            self.service.get_commit_files(1, head),
+            ["README.md", "config/router1.cfg"],
+        )
+
+    def test_get_commit_files_honours_configured_extensions(self) -> None:
+        head = self.repo.head.commit.hexsha
+        with patch(
+            "services.git.file_service.settings.allowed_file_extensions", [".cfg"]
+        ):
+            self.assertEqual(
+                self.service.get_commit_files(1, head), ["config/router1.cfg"]
+            )
+
     # -- get_file_last_commit -------------------------------------------------
     def test_get_file_last_commit_returns_metadata(self) -> None:
         out = self.service.get_file_last_commit(1, "README.md")

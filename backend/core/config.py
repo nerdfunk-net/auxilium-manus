@@ -13,6 +13,7 @@ DEFAULT_PLUGINS_FILE = BACKEND_ROOT / "workflow_steps" / "registry.yaml"
 DEFAULT_ENV_FILE = BACKEND_ROOT / ".env"
 DEFAULT_SECRET_KEY = "change-in-production-use-at-least-32-characters"
 DEFAULT_INITIAL_PASSWORD = "admin"
+DEFAULT_ALLOWED_FILE_EXTENSIONS = ".cfg,.conf,.txt,.yaml,.yml,.json,.xml,.ini,.md"
 
 load_dotenv(DEFAULT_ENV_FILE)
 
@@ -76,6 +77,7 @@ class Settings:
     netmiko_keepalive_seconds: int
     oidc_redirect_uri_allowlist: list[str]
     allow_netmiko_arbitrary_hosts: bool
+    allowed_file_extensions: list[str]
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -132,6 +134,9 @@ class Settings:
         self.oidc_redirect_uri_allowlist = self._get_csv("OIDC_REDIRECT_URI_ALLOWLIST", "")
         self.allow_netmiko_arbitrary_hosts = self._get_bool(
             "ALLOW_NETMIKO_ARBITRARY_HOSTS", self.environment == "development"
+        )
+        self.allowed_file_extensions = self._get_csv(
+            "ALLOWED_FILE_EXTENSIONS", DEFAULT_ALLOWED_FILE_EXTENSIONS
         )
         from core.dev_tools import dev_tools_enabled
 

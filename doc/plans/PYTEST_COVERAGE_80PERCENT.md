@@ -207,10 +207,18 @@ Shared helper `tests/unit/_git_repo_builder.py` builds real throwaway repos
 tests. The outbound-URL guard (`validate_git_remote_url`) is patched to a no-op in
 `test_git_service_engine.py` so `file://` remotes work; everywhere else the real
 policy still applies. Residual misses: `except`/re-raise branches in
-`repository_service.py`, `auth.py` credential-manager paths (needs the RBAC
-credential stack — deferred to Phase 4), and `file_service.get_commit_files`'s
-no-`file_path` branch (a latent `from config import settings` import that always
-raises — left as a pre-existing bug, not masked by a test).
+`repository_service.py` and `auth.py` credential-manager paths (needs the RBAC
+credential stack — deferred to Phase 4).
+
+**Bug found & fixed (2026-08-30):** `file_service.get_commit_files` without a
+`file_path` did `from config import settings` — no such module (every other
+module uses `core.config`), and `settings.allowed_file_extensions` did not exist
+either. That branch (`GET /git/{id}/files/{commit}/commit` with no `file_path`,
+its headline "list config files in a commit" use) unconditionally raised
+`ModuleNotFoundError`, surfaced to clients as a sanitized 500. Fix: added
+`allowed_file_extensions` to `core.config.Settings` (env `ALLOWED_FILE_EXTENSIONS`,
+default `.cfg,.conf,.txt,.yaml,.yml,.json,.xml,.ini,.md`), corrected the import,
+and added tests for the previously-dead path.
 
 ### Phase 3 — `sources/*` query & persistence → 80 % (2–3 days) · Δcov ≈ +520 — ✅ done 2026-08-30
 

@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 from git import GitCommandError, InvalidGitRepositoryError
 
+from core.config import settings
 from core.domain_exceptions import (
     AccessDeniedError,
     DomainError,
@@ -373,8 +374,6 @@ class GitFileService:
             for item in commit.tree.traverse():
                 if item.type == "blob":
                     files.append(item.path)
-
-            from config import settings
 
             config_extensions = settings.allowed_file_extensions
             config_files = [f for f in files if any(f.endswith(ext) for ext in config_extensions)]
