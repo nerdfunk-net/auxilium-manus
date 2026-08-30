@@ -13,7 +13,7 @@ pythonpath = ["."]
 # Coverage is always measured so the ratchet below can only move up. Raise
 # --cov-fail-under at the end of every phase of doc/plans/PYTEST_COVERAGE_80PERCENT.md.
 # Running a subset of tests? Add --no-cov to skip the (whole-suite) threshold check.
-addopts = "-q --cov --cov-report=term-missing --cov-fail-under=74"
+addopts = "-q --cov --cov-report=term-missing --cov-fail-under=81"
 markers = [
     "integration: heavy tests against real devices or live services (opt-in)",
 ]

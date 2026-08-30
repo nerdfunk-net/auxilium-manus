@@ -102,6 +102,8 @@ class ComputeNextRunTests(unittest.TestCase):
 class DashboardServiceVisibilityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
         self.service = DashboardService(self.db)
         self.owner = _make_user(self.db, "owner")
         self.other = _make_user(self.db, "other")

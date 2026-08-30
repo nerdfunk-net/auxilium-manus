@@ -91,8 +91,8 @@ class RedisCacheService:
             redis_key = self._make_key(key)
             # Serialize to JSON
             serialized = json.dumps(data)
-            # Set with expiration
-            self._redis.setex(redis_key, ttl_seconds, serialized)
+            # Set with expiration (set(..., ex=) replaces the deprecated setex)
+            self._redis.set(redis_key, serialized, ex=ttl_seconds)
             self._incr_stat("created")
 
         except (TypeError, ValueError) as e:

@@ -100,6 +100,8 @@ class ResolveCaCertPathTests(unittest.TestCase):
 class ProvisionOrGetUserTests(unittest.TestCase):
     def setUp(self) -> None:
         self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
         self.viewer_role = Role(name="viewer", is_system=True)
         self.admin_role = Role(name="admin", is_system=True)
         self.db.add_all([self.viewer_role, self.admin_role])

@@ -41,6 +41,8 @@ def _make_user(db: Session, username: str) -> User:
 class RBACElevationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
         self.service = RBACService(self.db)
         self.admin_role = self.service.create_role("admin", is_system=True)
         self.viewer_role = self.service.create_role("viewer", is_system=True)
@@ -82,7 +84,9 @@ class RBACElevationTests(unittest.TestCase):
 
     def test_non_admin_actor_cannot_create_system_role(self) -> None:
         with self.assertRaises(AccessDeniedError):
-            self.service.create_role("new-system-role", is_system=True, actor_user_id=self.non_admin_user.id)
+            self.service.create_role(
+                "new-system-role", is_system=True, actor_user_id=self.non_admin_user.id
+            )
 
     def test_admin_actor_can_create_system_role(self) -> None:
         role = self.service.create_role(

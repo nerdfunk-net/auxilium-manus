@@ -34,6 +34,8 @@ def _make_session() -> Session:
 class AdminReseedRbacTests(unittest.TestCase):
     def setUp(self) -> None:
         self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
         self.admin_user = User(
             username=settings.initial_username,
             password_hash="hash",

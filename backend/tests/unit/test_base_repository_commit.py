@@ -25,7 +25,10 @@ from repositories.git.git_repository_repository import GitRepositoryRepository
 def session_factory():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine, tables=[GitRepository.__table__])
-    return sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    try:
+        yield sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    finally:
+        engine.dispose()
 
 
 def test_create_with_external_session_survives_session_close(session_factory) -> None:

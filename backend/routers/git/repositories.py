@@ -112,7 +112,7 @@ async def create_repository(
 ):
     """Create a new git repository."""
     try:
-        repo_data = repository.dict()
+        repo_data = repository.model_dump()
         # Remove legacy username/token fields - only use credential_name
         repo_data.pop("username", None)
         repo_data.pop("token", None)
@@ -154,7 +154,7 @@ async def update_repository(
             raise HTTPException(status_code=404, detail="Repository not found")
 
         # Update only provided fields
-        repo_data = {k: v for k, v in repository.dict().items() if v is not None}
+        repo_data = {k: v for k, v in repository.model_dump().items() if v is not None}
         # Remove legacy username/token fields - only use credential_name
         repo_data.pop("username", None)
         repo_data.pop("token", None)

@@ -36,6 +36,8 @@ def _make_user(db: Session, username: str) -> User:
 class TemplateCredentialVisibilityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
         self.user1 = _make_user(self.db, "user1")
         self.user2 = _make_user(self.db, "user2")
         self.service = TemplatesService(self.db)

@@ -20,11 +20,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
+from core.config import validate_trusted_proxy_ips
 from core.database import get_db
 from core.dev_tools import dev_tools_enabled, require_dev_tools
 from core.models.users import User
 from core.oidc_redirect import assert_redirect_matches_state, validate_oidc_redirect_uri
-from core.config import validate_trusted_proxy_ips
 from core.production_guards import validate_non_development_secrets
 from core.safe_hosts import validate_netmiko_preview_host
 from core.safe_urls import UnsafeURLError, validate_git_remote_url

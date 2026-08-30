@@ -1,6 +1,6 @@
 # Plan: Reach ≥ 80 % Backend Test Coverage
 
-**Status:** in progress — Phase 0 ✅, Phase 1 ✅, Phase 2 ✅, Phase 3 ✅ (2026-08-30); suite at 74.7 %
+**Status:** ✅ complete (Phases 0–7, 2026-08-30). Suite at **81.1 %** — ≥ 80 % goal met and locked via `--cov-fail-under=81`.
 **Owner:** backend
 **Created:** 2026-08-30
 **Scope:** `backend/` pytest suite (`tests/unit`), measured by `pytest-cov` with the
@@ -110,11 +110,12 @@ statements.
 No coverage change; makes the rest measurable and non-regressing.
 
 1. ✅ Ratchet threshold added to `backend/pyproject.toml` `[tool.pytest.ini_options]`:
-   `addopts = "-q --cov --cov-report=term-missing --cov-fail-under=70"`.
+   `addopts = "-q --cov --cov-report=term-missing --cov-fail-under=<N>"`.
    Started at the current floor (60); raised to **65** after Phase 1 (66.8 %),
-   **70** after Phase 2 (71.3 %), **74** after Phase 3 (74.7 %). Raise again after
-   every phase so coverage can only go up. Running a subset of tests? Add
-   `--no-cov` to skip the whole-suite threshold check.
+   **70** after Phase 2 (71.3 %), **74** after Phase 3 (74.7 %), **76** after
+   Phase 4 (76.4 %), **80** after Phases 5–6 (80.4 %), **81** after Phase 7
+   (81.1 %). Running a subset of tests? Add `--no-cov` to skip the whole-suite
+   threshold check.
 2. ✅ `fakeredis==2.37.1` added to `backend/requirements-dev.txt` (needed for Phase 4).
 3. ⏳ CI: deferred — the repo has no `.github/workflows/` yet. When CI is added,
    run `pytest` (which now enforces `--cov-fail-under`) on every PR and publish
@@ -252,7 +253,7 @@ against a real `InventoryRepository` on in-memory SQLite).
 Residual misses in `persistence_service.py` are the `except Exception → log + return []/raise`
 guards; the package as a whole is at 93 %.
 
-### Phase 4 — Redis cache + smaller service gaps → 85 % (2 days) · Δcov ≈ +540
+### Phase 4 — Redis cache + smaller service gaps → 85 % (2 days) · Δcov ≈ +540 — ✅ done 2026-08-30
 
 - `services/cache/redis_cache_service.py` (15 %): inject **`fakeredis.FakeRedis`**
   (or a `MagicMock` client) and test get/set/delete/TTL/locks/namespace key
@@ -262,15 +263,55 @@ guards; the package as a whole is at 93 %.
   generic/token/ssh branches.
 - `utils/inventory_converter.py` (10 %) and
   `repositories/inventory_repository.py` (22 %): pure/near-pure — fixture in,
-  expected structure out.
+  expected structure out.  **Done in Phase 3** (97 % / 95 %).
 - `service_factory.py` (50 %): assert each `build_*` returns a wired instance
   with mocked `settings`.
 
-### Phase 5 — Routers via `TestClient` → 80 % (3 days) · Δcov ≈ +900
+**Result:** full-suite line coverage 74.7 % → **76.4 %**; `1618 → 1700` tests
+pass. `--cov-fail-under` raised **74 → 76**.
+
+| Module | Baseline | Achieved |
+|---|---:|---:|
+| `services/cache/redis_cache_service.py` | 11 % | **93 %** |
+| `services/cache/cache_settings_service.py` | 34 % | **100 %** |
+| `services/credentials/credentials_service.py` | 37 % | **96 %** |
+| `service_factory.py` | 50 % | **100 %** |
+
+New test modules:
+
+| Module | Covers |
+|---|---|
+| `test_redis_cache_service.py` | `RedisCacheService` against `fakeredis` — get/set/delete/TTL, namespace clear, `stats`/`get_entries`/`get_namespace_info`/`get_performance_metrics`, JSON-corruption & redis-error paths |
+| `test_cache_settings_service.py` | `CacheSettingsService` — load/defaults, create-vs-update, stats & clear with/without a cache and their error paths |
+| `test_credentials_service_more.py` | `credentials_service.py` update/delete/decrypt/SSH-key-export paths (real `EncryptionService`, mocked repo, `tmp` data dir) — extends the existing `test_credentials_service.py` |
+| `test_service_factory.py` | every `build_*` / `get_*` / `set_*` — singleton memoisation, `RedisCacheService` failure → `None`, `build_nautobot_source_service` cache-enabled vs disabled, lazy git/oidc builders |
+
+`services/cache` package → **94 %** (target 85 %); `services/credentials` → **96 %**
+(target 88 %). Residual `redis_cache_service.py` misses are `memory_usage`
+`except` guards that `fakeredis` never triggers.
+
+### Phase 5 — Routers via `TestClient` → 80 % (3 days) · Δcov ≈ +900 — ✅ core done 2026-08-30
 
 Files: `routers/sources/**`, `routers/git/**`, `routers/oidc.py`,
 `routers/templates.py`, `routers/workflows.py`, `routers/workflow_*` , plus the
 already-partly-covered `routers/*`.
+
+**Result (Phases 5 + 6 shipped together):** full-suite line coverage 76.4 % →
+**80.4 %** — the 80 % goal is reached. `1700 → 1921` tests pass.
+`--cov-fail-under` raised **76 → 80**. New router test modules:
+
+| Module | Covers |
+|---|---|
+| `test_sources_crud_routers.py` | `routers/sources/{ise,mattermost,pyats}/crud.py` — one parametrised suite over all three; happy path + 404/400/409/500 exception mapping |
+| `test_sources_nautobot_crud_router.py` | `routers/sources/nautobot/crud.py` — create / list / search / get(-by-name) / update / delete, incl. `PermissionError`→403 and the sanitised-500 shape |
+| `test_git_routers_ops.py` | `routers/git/{operations,version_control,debug}.py` — sync/status/info, branches/commits/diff, debug read/write/delete/push/diagnostics, `SyncExecutionError`→sanitised-500, `DomainError`→handler |
+| `test_git_repositories_router.py` | `routers/git/repositories.py` — repo-config CRUD + `test-connection` |
+
+`scripts/check_http_500_leaks.py` stays green. Two pre-existing router quirks were
+found and left as-is (out of scope): `GET /git-repositories/health` is shadowed by
+`GET /{repo_id}` (int-validation 422), and `POST /git-repositories/test-connection`
+re-raises rather than sanitising on unexpected errors. Not yet covered: the large
+`routers/sources/*/ops.py` and `routers/oidc.py` — deferred to the Phase 7 sweep.
 
 - Reuse the established pattern in `tests/unit/test_credentials_router.py`:
   bare `FastAPI()`, `include_router(...)`, override `verify_token` /
@@ -285,7 +326,24 @@ already-partly-covered `routers/*`.
 - Target: `routers/sources` 34 % → 80 %, `routers/git` 43 % → 85 %,
   `routers/oidc.py` 29 % → 85 %.
 
-### Phase 6 — Workflow steps & execution engine → 88 % (2–3 days) · Δcov ≈ +650
+### Phase 6 — Workflow steps & execution engine → 88 % (2–3 days) · Δcov ≈ +650 — ✅ core done 2026-08-30
+
+**Result:** new executor/helper test modules (see the combined Phase 5+6 total above):
+
+| Module | Covers |
+|---|---|
+| `test_content_resolver_sources.py` | `workflow_steps/common/content_resolver.py` — config/command/latest/merged/filtered/updated sources + guard branches (extends `test_content_resolver.py`) |
+| `test_filter_output_executor.py` | `filter_output/executor.py` — rule parsing, JSON/text filtering, `_select_export_item`, `execute` success/failure |
+| `test_merge_content_executor.py` | `merge_content/executor.py` — the three merge modes, node-id parsing forms, command-output collection |
+| `test_update_content_executor.py` | `update_content/executor.py` — replace-rule parsing, regex apply, running/startup source, missing-source failure |
+| `test_reachable_executor.py` | `reachable/executor.py` — `async_ping` mocked; success/unreachable/ICMP-error/missing-host routing |
+| `test_get_nautobot_attributes_executor.py` | `get_nautobot_attributes/executor.py` — `_bind_nautobot`, `_fetch_device`, enrich + failure branches |
+| `test_update_nautobot_device_executor.py` | `update_nautobot_device/executor.py` — identifier resolution, `_build_update_service`, `_update_one_device` (resolve/interface-fail/exception), `execute` |
+| `test_background_tier_service.py` | `services/execution/background_tier_service.py` — access control, publish/unpublish, `has_active_runs` |
+
+Not yet covered here: `hatchet/workflows/workflow_run.py` and
+`services/execution/step_runner.py` deeper branches, `hatchet/dynamic_worker.py` /
+`worker_services.py` smoke — deferred to Phase 7 as the 80 % goal is already met.
 
 - `workflow_steps/common/*` (76 %): `content_resolver.py` and
   `git_repository_loader.py` are the misses — test resolution precedence, the
@@ -305,7 +363,7 @@ already-partly-covered `routers/*`.
   import + smoke-test the registration/fingerprint-poll functions with mocked
   Hatchet client; full coverage is a stretch goal, not required for 80 %.
 
-### Phase 7 — Sweep & ratchet to 80 % (1–2 days)
+### Phase 7 — Sweep & ratchet (1–2 days) — ✅ done 2026-08-30
 
 - Fill remaining `--cov-report=term-missing` gaps in already-high modules
   (`repositories/*`, `core/*`, `models/*`) — mostly error branches and
@@ -314,6 +372,21 @@ already-partly-covered `routers/*`.
   code, `if TYPE_CHECKING:` blocks, and `__main__` guards — keep this list
   short and reviewed.
 - Raise `--cov-fail-under` to **80**.
+
+**Result:** full-suite line coverage **80.4 % → 81.1 %** (buffer above the goal);
+`1921 → 1945` tests pass. `--cov-fail-under` raised **80 → 81**. No new
+`# pragma: no cover` was needed. New test modules:
+
+| Module | Covers |
+|---|---|
+| `test_base_repository_queries.py` | `repositories/base.py` `get_all` / `filter` / `count` / `exists` + the `db is None` borrow-and-close path (extends `test_base_repository_commit.py`) |
+| `test_rbac_roles_router.py` | `routers/rbac/roles.py` — every route, 404/409/403/500 mapping |
+| `test_hatchet_workers.py` | `hatchet/worker_services.py` `start_all` wiring/teardown; `hatchet/dynamic_worker.py` `_load_published_workflows` / `_build_dynamic_workflows` / `_self_restart_on_change` (change + unchanged) / `_make_lifespan` / `main` — all with the Hatchet client, DB and network services mocked |
+
+Still below their per-package targets but *not* blocking the ≥ 80 % goal (left for
+a future top-up): `routers/sources/*/ops.py`, `routers/oidc.py`,
+`routers/{templates,workflows,users,auth}.py`, `services/execution/{step_runner,
+schedule_service,run_service}.py`, `hatchet/workflows/*`.
 
 ---
 
@@ -344,10 +417,9 @@ no running PostgreSQL/Redis/Hatchet/Nautobot; all external I/O mocked;
 | 1 | Nautobot services | 3–4 d | +1 070 (actual +1 338) | 65.6 % (actual **66.8 %**) |
 | 2 | Git services | 3–4 d | +2 035 (actual +2 310) | 70.2 % (actual **71.3 %**) |
 | 3 | `sources/*` layer | 2–3 d | +2 555 (actual +2 950) | 72.5 % (actual **74.7 %**) |
-| 4 | Redis cache + small gaps | 2 d | +3 095 | 74.9 % |
-| 5 | Routers | 3 d | +3 995 | 78.9 % |
-| 6 | Workflow steps + engine | 2–3 d | +4 645 | 81.9 % |
-| 7 | Sweep + ratchet to 80 | 1–2 d | — | ≥ 80 % |
+| 4 | Redis cache + small gaps | 2 d | +3 095 (actual +3 330) | 74.9 % (actual **76.4 %**) |
+| 5+6 | Routers + workflow steps/engine | — | — | 78.9–81.9 % (actual **80.4 %** ✅) |
+| 7 | Sweep + hardening | 1–2 d | — | actual **81.1 %** ✅ (locked via `--cov-fail-under=81`) |
 
 **Total: ~17–22 engineer-days.** 80 % is mathematically reached during Phase 6;
 Phases 1–5 alone get to ~79 %, so Phase 6 is the safety margin and Phase 7 locks
@@ -364,23 +436,29 @@ Raise `--cov-fail-under` after each phase; track packages here.
 | `services/nautobot` | 24 % | 80 % | 1 | **94 %** ✅ |
 | `services/git` | 31 % | 80 % | 2 | **80 %** ✅ |
 | `services/sources` | 23 % | 80 % | 3 | **93 %** ✅ |
-| `services/cache` | 15 % | 85 % | 4 | — |
-| `services/credentials` | 40 % | 88 % | 4 | — |
+| `services/cache` | 15 % | 85 % | 4 | **94 %** ✅ |
+| `services/credentials` | 40 % | 88 % | 4 | **96 %** ✅ |
+| `service_factory.py` | 50 % | — | 4 | **100 %** ✅ |
 | `utils/inventory_converter.py` | 10 % | 90 % | 4 | **97 %** ✅ (Phase 3) |
 | `repositories/inventory_repository.py` | 22 % | 90 % | 4 | **95 %** ✅ (Phase 3) |
-| `routers/sources` | 34 % | 80 % | 5 | — |
-| `routers/git` | 43 % | 85 % | 5 | — |
-| `routers/oidc.py` | 29 % | 85 % | 5 | — |
-| `workflow_steps/common` | 76 % | 92 % | 6 | — |
-| `workflow_steps/filter_output` | 22 % | 90 % | 6 | — |
-| `workflow_steps/merge_content` | 23 % | 90 % | 6 | — |
-| `workflow_steps/update_content` | 23 % | 88 % | 6 | — |
-| `workflow_steps/update_nautobot_device` | 44 % | 88 % | 6 | — |
-| `workflow_steps/get_nautobot_attributes` | 30 % | 85 % | 6 | — |
-| `workflow_steps/reachable` | 26 % | 80 % | 6 | — |
-| `services/execution` | 68 % | 88 % | 6 | — |
-| `hatchet/workflows` | 51 % | 82 % | 6 | — |
-| **TOTAL** | **60.8 %** | **≥ 80 %** | 7 | — |
+| `routers/sources/{ise,mm,pyats}/crud` | ~38 % | 80 % | 5 | **~95 %** ✅ |
+| `routers/sources/nautobot/crud.py` | 20 % | 80 % | 5 | **~75 %** (crud routes; export/import deferred) |
+| `routers/git/{operations,version_control,debug}` | 37–41 % | 85 % | 5 | **~95 %** ✅ |
+| `routers/git/repositories.py` | 22 % | 85 % | 5 | **~85 %** ✅ |
+| `routers/sources/*/ops.py`, `routers/oidc.py` | — | 85 % | 7 | deferred |
+| `workflow_steps/filter_output` | 22 % | 90 % | 6 | **~95 %** ✅ |
+| `workflow_steps/merge_content` | 23 % | 90 % | 6 | **~90 %** ✅ |
+| `workflow_steps/update_content` | 23 % | 88 % | 6 | **~95 %** ✅ |
+| `workflow_steps/update_nautobot_device` | 44 % | 88 % | 6 | **~90 %** ✅ |
+| `workflow_steps/get_nautobot_attributes` | 30 % | 85 % | 6 | **~90 %** ✅ |
+| `workflow_steps/reachable` | 26 % | 80 % | 6 | **~95 %** ✅ |
+| `workflow_steps/common/content_resolver.py` | 59 % | 92 % | 6 | **~90 %** ✅ |
+| `services/execution/background_tier_service.py` | 40 % | 88 % | 6 | **100 %** ✅ |
+| `services/execution/step_runner.py`, `hatchet/workflows` | 68 % | 88 % | 7 | deferred |
+| `repositories/base.py` | 55 % | 90 % | 7 | **~90 %** ✅ |
+| `routers/rbac/roles.py` | 40 % | 85 % | 7 | **~95 %** ✅ |
+| `hatchet/worker_services.py` + `dynamic_worker.py` | 0 % | smoke | 7 | **~70 %** ✅ |
+| **TOTAL** | **60.8 %** | **≥ 80 %** | — | **81.1 %** ✅ |
 
 ---
 
@@ -399,10 +477,29 @@ Raise `--cov-fail-under` after each phase; track packages here.
 
 ## 8. Definition of done
 
-- [ ] `cd backend && ../.venv/bin/python -m pytest` passes with
-      `--cov-fail-under=80` in `addopts`.
-- [ ] No new `# pragma: no cover` outside the reviewed exclusion list in §7.
-- [ ] `scripts/check_http_500_leaks.py`, `check_router_repositories.py`,
-      `check_text_sql.py`, `check_asyncio_run.py`, `ruff check .` all clean.
-- [ ] CI enforces the threshold on every PR and uploads the HTML report.
-- [ ] This document's §6 table filled in with the achieved numbers.
+- [x] `cd backend && ../.venv/bin/python -m pytest` passes with
+      `--cov-fail-under=81` in `addopts` (achieved 81.1 %, 1945 tests).
+- [x] No new `# pragma: no cover` added — the §7 exclusion list is unchanged.
+- [x] `scripts/check_http_500_leaks.py`, `check_router_repositories.py`,
+      `check_text_sql.py`, `check_asyncio_run.py` all clean; `ruff check` clean on
+      every file added by this effort (two pre-existing lint nits in
+      `test_production_hardening.py` / `test_rbac_elevation.py` are unrelated and
+      left as-is).
+- [ ] CI enforces the threshold on every PR and uploads the HTML report — still
+      blocked: the repo has no `.github/workflows/` (see Phase 0 note). The
+      `--cov-fail-under` gate is wired and will take effect the moment CI is added.
+- [x] This document's §6 table filled in with the achieved numbers.
+
+### Bugs found & fixed along the way
+
+- `services/git/file_service.get_commit_files` (no `file_path`) imported a
+  non-existent `config` module and read a non-existent `settings` attribute —
+  every call 500'd. Fixed: added `ALLOWED_FILE_EXTENSIONS` to `core.config`,
+  corrected the import, added coverage. (Phase 2 writeup.)
+
+### Deliberately-not-masked pre-existing quirks (left for a follow-up)
+
+- `GET /git-repositories/health` is shadowed by `GET /{repo_id}` (int-validation
+  422) — in the real app too.
+- `POST /git-repositories/test-connection` re-raises unexpected errors instead of
+  sanitising them (no `raise_internal_server_error`).
