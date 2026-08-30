@@ -170,7 +170,7 @@ class RunService:
                 error_category="internal",
                 error_id=error_id,
             )
-            raise_internal_server_error("Workflow execution engine unavailable")
+            raise_internal_server_error(logger, "Workflow execution engine unavailable")
 
         return _run_to_response(run, None, [])
 
@@ -355,7 +355,7 @@ class RunService:
                 event_key,
                 exc_info=True,
             )
-            raise_internal_server_error("Workflow execution engine unavailable")
+            raise_internal_server_error(logger, "Workflow execution engine unavailable")
 
     def _push_batch_event(self, run: WorkflowRun, batch_index: int) -> None:
         from hatchet.client import hatchet
@@ -375,4 +375,4 @@ class RunService:
                 event_key,
                 exc_info=True,
             )
-            raise_internal_server_error("Workflow execution engine unavailable")
+            raise_internal_server_error(logger, "Workflow execution engine unavailable")

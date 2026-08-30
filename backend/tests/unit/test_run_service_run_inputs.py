@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.domain_exceptions import ValidationFailedError
+from core.models.background_tier import WorkflowBackgroundTier
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
@@ -39,6 +40,7 @@ class RunServiceRunInputsTests(unittest.TestCase):
                 Workflow.__table__,
                 WorkflowRun.__table__,
                 WorkflowStepResult.__table__,
+                WorkflowBackgroundTier.__table__,
             ],
         )
         self.addCleanup(engine.dispose)
