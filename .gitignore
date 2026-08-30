@@ -241,3 +241,5 @@ docker/airgap-artifacts/auxilium-manus-all-in-one.tar
 # bind-mounted DATA_DIRECTORY for manus-web / manus-worker (docker/docker-compose.yml)
 docker/data/
 .DS_Store
+backend/.env.test
+backend/tests/nautobot-baseline.yaml
