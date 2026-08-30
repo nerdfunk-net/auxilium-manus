@@ -106,16 +106,25 @@ class GitServiceEngineTests(unittest.TestCase):
 
     def test_pull_brings_in_remote_commits(self) -> None:
         self.service.open_or_clone(self.repo)
-        # push a new commit through the seed working copy
-        (self.work / "upstream.txt").write_text("up\n")
-        git("add", "-A", cwd=self.work)
-        git("commit", "-m", "upstream change", cwd=self.work)
+        # push two new commits through the seed working copy
+        for i in range(2):
+            (self.work / f"upstream{i}.txt").write_text("up\n")
+            git("add", "-A", cwd=self.work)
+            git("commit", "-m", f"upstream change {i}", cwd=self.work)
         git("push", "origin", "main", cwd=self.work)
 
         result = self.service.pull(self.repo)
         self.assertIsInstance(result, PullResult)
         self.assertTrue(result.success)
-        self.assertTrue((self.clone_target / "upstream.txt").exists())
+        self.assertTrue((self.clone_target / "upstream1.txt").exists())
+        # commits_pulled counts real commits, not FetchInfo entries
+        self.assertEqual(result.commits_pulled, 2)
+
+    def test_pull_up_to_date_reports_zero_commits(self) -> None:
+        self.service.open_or_clone(self.repo)
+        result = self.service.pull(self.repo)
+        self.assertTrue(result.success)
+        self.assertEqual(result.commits_pulled, 0)
 
     def test_pull_failure_returns_unsuccessful_result(self) -> None:
         bad = {**self.repo, "url": f"file://{self.root / 'missing.git'}"}

@@ -293,9 +293,20 @@ class GitService:
                             original_url = list(origin.urls)[0]
                             origin.set_url(auth_url)
 
-                        # Perform pull
-                        pull_info = origin.pull(branch)
-                        commits_pulled = len(pull_info) if pull_info else 0
+                        # Perform pull. origin.pull() returns one FetchInfo per
+                        # ref fetched — that count is 1 even when the branch was
+                        # already up to date, so it is not a commit count.
+                        # Diff HEAD before/after to count commits actually pulled.
+                        head_before = repo.head.commit.hexsha if repo.head.is_valid() else None
+                        origin.pull(branch)
+                        head_after = repo.head.commit.hexsha if repo.head.is_valid() else None
+
+                        if head_before and head_after and head_before != head_after:
+                            commits_pulled = sum(
+                                1 for _ in repo.iter_commits(f"{head_before}..{head_after}")
+                            )
+                        else:
+                            commits_pulled = 0
 
                         logger.info(
                             "Pulled %s commits from %s",

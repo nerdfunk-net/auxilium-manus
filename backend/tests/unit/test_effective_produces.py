@@ -101,6 +101,21 @@ class EffectiveProducesTests(unittest.TestCase):
         )
         self.assertEqual(result, frozenset())
 
+    def test_run_command_never_guarantees_parsed(self) -> None:
+        # The registry lists produces: [parsed], but the executor only stamps
+        # Capability.PARSED under use_genie (and even then Genie can non-fatally
+        # skip). The post-step guard must not require it.
+        spec = StepCapabilitySpec(
+            step_id="run-command",
+            produces=frozenset({Capability.PARSED}),
+        )
+        for config in ({}, {"use_textfsm": True}, {"use_genie": True, "pyats_source_id": "x"}):
+            with self.subTest(config=config):
+                result = effective_produces(
+                    spec=spec, step_type="run-command", config=config
+                )
+                self.assertEqual(result, frozenset())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -644,6 +644,13 @@ ruff check .
 python -m pytest
 # or: python -m unittest discover -s tests
 
+# Integration tests (opt-in; real Nautobot / Gitea / Postgres / Cisco device).
+# NOT part of the default run or the coverage ratchet. Needs backend/.env.test
+# (gitignored) — see backend/tests/integration/README.md.
+python scripts/init_test_db.py                                  # once: create+seed manus_test
+python -m pytest tests/integration -m "not mutations" --no-cov  # name the path: testpaths=unit
+python -m pytest tests/integration -m mutations --no-cov --run-mutations
+
 # Regression guards (AST/heuristic checkers; run from backend/):
 python scripts/check_asyncio_run.py
 python scripts/check_http_500_leaks.py

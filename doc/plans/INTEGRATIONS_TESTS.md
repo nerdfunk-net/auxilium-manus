@@ -1,8 +1,25 @@
 # Integration Tests Plan
 
-Status: proposed
+Status: implemented (2026-08-30)
 Owner: backend
 Scope: `backend/tests/integration/`
+
+Implementation notes (deviations from the draft above):
+- `RunRepository` has `create_step_result` (singular), not `create_pending_step_results`;
+  tests use it directly. `StepRunner.create_pending_step_results` is the plural one.
+- Artifact files are flat under `DATA_DIRECTORY/artifacts/<id>.content` (+ `.meta.json`),
+  not `artifacts/<run>/…`; `get_for_run(run_uuid, artifact_id)` enforces the run link.
+- git-clone / git-pull misconfig (missing/inactive `git_repository_id`) returns a
+  `failure` `StepOutcome` (via `run_git_workflow_step`), it does **not** raise. Only
+  `get-git-devices` raises `ValueError`. Tests assert accordingly.
+- No `pytest-asyncio`/`anyio` plugin in the repo — async executor calls go through
+  `tests/integration/helpers/aio.run(coro)` (`asyncio.run`).
+- `.env.test` is not dropped/renamed; canonical `DATABASE_*` keys added alongside.
+- Phase-2 device / Nautobot mutation tests are scaffolded and `@pytest.mark.skip`
+  with their teardown contract documented — only `git-push` is wired end to end.
+- `testpaths = ["tests/unit"]` stands, so integration runs must name the path:
+  `pytest tests/integration -m "not mutations" --no-cov` (a bare `-m integration`
+  collects nothing). See `tests/integration/README.md`.
 
 ## 1. Goal
 
@@ -58,6 +75,10 @@ Confirmed decisions (2026-08-30):
   a workflow's canvas in topological order with a real `DeviceSessionPool`, no
   Hatchet. (Fan-out workflows return a `FanOutSignal` instead of running; keep
   integration workflows linear.)
+- `workflow_steps/common/nautobot_source.py::resolve_nautobot_credentials(db,
+  source_id, *, step_id)` — the single resolver every Nautobot-facing executor uses
+  to turn a `sources.nautobot.<id>` setting (+ linked `credential_id`) into
+  `NautobotCredentials`. Covered by `tests/unit/test_nautobot_source_helper.py`.
 
 ## 3. Test infrastructure
 
@@ -178,8 +199,8 @@ Fixtures:
 | `_require_services` | session, autouse | Ping Postgres; `httpx` HEAD Nautobot + Gitea; TCP-connect the Cisco device. `pytest.skip("<svc> unreachable")` (not fail) when a system is down so a partial lab still runs a subset. |
 | `_bootstrap_db` | session, autouse | Run the same steps as `scripts/init_test_db.py` (drop optional via `--drop-test-db` CLI flag / `MANUS_TEST_DB_DROP=1`). |
 | `db` | function | `SessionLocal()`; `try/yield/finally close`. For repository tests wrap in an outer transaction + `SAVEPOINT` and roll back on teardown. |
-| `clean_tables` | function | For tests that go through services/`StepRunner` (which commit through their own sessions): `TRUNCATE workflow_step_results, workflow_runs, ... RESTART IDENTITY CASCADE` for the domain tables touched, keeping `users` / RBAC / seeded source rows. |
-| `nautobot_source` | session | `seed_nautobot_source(db, source_id="itest", url, token, verify_ssl=False)` → writes a `settings` row `sources.nautobot.itest` with **inline** `url` + `token` (see §11 finding). Returns the source id. |
+| `clean_tables` | function | For tests that go through services/`StepRunner` (which commit through their own sessions): `TRUNCATE workflow_step_results, workflow_runs, ... RESTART IDENTITY CASCADE` for the domain tables touched, keeping `users` / RBAC and the session-seeded `settings`, `credentials`, and `git_repositories` rows (the `nautobot_source` / `git_repository` / `ssh_credential` fixtures). |
+| `nautobot_source` | session | `seed_nautobot_source(db, source_id="itest", url, token, verify_ssl=False)` → creates the source the same way the API does: a `settings` row `sources.nautobot.itest` holding `{url, verify_ssl}` plus a `credential_id` pointing at a global `Credential` (source `"nautobot"`, type `generic`) that stores the encrypted token. Use `SettingsService(db).create_setting(SettingCreate(key="sources.nautobot.itest", value={"url": …, "verify_ssl": False, "token": …}))` — `create_setting` moves the `token` into the credential and stores the `credential_id`. Returns the source id. This is exactly the shape the fixed executors resolve via `resolve_nautobot_credentials` → `SettingsService.get_source_config_for_step`. |
 | `git_repository` | session | `seed_git_repository(db, name="itest", url, branch, auth_type="token", credential_name="itest-git")` → creates a `Credential` (type `generic`/`token`) + a `GitRepository` row via `GitRepositoryService`. Returns the repo id + resolved dict. |
 | `ssh_credential` | session | `seed_ssh_credential(db, name="itest-ssh", username="noc", password="noc", visibility="global", type="ssh")` via `CredentialsService`. Returns the credential name. |
 | `admin_user` | session | The seeded `admin` user row (for `triggered_by_id`). |
@@ -388,6 +409,13 @@ network_driver="cisco_ios", platform="cisco_ios")`.
 
 ### 7.2 Nautobot-based steps
 
+All five Nautobot-facing executors (`get-nautobot-devices`, `get-nautobot-attributes`,
+`get-ise-devices`, `add-to-nautobot`, `update-nautobot-device`) resolve their source
+through `workflow_steps/common/nautobot_source.py::resolve_nautobot_credentials`
+(→ `SettingsService.get_source_config_for_step` → `credential_id` → decrypted token).
+The `nautobot_source` fixture seeds the source in that same `credential_id`-backed
+shape, so these tests double as end-to-end coverage of that resolution path.
+
 8. **`get-nautobot-devices` (filter)** — seed `sources.nautobot.itest`; `config=
    {"nautobot_source_id":"itest","inventory_type":"filter","device_filter":
    {<FilterTree: status == Offline>}}`. Expect `success`, `len(context.devices) ==
@@ -397,8 +425,10 @@ network_driver="cisco_ios", platform="cisco_ios")`.
    `device_ids=[<3 real ids>]` → exactly those 3.
 10. **`get-nautobot-attributes`** — after step 9, resolve `["net","checkmk_site"]`
     for the devices; assert the attribute bag matches the baseline YAML.
-11. **Misconfig** — empty `nautobot_source_id` → `ValueError`; unknown source id →
-    `ValueError` ("not found in settings").
+11. **Misconfig** — empty `nautobot_source_id` → `ValueError` ("not configured");
+    unknown source id → `ValueError` ("not found in settings"); a source row whose
+    `credential_id` points at a deleted credential → `ValueError` ("credential is
+    missing"). All three come from `resolve_nautobot_credentials`.
 
 ### 7.3 Git-based steps
 
@@ -468,37 +498,38 @@ Each test must restore prior state in a `finally` / fixture teardown.
 ## 10. Task list
 
 1. **Infra**
-   - [ ] Update `backend/.env.test` per §3.2.
-   - [ ] `backend/scripts/init_test_db.py` (+ `_test` name guard).
-   - [ ] `backend/tests/integration/conftest.py` — env load + settings/engine rebuild,
-     `_require_services`, `_bootstrap_db`, `db`, `clean_tables`, seed fixtures,
+   - [x] Update `backend/.env.test` per §3.2.
+   - [x] `backend/scripts/init_test_db.py` (+ `_test` name guard).
+   - [x] `backend/tests/integration/conftest.py` — env load + settings/engine rebuild,
+     `require_*` skip fixtures, `_bootstrap_db`, `db`, `clean_tables`, seed fixtures,
      `--run-mutations` / `--drop-test-db` options.
-   - [ ] `backend/tests/integration/helpers/{env,seed,workflows}.py`.
-2. **Area 3 — DB** (`test_db_bootstrap.py`, `test_repositories_crud.py`,
+   - [x] `backend/tests/integration/helpers/{env,seed,workflows,aio}.py`.
+2. [x] **Area 3 — DB** (`test_db_bootstrap.py`, `test_repositories_crud.py`,
    `test_run_persistence.py`).
-3. **Area 1 — Nautobot inventory** (`test_nautobot_inventory.py` + `baseline`
+3. [x] **Area 1 — Nautobot inventory** (`test_nautobot_inventory.py` + `baseline`
    fixture/parser).
-4. **Area 2 — Git** (`test_git_service.py`); document/add the `devices/*.yaml`
-   fixture file in the Gitea repo.
-5. **Area 4 — steps** (`test_workflow_steps_{netmiko,nautobot,git}.py`).
-6. **Cross-cutting** (`test_workflow_run_end_to_end.py`).
-7. **Phase 2** (`test_mutations_optin.py`).
-8. **Docs** — extend `tests/integration/README.md` with the `init_test_db.py`
-   pre-step, the `.env.test` variable table, and the marker/flag matrix. Add a
-   "Development Workflow" note to `CLAUDE.md`.
-9. **Optional** — nightly CI job (`-m "integration and not mutations"`).
+4. [x] **Area 2 — Git** (`test_git_service.py`). Still TODO: add a small
+   `devices/*.yaml` to the Gitea repo (device-discovery tests `xfail` until then).
+5. [x] **Area 4 — steps** (`test_workflow_steps_{netmiko,nautobot,git}.py`).
+6. [x] **Cross-cutting** (`test_workflow_run_end_to_end.py`).
+7. [~] **Phase 2** (`test_mutations_optin.py`) — `git-push` done; device/Nautobot
+   writes scaffolded + skipped.
+8. [x] **Docs** — `tests/integration/README.md` rewritten; `CLAUDE.md` note added.
+9. [ ] **Optional** — nightly CI job (`-m "integration and not mutations"`).
 
 ## 11. Risks & open items
 
-- **Nautobot token storage mismatch (verify during Area 4).**
-  `get-nautobot-devices` / `get-nautobot-attributes` executors read
-  `setting.value["token"]` **inline** via `SettingsRepository.get_by_key`, but
-  `SettingsService.create_setting` moves the token into a `Credential` row and stores
-  `credential_id` instead. The seed helper therefore writes the `settings` row
-  **directly with an inline `token`** (and `url`, `verify_ssl`) to match what the
-  executor reads. If an integration test proves the executor also needs to work via
-  `credential_id`, that's a real product bug to file separately — the integration
-  suite is the right place to surface it.
+- **Nautobot token storage (fixed 2026-08-30, pre-plan).** The five Nautobot-facing
+  executors used to read `setting.value["token"]` inline via
+  `SettingsRepository.get_by_key`, which is always empty now that
+  `SettingsService.create_setting` stores the token as a `Credential` +
+  `credential_id`. They were migrated to
+  `workflow_steps/common/nautobot_source.py::resolve_nautobot_credentials`
+  (→ `SettingsService.get_source_config_for_step`), matching the ISE / pyATS /
+  Mattermost source-config pattern. The `nautobot_source` fixture seeds the
+  `credential_id`-backed shape, and §7.2 tests 8–11 exercise the resolver end to end.
+  No integration test should special-case an inline `token` — that path no longer
+  exists.
 - **Loopback URLs.** Nautobot `:8080` and Gitea `:3030` resolve to loopback;
   `ALLOW_LOOPBACK_SOURCE_URLS=true` in `.env.test` is mandatory or every Nautobot/git
   call raises `UnsafeURLError`.
