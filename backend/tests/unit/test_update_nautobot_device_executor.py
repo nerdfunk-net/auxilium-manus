@@ -69,32 +69,24 @@ class ResolveDeviceIdentifierTests(unittest.TestCase):
 
 
 class BuildUpdateServiceTests(unittest.TestCase):
-    def _repo(self, value):
-        repo = MagicMock()
-        repo.get_by_key.return_value = MagicMock(value=value) if value is not None else None
-        return repo
-
-    def test_missing_setting_raises(self) -> None:
-        with patch.object(mod, "SettingsRepository", return_value=self._repo(None)):
+    def test_resolver_error_propagates(self) -> None:
+        with patch.object(
+            mod,
+            "resolve_nautobot_credentials",
+            side_effect=ValueError("update-nautobot-device: Nautobot source 'src-1' not found"),
+        ):
             with self.assertRaises(ValueError):
                 _build_update_service(MagicMock(), "src-1")
 
-    def test_missing_url_token_raises(self) -> None:
-        with patch.object(mod, "SettingsRepository", return_value=self._repo({"url": ""})):
-            with self.assertRaises(ValueError):
-                _build_update_service(MagicMock(), "src-1")
-
-    def test_valid_setting_returns_wired_services(self) -> None:
+    def test_valid_source_returns_wired_services(self) -> None:
+        creds = MagicMock(url="https://nb")
         with (
-            patch.object(
-                mod, "SettingsRepository",
-                return_value=self._repo({"url": "https://nb", "token": "t"}),
-            ),
+            patch.object(mod, "resolve_nautobot_credentials", return_value=creds),
             patch.object(mod.service_factory, "get_nautobot_app_service", return_value="svc"),
         ):
-            svc, creds, update_service = _build_update_service(MagicMock(), "src-1")
+            svc, resolved_creds, update_service = _build_update_service(MagicMock(), "src-1")
         self.assertEqual(svc, "svc")
-        self.assertEqual(creds.url, "https://nb")
+        self.assertIs(resolved_creds, creds)
         self.assertIsNotNone(update_service)
 
 

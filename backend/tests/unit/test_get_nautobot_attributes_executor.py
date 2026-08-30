@@ -66,38 +66,29 @@ class BindNautobotTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 _bind_nautobot(run, "src-1")
 
-    def test_missing_setting_raises(self) -> None:
+    def test_resolver_error_propagates(self) -> None:
         run = MagicMock()
         with (
             patch.object(mod, "object_session", return_value=MagicMock()),
-            patch.object(mod, "SettingsRepository") as repo_cls,
+            patch.object(
+                mod,
+                "resolve_nautobot_credentials",
+                side_effect=ValueError("get-nautobot-attributes: boom"),
+            ),
         ):
-            repo_cls.return_value.get_by_key.return_value = None
             with self.assertRaises(ValueError):
                 _bind_nautobot(run, "src-1")
 
-    def test_setting_without_url_or_token_raises(self) -> None:
+    def test_valid_source_builds_credentials(self) -> None:
         run = MagicMock()
+        creds = MagicMock(url="https://nb")
         with (
             patch.object(mod, "object_session", return_value=MagicMock()),
-            patch.object(mod, "SettingsRepository") as repo_cls,
-        ):
-            repo_cls.return_value.get_by_key.return_value = MagicMock(value={"url": ""})
-            with self.assertRaises(ValueError):
-                _bind_nautobot(run, "src-1")
-
-    def test_valid_setting_builds_credentials(self) -> None:
-        run = MagicMock()
-        with (
-            patch.object(mod, "object_session", return_value=MagicMock()),
-            patch.object(mod, "SettingsRepository") as repo_cls,
+            patch.object(mod, "resolve_nautobot_credentials", return_value=creds),
             patch.object(mod.service_factory, "get_nautobot_app_service", return_value="svc"),
         ):
-            repo_cls.return_value.get_by_key.return_value = MagicMock(
-                value={"url": "https://nb", "token": "t", "verify_ssl": False}
-            )
-            creds, svc = _bind_nautobot(run, "src-1")
-        self.assertEqual(creds.url, "https://nb")
+            resolved_creds, svc = _bind_nautobot(run, "src-1")
+        self.assertIs(resolved_creds, creds)
         self.assertEqual(svc, "svc")
 
 

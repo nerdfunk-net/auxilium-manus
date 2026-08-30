@@ -18,18 +18,17 @@ from models.workflow_context import (
     StepOutcome,
     WorkflowContext,
 )
-from repositories.settings_repository import SettingsRepository
 from services.artifacts import ArtifactService
 from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
-from services.settings.source_keys import build_source_key
 from workflow_steps.common.nautobot_interfaces import (
     build_interfaces_from_config,
     normalize_interfaces,
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
+from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.update_field_expression import (
     build_resolved_update_data,
     config_has_enabled_update_fields,
@@ -155,20 +154,7 @@ def _count_enabled_fields(raw_update_fields: dict[str, Any]) -> int:
 def _build_update_service(
     db: Any, source_id: str
 ) -> tuple[NautobotService, NautobotCredentials, DeviceUpdateService]:
-    setting_key = build_source_key("nautobot", source_id)
-    setting = SettingsRepository(db).get_by_key(setting_key)
-    if setting is None:
-        raise ValueError(f"{_STEP_ID}: Nautobot source '{source_id}' not found in settings")
-
-    nautobot_url = (setting.value or {}).get("url", "").strip()
-    nautobot_token = (setting.value or {}).get("token", "").strip()
-    nautobot_verify_ssl = bool((setting.value or {}).get("verify_ssl", True))
-    if not nautobot_url or not nautobot_token:
-        raise ValueError(f"{_STEP_ID}: Nautobot source '{source_id}' is missing url or token")
-
-    credentials = service_factory.credentials_from_connection(
-        nautobot_url, nautobot_token, verify_ssl=nautobot_verify_ssl
-    )
+    credentials = resolve_nautobot_credentials(db, source_id, step_id=_STEP_ID)
     nautobot_service = service_factory.get_nautobot_app_service()
     bound_client = CredentialsBoundNautobotClient(nautobot_service, credentials)
     return nautobot_service, credentials, DeviceUpdateService(bound_client)

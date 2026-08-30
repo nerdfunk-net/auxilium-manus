@@ -13,12 +13,10 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
 from models.workflow_context import DeviceContext, StepOutcome, WorkflowContext
-from repositories.settings_repository import SettingsRepository
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.ise.source_config_service import ISESourceNotFoundError
-from services.settings.source_keys import build_source_key
 from services.sources.nautobot.source_service import NautobotSourceService
 from workflow_steps.common.device_builders import (
     device_context_from_ise,
@@ -26,6 +24,7 @@ from workflow_steps.common.device_builders import (
 )
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.ise_lookup import fetch_ise_device_details, paginate_ise_summaries
+from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -147,20 +146,8 @@ def _cidr_for_group_or_prefix(device: dict[str, Any]) -> str | None:
 
 
 def _build_nautobot_source_service(db: Session, nautobot_source_id: str) -> NautobotSourceService:
-    setting = SettingsRepository(db).get_by_key(build_source_key("nautobot", nautobot_source_id))
-    if setting is None:
-        raise ValueError(
-            f"get-ise-devices: Nautobot source '{nautobot_source_id}' not found in settings"
-        )
-    nautobot_url = (setting.value or {}).get("url", "").strip()
-    nautobot_token = (setting.value or {}).get("token", "").strip()
-    nautobot_verify_ssl = bool((setting.value or {}).get("verify_ssl", True))
-    if not nautobot_url or not nautobot_token:
-        raise ValueError(
-            f"get-ise-devices: Nautobot source '{nautobot_source_id}' is missing url or token"
-        )
-    credentials = service_factory.credentials_from_connection(
-        nautobot_url, nautobot_token, verify_ssl=nautobot_verify_ssl
+    credentials = resolve_nautobot_credentials(
+        db, nautobot_source_id, step_id="get-ise-devices"
     )
     return service_factory.build_nautobot_source_service(credentials, db)
 

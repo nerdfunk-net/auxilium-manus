@@ -53,9 +53,8 @@ def _context(devices: dict[str, DeviceContext]) -> WorkflowContext:
 
 
 def _setting() -> MagicMock:
-    setting = MagicMock()
-    setting.value = {"url": "https://nautobot.lab", "token": "tok"}
-    return setting
+    """Sentinel marking "the Nautobot source resolves"; truthiness is all that matters."""
+    return MagicMock()
 
 
 def _creation_service(create_device: AsyncMock) -> MagicMock:
@@ -65,21 +64,24 @@ def _creation_service(create_device: AsyncMock) -> MagicMock:
 
 
 def _patches(*, setting=None, creation_service_instance=None):
-    settings_repo = MagicMock()
-    settings_repo.get_by_key.return_value = setting
+    if setting is None:
+        resolve_patch = patch(
+            "workflow_steps.add_to_nautobot.executor.resolve_nautobot_credentials",
+            side_effect=ValueError(
+                "add-to-nautobot: Nautobot source 'prod-lab' not found in settings"
+            ),
+        )
+    else:
+        resolve_patch = patch(
+            "workflow_steps.add_to_nautobot.executor.resolve_nautobot_credentials",
+            return_value=MagicMock(),
+        )
     return (
         patch(
             "workflow_steps.add_to_nautobot.executor.object_session",
             return_value=MagicMock(),
         ),
-        patch(
-            "workflow_steps.add_to_nautobot.executor.SettingsRepository",
-            return_value=settings_repo,
-        ),
-        patch(
-            "service_factory.credentials_from_connection",
-            return_value=MagicMock(),
-        ),
+        resolve_patch,
         patch(
             "service_factory.get_nautobot_app_service",
             return_value=MagicMock(),
@@ -87,6 +89,10 @@ def _patches(*, setting=None, creation_service_instance=None):
         patch(
             "workflow_steps.add_to_nautobot.executor.DeviceCreationService",
             return_value=creation_service_instance,
+        ),
+        patch(
+            "workflow_steps.add_to_nautobot.executor.CredentialsBoundNautobotClient",
+            return_value=MagicMock(),
         ),
     )
 
