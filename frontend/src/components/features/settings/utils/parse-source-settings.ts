@@ -14,6 +14,9 @@ function parseNautobotValue(
     key: record.key,
     url: value.url,
     tokenConfigured: Boolean(value.token_configured),
+    credentialId: typeof value.credential_id === "number" ? value.credential_id : null,
+    credentialName:
+      typeof value.credential_name === "string" ? value.credential_name : null,
     verifySsl: resolveVerifySsl(value),
     description: record.description,
     updatedAt: record.updated_at,

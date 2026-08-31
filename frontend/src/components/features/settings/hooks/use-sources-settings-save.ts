@@ -61,14 +61,14 @@ export function useSourcesSettingsSave({
   } = useMattermostSourcesMutations();
 
   const saveNautobot = useCallback(
-    async (values: NautobotSourceValue, settingKey: string, token?: string) => {
+    async (values: NautobotSourceValue, settingKey: string) => {
       const exists = nautobotById.has(values.sourceId);
       const value: Record<string, unknown> = {
         url: values.url,
         verify_ssl: values.verifySsl,
       };
-      if (token) {
-        value.token = token;
+      if (values.credentialId != null) {
+        value.credential_id = values.credentialId;
       }
       await upsertSetting.mutateAsync({
         key: settingKey,

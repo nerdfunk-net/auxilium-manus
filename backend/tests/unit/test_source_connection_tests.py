@@ -5,9 +5,46 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
+
 from core.safe_urls import UnsafeURLError, validate_git_remote_url
+from models.ise import ISETestConnectionRequest
+from models.mattermost import MattermostTestConnectionRequest
+from models.pyats import PyATSTestConnectionRequest
+from models.sources_nautobot import NautobotTestConnectionRequest
 from services.nautobot.common.exceptions import NautobotAPIError
 from services.nautobot.credentials import NautobotCredentials
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        NautobotTestConnectionRequest,
+        PyATSTestConnectionRequest,
+        MattermostTestConnectionRequest,
+        ISETestConnectionRequest,
+    ],
+)
+class TestTestConnectionRequestXor:
+    def test_source_id_only_ok(self, model) -> None:
+        assert model(source_id="lab").source_id == "lab"
+
+    def test_inline_ok(self, model) -> None:
+        req = model(url="https://x", credential_id=5)
+        assert req.credential_id == 5
+
+    def test_neither_rejected(self, model) -> None:
+        with pytest.raises(ValidationError):
+            model()
+
+    def test_both_rejected(self, model) -> None:
+        with pytest.raises(ValidationError):
+            model(source_id="lab", url="https://x", credential_id=5)
+
+    def test_url_without_credential_rejected(self, model) -> None:
+        with pytest.raises(ValidationError):
+            model(url="https://x")
 
 
 class NautobotTestConnectionTests(unittest.IsolatedAsyncioTestCase):
@@ -15,9 +52,7 @@ class NautobotTestConnectionTests(unittest.IsolatedAsyncioTestCase):
         from services.nautobot.client import NautobotService
 
         service = NautobotService()
-        service.rest_request = AsyncMock(
-            return_value={"nautobot-version": "2.3.0"}
-        )
+        service.rest_request = AsyncMock(return_value={"nautobot-version": "2.3.0"})
         credentials = NautobotCredentials(url="https://nb.example", token="tok")
 
         result = await service.test_connection(credentials)

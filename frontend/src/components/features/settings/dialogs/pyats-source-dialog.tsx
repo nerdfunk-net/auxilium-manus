@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { usePyATSSourcesMutations } from "@/hooks/queries/use-pyats-sources-mutations";
 
+import { CredentialSelect } from "../credentials/components/credential-select";
 import { SOURCE_ID_REGEX } from "../constants/setting-keys";
 import type {
   PyATSSourceCreatePayload,
@@ -38,7 +39,7 @@ const sourceIdSchema = z
 const pyatsSchema = z.object({
   sourceId: sourceIdSchema,
   url: z.string().min(1, "URL is required").url("Enter a valid URL"),
-  token: z.string().optional(),
+  credentialId: z.number().int().positive().optional(),
   verifySsl: z.boolean(),
   timeout: z.number().min(1).max(120),
 });
@@ -50,6 +51,7 @@ export interface PyATSSourceEditValue {
   url: string;
   verifySsl: boolean;
   timeout: number;
+  credentialId: number | null;
 }
 
 interface PyATSSourceDialogProps {
@@ -66,7 +68,7 @@ interface PyATSSourceDialogProps {
 const EMPTY_DEFAULTS: PyATSFormValues = {
   sourceId: "",
   url: "",
-  token: "",
+  credentialId: undefined,
   verifySsl: false,
   timeout: 30,
 };
@@ -103,7 +105,7 @@ export function PyATSSourceDialog({
       reset({
         sourceId: initialValue?.sourceId ?? "",
         url: initialValue?.url ?? "",
-        token: "",
+        credentialId: initialValue?.credentialId ?? undefined,
         verifySsl: initialValue?.verifySsl ?? false,
         timeout: initialValue?.timeout ?? 30,
       });
@@ -120,13 +122,13 @@ export function PyATSSourceDialog({
       }
 
       if (mode === "create") {
-        if (!values.token?.trim()) {
+        if (!values.credentialId) {
           return;
         }
         onCreate({
           source_id: values.sourceId,
           url: values.url.trim(),
-          token: values.token.trim(),
+          credential_id: values.credentialId,
           verify_ssl: values.verifySsl,
           timeout: values.timeout,
         });
@@ -138,8 +140,8 @@ export function PyATSSourceDialog({
         verify_ssl: values.verifySsl,
         timeout: values.timeout,
       };
-      if (values.token?.trim()) {
-        update.token = values.token.trim();
+      if (values.credentialId) {
+        update.credential_id = values.credentialId;
       }
       onUpdate(initialValue?.sourceId ?? values.sourceId, update);
     },
@@ -147,24 +149,21 @@ export function PyATSSourceDialog({
   );
 
   const handleTestConnection = useCallback(() => {
-    if (!initialValue?.sourceId) {
+    const values = getValues();
+    if (isEdit && initialValue?.sourceId) {
+      testConnection.mutate({ source_id: initialValue.sourceId });
       return;
     }
-    const values = getValues();
-    const overrides: PyATSSourceUpdatePayload = {
+    if (!values.url?.trim() || !values.credentialId) {
+      return;
+    }
+    testConnection.mutate({
+      url: values.url.trim(),
+      credential_id: values.credentialId,
       verify_ssl: values.verifySsl,
-    };
-    if (values.url?.trim()) {
-      overrides.url = values.url.trim();
-    }
-    if (values.token?.trim()) {
-      overrides.token = values.token.trim();
-    }
-    if (!Number.isNaN(values.timeout)) {
-      overrides.timeout = values.timeout;
-    }
-    testConnection.mutate({ sourceId: initialValue.sourceId, overrides });
-  }, [initialValue, testConnection, getValues]);
+      timeout: values.timeout,
+    });
+  }, [getValues, isEdit, initialValue, testConnection]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -176,7 +175,7 @@ export function PyATSSourceDialog({
           <DialogDescription>
             {isEdit
               ? "Update connection details. The source ID cannot be changed."
-              : "Choose a unique source ID (e.g. lab-pyats). Points at a pyATS shim container; the token is encrypted at rest."}
+              : "Choose a unique source ID (e.g. lab-pyats). Points at a pyATS shim container; the bearer token comes from a credential in the vault."}
           </DialogDescription>
         </DialogHeader>
 
@@ -218,23 +217,21 @@ export function PyATSSourceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="pyats-token">Token</Label>
-            <Input
-              id="pyats-token"
-              type="password"
-              placeholder={isEdit ? "Leave blank to keep existing token" : "Bearer token"}
-              autoComplete="off"
-              {...register("token", {
-                validate: (value) => {
-                  if (isEdit || value?.trim()) {
-                    return true;
-                  }
-                  return "Token is required";
-                },
-              })}
+            <Label htmlFor="pyats-credential">Token credential</Label>
+            <Controller
+              control={control}
+              name="credentialId"
+              render={({ field }) => (
+                <CredentialSelect
+                  id="pyats-credential"
+                  value={field.value ?? null}
+                  onChange={(next) => field.onChange(next ?? undefined)}
+                  credentialType="token"
+                />
+              )}
             />
-            {errors.token ? (
-              <p className="text-xs text-destructive">{errors.token.message}</p>
+            {errors.credentialId ? (
+              <p className="text-xs text-destructive">Select a credential.</p>
             ) : null}
           </div>
 
@@ -274,22 +271,20 @@ export function PyATSSourceDialog({
             ) : null}
           </div>
 
-          {isEdit ? (
-            <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
-              <p className="text-xs text-muted-foreground">
-                Checks the shim&apos;s HTTP layer, then whether pyATS is functional inside it.
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={testConnection.isPending}
-                onClick={handleTestConnection}
-              >
-                {testConnection.isPending ? "Testing…" : "Test connection"}
-              </Button>
-            </div>
-          ) : null}
+          <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              Checks the shim&apos;s HTTP layer, then whether pyATS is functional inside it.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={testConnection.isPending}
+              onClick={handleTestConnection}
+            >
+              {testConnection.isPending ? "Testing…" : "Test connection"}
+            </Button>
+          </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

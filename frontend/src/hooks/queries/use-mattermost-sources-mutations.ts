@@ -8,6 +8,7 @@ import type {
   MattermostSourceResponse,
   MattermostSourceUpdatePayload,
   MattermostTestConnectionResponse,
+  SourceTestConnectionPayload,
 } from "@/components/features/settings/types/settings-api";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
@@ -89,19 +90,13 @@ export function useMattermostSourcesMutations() {
   });
 
   const testConnection = useMutation({
-    mutationFn: ({
-      sourceId,
-      overrides,
-    }: {
-      sourceId: string;
-      overrides?: MattermostSourceUpdatePayload;
-    }) =>
+    mutationFn: (payload: SourceTestConnectionPayload) =>
       apiCall<MattermostTestConnectionResponse>(
-        `sources/mattermost/${encodeURIComponent(sourceId)}/test-connection`,
+        "sources/mattermost/test-connection",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(overrides ?? {}),
+          body: JSON.stringify(payload),
         },
       ),
     onSuccess: (data) => {

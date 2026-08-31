@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 import service_factory
 from models.sources_nautobot import NautobotTestConnectionRequest, NautobotTestConnectionResponse
+from services.credentials.source_credentials import SourceCredentialError, resolve_global_secret
 from services.nautobot.common.exceptions import NautobotAPIError, NautobotValidationError
 from services.settings.settings_service import SettingsService
 
@@ -27,9 +28,13 @@ async def test_nautobot_connection(
             verify_ssl=config.get("verify_ssl", True),
         )
     else:
+        try:
+            _, token = resolve_global_secret(db, int(request.credential_id or 0))
+        except SourceCredentialError as exc:
+            raise NautobotValidationError(str(exc)) from exc
         credentials = service_factory.credentials_from_connection(
             (request.url or "").strip(),
-            (request.token or "").strip(),
+            token,
             request.timeout,
             verify_ssl=request.verify_ssl,
         )

@@ -1,8 +1,11 @@
-"""pyATS shim connectivity check, per configured source.
+"""pyATS shim connectivity check.
 
 Two-stage check: first confirms the shim's HTTP layer is reachable
 (``/health``), then confirms pyATS/Genie is actually functional inside the
 container (``/health/pyats``) -- distinct failure messages for each stage.
+
+Accepts either a saved ``source_id`` or fully inline ``{url, credential_id}``
+values so the source dialog can test a connection before it is saved.
 """
 
 from __future__ import annotations
@@ -18,7 +21,8 @@ from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from core.safe_urls import UnsafeURLError
 from dependencies import get_pyats_source_config_service
-from models.pyats import PyATSSourceUpdateRequest, PyATSTestConnectionResponse
+from models.pyats import PyATSTestConnectionRequest, PyATSTestConnectionResponse
+from services.credentials.source_credentials import SourceCredentialError
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
 from services.pyats.source_config_service import (
@@ -29,30 +33,28 @@ from services.pyats.source_config_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/sources/pyats/{source_id}",
+    prefix="/sources/pyats",
     tags=["sources-pyats"],
     dependencies=[Depends(require_permission("sources.pyats", "read"))],
 )
 
 
 def _resolve_credentials(
-    source_id: str,
+    request: PyATSTestConnectionRequest,
     config: PyATSSourceConfigService,
-    *,
-    overrides: PyATSSourceUpdateRequest | None = None,
 ) -> PyATSCredentials:
-    overrides = overrides or PyATSSourceUpdateRequest()
     try:
-        return config.resolve_credentials(
-            source_id,
-            url=overrides.url,
-            token=overrides.token,
-            verify_ssl=overrides.verify_ssl,
-            timeout=overrides.timeout,
+        if request.source_id:
+            return config.resolve_credentials(request.source_id)
+        return config.resolve_inline_credentials(
+            url=request.url or "",
+            credential_id=int(request.credential_id or 0),
+            verify_ssl=request.verify_ssl,
+            timeout=request.timeout,
         )
     except PyATSSourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except (PyATSValidationError, UnsafeURLError) as exc:
+    except (PyATSValidationError, UnsafeURLError, SourceCredentialError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -62,15 +64,11 @@ def _resolve_credentials(
     dependencies=[Depends(require_permission("sources.pyats", "write"))],
 )
 async def test_connection(
-    source_id: str,
-    overrides: PyATSSourceUpdateRequest | None = None,
+    request: PyATSTestConnectionRequest,
     _: User = Depends(get_current_user),
     config: PyATSSourceConfigService = Depends(get_pyats_source_config_service),
 ) -> PyATSTestConnectionResponse:
-    """Test connectivity. ``overrides`` lets the source dialog validate unsaved
-    edits (e.g. a token just typed in) against the live form values instead of
-    only what's already persisted."""
-    credentials = _resolve_credentials(source_id, config, overrides=overrides)
+    credentials = _resolve_credentials(request, config)
     shim = service_factory.get_pyats_app_service()
 
     try:

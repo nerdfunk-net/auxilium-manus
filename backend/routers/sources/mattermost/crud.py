@@ -16,7 +16,6 @@ from models.mattermost import (
     MattermostSourceResponse,
     MattermostSourceUpdateRequest,
 )
-from services.credentials.exceptions import CredentialNameConflictError
 from services.mattermost.source_config_service import (
     MattermostSourceConfigService,
     MattermostSourceConflictError,
@@ -78,12 +77,12 @@ async def create_mattermost_source(
         result = service.create_source(
             source_id=request.source_id,
             url=request.url,
-            token=request.token,
+            credential_id=request.credential_id,
             verify_ssl=request.verify_ssl,
             timeout=request.timeout,
         )
         return MattermostSourceResponse(**result)
-    except (MattermostSourceConflictError, CredentialNameConflictError) as exc:
+    except MattermostSourceConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -108,7 +107,7 @@ async def update_mattermost_source(
         result = service.update_source(
             source_id,
             url=request.url,
-            token=request.token,
+            credential_id=request.credential_id,
             verify_ssl=request.verify_ssl,
             timeout=request.timeout,
         )

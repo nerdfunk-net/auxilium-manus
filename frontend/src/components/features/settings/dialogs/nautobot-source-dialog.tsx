@@ -18,8 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useNautobotTestConnectionMutation } from "@/hooks/queries/use-source-test-connection-mutations";
-import { useToast } from "@/hooks/use-toast";
 
+import { CredentialSelect } from "../credentials/components/credential-select";
 import {
   SOURCE_ID_REGEX,
   SOURCE_KEY_PREFIXES,
@@ -40,7 +40,7 @@ const sourceIdSchema = z
 const nautobotSchema = z.object({
   sourceId: sourceIdSchema,
   url: z.string().min(1, "URL is required").url("Enter a valid URL"),
-  token: z.string().optional(),
+  credentialId: z.number().int().positive().optional(),
   verifySsl: z.boolean(),
 });
 
@@ -53,13 +53,13 @@ interface NautobotSourceDialogProps {
   existingSourceIds?: string[];
   isSaving?: boolean;
   onClose: () => void;
-  onSave: (values: NautobotSourceValue, settingKey: string, token?: string) => void;
+  onSave: (values: NautobotSourceValue, settingKey: string) => void;
 }
 
 const EMPTY_DEFAULTS: NautobotFormValues = {
   sourceId: "",
   url: "",
-  token: "",
+  credentialId: undefined,
   verifySsl: true,
 };
 
@@ -74,7 +74,6 @@ export function NautobotSourceDialog({
   onClose,
   onSave,
 }: NautobotSourceDialogProps) {
-  const { toast } = useToast();
   const testConnection = useNautobotTestConnectionMutation();
 
   const {
@@ -95,53 +94,40 @@ export function NautobotSourceDialog({
       reset({
         sourceId: initialValue?.sourceId ?? "",
         url: initialValue?.url ?? "",
-        token: "",
+        credentialId: initialValue?.credentialId ?? undefined,
         verifySsl: initialValue?.verifySsl ?? true,
       });
     }
   }, [open, initialValue, reset]);
 
-  const resolveEnteredToken = useCallback((entered: string | undefined) => {
-    return entered?.trim() ?? "";
-  }, []);
+  const isEdit = mode === "edit";
 
   const onSubmit = useCallback(
     (values: NautobotFormValues) => {
-      const token = resolveEnteredToken(values.token);
-
-      if (mode === "create" && !token) {
+      if (!values.credentialId) {
         return;
       }
-
-      if (
-        mode === "create" &&
-        existingSourceIds.includes(values.sourceId)
-      ) {
+      if (mode === "create" && existingSourceIds.includes(values.sourceId)) {
         return;
       }
 
       const payload: NautobotSourceValue = {
         sourceId: values.sourceId,
         url: values.url.trim(),
-        tokenConfigured: mode === "edit" ? Boolean(initialValue?.tokenConfigured) || Boolean(token) : Boolean(token),
+        tokenConfigured: true,
+        credentialId: values.credentialId,
         verifySsl: values.verifySsl,
       };
 
-      onSave(
-        payload,
-        buildSourceSettingKey("nautobot", values.sourceId),
-        token || undefined,
-      );
+      onSave(payload, buildSourceSettingKey("nautobot", values.sourceId));
     },
-    [existingSourceIds, initialValue?.tokenConfigured, mode, onSave, resolveEnteredToken],
+    [existingSourceIds, mode, onSave],
   );
 
   const handleTestConnection = useCallback(async () => {
     const values = getValues();
-    const token = resolveEnteredToken(values.token);
-    const isEdit = mode === "edit";
 
-    if (isEdit && !token) {
+    if (isEdit && initialValue?.sourceId && !values.credentialId) {
       const valid = await trigger(["url"]);
       if (!valid) {
         return;
@@ -153,29 +139,17 @@ export function NautobotSourceDialog({
       return;
     }
 
-    const valid = await trigger(["url", "token"]);
-    if (!valid) {
-      return;
-    }
-
-    if (!token) {
-      toast({
-        title: "Token required",
-        description: "Enter an API token to test the connection.",
-        variant: "destructive",
-      });
+    const valid = await trigger(["url"]);
+    if (!valid || !values.credentialId) {
       return;
     }
 
     testConnection.mutate({
       url: values.url.trim(),
-      token,
+      credential_id: values.credentialId,
       verify_ssl: values.verifySsl,
     });
-  }, [getValues, mode, resolveEnteredToken, testConnection, toast, trigger]);
-
-  const hasExistingToken = Boolean(initialValue?.tokenConfigured);
-  const isEdit = mode === "edit";
+  }, [getValues, isEdit, initialValue, testConnection, trigger]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -231,28 +205,21 @@ export function NautobotSourceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="nautobot-token">Token</Label>
-            <Input
-              id="nautobot-token"
-              type="password"
-              placeholder={
-                hasExistingToken
-                  ? "Leave blank to keep existing token"
-                  : "API token"
-              }
-              autoComplete="off"
-              {...register("token", {
-                validate: (value) => {
-                  const trimmed = value?.trim() ?? "";
-                  if (trimmed || hasExistingToken) {
-                    return true;
-                  }
-                  return "Token is required";
-                },
-              })}
+            <Label htmlFor="nautobot-credential">Token credential</Label>
+            <Controller
+              control={control}
+              name="credentialId"
+              render={({ field }) => (
+                <CredentialSelect
+                  id="nautobot-credential"
+                  value={field.value ?? null}
+                  onChange={(next) => field.onChange(next ?? undefined)}
+                  credentialType="token"
+                />
+              )}
             />
-            {errors.token ? (
-              <p className="text-xs text-destructive">{errors.token.message}</p>
+            {errors.credentialId ? (
+              <p className="text-xs text-destructive">Select a credential.</p>
             ) : null}
           </div>
 
@@ -280,7 +247,7 @@ export function NautobotSourceDialog({
 
           <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
             <p className="text-xs text-muted-foreground">
-              Test with the URL, token, and TLS settings entered above.
+              Test with the URL, credential, and TLS settings entered above.
             </p>
             <Button
               type="button"

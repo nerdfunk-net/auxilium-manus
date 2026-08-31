@@ -1,9 +1,11 @@
-"""Mattermost source configuration: pairs a settings entry with an encrypted credential.
+"""Mattermost source configuration: pairs a settings entry with a vault credential.
 
 The connection's non-secret settings (URL, verify_ssl, timeout) live in the
-generic ``settings`` table under ``sources.mattermost.<id>``; the bearer
-token lives in the encrypted ``credentials`` table (source="mattermost") so
-it is never stored in plaintext. Mirrors ``services.pyats.source_config_service``.
+generic ``settings`` table under ``sources.mattermost.<id>``; the personal
+access token is a user-selected credential from the ``credentials`` vault,
+referenced by ``credential_id``. The credential must be global (see
+``services.credentials.source_credentials``). Mirrors
+``services.pyats.source_config_service``.
 """
 
 from __future__ import annotations
@@ -17,16 +19,14 @@ from core.config import settings
 from core.safe_urls import UnsafeURLError, validate_outbound_http_url
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
-from services.credentials.exceptions import CredentialNotFoundError
+from services.credentials.source_credentials import (
+    SourceCredentialError,
+    assert_global_credential,
+    resolve_global_secret,
+)
 from services.mattermost.common.exceptions import MattermostValidationError
 from services.mattermost.credentials import MattermostCredentials
 from services.settings.source_keys import build_source_key, ensure_value_source_id
-
-CREDENTIAL_SOURCE = "mattermost"
-CREDENTIAL_TYPE = "generic"
-# The credential's username field is unused (auth is bearer-token-only) but
-# CredentialsService requires one; a fixed sentinel keeps it self-explanatory.
-_TOKEN_USERNAME = "mattermost-bot"
 
 
 class MattermostSourceNotFoundError(Exception):
@@ -41,16 +41,12 @@ class MattermostSourceConflictError(Exception):
         self.source_id = source_id
 
 
-def _credential_name(source_id: str) -> str:
-    return f"mattermost-{source_id}"
-
-
 def _validate_mattermost_url(url: str) -> str:
     """Validate + normalize a Mattermost URL, enforcing https outside development.
 
     Layers on top of ``validate_outbound_http_url`` (SSRF/RFC1918/loopback
     checks shared by every source). ``http://`` is only accepted when
-    ``ENV=development`` (the default) — matches the policy already used for
+    ``ENV=development`` (the default) -- matches the policy already used for
     Git remotes in ``core.safe_urls.validate_git_remote_url``.
     """
     safe_url = validate_outbound_http_url(url, resolve_dns=True)
@@ -65,6 +61,7 @@ def _validate_mattermost_url(url: str) -> str:
 
 class MattermostSourceConfigService:
     def __init__(self, db: Session) -> None:
+        self._db = db
         self._settings = SettingsRepository(db)
         self._credentials = CredentialsService(db)
 
@@ -81,7 +78,7 @@ class MattermostSourceConfigService:
         *,
         source_id: str,
         url: str,
-        token: str,
+        credential_id: int,
         verify_ssl: bool = True,
         timeout: float = 30.0,
     ) -> dict[str, Any]:
@@ -90,23 +87,14 @@ class MattermostSourceConfigService:
             raise MattermostSourceConflictError(source_id)
 
         safe_url = _validate_mattermost_url(url)
+        assert_global_credential(self._db, credential_id)
 
-        # This credential is owned by the Mattermost source config itself,
-        # not by any individual user, so it must always be global.
-        credential = self._credentials.create_credential(
-            name=_credential_name(source_id),
-            username=_TOKEN_USERNAME,
-            cred_type=CREDENTIAL_TYPE,
-            password=token,
-            source=CREDENTIAL_SOURCE,
-            visibility="global",
-        )
         value = ensure_value_source_id(
             {
                 "url": safe_url,
                 "verify_ssl": verify_ssl,
                 "timeout": timeout,
-                "credential_id": credential["id"],
+                "credential_id": credential_id,
             },
             source_type="mattermost",
             source_id=source_id,
@@ -121,19 +109,18 @@ class MattermostSourceConfigService:
         source_id: str,
         *,
         url: str | None = None,
-        token: str | None = None,
+        credential_id: int | None = None,
         verify_ssl: bool | None = None,
         timeout: float | None = None,
     ) -> dict[str, Any]:
         setting = self._get_setting_or_raise(source_id)
-        credential_id = setting.value.get("credential_id")
-
-        if credential_id is not None and token is not None:
-            self._credentials.update_credential(credential_id, password=token)
 
         updated_value = dict(setting.value)
         if url is not None:
             updated_value["url"] = _validate_mattermost_url(url)
+        if credential_id is not None:
+            assert_global_credential(self._db, credential_id)
+            updated_value["credential_id"] = credential_id
         if verify_ssl is not None:
             updated_value["verify_ssl"] = verify_ssl
         if timeout is not None:
@@ -144,47 +131,28 @@ class MattermostSourceConfigService:
 
     def delete_source(self, source_id: str) -> None:
         setting = self._get_setting_or_raise(source_id)
-        credential_id = setting.value.get("credential_id")
         self._settings.delete(setting)
-        if credential_id is not None:
-            try:
-                self._credentials.delete_credential(credential_id)
-            except CredentialNotFoundError:
-                pass
 
     def resolve_credentials(
         self,
         source_id: str,
         *,
         url: str | None = None,
-        token: str | None = None,
+        credential_id: int | None = None,
         verify_ssl: bool | None = None,
         timeout: float | None = None,
     ) -> MattermostCredentials:
-        """Resolve connection settings, layering any overrides on top of what's saved.
-
-        Overrides let ``/test-connection`` validate unsaved edits (e.g. a token
-        just typed into the source dialog) without requiring a Save first.
-        """
+        """Resolve saved connection settings, layering optional overrides on top."""
         setting = self._get_setting_or_raise(source_id)
         value = setting.value
 
         resolved_url = _validate_mattermost_url(url) if url is not None else value["url"]
-
-        if token is not None:
-            resolved_token = token
-        else:
-            credential_id = value.get("credential_id")
-            if credential_id is None:
-                raise MattermostValidationError(
-                    f"Mattermost source '{source_id}' has no linked credential"
-                )
-            credential = self._credentials.get_credential_by_id(credential_id)
-            if credential is None:
-                raise MattermostValidationError(
-                    f"Mattermost source '{source_id}' credential is missing"
-                )
-            resolved_token = self._credentials.get_decrypted_password(credential_id)
+        effective_id = credential_id if credential_id is not None else value.get("credential_id")
+        if effective_id is None:
+            raise MattermostValidationError(
+                f"Mattermost source '{source_id}' has no linked credential"
+            )
+        _, resolved_token = self._resolve_secret(effective_id)
 
         return MattermostCredentials(
             base_url=resolved_url,
@@ -195,6 +163,27 @@ class MattermostSourceConfigService:
             ),
         )
 
+    def resolve_inline_credentials(
+        self,
+        *,
+        url: str,
+        credential_id: int,
+        verify_ssl: bool,
+        timeout: float,
+    ) -> MattermostCredentials:
+        """Build credentials from unsaved dialog values (no persisted source yet)."""
+        safe_url = _validate_mattermost_url(url)
+        _, token = self._resolve_secret(credential_id)
+        return MattermostCredentials(
+            base_url=safe_url, token=token, timeout=float(timeout), verify_ssl=bool(verify_ssl)
+        )
+
+    def _resolve_secret(self, credential_id: int) -> tuple[str | None, str]:
+        try:
+            return resolve_global_secret(self._db, credential_id)
+        except SourceCredentialError as exc:
+            raise MattermostValidationError(str(exc)) from exc
+
     def _get_setting_or_raise(self, source_id: str) -> Any:
         key = build_source_key("mattermost", source_id)
         setting = self._settings.get_by_key(key)
@@ -202,6 +191,16 @@ class MattermostSourceConfigService:
             raise MattermostSourceNotFoundError(source_id)
         return setting
 
-    @staticmethod
-    def _to_public(value: dict[str, Any]) -> dict[str, Any]:
-        return {k: v for k, v in value.items() if k != "credential_id"}
+    def _to_public(self, value: dict[str, Any]) -> dict[str, Any]:
+        credential_id = value.get("credential_id")
+        return {
+            **value,
+            "credential_id": credential_id,
+            "credential_name": self._credential_name(credential_id),
+        }
+
+    def _credential_name(self, credential_id: Any) -> str | None:
+        if not isinstance(credential_id, int):
+            return None
+        credential = self._credentials.get_credential_by_id(credential_id)
+        return credential.get("name") if credential is not None else None

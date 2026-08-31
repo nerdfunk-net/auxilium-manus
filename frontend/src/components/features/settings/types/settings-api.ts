@@ -16,6 +16,7 @@ export interface NautobotSourceValue {
   sourceId: string;
   url: string;
   tokenConfigured: boolean;
+  credentialId: number | null;
   verifySsl: boolean;
 }
 
@@ -23,6 +24,7 @@ export interface NautobotSourceConfig extends NautobotSourceValue {
   key: string;
   description: string | null;
   updatedAt: string;
+  credentialName: string | null;
 }
 
 export interface SettingCreatePayload {
@@ -41,6 +43,8 @@ export interface ISESourceResponse {
   url: string;
   verify_ssl: boolean;
   timeout: number;
+  credential_id: number | null;
+  credential_name: string | null;
 }
 
 export interface ISESourceListResponse {
@@ -51,16 +55,14 @@ export interface ISESourceListResponse {
 export interface ISESourceCreatePayload {
   source_id: string;
   url: string;
-  username: string;
-  password: string;
+  credential_id: number;
   verify_ssl: boolean;
   timeout: number;
 }
 
 export interface ISESourceUpdatePayload {
   url?: string;
-  username?: string;
-  password?: string;
+  credential_id?: number;
   verify_ssl?: boolean;
   timeout?: number;
 }
@@ -75,11 +77,21 @@ export interface SourceTestConnectionResponse {
   message: string;
 }
 
+/**
+ * Test either a saved source (`{ source_id }`) or unsaved dialog values
+ * (`{ url, credential_id, verify_ssl, timeout }`) — never both (backend XOR).
+ */
+export type SourceTestConnectionPayload =
+  | { source_id: string }
+  | { url: string; credential_id: number; verify_ssl: boolean; timeout: number };
+
 export interface PyATSSourceResponse {
   source_id: string;
   url: string;
   verify_ssl: boolean;
   timeout: number;
+  credential_id: number | null;
+  credential_name: string | null;
 }
 
 export interface PyATSSourceListResponse {
@@ -90,14 +102,14 @@ export interface PyATSSourceListResponse {
 export interface PyATSSourceCreatePayload {
   source_id: string;
   url: string;
-  token: string;
+  credential_id: number;
   verify_ssl: boolean;
   timeout: number;
 }
 
 export interface PyATSSourceUpdatePayload {
   url?: string;
-  token?: string;
+  credential_id?: number;
   verify_ssl?: boolean;
   timeout?: number;
 }
@@ -112,6 +124,8 @@ export interface MattermostSourceResponse {
   url: string;
   verify_ssl: boolean;
   timeout: number;
+  credential_id: number | null;
+  credential_name: string | null;
 }
 
 export interface MattermostSourceListResponse {
@@ -122,14 +136,14 @@ export interface MattermostSourceListResponse {
 export interface MattermostSourceCreatePayload {
   source_id: string;
   url: string;
-  token: string;
+  credential_id: number;
   verify_ssl: boolean;
   timeout: number;
 }
 
 export interface MattermostSourceUpdatePayload {
   url?: string;
-  token?: string;
+  credential_id?: number;
   verify_ssl?: boolean;
   timeout?: number;
 }

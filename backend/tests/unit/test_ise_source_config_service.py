@@ -1,5 +1,5 @@
-"""Tests for ISESourceConfigService: keeps the settings row and encrypted
-credential in sync for a Cisco ISE source (mocked repository/credential layers).
+"""Tests for ISESourceConfigService: keeps the settings row pointed at a
+user-selected global vault credential (mocked repository/credential layers).
 """
 
 from __future__ import annotations
@@ -8,6 +8,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from services.credentials.source_credentials import SourceCredentialError
+from services.ise.common.exceptions import ISEValidationError
 from services.ise.source_config_service import (
     ISESourceConfigService,
     ISESourceConflictError,
@@ -27,21 +29,34 @@ class ISESourceConfigServiceTests(unittest.TestCase):
             "services.ise.source_config_service.validate_outbound_http_url",
             side_effect=lambda url, resolve_dns=True: (url or "").rstrip("/"),
         )
+        assert_global_patcher = patch("services.ise.source_config_service.assert_global_credential")
+        resolve_secret_patcher = patch("services.ise.source_config_service.resolve_global_secret")
         self.mock_settings_cls = settings_patcher.start()
         self.mock_credentials_cls = credentials_patcher.start()
         validate_patcher.start()
+        self.mock_assert_global = assert_global_patcher.start()
+        self.mock_resolve_secret = resolve_secret_patcher.start()
         self.addCleanup(settings_patcher.stop)
         self.addCleanup(credentials_patcher.stop)
         self.addCleanup(validate_patcher.stop)
+        self.addCleanup(assert_global_patcher.stop)
+        self.addCleanup(resolve_secret_patcher.stop)
 
         self.mock_settings = self.mock_settings_cls.return_value
         self.mock_credentials = self.mock_credentials_cls.return_value
+        self.mock_credentials.get_credential_by_id.return_value = {"id": 7, "name": "ise-cred"}
+        self.mock_assert_global.return_value = {
+            "id": 7,
+            "name": "ise-cred",
+            "username": "admin",
+            "visibility": "global",
+        }
+        self.mock_resolve_secret.return_value = ("admin", "C1sco12345!")
 
         self.service = ISESourceConfigService(db=MagicMock())
 
-    def test_create_source_creates_credential_then_setting(self) -> None:
+    def test_create_source_stores_credential_id_no_credential_created(self) -> None:
         self.mock_settings.get_by_key.return_value = None
-        self.mock_credentials.create_credential.return_value = {"id": 7, "username": "admin"}
         self.mock_settings.create.return_value = _setting(
             "sources.ise.lab",
             {
@@ -55,37 +70,31 @@ class ISESourceConfigServiceTests(unittest.TestCase):
         )
 
         result = self.service.create_source(
-            source_id="lab",
-            url="https://10.10.20.77/",
-            username="admin",
-            password="C1sco12345!",
-            verify_ssl=False,
+            source_id="lab", url="https://10.10.20.77/", credential_id=7, verify_ssl=False
         )
 
-        self.mock_credentials.create_credential.assert_called_once_with(
-            name="ise-lab",
-            username="admin",
-            cred_type="generic",
-            password="C1sco12345!",
-            source="ise",
-            visibility="global",
-        )
+        self.mock_assert_global.assert_called_once()
+        self.assertEqual(self.mock_assert_global.call_args.args[1], 7)
+        self.mock_credentials.create_credential.assert_not_called()
         create_kwargs = self.mock_settings.create.call_args.kwargs
-        self.assertEqual(create_kwargs["key"], "sources.ise.lab")
-        self.assertEqual(create_kwargs["value"]["url"], "https://10.10.20.77")
         self.assertEqual(create_kwargs["value"]["credential_id"], 7)
-        self.assertNotIn("credential_id", result)
-        self.assertNotIn("password", result)
+        self.assertEqual(result["credential_id"], 7)
+        self.assertEqual(result["credential_name"], "ise-cred")
 
-    def test_create_source_conflict_raises_without_creating_credential(self) -> None:
+    def test_create_source_rejects_credential_without_username(self) -> None:
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_assert_global.return_value = {"id": 7, "name": "x", "visibility": "global"}
+        with self.assertRaises(ISEValidationError):
+            self.service.create_source(source_id="lab", url="https://x", credential_id=7)
+        self.mock_settings.create.assert_not_called()
+
+    def test_create_source_conflict_raises(self) -> None:
         self.mock_settings.get_by_key.return_value = _setting("sources.ise.lab", {})
         with self.assertRaises(ISESourceConflictError):
-            self.service.create_source(
-                source_id="lab", url="https://x", username="admin", password="pw"
-            )
-        self.mock_credentials.create_credential.assert_not_called()
+            self.service.create_source(source_id="lab", url="https://x", credential_id=7)
+        self.mock_assert_global.assert_not_called()
 
-    def test_update_source_blank_password_keeps_existing_credential(self) -> None:
+    def test_update_source_without_credential_id_keeps_existing(self) -> None:
         self.mock_settings.get_by_key.return_value = _setting(
             "sources.ise.lab",
             {"url": "https://10.10.20.77", "verify_ssl": True, "timeout": 30.0, "credential_id": 7},
@@ -97,34 +106,34 @@ class ISESourceConfigServiceTests(unittest.TestCase):
 
         result = self.service.update_source("lab", url="https://10.10.20.99")
 
-        self.mock_credentials.update_credential.assert_not_called()
+        self.mock_assert_global.assert_not_called()
         self.assertEqual(result["url"], "https://10.10.20.99")
 
-    def test_update_source_with_password_updates_credential(self) -> None:
+    def test_update_source_with_new_credential_id_revalidates(self) -> None:
         self.mock_settings.get_by_key.return_value = _setting(
-            "sources.ise.lab",
-            {"url": "https://10.10.20.77", "verify_ssl": True, "timeout": 30.0, "credential_id": 7},
+            "sources.ise.lab", {"url": "https://x", "credential_id": 7}
         )
-        self.mock_settings.update.return_value = _setting("sources.ise.lab", {"credential_id": 7})
-
-        self.service.update_source("lab", password="new-password")
-
-        self.mock_credentials.update_credential.assert_called_once_with(
-            7, username=None, password="new-password"
+        self.mock_settings.update.return_value = _setting(
+            "sources.ise.lab", {"url": "https://x", "credential_id": 12}
         )
+
+        self.service.update_source("lab", credential_id=12)
+
+        self.mock_assert_global.assert_called_once()
+        self.assertEqual(self.mock_assert_global.call_args.args[1], 12)
 
     def test_update_source_missing_raises_not_found(self) -> None:
         self.mock_settings.get_by_key.return_value = None
         with self.assertRaises(ISESourceNotFoundError):
             self.service.update_source("missing", url="https://x")
 
-    def test_delete_source_removes_setting_and_credential(self) -> None:
+    def test_delete_source_removes_setting_only(self) -> None:
         self.mock_settings.get_by_key.return_value = _setting(
             "sources.ise.lab", {"credential_id": 7}
         )
         self.service.delete_source("lab")
         self.mock_settings.delete.assert_called_once()
-        self.mock_credentials.delete_credential.assert_called_once_with(7)
+        self.mock_credentials.delete_credential.assert_not_called()
 
     def test_resolve_credentials_returns_decrypted_password(self) -> None:
         self.mock_settings.get_by_key.return_value = _setting(
@@ -136,11 +145,6 @@ class ISESourceConfigServiceTests(unittest.TestCase):
                 "credential_id": 7,
             },
         )
-        self.mock_credentials.get_credential_by_id.return_value = {
-            "id": 7,
-            "username": "admin",
-        }
-        self.mock_credentials.get_decrypted_password.return_value = "C1sco12345!"
 
         creds = self.service.resolve_credentials("lab")
 
@@ -150,12 +154,37 @@ class ISESourceConfigServiceTests(unittest.TestCase):
         self.assertFalse(creds.verify_ssl)
         self.assertEqual(creds.timeout, 15.0)
 
-    def test_list_sources_hides_credential_id(self) -> None:
+    def test_resolve_credentials_rejects_credential_without_username(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.ise.lab", {"url": "https://x", "credential_id": 7}
+        )
+        self.mock_resolve_secret.return_value = (None, "pw")
+        with self.assertRaises(ISEValidationError):
+            self.service.resolve_credentials("lab")
+
+    def test_resolve_credentials_rejects_private_credential(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.ise.lab", {"url": "https://x", "credential_id": 7}
+        )
+        self.mock_resolve_secret.side_effect = SourceCredentialError("private")
+        with self.assertRaises(ISEValidationError):
+            self.service.resolve_credentials("lab")
+
+    def test_resolve_inline_credentials_no_settings_lookup(self) -> None:
+        creds = self.service.resolve_inline_credentials(
+            url="https://10.10.20.77/", credential_id=7, verify_ssl=True, timeout=20.0
+        )
+        self.mock_settings.get_by_key.assert_not_called()
+        self.assertEqual(creds.username, "admin")
+        self.assertEqual(creds.password, "C1sco12345!")
+
+    def test_list_sources_exposes_credential_id_and_name(self) -> None:
         self.mock_settings.list_all.return_value = [
             _setting("sources.ise.lab", {"url": "https://x", "credential_id": 7}),
         ]
         result = self.service.list_sources()
-        self.assertNotIn("credential_id", result[0])
+        self.assertEqual(result[0]["credential_id"], 7)
+        self.assertEqual(result[0]["credential_name"], "ise-cred")
 
 
 if __name__ == "__main__":

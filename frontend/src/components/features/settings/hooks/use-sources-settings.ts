@@ -104,6 +104,7 @@ export function useSourcesSettings() {
       url: editingIse.url,
       verifySsl: editingIse.verify_ssl,
       timeout: editingIse.timeout,
+      credentialId: editingIse.credential_id,
     };
   }, [iseDialogOpen, iseById]);
   const editingPyatsValue = useMemo(() => {
@@ -119,6 +120,7 @@ export function useSourcesSettings() {
       url: editingPyats.url,
       verifySsl: editingPyats.verify_ssl,
       timeout: editingPyats.timeout,
+      credentialId: editingPyats.credential_id,
     };
   }, [pyatsDialogOpen, pyatsById]);
   const editingMattermostValue = useMemo(() => {
@@ -134,6 +136,7 @@ export function useSourcesSettings() {
       url: editingMattermost.url,
       verifySsl: editingMattermost.verify_ssl,
       timeout: editingMattermost.timeout,
+      credentialId: editingMattermost.credential_id,
     };
   }, [mattermostDialogOpen, mattermostById]);
 

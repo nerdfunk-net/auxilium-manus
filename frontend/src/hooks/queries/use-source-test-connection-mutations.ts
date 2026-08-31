@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export interface NautobotTestConnectionPayload {
   url?: string;
-  token?: string;
+  credential_id?: number;
   verify_ssl: boolean;
   source_id?: string;
 }

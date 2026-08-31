@@ -66,7 +66,6 @@ class TestR1TokenAtRest(unittest.TestCase):
     def test_create_persists_credential_id_not_token(self) -> None:
         service = _settings_service()
         service.repo.get_by_key.return_value = None
-        service._credentials.create_credential.return_value = {"id": 99}
         persisted: dict = {}
 
         def create(*, key: str, value: dict, description: str | None):
@@ -75,8 +74,14 @@ class TestR1TokenAtRest(unittest.TestCase):
 
         service.repo.create.side_effect = create
 
-        with patch.object(
-            SettingsService, "_validate_source_url", staticmethod(lambda t, v: v)
+        with (
+            patch.object(
+                SettingsService, "_validate_source_url", staticmethod(lambda t, v: v)
+            ),
+            patch(
+                "services.settings.settings_service.assert_global_credential",
+                lambda db, cid: {"id": cid, "visibility": "global"},
+            ),
         ):
             response = service.create_setting(
                 SettingCreate(
@@ -84,6 +89,7 @@ class TestR1TokenAtRest(unittest.TestCase):
                     value={
                         "url": "https://nautobot.example.com",
                         "token": "nb-secret",
+                        "credential_id": 99,
                     },
                 ),
             )
@@ -105,8 +111,9 @@ class TestR1TokenAtRest(unittest.TestCase):
         self.assertEqual(config["token"], "nb-secret")
         self.assertNotIn("credential_id", config)
 
-    def test_get_setting_hides_credential_id_and_token(self) -> None:
+    def test_get_setting_hides_token_exposes_credential_id(self) -> None:
         service = _settings_service()
+        service._credentials.get_credential_by_id.return_value = {"id": 99, "name": "vault"}
         service.repo.get_by_key.return_value = _setting(
             "sources.nautobot.lab",
             {"url": "https://nautobot.example.com", "credential_id": 99},
@@ -116,7 +123,8 @@ class TestR1TokenAtRest(unittest.TestCase):
 
         self.assertEqual(result.value["token"], "")
         self.assertTrue(result.value["token_configured"])
-        self.assertNotIn("credential_id", result.value)
+        self.assertEqual(result.value["credential_id"], 99)
+        self.assertEqual(result.value["credential_name"], "vault")
 
     def test_update_blank_token_does_not_rotate_credential(self) -> None:
         service = _settings_service()
@@ -145,7 +153,7 @@ class TestR1TokenAtRest(unittest.TestCase):
         service._credentials.update_credential.assert_not_called()
         service._credentials.create_credential.assert_not_called()
 
-    def test_delete_setting_deletes_linked_credential(self) -> None:
+    def test_delete_setting_leaves_vault_credential_intact(self) -> None:
         service = _settings_service()
         existing = _setting(
             "sources.nautobot.lab",
@@ -155,7 +163,8 @@ class TestR1TokenAtRest(unittest.TestCase):
 
         service.delete_setting("sources.nautobot.lab")
 
-        service._credentials.delete_credential.assert_called_once_with(99)
+        service.repo.delete.assert_called_once_with(existing)
+        service._credentials.delete_credential.assert_not_called()
 
     def test_legacy_plaintext_row_still_resolves_in_get_source_config(self) -> None:
         service = _settings_service()

@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useMattermostSourcesMutations } from "@/hooks/queries/use-mattermost-sources-mutations";
 
+import { CredentialSelect } from "../credentials/components/credential-select";
 import { SOURCE_ID_REGEX } from "../constants/setting-keys";
 import type {
   MattermostSourceCreatePayload,
@@ -38,7 +39,7 @@ const sourceIdSchema = z
 const mattermostSchema = z.object({
   sourceId: sourceIdSchema,
   url: z.string().min(1, "URL is required").url("Enter a valid URL"),
-  token: z.string().optional(),
+  credentialId: z.number().int().positive().optional(),
   verifySsl: z.boolean(),
   timeout: z.number().min(1).max(120),
 });
@@ -50,6 +51,7 @@ export interface MattermostSourceEditValue {
   url: string;
   verifySsl: boolean;
   timeout: number;
+  credentialId: number | null;
 }
 
 interface MattermostSourceDialogProps {
@@ -66,7 +68,7 @@ interface MattermostSourceDialogProps {
 const EMPTY_DEFAULTS: MattermostFormValues = {
   sourceId: "",
   url: "",
-  token: "",
+  credentialId: undefined,
   verifySsl: true,
   timeout: 30,
 };
@@ -103,7 +105,7 @@ export function MattermostSourceDialog({
       reset({
         sourceId: initialValue?.sourceId ?? "",
         url: initialValue?.url ?? "",
-        token: "",
+        credentialId: initialValue?.credentialId ?? undefined,
         verifySsl: initialValue?.verifySsl ?? true,
         timeout: initialValue?.timeout ?? 30,
       });
@@ -120,13 +122,13 @@ export function MattermostSourceDialog({
       }
 
       if (mode === "create") {
-        if (!values.token?.trim()) {
+        if (!values.credentialId) {
           return;
         }
         onCreate({
           source_id: values.sourceId,
           url: values.url.trim(),
-          token: values.token.trim(),
+          credential_id: values.credentialId,
           verify_ssl: values.verifySsl,
           timeout: values.timeout,
         });
@@ -138,8 +140,8 @@ export function MattermostSourceDialog({
         verify_ssl: values.verifySsl,
         timeout: values.timeout,
       };
-      if (values.token?.trim()) {
-        update.token = values.token.trim();
+      if (values.credentialId) {
+        update.credential_id = values.credentialId;
       }
       onUpdate(initialValue?.sourceId ?? values.sourceId, update);
     },
@@ -147,24 +149,21 @@ export function MattermostSourceDialog({
   );
 
   const handleTestConnection = useCallback(() => {
-    if (!initialValue?.sourceId) {
+    const values = getValues();
+    if (isEdit && initialValue?.sourceId) {
+      testConnection.mutate({ source_id: initialValue.sourceId });
       return;
     }
-    const values = getValues();
-    const overrides: MattermostSourceUpdatePayload = {
+    if (!values.url?.trim() || !values.credentialId) {
+      return;
+    }
+    testConnection.mutate({
+      url: values.url.trim(),
+      credential_id: values.credentialId,
       verify_ssl: values.verifySsl,
-    };
-    if (values.url?.trim()) {
-      overrides.url = values.url.trim();
-    }
-    if (values.token?.trim()) {
-      overrides.token = values.token.trim();
-    }
-    if (!Number.isNaN(values.timeout)) {
-      overrides.timeout = values.timeout;
-    }
-    testConnection.mutate({ sourceId: initialValue.sourceId, overrides });
-  }, [initialValue, testConnection, getValues]);
+      timeout: values.timeout,
+    });
+  }, [getValues, isEdit, initialValue, testConnection]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -176,7 +175,7 @@ export function MattermostSourceDialog({
           <DialogDescription>
             {isEdit
               ? "Update connection details. The source ID cannot be changed."
-              : "Choose a unique source ID (e.g. team-chat). Authenticate with a bot's personal access token; it is encrypted at rest."}
+              : "Choose a unique source ID (e.g. team-chat). Authenticate with a bot's personal access token stored as a credential in the vault."}
           </DialogDescription>
         </DialogHeader>
 
@@ -218,23 +217,21 @@ export function MattermostSourceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="mattermost-token">Personal access token</Label>
-            <Input
-              id="mattermost-token"
-              type="password"
-              placeholder={isEdit ? "Leave blank to keep existing token" : "Personal access token"}
-              autoComplete="off"
-              {...register("token", {
-                validate: (value) => {
-                  if (isEdit || value?.trim()) {
-                    return true;
-                  }
-                  return "Token is required";
-                },
-              })}
+            <Label htmlFor="mattermost-credential">Token credential</Label>
+            <Controller
+              control={control}
+              name="credentialId"
+              render={({ field }) => (
+                <CredentialSelect
+                  id="mattermost-credential"
+                  value={field.value ?? null}
+                  onChange={(next) => field.onChange(next ?? undefined)}
+                  credentialType="token"
+                />
+              )}
             />
-            {errors.token ? (
-              <p className="text-xs text-destructive">{errors.token.message}</p>
+            {errors.credentialId ? (
+              <p className="text-xs text-destructive">Select a credential.</p>
             ) : null}
           </div>
 
@@ -274,22 +271,20 @@ export function MattermostSourceDialog({
             ) : null}
           </div>
 
-          {isEdit ? (
-            <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
-              <p className="text-xs text-muted-foreground">
-                Verifies the token against Mattermost&apos;s API.
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={testConnection.isPending}
-                onClick={handleTestConnection}
-              >
-                {testConnection.isPending ? "Testing…" : "Test connection"}
-              </Button>
-            </div>
-          ) : null}
+          <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              Verifies the token against Mattermost&apos;s API.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={testConnection.isPending}
+              onClick={handleTestConnection}
+            >
+              {testConnection.isPending ? "Testing…" : "Test connection"}
+            </Button>
+          </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

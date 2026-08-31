@@ -20,9 +20,11 @@ from dependencies import (
 )
 from routers.sources.ise import crud as ise_crud
 from routers.sources.mattermost import crud as mm_crud
+from routers.sources.mattermost import ops as mm_ops
 from routers.sources.pyats import crud as pyats_crud
+from routers.sources.pyats import ops as pyats_ops
 from services.auth.rbac_service import RBACService
-from services.credentials.exceptions import CredentialNameConflictError
+from services.credentials.source_credentials import SourceCredentialError
 from services.ise.source_config_service import (
     ISESourceConflictError,
     ISESourceNotFoundError,
@@ -36,32 +38,44 @@ from services.pyats.source_config_service import (
     PyATSSourceNotFoundError,
 )
 
-_RESPONSE = {"source_id": "s1", "url": "https://x", "verify_ssl": True, "timeout": 30.0}
+_RESPONSE = {
+    "source_id": "s1",
+    "url": "https://x",
+    "verify_ssl": True,
+    "timeout": 30.0,
+    "credential_id": 5,
+    "credential_name": "vault-cred",
+}
+
+_CREATE_BODY = {"source_id": "s1", "url": "https://x", "credential_id": 5}
 
 _VARIANTS = {
     "ise": {
         "module": ise_crud,
+        "ops_module": None,
         "dep": get_ise_source_config_service,
         "prefix": "/sources/ise",
         "not_found": ISESourceNotFoundError,
         "conflict": ISESourceConflictError,
-        "create_body": {"source_id": "s1", "url": "https://x", "username": "u", "password": "p"},
+        "create_body": _CREATE_BODY,
     },
     "mattermost": {
         "module": mm_crud,
+        "ops_module": mm_ops,
         "dep": get_mattermost_source_config_service,
         "prefix": "/sources/mattermost",
         "not_found": MattermostSourceNotFoundError,
         "conflict": MattermostSourceConflictError,
-        "create_body": {"source_id": "s1", "url": "https://x", "token": "t"},
+        "create_body": _CREATE_BODY,
     },
     "pyats": {
         "module": pyats_crud,
+        "ops_module": pyats_ops,
         "dep": get_pyats_source_config_service,
         "prefix": "/sources/pyats",
         "not_found": PyATSSourceNotFoundError,
         "conflict": PyATSSourceConflictError,
-        "create_body": {"source_id": "s1", "url": "https://x", "token": "t"},
+        "create_body": _CREATE_BODY,
     },
 }
 
@@ -76,6 +90,8 @@ def client(variant, monkeypatch):
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
     app = FastAPI()
     app.include_router(variant["module"].router, prefix="/api")
+    if variant["ops_module"] is not None:
+        app.include_router(variant["ops_module"].router, prefix="/api")
     user = User(username="t", password_hash="h", is_active=True)
     user.id = 1
     app.dependency_overrides[verify_token] = lambda: {"sub": "t", "user_id": 1}
@@ -125,15 +141,20 @@ class TestCreate:
         service.create_source.side_effect = v["conflict"]("dup")
         assert c.post(f"/api{v['prefix']}", json=v["create_body"]).status_code == 409
 
-    def test_create_credential_conflict_maps_to_409(self, client):
+    def test_create_non_global_credential_maps_to_400(self, client):
         c, service, v = client
-        service.create_source.side_effect = CredentialNameConflictError("dup")
-        assert c.post(f"/api{v['prefix']}", json=v["create_body"]).status_code == 409
+        service.create_source.side_effect = SourceCredentialError("must be global")
+        assert c.post(f"/api{v['prefix']}", json=v["create_body"]).status_code == 400
 
     def test_create_value_error_maps_to_400(self, client):
         c, service, v = client
         service.create_source.side_effect = ValueError("bad url")
         assert c.post(f"/api{v['prefix']}", json=v["create_body"]).status_code == 400
+
+    def test_test_connection_requires_source_or_inline(self, client):
+        c, _service, v = client
+        # XOR validator: neither source_id nor url+credential_id -> 422
+        assert c.post(f"/api{v['prefix']}/test-connection", json={}).status_code == 422
 
     def test_create_unexpected_error_is_500(self, client):
         c, service, v = client

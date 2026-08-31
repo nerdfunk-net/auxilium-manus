@@ -13,10 +13,12 @@ from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
 from core.database import get_db
+from core.domain_exceptions import ValidationFailedError
 from core.models.users import User
 from models.settings import SettingCreate, SettingUpdate
 from routers.sources.nautobot.ops import router as nautobot_source_ops_router
 from services.auth.rbac_service import RBACService
+from services.credentials.source_credentials import SourceCredentialError
 from services.settings.settings_service import SettingsService
 
 
@@ -47,7 +49,7 @@ NAUTOBOT_VALUE = {
 
 
 class TestSettingsTokenRedaction:
-    """Token/credential persistence only — URL policy is covered by
+    """credential_id persistence only — URL policy is covered by
     test_source_connection_tests.py, so bypass URL validation here."""
 
     @pytest.fixture(autouse=True)
@@ -58,8 +60,23 @@ class TestSettingsTokenRedaction:
             staticmethod(lambda source_type, value: value),
         )
 
-    def test_list_redacts_nautobot_tokens(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _stub_global_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.global_calls: list[int] = []
+
+        def _assert(db, credential_id):  # noqa: ANN001
+            self.global_calls.append(credential_id)
+            return {"id": credential_id, "name": "vault", "visibility": "global"}
+
+        monkeypatch.setattr("services.settings.settings_service.assert_global_credential", _assert)
+
+    def _service_with_name(self) -> SettingsService:
         service = _service()
+        service._credentials.get_credential_by_id.return_value = {"id": 98, "name": "vault"}
+        return service
+
+    def test_list_exposes_credential_id_and_name(self) -> None:
+        service = self._service_with_name()
         nautobot = _setting("sources.nautobot.lab", dict(NAUTOBOT_VALUE))
         other = _setting("app.misc", {"token": "keep-me"}, setting_id=3)
         service.repo.list_all.return_value = [nautobot, other]
@@ -69,13 +86,13 @@ class TestSettingsTokenRedaction:
         by_key = {row.key: row.value for row in result.settings}
         assert by_key["sources.nautobot.lab"]["token"] == ""
         assert by_key["sources.nautobot.lab"]["token_configured"] is True
-        assert "credential_id" not in by_key["sources.nautobot.lab"]
+        assert by_key["sources.nautobot.lab"]["credential_id"] == 98
+        assert by_key["sources.nautobot.lab"]["credential_name"] == "vault"
         assert by_key["app.misc"]["token"] == "keep-me"
         assert "token_configured" not in by_key["app.misc"]
-        assert nautobot.value["credential_id"] == 98
 
-    def test_get_redacts_token_and_sets_token_configured(self) -> None:
-        service = _service()
+    def test_get_exposes_credential_id(self) -> None:
+        service = self._service_with_name()
         stored = _setting("sources.nautobot.lab", dict(NAUTOBOT_VALUE))
         service.repo.get_by_key.return_value = stored
 
@@ -83,14 +100,23 @@ class TestSettingsTokenRedaction:
 
         assert result.value["token"] == ""
         assert result.value["token_configured"] is True
-        assert "credential_id" not in result.value
-        assert stored.value["credential_id"] == 98
+        assert result.value["credential_id"] == 98
 
-    def test_create_nautobot_source_persists_credential_id_without_dns(self) -> None:
+    def test_create_requires_credential_id(self) -> None:
+        service = _service()
+        service.repo.get_by_key.return_value = None
+        with pytest.raises(ValidationFailedError):
+            service.create_setting(
+                SettingCreate(
+                    key="sources.nautobot.lab",
+                    value={"url": "https://nautobot.example.com", "verify_ssl": True},
+                ),
+            )
+
+    def test_create_persists_credential_id(self) -> None:
         service = _service()
         persisted: dict = {}
         service.repo.get_by_key.return_value = None
-        service._credentials.create_credential.return_value = {"id": 98}
 
         def create(*, key: str, value: dict, description: str | None):
             persisted["value"] = dict(value)
@@ -103,26 +129,44 @@ class TestSettingsTokenRedaction:
                 key="sources.nautobot.lab",
                 value={
                     "url": "https://nautobot.example.com",
-                    "token": "nb-secret",
+                    "credential_id": 98,
                     "verify_ssl": True,
                 },
             ),
         )
 
+        assert self.global_calls == [98]
         assert response.value["token"] == ""
         assert response.value["token_configured"] is True
         assert "token" not in persisted["value"]
         assert persisted["value"]["credential_id"] == 98
 
-        service.repo.get_by_key.return_value = _setting(
-            "sources.nautobot.lab",
-            persisted["value"],
-        )
+        service.repo.get_by_key.return_value = _setting("sources.nautobot.lab", persisted["value"])
         service._credentials.get_decrypted_password.return_value = "nb-secret"
         config = service.get_source_config("nautobot", "lab")
         assert config["token"] == "nb-secret"
 
-    def test_update_blank_token_keeps_previous_secret(self) -> None:
+    def test_create_rejects_non_global_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        service = _service()
+        service.repo.get_by_key.return_value = None
+
+        def _boom(db, credential_id):  # noqa: ANN001
+            raise SourceCredentialError("must be global")
+
+        monkeypatch.setattr("services.settings.settings_service.assert_global_credential", _boom)
+        with pytest.raises(ValidationFailedError):
+            service.create_setting(
+                SettingCreate(
+                    key="sources.nautobot.lab",
+                    value={
+                        "url": "https://nautobot.example.com",
+                        "credential_id": 5,
+                        "verify_ssl": True,
+                    },
+                ),
+            )
+
+    def test_update_without_credential_id_keeps_existing(self) -> None:
         service = _service()
         existing = _setting("sources.nautobot.lab", dict(NAUTOBOT_VALUE))
         service.repo.get_by_key.return_value = existing
@@ -135,26 +179,16 @@ class TestSettingsTokenRedaction:
 
         service.repo.update.side_effect = update
 
-        response = service.update_setting(
+        service.update_setting(
             "sources.nautobot.lab",
-            SettingUpdate(
-                value={
-                    "url": "https://nautobot.example.com",
-                    "token": "",
-                    "verify_ssl": True,
-                },
-            ),
+            SettingUpdate(value={"url": "https://nautobot.example.com", "verify_ssl": True}),
         )
 
         assert persisted["value"]["credential_id"] == 98
         assert "token" not in persisted["value"]
-        assert "token_configured" not in persisted["value"]
-        assert response.value["token"] == ""
-        assert response.value["token_configured"] is True
-        service._credentials.update_credential.assert_not_called()
-        service._credentials.create_credential.assert_not_called()
+        assert self.global_calls == []
 
-    def test_update_new_token_rotates_existing_credential(self) -> None:
+    def test_update_with_new_credential_id_relinks(self) -> None:
         service = _service()
         existing = _setting("sources.nautobot.lab", dict(NAUTOBOT_VALUE))
         service.repo.get_by_key.return_value = existing
@@ -172,61 +206,16 @@ class TestSettingsTokenRedaction:
             SettingUpdate(
                 value={
                     "url": "https://nautobot.example.com",
-                    "token": "new-secret",
+                    "credential_id": 55,
                     "verify_ssl": True,
                 },
             ),
         )
 
-        service._credentials.update_credential.assert_called_once_with(98, password="new-secret")
-        service._credentials.create_credential.assert_not_called()
-        assert persisted["value"]["credential_id"] == 98
-        assert "token" not in persisted["value"]
+        assert self.global_calls == [55]
+        assert persisted["value"]["credential_id"] == 55
 
-    def test_update_legacy_plaintext_row_migrates_to_credential(self) -> None:
-        service = _service()
-        existing = _setting(
-            "sources.nautobot.lab",
-            {
-                "url": "https://nautobot.example.com",
-                "token": "legacy-secret",
-                "verify_ssl": True,
-            },
-        )
-        service.repo.get_by_key.return_value = existing
-        service._credentials.create_credential.return_value = {"id": 5}
-        persisted: dict = {}
-
-        def update(setting, fields):
-            persisted["value"] = dict(fields["value"])
-            setting.value = persisted["value"]
-            return setting
-
-        service.repo.update.side_effect = update
-
-        service.update_setting(
-            "sources.nautobot.lab",
-            SettingUpdate(
-                value={
-                    "url": "https://nautobot.example.com",
-                    "token": "",
-                    "verify_ssl": True,
-                },
-            ),
-        )
-
-        service._credentials.create_credential.assert_called_once_with(
-            name="nautobot-lab",
-            username="nautobot-token",
-            cred_type="generic",
-            password="legacy-secret",
-            source="nautobot",
-            visibility="global",
-        )
-        assert persisted["value"]["credential_id"] == 5
-        assert "token" not in persisted["value"]
-
-    def test_delete_setting_deletes_linked_credential(self) -> None:
+    def test_delete_setting_does_not_touch_credential(self) -> None:
         service = _service()
         existing = _setting("sources.nautobot.lab", dict(NAUTOBOT_VALUE))
         service.repo.get_by_key.return_value = existing
@@ -234,7 +223,7 @@ class TestSettingsTokenRedaction:
         service.delete_setting("sources.nautobot.lab")
 
         service.repo.delete.assert_called_once_with(existing)
-        service._credentials.delete_credential.assert_called_once_with(98)
+        service._credentials.delete_credential.assert_not_called()
 
 
 def _make_user() -> User:

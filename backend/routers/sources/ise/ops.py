@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -24,8 +23,6 @@ from models.ise import (
     ISENetworkDeviceCreate,
     ISENetworkDeviceListResponse,
     ISENetworkDeviceUpdate,
-    ISESourceUpdateRequest,
-    ISETestConnectionResponse,
 )
 from services.ise.common.exceptions import (
     ISEAPIError,
@@ -50,19 +47,9 @@ router = APIRouter(
 def _resolve_credentials(
     source_id: str,
     config: ISESourceConfigService,
-    *,
-    overrides: ISESourceUpdateRequest | None = None,
 ) -> ISECredentials:
-    overrides = overrides or ISESourceUpdateRequest()
     try:
-        return config.resolve_credentials(
-            source_id,
-            url=overrides.url,
-            username=overrides.username,
-            password=overrides.password,
-            verify_ssl=overrides.verify_ssl,
-            timeout=overrides.timeout,
-        )
+        return config.resolve_credentials(source_id)
     except ISESourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ISEValidationError, UnsafeURLError) as exc:
@@ -272,43 +259,6 @@ async def delete_device(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to delete ISE device: ", exc)
-
-
-@router.post(
-    "/test-connection",
-    response_model=ISETestConnectionResponse,
-    dependencies=[Depends(require_permission("sources.ise", "write"))],
-)
-async def test_connection(
-    source_id: str,
-    overrides: ISESourceUpdateRequest | None = None,
-    _: User = Depends(get_current_user),
-    config: ISESourceConfigService = Depends(get_ise_source_config_service),
-) -> ISETestConnectionResponse:
-    """Test connectivity. ``overrides`` lets the source dialog validate unsaved
-    edits (e.g. a password just typed in) against the live form values instead
-    of only what's already persisted."""
-    credentials = _resolve_credentials(source_id, config, overrides=overrides)
-    device_service = service_factory.build_ise_network_device_service(credentials)
-    try:
-        await device_service.test_connection()
-        return ISETestConnectionResponse(success=True, message="Connection successful")
-    except ISEValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except ISEAPIError as exc:
-        error_id = uuid.uuid4()
-        logger.warning("ISE test connection failed (error_id=%s): %s", error_id, exc)
-        return ISETestConnectionResponse(
-            success=False,
-            message=(
-                f"Connection failed (ref: {error_id}). "
-                "Check the source configuration and network reachability."
-            ),
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise_internal_server_error(logger, "ISE test connection failed: ", exc)
 
 
 @router.post(

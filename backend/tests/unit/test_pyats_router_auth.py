@@ -125,7 +125,9 @@ def test_delete_source_requires_delete_permission(
 
 def test_test_connection_requires_auth(app: FastAPI) -> None:
     with TestClient(app) as client:
-        response = client.post("/api/sources/pyats/lab/test-connection")
+        response = client.post(
+            "/api/sources/pyats/test-connection", json={"source_id": "lab"}
+        )
     assert response.status_code == 401
 
 
@@ -156,7 +158,7 @@ def test_test_connection_success_reports_versions(
     monkeypatch.setattr(service_factory, "get_pyats_app_service", lambda: mock_shim)
 
     with TestClient(app) as client:
-        response = client.post("/api/sources/pyats/lab/test-connection")
+        response = client.post("/api/sources/pyats/test-connection", json={"source_id": "lab"})
 
     assert response.status_code == 200
     body = response.json()
@@ -187,7 +189,7 @@ def test_test_connection_reports_shim_unreachable(
     monkeypatch.setattr(service_factory, "get_pyats_app_service", lambda: mock_shim)
 
     with TestClient(app) as client:
-        response = client.post("/api/sources/pyats/lab/test-connection")
+        response = client.post("/api/sources/pyats/test-connection", json={"source_id": "lab"})
 
     assert response.status_code == 200
     body = response.json()

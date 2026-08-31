@@ -50,9 +50,15 @@ class AnalyzeDevicesTests(unittest.IsolatedAsyncioTestCase):
 class TestConnectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_form_values_success_with_version(self) -> None:
         req = NautobotTestConnectionRequest(
-            url="http://nb.test", token="tok", timeout=5, verify_ssl=True
+            url="http://nb.test", credential_id=7, timeout=5, verify_ssl=True
         )
-        with patch("services.sources.nautobot.connection.service_factory") as sf:
+        with (
+            patch("services.sources.nautobot.connection.service_factory") as sf,
+            patch(
+                "services.sources.nautobot.connection.resolve_global_secret",
+                return_value=("nb", "tok"),
+            ),
+        ):
             sf.credentials_from_connection.return_value = "creds"
             sf.get_nautobot_app_service.return_value.test_connection = AsyncMock(
                 return_value={"nautobot-version": "2.1.0"}
@@ -63,9 +69,15 @@ class TestConnectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_form_values_success_without_version(self) -> None:
         req = NautobotTestConnectionRequest(
-            url="http://nb.test", token="tok", timeout=5, verify_ssl=False
+            url="http://nb.test", credential_id=7, timeout=5, verify_ssl=False
         )
-        with patch("services.sources.nautobot.connection.service_factory") as sf:
+        with (
+            patch("services.sources.nautobot.connection.service_factory") as sf,
+            patch(
+                "services.sources.nautobot.connection.resolve_global_secret",
+                return_value=("nb", "tok"),
+            ),
+        ):
             sf.credentials_from_connection.return_value = "creds"
             sf.get_nautobot_app_service.return_value.test_connection = AsyncMock(return_value={})
             resp = await run_test_connection(req, MagicMock())

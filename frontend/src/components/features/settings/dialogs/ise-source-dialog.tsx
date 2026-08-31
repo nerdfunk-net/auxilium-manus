@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useISESourcesMutations } from "@/hooks/queries/use-ise-sources-mutations";
 
+import { CredentialSelect } from "../credentials/components/credential-select";
 import { SOURCE_ID_REGEX } from "../constants/setting-keys";
 import type {
   ISESourceCreatePayload,
@@ -38,8 +39,7 @@ const sourceIdSchema = z
 const iseSchema = z.object({
   sourceId: sourceIdSchema,
   url: z.string().min(1, "URL is required").url("Enter a valid URL"),
-  username: z.string().min(1, "Username is required"),
-  password: z.string().optional(),
+  credentialId: z.number().int().positive().optional(),
   verifySsl: z.boolean(),
   timeout: z.number().min(1).max(120),
 });
@@ -51,6 +51,7 @@ export interface ISESourceEditValue {
   url: string;
   verifySsl: boolean;
   timeout: number;
+  credentialId: number | null;
 }
 
 interface ISESourceDialogProps {
@@ -67,8 +68,7 @@ interface ISESourceDialogProps {
 const EMPTY_DEFAULTS: ISEFormValues = {
   sourceId: "",
   url: "",
-  username: "",
-  password: "",
+  credentialId: undefined,
   verifySsl: true,
   timeout: 30,
 };
@@ -105,8 +105,7 @@ export function ISESourceDialog({
       reset({
         sourceId: initialValue?.sourceId ?? "",
         url: initialValue?.url ?? "",
-        username: "",
-        password: "",
+        credentialId: initialValue?.credentialId ?? undefined,
         verifySsl: initialValue?.verifySsl ?? true,
         timeout: initialValue?.timeout ?? 30,
       });
@@ -123,14 +122,13 @@ export function ISESourceDialog({
       }
 
       if (mode === "create") {
-        if (!values.password?.trim()) {
+        if (!values.credentialId) {
           return;
         }
         onCreate({
           source_id: values.sourceId,
           url: values.url.trim(),
-          username: values.username.trim(),
-          password: values.password.trim(),
+          credential_id: values.credentialId,
           verify_ssl: values.verifySsl,
           timeout: values.timeout,
         });
@@ -142,11 +140,8 @@ export function ISESourceDialog({
         verify_ssl: values.verifySsl,
         timeout: values.timeout,
       };
-      if (values.username.trim()) {
-        update.username = values.username.trim();
-      }
-      if (values.password?.trim()) {
-        update.password = values.password.trim();
+      if (values.credentialId) {
+        update.credential_id = values.credentialId;
       }
       onUpdate(initialValue?.sourceId ?? values.sourceId, update);
     },
@@ -154,27 +149,21 @@ export function ISESourceDialog({
   );
 
   const handleTestConnection = useCallback(() => {
-    if (!initialValue?.sourceId) {
+    const values = getValues();
+    if (isEdit && initialValue?.sourceId) {
+      testConnection.mutate({ source_id: initialValue.sourceId });
       return;
     }
-    const values = getValues();
-    const overrides: ISESourceUpdatePayload = {
+    if (!values.url?.trim() || !values.credentialId) {
+      return;
+    }
+    testConnection.mutate({
+      url: values.url.trim(),
+      credential_id: values.credentialId,
       verify_ssl: values.verifySsl,
-    };
-    if (values.url?.trim()) {
-      overrides.url = values.url.trim();
-    }
-    if (values.username?.trim()) {
-      overrides.username = values.username.trim();
-    }
-    if (values.password?.trim()) {
-      overrides.password = values.password.trim();
-    }
-    if (!Number.isNaN(values.timeout)) {
-      overrides.timeout = values.timeout;
-    }
-    testConnection.mutate({ sourceId: initialValue.sourceId, overrides });
-  }, [initialValue, testConnection, getValues]);
+      timeout: values.timeout,
+    });
+  }, [getValues, isEdit, initialValue, testConnection]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -186,7 +175,7 @@ export function ISESourceDialog({
           <DialogDescription>
             {isEdit
               ? "Update connection details. The source ID cannot be changed."
-              : "Choose a unique source ID (e.g. lab-ise). Connection settings are stored in PostgreSQL; the password is encrypted."}
+              : "Choose a unique source ID (e.g. lab-ise). ISE authenticates with the username and secret from the selected credential."}
           </DialogDescription>
         </DialogHeader>
 
@@ -228,43 +217,25 @@ export function ISESourceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="ise-username">Username</Label>
-            <Input
-              id="ise-username"
-              placeholder={isEdit ? "Leave blank to keep existing username" : "admin"}
-              autoComplete="off"
-              {...register("username", {
-                validate: (value) => {
-                  if (isEdit || value?.trim()) {
-                    return true;
-                  }
-                  return "Username is required";
-                },
-              })}
+            <Label htmlFor="ise-credential">Credential</Label>
+            <Controller
+              control={control}
+              name="credentialId"
+              render={({ field }) => (
+                <CredentialSelect
+                  id="ise-credential"
+                  value={field.value ?? null}
+                  onChange={(next) => field.onChange(next ?? undefined)}
+                  credentialType="token"
+                />
+              )}
             />
-            {errors.username ? (
-              <p className="text-xs text-destructive">{errors.username.message}</p>
-            ) : null}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="ise-password">Password</Label>
-            <Input
-              id="ise-password"
-              type="password"
-              placeholder={isEdit ? "Leave blank to keep existing password" : "Password"}
-              autoComplete="off"
-              {...register("password", {
-                validate: (value) => {
-                  if (isEdit || value?.trim()) {
-                    return true;
-                  }
-                  return "Password is required";
-                },
-              })}
-            />
-            {errors.password ? (
-              <p className="text-xs text-destructive">{errors.password.message}</p>
+            <p className="text-xs text-muted-foreground">
+              ISE uses this credential&apos;s username and secret — pick a token
+              credential that has a username set.
+            </p>
+            {errors.credentialId ? (
+              <p className="text-xs text-destructive">Select a credential.</p>
             ) : null}
           </div>
 
@@ -304,22 +275,20 @@ export function ISESourceDialog({
             ) : null}
           </div>
 
-          {isEdit ? (
-            <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
-              <p className="text-xs text-muted-foreground">
-                Tests the connection against Cisco ISE, using any unsaved edits above.
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={testConnection.isPending}
-                onClick={handleTestConnection}
-              >
-                {testConnection.isPending ? "Testing…" : "Test connection"}
-              </Button>
-            </div>
-          ) : null}
+          <div className="flex items-center justify-between rounded-lg border border-dashed px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              Tests the connection against Cisco ISE.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={testConnection.isPending}
+              onClick={handleTestConnection}
+            >
+              {testConnection.isPending ? "Testing…" : "Test connection"}
+            </Button>
+          </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

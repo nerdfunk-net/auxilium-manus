@@ -18,7 +18,7 @@ class NautobotTestConnectionRequest(BaseModel):
     """Unsaved form values, or ``source_id`` to test stored credentials."""
 
     url: str | None = Field(default=None, min_length=1)
-    token: str | None = Field(default=None)
+    credential_id: int | None = Field(default=None, gt=0)
     verify_ssl: bool = True
     timeout: float = Field(default=30.0, ge=1, le=120)
     source_id: str | None = Field(default=None, min_length=1, max_length=64)
@@ -26,11 +26,9 @@ class NautobotTestConnectionRequest(BaseModel):
     @model_validator(mode="after")
     def validate_source_or_credentials(self) -> Self:
         has_source = bool((self.source_id or "").strip())
-        has_credentials = bool(
-            (self.url or "").strip() and (self.token or "").strip()
-        )
+        has_credentials = bool((self.url or "").strip()) and self.credential_id is not None
         if has_source == has_credentials:
-            raise ValueError("Provide either source_id or both url and token")
+            raise ValueError("Provide either source_id or both url and credential_id")
         return self
 
 

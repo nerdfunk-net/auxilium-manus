@@ -8,6 +8,7 @@ import type {
   ISESourceResponse,
   ISESourceUpdatePayload,
   ISETestConnectionResponse,
+  SourceTestConnectionPayload,
 } from "@/components/features/settings/types/settings-api";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
@@ -86,21 +87,12 @@ export function useISESourcesMutations() {
   });
 
   const testConnection = useMutation({
-    mutationFn: ({
-      sourceId,
-      overrides,
-    }: {
-      sourceId: string;
-      overrides?: ISESourceUpdatePayload;
-    }) =>
-      apiCall<ISETestConnectionResponse>(
-        `sources/ise/${encodeURIComponent(sourceId)}/test-connection`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(overrides ?? {}),
-        },
-      ),
+    mutationFn: (payload: SourceTestConnectionPayload) =>
+      apiCall<ISETestConnectionResponse>("sources/ise/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
     onSuccess: (data) => {
       toast({
         title: data.success ? "Connection successful" : "Connection failed",

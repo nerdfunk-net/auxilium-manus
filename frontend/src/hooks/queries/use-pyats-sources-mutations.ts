@@ -8,6 +8,7 @@ import type {
   PyATSSourceResponse,
   PyATSSourceUpdatePayload,
   PyATSTestConnectionResponse,
+  SourceTestConnectionPayload,
 } from "@/components/features/settings/types/settings-api";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
@@ -89,21 +90,12 @@ export function usePyATSSourcesMutations() {
   });
 
   const testConnection = useMutation({
-    mutationFn: ({
-      sourceId,
-      overrides,
-    }: {
-      sourceId: string;
-      overrides?: PyATSSourceUpdatePayload;
-    }) =>
-      apiCall<PyATSTestConnectionResponse>(
-        `sources/pyats/${encodeURIComponent(sourceId)}/test-connection`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(overrides ?? {}),
-        },
-      ),
+    mutationFn: (payload: SourceTestConnectionPayload) =>
+      apiCall<PyATSTestConnectionResponse>("sources/pyats/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
     onSuccess: (data) => {
       toast({
         title: data.success ? "Connection successful" : "Connection failed",
