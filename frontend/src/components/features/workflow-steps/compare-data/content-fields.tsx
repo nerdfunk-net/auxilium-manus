@@ -101,7 +101,7 @@ export function CompareDataContentFields({
           </div>
           {sourceSteps.length > 0 ? (
             <Select
-              value={sourceStepNodeId || undefined}
+              value={sourceStepNodeId || ""}
               onValueChange={onSourceStepSelect}
             >
               <SelectTrigger className="h-8 text-xs">

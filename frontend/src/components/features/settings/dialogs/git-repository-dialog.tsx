@@ -269,7 +269,7 @@ export function GitRepositoryDialog({
                 name="credentialName"
                 render={({ field }) => (
                   <Select
-                    value={field.value || undefined}
+                    value={field.value || ""}
                     onValueChange={field.onChange}
                   >
                     <SelectTrigger id="git-repo-credential">

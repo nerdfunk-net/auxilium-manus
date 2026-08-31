@@ -97,7 +97,7 @@ export function NautobotSourceSelectDialog({
           ) : (
             <div className="space-y-2">
               <Label htmlFor="nautobot-source-select">Source ID</Label>
-              <Select value={sourceId || undefined} onValueChange={setSourceId}>
+              <Select value={sourceId || ""} onValueChange={setSourceId}>
                 <SelectTrigger id="nautobot-source-select">
                   <SelectValue placeholder="Select a Nautobot source" />
                 </SelectTrigger>

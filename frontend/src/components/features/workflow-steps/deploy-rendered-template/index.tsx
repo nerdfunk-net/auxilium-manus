@@ -215,7 +215,7 @@ function DeployRenderedTemplateConfigPanel({
           </Badge>
         </div>
         {sourceSteps.length > 0 ? (
-          <Select value={sourceStepNodeId || undefined} onValueChange={handleSourceStepSelect}>
+          <Select value={sourceStepNodeId || ""} onValueChange={handleSourceStepSelect}>
             <SelectTrigger className="h-8 text-xs">
               <SelectValue placeholder="Choose render step…" />
             </SelectTrigger>

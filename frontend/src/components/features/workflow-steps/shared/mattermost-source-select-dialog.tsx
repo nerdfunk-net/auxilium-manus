@@ -90,7 +90,7 @@ export function MattermostSourceSelectDialog({
           ) : (
             <div className="space-y-2">
               <Label htmlFor="mattermost-source-select">Source ID</Label>
-              <Select value={sourceId || undefined} onValueChange={setSourceId}>
+              <Select value={sourceId || ""} onValueChange={setSourceId}>
                 <SelectTrigger id="mattermost-source-select">
                   <SelectValue placeholder="Select a Mattermost source" />
                 </SelectTrigger>

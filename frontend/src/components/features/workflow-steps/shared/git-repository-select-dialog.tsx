@@ -100,7 +100,7 @@ export function GitRepositorySelectDialog({
             <div className="space-y-2">
               <Label htmlFor={fieldId}>Repository</Label>
               <Select
-                value={repositoryId !== null ? String(repositoryId) : undefined}
+                value={repositoryId !== null ? String(repositoryId) : ""}
                 onValueChange={(value) => setRepositoryId(Number(value))}
               >
                 <SelectTrigger id={fieldId}>

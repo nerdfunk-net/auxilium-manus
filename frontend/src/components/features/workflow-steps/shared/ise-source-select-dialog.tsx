@@ -90,7 +90,7 @@ export function ISESourceSelectDialog({
           ) : (
             <div className="space-y-2">
               <Label htmlFor="ise-source-select">Source ID</Label>
-              <Select value={sourceId || undefined} onValueChange={setSourceId}>
+              <Select value={sourceId || ""} onValueChange={setSourceId}>
                 <SelectTrigger id="ise-source-select">
                   <SelectValue placeholder="Select a Cisco ISE source" />
                 </SelectTrigger>

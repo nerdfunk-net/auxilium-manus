@@ -132,7 +132,7 @@ function RouteOnContentConfigPanel({
           </div>
           {sourceSteps.length > 0 ? (
             <Select
-              value={parsed.source_step_node_id || undefined}
+              value={parsed.source_step_node_id || ""}
               onValueChange={handleSourceStepNodeIdChange}
             >
               <SelectTrigger className="h-8 text-xs">

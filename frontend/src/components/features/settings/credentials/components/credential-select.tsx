@@ -54,7 +54,7 @@ export function CredentialSelect({
   return (
     <div className="space-y-2">
       <Select
-        value={value != null ? String(value) : undefined}
+        value={value != null ? String(value) : ""}
         onValueChange={(next) => onChange(next ? Number(next) : null)}
         disabled={disabled}
       >

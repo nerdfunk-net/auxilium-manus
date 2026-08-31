@@ -90,7 +90,7 @@ export function PyATSSourceSelectDialog({
           ) : (
             <div className="space-y-2">
               <Label htmlFor="pyats-source-select">Source ID</Label>
-              <Select value={sourceId || undefined} onValueChange={setSourceId}>
+              <Select value={sourceId || ""} onValueChange={setSourceId}>
                 <SelectTrigger id="pyats-source-select">
                   <SelectValue placeholder="Select a pyATS source" />
                 </SelectTrigger>

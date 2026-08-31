@@ -285,7 +285,7 @@ function FilterOutputConfigPanel({
         </div>
         {sourceSteps.length > 0 ? (
           <Select
-            value={sourceStepNodeId || undefined}
+            value={sourceStepNodeId || ""}
             onValueChange={handleSourceStepSelect}
           >
             <SelectTrigger className="h-8 text-xs">
