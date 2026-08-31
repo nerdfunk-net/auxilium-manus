@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.ssl_config import create_verified_ssl_context, verify_option
 from services.mattermost.common.exceptions import MattermostAPIError, MattermostValidationError
 from services.mattermost.credentials import MattermostCredentials
 
@@ -20,7 +21,9 @@ class MattermostService:
 
     Keeps two app-scoped ``httpx.AsyncClient`` pools (TLS-verifying and
     non-verifying) since ``verify_ssl`` is a per-source setting, mirroring
-    ``services.pyats.client.PyATSShimService``.
+    ``services.pyats.client.PyATSShimService``. The verifying pool trusts the OS
+    trust store (custom CAs installed via ``INSTALL_CERTIFICATE_FILES``) in
+    addition to the ``certifi`` bundle.
     """
 
     def __init__(self) -> None:
@@ -28,7 +31,7 @@ class MattermostService:
         self._client_no_verify: httpx.AsyncClient | None = None
 
     async def startup(self) -> None:
-        self._client_verify = httpx.AsyncClient(verify=True)
+        self._client_verify = httpx.AsyncClient(verify=create_verified_ssl_context())
         self._client_no_verify = httpx.AsyncClient(verify=False)
         logger.info("MattermostService started")
 
@@ -206,5 +209,5 @@ class MattermostService:
         client = self._client_for(verify_ssl)
         if client is not None:
             return await client.request(method, url, timeout=timeout, **kwargs)
-        async with httpx.AsyncClient(verify=verify_ssl) as fallback_client:
+        async with httpx.AsyncClient(verify=verify_option(verify_ssl)) as fallback_client:
             return await fallback_client.request(method, url, timeout=timeout, **kwargs)

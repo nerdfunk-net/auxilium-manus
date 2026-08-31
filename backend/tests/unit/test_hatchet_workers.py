@@ -130,11 +130,13 @@ class MakeLifespanAndMainTests(unittest.IsolatedAsyncioTestCase):
     def test_main_registers_workflows_without_starting_real_worker(self) -> None:
         worker = MagicMock()
         with (
+            patch.object(dw, "install_certificates") as install_certs,
             patch.object(dw, "_load_published_workflows", return_value=([], (0, None))),
             patch.object(dw, "_build_dynamic_workflows", return_value=[]),
             patch.object(dw.hatchet, "worker", return_value=worker) as make_worker,
         ):
             dw.main()
+        install_certs.assert_called_once()
         make_worker.assert_called_once()
         worker.start.assert_called_once()
 

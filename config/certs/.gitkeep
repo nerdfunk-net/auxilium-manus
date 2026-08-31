@@ -1,0 +1,3 @@
+# Drop operator-supplied CA certificates (*.crt, PEM) here.
+# On startup, when INSTALL_CERTIFICATE_FILES=true, every backend process copies
+# them into the system trust store (update-ca-certificates). *.crt is gitignored.

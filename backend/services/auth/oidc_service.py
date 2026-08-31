@@ -14,12 +14,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import certifi
 import httpx
 import jwt
 from sqlalchemy.orm import Session
 
 from core.config import PROJECT_ROOT
 from core.models.users import User
+from core.ssl_config import create_verified_ssl_context
 from repositories.user_repository import UserRepository
 from services.auth.auth_service import password_hash
 from services.auth.oidc_config_service import OidcConfigService
@@ -105,6 +107,7 @@ class OIDCService:
             return None
 
         context = ssl.create_default_context()
+        context.load_verify_locations(cafile=certifi.where())
         context.load_verify_locations(cafile=str(ca_cert_file))
         self._ssl_contexts[provider_id] = context
         return context
@@ -117,7 +120,7 @@ class OIDCService:
         ssl_context = self._get_ssl_context(provider_id)
 
         async with httpx.AsyncClient(
-            verify=ssl_context or True, timeout=HTTP_TIMEOUT_SECONDS
+            verify=ssl_context or create_verified_ssl_context(), timeout=HTTP_TIMEOUT_SECONDS
         ) as client:
             try:
                 response = await client.get(provider["discovery_url"])
@@ -181,7 +184,7 @@ class OIDCService:
         }
 
         async with httpx.AsyncClient(
-            verify=ssl_context or True, timeout=HTTP_TIMEOUT_SECONDS
+            verify=ssl_context or create_verified_ssl_context(), timeout=HTTP_TIMEOUT_SECONDS
         ) as client:
             try:
                 response = await client.post(config.token_endpoint, data=data)

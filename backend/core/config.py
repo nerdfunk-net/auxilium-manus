@@ -9,6 +9,11 @@ from core.production_guards import validate_non_development_secrets
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / "backend"
+# Source directory for operator-supplied CA certificates (bind-mounted in Docker) and
+# the system trust anchor they are copied into. Shared by core.cert_installer (startup
+# install, gated by INSTALL_CERTIFICATE_FILES) and services.certificates (admin API).
+CONFIG_CERTS_DIR = PROJECT_ROOT / "config" / "certs"
+SYSTEM_CA_DIR = Path("/usr/local/share/ca-certificates")
 DEFAULT_PLUGINS_FILE = BACKEND_ROOT / "workflow_steps" / "registry.yaml"
 DEFAULT_ENV_FILE = BACKEND_ROOT / ".env"
 DEFAULT_SECRET_KEY = "change-in-production-use-at-least-32-characters"

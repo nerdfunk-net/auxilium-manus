@@ -14,13 +14,10 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from core.config import PROJECT_ROOT
+from core.config import CONFIG_CERTS_DIR, SYSTEM_CA_DIR
 from models.certificates import AddCertificateResponse, CertificateInfo, ScanResponse
 
 logger = logging.getLogger(__name__)
-
-CONFIG_CERTS_DIR = PROJECT_ROOT / "config" / "certs"
-SYSTEM_CA_DIR = Path("/usr/local/share/ca-certificates")
 
 _SAFE_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+\.crt$")
 

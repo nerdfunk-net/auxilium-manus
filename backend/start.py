@@ -19,7 +19,7 @@ if __name__ == "__main__":
     logger.debug("Log level: %s", settings.log_level)
 
     # Install custom CA certificates before the app starts making outbound calls.
-    install_certificates(Path(__file__).parent)
+    install_certificates()
 
     is_development = settings.environment == "development"
 

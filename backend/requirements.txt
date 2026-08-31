@@ -1,6 +1,7 @@
 fastapi==0.141.1
 hatchet-sdk==1.38.1
 httpx==0.28.1
+certifi==2026.4.22  # explicit: core/ssl_config.py loads this bundle alongside the OS trust store
 pydantic==2.13.4
 pwdlib[argon2]==0.3.0
 PyJWT==2.13.0

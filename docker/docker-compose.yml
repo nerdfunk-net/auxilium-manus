@@ -82,6 +82,10 @@ x-manus-app-env: &manus-app-env
   APPLY_SAFE_DATABASE_MIGRATION: "false"
   APPLY_RISKY_DATABASE_MIGRATION: "false"
 
+  # Install config/certs/*.crt into the system trust store on startup (every
+  # service). Requires update-ca-certificates (present in the image).
+  INSTALL_CERTIFICATE_FILES: "false"
+
 services:
   manus-postgres:
     image: postgres:17
@@ -135,7 +139,10 @@ services:
       SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-web.conf
     volumes:
       - ./data:/app/data
-      - ./config:/app/config
+      # Repo-root config/ — holds config/certs/*.crt (INSTALL_CERTIFICATE_FILES)
+      # and config/oidc_providers.yaml. Writable: the /tools cert-upload API
+      # writes into config/certs/.
+      - ../config:/app/config
       - ./logs:/app/data/logs
     depends_on:
       manus-postgres:
@@ -166,6 +173,8 @@ services:
       SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-worker.conf
     volumes:
       - ./data:/app/data
+      # Read-only: the worker only reads config/certs/*.crt at startup.
+      - ../config:/app/config:ro
       - ./logs:/app/data/logs
     depends_on:
       manus-postgres:
@@ -197,6 +206,8 @@ services:
       SUPERVISORD_CONF: /etc/supervisor/conf.d/supervisord-background-worker.conf
     volumes:
       - ./data:/app/data
+      # Read-only: the worker only reads config/certs/*.crt at startup.
+      - ../config:/app/config:ro
       - ./logs:/app/data/logs
     depends_on:
       manus-postgres:

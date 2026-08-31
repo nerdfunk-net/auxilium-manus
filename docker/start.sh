@@ -7,6 +7,7 @@ echo "Starting backend and frontend services..."
 mkdir -p /app/data/settings
 mkdir -p /app/data/git
 mkdir -p /app/data/cache
+mkdir -p /app/config/certs
 mkdir -p /var/log/supervisor
 
 chown -R root:root /app/data

@@ -23,6 +23,7 @@ _backend_root = Path(__file__).resolve().parents[1]
 if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
+from core.cert_installer import install_certificates  # noqa: E402
 from core.logging_config import configure_logging  # noqa: E402
 from hatchet import worker_services  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
@@ -45,6 +46,8 @@ async def lifespan() -> AsyncGenerator[None, None]:
 
 
 def main() -> None:
+    # Install operator-supplied CA certificates before any outbound call.
+    install_certificates()
     worker = hatchet.worker(
         WORKER_NAME,
         slots=WORKER_SLOTS,
