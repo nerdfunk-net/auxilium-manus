@@ -153,8 +153,14 @@ export function LoggingSettingsCanvas() {
                   <span className="font-mono text-xs">{settingsData.app_log_file}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Workflow worker (all output)</span>
+                  <span className="text-muted-foreground">Live workflow worker (all output)</span>
                   <span className="font-mono text-xs">{settingsData.worker_log_file}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Background workflow worker (all output)</span>
+                  <span className="font-mono text-xs">
+                    {settingsData.background_worker_log_file}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Workflow execution (steps + devices only)</span>
@@ -194,7 +200,8 @@ export function LoggingSettingsCanvas() {
                         </SelectContent>
                       </Select>
                       <FormDescription>
-                        Applies to app.log / worker.log and anything not otherwise overridden below.
+                        Applies to app.log / worker.log / worker-background.log and anything not
+                        otherwise overridden below.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -307,8 +314,8 @@ export function LoggingSettingsCanvas() {
 
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
-                Changes apply to the API server immediately. Restart the workflow worker for it
-                to pick up changes.
+                Changes apply to the API server immediately. Restart the workflow workers (live
+                and background) for them to pick up changes.
               </p>
               <Button type="submit" disabled={saveSettings.isPending}>
                 {saveSettings.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}

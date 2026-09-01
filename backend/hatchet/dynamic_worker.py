@@ -41,7 +41,10 @@ if str(_backend_root) not in sys.path:
 
 from core.cert_installer import install_certificates  # noqa: E402
 from core.database import SessionLocal  # noqa: E402
-from core.logging_config import configure_logging  # noqa: E402
+from core.logging_config import (  # noqa: E402
+    BACKGROUND_WORKER_PROCESS_NAME,
+    configure_logging,
+)
 from hatchet import worker_services  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
 from hatchet.dynamic_worker_config import (  # noqa: E402
@@ -60,7 +63,7 @@ if TYPE_CHECKING:
 
     from core.models.background_tier import WorkflowBackgroundTier
 
-configure_logging("worker")
+configure_logging(BACKGROUND_WORKER_PROCESS_NAME)
 logger = logging.getLogger(__name__)
 
 
@@ -108,7 +111,7 @@ def _make_lifespan(
     initial_fingerprint: tuple[int, datetime | None],
 ) -> Callable[[], AsyncGenerator[None, None]]:
     async def lifespan() -> AsyncGenerator[None, None]:
-        async with worker_services.start_all():
+        async with worker_services.start_all(BACKGROUND_WORKER_PROCESS_NAME):
             watcher = asyncio.create_task(
                 _self_restart_on_change(
                     initial_fingerprint, DYNAMIC_WORKER_POLL_INTERVAL_SECONDS

@@ -8,6 +8,15 @@ from typing import Any
 
 from core.config import settings
 
+# Canonical process names passed to configure_logging() / reconfigure_logging().
+# Each maps to its own "<name>.log" sink so processes sharing one LOG_DIRECTORY
+# never write to the same RotatingFileHandler file (which is not multi-process
+# safe). The two Hatchet workers — live/interactive (hatchet/worker.py) and
+# background-tier (hatchet/dynamic_worker.py) — must stay distinct here.
+APP_PROCESS_NAME = "app"
+WORKER_PROCESS_NAME = "worker"
+BACKGROUND_WORKER_PROCESS_NAME = "worker-background"
+
 # Third-party loggers that are noisy at INFO/DEBUG and drown out application
 # logs (grpc DEBUG chatter from Hatchet's client, netmiko/paramiko per-command
 # tracing, etc). Overridable at runtime via the Settings / Logging page.
@@ -118,8 +127,8 @@ def configure_logging(process_name: str) -> dict[str, object]:
 
     Runs at process import time, before database access is available, so it
     can only use settings.* (env-var backed) values. process_name distinguishes
-    the log file per process (e.g. "app", "worker") so both can share
-    settings.log_directory without clobbering each other.
+    the log file per process ("app", "worker", "worker-background") so they can
+    share settings.log_directory without clobbering each other.
 
     Once the database is reachable, callers should follow up with
     reconfigure_logging() to layer in persisted overrides from the

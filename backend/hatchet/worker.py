@@ -24,7 +24,7 @@ if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
 from core.cert_installer import install_certificates  # noqa: E402
-from core.logging_config import configure_logging  # noqa: E402
+from core.logging_config import WORKER_PROCESS_NAME, configure_logging  # noqa: E402
 from hatchet import worker_services  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
 from hatchet.worker_config import WORKER_NAME, WORKER_SLOTS  # noqa: E402
@@ -36,12 +36,12 @@ from hatchet.workflows.purge_retention import workflow as purge_retention_workfl
 from hatchet.workflows.scheduled_trigger import workflow as scheduled_trigger_workflow  # noqa: E402
 from hatchet.workflows.workflow_run import workflow as workflow_execution  # noqa: E402
 
-configure_logging("worker")
+configure_logging(WORKER_PROCESS_NAME)
 logger = logging.getLogger(__name__)
 
 
 async def lifespan() -> AsyncGenerator[None, None]:
-    async with worker_services.start_all():
+    async with worker_services.start_all(WORKER_PROCESS_NAME):
         yield
 
 

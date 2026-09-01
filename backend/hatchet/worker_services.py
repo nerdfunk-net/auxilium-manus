@@ -4,6 +4,11 @@
 app-service singletons wired into service_factory before accepting work.
 service_factory itself holds no cross-process state, so each worker process
 initializing it independently is safe.
+
+Each worker passes its own ``process_name`` (see core.logging_config) so the
+persisted logging overrides are re-applied to the correct per-process log sink
+— the live worker keeps ``worker.log``; the background-tier worker gets its
+own ``worker-background.log`` and never shares a RotatingFileHandler file.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from contextlib import asynccontextmanager
 
 import service_factory
 from core.database import SessionLocal
+from core.logging_config import WORKER_PROCESS_NAME
 from services.ise.client import ISEService
 from services.logging.logging_settings_service import LoggingSettingsService
 from services.mattermost.client import MattermostService
@@ -24,9 +30,9 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def start_all() -> AsyncIterator[None]:
+async def start_all(process_name: str = WORKER_PROCESS_NAME) -> AsyncIterator[None]:
     with SessionLocal() as db:
-        LoggingSettingsService(db).apply_to_current_process("worker")
+        LoggingSettingsService(db).apply_to_current_process(process_name)
 
     nautobot_service = NautobotService()
     await nautobot_service.startup()
@@ -45,7 +51,7 @@ async def start_all() -> AsyncIterator[None]:
     service_factory.set_mattermost_app_service(mattermost_service)
 
     service_factory.build_cache_service()
-    logger.info("Worker services initialized")
+    logger.info("Worker services initialized for process=%s", process_name)
     try:
         yield
     finally:

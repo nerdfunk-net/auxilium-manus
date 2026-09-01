@@ -312,8 +312,11 @@ Rules:
 **Where these logs go:** `backend/core/logging_config.py` configures the root logger for
 both the API process and the Hatchet worker with two handlers — stdout (unchanged) and a
 `RotatingFileHandler` writing to `LOG_DIRECTORY` (default `<data_directory>/logs`):
-`app.log` for the API process, `worker.log` for the Hatchet worker (workflow steps always
-execute there). Rotation size/retention are controlled by `LOG_MAX_BYTES` /
+`app.log` for the API process, `worker.log` for the live/interactive Hatchet worker
+(`hatchet/worker.py`), and `worker-background.log` for the background-tier worker
+(`hatchet/dynamic_worker.py`) — workflow steps execute in whichever worker owns the run.
+Each process writes its own file so two `RotatingFileHandler`s never share one path.
+Rotation size/retention are controlled by `LOG_MAX_BYTES` /
 `LOG_BACKUP_COUNT` (see `backend/.env.example`). Because `logger =
 logging.getLogger(__name__)` loggers propagate to root by default, no per-step setup is
 needed beyond the two calls above.

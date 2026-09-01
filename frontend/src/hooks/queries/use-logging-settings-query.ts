@@ -15,6 +15,7 @@ export interface LoggingSettingsData {
   log_directory: string;
   app_log_file: string;
   worker_log_file: string;
+  background_worker_log_file: string;
   workflow_log_file: string;
 }
 

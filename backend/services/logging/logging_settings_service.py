@@ -8,7 +8,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from core.config import settings as app_settings
-from core.logging_config import reconfigure_logging
+from core.logging_config import (
+    BACKGROUND_WORKER_PROCESS_NAME,
+    WORKER_PROCESS_NAME,
+    reconfigure_logging,
+)
 from models.logging_settings import LoggingSettings, LoggingSettingsResponse
 from repositories.settings_repository import SettingsRepository
 
@@ -23,7 +27,10 @@ def _to_response(cfg: LoggingSettings) -> LoggingSettingsResponse:
         **cfg.model_dump(),
         log_directory=str(app_settings.log_directory),
         app_log_file=str(app_settings.log_directory / "app.log"),
-        worker_log_file=str(app_settings.log_directory / "worker.log"),
+        worker_log_file=str(app_settings.log_directory / f"{WORKER_PROCESS_NAME}.log"),
+        background_worker_log_file=str(
+            app_settings.log_directory / f"{BACKGROUND_WORKER_PROCESS_NAME}.log"
+        ),
         workflow_log_file=str(app_settings.log_directory / "workflow.log"),
     )
 

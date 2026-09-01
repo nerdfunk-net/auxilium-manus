@@ -49,4 +49,5 @@ class LoggingSettingsResponse(LoggingSettings):
     log_directory: str
     app_log_file: str
     worker_log_file: str
+    background_worker_log_file: str
     workflow_log_file: str

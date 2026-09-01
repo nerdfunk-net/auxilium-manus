@@ -309,6 +309,12 @@ Because Hatchet's worker action registration is fixed for a process's
 lifetime, a newly published/edited/unpublished workflow only becomes
 dispatchable once this process restarts. It handles that itself.
 
+It logs to its own sink, `worker-background.log` (process name
+`worker-background` in `core/logging_config.py`), rather than sharing the live
+worker's `worker.log` — two processes must never write the same
+`RotatingFileHandler` file. Settings → Logging lists both worker files, and the
+persisted overrides are re-applied per process on each worker's startup.
+
 ### How the restart is triggered — no Redis, no pub/sub, no event
 
 Publishing (or unpublishing, or editing a concurrency limit) writes **only** a

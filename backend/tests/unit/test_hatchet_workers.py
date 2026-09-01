@@ -24,7 +24,7 @@ class WorkerServicesTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(ws, "SessionLocal"),
-            patch.object(ws, "LoggingSettingsService"),
+            patch.object(ws, "LoggingSettingsService") as logging_svc,
             patch.object(ws, "NautobotService", return_value=svc),
             patch.object(ws, "ISEService", return_value=svc),
             patch.object(ws, "PyATSShimService", return_value=svc),
@@ -43,6 +43,33 @@ class WorkerServicesTests(unittest.IsolatedAsyncioTestCase):
         # 4 services x startup + 4 x shutdown
         self.assertEqual(svc.startup.await_count, 4)
         self.assertEqual(svc.shutdown.await_count, 4)
+        # Default process name re-applies logging overrides to the "worker" sink.
+        logging_svc.return_value.apply_to_current_process.assert_called_once_with("worker")
+
+    async def test_start_all_applies_logging_to_named_process(self) -> None:
+        svc = MagicMock()
+        svc.startup = AsyncMock()
+        svc.shutdown = AsyncMock()
+
+        with (
+            patch.object(ws, "SessionLocal"),
+            patch.object(ws, "LoggingSettingsService") as logging_svc,
+            patch.object(ws, "NautobotService", return_value=svc),
+            patch.object(ws, "ISEService", return_value=svc),
+            patch.object(ws, "PyATSShimService", return_value=svc),
+            patch.object(ws, "MattermostService", return_value=svc),
+            patch.object(ws.service_factory, "set_nautobot_app_service"),
+            patch.object(ws.service_factory, "set_ise_app_service"),
+            patch.object(ws.service_factory, "set_pyats_app_service"),
+            patch.object(ws.service_factory, "set_mattermost_app_service"),
+            patch.object(ws.service_factory, "build_cache_service"),
+        ):
+            async with ws.start_all("worker-background"):
+                pass
+
+        logging_svc.return_value.apply_to_current_process.assert_called_once_with(
+            "worker-background"
+        )
 
 
 class DynamicWorkerPureFunctionTests(unittest.TestCase):
@@ -118,7 +145,9 @@ class MakeLifespanAndMainTests(unittest.IsolatedAsyncioTestCase):
                 started["out"] = True
 
         with (
-            patch.object(dw.worker_services, "start_all", return_value=_FakeStartAll()),
+            patch.object(
+                dw.worker_services, "start_all", return_value=_FakeStartAll()
+            ) as start_all,
             patch.object(dw, "_self_restart_on_change", new=AsyncMock()),
         ):
             gen = dw._make_lifespan((1, None))()
@@ -126,6 +155,8 @@ class MakeLifespanAndMainTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(StopAsyncIteration):
                 await gen.asend(None)  # exit -> finally cancels watcher
         self.assertTrue(started.get("in") and started.get("out"))
+        # Background worker drives its own log sink, not the live worker's.
+        start_all.assert_called_once_with(dw.BACKGROUND_WORKER_PROCESS_NAME)
 
     def test_main_registers_workflows_without_starting_real_worker(self) -> None:
         worker = MagicMock()
