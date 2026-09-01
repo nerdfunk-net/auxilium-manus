@@ -299,6 +299,95 @@ time. It is not a per-workflow setting and does not substitute for configuring
 
 ---
 
+## A fuller example: fan-out + Fan In with the whole Git feature
+
+The 3-node example above is deliberately minimal. A real backup usually also:
+
+- reads a **per-device attribute** (site / role / region) so each config file
+  lands in the right place in the repo;
+- stores **two** files per device — running-config *and* startup-config;
+- **pulls** the repo before it commits, so the local working tree is
+  fast-forwarded to the remote tip before new files are added.
+
+The full node list:
+
+```
+1. Get from Nautobot        fan_out: per_device, max_concurrency: 10
+2. Get Nautobot Attributes  ── per-device: site/role for the path template
+3. Get Device Configs       ── per-device: running-config + startup-config
+4. Fan In
+5. Git Pull
+6. Store Artifact (running) ── destination: git
+7. Store Artifact (startup) ── destination: git
+8. Git Push
+```
+
+### Every Git step sits *after* the Fan In — including the pull
+
+It is tempting to run Git Pull early — "refresh the repo, then start pulling
+configs". You can't put it before the fan-out, and you must not put it inside
+the fanned-out branch:
+
+- `git-clone`, `git-pull`, and `git-push` all declare `requires: [identity]` in
+  `registry.yaml`, so the canvas will not let you wire one as a bare root node —
+  it has to be downstream of an inventory step. But the fan-out happens **at**
+  `Get from Nautobot`, so "downstream of the inventory step" and "inside the
+  per-device child branch" are the *same place*. There is no "after the
+  inventory step but before the fan-out" slot.
+- Anything on the child branch runs **once per child** — once per device in
+  `per_device` mode. A Git Pull there is **not** "one pull per group of 10";
+  `max_concurrency: 10` only caps how many device-children run at once. 300
+  devices → 300 pulls, 10 racing at any given moment.
+- `git-pull` / `git-push` / `store-artifact → git` are all **not
+  fan-out-safe** (`doc/WORKFLOW-STEPS.md` → *Writing fan-out-safe steps*): each
+  opens the one shared on-disk working tree for the repo (`load_git_repository`
+  → a single `path`). Concurrent children collide on `index.lock`, produce N
+  single-file commits instead of one, and reject each other's non-fast-forward
+  pushes.
+
+The **Fan In** node is the fix. It also declares `requires: [identity]` and
+`produces: []`, and it passes every device capability through unchanged — so
+`identity`, `running_config`, `startup_config`, and every attribute bag are
+still available to steps placed after it. Wiring `Git Pull` to the Fan In's
+`success` handle satisfies the canvas rule **and** runs it exactly once on the
+merged 300-device context.
+
+```
+        ┌─────────── runs once PER DEVICE (10 in flight) ───────────┐
+Get from Nautobot → Get Nautobot Attributes → Get Device Configs → [FAN IN]
+ (fan_out: per_device,                                                │
+  max_concurrency: 10)                                                ▼
+                       ┌──────────────── runs ONCE on all 300 devices ────────────────┐
+                       Git Pull → Store Artifact (running) → Store Artifact (startup) → Git Push
+                       │ one ff-  │ writes 300 files        │ writes 300 files         │ one commit
+                       │ merge    │ into the working tree   │ into the working tree    │ one push
+```
+
+### What runs where
+
+| Node | Where it runs | Times (300 devices) | Why |
+|---|---|---|---|
+| `get-nautobot-devices` | parent, phase 1 | 1 | Emits the fan-out signal, then the parent stops. |
+| `get-nautobot-attributes` | child branch | 300 (10 concurrent) | Per-device read, fan-out-safe — no shared sink. |
+| `get-device-configs` | child branch | 300 (10 concurrent) | Per-device SSH, fan-out-safe. |
+| `fan-in` | parent, phase 4 | 1 | Merges child contexts back into one. |
+| `git-pull` | parent, phase 4 | 1 | Shared working tree — must be post-join. |
+| `store-artifact` (git) ×2 | parent, phase 4 | 1 each | Writes every device's file into the one working tree. |
+| `git-push` | parent, phase 4 | 1 | One commit over all 600 files, one push. |
+
+### Do you even need the explicit Git Pull?
+
+`store-artifact → git` and `git-push` already ensure the working tree exists
+(they clone-or-pull on first use). An explicit `git-pull` before the stores
+adds one guarantee: the local branch is fast-forwarded to the **remote** tip
+before new files are committed, so a `git-push` with `commit_before_push: true`
+is not rejected non-fast-forward because something else pushed to the same repo
+in the meantime. For a repo only this workflow writes to, it's optional; for a
+shared repo, keep it — placed after the Fan In it costs one extra network
+round-trip per *run*, not per device.
+
+---
+
 ## A separate axis: overlapping *runs* of the same workflow (background tier)
 
 Everything above controls devices *within one run*. It says nothing about
