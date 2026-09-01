@@ -65,6 +65,12 @@ export function useTemplateEditor() {
     attributes,
     enabled: sourceCredentials.isReady,
   });
+  // Read the query result during render so React Query re-renders this hook when
+  // the attributes-triggered refetch resolves — not only when the test device is
+  // re-picked. Consuming `.data`/`.error` solely inside the effect below left the
+  // `nautobot` variable stale until the device was re-selected.
+  const { data: deviceAttributesData, error: deviceAttributesError } =
+    deviceAttributesQuery;
 
   const loadedRef = useRef(false);
   const {
@@ -139,15 +145,15 @@ export function useTemplateEditor() {
       setNautobotAttributes(null);
       return;
     }
-    if (deviceAttributesQuery.data) {
-      setNautobotAttributes(deviceAttributesQuery.data);
-    } else if (deviceAttributesQuery.error) {
+    if (deviceAttributesData) {
+      setNautobotAttributes(deviceAttributesData);
+    } else if (deviceAttributesError) {
       setNautobotAttributes({});
     }
   }, [
     selectedDevice,
-    deviceAttributesQuery.data,
-    deviceAttributesQuery.error,
+    deviceAttributesData,
+    deviceAttributesError,
     setNautobotAttributes,
   ]);
 

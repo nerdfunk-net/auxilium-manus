@@ -15,6 +15,7 @@ import { JinjaHelpDialog } from "./components/jinja-help-dialog";
 import { LinkWorkflowDialog } from "./components/link-workflow-dialog";
 import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
+import { ResizableSplit } from "./components/resizable-split";
 import { VariablesPanel } from "./components/variables-panel";
 import { useTemplateEditor } from "./hooks/use-template-editor";
 
@@ -81,30 +82,35 @@ function TemplateEditorContent() {
           onGetConfigsChange={editor.setGetDeviceConfigs}
         />
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]" style={{ minHeight: 480 }}>
-          <div className="overflow-hidden rounded-lg border bg-card">
-            <VariablesPanel
-              variables={editor.variableManager.variables}
-              selectedId={editor.selectedVariableId}
-              onSelect={editor.setSelectedVariableId}
-              onAdd={() => editor.setAddVariableOpen(true)}
-              onHelp={() => editor.setVariablesHelpOpen(true)}
-              onRemove={editor.variableManager.removeVariable}
-              onUpdateValue={editor.variableManager.updateVariableValue}
-              onLinkWorkflow={() => editor.setLinkWorkflowDialogOpen(true)}
-            />
-          </div>
-
-          <div className="min-h-[480px] overflow-hidden rounded-lg border">
-            <CanvasErrorBoundary fallbackTitle="The editor failed to render">
-              <CodeEditorPanel
-                value={editor.content}
-                language={editor.templateType}
-                onChange={editor.setContent}
+        <ResizableSplit
+          storageKey="template-editor:variables-width"
+          minHeight={480}
+          left={
+            <div className="h-full overflow-hidden rounded-lg border bg-card">
+              <VariablesPanel
+                variables={editor.variableManager.variables}
+                selectedId={editor.selectedVariableId}
+                onSelect={editor.setSelectedVariableId}
+                onAdd={() => editor.setAddVariableOpen(true)}
+                onHelp={() => editor.setVariablesHelpOpen(true)}
+                onRemove={editor.variableManager.removeVariable}
+                onUpdateValue={editor.variableManager.updateVariableValue}
+                onLinkWorkflow={() => editor.setLinkWorkflowDialogOpen(true)}
               />
-            </CanvasErrorBoundary>
-          </div>
-        </div>
+            </div>
+          }
+          right={
+            <div className="h-full min-h-[480px] overflow-hidden rounded-lg border">
+              <CanvasErrorBoundary fallbackTitle="The editor failed to render">
+                <CodeEditorPanel
+                  value={editor.content}
+                  language={editor.templateType}
+                  onChange={editor.setContent}
+                />
+              </CanvasErrorBoundary>
+            </div>
+          }
+        />
 
         <div className="flex items-center justify-between border-t pt-4">
           <Button

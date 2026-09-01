@@ -19,6 +19,22 @@ function emptyState(): CapabilityState {
   return { capabilities: new Set(), parsedKeys: new Set() };
 }
 
+/**
+ * Outcome names whose branch carries only the devices that could not be
+ * processed. Those devices keep whatever capabilities they arrived with, but the
+ * step's own `produces` never materialised for them, so the canvas must project
+ * the step's *input* state for these outcomes rather than its output state.
+ *
+ * This is a subset of the red-tinted outcome names in `step-visuals.ts`:
+ * `mismatch` is deliberately excluded here because it is a normal, expected
+ * result that still produces output (e.g. compare-data's `comparison_diff`).
+ */
+const FAILURE_CLASS_OUTCOMES = new Set(["failure", "fail", "error"]);
+
+function isFailureClassOutcome(name: string): boolean {
+  return FAILURE_CLASS_OUTCOMES.has(name.trim().toLowerCase());
+}
+
 function applyStep(
   input: CapabilityState,
   node: ProjectedCanvasNode,
@@ -144,15 +160,24 @@ export function computeOutcomeProvides(
 
     inputStateByNode.set(nodeId, inputState);
     const outputState = applyStep(inputState, node);
+    const inputProvides = toProvides(inputState);
+    const outputProvides = toProvides(outputState);
 
     const outcomes = node.data.outcomes ?? [];
     if (outcomes.length === 0) {
-      outcomeProvides.set(`${nodeId}:success`, toProvides(outputState));
+      outcomeProvides.set(`${nodeId}:success`, outputProvides);
       continue;
     }
 
     for (const outcome of outcomes) {
-      outcomeProvides.set(`${nodeId}:${outcome.name}`, toProvides(outputState));
+      // A failure-class outcome (`failure` / `fail` / `error`) only ever carries
+      // devices the step could not process, so it must not advertise the
+      // capabilities the step was supposed to add — otherwise the canvas would
+      // let that branch feed a step requiring one of them.
+      outcomeProvides.set(
+        `${nodeId}:${outcome.name}`,
+        isFailureClassOutcome(outcome.name) ? inputProvides : outputProvides,
+      );
     }
   }
 

@@ -105,6 +105,15 @@ plugins:
 > (subset check), not per-handle `data_type` matching. `metadata.configuration_input`
 > drives step configuration forms only.
 
+> **Failure-class outcomes carry the input state, not `produces`.** In
+> `computeOutcomeProvides` (`frontend/.../workflows/utils/capability-graph.ts`) an
+> outcome named `failure` / `fail` / `error` advertises the step's *input*
+> capability set — the devices on that branch could not be processed, so the
+> step's `produces` never materialised for them (matching the runtime, where a
+> failed device is returned untouched). `mismatch` is **not** in this set: it is a
+> normal result that still produces output. Name error outcomes `failure` (see the
+> style guide) so this projection applies.
+
 ### Artifact types
 
 | Value                   | Meaning                                      |
