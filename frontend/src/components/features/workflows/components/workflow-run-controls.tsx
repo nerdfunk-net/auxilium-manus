@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, CheckCircle2, Clock, LayoutGrid, Magnet, MoveHorizontal, MoveVertical, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, Clock, Grid3x3, LayoutGrid, Magnet, MoveHorizontal, MoveVertical, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,8 @@ export function WorkflowRunControls({
   );
   const snapToGrid = useWorkflowBuilderStore((state) => state.snapToGrid);
   const setSnapToGrid = useWorkflowBuilderStore((state) => state.setSnapToGrid);
+  const showGrid = useWorkflowBuilderStore((state) => state.showGrid);
+  const setShowGrid = useWorkflowBuilderStore((state) => state.setShowGrid);
   const { data: activeRun } = useWorkflowRunQuery(activeRunId);
 
   let label: string;
@@ -65,6 +67,21 @@ export function WorkflowRunControls({
       </span>
 
       <span className="flex items-center gap-1.5">
+        <button
+          aria-label="Show grid"
+          aria-pressed={showGrid}
+          className={cn(
+            "flex items-center justify-center rounded-[7px] border p-1.5 transition-colors",
+            showGrid
+              ? "border-ring bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => setShowGrid(!showGrid)}
+          title="Show the alignment grid"
+          type="button"
+        >
+          <Grid3x3 className="size-3.5" aria-hidden />
+        </button>
         <button
           aria-label="Snap to grid"
           aria-pressed={snapToGrid}

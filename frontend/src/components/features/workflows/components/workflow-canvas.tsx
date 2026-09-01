@@ -72,8 +72,8 @@ const BACKGROUND_DROP_OFFSET = { x: 240, y: 160 };
 // Half the funnel node's footprint (size-10 = 2.5rem = 40px).
 const FUNNEL_DROP_OFFSET = { x: 20, y: 20 };
 
-// Matches the Background dots' `gap={22}` below, so a snapped position lines
-// up with the grid already visible on screen.
+// Kept equal to the <Background> dots' `gap={22}` below, so that when the
+// "Show grid" toggle is on a snapped position lands exactly on a grid dot.
 const SNAP_GRID: [number, number] = [22, 22];
 
 interface WorkflowCanvasProps {
@@ -108,6 +108,7 @@ function WorkflowCanvasInner({
   const pendingFitViewNodeIds = useWorkflowBuilderStore((state) => state.pendingFitViewNodeIds);
   const clearFitViewRequest = useWorkflowBuilderStore((state) => state.clearFitViewRequest);
   const snapToGrid = useWorkflowBuilderStore((state) => state.snapToGrid);
+  const showGrid = useWorkflowBuilderStore((state) => state.showGrid);
   const { toast } = useToast();
   const { screenToFlowPosition, fitView } = useReactFlow();
 
@@ -334,12 +335,14 @@ function WorkflowCanvasInner({
           ? { defaultViewport: initialViewport }
           : { fitView: true, fitViewOptions: { padding: 0.2 } })}
       >
-        <Background
-          color="#cbd5e1"
-          gap={22}
-          size={1}
-          variant={BackgroundVariant.Dots}
-        />
+        {showGrid ? (
+          <Background
+            color="#94a3b8"
+            gap={22}
+            size={2}
+            variant={BackgroundVariant.Dots}
+          />
+        ) : null}
         <Controls />
         <CollapsibleMiniMap />
       </ReactFlow>
