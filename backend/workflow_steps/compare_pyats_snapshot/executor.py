@@ -19,11 +19,14 @@ source's shim credentials to use (via the bag's pyats_source_id) -- it never
 reads the bag's password and never calls unwrap_secret()/seal_secret(), since
 diffing two already-learned snapshots needs no device SSH credentials at all.
 
-Scope is one Genie feature per step instance, mirroring compare-data's
-single-artifact-per-comparison model -- compare multiple features by adding
-multiple Compare Snapshot step instances (no {feature} filename placeholder
-is introduced; encode the feature into filename_template literally when
-comparing several).
+One step instance compares one or more Genie features (selected as a checkbox
+group in the config panel, stored as ``features: list[str]``). Every selected
+feature is read from the same per-device live and reference snapshot files --
+there is no {feature} filename placeholder. A device routes to ``match`` only
+when every selected feature is identical, to ``mismatch`` when any feature
+differs, and to ``failure`` when any feature is absent/failed on either side or
+the shim diff call itself fails. Per-feature diff text is stored under
+``device.parsed["{node_id}.comparison_diff"]`` as a ``{feature: entry}`` map.
 """
 
 from __future__ import annotations
@@ -58,6 +61,7 @@ from services.workflow_context.device_template import (
     render_device_template,
 )
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
+from workflow_steps.common.pyats_features import parse_feature_list
 from workflow_steps.compare_data.reference_reader import read_reference_text
 from workflow_steps.compare_pyats_snapshot.config import get_config
 
@@ -113,90 +117,80 @@ def _extract_feature(
     return data, None
 
 
-def _build_match(
+# (feature_name, "match" | "mismatch", diff_text when mismatch else None)
+_FeatureResult = tuple[str, str, str | None]
+
+
+async def _build_device_result(
     *,
     device_id: str,
     device: DeviceContext,
     node_id: str,
-    feature: str,
+    features: list[str],
+    feature_results: list[_FeatureResult],
     reference_path: str,
     reference_location: str,
-) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
-    entry = {
-        "kind": "comparison_result",
-        "matched": True,
-        "feature": feature,
-        "reference_location": reference_location,
-        "reference_path": reference_path,
-        "step_node_id": node_id,
-    }
-    parsed = dict(device.parsed)
-    parsed[f"{node_id}.comparison"] = entry
-    enriched = device.model_copy(
-        update={
-            "parsed": parsed,
-            "capabilities": device.capabilities | {Capability.PARSED},
-            "status": DeviceStatus.OK,
-        }
-    )
-    record = {
-        "device_id": device_id,
-        "feature": feature,
-        "reference_path": reference_path,
-        "reference_location": reference_location,
-        "matched": True,
-    }
-    return device_id, enriched, "match", record
-
-
-async def _build_mismatch(
-    *,
-    device_id: str,
-    device: DeviceContext,
-    node_id: str,
-    feature: str,
-    reference_path: str,
-    reference_location: str,
-    diff_text: str,
     context_run_id: str | None,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
-    diff_ref = await artifact_service.store(
-        content=diff_text,
-        kind="comparison_diff",
-        device_id=device_id,
-        run_id=context_run_id,
-        media_type="text/plain",
-    )
-    # A format-agnostic stand-in for additions/deletions: Genie's str(Diff) line
-    # prefixes are not confirmed against a real pyATS install (see
-    # doc/PYATS_INTEGRATION.md "Open items"), so we don't try to parse them.
-    diff_stats = {"line_count": sum(1 for line in diff_text.splitlines() if line.strip())}
+    """Fold per-feature diff results into one device outcome.
+
+    Routes to ``match`` only when every selected feature is identical; otherwise
+    ``mismatch``, storing one diff artifact per differing feature.
+    """
     comparison_diff_key = f"{node_id}.comparison_diff"
-    diff_entry = {
-        "kind": "comparison_diff",
-        "matched": False,
-        "artifact_ref": diff_ref.model_dump(mode="json"),
-        "diff_stats": diff_stats,
-        "reference_location": reference_location,
-        "reference_path": reference_path,
-        "step_node_id": node_id,
-        "output_key": "comparison_diff",
-        "feature": feature,
-    }
-    result_entry = {
+    diff_map: dict[str, dict[str, Any]] = {}
+    per_feature: dict[str, dict[str, Any]] = {}
+    mismatched_features: list[str] = []
+
+    for feature, status, diff_text in feature_results:
+        if status != "mismatch":
+            per_feature[feature] = {"matched": True}
+            continue
+        mismatched_features.append(feature)
+        text = diff_text or ""
+        diff_ref = await artifact_service.store(
+            content=text,
+            kind="comparison_diff",
+            device_id=device_id,
+            run_id=context_run_id,
+            media_type="text/plain",
+        )
+        # A format-agnostic stand-in for additions/deletions: Genie's str(Diff)
+        # line prefixes are not confirmed against a real pyATS install (see
+        # doc/PYATS_INTEGRATION.md "Open items"), so we don't try to parse them.
+        diff_stats = {"line_count": sum(1 for line in text.splitlines() if line.strip())}
+        diff_map[feature] = {
+            "kind": "comparison_diff",
+            "matched": False,
+            "artifact_ref": diff_ref.model_dump(mode="json"),
+            "diff_stats": diff_stats,
+            "reference_location": reference_location,
+            "reference_path": reference_path,
+            "step_node_id": node_id,
+            "output_key": "comparison_diff",
+            "feature": feature,
+        }
+        per_feature[feature] = {"matched": False, "diff_stats": diff_stats}
+
+    matched = not mismatched_features
+    summary: dict[str, Any] = {
         "kind": "comparison_result",
-        "matched": False,
-        "feature": feature,
+        "matched": matched,
+        "features": list(features),
+        "mismatched_features": mismatched_features,
+        "per_feature": per_feature,
         "reference_location": reference_location,
         "reference_path": reference_path,
-        "diff_stats": diff_stats,
-        "comparison_diff_key": comparison_diff_key,
         "step_node_id": node_id,
     }
+    if not matched:
+        summary["comparison_diff_key"] = comparison_diff_key
+
     parsed = dict(device.parsed)
-    parsed[comparison_diff_key] = diff_entry
-    parsed[f"{node_id}.comparison"] = result_entry
+    parsed[f"{node_id}.comparison"] = summary
+    if diff_map:
+        parsed[comparison_diff_key] = diff_map
     enriched = device.model_copy(
         update={
             "parsed": parsed,
@@ -206,14 +200,13 @@ async def _build_mismatch(
     )
     record = {
         "device_id": device_id,
-        "feature": feature,
+        "features": list(features),
         "reference_path": reference_path,
         "reference_location": reference_location,
-        "matched": False,
-        "diff_stats": diff_stats,
-        "comparison_diff_key": comparison_diff_key,
+        "matched": matched,
+        "mismatched_features": mismatched_features,
     }
-    return device_id, enriched, "mismatch", record
+    return device_id, enriched, "match" if matched else "mismatch", record
 
 
 def _resolve_live_export_item(
@@ -247,7 +240,7 @@ async def _compare_one_device(
     device_id: str,
     device: DeviceContext,
     node_id: str,
-    feature: str,
+    features: list[str],
     source_step_node_id: str,
     parsed_output_key: str | None,
     config: dict[str, Any],
@@ -316,16 +309,6 @@ async def _compare_one_device(
             message="Live snapshot artifact is not valid JSON",
         )
 
-    live_data, live_error = _extract_feature(live_snapshot, feature, side="Live")
-    if live_error is not None:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_feature",
-            message=live_error,
-        )
-
     reference_path = render_device_template(
         str(config.get("filename_template") or "").strip(),
         device,
@@ -366,51 +349,62 @@ async def _compare_one_device(
             message="Reference snapshot file is not valid JSON snapshot content",
         )
 
-    reference_data, reference_error = _extract_feature(
-        reference_snapshot, feature, side="Reference"
-    )
-    if reference_error is not None:
-        return _fail_device(
-            device=device,
-            device_id=device_id,
-            node_id=node_id,
-            code="missing_feature",
-            message=reference_error,
-        )
-
-    try:
-        shim = service_factory.get_pyats_app_service()
-        response = await shim.diff(
-            shim_credentials,
-            snapshot_a=live_data,
-            snapshot_b=reference_data,
-            exclude_keys=exclude_keys,
-        )
-    except (PyATSAPIError, PyATSValidationError) as exc:
-        return _fail_device(
-            device=device, device_id=device_id, node_id=node_id, code="shim_error", message=str(exc)
-        )
-
     reference_location = str(config.get("reference_location") or "filesystem").strip().lower()
 
-    if response.get("identical"):
-        return _build_match(
-            device_id=device_id,
-            device=device,
-            node_id=node_id,
-            feature=feature,
-            reference_path=reference_path,
-            reference_location=reference_location,
-        )
+    shim = service_factory.get_pyats_app_service()
+    feature_results: list[_FeatureResult] = []
+    for feature in features:
+        live_data, live_error = _extract_feature(live_snapshot, feature, side="Live")
+        if live_error is not None:
+            return _fail_device(
+                device=device,
+                device_id=device_id,
+                node_id=node_id,
+                code="missing_feature",
+                message=live_error,
+            )
 
-    return await _build_mismatch(
+        reference_data, reference_error = _extract_feature(
+            reference_snapshot, feature, side="Reference"
+        )
+        if reference_error is not None:
+            return _fail_device(
+                device=device,
+                device_id=device_id,
+                node_id=node_id,
+                code="missing_feature",
+                message=reference_error,
+            )
+
+        try:
+            response = await shim.diff(
+                shim_credentials,
+                snapshot_a=live_data,
+                snapshot_b=reference_data,
+                exclude_keys=exclude_keys,
+            )
+        except (PyATSAPIError, PyATSValidationError) as exc:
+            return _fail_device(
+                device=device,
+                device_id=device_id,
+                node_id=node_id,
+                code="shim_error",
+                message=f"{feature}: {exc}",
+            )
+
+        if response.get("identical"):
+            feature_results.append((feature, "match", None))
+        else:
+            feature_results.append((feature, "mismatch", str(response.get("diff") or "")))
+
+    return await _build_device_result(
         device_id=device_id,
         device=device,
         node_id=node_id,
-        feature=feature,
+        features=features,
+        feature_results=feature_results,
         reference_path=reference_path,
         reference_location=reference_location,
-        diff_text=str(response.get("diff") or ""),
         context_run_id=context_run_id,
         artifact_service=artifact_service,
     )
@@ -429,9 +423,7 @@ async def execute(
 
     merged_config = {**get_config(), **config}
 
-    feature = str(merged_config.get("feature") or "").strip()
-    if not feature:
-        raise ValueError(f"{_STEP_ID}: feature is required")
+    features = parse_feature_list(merged_config.get("features"), step_id=_STEP_ID)
     source_step_node_id = str(merged_config.get("source_step_node_id") or "").strip()
     if not source_step_node_id:
         raise ValueError(f"{_STEP_ID}: source_step_node_id is required")
@@ -454,13 +446,13 @@ async def execute(
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
 
     logger.info(
-        "%s started run_id=%s node_id=%s devices=%d feature=%s source_step_node_id=%s "
+        "%s started run_id=%s node_id=%s devices=%d features=%s source_step_node_id=%s "
         "exclude_keys=%s",
         _STEP_ID,
         run.id,
         node_id,
         len(context.devices),
-        feature,
+        features,
         source_step_node_id,
         exclude_keys,
     )
@@ -479,7 +471,7 @@ async def execute(
                 device_id=device_id,
                 device=device,
                 node_id=node_id,
-                feature=feature,
+                features=features,
                 source_step_node_id=source_step_node_id,
                 parsed_output_key=parsed_output_key,
                 config=merged_config,

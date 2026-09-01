@@ -1,6 +1,6 @@
 def get_config() -> dict:
     return {
-        "feature": "",
+        "features": [],
         "source_step_node_id": "",
         "parsed_output_key": "",
         "reference_location": "filesystem",

@@ -50,6 +50,7 @@ from workflow_steps.common.pyats_batch import (
     run_batched,
     validate_and_group_devices,
 )
+from workflow_steps.common.pyats_features import parse_feature_list
 from workflow_steps.get_pyats_snapshot.config import get_config
 
 if TYPE_CHECKING:
@@ -62,19 +63,7 @@ _SNAPSHOT_KIND = "pyats_snapshot"
 
 
 def _parse_features(config: dict[str, Any]) -> list[str]:
-    raw = config.get("features")
-    if not isinstance(raw, list) or not raw:
-        raise ValueError(f"{_STEP_ID}: features must be a non-empty list of Genie feature names")
-    features: list[str] = []
-    seen: set[str] = set()
-    for item in raw:
-        name = str(item).strip()
-        if not name:
-            raise ValueError(f"{_STEP_ID}: features entries must be non-empty strings")
-        if name not in seen:
-            seen.add(name)
-            features.append(name)
-    return features
+    return parse_feature_list(config.get("features"), step_id=_STEP_ID)
 
 
 def _fail_device(

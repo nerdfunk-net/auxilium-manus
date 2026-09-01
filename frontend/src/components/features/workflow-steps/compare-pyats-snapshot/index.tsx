@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -17,9 +18,10 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { FILENAME_PLACEHOLDERS } from "@/components/features/workflow-steps/shared/filename-placeholders";
+import { FEATURE_GROUPS } from "@/components/features/workflow-steps/shared/pyats-features";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
-import { buildComparePyatsSnapshotConfig } from "./compare-pyats-config";
+import { buildComparePyatsSnapshotConfig, featuresFromConfig } from "./compare-pyats-config";
 import { ComparePyatsReferenceFields } from "./compare-pyats-reference-fields";
 import { ExcludeKeysFields } from "./exclude-keys-fields";
 import { ComparePyatsSnapshotHelpPanel } from "./help-panel";
@@ -44,7 +46,7 @@ function ComparePyatsSnapshotConfigPanel({
     }
   }, [nodeId, config, onChange]);
 
-  const feature = typeof config.feature === "string" ? config.feature : "";
+  const features = featuresFromConfig(config);
   const referenceLocation = (config.reference_location as ReferenceLocation) || "filesystem";
 
   const sourceSteps = useMemo(
@@ -58,11 +60,17 @@ function ComparePyatsSnapshotConfigPanel({
     [sourceSteps, sourceStepNodeId],
   );
 
-  const handleFeatureChange = useCallback(
-    (value: string) => {
-      onChange(buildComparePyatsSnapshotConfig(config, { feature: value }));
+  const toggleFeature = useCallback(
+    (value: string, checked: boolean) => {
+      const next = new Set(features);
+      if (checked) {
+        next.add(value);
+      } else {
+        next.delete(value);
+      }
+      onChange(buildComparePyatsSnapshotConfig(config, { features: Array.from(next) }));
     },
-    [config, onChange],
+    [config, features, onChange],
   );
 
   const handleReferenceLocationChange = useCallback(
@@ -181,20 +189,42 @@ function ComparePyatsSnapshotConfigPanel({
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">feature</span>
+          <span className="font-mono text-xs font-medium">features</span>
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            string
+            array
           </Badge>
         </div>
-        <Input
-          value={feature}
-          onChange={(event) => handleFeatureChange(event.target.value)}
-          placeholder="bgp"
-          className="h-8 font-mono text-xs"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          One Genie feature per instance; add another Compare Snapshot step to compare more.
-        </p>
+
+        <div className="space-y-2">
+          {FEATURE_GROUPS.map((group) => (
+            <div key={group.label} className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {group.label}
+              </p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {group.options.map((option) => (
+                  <label key={option.value} className="flex items-center gap-1.5 text-xs">
+                    <Checkbox
+                      checked={features.includes(option.value)}
+                      onCheckedChange={(checked) => toggleFeature(option.value, checked === true)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {features.length === 0 ? (
+          <p className="text-[11px] text-warning-foreground">
+            Select at least one feature to compare.
+          </p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            A device matches only when every selected feature is identical.
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">

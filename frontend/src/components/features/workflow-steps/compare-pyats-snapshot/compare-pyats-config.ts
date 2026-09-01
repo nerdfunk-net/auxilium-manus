@@ -4,12 +4,18 @@ export function excludeKeysFromConfig(config: Record<string, unknown>): string[]
     : [];
 }
 
+export function featuresFromConfig(config: Record<string, unknown>): string[] {
+  return Array.isArray(config.features)
+    ? config.features.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 export function buildComparePyatsSnapshotConfig(
   config: Record<string, unknown>,
   patch: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    feature: typeof config.feature === "string" ? config.feature : "",
+    features: featuresFromConfig(config),
     source_step_node_id:
       typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
     parsed_output_key:

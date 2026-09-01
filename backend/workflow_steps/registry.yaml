@@ -451,12 +451,13 @@ plugins:
 
   - id: compare-pyats-snapshot
     name: Compare Snapshot
-    overview: Diff two Genie snapshots of the same feature via genie.utils.diff.Diff.
+    overview: Diff one or more Genie features between two snapshots via genie.utils.diff.Diff.
     description: >
       Compare a live pyATS snapshot (from an upstream Get Snapshot step) against a
       stored reference snapshot using Genie's own structure-aware diff instead of a
-      plain text diff. Configure exclude_keys to ignore volatile fields (e.g. updated,
-      uptime) that Genie does not ignore automatically.
+      plain text diff. Select one or more Genie features to compare; a device matches
+      only when every selected feature is identical. Configure exclude_keys to ignore
+      volatile fields (e.g. updated, uptime) that Genie does not ignore automatically.
     artifact_type: control_flow
     palette_category: pyats
     directory: compare_pyats_snapshot
@@ -471,13 +472,17 @@ plugins:
       - name: failure
     metadata:
       configuration_input:
-        - name: feature
+        - name: features
           description: >
-            Single Genie feature name to compare (e.g. bgp). Use multiple step
-            instances to compare multiple features.
-          data_type: string
+            Genie feature names to compare (e.g. bgp, ospf, interface), selected
+            as a checkbox group. All selected features are read from the same
+            per-device live and reference snapshot files. A device routes to
+            match only when every feature is identical, to mismatch when any
+            feature differs, and to failure when any feature is absent or failed
+            on either side.
+          data_type: array
           required: true
-          example: bgp
+          example: ["bgp", "ospf"]
         - name: source_step_node_id
           description: >
             Canvas node id of the upstream Get Snapshot step producing the
