@@ -153,6 +153,15 @@ export function FanOutConfigSection({ value, onChange }: FanOutConfigSectionProp
                 onChange({ max_concurrency: Math.max(0, Number(e.target.value)) })
               }
             />
+            <p className="text-[10px] text-muted-foreground">
+              {value.mode === "chunked"
+                ? "The maximum number of chunks processed at the same time (each chunk is chunk_size devices). "
+                : "The maximum number of devices processed at the same time. "}
+              This is a rolling window: as soon as one
+              {value.mode === "chunked" ? " chunk" : " device"} finishes, the next
+              queued {value.mode === "chunked" ? "chunk" : "device"} starts — it
+              never waits for a whole batch to drain.
+            </p>
           </div>
 
           {value.max_concurrency === 0 && (
