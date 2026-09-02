@@ -1,0 +1,647 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-02T12:15:30.420Z",
+  "name": "Set SNMP config",
+  "description": "Set SNMP config",
+  "folder": "/",
+  "visibility": "private",
+  "canvas_nodes": [
+    {
+      "id": "get-nautobot-devices-1",
+      "type": "workflowNode",
+      "position": {
+        "x": -8.398273317305353,
+        "y": 470.82188547132046
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "23fe1bf8-11d5-42fc-9e73-ee41ec54f3d4",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "inventory_id": 1,
+          "inventory_name": "LAB",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "AND",
+            "negate": false,
+            "items": [
+              {
+                "id": "1788330324904-lggu7gv0b",
+                "field": "name",
+                "operator": "equals",
+                "value": "LAB"
+              }
+            ]
+          },
+          "device_ids": [],
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 348.773568391506,
+        "y": 470.82188547132046
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "0aa7796f-e49c-478a-8b80-a9f1d7dc0ae0",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices.",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "list_of_attributes": [
+            "config_context"
+          ]
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "run-command-3",
+      "type": "workflowNode",
+      "position": {
+        "x": 480.96119381035044,
+        "y": 659.9644817718587
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "run-command",
+        "stepUuid": "1e5d2433-25b7-46b6-afc3-814b0d38994e",
+        "title": "Run Command",
+        "overview": "Execute CLI commands on connected devices.",
+        "description": "Execute one or more CLI commands on connected devices.",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "credential_reference": "noc",
+          "commands": [
+            "show snmp user"
+          ],
+          "use_textfsm": true,
+          "network_driver_override": "",
+          "use_genie": false,
+          "pyats_source_id": "",
+          "genie_output_key": "genie"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "get-device-configs-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 841.478630562138,
+        "y": 659.9644817718587
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "52ded794-23a1-4cee-9e26-b43344ab5240",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_retrieval",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "credential_reference": "noc",
+          "config_format": "running"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "parse-cisco-config-5",
+      "type": "workflowNode",
+      "position": {
+        "x": 1204.5130021946334,
+        "y": 659.9644817718587
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "parse-cisco-config",
+        "stepUuid": "84e04486-9252-460b-a2ad-f7fb07d9a9c9",
+        "title": "Parse Cisco Config",
+        "overview": "Parse a Cisco running/startup config into structured data.",
+        "description": "Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.) using cisco-config-parser, for use by Jinja templates and Log Attributes.\n",
+        "artifactType": "configuration_retrieval",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "config_source": "running"
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "render-jinja-template-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 1204.5130021946334,
+        "y": 852.6052218384275
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "render-jinja-template",
+        "stepUuid": "1d6dd73b-a053-4ede-9a8d-06c285dbdcf7",
+        "title": "Render Jinja Template",
+        "overview": "Render a Jinja2 template per device.",
+        "description": "Render a Jinja2 template per device and store the result for downstream steps.",
+        "artifactType": "template_rendering",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [
+          "device_config"
+        ],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "output_key": "device_config",
+          "template_id": 2
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "deploy-rendered-template-7",
+      "type": "workflowNode",
+      "position": {
+        "x": 1204.5130021946334,
+        "y": 1050.5663319382807
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "deploy-rendered-template",
+        "stepUuid": "54ce402a-b611-4b53-b67d-3bc3303e495b",
+        "title": "Deploy rendered Template",
+        "overview": "Push a rendered template's commands to connected devices.",
+        "description": "Execute the commands produced by a Render Jinja Template step on connected devices, optionally saving the running configuration afterward.\n",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "credential_reference": "noc",
+          "source_step_node_id": "render-jinja-template-6",
+          "parsed_output_key": "device_config",
+          "execution_mode": "config_mode",
+          "network_driver_override": "",
+          "write_config_after_execution": false,
+          "read_timeout": 60,
+          "auto_confirm_prompts": false
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "notify-mattermost-8",
+      "type": "workflowNode",
+      "position": {
+        "x": 1038.9726833166487,
+        "y": 1252.5663319382807
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "1abb45eb-a10e-4de2-ba66-053bb3a66647",
+        "title": "Notify Success",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "Configured {device_count} devices {{devices}}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "notify-mattermost-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 1402.9726833166487,
+        "y": 1252.5663319382807
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "d475f687-e5d9-408c-bf5d-bcd42e46a6a5",
+        "title": "Notify Success",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "Failed to configured {device_count} devices {{devices}}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "notify-mattermost-10",
+      "type": "workflowNode",
+      "position": {
+        "x": 840.9726833166487,
+        "y": 846.5663319382807
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "c590dc39-2aab-49c2-9c69-5e4e09834a1a",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "Failed to get the device of {device_name}\n"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-1",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-2",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-1success-get-nautobot-attributes-2input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "get-nautobot-attributes-2",
+      "sourceHandle": "success",
+      "target": "run-command-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-2success-run-command-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "run-command-3",
+      "sourceHandle": "success",
+      "target": "get-device-configs-4",
+      "targetHandle": "input",
+      "id": "xy-edge__run-command-3success-get-device-configs-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-device-configs-4",
+      "sourceHandle": "success",
+      "target": "parse-cisco-config-5",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-4success-parse-cisco-config-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "parse-cisco-config-5",
+      "sourceHandle": "success",
+      "target": "render-jinja-template-6",
+      "targetHandle": "input",
+      "id": "xy-edge__parse-cisco-config-5success-render-jinja-template-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "render-jinja-template-6",
+      "sourceHandle": "success",
+      "target": "deploy-rendered-template-7",
+      "targetHandle": "input",
+      "id": "xy-edge__render-jinja-template-6success-deploy-rendered-template-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "deploy-rendered-template-7",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-8",
+      "targetHandle": "input",
+      "id": "xy-edge__deploy-rendered-template-7success-notify-mattermost-8input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "deploy-rendered-template-7",
+      "sourceHandle": "failure",
+      "target": "notify-mattermost-9",
+      "targetHandle": "input",
+      "id": "xy-edge__deploy-rendered-template-7failure-notify-mattermost-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "get-device-configs-4",
+      "sourceHandle": "failure",
+      "target": "notify-mattermost-10",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-4failure-notify-mattermost-10input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": [
+    {
+      "id": 2,
+      "name": "SNMPv3 config",
+      "description": "configures SNMPv3",
+      "template_type": "jinja2",
+      "category": "netmiko",
+      "content": "{#- ============================================================================\n    SNMPv3 reconciliation - Cisco IOS\n    ----------------------------------------------------------------------------\n    Data sources (render-jinja-template Jinja namespace):\n\n      nautobot.config_context.snmp\n          Desired SNMPv3 users. Each item:\n          user, group, auth_protocol, auth_password,\n          priv_protocol, priv_password, access (optional / may be empty)\n\n      commands_by_name['show snmp user'].parsed   (fallback: command.parsed)\n          Existing SNMPv3 users parsed from the live device. Each row:\n          user_name, group_name, authentication_protocol,\n          privacy_protocol, access_list\n\n      parsed.cisco_config.running.identity.snmp\n          Parsed running-config SNMP section (cisco-config-parser nests it\n          under \"identity\"). The presence of the key \"communities\" means the\n          device still has SNMPv1 communities.\n\n    Emitted order:\n      1. Remove stale / changed SNMPv3 users\n      2. Remove SNMPv1 communities\n      3. (Re)configure the desired SNMPv3 users\n\n    The trailing \"access <acl>\" is only emitted when the desired user has a\n    non-empty \"access\" value.\n   ============================================================================ -#}\n{% set _cc = nautobot.config_context if nautobot.config_context is defined else {} %}\n{% set desired = _cc.snmp if (_cc.snmp is defined and _cc.snmp) else [] %}\n{% set existing = [] %}\n{% if commands_by_name is defined and 'show snmp user' in commands_by_name %}\n{%   set existing = commands_by_name['show snmp user'].parsed or [] %}\n{% elif command is defined and command.name is defined and command.name == 'show snmp user' %}\n{%   set existing = command.parsed or [] %}\n{% endif %}\n{% set _pc = parsed.cisco_config if parsed.cisco_config is defined else {} %}\n{% set _run = _pc.running if _pc.running is defined else {} %}\n{% set _ident = _run.identity if _run.identity is defined else {} %}\n{% set snmp_cfg = _ident.snmp if (_ident.snmp is defined and _ident.snmp)\n                  else (_run.snmp if (_run.snmp is defined and _run.snmp) else {}) %}\n{#- normalise \"SHA\" / \"sha\", \"AES256\" / \"aes 256\" ... to a comparable token -#}\n{% macro norm(proto) %}\n{{- proto | default('', true) | string | lower | replace(' ', '') -}}\n{% endmacro %}\n{#- render one \"snmp-server user ...\" line; \"access\" appended only when set -#}\n{% macro user_line(prefix, u) %}\n{%- set acc = u.access if (u.access is defined and u.access) else '' -%}\n{{ prefix }}snmp-server user {{ u.user }} {{ u.group }} v3 auth {{ u.auth_protocol }} {{ u.auth_password }} priv {{ u.priv_protocol }} {{ u.priv_password }}{% if acc %} access {{ acc }}{% endif %}\n{%- endmacro %}\n{#- 1. remove stale or changed SNMPv3 users -#}\n{% for e in existing %}\n{%   set match = desired | selectattr('user', 'equalto', e.user_name) | list | first %}\n{%   if not match %}\nno snmp-server user {{ e.user_name }} {{ e.group_name }} v3\n{%   elif norm(e.authentication_protocol) != norm(match.auth_protocol) or norm(e.privacy_protocol) != norm(match.priv_protocol) %}\n{{ user_line('no ', match) }}\n{%   endif %}\n{% endfor %}\n{#- 2. remove SNMPv1 communities -#}\n{% if 'communities' in snmp_cfg %}\n{%   for c in snmp_cfg['communities'] %}\nno snmp-server community {{ c.community }}\n{%   endfor %}\n{% endif %}\n{#- 3. (re)configure the desired SNMPv3 users -#}\n{% for u in desired %}\n{{ user_line('', u) }}\n{% endfor %}",
+      "variables": {},
+      "pre_run_commands": [
+        "show snmp user"
+      ],
+      "pre_run_use_textfsm": true,
+      "nautobot_attributes": [
+        "config_context"
+      ]
+    }
+  ]
+}
