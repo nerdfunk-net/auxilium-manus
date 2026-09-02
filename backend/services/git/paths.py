@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.config import PROJECT_ROOT
+from core.domain_exceptions import AccessDeniedError
 
 _GIT_DATA_ROOT = PROJECT_ROOT / "data" / "git"
 
@@ -55,3 +56,19 @@ def repo_path(repository: dict) -> Path:
     except ValueError as exc:
         raise ValueError(f"repository path escapes data/git: {raw!r}") from exc
     return candidate
+
+
+def resolve_within_repo(repo_root: str | Path, relative: str | None) -> Path:
+    """Resolve ``relative`` under ``repo_root`` and fail closed if it escapes.
+
+    Uses proper path-boundary containment (``Path.is_relative_to``), not a string
+    ``startswith`` — ``/data/git/foo-other`` must not count as inside
+    ``/data/git/foo``. Symlinks are resolved (``Path.resolve``), matching the
+    previous ``os.path.realpath`` behaviour. An absolute or ``..`` ``relative``
+    that lands outside the repo raises ``AccessDeniedError``.
+    """
+    root = Path(repo_root).resolve()
+    target = (root / relative).resolve() if relative else root
+    if not target.is_relative_to(root):
+        raise AccessDeniedError("Access denied: path is outside repository")
+    return target

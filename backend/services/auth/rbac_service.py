@@ -122,6 +122,13 @@ class RBACService:
             return
         self._repo.assign_role_to_user(user_id, role.id)
 
+    def role_has_members(self, role_name: str) -> bool:
+        """True if at least one user currently holds the named role."""
+        role = self._repo.get_role_by_name(role_name)
+        if role is None:
+            return False
+        return bool(self._repo.get_users_with_role(role.id))
+
     # Permissions CRUD passthroughs
     def create_permission(
         self,

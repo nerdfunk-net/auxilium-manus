@@ -123,5 +123,35 @@ class RBACServiceHasPermissionTests(unittest.TestCase):
         )
 
 
+class RBACServiceRoleHasMembersTests(unittest.TestCase):
+    """S10: role_has_members backs the "grant bootstrap admin only if nobody
+    holds it" guard in main.py's lifespan and admin_reseed_rbac."""
+
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.service = RBACService(self.db)
+        self.service.create_role("admin")
+
+    def test_false_when_role_unassigned(self) -> None:
+        self.assertFalse(self.service.role_has_members("admin"))
+
+    def test_false_for_unknown_role(self) -> None:
+        self.assertFalse(self.service.role_has_members("nope"))
+
+    def test_true_after_assignment(self) -> None:
+        user = _make_user(self.db, "root")
+        self.service.assign_role_to_user_by_name(user.id, "admin")
+        self.assertTrue(self.service.role_has_members("admin"))
+
+    def test_false_again_after_last_member_removed(self) -> None:
+        user = _make_user(self.db, "root")
+        role = self.service._repo.get_role_by_name("admin")
+        self.service.assign_role_to_user_by_name(user.id, "admin")
+        self.service._repo.remove_role_from_user(user.id, role.id)
+        self.assertFalse(self.service.role_has_members("admin"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -74,7 +74,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     with SessionLocal() as db:
         admin_user = AuthService(db).ensure_initial_admin()
         seed_rbac(db)
-        RBACService(db).assign_role_to_user_by_name(admin_user.id, "admin")
+        rbac = RBACService(db)
+        # S10: only (re-)grant the bootstrap admin role when *nobody* holds it.
+        # First boot: the freshly created admin has no roles yet → granted.
+        # A deliberate demotion of INITIAL_USERNAME survives a restart as long as
+        # another admin remains. If every admin is gone, self-heal by granting it
+        # back to INITIAL_USERNAME.
+        if not rbac.role_has_members("admin"):
+            logger.warning(
+                "No user holds the 'admin' role; granting it to initial user '%s'",
+                admin_user.username,
+            )
+            rbac.assign_role_to_user_by_name(admin_user.id, "admin")
         LoggingSettingsService(db).apply_to_current_process("app")
 
     plugin_service = PluginRegistryService(

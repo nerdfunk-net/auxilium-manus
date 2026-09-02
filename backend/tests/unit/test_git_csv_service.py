@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,6 +75,15 @@ class GitCsvServiceTests(unittest.TestCase):
     def test_get_csv_headers_path_escape_denied(self) -> None:
         with self.assertRaises(AccessDeniedError):
             self.service.get_csv_headers(1, "../../etc/passwd")
+
+    def test_get_csv_headers_sibling_repo_denied(self) -> None:
+        # S8: a sibling dir sharing a name prefix must not be treated as in-repo.
+        sibling = self.root.parent / f"{self.root.name}-evil"
+        sibling.mkdir()
+        self.addCleanup(shutil.rmtree, sibling, ignore_errors=True)
+        (sibling / "secret.csv").write_text("x,y\n1,2\n")
+        with self.assertRaises(AccessDeniedError):
+            self.service.get_csv_headers(1, f"../{sibling.name}/secret.csv")
 
     def test_get_csv_headers_missing_file(self) -> None:
         with self.assertRaises(NotFoundError):

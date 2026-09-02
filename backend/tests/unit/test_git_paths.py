@@ -1,11 +1,14 @@
-"""Tests for git repository path resolution (M1)."""
+"""Tests for git repository path resolution (M1) and in-repo containment (S8)."""
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from core.config import PROJECT_ROOT
-from services.git.paths import repo_path
+from core.domain_exceptions import AccessDeniedError
+from services.git.paths import repo_path, resolve_within_repo
 
 
 class GitPathsTests(unittest.TestCase):
@@ -42,6 +45,45 @@ class GitPathsTests(unittest.TestCase):
             repo_path({"name": "", "path": None})
         with self.assertRaises(ValueError):
             repo_path({})
+
+
+class ResolveWithinRepoTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "data" / "git" / "foo"
+        (self.root / "sub").mkdir(parents=True)
+        (self.root / "sub" / "c.txt").write_text("ok")
+        # Sibling repo that shares a name prefix with self.root.
+        self.sibling = Path(self._tmp.name) / "data" / "git" / "foo-other"
+        self.sibling.mkdir(parents=True)
+        (self.sibling / "secret").write_text("secret")
+
+    def test_allows_nested_path(self) -> None:
+        result = resolve_within_repo(self.root, "sub/c.txt")
+        self.assertEqual(result, (self.root / "sub" / "c.txt").resolve())
+
+    def test_allows_empty_relative(self) -> None:
+        self.assertEqual(resolve_within_repo(self.root, None), self.root.resolve())
+        self.assertEqual(resolve_within_repo(self.root, ""), self.root.resolve())
+
+    def test_rejects_sibling_prefix(self) -> None:
+        # The old `startswith` check treated ".../foo-other" as inside ".../foo".
+        with self.assertRaises(AccessDeniedError):
+            resolve_within_repo(self.root, "../foo-other/secret")
+
+    def test_rejects_parent_escape(self) -> None:
+        with self.assertRaises(AccessDeniedError):
+            resolve_within_repo(self.root, "../../../etc/passwd")
+
+    def test_rejects_absolute_relative(self) -> None:
+        with self.assertRaises(AccessDeniedError):
+            resolve_within_repo(self.root, "/etc/passwd")
+
+    def test_accepts_str_or_path_root(self) -> None:
+        self.assertEqual(
+            resolve_within_repo(str(self.root), "sub"), (self.root / "sub").resolve()
+        )
 
 
 if __name__ == "__main__":

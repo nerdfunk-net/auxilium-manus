@@ -84,6 +84,35 @@ class AdminReseedRbacTests(unittest.TestCase):
         self.assertEqual(len(user_roles), 1)
         self.assertEqual(user_roles[0].role_id, new_admin_role.id)
 
+    def test_non_wipe_reseed_respects_deliberate_demotion(self) -> None:
+        # S10: once another admin exists, a non-wipe reseed must NOT re-grant
+        # the admin role to INITIAL_USERNAME after it was deliberately demoted.
+        admin_reseed_rbac(self.db, remove_existing=False)
+        admin_role = self.db.scalar(select(Role).where(Role.name == "admin"))
+
+        other = User(username="ops", password_hash="hash", is_active=True)
+        self.db.add(other)
+        self.db.commit()
+        self.db.refresh(other)
+        self.db.add(UserRole(user_id=other.id, role_id=admin_role.id))
+        # demote INITIAL_USERNAME
+        self.db.query(UserRole).filter(
+            UserRole.user_id == self.admin_user.id, UserRole.role_id == admin_role.id
+        ).delete()
+        self.db.commit()
+
+        admin_reseed_rbac(self.db, remove_existing=False)
+
+        initial_user_roles = list(
+            self.db.scalars(select(UserRole).where(UserRole.user_id == self.admin_user.id))
+        )
+        self.assertEqual(initial_user_roles, [])
+        # the other admin is untouched
+        other_roles = list(
+            self.db.scalars(select(UserRole).where(UserRole.user_id == other.id))
+        )
+        self.assertEqual([ur.role_id for ur in other_roles], [admin_role.id])
+
 
 if __name__ == "__main__":
     unittest.main()

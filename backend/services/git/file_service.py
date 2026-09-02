@@ -20,6 +20,7 @@ from core.domain_exceptions import (
 )
 from core.safe_http_errors import raise_internal_server_error
 from services.git.paths import repo_path as git_repo_path
+from services.git.paths import resolve_within_repo
 from services.git.repository_service import GitRepositoryService
 from services.git.shared_utils import get_git_repo_by_id
 
@@ -131,12 +132,7 @@ def _file_search_success(
 
 
 def _resolve_directory_listing_path(repo_path: str, path: str) -> str | None:
-    target_path = os.path.join(repo_path, path) if path else repo_path
-    target_path_resolved = os.path.realpath(target_path)
-    repo_path_resolved = os.path.realpath(repo_path)
-
-    if not target_path_resolved.startswith(repo_path_resolved):
-        raise AccessDeniedError("Access denied: path is outside repository")
+    target_path_resolved = str(resolve_within_repo(repo_path, path))
 
     if not os.path.exists(target_path_resolved):
         return None
@@ -495,12 +491,7 @@ class GitFileService:
             if not os.path.exists(repo_path):
                 raise NotFoundError(f"Repository directory not found: {repo_path}")
 
-            file_path = os.path.join(repo_path, path)
-            file_path_resolved = os.path.realpath(file_path)
-            repo_path_resolved = os.path.realpath(repo_path)
-
-            if not file_path_resolved.startswith(repo_path_resolved):
-                raise AccessDeniedError("Access denied: file path is outside repository")
+            file_path_resolved = str(resolve_within_repo(repo_path, path))
 
             if not os.path.exists(file_path_resolved):
                 raise NotFoundError(f"File not found: {path}")
@@ -546,12 +537,7 @@ class GitFileService:
             if not os.path.exists(repo_path):
                 raise NotFoundError("Repository directory not found")
 
-            file_path = os.path.join(repo_path, path)
-            file_path_resolved = os.path.realpath(file_path)
-            repo_path_resolved = os.path.realpath(repo_path)
-
-            if not file_path_resolved.startswith(repo_path_resolved):
-                raise AccessDeniedError("Access denied: file path is outside repository")
+            file_path_resolved = str(resolve_within_repo(repo_path, path))
 
             if not os.path.exists(file_path_resolved):
                 raise NotFoundError(f"File not found: {path}")
@@ -608,12 +594,7 @@ class GitFileService:
                     "repository_name": repository["name"],
                 }
 
-            target_path = os.path.join(repo_path, path) if path else repo_path
-            target_path_resolved = os.path.realpath(target_path)
-            repo_path_resolved = os.path.realpath(repo_path)
-
-            if not target_path_resolved.startswith(repo_path_resolved):
-                raise AccessDeniedError("Access denied: path is outside repository")
+            target_path_resolved = str(resolve_within_repo(repo_path, path))
 
             if not os.path.exists(target_path_resolved):
                 raise NotFoundError(f"Path not found: {path}")

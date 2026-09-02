@@ -9,13 +9,13 @@ import os
 from typing import Any
 
 from core.domain_exceptions import (
-    AccessDeniedError,
     DomainError,
     NotFoundError,
     ValidationFailedError,
 )
 from core.safe_http_errors import raise_internal_server_error
 from services.git.paths import repo_path as git_repo_path
+from services.git.paths import resolve_within_repo
 from services.git.repository_service import GitRepositoryService
 
 logger = logging.getLogger(__name__)
@@ -103,12 +103,7 @@ class GitCsvService:
             if not os.path.exists(repo_path_str):
                 raise NotFoundError("Repository directory not found")
 
-            file_path = os.path.join(repo_path_str, path)
-            file_path_resolved = os.path.realpath(file_path)
-            repo_path_resolved = os.path.realpath(repo_path_str)
-
-            if not file_path_resolved.startswith(repo_path_resolved):
-                raise AccessDeniedError("Access denied: path is outside repository")
+            file_path_resolved = str(resolve_within_repo(repo_path_str, path))
 
             if not os.path.exists(file_path_resolved):
                 raise NotFoundError(f"File not found: {path}")

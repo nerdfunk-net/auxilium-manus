@@ -149,7 +149,12 @@ def admin_reseed_rbac(db: Session, *, remove_existing: bool = False) -> RbacSeed
     from services.auth.rbac_service import RBACService
 
     admin_user = AuthService(db).ensure_initial_admin()
-    RBACService(db).assign_role_to_user_by_name(admin_user.id, "admin")
+    rbac = RBACService(db)
+    # After a wipe nobody holds any role, so this still re-grants (intended —
+    # remove_all_rbac_data cascaded user_roles). Without a wipe, respect a
+    # deliberate demotion exactly as main.py's lifespan does (S10).
+    if not rbac.role_has_members("admin"):
+        rbac.assign_role_to_user_by_name(admin_user.id, "admin")
 
     repo = RBACRepository(db)
     return RbacSeedResult(

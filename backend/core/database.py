@@ -41,10 +41,32 @@ def ping_database() -> None:
         db.execute(text("SELECT 1"))
 
 
-def init_db() -> None:
-    from migrations.auto_schema import AutoSchemaMigration
+# S11: fixed, arbitrary key (fits a signed 32-bit int) so every booting process
+# contends on the same Postgres advisory lock while syncing the schema.
+_SCHEMA_SYNC_LOCK_KEY = 911_020_902
 
+
+def init_db() -> None:
     ensure_database_exists()
+
+    # Serialize schema sync across processes/replicas. Two instances starting
+    # together would otherwise race on CREATE TABLE / ADD COLUMN / CREATE INDEX
+    # and one would error out. pg_advisory_xact_lock is released automatically
+    # when this transaction ends (commit or rollback), so a pooled connection
+    # cannot leak the lock. The lock connection is held open while
+    # AutoSchemaMigration / SchemaManager take their own pooled connections for
+    # the DDL (default pool size 5 + 10 overflow — plenty). A second booter
+    # blocks on the lock, then runs _sync_schema() and finds nothing to do.
+    with engine.begin() as lock_conn:
+        lock_conn.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": _SCHEMA_SYNC_LOCK_KEY},
+        )
+        _sync_schema()
+
+
+def _sync_schema() -> None:
+    from migrations.auto_schema import AutoSchemaMigration
 
     auto = AutoSchemaMigration(engine, Base)
     results = auto.run()
@@ -111,8 +133,15 @@ def ensure_database_exists() -> None:
             database_exists = cursor.fetchone() is not None
 
             if not database_exists:
-                cursor.execute(
-                    sql.SQL("CREATE DATABASE {}").format(
-                        sql.Identifier(settings.database_name),
-                    ),
-                )
+                try:
+                    cursor.execute(
+                        sql.SQL("CREATE DATABASE {}").format(
+                            sql.Identifier(settings.database_name),
+                        ),
+                    )
+                except psycopg.errors.DuplicateDatabase:
+                    # Another instance created it between our SELECT and now.
+                    logger.info(
+                        "Database %s already created by a concurrent starter",
+                        settings.database_name,
+                    )

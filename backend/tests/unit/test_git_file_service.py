@@ -166,6 +166,15 @@ class GitFileServiceTests(unittest.TestCase):
         with self.assertRaises(AccessDeniedError):
             self.service.get_file_content(1, "../../etc/passwd")
 
+    def test_get_file_content_sibling_repo_denied(self) -> None:
+        # S8: a sibling dir sharing a name prefix must not be treated as in-repo
+        # (the old `startswith` containment check let this through).
+        sibling = self.repo_dir.parent / f"{self.repo_dir.name}-evil"
+        sibling.mkdir()
+        (sibling / "secret").write_text("classified")
+        with self.assertRaises(AccessDeniedError):
+            self.service.get_file_content(1, f"../{sibling.name}/secret")
+
     def test_get_file_content_missing_file(self) -> None:
         with self.assertRaises(NotFoundError):
             self.service.get_file_content(1, "absent.cfg")
