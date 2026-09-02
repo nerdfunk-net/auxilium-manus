@@ -132,7 +132,7 @@ class TestChangePasswordEndpoint:
         )
         assert r.status_code == 422  # Pydantic min_length rejects it before the service runs
 
-    def test_success_returns_updated_user_and_clears_flag(self, ctx, monkeypatch) -> None:
+    def test_success_returns_fresh_session_and_clears_flag(self, ctx, monkeypatch) -> None:
         client, rate_limiter = ctx
         import core.auth as core_auth
 
@@ -142,7 +142,7 @@ class TestChangePasswordEndpoint:
         monkeypatch.setattr(
             AuthService,
             "change_password",
-            lambda self, user, cur, new: _user(must_change_password=False),
+            lambda self, user, cur, new: _user(must_change_password=False, token_version=1),
         )
 
         r = client.post(
@@ -151,7 +151,11 @@ class TestChangePasswordEndpoint:
         )
 
         assert r.status_code == 200
-        assert r.json()["must_change_password"] is False
+        payload = r.json()
+        # SessionResponse shape: a fresh token plus the user
+        assert isinstance(payload["access_token"], str) and payload["access_token"]
+        assert payload["expires_in"] > 0
+        assert payload["user"]["must_change_password"] is False
         rate_limiter.clear.assert_called_once()
 
     def test_rate_limited_returns_429(self, ctx) -> None:

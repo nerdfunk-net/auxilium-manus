@@ -66,13 +66,13 @@ async def get_me(
     return _build_user_response(current_user, db)
 
 
-@router.post("/change-password", response_model=UserResponse)
+@router.post("/change-password", response_model=SessionResponse)
 async def change_password(
     body: PasswordChangeRequest,
     current_user: User = Depends(get_current_user_allow_password_change),
     db: Session = Depends(get_db),
     rate_limiter: LoginRateLimiter = Depends(get_login_rate_limiter),
-) -> UserResponse:
+) -> SessionResponse:
     # Reuse the login rate limiter (a distinct key namespace) so the
     # current_password check above cannot be brute-forced.
     rate_limit_key = f"change-password:{current_user.id}"
@@ -84,8 +84,9 @@ async def change_password(
             detail="Too many password change attempts",
         ) from exc
 
+    auth_service = AuthService(db)
     try:
-        user = AuthService(db).change_password(
+        user = auth_service.change_password(
             current_user, body.current_password, body.new_password
         )
     except AuthenticationError as exc:
@@ -94,7 +95,16 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     rate_limiter.clear(rate_limit_key)
-    return _build_user_response(user, db)
+    # change_password bumped token_version, so the caller's current token is now
+    # stale. Hand back a fresh session so the client is not silently logged out
+    # (worst in the forced-change flow). sid_iat defaults to now — a password
+    # change deliberately restarts the absolute session clock.
+    access_token, expires_in = auth_service.create_access_token(user)
+    return SessionResponse(
+        access_token=access_token,
+        expires_in=expires_in,
+        user=_build_user_response(user, db),
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
