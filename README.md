@@ -89,6 +89,13 @@ failure):
 
 ![Set credentials workflow: parses device config, sets credentials, removes old users via a Jinja template, and deploys the changes to selected devices](screenshots/set-credentials.png)
 
+**Set SNMP config workflow** — selects devices from Nautobot, reads their configuration,
+parses Cisco config, renders a Jinja template to configure SNMPv3 and remove legacy
+SNMPv1 settings, and deploys the result back to the devices (with Mattermost
+notifications on success or failure):
+
+![Set SNMP config workflow: configures SNMPv3, removes old SNMPv1 config via a Jinja template, and deploys the changes to selected devices](screenshots/set-snmp-config.png)
+
 ## Installation
 
 See [INSTALL.md](INSTALL.md) for prerequisites, first-time setup, and how to run the app
