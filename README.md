@@ -85,6 +85,14 @@ GitPython, pyATS/Genie
 
 `/settings` redirects to `/settings/general`. `/` redirects to `/workflows`.
 
+## Examples
+
+**Config backup workflow** — selects devices from Nautobot, pulls their running and
+startup configuration, and commits the backups to a Git repository (with Mattermost
+notifications on failure):
+
+![Get Backups workflow: pulls running and startup config from selected devices and pushes the backups to a Git repository](screenshots/backup-workflow.png)
+
 ## Installation
 
 See [INSTALL.md](INSTALL.md) for prerequisites, first-time setup, and how to run the app
