@@ -222,7 +222,9 @@ export function ContentViewer({
       <pre
         className={cn(
           "overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 text-[11px] font-mono",
-          height === "full" ? "max-h-[calc(85vh-13rem)]" : "max-h-60",
+          height === "full"
+            ? "max-h-[calc(96vh-14rem)] min-h-32 resize-y"
+            : "max-h-60",
         )}
       >
         {segments.map((segment, index) => {

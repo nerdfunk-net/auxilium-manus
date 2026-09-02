@@ -273,7 +273,7 @@ export function DeviceDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[85vh] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className="flex h-[85vh] max-h-[96vh] min-h-[20rem] w-[64rem] min-w-[30rem] max-w-[96vw] flex-col gap-0 overflow-hidden p-0 resize">
         <DialogHeader className="shrink-0 space-y-1 border-b p-4">
           <DialogTitle className="flex items-center gap-2">
             <DeviceStatusIcon status={device.status} />
