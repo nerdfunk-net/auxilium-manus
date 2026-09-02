@@ -19,17 +19,24 @@ from services.auth.auth_service import AuthenticationError, AuthService
 from services.auth.rbac_service import RBACService
 
 
-def _make_user(*, user_id: int = 1, username: str = "alice", is_active: bool = True) -> User:
+def _make_user(
+    *, user_id: int = 1, username: str = "alice", is_active: bool = True, token_version: int = 0
+) -> User:
     user = User(username=username, password_hash="hash", is_active=is_active)
     user.id = user_id
+    user.token_version = token_version
     return user
 
 
 def _make_expired_token(user: User) -> str:
+    now = datetime.now(UTC)
     payload = {
         "sub": user.username,
         "user_id": user.id,
-        "exp": datetime.now(UTC) - timedelta(minutes=5),
+        "iat": int((now - timedelta(minutes=5)).timestamp()),
+        "sid_iat": int((now - timedelta(minutes=5)).timestamp()),
+        "tv": user.token_version,
+        "exp": now - timedelta(minutes=5),
     }
     return jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
@@ -121,6 +128,88 @@ class TestAuthServiceRefresh:
 
         with pytest.raises(AuthenticationError):
             service.refresh_access_token(stale_token)
+
+    def test_refresh_preserves_sid_iat(self) -> None:
+        user = _make_user()
+        service = AuthService(MagicMock())
+        service.users = MagicMock()
+        service.users.get_by_id.return_value = user
+
+        started = datetime.now(UTC) - timedelta(hours=2)
+        original, _ = service.create_access_token(user, sid_iat=started)
+        _u, refreshed, _e = service.refresh_access_token(original)
+
+        assert (
+            jwt.decode(refreshed, settings.secret_key, algorithms=["HS256"])["sid_iat"]
+            == jwt.decode(original, settings.secret_key, algorithms=["HS256"])["sid_iat"]
+        )
+
+    def test_refresh_rejects_when_session_max_age_exceeded(self) -> None:
+        user = _make_user()
+        service = AuthService(MagicMock())
+        service.users = MagicMock()
+        service.users.get_by_id.return_value = user
+
+        started = datetime.now(UTC) - timedelta(hours=settings.session_max_age_hours + 1)
+        # Build the token directly so create_access_token's own cap does not fire early.
+        payload = {
+            "sub": user.username,
+            "user_id": user.id,
+            "iat": int(started.timestamp()),
+            "sid_iat": int(started.timestamp()),
+            "tv": user.token_version,
+            "exp": datetime.now(UTC) - timedelta(minutes=1),
+        }
+        token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+        with pytest.raises(AuthenticationError):
+            service.refresh_access_token(token)
+
+    def test_refresh_rejects_stale_token_version(self) -> None:
+        user = _make_user(token_version=1)
+        service = AuthService(MagicMock())
+        service.users = MagicMock()
+        service.users.get_by_id.return_value = user
+
+        token, _ = service.create_access_token(user)  # tv = 1
+        user.token_version = 2  # a bump happened after the token was minted
+
+        with pytest.raises(AuthenticationError):
+            service.refresh_access_token(token)
+
+    def test_refresh_rejects_token_without_tv(self) -> None:
+        user = _make_user()
+        service = AuthService(MagicMock())
+        service.users = MagicMock()
+        service.users.get_by_id.return_value = user
+
+        payload = {
+            "sub": user.username,
+            "user_id": user.id,
+            "sid_iat": int(datetime.now(UTC).timestamp()),
+            "exp": datetime.now(UTC) - timedelta(minutes=1),
+        }
+        token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+        with pytest.raises(AuthenticationError):
+            service.refresh_access_token(token)
+
+    def test_refresh_rejects_token_without_sid_iat(self) -> None:
+        user = _make_user()
+        service = AuthService(MagicMock())
+        service.users = MagicMock()
+        service.users.get_by_id.return_value = user
+
+        payload = {
+            "sub": user.username,
+            "user_id": user.id,
+            "tv": user.token_version,
+            "exp": datetime.now(UTC) - timedelta(minutes=1),
+        }
+        token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+        with pytest.raises(AuthenticationError):
+            service.refresh_access_token(token)
 
 
 def _override_db() -> Iterator[MagicMock]:

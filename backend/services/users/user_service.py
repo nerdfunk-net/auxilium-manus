@@ -57,6 +57,20 @@ class UserService:
             updates["must_change_password"] = True  # admin-set password
         if is_active is not None:
             updates["is_active"] = is_active
+
+        # Kill outstanding tokens when the credential or identity changes, or on
+        # deactivation. Folded into the same write so the change is atomic.
+        if (
+            updates
+            and target is not None
+            and (
+                "password_hash" in updates
+                or "username" in updates
+                or updates.get("is_active") is False
+            )
+        ):
+            updates["token_version"] = target.token_version + 1
+
         return self._repo.update_user(user_id, **updates)
 
     def delete_user(self, user_id: int, *, actor_user_id: int | None = None) -> bool:
@@ -68,6 +82,13 @@ class UserService:
     ) -> User | None:
         if not is_active:
             self._assert_can_remove(user_id, actor_user_id)
+            target = self._repo.get_by_id(user_id)
+            if target is None:
+                return None
+            # Deactivation must also invalidate outstanding tokens.
+            return self._repo.update_user(
+                user_id, is_active=False, token_version=target.token_version + 1
+            )
         return self._repo.set_active(user_id, is_active)
 
     def _assert_can_remove(self, user_id: int, actor_user_id: int | None) -> None:

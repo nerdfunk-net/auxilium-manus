@@ -21,7 +21,7 @@ from services.auth.password_policy import PasswordPolicyError
 from services.auth.rbac_service import RBACService
 
 
-def _user(*, must_change_password: bool = True) -> User:
+def _user(*, must_change_password: bool = True, token_version: int = 0) -> User:
     user = User(
         username="alice",
         password_hash=password_hash.hash("old-correct-password"),
@@ -29,6 +29,7 @@ def _user(*, must_change_password: bool = True) -> User:
         must_change_password=must_change_password,
     )
     user.id = 1
+    user.token_version = token_version
     return user
 
 

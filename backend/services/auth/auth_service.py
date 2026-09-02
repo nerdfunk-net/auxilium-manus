@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -36,18 +37,44 @@ class AuthService:
 
         return user
 
-    def create_access_token(self, user: User) -> tuple[str, int]:
+    def create_access_token(
+        self,
+        user: User,
+        *,
+        sid_iat: datetime | None = None,
+    ) -> tuple[str, int]:
+        """Mint an access token.
+
+        ``sid_iat`` is the original login time, carried unchanged through every
+        refresh. When omitted (fresh login), the session starts now.
+        """
+        now = datetime.now(UTC)
+        session_started = sid_iat or now
+        max_age = timedelta(hours=settings.session_max_age_hours)
+
+        # Absolute cap: refuse to mint a token whose session is already too old.
+        if now - session_started > max_age:
+            raise AuthenticationError("Invalid authentication token")
+
+        # Clamp exp so a token never outlives the absolute session deadline.
         expires_delta = timedelta(minutes=settings.access_token_expire_minutes)
-        expires_at = datetime.now(UTC) + expires_delta
+        session_deadline = session_started + max_age
+        expires_at = min(now + expires_delta, session_deadline)
+
         payload = {
             "sub": user.username,
             "user_id": user.id,
+            "iat": int(now.timestamp()),
+            # Plain int timestamp so create / verify / refresh read back the same type.
+            "sid_iat": int(session_started.timestamp()),
+            "jti": secrets.token_urlsafe(16),
+            "tv": user.token_version,
             "exp": expires_at,
         }
 
         token = jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
-        return token, int(expires_delta.total_seconds())
+        return token, int((expires_at - now).total_seconds())
 
     def refresh_access_token(self, token: str) -> tuple[User, str, int]:
         """Re-issue an access token from a signed JWT, allowing expired tokens.
@@ -87,7 +114,20 @@ class AuthService:
         if user is None or not user.is_active or user.username != username:
             raise AuthenticationError("Invalid authentication token")
 
-        access_token, expires_in = self.create_access_token(user)
+        # Strict: the token must carry a matching `tv` and a numeric `sid_iat`.
+        # A pre-S5 token has neither and cannot be refreshed (intended).
+        token_version = payload.get("tv")
+        if not isinstance(token_version, int) or token_version != user.token_version:
+            raise AuthenticationError("Invalid authentication token")
+
+        sid_iat_raw = payload.get("sid_iat")
+        if not isinstance(sid_iat_raw, int | float):
+            raise AuthenticationError("Invalid authentication token")
+        sid_iat = datetime.fromtimestamp(sid_iat_raw, UTC)
+
+        # create_access_token re-checks the absolute session cap against sid_iat
+        # and raises AuthenticationError if it is exceeded.
+        access_token, expires_in = self.create_access_token(user, sid_iat=sid_iat)
         return user, access_token, expires_in
 
     def ensure_initial_admin(self) -> User:
@@ -118,6 +158,18 @@ class AuthService:
 
             return concurrent_user
 
+    def bump_token_version(self, user_id: int) -> None:
+        """Invalidate every outstanding access token for this user.
+
+        Used by logout and (folded into the same write) by password / username
+        change and deactivation.
+        """
+        user = self.users.get_by_id(user_id)
+        if user is None:
+            return
+        # update_user skips None values; token_version is always >= 1 here.
+        self.users.update_user(user_id, token_version=user.token_version + 1)
+
     def change_password(self, user: User, current_password: str, new_password: str) -> User:
         if not password_hash.verify(current_password, user.password_hash):
             raise AuthenticationError("Current password is incorrect")
@@ -126,5 +178,6 @@ class AuthService:
             user.id,
             password_hash=password_hash.hash(new_password),
             must_change_password=False,
+            token_version=user.token_version + 1,
         )
         return updated or user

@@ -85,7 +85,7 @@ class TestHandleCallback:
         client, oidc_service, fake_cache = ctx
         state = "corporate:state123"
         _seed_state(fake_cache, state, REDIRECT_URI)
-        user = MagicMock(id=1, username="jdoe")
+        user = MagicMock(id=1, username="jdoe", token_version=0)
         oidc_service.provision_or_get_user.return_value = user
 
         response = client.post(

@@ -47,6 +47,7 @@ class Settings:
     secret_key: str
     access_token_expire_minutes: int
     refresh_token_max_age_hours: int
+    session_max_age_hours: int
     kdf_iterations: int
     database_host: str
     database_port: int
@@ -96,6 +97,11 @@ class Settings:
         self.access_token_expire_minutes = self._get_int("ACCESS_TOKEN_EXPIRE_MINUTES", 60)
         self.refresh_token_max_age_hours = self._get_int("REFRESH_TOKEN_MAX_AGE_HOURS", 24)
         self._validate_refresh_token_max_age()
+        # Absolute session lifetime measured from the original login (claim
+        # `sid_iat`), carried unchanged through every refresh. Independent of the
+        # sliding access-token TTL and the refresh grace window.
+        self.session_max_age_hours = self._get_int("SESSION_MAX_AGE_HOURS", 12)
+        self._validate_session_max_age()
         # PBKDF2 iteration count for deriving the credential-encryption Fernet key
         # (core/crypto.py). Read here, not via raw os.getenv, so it is validated
         # once and visible in Settings.
@@ -173,6 +179,10 @@ class Settings:
     def _validate_refresh_token_max_age(self) -> None:
         if self.refresh_token_max_age_hours < 1:
             raise RuntimeError("REFRESH_TOKEN_MAX_AGE_HOURS must be at least 1")
+
+    def _validate_session_max_age(self) -> None:
+        if self.session_max_age_hours < 1:
+            raise RuntimeError("SESSION_MAX_AGE_HOURS must be at least 1")
 
     def _validate_kdf_iterations(self) -> None:
         if self.kdf_iterations < 100_000:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
@@ -66,6 +67,39 @@ def _load_active_user(token_payload: dict[str, Any], db: Session) -> User:
             detail="Invalid authentication token",
             headers=AUTHENTICATE_HEADER,
         )
+
+    # Revocation (S5): every access token carries `tv` = the user's
+    # token_version at mint time. A bump (logout, password / username change,
+    # deactivation) makes every older token's `tv` stale. Both sides are
+    # isinstance-guarded so a mocked user row with a non-int token_version does
+    # not trip this by accident — same philosophy as the `must_change_password
+    # is True` check in get_current_user / _require_active_user_id.
+    token_tv = token_payload.get("tv")
+    if (
+        isinstance(user.token_version, int)
+        and isinstance(token_tv, int)
+        and token_tv != user.token_version
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers=AUTHENTICATE_HEADER,
+        )
+
+    # Absolute session lifetime (S5): `sid_iat` is the original login time,
+    # carried unchanged through every refresh. Enforced whenever the claim is
+    # present — every token this code mints has it; the refresh path
+    # (AuthService.refresh_access_token) additionally *requires* it, so a token
+    # without it cannot be renewed and dies at its own `exp`.
+    sid_iat_raw = token_payload.get("sid_iat")
+    if isinstance(sid_iat_raw, int | float):
+        session_age = datetime.now(UTC) - datetime.fromtimestamp(sid_iat_raw, UTC)
+        if session_age > timedelta(hours=settings.session_max_age_hours):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token",
+                headers=AUTHENTICATE_HEADER,
+            )
 
     return user
 

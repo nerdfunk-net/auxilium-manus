@@ -24,6 +24,12 @@ class User(Base):
     must_change_password: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # Bumped on password change, username change, deactivation, and logout.
+    # Embedded in every access token as claim `tv`; verify / refresh reject a
+    # mismatch, so bumping it kills every outstanding token for this user.
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
