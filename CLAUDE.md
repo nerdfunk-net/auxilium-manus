@@ -120,6 +120,7 @@ export default function MyFeatureRoute() {
 - ✅ Add indexes, foreign keys, timestamps (`created_at`, `updated_at`)
 - ✅ Use repository pattern (BaseRepository in `/backend/repositories/base.py`)
 - ✅ Production database is PostgreSQL with SQLAlchemy ORM/Core (`./doc/MIGRATION_SYSTEM.md`). In-memory SQLite in **unit** tests is acceptable when queries do not rely on PostgreSQL-only features.
+- ✅ Startup schema sync (`core/database.py::init_db` → `AutoSchemaMigration`) runs under a Postgres `pg_advisory_xact_lock`, so concurrent replica boots serialize instead of racing on `CREATE TABLE`/`ADD COLUMN`/`CREATE INDEX`. This is a safety net, not a substitute for explicit migrations (Alembic) once you scale out.
 - ✅ Prefer SQLAlchemy ORM/Core for all runtime application data access. Repository-layer `sqlalchemy.text()` is allowed only under the rules in `doc/refactoring/REFACTORING_RAW_SQL.md` §3 (bound parameters, named constants for non-trivial SQL, no string composition of values, PostgreSQL integration coverage for dialect-specific behaviour). Health checks (`SELECT 1` in `core/database.py`) and migration/schema tooling are exempt.
 - ❌ Never call `text()` from routers, services, or Hatchet workers.
 - ❌ Never compose runtime values into raw SQL via f-strings or string concatenation.

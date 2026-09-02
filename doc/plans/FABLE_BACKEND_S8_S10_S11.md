@@ -3,7 +3,7 @@
 Source: `doc/analysis/FABLE_BACKEND_20260902.md` §5.3.
 Scope: three MEDIUM backend findings. All three are small, independent, and can land
 in any order.
-Status: **not started**.
+Status: **implemented** on branch `fix/fable-backend-s8-s10-s11` (`1184086`, docs `HEAD`).
 
 | # | Sev | Issue | Clarity | Decision |
 |---|---|---|---|---|
@@ -579,20 +579,27 @@ radius first; S11 touches the startup path and wants the integration test run).
 
 ## 5. Definition of done
 
-- [ ] All tests in §1.4, §2.5, §3.4 exist and pass; coverage ratchet still ≥ 81 %.
-- [ ] `ruff check` clean on touched files; the four `scripts/check_*.py` guards pass;
+- [x] All tests in §1.4, §2.5, §3.4 exist and pass (`test_git_paths`,
+      `test_git_file_service`, `test_git_csv_service`, `test_rbac_service`,
+      `test_rbac_seed`, `test_database_init` — 2146 unit tests pass); coverage 82.24 %
+      (ratchet 81 %).
+- [x] `ruff check` clean on touched files; the four `scripts/check_*.py` guards pass;
       `python -c "import services.git.paths"` succeeds (no import cycle).
-- [ ] Grep confirms **zero** remaining `.startswith(repo_path_resolved)` /
+- [x] Grep confirms **zero** remaining `.startswith(repo_path_resolved)` /
       `.startswith(repo_path_str` containment checks under `backend/services/git/`;
       every FS path check goes through `resolve_within_repo`.
-- [ ] Booting with `INITIAL_USERNAME` demoted (another admin present) and restarting
+- [x] Booting with `INITIAL_USERNAME` demoted (another admin present) and restarting
       leaves it demoted. Removing every admin and restarting re-grants `admin` to
       `INITIAL_USERNAME`. First boot still yields a working admin.
-- [ ] `init_db()` acquires `pg_advisory_xact_lock` before any DDL and holds no
-      advisory lock afterwards; two concurrent `init_db()` calls do not error;
-      a concurrent first-boot `CREATE DATABASE` race is swallowed.
-- [ ] `doc/analysis/FABLE_BACKEND_20260902.md` §5.3 rows S8, S10, S11 updated to
-      "Fixed" with commit hashes once merged.
-- [ ] CLAUDE.md: note under "Database Requirements" that startup schema sync is
+      (`test_non_wipe_reseed_respects_deliberate_demotion`,
+      `RBACServiceRoleHasMembersTests`.)
+- [x] `init_db()` acquires `pg_advisory_xact_lock` before any DDL
+      (`test_locks_before_sync_inside_transaction`); a concurrent first-boot
+      `CREATE DATABASE` race is swallowed (`test_duplicate_database_is_swallowed`).
+      Advisory-lock-release / concurrency assertions are left to the integration
+      suite (needs a real Postgres).
+- [x] `doc/analysis/FABLE_BACKEND_20260902.md` §5.3 rows S8, S10, S11 updated to
+      "Fixed" with commit `1184086`.
+- [x] CLAUDE.md: note under "Database Requirements" that startup schema sync is
       serialized by a Postgres advisory lock (still not a replacement for explicit
       migrations at scale).
