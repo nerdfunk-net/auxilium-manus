@@ -47,6 +47,7 @@ class Settings:
     secret_key: str
     access_token_expire_minutes: int
     refresh_token_max_age_hours: int
+    kdf_iterations: int
     database_host: str
     database_port: int
     database_name: str
@@ -95,6 +96,11 @@ class Settings:
         self.access_token_expire_minutes = self._get_int("ACCESS_TOKEN_EXPIRE_MINUTES", 60)
         self.refresh_token_max_age_hours = self._get_int("REFRESH_TOKEN_MAX_AGE_HOURS", 24)
         self._validate_refresh_token_max_age()
+        # PBKDF2 iteration count for deriving the credential-encryption Fernet key
+        # (core/crypto.py). Read here, not via raw os.getenv, so it is validated
+        # once and visible in Settings.
+        self.kdf_iterations = self._get_int("KDF_ITERATIONS", 100_000)
+        self._validate_kdf_iterations()
         self.database_host = environ.get("DATABASE_HOST", "localhost")
         self.database_port = self._get_int("DATABASE_PORT", 5432)
         self.database_name = environ.get("DATABASE_NAME", "manus")
@@ -167,6 +173,10 @@ class Settings:
     def _validate_refresh_token_max_age(self) -> None:
         if self.refresh_token_max_age_hours < 1:
             raise RuntimeError("REFRESH_TOKEN_MAX_AGE_HOURS must be at least 1")
+
+    def _validate_kdf_iterations(self) -> None:
+        if self.kdf_iterations < 100_000:
+            raise RuntimeError("KDF_ITERATIONS must be at least 100000")
 
     def _build_redis_url(self) -> str:
         if self.redis_password:

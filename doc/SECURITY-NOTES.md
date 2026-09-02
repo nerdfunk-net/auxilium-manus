@@ -56,3 +56,16 @@ diagnostic endpoint) are gated behind `require_permission("git.debug", "execute"
 level for every endpoint in that file. **Accepted as-is**: the permission gate is correctly and
 consistently applied; whether these debug endpoints should exist at all in a production build is a
 product decision, not a code defect, and is out of scope for this plan.
+
+## Credential encryption KDF salt is static
+
+`core/crypto.py` derives the Fernet key for credentials-at-rest with PBKDF2-HMAC-SHA256 using a
+**static** salt (`_KDF_SALT = b"auxilium-credential-encryption-v1"`). A per-value random salt is the
+norm when the KDF input is a *user password*; here the input is `CREDENTIAL_ENCRYPTION_KEY` (or
+`SECRET_KEY`), a high-entropy random value, so the KDF's role is key-stretching and domain separation
+from `SECRET_KEY`, not defence against a low-entropy dictionary attack — a static salt is adequate for
+that. The iteration count is `KDF_ITERATIONS` (default and enforced floor 100 000), read via
+`Settings`, and the derived key is cached per process so PBKDF2 runs once rather than per credentials
+request. **Accepted as-is**: rotating the salt would invalidate every stored ciphertext, so a salt
+change must be treated as a deliberate migration that re-encrypts the `credentials` table, not a
+config tweak.
