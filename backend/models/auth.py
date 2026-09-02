@@ -4,10 +4,19 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from services.auth.password_policy import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
+
 
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=1, max_length=128)
+
+
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(..., min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    new_password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
 
 class TokenResponse(BaseModel):
@@ -22,6 +31,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     is_active: bool
+    must_change_password: bool = False
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
 

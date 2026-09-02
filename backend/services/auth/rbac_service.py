@@ -6,6 +6,18 @@ from core.domain_exceptions import AccessDeniedError
 from core.models.rbac import Permission
 from repositories.rbac_repository import RBACRepository
 
+ADMIN_ROLE_NAME = "admin"
+# Permissions on these resources let a holder change who can do what; only
+# admins may hand them out or take them away (policy P3).
+PROTECTED_RESOURCES: tuple[str, ...] = ("rbac.", "users", "system.")
+
+
+def _is_protected(permission: Permission) -> bool:
+    return any(
+        permission.resource == prefix.rstrip(".") or permission.resource.startswith(prefix)
+        for prefix in PROTECTED_RESOURCES
+    )
+
 
 class RBACService:
     def __init__(self, db: Session) -> None:
@@ -16,6 +28,42 @@ class RBACService:
             return
         if not self.has_role(actor_user_id, "admin"):
             raise AccessDeniedError("Admin role required to modify system roles")
+
+    # ---- policy helpers (P1-P7, see doc/plans/FABE_BACKEND_ISSUES.md §2.2) ----
+
+    def _is_admin(self, user_id: int | None) -> bool:
+        return user_id is not None and self.has_role(user_id, ADMIN_ROLE_NAME)
+
+    def assert_not_self(self, actor_user_id: int | None, target_user_id: int) -> None:
+        if actor_user_id is not None and actor_user_id == target_user_id:
+            raise AccessDeniedError("You cannot change your own roles or permissions")  # P1
+
+    def may_touch_target(self, actor_user_id: int | None, target_user_id: int) -> None:
+        if actor_user_id is None or self._is_admin(actor_user_id):
+            return
+        if self._is_admin(target_user_id):
+            raise AccessDeniedError("Admin role required to modify an administrator")  # P4
+
+    def assert_actor_holds(self, actor_user_id: int | None, permissions: list[Permission]) -> None:
+        if actor_user_id is None or self._is_admin(actor_user_id):
+            return
+        for permission in permissions:
+            if _is_protected(permission):
+                raise AccessDeniedError(
+                    f"Admin role required to grant {permission.resource}:{permission.action}"
+                )  # P3
+            if not self.has_permission(actor_user_id, permission.resource, permission.action):
+                raise AccessDeniedError(
+                    f"You cannot grant {permission.resource}:{permission.action} "
+                    "because you do not hold it"
+                )  # P2
+
+    def assert_not_last_admin(self, user_id: int) -> None:
+        admin_role = self._repo.get_role_by_name(ADMIN_ROLE_NAME)
+        if admin_role is None or not self.has_role(user_id, ADMIN_ROLE_NAME):
+            return
+        if len(self._repo.get_users_with_role(admin_role.id)) <= 1:
+            raise AccessDeniedError("The last administrator cannot be removed")  # P6
 
     def has_permission(self, user_id: int, resource: str, action: str) -> bool:
         permission = self._repo.get_permission(resource, action)
@@ -114,8 +162,13 @@ class RBACService:
     def list_roles(self) -> list:
         return self._repo.list_roles()
 
-    def update_role(self, role_id: int, **kwargs: object):
-        return self._repo.update_role(role_id, **kwargs)
+    def update_role(self, role_id: int, *, name: str | None = None, description: str | None = None):
+        role = self.get_role(role_id)
+        if role is None:
+            return None
+        if role.is_system and name is not None and name != role.name:
+            raise AccessDeniedError("System roles cannot be renamed")  # P5
+        return self._repo.update_role(role_id, name=name, description=description)
 
     def delete_role(self, role_id: int) -> bool:
         return self._repo.delete_role(role_id)
@@ -135,6 +188,9 @@ class RBACService:
         role = self.get_role(role_id)
         if role is not None and role.is_system:
             self._require_admin_actor(actor_user_id)
+        permission = self._repo.get_permission_by_id(permission_id)
+        if permission is not None and granted:
+            self.assert_actor_holds(actor_user_id, [permission])  # P2/P3 also for non-system roles
         return self._repo.assign_permission_to_role(role_id, permission_id, granted)
 
     def remove_permission_from_role(
@@ -150,22 +206,55 @@ class RBACService:
 
     # User <-> Role
     def assign_role_to_user(self, user_id: int, role_id: int, *, actor_user_id: int | None = None):
+        self.assert_not_self(actor_user_id, user_id)  # P1
+        self.may_touch_target(actor_user_id, user_id)  # P4
         role = self.get_role(role_id)
         if role is not None and role.is_system:
             self._require_admin_actor(actor_user_id)
+        elif role is not None:
+            self.assert_actor_holds(actor_user_id, self._repo.get_role_permissions(role.id))  # P2
         return self._repo.assign_role_to_user(user_id, role_id)
 
-    def remove_role_from_user(self, user_id: int, role_id: int) -> bool:
+    def remove_role_from_user(
+        self, user_id: int, role_id: int, *, actor_user_id: int | None = None
+    ) -> bool:
+        self.assert_not_self(actor_user_id, user_id)  # P1
+        self.may_touch_target(actor_user_id, user_id)  # P4
+        role = self.get_role(role_id)
+        if role is not None and role.is_system:
+            self._require_admin_actor(actor_user_id)
+            if role.name == ADMIN_ROLE_NAME:
+                self.assert_not_last_admin(user_id)  # P6
         return self._repo.remove_role_from_user(user_id, role_id)
 
     def get_users_with_role(self, role_id: int) -> list:
         return self._repo.get_users_with_role(role_id)
 
     # User <-> Permission overrides
-    def assign_permission_to_user(self, user_id: int, permission_id: int, granted: bool = True):
+    def assign_permission_to_user(
+        self,
+        user_id: int,
+        permission_id: int,
+        granted: bool = True,
+        *,
+        actor_user_id: int | None = None,
+    ):
+        self.assert_not_self(actor_user_id, user_id)  # P1
+        self.may_touch_target(actor_user_id, user_id)  # P4
+        permission = self._repo.get_permission_by_id(permission_id)
+        if permission is not None:
+            if granted:
+                self.assert_actor_holds(actor_user_id, [permission])  # P2/P3
+            elif _is_protected(permission):
+                # A deny-override on a protected permission is as dangerous as an allow.
+                self._require_admin_actor(actor_user_id)
         return self._repo.assign_permission_to_user(user_id, permission_id, granted)
 
-    def remove_permission_from_user(self, user_id: int, permission_id: int) -> bool:
+    def remove_permission_from_user(
+        self, user_id: int, permission_id: int, *, actor_user_id: int | None = None
+    ) -> bool:
+        self.assert_not_self(actor_user_id, user_id)  # P1
+        self.may_touch_target(actor_user_id, user_id)  # P4
         return self._repo.remove_permission_from_user(user_id, permission_id)
 
     def get_user_permission_overrides_with_status(

@@ -105,6 +105,13 @@ class TestGetUpdateDelete:
         svc.update_role.return_value = _role(description="x")
         assert client.put("/api/rbac/roles/1", json={"description": "x"}).status_code == 200
 
+    def test_update_role_access_denied_403(self, ctx):
+        client, svc = ctx
+        svc.role_name_exists.return_value = False
+        svc.update_role.side_effect = AccessDeniedError("System roles cannot be renamed")
+        r = client.put("/api/rbac/roles/1", json={"name": "root"})
+        assert r.status_code == 403
+
     def test_delete_role_404_system_and_ok(self, ctx):
         client, svc = ctx
         svc.get_role.return_value = None

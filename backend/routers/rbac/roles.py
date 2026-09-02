@@ -111,7 +111,10 @@ async def update_role(
     ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Role name already exists")
 
-    role = service.update_role(role_id, name=payload.name, description=payload.description)
+    try:
+        role = service.update_role(role_id, name=payload.name, description=payload.description)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     return Role.model_validate(role)

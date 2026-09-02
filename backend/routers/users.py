@@ -8,8 +8,11 @@ from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
 from core.database import get_db
+from core.domain_exceptions import AccessDeniedError
+from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.rbac import UserAdminResponse, UserCreate, UserListResponse, UserUpdate
+from services.auth.password_policy import PasswordPolicyError
 from services.auth.rbac_service import RBACService
 from services.users.user_service import UserService
 
@@ -63,6 +66,8 @@ async def create_user(
     try:
         user = service.create_user(payload.username, payload.password, payload.is_active)
         return _to_response(user, rbac)
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -98,6 +103,7 @@ async def update_user(
     payload: UserUpdate,
     service: UserService = Depends(_user_service),
     rbac: RBACService = Depends(_rbac_service),
+    current_user: User = Depends(get_current_user),
 ) -> UserAdminResponse:
     try:
         user = service.update_user(
@@ -105,7 +111,12 @@ async def update_user(
             username=payload.username,
             password=payload.password,
             is_active=payload.is_active,
+            actor_user_id=current_user.id,
         )
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -122,8 +133,15 @@ async def update_user(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("users", "delete"))],
 )
-async def delete_user(user_id: int, service: UserService = Depends(_user_service)) -> None:
-    deleted = service.delete_user(user_id)
+async def delete_user(
+    user_id: int,
+    service: UserService = Depends(_user_service),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    try:
+        deleted = service.delete_user(user_id, actor_user_id=current_user.id)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -138,8 +156,12 @@ async def set_user_active(
     is_active: bool,
     service: UserService = Depends(_user_service),
     rbac: RBACService = Depends(_rbac_service),
+    current_user: User = Depends(get_current_user),
 ) -> UserAdminResponse:
-    user = service.set_active(user_id, is_active)
+    try:
+        user = service.set_active(user_id, is_active, actor_user_id=current_user.id)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return _to_response(user, rbac)

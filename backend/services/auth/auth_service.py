@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from core.config import DEFAULT_INITIAL_PASSWORD, settings
 from core.models.users import User
 from repositories.user_repository import UserRepository
+from services.auth.password_policy import validate_password
 
 password_hash = PasswordHash.recommended()
 dummy_password_hash = password_hash.hash("dummy-password")
@@ -106,6 +107,7 @@ class AuthService:
                 username=settings.initial_username,
                 password_hash=password_hash.hash(settings.initial_password),
                 is_active=True,
+                must_change_password=True,  # bootstrap credential is never a long-term one
             )
         except IntegrityError:
             self.users.db.rollback()
@@ -115,3 +117,14 @@ class AuthService:
                 raise
 
             return concurrent_user
+
+    def change_password(self, user: User, current_password: str, new_password: str) -> User:
+        if not password_hash.verify(current_password, user.password_hash):
+            raise AuthenticationError("Current password is incorrect")
+        validate_password(new_password, username=user.username)  # PasswordPolicyError → 400
+        updated = self.users.update_user(
+            user.id,
+            password_hash=password_hash.hash(new_password),
+            must_change_password=False,
+        )
+        return updated or user

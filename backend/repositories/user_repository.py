@@ -16,6 +16,14 @@ class UserRepository:
     def get_by_username(self, username: str) -> User | None:
         return self.db.scalar(select(User).where(User.username == username))
 
+    def get_by_oidc_identity(self, provider_id: str, subject: str) -> User | None:
+        return self.db.scalar(
+            select(User).where(
+                User.oidc_provider == provider_id,
+                User.oidc_subject == subject,
+            )
+        )
+
     def create_user(
         self,
         username: str,
@@ -24,6 +32,8 @@ class UserRepository:
         email: str | None = None,
         display_name: str | None = None,
         oidc_provider: str | None = None,
+        oidc_subject: str | None = None,
+        must_change_password: bool = False,
     ) -> User:
         user = User(
             username=username,
@@ -32,6 +42,8 @@ class UserRepository:
             email=email,
             display_name=display_name,
             oidc_provider=oidc_provider,
+            oidc_subject=oidc_subject,
+            must_change_password=must_change_password,
         )
         self.db.add(user)
         self.db.commit()

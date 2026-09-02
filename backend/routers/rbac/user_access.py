@@ -107,8 +107,12 @@ async def remove_user_role(
     user_id: int,
     role_id: int,
     service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
 ) -> None:
-    removed = service.remove_role_from_user(user_id, role_id)
+    try:
+        removed = service.remove_role_from_user(user_id, role_id, actor_user_id=current_user.id)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if not removed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -138,13 +142,19 @@ async def set_user_permission_override(
     payload: UserPermissionAssignment,
     db: Session = Depends(get_db),
     service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
 ) -> None:
     if UserService(db).get_user(user_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if service.get_permission_by_id(payload.permission_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")
 
-    service.assign_permission_to_user(user_id, payload.permission_id, payload.granted)
+    try:
+        service.assign_permission_to_user(
+            user_id, payload.permission_id, payload.granted, actor_user_id=current_user.id
+        )
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.delete(
@@ -156,8 +166,14 @@ async def remove_user_permission_override(
     user_id: int,
     permission_id: int,
     service: RBACService = Depends(_service),
+    current_user: User = Depends(get_current_user),
 ) -> None:
-    removed = service.remove_permission_from_user(user_id, permission_id)
+    try:
+        removed = service.remove_permission_from_user(
+            user_id, permission_id, actor_user_id=current_user.id
+        )
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     if not removed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
