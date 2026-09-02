@@ -90,3 +90,15 @@ locally or via Docker.
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+
+## About this project
+
+This project was built largely through *vibecoding* — iterative development with AI
+assistants rather than hand-written code from scratch. Most of the implementation was done
+with [Claude](https://claude.ai) and [Cursor](https://cursor.com), using models such as
+Claude Sonnet 5 and Composer. The codebase has also been reviewed and analyzed with Fable
+and other models along the way.
+
+You are welcome to use this software for free, but **at your own risk**. The current
+version is not yet stable; you may encounter bugs, incomplete behavior, or breaking
+changes. New features and fixes will be added from time to time as the project evolves.
