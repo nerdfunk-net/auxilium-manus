@@ -82,6 +82,13 @@ notifications on failure):
 
 ![Get Backups workflow: pulls running and startup config from selected devices and pushes the backups to a Git repository](screenshots/backup-workflow.png)
 
+**Set credentials workflow** — selects devices from Nautobot, reads their configuration,
+parses Cisco config, renders a Jinja template to set credentials and remove old users,
+and deploys the result back to the devices (with Mattermost notifications on success or
+failure):
+
+![Set credentials workflow: parses device config, sets credentials, removes old users via a Jinja template, and deploys the changes to selected devices](screenshots/set-credentials.png)
+
 ## Installation
 
 See [INSTALL.md](INSTALL.md) for prerequisites, first-time setup, and how to run the app
