@@ -1,6 +1,6 @@
-# Review: open questions and gaps in `FABE_BACKEND_ISSUES.md`
+# Review: open questions and gaps in `FABLE_BACKEND_ISSUES.md`
 
-Source plan: `doc/plans/FABE_BACKEND_ISSUES.md`, itself sourced from
+Source plan: `doc/plans/FABLE_BACKEND_ISSUES.md`, itself sourced from
 `doc/analysis/FABLE_BACKEND_20260902.md` §5.3 (S1, S2+S3, S4, S6).
 Status: **resolved 2026-09-02**. Every item below was folded into the plan; see its §0.1
 "Review resolutions" table (R1–R5) for the decision taken and the section that changed. Kept as
