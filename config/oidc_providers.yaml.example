@@ -29,6 +29,10 @@ providers:
     discovery_url: "https://keycloak.example.com/realms/production/.well-known/openid-configuration"
 
     # client_id / client_secret: OAuth 2.0 confidential client credentials. Required.
+    # Prefer setting the secret via the environment so it is not on disk:
+    #   OIDC_<PROVIDER_ID>_CLIENT_SECRET  (provider id upper-cased, non-alnum -> _)
+    #   e.g. this provider ("corporate") -> OIDC_CORPORATE_CLIENT_SECRET
+    # The env var wins over the YAML value; the YAML value is the local/dev fallback.
     client_id: "manus-production"
     client_secret: "your-client-secret-here"
 

@@ -3,8 +3,12 @@ user-provisioning role-fallback behavior (no real network calls)."""
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import os
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,6 +19,7 @@ from core.models.users import User
 from services.auth.oidc_service import (
     OIDCApprovalPendingError,
     OIDCAutoProvisioningDisabledError,
+    OIDCConfig,
     OIDCError,
     OIDCIdentityConflictError,
     OIDCService,
@@ -282,3 +287,162 @@ class ProvisionOrGetUserTests(unittest.TestCase):
         user = self.db.query(User).filter_by(username="jdoe").one()
         self.assertEqual(user.oidc_provider, "corporate")
         self.assertEqual(user.oidc_subject, "abc123")
+
+
+_OIDC_CONFIG = OIDCConfig(
+    issuer="https://idp.example",
+    authorization_endpoint="https://idp.example/authorize",
+    token_endpoint="https://idp.example/token",
+    userinfo_endpoint="https://idp.example/userinfo",
+    jwks_uri="https://idp.example/jwks",
+)
+
+
+def _service_with_secret(**provider: object) -> OIDCService:
+    config_service = MagicMock()
+    config_service.get_provider.return_value = {
+        "provider_id": "corporate",
+        "enabled": True,
+        "client_id": "manus",
+        "client_secret": "yaml-secret",
+        **provider,
+    }
+    service = OIDCService(config_service)
+    service.get_oidc_config = AsyncMock(return_value=_OIDC_CONFIG)  # type: ignore[method-assign]
+    service._get_ssl_context = MagicMock(return_value=None)  # type: ignore[method-assign]
+    return service
+
+
+class PkceHelperTests(unittest.TestCase):
+    def test_generate_pkce_pair_uses_s256(self) -> None:
+        service = _make_service({})
+        verifier, challenge = service.generate_pkce_pair()
+        expected = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest())
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+        self.assertEqual(challenge, expected)
+        self.assertNotIn("=", challenge)
+
+    def test_generate_nonce_is_unique(self) -> None:
+        service = _make_service({})
+        self.assertNotEqual(service.generate_nonce(), service.generate_nonce())
+
+
+class ClientSecretResolutionTests(unittest.TestCase):
+    def test_env_var_overrides_yaml(self) -> None:
+        service = _make_service({"client_secret": "yaml-secret"})
+        with patch.dict("os.environ", {"OIDC_CORPORATE_CLIENT_SECRET": "env-secret"}):
+            secret = service._client_secret("corporate", {"client_secret": "yaml-secret"})
+        self.assertEqual(secret, "env-secret")
+
+    def test_falls_back_to_yaml(self) -> None:
+        service = _make_service({})
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OIDC_CORPORATE_CLIENT_SECRET", None)
+            secret = service._client_secret("corporate", {"client_secret": "yaml-secret"})
+        self.assertEqual(secret, "yaml-secret")
+
+    def test_empty_when_neither_set(self) -> None:
+        service = _make_service({})
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OIDC_CORPORATE_CLIENT_SECRET", None)
+            self.assertEqual(service._client_secret("corporate", {}), "")
+
+
+class AuthorizationUrlTests(unittest.IsolatedAsyncioTestCase):
+    async def test_url_includes_nonce_and_pkce(self) -> None:
+        service = _service_with_secret()
+        url = await service.generate_authorization_url(
+            "corporate",
+            "https://app/callback",
+            "corporate:state",
+            nonce="the-nonce",
+            code_challenge="the-challenge",
+        )
+        query = parse_qs(urlparse(url).query)
+        self.assertEqual(query["nonce"], ["the-nonce"])
+        self.assertEqual(query["code_challenge"], ["the-challenge"])
+        self.assertEqual(query["code_challenge_method"], ["S256"])
+
+
+class ExchangeCodeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sends_code_verifier_and_env_secret(self) -> None:
+        service = _service_with_secret()
+
+        captured: dict[str, object] = {}
+
+        class _Resp:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict[str, str]:
+                return {"id_token": "abc"}
+
+        class _Client:
+            async def __aenter__(self) -> _Client:
+                return self
+
+            async def __aexit__(self, *_a: object) -> None:
+                return None
+
+            async def post(self, _url: str, data: dict[str, object]) -> _Resp:
+                captured.update(data)
+                return _Resp()
+
+        with patch("services.auth.oidc_service.httpx.AsyncClient", lambda **_k: _Client()):
+            with patch.dict("os.environ", {"OIDC_CORPORATE_CLIENT_SECRET": "env-secret"}):
+                await service.exchange_code_for_tokens(
+                    "corporate", "the-code", "https://app/callback", code_verifier="the-verifier"
+                )
+
+        self.assertEqual(captured["code_verifier"], "the-verifier")
+        self.assertEqual(captured["client_secret"], "env-secret")
+
+    async def test_missing_secret_raises_before_http(self) -> None:
+        service = _service_with_secret(client_secret="")
+
+        def _boom(**_k: object) -> None:
+            raise AssertionError("no HTTP call expected")
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OIDC_CORPORATE_CLIENT_SECRET", None)
+            with patch("services.auth.oidc_service.httpx.AsyncClient", _boom):
+                with self.assertRaises(OIDCError):
+                    await service.exchange_code_for_tokens(
+                        "corporate", "c", "https://app/callback", code_verifier="v"
+                    )
+
+
+class VerifyIdTokenNonceTests(unittest.IsolatedAsyncioTestCase):
+    def _service(self) -> OIDCService:
+        service = _service_with_secret()
+        jwks_client = MagicMock()
+        jwks_client.get_signing_key_from_jwt.return_value = MagicMock(key="k")
+        service._get_jwks_client = MagicMock(return_value=jwks_client)  # type: ignore[method-assign]
+        return service
+
+    async def test_accepts_matching_nonce(self) -> None:
+        service = self._service()
+        with patch(
+            "services.auth.oidc_service.jwt.decode",
+            return_value={"sub": "s", "nonce": "good"},
+        ):
+            claims = await service.verify_id_token("corporate", "tok", nonce="good")
+        self.assertEqual(claims["sub"], "s")
+
+    async def test_rejects_wrong_nonce(self) -> None:
+        service = self._service()
+        with patch(
+            "services.auth.oidc_service.jwt.decode",
+            return_value={"sub": "s", "nonce": "wrong"},
+        ):
+            with self.assertRaises(OIDCError):
+                await service.verify_id_token("corporate", "tok", nonce="good")
+
+    async def test_rejects_missing_nonce(self) -> None:
+        service = self._service()
+        with patch("services.auth.oidc_service.jwt.decode", return_value={"sub": "s"}):
+            with self.assertRaises(OIDCError):
+                await service.verify_id_token("corporate", "tok", nonce="good")

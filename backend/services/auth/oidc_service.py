@@ -7,7 +7,10 @@ matches JWKS keys by `kid` internally — no separate JWT library is needed.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
+import os
 import secrets
 import ssl
 from dataclasses import dataclass
@@ -151,6 +154,31 @@ class OIDCService:
     def generate_state(self) -> str:
         return secrets.token_urlsafe(32)
 
+    def generate_nonce(self) -> str:
+        """Opaque value bound to the browser session; echoed in the ID token."""
+        return secrets.token_urlsafe(32)
+
+    def generate_pkce_pair(self) -> tuple[str, str]:
+        """Return ``(code_verifier, code_challenge)`` for PKCE with S256."""
+        verifier = secrets.token_urlsafe(64)
+        digest = hashlib.sha256(verifier.encode("ascii")).digest()
+        challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+        return verifier, challenge
+
+    def _client_secret(self, provider_id: str, provider: dict[str, Any]) -> str:
+        """Resolve the confidential-client secret: ``OIDC_<PROVIDER_ID>_CLIENT_SECRET``
+        env var wins, else the YAML ``client_secret``. ``provider_id`` is passed
+        explicitly — the raw provider dict is not guaranteed to carry it.
+        """
+        env_key = (
+            "OIDC_"
+            + "".join(ch.upper() if ch.isalnum() else "_" for ch in provider_id)
+            + "_CLIENT_SECRET"
+        )
+        while "__" in env_key:
+            env_key = env_key.replace("__", "_")
+        return os.environ.get(env_key) or provider.get("client_secret") or ""
+
     async def generate_authorization_url(
         self,
         provider_id: str,
@@ -160,6 +188,8 @@ class OIDCService:
         scopes: list[str] | None = None,
         response_type: str = "code",
         client_id: str | None = None,
+        nonce: str,
+        code_challenge: str,
     ) -> str:
         provider = self._get_provider_config(provider_id)
         config = await self.get_oidc_config(provider_id)
@@ -170,23 +200,34 @@ class OIDCService:
             "scope": " ".join(scopes or provider.get("scopes") or DEFAULT_SCOPES),
             "redirect_uri": redirect_uri,
             "state": state,
+            "nonce": nonce,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
         }
 
         return str(httpx.URL(config.authorization_endpoint).copy_with(params=params))
 
     async def exchange_code_for_tokens(
-        self, provider_id: str, code: str, redirect_uri: str
+        self, provider_id: str, code: str, redirect_uri: str, *, code_verifier: str
     ) -> dict[str, Any]:
         provider = self._get_provider_config(provider_id)
         config = await self.get_oidc_config(provider_id)
         ssl_context = self._get_ssl_context(provider_id)
+
+        client_secret = self._client_secret(provider_id, provider)
+        if not client_secret:
+            raise OIDCError(
+                f"No client_secret configured for OIDC provider '{provider_id}' "
+                f"(set OIDC_<PROVIDER_ID>_CLIENT_SECRET or the YAML client_secret)"
+            )
 
         data = {
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": redirect_uri,
             "client_id": provider["client_id"],
-            "client_secret": provider["client_secret"],
+            "client_secret": client_secret,
+            "code_verifier": code_verifier,
         }
 
         async with httpx.AsyncClient(
@@ -216,7 +257,9 @@ class OIDCService:
         self._jwks_clients[provider_id] = client
         return client
 
-    async def verify_id_token(self, provider_id: str, id_token: str) -> dict[str, Any]:
+    async def verify_id_token(
+        self, provider_id: str, id_token: str, *, nonce: str
+    ) -> dict[str, Any]:
         provider = self._get_provider_config(provider_id)
         config = await self.get_oidc_config(provider_id)
         jwks_client = self._get_jwks_client(provider_id, config.jwks_uri)
@@ -232,6 +275,16 @@ class OIDCService:
             )
         except jwt.InvalidTokenError as exc:
             raise OIDCError(f"Invalid ID token from provider '{provider_id}'") from exc
+
+        # Bind the ID token to the browser session that started this login.
+        token_nonce = claims.get("nonce")
+        if (
+            not nonce
+            or not isinstance(token_nonce, str)
+            or not token_nonce
+            or not secrets.compare_digest(token_nonce, nonce)
+        ):
+            raise OIDCError(f"Invalid ID token from provider '{provider_id}'")
 
         return claims
 

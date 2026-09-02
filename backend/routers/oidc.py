@@ -132,6 +132,8 @@ async def _build_login_response(
     try:
         state = oidc_service.generate_state()
         state_with_provider = f"{provider_id}:{state}"
+        nonce = oidc_service.generate_nonce()
+        code_verifier, code_challenge = oidc_service.generate_pkce_pair()
         authorization_url = await oidc_service.generate_authorization_url(
             provider_id,
             redirect_uri,
@@ -139,12 +141,20 @@ async def _build_login_response(
             scopes=scopes,
             response_type=response_type,
             client_id=client_id,
+            nonce=nonce,
+            code_challenge=code_challenge,
         )
     except OIDCError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     cache.set(
-        f"oidc-state:{state_with_provider}", redirect_uri, ttl_seconds=OIDC_STATE_TTL_SECONDS
+        f"oidc-state:{state_with_provider}",
+        {
+            "redirect_uri": redirect_uri,
+            "nonce": nonce,
+            "code_verifier": code_verifier,
+        },
+        ttl_seconds=OIDC_STATE_TTL_SECONDS,
     )
 
     return OIDCLoginResponse(
@@ -170,10 +180,14 @@ async def handle_callback(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state")
 
     state_key = f"oidc-state:{body.state}"
-    stored_redirect_uri = cache.get(state_key)
-    if stored_redirect_uri is None:
+    stored = cache.get(state_key)
+    if not isinstance(stored, dict) or "redirect_uri" not in stored:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state")
     cache.delete(state_key)
+
+    stored_redirect_uri = stored["redirect_uri"]
+    nonce = stored.get("nonce") or ""
+    code_verifier = stored.get("code_verifier") or ""
 
     redirect_uri = body.redirect_uri or ""
     try:
@@ -182,14 +196,16 @@ async def handle_callback(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
-        tokens = await oidc_service.exchange_code_for_tokens(provider_id, body.code, redirect_uri)
+        tokens = await oidc_service.exchange_code_for_tokens(
+            provider_id, body.code, redirect_uri, code_verifier=code_verifier
+        )
         id_token = tokens.get("id_token")
         if not id_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Provider did not return an ID token",
             )
-        claims = await oidc_service.verify_id_token(provider_id, id_token)
+        claims = await oidc_service.verify_id_token(provider_id, id_token, nonce=nonce)
         user_data = oidc_service.extract_user_data(provider_id, claims)
         user = oidc_service.provision_or_get_user(provider_id, user_data, db)
     except OIDCApprovalPendingError as exc:
