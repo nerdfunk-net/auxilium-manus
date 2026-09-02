@@ -160,12 +160,36 @@ export default function MyFeatureRoute() {
 {
   "sub": "username",
   "user_id": 123,
-  "exp": 1234567890
+  "iat": 1234567890,      # mint time (Unix seconds)
+  "sid_iat": 1234567890,  # original login time; carried UNCHANGED through every refresh
+  "jti": "…",             # random per-token id (minted, not yet consumed)
+  "tv": 0,                # user.token_version at mint time
+  "exp": 1234567890,      # clamped so it never outlives sid_iat + SESSION_MAX_AGE_HOURS
 }
 ```
 Permissions are **not** embedded in the JWT. Authorization is evaluated per-request
 against the database via `RBACService.has_permission(user_id, resource, action)` — there
 is no caching and no JWT permission claim to keep in sync.
+
+**Revocation (`token_version`).** `users.token_version` is an int column embedded in every
+access token as `tv`. Bumping it invalidates every outstanding token for that user. It is
+bumped by: `AuthService.bump_token_version` (`POST /auth/logout`), `AuthService.change_password`
+(self-service change — folded into the same write), and `UserService.update_user` /
+`set_active` on an admin password change, username change, or deactivation.
+`core/auth.py::_load_active_user` rejects a token whose `tv` mismatches the row (both sides
+isinstance-guarded, matching the `must_change_password is True` test-double tolerance);
+`AuthService.refresh_access_token` is strict and additionally requires a numeric `sid_iat`,
+so a pre-`tv` token cannot be refreshed. Legacy pre-`tv`/`sid_iat` tokens are not
+proactively 401'd on a plain request but die at their own `exp` (≤ 60 min) since they
+cannot be renewed.
+
+**Absolute session lifetime (`SESSION_MAX_AGE_HOURS`, default 12, floor 1).** Measured from
+`sid_iat`, which `create_access_token` preserves across refreshes. `_load_active_user` and
+`refresh_access_token` both reject a session older than this regardless of per-token `exp`.
+A successful `POST /auth/change-password` returns a fresh `SessionResponse` (new token,
+`sid_iat = now` — a password change deliberately restarts the clock); the Next.js
+`app/api/auth/change-password/route.ts` re-sets the auth cookie from it so the
+forced-change flow does not bounce the user back to login.
 
 ### RBAC Data Model
 Five tables in `/backend/core/models/rbac.py`: `roles`, `permissions`, `role_permissions`,
@@ -250,6 +274,16 @@ over — an IdP-controlled claim must never be able to select an existing local 
 admin binds an identity to a pre-existing account explicitly (`oidc_provider`/`oidc_subject`
 on `UserUpdate`); a brand-new IdP user still self-provisions inactive, pending admin
 approval, as before. See `backend/services/auth/oidc_service.py::provision_or_get_user`.
+
+**Auth-request hardening.** The authorization request carries a `nonce` and PKCE
+(`code_challenge`/`code_challenge_method=S256`). `routers/oidc.py` stores
+`{redirect_uri, nonce, code_verifier}` as the Redis state value (fail-closed, like the
+rest of OIDC login) and the callback verifies the `code_verifier` at the token endpoint
+and the `nonce` claim in the ID token (`verify_id_token(..., nonce=…)`, constant-time
+compare, missing/mismatch → `OIDCError`). Only confidential clients are supported:
+`client_secret` resolves from `OIDC_<PROVIDER_ID>_CLIENT_SECRET` (provider id upper-cased,
+non-alnum → `_`) with the YAML `client_secret` as fallback; an empty resolved secret
+raises before the HTTP call.
 
 ### Password Policy and Forced Change
 
