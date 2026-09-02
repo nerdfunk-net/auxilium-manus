@@ -54,15 +54,18 @@ def _platform_hint(device: DeviceContext) -> str | None:
 
 
 def _build_parse_entry(
-    config_source: str,
     running_model: dict[str, Any] | None,
     startup_model: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if config_source == "both":
-        return {"running": running_model, "startup": startup_model}
-    if config_source == "running":
-        return running_model
-    return startup_model
+) -> dict[str, Any]:
+    """Assemble the parsed-config entry stored at ``device.parsed[output_key]``.
+
+    The shape is **always** ``{"running": ..., "startup": ...}`` regardless of
+    ``config_source``; the branch not requested by ``config_source`` stays
+    ``None``. This mirrors ``preview_service.get_configs()`` so downstream
+    templates and steps use one stable path (``parsed.<key>.running.*`` /
+    ``parsed.<key>.startup.*``) and the template-editor preview matches a run.
+    """
+    return {"running": running_model, "startup": startup_model}
 
 
 async def _parse_one_device(
@@ -74,7 +77,6 @@ async def _parse_one_device(
     node_id: str,
     need_running: bool,
     need_startup: bool,
-    config_source: str,
     output_key: str,
 ) -> tuple[str, DeviceContext, bool]:
     platform_hint = _platform_hint(device)
@@ -100,7 +102,7 @@ async def _parse_one_device(
             startup_text = await artifact_service.resolve(device.startup_config_ref)
             startup_model = parse_cisco_config_text(startup_text, platform_hint)
 
-        entry = _build_parse_entry(config_source, running_model, startup_model)
+        entry = _build_parse_entry(running_model, startup_model)
         parsed = dict(device.parsed)
         parsed[output_key] = entry
         enriched = device.model_copy(
@@ -221,7 +223,6 @@ async def execute(
                 node_id=node_id,
                 need_running=need_running,
                 need_startup=need_startup,
-                config_source=config_source,
                 output_key=output_key,
             )
             for device_id, device in context.devices.items()

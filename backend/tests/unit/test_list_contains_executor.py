@@ -28,12 +28,15 @@ def _device(
 
 _AAA_SERVERS = {
     "cisco_config": {
-        "aaa_servers": {
-            "servers": [
-                {"name": "tacacs1", "protocol": "tacacs", "address": "10.0.0.5"},
-                {"name": "tacacs2", "protocol": "tacacs", "address": "10.0.0.6"},
-            ]
-        }
+        "running": {
+            "aaa_servers": {
+                "servers": [
+                    {"name": "tacacs1", "protocol": "tacacs", "address": "10.0.0.5"},
+                    {"name": "tacacs2", "protocol": "tacacs", "address": "10.0.0.6"},
+                ]
+            }
+        },
+        "startup": None,
     }
 }
 
@@ -41,34 +44,37 @@ _AAA_SERVERS = {
 # 172.16.9.100 — the exact scenario of "does ACL X permit source Y".
 _ACCESS_LISTS_PARSED = {
     "cisco_config": {
-        "access_lists": [
-            {
-                "name": "MGMT_100",
-                "style": "named",
-                "type": "standard",
-                "entries": [
-                    {
-                        "action": "permit",
-                        "source": "172.16.9.100",
-                        "destination": None,
-                        "sequence": "10",
-                    }
-                ],
-            },
-            {
-                "name": "TRAFFIC_in",
-                "style": "named",
-                "type": "extended",
-                "entries": [
-                    {
-                        "action": "permit",
-                        "source": "192.168.178.240",
-                        "destination": "192.168.0.2",
-                        "sequence": "110",
-                    }
-                ],
-            },
-        ]
+        "startup": None,
+        "running": {
+            "access_lists": [
+                {
+                    "name": "MGMT_100",
+                    "style": "named",
+                    "type": "standard",
+                    "entries": [
+                        {
+                            "action": "permit",
+                            "source": "172.16.9.100",
+                            "destination": None,
+                            "sequence": "10",
+                        }
+                    ],
+                },
+                {
+                    "name": "TRAFFIC_in",
+                    "style": "named",
+                    "type": "extended",
+                    "entries": [
+                        {
+                            "action": "permit",
+                            "source": "192.168.178.240",
+                            "destination": "192.168.0.2",
+                            "sequence": "110",
+                        }
+                    ],
+                },
+            ]
+        },
     }
 }
 
@@ -84,7 +90,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "10.0.0.5",
             },
@@ -114,7 +120,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "192.168.1.1",
             },
@@ -135,13 +141,21 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             run_id="run-1",
             workflow_id="wf-1",
             devices={
-                "d1": _device("d1", parsed={"cisco_config": {"aaa_servers": {"servers": []}}})
+                "d1": _device(
+                    "d1",
+                    parsed={
+                        "cisco_config": {
+                            "running": {"aaa_servers": {"servers": []}},
+                            "startup": None,
+                        }
+                    },
+                )
             },
         )
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "10.0.0.5",
             },
@@ -161,12 +175,17 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = WorkflowContext(
             run_id="run-1",
             workflow_id="wf-1",
-            devices={"d1": _device("d1", parsed={"cisco_config": {"vlans": [10, 20, 30]}})},
+            devices={
+                "d1": _device(
+                    "d1",
+                    parsed={"cisco_config": {"running": {"vlans": [10, 20, 30]}, "startup": None}},
+                )
+            },
         )
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.vlans",
+                "list_path": "parsed.cisco_config.running.vlans",
                 "value": "20",
             },
             context=context,
@@ -189,7 +208,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "10.0.0.5",
             },
@@ -211,12 +230,17 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = WorkflowContext(
             run_id="run-1",
             workflow_id="wf-1",
-            devices={"d1": _device("d1", parsed={"cisco_config": {"hostname": "router1"}})},
+            devices={
+                "d1": _device(
+                    "d1",
+                    parsed={"cisco_config": {"running": {"hostname": "router1"}, "startup": None}},
+                )
+            },
         )
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.hostname",
+                "list_path": "parsed.cisco_config.running.hostname",
                 "value": "router1",
             },
             context=context,
@@ -246,7 +270,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "{custom.expected_tacacs_ip}",
             },
@@ -272,7 +296,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "{custom.expected_tacacs_ip | default('10.0.0.5')}",
             },
@@ -296,7 +320,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "{custom.missing}",
             },
@@ -322,7 +346,12 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "d1",
                     parsed={
                         "cisco_config": {
-                            "aaa_servers": {"servers": [{"name": "TACACS1", "address": "10.0.0.5"}]}
+                            "running": {
+                                "aaa_servers": {
+                                    "servers": [{"name": "TACACS1", "address": "10.0.0.5"}]
+                                }
+                            },
+                            "startup": None,
                         }
                     },
                 )
@@ -331,7 +360,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         insensitive = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "name",
                 "value": "tacacs1",
             },
@@ -346,7 +375,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         sensitive = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "name",
                 "value": "tacacs1",
                 "case_sensitive": True,
@@ -368,7 +397,13 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
             devices={
                 "match-dev": _device("match-dev", parsed=_AAA_SERVERS),
                 "mismatch-dev": _device(
-                    "mismatch-dev", parsed={"cisco_config": {"aaa_servers": {"servers": []}}}
+                    "mismatch-dev",
+                    parsed={
+                        "cisco_config": {
+                            "running": {"aaa_servers": {"servers": []}},
+                            "startup": None,
+                        }
+                    },
                 ),
                 "failure-dev": _device("failure-dev"),
             },
@@ -376,7 +411,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.aaa_servers.servers",
+                "list_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "field": "address",
                 "value": "10.0.0.5",
             },
@@ -399,7 +434,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={})
 
         outcomes = await execute(
-            config={"list_path": "parsed.cisco_config.vlans", "value": "10"},
+            config={"list_path": "parsed.cisco_config.running.vlans", "value": "10"},
             context=context,
             run=run,
             artifact_service=MagicMock(),
@@ -431,7 +466,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(ValueError):
             await execute(
-                config={"list_path": "parsed.cisco_config.vlans"},
+                config={"list_path": "parsed.cisco_config.running.vlans"},
                 context=context,
                 run=run,
                 artifact_service=MagicMock(),
@@ -452,7 +487,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.access_lists[name=MGMT_100].entries",
+                "list_path": "parsed.cisco_config.running.access_lists[name=MGMT_100].entries",
                 "field": "source",
                 "value": "172.16.9.100",
             },
@@ -478,7 +513,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.access_lists[name=MGMT_100].entries",
+                "list_path": "parsed.cisco_config.running.access_lists[name=MGMT_100].entries",
                 "field": "source",
                 "value": "10.10.10.10",
             },
@@ -502,7 +537,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "list_path": "parsed.cisco_config.access_lists[name=NOT_A_REAL_ACL].entries",
+                "list_path": "parsed.cisco_config.running.access_lists[name=NO_SUCH_ACL].entries",
                 "field": "source",
                 "value": "172.16.9.100",
             },

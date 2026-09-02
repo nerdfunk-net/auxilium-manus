@@ -65,5 +65,5 @@ export const COMMAND_VARIABLES: { name: string; description: string }[] = [
 export const PARSED_CONFIG_VARIABLE: { name: string; description: string } = {
   name: "parsed",
   description:
-    'Parsed running/startup config, keyed by output_key ("cisco_config") — hostname, vrfs, vlans, interfaces, access_lists, routing, aaa_servers, etc. Matches the Parse Cisco Config step.',
+    'Parsed config keyed by output_key ("cisco_config"), always nested under .running / .startup — e.g. parsed.cisco_config.running.hostname, .running.vlans, .running.access_lists, .running.aaa_servers. Matches the Parse Cisco Config step.',
 };

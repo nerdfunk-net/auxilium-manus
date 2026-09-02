@@ -29,7 +29,7 @@ import { AddToNautobotHelpPanel } from "./help-panel";
 // the actual seed applied to a fresh node (the backend get-config endpoint has no
 // frontend caller, so it does not seed new nodes on its own).
 const DEFAULT_DEVICE_FIELDS: DeviceFieldsConfig = {
-  name: { enabled: true, value: "{parsed.cisco_config.hostname}" },
+  name: { enabled: true, value: "{parsed.cisco_config.running.hostname}" },
   role: { enabled: true, value: "{nautobot.origin}" },
   status: { enabled: true, value: "{nautobot.origin | default('Active')}" },
   location: { enabled: true, value: "{nautobot.origin}" },

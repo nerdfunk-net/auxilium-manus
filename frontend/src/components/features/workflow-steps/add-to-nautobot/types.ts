@@ -71,7 +71,7 @@ interface FieldDefinition {
 
 /** Required to create a device — always enabled, no checkbox. */
 export const REQUIRED_DEVICE_FIELD_DEFINITIONS = [
-  { key: "name", label: "Device name", placeholder: "{parsed.cisco_config.hostname}" },
+  { key: "name", label: "Device name", placeholder: "{parsed.cisco_config.running.hostname}" },
   { key: "role", label: "Role", placeholder: "{nautobot.origin}" },
   { key: "status", label: "Status", placeholder: "{nautobot.origin | default('Active')}" },
   { key: "location", label: "Location", placeholder: "{nautobot.origin}" },

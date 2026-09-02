@@ -348,9 +348,10 @@ plugins:
           description: >
             Unique key for this step's parsed output on each device (used by
             downstream Jinja templates and Log Attributes as
-            device.parsed.<output_key>). When config_source is "both", the
-            running/startup models are nested under this key's "running"/
-            "startup" fields.
+            parsed.<output_key>). The value is ALWAYS
+            {running: <model|null>, startup: <model|null>} regardless of
+            config_source — the branch not parsed is null — so downstream paths
+            look like parsed.<output_key>.running.<field>.
           data_type: string
           required: true
           example: cisco_config
@@ -411,7 +412,7 @@ plugins:
           description: >
             Unique key for this step's parsed output on each device (used by
             downstream Jinja templates and Log Attributes as
-            device.parsed.<output_key>). Nested under "running".
+            parsed.<output_key>). Nested under "running".
           data_type: string
           required: true
           example: pyats_config
@@ -444,7 +445,7 @@ plugins:
         - name: output_key
           description: >
             Unique key for this step's snapshot on each device
-            (device.parsed.<output_key>).
+            (parsed.<output_key>).
           data_type: string
           required: true
           example: pyats_snapshot
@@ -892,7 +893,7 @@ plugins:
         - name: parsed_key
           description: >
             The output_key used by the upstream Parse Cisco Config step
-            (device.parsed.<parsed_key>). Must match that step's own
+            (parsed.<parsed_key>). Must match that step's own
             "output_key" configuration value.
           data_type: string
           required: true
@@ -943,7 +944,7 @@ plugins:
           data_type: object
           required: true
           example:
-            name: "{parsed.cisco_config.hostname}"
+            name: "{parsed.cisco_config.running.hostname}"
             role: "{nautobot.origin}"
             status: "{nautobot.origin | default('Active')}"
             location: "{nautobot.origin}"
@@ -1206,7 +1207,7 @@ plugins:
           description: >
             Unique key for this step's Genie-parsed output on each device (used by
             downstream Jinja templates and Log Attributes as
-            device.parsed.<genie_output_key>). Nested per command.
+            parsed.<genie_output_key>). Nested per command.
           data_type: string
           required: false
           default: genie
@@ -1312,11 +1313,11 @@ plugins:
             Dot path to the attribute to match. Use device.* for core fields
             (device.network_driver), bag paths for enriched attributes
             (nautobot.role.name, git.filename, custom.field), or parsed.* for a
-            step's parsed output (parsed.cisco_config.hostname, from
+            step's parsed output (parsed.cisco_config.running.hostname, from
             parse-cisco-config/render-jinja-template/filter-output). A
             parsed.* leaf holding a list or dict (e.g.
-            parsed.cisco_config.aaa_servers.servers) can't be matched as a
-            literal value, but {exists}/{empty}/{absent} still work to route
+            parsed.cisco_config.running.aaa_servers.servers) can't be matched as
+            a literal value, but {exists}/{empty}/{absent} still work to route
             on whether it's populated.
           data_type: string
           required: true
@@ -1370,17 +1371,18 @@ plugins:
           description: >
             Dot path to the list to search. Supports device.* scalars, bag paths
             (nautobot.tags), and parsed.* for a step's parsed output (e.g.
-            parsed.cisco_config.aaa_servers.servers). Must resolve to a list;
-            devices where it isn't populated, or resolves to something other
-            than a list, route to failure. A segment can also filter a list down
-            to one matching item before continuing, using key[field=value] — e.g.
-            parsed.cisco_config.access_lists[name=MGMT_100].entries resolves to
-            just the MGMT_100 ACL's entries, so field/value below can check
-            whether it permits one specific source IP, not just whether any ACL
-            has any entry.
+            parsed.cisco_config.running.aaa_servers.servers). Must resolve to a
+            list; devices where it isn't populated, or resolves to something
+            other than a list, route to failure. A segment can also filter a
+            list down to one matching item before continuing, using
+            key[field=value] — e.g.
+            parsed.cisco_config.running.access_lists[name=MGMT_100].entries
+            resolves to just the MGMT_100 ACL's entries, so field/value below can
+            check whether it permits one specific source IP, not just whether any
+            ACL has any entry.
           data_type: string
           required: true
-          example: parsed.cisco_config.access_lists[name=MGMT_100].entries
+          example: parsed.cisco_config.running.access_lists[name=MGMT_100].entries
         - name: field
           description: >
             Optional dot path within each list item to compare (for a list of
@@ -1567,7 +1569,7 @@ plugins:
             source_path / pattern / destination_template / regex_flags). Updates
             run in list order for every device. source_path may read a scalar
             leaf from a step's parsed output (e.g.
-            parsed.cisco_config.hostname), but destination_path may not target
+            parsed.cisco_config.running.hostname), but destination_path may not target
             parsed.* — that namespace is populated only by step executors
             (parse-cisco-config, render-jinja-template, ...), not by this step.
           data_type: object_list

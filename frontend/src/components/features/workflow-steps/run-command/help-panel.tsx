@@ -135,12 +135,12 @@ export function RunCommandHelpPanel() {
           genie_output_key: genie
           <br />
           <span className="text-muted-foreground">
-            → device.parsed.genie.&quot;show version&quot;.parsed holds the structured result
+            → parsed.genie.&quot;show version&quot;.parsed holds the structured result
           </span>
         </HelpExample>
         <p>
           <HelpCode>genie_output_key</HelpCode> names where the parsed result lands on
-          each device (<HelpCode>device.parsed.&lt;genie_output_key&gt;</HelpCode>),
+          each device (<HelpCode>parsed.&lt;genie_output_key&gt;</HelpCode>),
           nested per command as <HelpCode>{"{parsed, error}"}</HelpCode>. Give each
           Run Command instance a distinct key if a workflow uses more than one.
         </p>

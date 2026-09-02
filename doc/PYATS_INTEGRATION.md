@@ -367,8 +367,9 @@ every device, every time — not something worth carrying as a permanent
 per-device failure mode.
 
 The Genie-parsed result is written into `device.parsed[output_key]` as
-`{"running": ...}` — this is the Genie-powered analog of the existing
-`parse-cisco-config` step (which uses `cisco_config_parser`, not Genie), not
+`{"running": ...}` — the same `{running, startup}` envelope the
+`parse-cisco-config` step uses (that step wraps both branches too, with the
+un-parsed side `None`; it uses `cisco_config_parser`, not Genie). This is not
 a replacement for `get-device-configs`. No raw-text artifact capture in v1
 — only the Genie-parsed structured result, and only for running-config.
 

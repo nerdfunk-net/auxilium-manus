@@ -159,7 +159,7 @@ export function UpdateNautobotDeviceHelpPanel() {
           <br />
           {"    "}enabled: true
           <br />
-          {"    "}value: {"{device.parsed.version}"}
+          {"    "}value: {"{parsed.version}"}
         </HelpExample>
       </HelpSection>
 

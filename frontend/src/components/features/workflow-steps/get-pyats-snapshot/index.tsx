@@ -122,7 +122,7 @@ function GetPyatsSnapshotConfigPanel({ config, onChange }: PluginConfigPanelProp
         />
         <p className="text-[11px] leading-4 text-muted-foreground">
           Downstream steps reference this key in{" "}
-          <span className="font-mono">device.parsed.{outputKey || "output_key"}</span>.
+          <span className="font-mono">parsed.{outputKey || "output_key"}</span>.
         </p>
       </div>
     </div>

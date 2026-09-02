@@ -43,7 +43,8 @@ class NetmikoGetConfigsRequest(BaseModel):
 
 
 class NetmikoGetConfigsResponse(BaseModel):
-    """Shaped like the parse-cisco-config step's entry for config_source="both"."""
+    """``parsed`` is shaped like the parse-cisco-config step's entry:
+    always ``{"running": <model|None>, "startup": <model|None>}``."""
 
     success: bool
     parsed: Any = None

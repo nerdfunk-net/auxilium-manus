@@ -52,7 +52,7 @@ function ListContainsConfigPanel({ config, onChange, nodeId }: PluginConfigPanel
         <Input
           value={listPath}
           onChange={(event) => handleListPathChange(event.target.value)}
-          placeholder="parsed.cisco_config.access_lists[name=MGMT_100].entries"
+          placeholder="parsed.cisco_config.running.access_lists[name=MGMT_100].entries"
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] leading-4 text-muted-foreground">

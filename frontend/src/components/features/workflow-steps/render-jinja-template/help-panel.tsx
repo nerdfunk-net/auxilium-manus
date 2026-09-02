@@ -19,7 +19,7 @@ export function RenderJinjaTemplateHelpPanel() {
           Renders a stored Jinja2 template once per device using the current workflow
           context (device fields, Nautobot attributes, command output, custom bags).
           The result is written to{" "}
-          <HelpCode>device.parsed.{"{output_key}"}</HelpCode> for downstream Compare
+          <HelpCode>parsed.{"{output_key}"}</HelpCode> for downstream Compare
           Data, Update Attribute, Route on Attribute, or Store Artifact steps.
         </p>
       </HelpSection>
@@ -28,7 +28,7 @@ export function RenderJinjaTemplateHelpPanel() {
         <p>
           <HelpCode>output_key</HelpCode> names the slot where rendered text is stored
           on each device. Downstream steps reference{" "}
-          <HelpCode>device.parsed.{"{output_key}"}</HelpCode> or, in Compare Data,
+          <HelpCode>parsed.{"{output_key}"}</HelpCode> or, in Compare Data,
           set <HelpCode>parsed_output_key</HelpCode> to the same value when content
           source is <HelpCode>rendered_template</HelpCode>.
         </p>
@@ -36,7 +36,7 @@ export function RenderJinjaTemplateHelpPanel() {
           output_key: device_config
           <br />
           <span className="text-muted-foreground">
-            → result at device.parsed.device_config
+            → result at parsed.device_config
           </span>
         </HelpExample>
         <p>
@@ -83,7 +83,7 @@ export function RenderJinjaTemplateHelpPanel() {
         <HelpExample>
           {"{{ device.name }}"} — {"{{ nautobot.location.name }}"}
           <br />
-          {"{{ device.parsed.version }}"} — from Run Command + TextFSM
+          {"{{ parsed.show_version.version }}"} — from a Run Command genie output_key
           <br />
           {"{{ custom.my_field }}"} — from Update Attribute or context
         </HelpExample>
@@ -98,7 +98,7 @@ export function RenderJinjaTemplateHelpPanel() {
           <li>
             <span className="font-medium text-foreground">success</span> — template
             rendered for the device; output available at{" "}
-            <HelpCode>device.parsed.{"{output_key}"}</HelpCode>.
+            <HelpCode>parsed.{"{output_key}"}</HelpCode>.
           </li>
           <li>
             <span className="font-medium text-foreground">failure</span> — missing

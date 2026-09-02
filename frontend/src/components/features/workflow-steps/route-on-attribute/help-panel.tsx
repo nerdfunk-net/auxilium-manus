@@ -44,14 +44,14 @@ export function RouteOnAttributeHelpPanel() {
             Update Attribute or upstream steps
           </li>
           <li>
-            <HelpCode>parsed.cisco_config.hostname</HelpCode> — a step&apos;s parsed
+            <HelpCode>parsed.cisco_config.running.hostname</HelpCode> — a step&apos;s parsed
             output (e.g. Parse Cisco Config, Render Jinja Template)
           </li>
         </ul>
         <p>
           A segment can also filter a list down to one matching item using{" "}
           <HelpCode>key[field=value]</HelpCode>, e.g.{" "}
-          <HelpCode>parsed.cisco_config.access_lists[name=MGMT_100].style</HelpCode>{" "}
+          <HelpCode>parsed.cisco_config.running.access_lists[name=MGMT_100].style</HelpCode>{" "}
           reads the <HelpCode>style</HelpCode> field of just the ACL named{" "}
           <HelpCode>MGMT_100</HelpCode> — see the List Contains step&apos;s help for
           a full worked example (checking whether an ACL permits a specific
@@ -131,7 +131,7 @@ export function RouteOnAttributeHelpPanel() {
         <HelpWarning title="Lists and objects only support existence tokens">
           <p>
             When <HelpCode>attribute_path</HelpCode> resolves to a list or object —
-            e.g. <HelpCode>parsed.cisco_config.aaa_servers.servers</HelpCode>, a
+            e.g. <HelpCode>parsed.cisco_config.running.aaa_servers.servers</HelpCode>, a
             parsed list of AAA servers — literal values never match it; only{" "}
             <HelpCode>{"{exists}"}</HelpCode>/<HelpCode>{"{empty}"}</HelpCode>/
             <HelpCode>{"{absent}"}</HelpCode> work, to check whether it&apos;s

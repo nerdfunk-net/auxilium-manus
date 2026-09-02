@@ -89,7 +89,9 @@ parser-producing step (`parse-cisco-config`, `get-pyats-config`, `get-pyats-snap
 (e.g. `cisco_config`, `pyats_config`) and writes to `device.parsed[output_key]`.
 Downstream steps read that key via a dotted-path expression
 (`{output_key.field}` in Jinja, or `parsed.<output_key>.<field>` in Update Attribute's
-`source_path`) resolved at **runtime**, not validated by the canvas at connect time — the
+`source_path`) resolved at **runtime**, not validated by the canvas at connect time. Note
+`parse-cisco-config` always writes `{running, startup}` under its key, so its downstream
+paths look like `parsed.cisco_config.running.<field>`. The
 canvas only ever checks the coarse `PARSED` capability for these steps today. A workflow
 author who mistypes an `output_key` reference gets a missing-value error at run time, not
 a blocked connection at design time. See "Open Decisions" below.
@@ -236,7 +238,7 @@ class DeviceContext(BaseModel):
     parsed: dict[str, Any] = Field(default_factory=dict)
     # Keyed by a per-step, user-configured output_key (not a fixed parser name —
     # see "Typed parser outputs" above). Document the shape in the producing step:
-    #   parsed["cisco_config"]   = {"hostname": ..., "vlans": [...], ...}  ← parse-cisco-config
+    #   parsed["cisco_config"]   = {"running": {...} | None, "startup": {...} | None}  ← parse-cisco-config
     #   parsed["pyats_config"]   = {"running": {...}}                     ← get-pyats-config
 
     command_results: dict[str, list[CommandResult]] = Field(default_factory=dict)
@@ -569,8 +571,10 @@ async def execute(*, config, context, run, artifact_service, node_id, device_ses
             continue
         config_text = await artifact_service.resolve(device.running_config_ref)
         parsed_data = cisco_config_parser.parse(config_text)  # real: cisco-config-parser lib
+        # Always wrapped: {"running": ..., "startup": ...}; the side not parsed is None.
+        entry = {"running": parsed_data, "startup": None}
         updated[device_id] = device.model_copy(update={
-            "parsed": {**device.parsed, output_key: parsed_data},
+            "parsed": {**device.parsed, output_key: entry},
             "capabilities": device.capabilities | {Capability.PARSED},
         })
     new_ctx = context.model_copy(update={"devices": updated})

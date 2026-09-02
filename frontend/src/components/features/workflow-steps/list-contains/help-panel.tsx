@@ -37,7 +37,7 @@ export function ListContainsHelpPanel() {
           <HelpCode>172.16.9.100</HelpCode>, configure the step like this:
         </p>
         <HelpExample>
-          list_path: parsed.cisco_config.access_lists[name=MGMT_100].entries
+          list_path: parsed.cisco_config.running.access_lists[name=MGMT_100].entries
           <br />
           field: source
           <br />
@@ -67,7 +67,7 @@ export function ListContainsHelpPanel() {
           <HelpCode>parsed.*</HelpCode> for a step&apos;s parsed output.
         </p>
         <HelpExample>
-          list_path: parsed.cisco_config.aaa_servers.servers
+          list_path: parsed.cisco_config.running.aaa_servers.servers
           <br />
           <span className="text-muted-foreground">
             → the flat list of AAA servers parsed by Parse Cisco Config
@@ -81,14 +81,14 @@ export function ListContainsHelpPanel() {
           across all of them:
         </p>
         <HelpExample>
-          parsed.cisco_config.access_lists[name=MGMT_100].entries
+          parsed.cisco_config.running.access_lists[name=MGMT_100].entries
           <br />
           <span className="text-muted-foreground">
             → entries of the ACL named MGMT_100 only
           </span>
           <br />
           <br />
-          parsed.cisco_config.l3_interfaces[ip_address=192.168.178.120].name
+          parsed.cisco_config.running.l3_interfaces[ip_address=192.168.178.120].name
           <br />
           <span className="text-muted-foreground">
             → the interface name whose ip_address is 192.168.178.120
@@ -119,7 +119,7 @@ export function ListContainsHelpPanel() {
           plain values directly (e.g. a list of VLAN ids).
         </p>
         <HelpExample>
-          list_path: parsed.cisco_config.access_lists[name=MGMT_100].entries
+          list_path: parsed.cisco_config.running.access_lists[name=MGMT_100].entries
           <br />
           field: source
           <br />
@@ -128,7 +128,7 @@ export function ListContainsHelpPanel() {
           </span>
           <br />
           <br />
-          list_path: parsed.cisco_config.vlans
+          list_path: parsed.cisco_config.running.vlans
           <br />
           field: (empty)
           <br />

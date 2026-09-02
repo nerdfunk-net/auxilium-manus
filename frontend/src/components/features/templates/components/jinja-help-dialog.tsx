@@ -222,14 +222,12 @@ parsed.cisco_config.running.routing.bgp
 parsed.cisco_config.running.fhrp_groups  parsed.cisco_config.running.port_channels
 parsed.cisco_config.running.banner       parsed.cisco_config.running.unsupported`}</CodeBlock>
             <p>
-              When the workflow&apos;s Parse Cisco Config step is configured
-              for only <code>running</code> or only <code>startup</code>{" "}
-              (instead of the default <code>both</code>), the model sits
-              directly under <code>cisco_config</code> — e.g.{" "}
-              <code>parsed.cisco_config.hostname</code> — rather than nested
-              under <code>.running</code>/<code>.startup</code>. The template
-              editor&apos;s <strong>Get Configs</strong> checkbox always
-              fetches both, matching the nested shape above.
+              The value is always nested under <code>.running</code> /{" "}
+              <code>.startup</code>, whatever the Parse Cisco Config step&apos;s{" "}
+              <code>config_source</code> is — the branch it didn&apos;t parse is{" "}
+              <code>null</code>. The template editor&apos;s{" "}
+              <strong>Get Configs</strong> checkbox fetches both, so a preview
+              here matches a real run.
             </p>
             <p>Example — render a TACACS+ stanza from the parsed AAA servers:</p>
             <CodeBlock>{`{% for server in parsed.cisco_config.running.aaa_servers.servers %}

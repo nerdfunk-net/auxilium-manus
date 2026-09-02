@@ -21,7 +21,7 @@ export function GetPyatsConfigHelpPanel() {
         </p>
         <p>
           The parsed result is written to{" "}
-          <HelpCode>device.parsed.{"{output_key}"}</HelpCode> as{" "}
+          <HelpCode>parsed.{"{output_key}"}</HelpCode> as{" "}
           <HelpCode>{"{ running: ... }"}</HelpCode> for downstream Render
           Jinja Template or Log Attributes steps.
         </p>
@@ -39,12 +39,12 @@ export function GetPyatsConfigHelpPanel() {
         <p>
           <HelpCode>output_key</HelpCode> names the slot where the parsed
           result is stored on each device. Downstream steps and templates
-          reference <HelpCode>device.parsed.{"{output_key}"}</HelpCode>.
+          reference <HelpCode>parsed.{"{output_key}"}</HelpCode>.
         </p>
         <HelpExample>
           output_key: pyats_config
           <br />
-          <span className="text-muted-foreground">→ device.parsed.pyats_config.running</span>
+          <span className="text-muted-foreground">→ parsed.pyats_config.running</span>
         </HelpExample>
       </HelpSection>
     </div>

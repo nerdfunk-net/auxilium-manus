@@ -24,7 +24,9 @@ export function ParseCiscoConfigHelpPanel() {
         </p>
         <p>
           The parsed result is written to{" "}
-          <HelpCode>device.parsed.{"{output_key}"}</HelpCode> for downstream Render
+          <HelpCode>parsed.{"{output_key}"}</HelpCode> — always as{" "}
+          <HelpCode>{"{ running: ..., startup: ... }"}</HelpCode> (the side you
+          didn&apos;t parse is <HelpCode>null</HelpCode>) — for downstream Render
           Jinja Template or Log Attributes steps.
         </p>
       </HelpSection>
@@ -57,25 +59,27 @@ export function ParseCiscoConfigHelpPanel() {
         <p>
           <HelpCode>output_key</HelpCode> names the slot where the parsed model is
           stored on each device. Downstream steps and templates reference{" "}
-          <HelpCode>device.parsed.{"{output_key}"}</HelpCode>.
+          <HelpCode>parsed.{"{output_key}"}</HelpCode>.
         </p>
         <p>
-          When <HelpCode>config_source</HelpCode> is <HelpCode>running</HelpCode> or{" "}
-          <HelpCode>startup</HelpCode>, the value at that key is the parsed model
-          directly. When it is <HelpCode>both</HelpCode>, the running and startup
-          models are nested under <HelpCode>running</HelpCode> /{" "}
-          <HelpCode>startup</HelpCode> sub-keys.
+          The value at that key is <span className="font-medium text-foreground">
+            always
+          </span>{" "}
+          <HelpCode>{"{ running: ..., startup: ... }"}</HelpCode>, regardless of{" "}
+          <HelpCode>config_source</HelpCode> — the branch you didn&apos;t parse is{" "}
+          <HelpCode>null</HelpCode>. So the path is the same in every workflow, and
+          it matches what the Templates editor&apos;s <HelpCode>Get Configs</HelpCode>{" "}
+          button injects.
         </p>
         <HelpExample>
           output_key: cisco_config
           <br />
-          {"{{ parsed.cisco_config.hostname }}"}
+          {"{{ parsed.cisco_config.running.hostname }}"}
           <br />
-          {"{{ parsed.cisco_config.vlans }}"}
+          {"{{ parsed.cisco_config.running.vlans }}"}
           <br />
           <span className="text-muted-foreground">
-            — with config_source: both, use parsed.cisco_config.running.hostname /
-            parsed.cisco_config.startup.hostname
+            — use parsed.cisco_config.startup.* for the startup model
           </span>
         </HelpExample>
       </HelpSection>
@@ -92,22 +96,22 @@ export function ParseCiscoConfigHelpPanel() {
         <HelpExample>
           Audit for {"{{ device.name }}"} ({"{{ device.primary_ip4 }}"})
           <br />
-          Configured hostname: {"{{ parsed.cisco_config.hostname }}"}
+          Configured hostname: {"{{ parsed.cisco_config.running.hostname }}"}
           <br />
-          VLANs configured: {"{{ parsed.cisco_config.vlans | length }}"}
+          VLANs configured: {"{{ parsed.cisco_config.running.vlans | length }}"}
         </HelpExample>
         <p>
           Log Attributes can print the same fields for troubleshooting without
           rendering a template — add{" "}
           <HelpCode>device.name</HelpCode>, <HelpCode>device.primary_ip4</HelpCode>, and{" "}
-          <HelpCode>parsed.cisco_config.hostname</HelpCode> as the attributes to log.
+          <HelpCode>parsed.cisco_config.running.hostname</HelpCode> as the attributes to log.
         </p>
         <HelpWarning title="device.name can just be the IP address">
           <p>
             If the device entered the workflow via Get from List with an IP address and
             no name (no DNS entry, no Nautobot record yet), <HelpCode>device.name</HelpCode>{" "}
             falls back to that IP — it is not the box&apos;s real hostname. Compare it
-            with <HelpCode>parsed.{"{output_key}"}.hostname</HelpCode>, which comes from
+            with <HelpCode>parsed.{"{output_key}"}.running.hostname</HelpCode>, which comes from
             the actual <HelpCode>hostname</HelpCode> line in the fetched config, to see
             the device&apos;s true configured name.
           </p>
@@ -117,7 +121,7 @@ export function ParseCiscoConfigHelpPanel() {
             <br />
             → device.name = 10.0.0.5, device.primary_ip4 = 10.0.0.5
             <br />
-            → after this step: parsed.cisco_config.hostname = core-sw-1
+            → after this step: parsed.cisco_config.running.hostname = core-sw-1
             <br />
             <span className="text-muted-foreground">
               — the workflow still calls it &quot;10.0.0.5&quot;; the config says
@@ -129,7 +133,7 @@ export function ParseCiscoConfigHelpPanel() {
             When Get from List instead has{" "}
             <HelpCode>name: router1.example.com</HelpCode> (with or without an IP),{" "}
             <HelpCode>device.name</HelpCode> is that name from the start and usually
-            already matches <HelpCode>parsed.{"{output_key}"}.hostname</HelpCode>.
+            already matches <HelpCode>parsed.{"{output_key}"}.running.hostname</HelpCode>.
           </p>
         </HelpWarning>
       </HelpSection>
@@ -137,18 +141,18 @@ export function ParseCiscoConfigHelpPanel() {
       <HelpSection title="Using parsed data in Route on Attribute / Update Attribute">
         <p>
           Route on Attribute and Update Attribute can also read{" "}
-          <HelpCode>parsed.{"{output_key}"}...</HelpCode> paths, not just Jinja
+          <HelpCode>parsed.{"{output_key}"}.running...</HelpCode> paths, not just Jinja
           templates. A leaf holding a scalar (e.g.{" "}
-          <HelpCode>parsed.cisco_config.hostname</HelpCode>) can be matched by exact
+          <HelpCode>parsed.cisco_config.running.hostname</HelpCode>) can be matched by exact
           value. A leaf holding a list or dict (e.g.{" "}
-          <HelpCode>parsed.cisco_config.aaa_servers.servers</HelpCode>, a list of
+          <HelpCode>parsed.cisco_config.running.aaa_servers.servers</HelpCode>, a list of
           configured AAA servers) can&apos;t be matched by value, but Route on
           Attribute can still branch on <HelpCode>{"{exists}"}</HelpCode> /{" "}
           <HelpCode>{"{empty}"}</HelpCode> / <HelpCode>{"{absent}"}</HelpCode> to
           check whether it&apos;s populated at all.
         </p>
         <HelpExample>
-          attribute_path: parsed.cisco_config.aaa_servers.servers
+          attribute_path: parsed.cisco_config.running.aaa_servers.servers
           <br />
           routes: [{"{"} outcome: has_tacacs, values: [{"{exists}"}] {"}"}]
           <br />
@@ -169,7 +173,7 @@ export function ParseCiscoConfigHelpPanel() {
             <HelpCode>172.16.9.100</HelpCode>:
           </p>
           <HelpExample>
-            list_path: parsed.{"{output_key}"}.access_lists[name=MGMT_100].entries
+            list_path: parsed.{"{output_key}"}.running.access_lists[name=MGMT_100].entries
             <br />
             field: source
             <br />
@@ -189,7 +193,7 @@ export function ParseCiscoConfigHelpPanel() {
           <li>
             <span className="font-medium text-foreground">success</span> — the
             requested config(s) parsed; the model is available at{" "}
-            <HelpCode>device.parsed.{"{output_key}"}</HelpCode>. Sections the parser
+            <HelpCode>parsed.{"{output_key}"}.running</HelpCode> / <HelpCode>.startup</HelpCode>. Sections the parser
             doesn&apos;t support for the detected platform are listed under{" "}
             <HelpCode>unsupported</HelpCode>; individual section failures are
             collected under <HelpCode>parse_errors</HelpCode> without failing the

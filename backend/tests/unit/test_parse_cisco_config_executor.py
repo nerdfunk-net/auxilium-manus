@@ -77,9 +77,48 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 1)
         success = outcomes[0].context.devices["device-1"]
         self.assertIn(Capability.PARSED, success.capabilities)
+        # The entry is always {"running": ..., "startup": ...}; the branch not
+        # requested by config_source stays None.
         entry = success.parsed["cisco_config"]
-        self.assertEqual(entry["hostname"], "router1")
-        self.assertEqual(entry["platform"], "IOS")
+        self.assertEqual(set(entry), {"running", "startup"})
+        self.assertIsNone(entry["startup"])
+        self.assertEqual(entry["running"]["hostname"], "router1")
+        self.assertEqual(entry["running"]["platform"], "IOS")
+
+    async def test_parses_startup_config_only(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        artifact_service = InMemoryArtifactService()
+        startup_ref = await artifact_service.store(
+            content=_STARTUP_CONFIG,
+            kind="startup_config",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+            startup_config_ref=startup_ref,
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"device-1": device})
+
+        outcomes = await execute(
+            config={"config_source": "startup", "output_key": "cisco_config"},
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        entry = outcomes[0].context.devices["device-1"].parsed["cisco_config"]
+        self.assertEqual(set(entry), {"running", "startup"})
+        self.assertIsNone(entry["running"])
+        self.assertEqual(entry["startup"]["hostname"], "router1-startup")
 
     async def test_parses_both_running_and_startup_nested(self) -> None:
         run = MagicMock()
@@ -208,7 +247,7 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(outcomes), 1)
         success = outcomes[0].context.devices["device-1"]
-        self.assertEqual(success.parsed["cisco_config"]["hostname"], "router1")
+        self.assertEqual(success.parsed["cisco_config"]["running"]["hostname"], "router1")
 
     async def test_without_network_driver_hint_ambiguous_config_fails(self) -> None:
         run = MagicMock()

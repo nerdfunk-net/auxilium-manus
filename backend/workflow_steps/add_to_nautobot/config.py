@@ -5,7 +5,7 @@ def get_config() -> dict:
     return {
         "nautobot_source_id": "",
         "device_fields": {
-            "name": {"enabled": True, "value": "{parsed.cisco_config.hostname}"},
+            "name": {"enabled": True, "value": "{parsed.cisco_config.running.hostname}"},
             "role": {"enabled": True, "value": "{nautobot.origin}"},
             "status": {"enabled": True, "value": "{nautobot.origin | default('Active')}"},
             "location": {"enabled": True, "value": "{nautobot.origin}"},

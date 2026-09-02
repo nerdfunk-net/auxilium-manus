@@ -16,6 +16,18 @@ def _l3_interfaces(*items: dict) -> dict:
     return {"l3_interfaces": list(items)}
 
 
+def _parsed(*items: dict, source: str = "running") -> dict:
+    """A parse-cisco-config entry — always ``{"running": ..., "startup": ...}``,
+    with the branch other than ``source`` left ``None``."""
+    model = _l3_interfaces(*items)
+    return {
+        "cisco_config": {
+            "running": model if source == "running" else None,
+            "startup": model if source == "startup" else None,
+        }
+    }
+
+
 def _device(
     device_id: str, *, parsed: dict | None = None, nautobot_bag: dict | None = None
 ) -> DeviceContext:
@@ -45,13 +57,11 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_type_mapping_and_status(self) -> None:
         device = _device(
             "dev-1",
-            parsed={
-                "cisco_config": _l3_interfaces(
-                    {"name": "GigabitEthernet0/1", "children": []},
-                    {"name": "Ethernet0/0", "children": []},
-                    {"name": "Loopback0", "children": []},
-                )
-            },
+            parsed=_parsed(
+                {"name": "GigabitEthernet0/1", "children": []},
+                {"name": "Ethernet0/0", "children": []},
+                {"name": "Loopback0", "children": []},
+            ),
         )
         outcomes = await execute(
             config=_BASE_CONFIG,
@@ -72,12 +82,10 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_enabled_false_when_shutdown_in_children(self) -> None:
         device = _device(
             "dev-1",
-            parsed={
-                "cisco_config": _l3_interfaces(
-                    {"name": "Ethernet0/2", "children": ["description test", "shutdown"]},
-                    {"name": "Ethernet0/3", "children": ["description test"]},
-                )
-            },
+            parsed=_parsed(
+                {"name": "Ethernet0/2", "children": ["description test", "shutdown"]},
+                {"name": "Ethernet0/3", "children": ["description test"]},
+            ),
         )
         outcomes = await execute(
             config=_BASE_CONFIG,
@@ -95,35 +103,33 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_primary_and_secondary_ip(self) -> None:
         device = _device(
             "dev-1",
-            parsed={
-                "cisco_config": _l3_interfaces(
-                    {
-                        "name": "Ethernet0/0",
-                        "description": "xxx",
-                        "ip_address": "192.168.178.120",
-                        "mask": "255.255.255.0",
-                        "sec_ip_address": "192.168.178.120",
-                        "sec_mask": "255.255.255.0",
-                        "sec_subnet": "192.168.178.0/24",
-                        "children": [],
-                    },
-                    {
-                        # partial secondary fields -> no secondary IP
-                        "name": "Ethernet0/1",
-                        "ip_address": "192.168.179.240",
-                        "mask": "255.255.255.0",
-                        "sec_ip_address": "10.0.0.1",
-                        "sec_mask": None,
-                        "sec_subnet": None,
-                        "children": [],
-                    },
-                    {
-                        # no ip at all
-                        "name": "Ethernet0/2",
-                        "children": [],
-                    },
-                )
-            },
+            parsed=_parsed(
+                {
+                    "name": "Ethernet0/0",
+                    "description": "xxx",
+                    "ip_address": "192.168.178.120",
+                    "mask": "255.255.255.0",
+                    "sec_ip_address": "192.168.178.120",
+                    "sec_mask": "255.255.255.0",
+                    "sec_subnet": "192.168.178.0/24",
+                    "children": [],
+                },
+                {
+                    # partial secondary fields -> no secondary IP
+                    "name": "Ethernet0/1",
+                    "ip_address": "192.168.179.240",
+                    "mask": "255.255.255.0",
+                    "sec_ip_address": "10.0.0.1",
+                    "sec_mask": None,
+                    "sec_subnet": None,
+                    "children": [],
+                },
+                {
+                    # no ip at all
+                    "name": "Ethernet0/2",
+                    "children": [],
+                },
+            ),
         )
         outcomes = await execute(
             config=_BASE_CONFIG,
@@ -172,28 +178,27 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         self.assertEqual([i["name"] for i in interfaces], ["Ethernet0/1"])
 
-    async def test_config_source_single_inlined_fallback(self) -> None:
-        # upstream Parse Cisco Config ran with config_source: running (not "both") ->
-        # model is inlined directly, no running/startup sub-keys.
+    async def test_config_source_selects_none_branch_when_not_parsed(self) -> None:
+        # Upstream parsed running only; this step asks for startup -> the
+        # startup branch is None, so the device is skipped (no interfaces).
         device = _device(
             "dev-1",
-            parsed={"cisco_config": _l3_interfaces({"name": "Ethernet0/0", "children": []})},
+            parsed=_parsed({"name": "Ethernet0/0", "children": []}, source="running"),
         )
-        outcomes = await execute(
-            config={**_BASE_CONFIG, "config_source": "startup"},
-            context=_context({"dev-1": device}),
-            run=_run(),
-            artifact_service=MagicMock(),
-            node_id="node-1",
-            device_sessions=MagicMock(),
-        )
-        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
-        self.assertEqual([i["name"] for i in interfaces], ["Ethernet0/0"])
+        with self.assertRaises(ValueError):
+            await execute(
+                config={**_BASE_CONFIG, "config_source": "startup"},
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
 
     async def test_merge_preserves_other_bag_keys_and_replaces_same_named_interface(self) -> None:
         device = _device(
             "dev-1",
-            parsed={"cisco_config": _l3_interfaces({"name": "Ethernet0/0", "children": []})},
+            parsed=_parsed({"name": "Ethernet0/0", "children": []}),
             nautobot_bag={
                 "role": {"name": "Network"},
                 "interfaces": [{"name": "Ethernet0/0", "type": "other", "status": "Deprecated"}],
@@ -216,7 +221,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_noop_when_layer3_interfaces_not_selected(self) -> None:
         device = _device(
             "dev-1",
-            parsed={"cisco_config": _l3_interfaces({"name": "Ethernet0/0", "children": []})},
+            parsed=_parsed({"name": "Ethernet0/0", "children": []}),
         )
         outcomes = await execute(
             config={**_BASE_CONFIG, "attributes": []},
@@ -246,7 +251,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         # matching parse-cisco-config's own output_key/config_source fallback.
         device = _device(
             "dev-1",
-            parsed={"cisco_config": _l3_interfaces({"name": "Ethernet0/0", "children": []})},
+            parsed=_parsed({"name": "Ethernet0/0", "children": []}),
         )
         outcomes = await execute(
             config={},
@@ -262,7 +267,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_capability_attributes_set(self) -> None:
         device = _device(
             "dev-1",
-            parsed={"cisco_config": _l3_interfaces({"name": "Ethernet0/0", "children": []})},
+            parsed=_parsed({"name": "Ethernet0/0", "children": []}),
         )
         outcomes = await execute(
             config=_BASE_CONFIG,

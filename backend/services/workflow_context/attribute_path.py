@@ -90,8 +90,8 @@ def _namespace_bag(
 # "access_lists" list, then continue traversal from the first item whose
 # "name" field stringifies to "MGMT_100". Lets a dotted path reach into a
 # specific object inside a list (rather than only ever ending AT a list),
-# e.g. "parsed.cisco_config.access_lists[name=MGMT_100].entries" to check
-# membership within one ACL's entries instead of across all ACLs.
+# e.g. "parsed.cisco_config.running.access_lists[name=MGMT_100].entries" to
+# check membership within one ACL's entries instead of across all ACLs.
 _FILTER_SEGMENT_RE = re.compile(r"^(?P<key>[^\[\]]+)\[(?P<field>[^\[\]=]+)=(?P<value>[^\[\]]*)\]$")
 
 
@@ -269,7 +269,7 @@ def resolve_device_attribute(
     A leading ``parsed.`` segment reads ``DeviceContext.parsed`` (the output
     of steps like ``parse-cisco-config``, ``render-jinja-template``,
     ``filter-output``) instead of ``attribute_bags`` — e.g.
-    ``parsed.cisco_config.hostname``. Like any other bag, only scalar leaves
+    ``parsed.cisco_config.running.hostname``. Like any other bag, only scalar leaves
     resolve to a string here; a leaf holding a dict/list (e.g. a list of
     parsed AAA servers) resolves to ``None`` — use ``resolve_device_value``
     or ``resolve_device_attribute_state`` (``{exists}``/``{empty}``) for
@@ -337,7 +337,7 @@ def resolve_device_attribute_state(
     A leading ``parsed.`` segment reads ``DeviceContext.parsed`` — see
     ``resolve_device_attribute`` for the same convention. This is how
     ``route-on-attribute`` can branch on ``{exists}``/``{empty}``/``{absent}``
-    for a parsed list/dict value (e.g. ``parsed.cisco_config.aaa_servers.servers``)
+    for a parsed list/dict value (e.g. ``parsed.cisco_config.running.aaa_servers.servers``)
     even though the literal contents of that list can't be matched as a single
     string value.
     """

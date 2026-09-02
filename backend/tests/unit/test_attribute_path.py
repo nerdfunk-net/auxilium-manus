@@ -86,10 +86,15 @@ class AttributePathTests(unittest.TestCase):
             id="device-1",
             name="lab",
             hostname="lab",
-            parsed={"cisco_config": {"hostname": "router1", "platform": "IOS"}},
+            parsed={
+                "cisco_config": {
+                    "running": {"hostname": "router1", "platform": "IOS"},
+                    "startup": None,
+                }
+            },
         )
         self.assertEqual(
-            resolve_device_attribute(device, "parsed.cisco_config.hostname"),
+            resolve_device_attribute(device, "parsed.cisco_config.running.hostname"),
             "router1",
         )
 
@@ -100,12 +105,15 @@ class AttributePathTests(unittest.TestCase):
             hostname="lab",
             parsed={
                 "cisco_config": {
-                    "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                    "running": {
+                        "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                    },
+                    "startup": None,
                 }
             },
         )
         self.assertIsNone(
-            resolve_device_attribute(device, "parsed.cisco_config.aaa_servers.servers")
+            resolve_device_attribute(device, "parsed.cisco_config.running.aaa_servers.servers")
         )
 
     def test_resolve_device_value_returns_raw_structure_from_parsed_namespace(self) -> None:
@@ -115,12 +123,15 @@ class AttributePathTests(unittest.TestCase):
             hostname="lab",
             parsed={
                 "cisco_config": {
-                    "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                    "running": {
+                        "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                    },
+                    "startup": None,
                 }
             },
         )
         self.assertEqual(
-            resolve_device_value(device, "parsed.cisco_config.aaa_servers.servers"),
+            resolve_device_value(device, "parsed.cisco_config.running.aaa_servers.servers"),
             [{"name": "tacacs1", "address": "10.0.0.5"}],
         )
 
@@ -132,10 +143,12 @@ class AttributePathTests(unittest.TestCase):
             name="lab",
             hostname="lab",
             attribute_bags={"parsed": {"hostname": "from-bag"}},
-            parsed={"cisco_config": {"hostname": "from-parsed-field"}},
+            parsed={
+                "cisco_config": {"running": {"hostname": "from-parsed-field"}, "startup": None}
+            },
         )
         self.assertEqual(
-            resolve_device_attribute(device, "parsed.cisco_config.hostname"),
+            resolve_device_attribute(device, "parsed.cisco_config.running.hostname"),
             "from-parsed-field",
         )
 
@@ -215,27 +228,29 @@ _ACCESS_LISTS = [
 class FilterSegmentTests(unittest.TestCase):
     """Tests for the "key[field=value]" path segment — filters a list to the
     item matching field==value before continuing traversal, e.g.
-    parsed.cisco_config.access_lists[name=MGMT_100].entries."""
+    parsed.cisco_config.running.access_lists[name=MGMT_100].entries."""
 
     def _device(self) -> DeviceContext:
         return DeviceContext(
             id="device-1",
             name="lab",
             hostname="lab",
-            parsed={"cisco_config": {"access_lists": _ACCESS_LISTS}},
+            parsed={"cisco_config": {"running": {"access_lists": _ACCESS_LISTS}, "startup": None}},
         )
 
     def test_resolve_device_value_reaches_nested_list_after_filter(self) -> None:
         device = self._device()
         entries = resolve_device_value(
-            device, "parsed.cisco_config.access_lists[name=MGMT_100].entries"
+            device, "parsed.cisco_config.running.access_lists[name=MGMT_100].entries"
         )
         self.assertEqual(entries, _ACCESS_LISTS[0]["entries"])
 
     def test_resolve_device_value_reaches_scalar_field_after_filter(self) -> None:
         device = self._device()
         self.assertEqual(
-            resolve_device_value(device, "parsed.cisco_config.access_lists[name=TRAFFIC_in].type"),
+            resolve_device_value(
+                device, "parsed.cisco_config.running.access_lists[name=TRAFFIC_in].type"
+            ),
             "extended",
         )
 
@@ -243,7 +258,7 @@ class FilterSegmentTests(unittest.TestCase):
         device = self._device()
         self.assertEqual(
             resolve_device_attribute(
-                device, "parsed.cisco_config.access_lists[name=MGMT_100].style"
+                device, "parsed.cisco_config.running.access_lists[name=MGMT_100].style"
             ),
             "named",
         )
@@ -251,7 +266,7 @@ class FilterSegmentTests(unittest.TestCase):
     def test_state_absent_when_filter_matches_nothing(self) -> None:
         device = self._device()
         state, value = resolve_device_attribute_state(
-            device, "parsed.cisco_config.access_lists[name=DOES_NOT_EXIST].entries"
+            device, "parsed.cisco_config.running.access_lists[name=DOES_NOT_EXIST].entries"
         )
         self.assertEqual(state, AttributeState.ABSENT)
         self.assertIsNone(value)
@@ -259,7 +274,7 @@ class FilterSegmentTests(unittest.TestCase):
     def test_state_present_when_filter_matches(self) -> None:
         device = self._device()
         state, _ = resolve_device_attribute_state(
-            device, "parsed.cisco_config.access_lists[name=MGMT_100].entries"
+            device, "parsed.cisco_config.running.access_lists[name=MGMT_100].entries"
         )
         self.assertEqual(state, AttributeState.PRESENT)
 
@@ -272,17 +287,20 @@ class FilterSegmentTests(unittest.TestCase):
             hostname="lab",
             parsed={
                 "cisco_config": {
-                    "l3_interfaces": [
-                        {"name": "Ethernet0/0", "ip_address": "192.168.178.120"},
-                        {"name": "Ethernet0/1", "ip_address": "192.168.179.240"},
-                    ]
+                    "running": {
+                        "l3_interfaces": [
+                            {"name": "Ethernet0/0", "ip_address": "192.168.178.120"},
+                            {"name": "Ethernet0/1", "ip_address": "192.168.179.240"},
+                        ]
+                    },
+                    "startup": None,
                 }
             },
         )
         self.assertEqual(
             resolve_device_value(
                 device,
-                "parsed.cisco_config.l3_interfaces[ip_address=192.168.179.240].name",
+                "parsed.cisco_config.running.l3_interfaces[ip_address=192.168.179.240].name",
             ),
             "Ethernet0/1",
         )
@@ -292,9 +310,11 @@ class FilterSegmentTests(unittest.TestCase):
             id="device-1",
             name="lab",
             hostname="lab",
-            parsed={"cisco_config": {"hostname": "router1"}},
+            parsed={"cisco_config": {"running": {"hostname": "router1"}, "startup": None}},
         )
-        self.assertIsNone(resolve_device_value(device, "parsed.cisco_config.hostname[name=x].y"))
+        self.assertIsNone(
+            resolve_device_value(device, "parsed.cisco_config.running.hostname[name=x].y")
+        )
 
 
 class AttributeStateTests(unittest.TestCase):
@@ -361,12 +381,15 @@ class AttributeStateTests(unittest.TestCase):
             hostname="lab",
             parsed={
                 "cisco_config": {
-                    "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                    "running": {
+                        "aaa_servers": {"servers": [{"name": "tacacs1", "address": "10.0.0.5"}]}
+                    },
+                    "startup": None,
                 }
             },
         )
         state, value = resolve_device_attribute_state(
-            device, "parsed.cisco_config.aaa_servers.servers"
+            device, "parsed.cisco_config.running.aaa_servers.servers"
         )
         self.assertEqual(state, AttributeState.PRESENT)
         self.assertIsNone(value)  # list contents aren't stringified — only PRESENT/EMPTY
@@ -376,17 +399,19 @@ class AttributeStateTests(unittest.TestCase):
             id="device-1",
             name="lab",
             hostname="lab",
-            parsed={"cisco_config": {"aaa_servers": {"servers": []}}},
+            parsed={"cisco_config": {"running": {"aaa_servers": {"servers": []}}, "startup": None}},
         )
         state, value = resolve_device_attribute_state(
-            device, "parsed.cisco_config.aaa_servers.servers"
+            device, "parsed.cisco_config.running.aaa_servers.servers"
         )
         self.assertEqual(state, AttributeState.EMPTY)
         self.assertIsNone(value)
 
     def test_absent_when_parsed_key_missing(self) -> None:
         device = DeviceContext(id="device-1", name="lab", hostname="lab")
-        state, value = resolve_device_attribute_state(device, "parsed.cisco_config.hostname")
+        state, value = resolve_device_attribute_state(
+            device, "parsed.cisco_config.running.hostname"
+        )
         self.assertEqual(state, AttributeState.ABSENT)
         self.assertIsNone(value)
 

@@ -87,7 +87,7 @@ function RenderJinjaTemplateConfigPanel({
         />
         <p className="text-[11px] leading-4 text-muted-foreground">
           Downstream steps reference this key in{" "}
-          <span className="font-mono">device.parsed.{parsed.output_key || "output_key"}</span>.
+          <span className="font-mono">parsed.{parsed.output_key || "output_key"}</span>.
         </p>
       </div>
 

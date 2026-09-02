@@ -42,9 +42,8 @@ export function ConfigToAttributesHelpPanel() {
           config_source: running
           <br />
           <span className="text-muted-foreground">
-            → reads parsed.{"{parsed_key}"}.running.l3_interfaces if the upstream
-            step parsed both, or parsed.{"{parsed_key}"}.l3_interfaces directly if
-            it only parsed running.
+            → reads parsed.{"{parsed_key}"}.running.l3_interfaces (Parse Cisco
+            Config always nests its output under running / startup).
           </span>
         </HelpExample>
       </HelpSection>

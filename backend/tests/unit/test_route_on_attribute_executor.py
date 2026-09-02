@@ -340,8 +340,8 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_routes_on_presence_of_parsed_cisco_aaa_servers(self) -> None:
         """A device parsed by parse-cisco-config exposes device.parsed under the
-        "parsed" namespace, e.g. parsed.cisco_config.aaa_servers.servers — a list
-        that can't be matched as a literal value, but can be routed on
+        "parsed" namespace, e.g. parsed.cisco_config.running.aaa_servers.servers —
+        a list that can't be matched as a literal value, but can be routed on
         {exists}/{absent} to check whether any AAA server is configured at all."""
         run = MagicMock()
         context = WorkflowContext(
@@ -352,17 +352,29 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
                     "has-tacacs",
                     parsed={
                         "cisco_config": {
-                            "aaa_servers": {
-                                "servers": [
-                                    {"name": "tacacs1", "protocol": "tacacs", "address": "10.0.0.5"}
-                                ]
-                            }
+                            "running": {
+                                "aaa_servers": {
+                                    "servers": [
+                                        {
+                                            "name": "tacacs1",
+                                            "protocol": "tacacs",
+                                            "address": "10.0.0.5",
+                                        }
+                                    ]
+                                }
+                            },
+                            "startup": None,
                         }
                     },
                 ),
                 "no-tacacs": _device(
                     "no-tacacs",
-                    parsed={"cisco_config": {"aaa_servers": {"servers": []}}},
+                    parsed={
+                        "cisco_config": {
+                            "running": {"aaa_servers": {"servers": []}},
+                            "startup": None,
+                        }
+                    },
                 ),
                 "not-parsed": _device("not-parsed"),
             },
@@ -370,7 +382,7 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         outcomes = await execute(
             config={
-                "attribute_path": "parsed.cisco_config.aaa_servers.servers",
+                "attribute_path": "parsed.cisco_config.running.aaa_servers.servers",
                 "routes": [
                     {"outcome": "has-tacacs", "values": ["{exists}"]},
                     {"outcome": "no-tacacs", "values": ["{empty}", "{absent}"]},

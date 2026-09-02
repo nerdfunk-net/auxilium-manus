@@ -57,18 +57,18 @@ export function GetPyatsSnapshotHelpPanel() {
         <p>
           <HelpCode>output_key</HelpCode> names the slot where the snapshot is stored on
           each device. Downstream steps and templates reference{" "}
-          <HelpCode>device.parsed.{"{output_key}"}</HelpCode>.
+          <HelpCode>parsed.{"{output_key}"}</HelpCode>.
         </p>
         <HelpExample>
           output_key: pyats_snapshot
           <br />
           <span className="text-muted-foreground">
-            → device.parsed.pyats_snapshot.features.bgp.success
+            → parsed.pyats_snapshot.features.bgp.success
           </span>
         </HelpExample>
         <p>
           The full per-feature Genie data is stored as a durable artifact (referenced via{" "}
-          <HelpCode>device.parsed.{"{output_key}"}.artifact_ref</HelpCode>) — view it from
+          <HelpCode>parsed.{"{output_key}"}.artifact_ref</HelpCode>) — view it from
           a workflow run detail page, or chain a Store Artifact step afterward to export
           it to a filesystem path or git repository.
         </p>

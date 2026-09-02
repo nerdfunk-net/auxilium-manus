@@ -50,19 +50,15 @@ def _select_parsed_entry(
 ) -> dict[str, Any] | None:
     """Resolve the parsed Cisco config model to read L3 interfaces from.
 
-    ``parse-cisco-config`` nests running/startup under sub-keys only when it was
-    configured with ``config_source: both``; with a single source it writes the
-    model directly at ``parsed[parsed_key]``. Handle both shapes.
+    ``parse-cisco-config`` always writes ``{"running": ..., "startup": ...}`` at
+    ``parsed[parsed_key]`` (the branch it did not parse stays ``None``), so read
+    the ``config_source`` sub-key directly.
     """
     entry = device.parsed.get(parsed_key)
     if not isinstance(entry, dict):
         return None
     nested = entry.get(config_source)
-    if isinstance(nested, dict):
-        return nested
-    if "l3_interfaces" in entry:
-        return entry
-    return None
+    return nested if isinstance(nested, dict) else None
 
 
 def _infer_interface_type(name: str) -> str:
@@ -197,7 +193,7 @@ async def execute(
     if devices_with_data == 0:
         raise ValueError(
             f"{_STEP_ID}: no parsed Cisco config with l3_interfaces found at "
-            f"parsed.{parsed_key} ({config_source}) on any device — add a 'Parse Cisco "
+            f"parsed.{parsed_key}.{config_source} on any device — add a 'Parse Cisco "
             f"Config' step upstream with a matching output_key"
         )
 

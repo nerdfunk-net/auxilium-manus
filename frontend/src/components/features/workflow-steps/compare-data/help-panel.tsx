@@ -99,7 +99,7 @@ export function CompareDataHelpPanel() {
           <HelpCode>rendered_template</HelpCode> or <HelpCode>pyats_snapshot</HelpCode>,
           set <HelpCode>parsed_output_key</HelpCode> to the{" "}
           <HelpCode>output_key</HelpCode> from that upstream step. This selects{" "}
-          <HelpCode>device.parsed.{"{output_key}"}</HelpCode> as the left-hand comparison
+          <HelpCode>parsed.{"{output_key}"}</HelpCode> as the left-hand comparison
           input.
         </p>
         <HelpExample>

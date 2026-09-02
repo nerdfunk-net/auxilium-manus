@@ -404,8 +404,9 @@ network_driver="cisco_ios", platform="cisco_ios")`.
    `resolve_ssh_credential`; wrong password credential → device `failure` with an
    auth `code`, not an exception.
 7. **`parse_cisco_config`** — feed a `running_config_ref` from test 5 into the
-   `parse-cisco-config` step; assert structured output (hostname, interfaces).
-   Bridges Netmiko output → a pure step.
+   `parse-cisco-config` step; assert structured output at
+   `parsed.cisco_config.running` (hostname, interfaces) with
+   `parsed.cisco_config.startup is None`. Bridges Netmiko output → a pure step.
 
 ### 7.2 Nautobot-based steps
 

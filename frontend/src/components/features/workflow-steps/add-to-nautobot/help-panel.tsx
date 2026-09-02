@@ -45,7 +45,7 @@ export function AddToNautobotHelpPanel() {
           </li>
           <li>
             A context path — e.g. <HelpCode>{"{name}"}</HelpCode>,{" "}
-            <HelpCode>{"{parsed.cisco_config.hostname}"}</HelpCode>,{" "}
+            <HelpCode>{"{parsed.cisco_config.running.hostname}"}</HelpCode>,{" "}
             <HelpCode>{"{nautobot.origin}"}</HelpCode>
           </li>
           <li>
@@ -54,8 +54,8 @@ export function AddToNautobotHelpPanel() {
         </ul>
         <p>
           By default this step sets <HelpCode>name</HelpCode> to{" "}
-          <HelpCode>{"{parsed.cisco_config.hostname}"}</HelpCode> — the hostname pulled from
-          the device&apos;s own config by an upstream Parse Cisco Config step —{" "}
+          <HelpCode>{"{parsed.cisco_config.running.hostname}"}</HelpCode> — the hostname pulled from
+          the device&apos;s own running config by an upstream Parse Cisco Config step; use <HelpCode>{"{parsed.cisco_config.startup.hostname}"}</HelpCode> if you only parsed the startup config —{" "}
           <HelpCode>role</HelpCode>, <HelpCode>location</HelpCode>, and{" "}
           <HelpCode>device_type</HelpCode> to <HelpCode>{"{nautobot.origin}"}</HelpCode>, and{" "}
           <HelpCode>status</HelpCode> to{" "}
@@ -70,7 +70,7 @@ export function AddToNautobotHelpPanel() {
           <br />
           {"  "}name:
           <br />
-          {"    "}value: {"{parsed.cisco_config.hostname}"}
+          {"    "}value: {"{parsed.cisco_config.running.hostname}"}
           <br />
           {"  "}role:
           <br />
@@ -80,17 +80,6 @@ export function AddToNautobotHelpPanel() {
           <br />
           {"    "}value: {"{nautobot.origin | default('Active')}"}
         </HelpExample>
-        <HelpWarning title="parsed.cisco_config.hostname needs a running- or startup-only parse">
-          <p>
-            <HelpCode>{"{parsed.cisco_config.hostname}"}</HelpCode> only resolves when the
-            upstream Parse Cisco Config step&apos;s <HelpCode>config_source</HelpCode> is{" "}
-            <HelpCode>running</HelpCode> or <HelpCode>startup</HelpCode>. With the{" "}
-            <HelpCode>both</HelpCode> default, the model nests one level deeper — use{" "}
-            <HelpCode>{"{parsed.cisco_config.running.hostname}"}</HelpCode> instead — otherwise
-            <HelpCode>name</HelpCode> resolves empty and the device fails as{" "}
-            <HelpCode>missing_required_field</HelpCode>.
-          </p>
-        </HelpWarning>
         <HelpWarning title="{nautobot.origin} needs an existing nautobot attribute bag">
           <p>
             <HelpCode>{"{nautobot.origin}"}</HelpCode> reads from the device&apos;s existing{" "}
