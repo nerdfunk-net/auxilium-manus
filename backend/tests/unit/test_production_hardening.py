@@ -279,6 +279,48 @@ class TestR2ProductionGuards(unittest.TestCase):
                 allow_netmiko_arbitrary_hosts=True,
             )
 
+    def test_production_rejects_short_secret_key(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "SECRET_KEY"):
+            validate_non_development_secrets(
+                environment="production",
+                secret_key="x" * 31,
+                initial_password="x" * 12,
+                credential_encryption_key="y" * 40,
+                database_password="strongpw",
+                redis_password="strong-redis",
+            )
+
+    def test_production_accepts_secret_key_at_minimum_length(self) -> None:
+        validate_non_development_secrets(
+            environment="production",
+            secret_key="x" * 32,
+            initial_password="x" * 12,
+            credential_encryption_key="y" * 40,
+            database_password="strongpw",
+            redis_password="strong-redis",
+        )
+
+    def test_production_rejects_short_initial_password(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "INITIAL_PASSWORD"):
+            validate_non_development_secrets(
+                environment="production",
+                secret_key="x" * 40,
+                initial_password="x" * 11,
+                credential_encryption_key="y" * 40,
+                database_password="strongpw",
+                redis_password="strong-redis",
+            )
+
+    def test_production_accepts_initial_password_at_minimum_length(self) -> None:
+        validate_non_development_secrets(
+            environment="production",
+            secret_key="x" * 40,
+            initial_password="x" * 12,
+            credential_encryption_key="y" * 40,
+            database_password="strongpw",
+            redis_password="strong-redis",
+        )
+
     def test_development_allows_dev_tools_and_empty_redis_password(self) -> None:
         validate_non_development_secrets(
             environment="development",

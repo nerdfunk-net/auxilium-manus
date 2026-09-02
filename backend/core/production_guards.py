@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from services.auth.password_policy import PASSWORD_MIN_LENGTH
+
 DEFAULT_SECRET_KEY = "change-in-production-use-at-least-32-characters"
 DEFAULT_INITIAL_PASSWORD = "admin"
 WEAK_DATABASE_PASSWORDS = frozenset({"", "postgres", "password"})
+MIN_SECRET_KEY_LENGTH = 32
 
 
 def validate_non_development_secrets(
@@ -22,8 +25,17 @@ def validate_non_development_secrets(
         return
     if secret_key == DEFAULT_SECRET_KEY:
         raise RuntimeError("SECRET_KEY must be configured outside development")
+    if len(secret_key) < MIN_SECRET_KEY_LENGTH:
+        raise RuntimeError(
+            f"SECRET_KEY must be at least {MIN_SECRET_KEY_LENGTH} characters outside development"
+        )
     if initial_password == DEFAULT_INITIAL_PASSWORD:
         raise RuntimeError("INITIAL_PASSWORD must be configured outside development")
+    if len(initial_password) < PASSWORD_MIN_LENGTH:
+        raise RuntimeError(
+            f"INITIAL_PASSWORD must be at least {PASSWORD_MIN_LENGTH} characters "
+            "outside development"
+        )
     if not credential_encryption_key.strip():
         raise RuntimeError("CREDENTIAL_ENCRYPTION_KEY must be configured outside development")
     if credential_encryption_key == secret_key:
