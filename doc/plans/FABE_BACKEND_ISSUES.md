@@ -1,8 +1,10 @@
 # Plan: Fix the four release-blocking backend issues
 
 Source: `doc/analysis/FABLE_BACKEND_20260902.md` §5.3, findings S1, S2+S3, S4, S6.
-Status: proposed, 2026-09-02. Review findings from `doc/plans/FABLE_BACKEND_QUESTIONS.md`
-folded in on 2026-09-02 (see §0.1). Nothing in this document has been implemented yet.
+Status: **implemented, 2026-09-02.** Review findings from `doc/plans/FABLE_BACKEND_QUESTIONS.md`
+folded in on 2026-09-02 (see §0.1); all four issues implemented the same day, commits e80df04,
+d9eec94, 47ea5be, ad04532, d3dbb51, 75895c5. See §6 for the two places the shipped code
+deliberately differs from what this document specifies, found during implementation.
 
 | # | Issue | Clarity | Needs a decision? |
 |---|---|---|---|
@@ -1281,16 +1283,39 @@ half-day follow-up.
 
 ## 6. Definition of done
 
-- All tests in §1.7, §2.7, §4.8 exist and pass; coverage ratchet still ≥ 81 %.
-- `ruff check` clean on touched files; the four `scripts/check_*.py` guards pass.
-- `docker compose up` refuses to start without `docker/.env`; processes run as `manus`;
-  `docker/.env.example` contains no secret values; `start-docker.sh` no longer auto-creates `.env`.
-- Outside development, a `SECRET_KEY` under 32 or an `INITIAL_PASSWORD` under 12 characters
-  fails at startup (§3.6).
-- All three auth response parsers copy `must_change_password`; reloading the page while the
-  flag is set reopens the forced dialog without waiting for a 403.
-- `doc/analysis/FABLE_BACKEND_20260902.md` §5.3 rows S1, S2, S3, S4, S6 updated to "fixed" with
-  the commit hash.
-- CLAUDE.md "Authentication & Authorization" section documents: identity binding by
-  `(oidc_provider, oidc_subject)`, the RBAC grant policy P1–P7, the password policy constants,
-  and `must_change_password` enforcement.
+- [x] All tests in §1.7, §2.7, §4.8 exist and pass; coverage ratchet still ≥ 81 % (measured
+      81.87%, 2078 backend tests). Frontend: 53 vitest tests, `tsc --noEmit`, `eslint`, and a
+      full `next build` all clean.
+- [x] `ruff check` clean on touched files; the four `scripts/check_*.py` guards pass.
+- [x] `docker compose up` refuses to start without `docker/.env`; processes run as `manus`
+      (verified end to end in a throwaway container — see commit d3dbb51);
+      `docker/.env.example` contains no secret values.
+- [x] Outside development, a `SECRET_KEY` under 32 or an `INITIAL_PASSWORD` under 12 characters
+      fails at startup (§3.6).
+- [x] All **four** auth response parsers (not three — the OIDC callback route at
+      `app/api/auth/oidc/[provider]/callback/route.ts` has its own copy, missed by both this
+      plan and the review) copy `must_change_password`; consolidated into one shared, tested
+      `lib/auth-response-parser.ts::parseAuthUser` rather than patched four times separately.
+- [x] `doc/analysis/FABLE_BACKEND_20260902.md` §5.3 rows S1, S2, S3, S4, S6 updated to "fixed"
+      with commit hashes (new Status column).
+- [x] CLAUDE.md "Authentication & Authorization" section documents: identity binding by
+      `(oidc_provider, oidc_subject)`, the RBAC grant policy P1–P7, the password policy
+      constants, and `must_change_password` enforcement.
+
+### Where the shipped code differs from this document
+
+Found during implementation; both are deliberate, not oversights:
+
+1. **`start-docker.sh` keeps auto-creating `.env`** (§3.5), instead of exiting with instructions
+   as this document originally specified. On reflection the interactive copy-then-prompt flow
+   is still correct behavior with the new empty-values template — a user who presses Enter
+   without filling it in just hits `docker compose up`'s own `:?` error a few lines later, which
+   is no worse than a hard exit, and the prompt is friendlier. The script's wording was updated
+   to name the six required variables up front instead.
+2. **`useApi`'s 403 handling ended up smaller than planned**: no new Zustand store, just one
+   extracted, unit-tested `buildApiErrorMessage` function and one new `useAuthStore` action
+   (`markPasswordChangeRequired`), which the review's §3 already anticipated as the likely
+   shape. Writing the test first also caught a real bug in the first draft: a plain-string 403
+   detail (what `require_permission` actually sends, e.g. `"Permission denied: workflows:read
+   required"`) was being silently discarded in favor of a generic "Permission denied" — fixed
+   before it shipped.

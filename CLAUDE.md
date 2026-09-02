@@ -175,6 +175,26 @@ allow or deny for one `resource:action`) that sit above role-derived grants.
 Precedence: **user-level override (allow or deny) > role-derived grant > default-deny.**
 See `backend/services/auth/rbac_service.py::RBACService.has_permission`.
 
+### RBAC Grant Policy (P1–P7)
+
+Beyond the precedence rule above, `RBACService` enforces who may change whose roles and
+permissions — the delegation-bound model (no privilege amplification):
+
+| # | Rule |
+|---|---|
+| P1 | An actor may never change their own roles/overrides, or delete/deactivate themselves. |
+| P2 | An actor may grant (via override or role) only permissions they currently hold. `admin` bypasses. |
+| P3 | Any grant, override, or removal touching `rbac.*`, `users`, or `system.*` requires `admin`. |
+| P4 | Any change to a user who currently holds `admin` requires `admin`. |
+| P5 | System roles (`is_system=True`) cannot be renamed, deleted, or have `is_system` changed. |
+| P6 | The last user holding `admin` cannot lose it (role removal, deactivation, deletion) — an invariant, not actor-gated: it also blocks an `actor_user_id=None` internal caller. |
+| P7 | Internal callers (seed, lifespan) pass `actor_user_id=None` and bypass P1–P4. |
+
+Every mutating `RBACService`/`UserService` method takes `actor_user_id: int | None`; routers
+pass `current_user.id` and map `AccessDeniedError` (a `DomainError`) to 403. See
+`backend/services/auth/rbac_service.py` (`assert_not_self`, `may_touch_target`,
+`assert_actor_holds`, `assert_not_last_admin`) and `backend/services/users/user_service.py`.
+
 ### Permission Pattern
 Format: `{resource}:{action}` (e.g., `users:read`, `settings:write`, `credentials:delete`)
 
@@ -215,6 +235,46 @@ fetch('/api/proxy/users')
 and the backend must not rely on CORS for frontend access. Frontend requests go
 to `/api/proxy/*`; the Next.js server forwards them to `BACKEND_URL` and attaches
 the HTTP-only auth cookie as a backend `Authorization` header.
+
+### OIDC Identity Binding
+
+An OIDC login is matched to a local user by `(oidc_provider, oidc_subject)` **only** —
+never by username. `oidc_subject` stores the IdP's `sub` claim (mandatory in OIDC Core §2;
+`OIDCService.extract_user_data` refuses a token without one). `(oidc_provider, oidc_subject)`
+has a unique partial index (`postgresql_where=text("oidc_subject IS NOT NULL")`) on `users`.
+
+If an IdP-presented username collides with a row this identity isn't already bound to (a
+local account, another provider, or the same provider with a different subject),
+`provision_or_get_user` raises `OIDCIdentityConflictError` (403) rather than taking the row
+over — an IdP-controlled claim must never be able to select an existing local account. An
+admin binds an identity to a pre-existing account explicitly (`oidc_provider`/`oidc_subject`
+on `UserUpdate`); a brand-new IdP user still self-provisions inactive, pending admin
+approval, as before. See `backend/services/auth/oidc_service.py::provision_or_get_user`.
+
+### Password Policy and Forced Change
+
+`backend/services/auth/password_policy.py::validate_password` (NIST 800-63B style: length,
+not composition) — 12–128 characters, a small common-password denylist, must not equal the
+username. Enforced in `UserService.create_user`/`update_user` and
+`AuthService.change_password`; `UserCreate`/`UserUpdate`/`PasswordChangeRequest` mirror the
+length bounds at the Pydantic layer for a fast 422. Outside development,
+`core/production_guards.py` also rejects a `SECRET_KEY` under 32 characters or an
+`INITIAL_PASSWORD` under the policy minimum at startup.
+
+Every user has a `must_change_password: bool` column. It is set on the seeded admin
+(`AuthService.ensure_initial_admin`) and whenever an admin sets someone's password
+(`UserService.create_user`/`update_user`); it is cleared by a successful
+`POST /auth/change-password` (rate-limited via the existing `LoginRateLimiter`, keyed
+`change-password:<user_id>`). Enforcement is server-side and unconditional:
+`core/auth.py::get_current_user` and `_require_active_user_id` (used by every
+`require_permission`/`require_role`/etc. dependency) both 403 with
+`{"code": "password_change_required"}` when the flag is `True` (checked via `is True`, not
+truthy, so a badly-mocked test double never trips it by accident). Only
+`get_current_user_allow_password_change` — used by `/auth/me`, `/auth/change-password`, and
+`/auth/refresh` — skips the check, so a blocked user can still read their own state and fix
+it. Frontend: `useApi`'s `buildApiErrorMessage` recognizes that 403 code and flips
+`useAuthStore`'s `must_change_password`, which opens a forced, non-dismissable
+`ChangePasswordDialog` in `DashboardShell`.
 
 ## Database Schema (Key Tables)
 
