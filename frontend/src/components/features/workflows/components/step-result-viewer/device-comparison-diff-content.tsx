@@ -9,10 +9,12 @@ export function DeviceComparisonDiffsContent({
   runId,
   comparisonResults,
   comparisonDiffs,
+  expanded = false,
 }: {
   runId: number | null;
   comparisonResults: Array<{ key: string; entry: ParsedComparisonResultEntry }>;
   comparisonDiffs: Array<{ key: string; entry: ParsedComparisonDiffEntry }>;
+  expanded?: boolean;
 }) {
   if (comparisonResults.length === 0 && comparisonDiffs.length === 0) {
     return null;
@@ -76,6 +78,7 @@ export function DeviceComparisonDiffsContent({
               runId={runId}
               label="Unified diff"
               artifactRef={entry.artifact_ref}
+              expanded={expanded}
             />
           )}
         </div>

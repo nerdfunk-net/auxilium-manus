@@ -6,9 +6,11 @@ import type { ParsedTemplateEntry } from "./types";
 export function DeviceParsedTemplatesContent({
   runId,
   parsedEntries,
+  expanded = false,
 }: {
   runId: number | null;
   parsedEntries: Array<{ key: string; entry: ParsedTemplateEntry }>;
+  expanded?: boolean;
 }) {
   if (runId == null) {
     return (
@@ -29,6 +31,7 @@ export function DeviceParsedTemplatesContent({
             runId={runId}
             label={`Rendered template (${entry.output_key})`}
             artifactRef={entry.artifact_ref}
+            expanded={expanded}
           />
         </div>
       ))}

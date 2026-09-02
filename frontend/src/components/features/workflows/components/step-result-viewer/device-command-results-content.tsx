@@ -8,9 +8,11 @@ import { ConfigArtifactPanel } from "./config-artifact-panel";
 export function DeviceCommandResultsContent({
   runId,
   commandResults,
+  expanded = false,
 }: {
   runId: number | null;
   commandResults: Record<string, CommandResult[]>;
+  expanded?: boolean;
 }) {
   if (runId == null) {
     return (
@@ -44,6 +46,7 @@ export function DeviceCommandResultsContent({
                   runId={runId}
                   label="Output"
                   artifactRef={result.output_ref}
+                  expanded={expanded}
                 />
               ) : null}
             </div>

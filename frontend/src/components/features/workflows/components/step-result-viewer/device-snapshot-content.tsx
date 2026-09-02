@@ -8,9 +8,11 @@ import type { SnapshotEntry } from "./types";
 export function DeviceSnapshotContent({
   runId,
   entries,
+  expanded = false,
 }: {
   runId: number | null;
   entries: Array<{ key: string; entry: SnapshotEntry }>;
+  expanded?: boolean;
 }) {
   return (
     <div className="mt-2 space-y-3">
@@ -34,7 +36,12 @@ export function DeviceSnapshotContent({
               Snapshot content is available from a workflow run detail view.
             </p>
           ) : (
-            <ConfigArtifactPanel runId={runId} label="Genie snapshot" artifactRef={entry.artifact_ref} />
+            <ConfigArtifactPanel
+              runId={runId}
+              label="Genie snapshot"
+              artifactRef={entry.artifact_ref}
+              expanded={expanded}
+            />
           )}
         </div>
       ))}

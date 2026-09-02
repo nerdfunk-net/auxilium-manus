@@ -1,8 +1,10 @@
 "use client";
 
+import { PanelRightOpen } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { DeviceContext } from "@/lib/workflow-context-types";
 
 import { ArtifactRefRow } from "./artifact-ref-row";
@@ -10,6 +12,7 @@ import { CapabilityBadges } from "./capability-badges";
 import { DeviceCommandResultsContent } from "./device-command-results-content";
 import { DeviceComparisonDiffsContent } from "./device-comparison-diff-content";
 import { DeviceConfigsContent } from "./device-configs-content";
+import { DeviceDetailDialog } from "./device-detail-dialog";
 import { DeviceErrorList } from "./device-error-list";
 import { DeviceGenieConfigContent } from "./device-genie-config-content";
 import { DeviceParsedTemplatesContent } from "./device-parsed-templates-content";
@@ -24,6 +27,7 @@ import {
 } from "./parsed-guards";
 
 export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number | null }) {
+  const [detailOpen, setDetailOpen] = useState(false);
   const [showAttributeBags, setShowAttributeBags] = useState(false);
   const [showConfigs, setShowConfigs] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
@@ -84,6 +88,16 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
                 {device.source}
               </Badge>
             ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto h-7 shrink-0 gap-1.5 px-2 text-xs [&_svg]:size-3.5"
+              onClick={() => setDetailOpen(true)}
+            >
+              <PanelRightOpen aria-hidden />
+              Detailed view
+            </Button>
           </div>
           <p className="mt-0.5 break-all font-mono text-xs text-muted-foreground">{device.id}</p>
           <p className="break-words text-xs text-muted-foreground">
@@ -304,6 +318,12 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
           ) : null}
         </div>
       </div>
+      <DeviceDetailDialog
+        device={device}
+        runId={runId ?? null}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
     </div>
   );
 }

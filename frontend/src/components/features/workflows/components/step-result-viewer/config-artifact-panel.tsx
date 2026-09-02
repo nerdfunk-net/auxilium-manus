@@ -5,14 +5,19 @@ import { Loader2 } from "lucide-react";
 import { useArtifactQuery } from "@/hooks/queries/use-artifact-query";
 import type { ArtifactRef } from "@/lib/workflow-context-types";
 
+import { ContentViewer } from "./content-viewer";
+
 export function ConfigArtifactPanel({
   runId,
   label,
   artifactRef,
+  expanded = false,
 }: {
   runId: number;
   label: string;
   artifactRef: ArtifactRef;
+  /** Render at full detail-dialog height instead of the inline preview height. */
+  expanded?: boolean;
 }) {
   const { data, isLoading, error } = useArtifactQuery({ runId, artifactRef });
 
@@ -34,13 +39,12 @@ export function ConfigArtifactPanel({
   }
 
   return (
-    <div className="space-y-1">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
-      <pre className="max-h-60 overflow-auto break-all rounded bg-muted/40 p-2 text-[11px] font-mono whitespace-pre-wrap">
-        {data.content}
-      </pre>
-    </div>
+    <ContentViewer
+      content={data.content}
+      label={label}
+      sizeBytes={data.size_bytes}
+      downloadName={`${label.toLowerCase().replace(/\s+/g, "-")}-${data.artifact_id}`}
+      height={expanded ? "full" : "sm"}
+    />
   );
 }

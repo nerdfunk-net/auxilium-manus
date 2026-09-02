@@ -7,9 +7,11 @@ import { ConfigArtifactPanel } from "./config-artifact-panel";
 export function DeviceConfigsContent({
   runId,
   device,
+  expanded = false,
 }: {
   runId: number | null;
   device: DeviceContext;
+  expanded?: boolean;
 }) {
   if (runId == null) {
     return (
@@ -26,6 +28,7 @@ export function DeviceConfigsContent({
           runId={runId}
           label="Running config"
           artifactRef={device.running_config_ref}
+          expanded={expanded}
         />
       ) : null}
       {device.startup_config_ref ? (
@@ -33,6 +36,7 @@ export function DeviceConfigsContent({
           runId={runId}
           label="Startup config"
           artifactRef={device.startup_config_ref}
+          expanded={expanded}
         />
       ) : null}
     </div>
