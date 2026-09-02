@@ -21,18 +21,73 @@ Only needed once. Skip if the networks already exist.
 
 ### 2. Start infrastructure
 
+Manus depends on **Hatchet** (workflow orchestration), **PostgreSQL** (application
+database), and **Redis** (cache). **Hatchet must be running before you start Manus** —
+the backend and workers connect to Hatchet over gRPC on startup; without it, workflow
+runs cannot be scheduled or executed.
+
+#### Hatchet (start first)
+
+Hatchet runs from its own Compose file, separate from the application stack:
+
+[`docker/hatchet/docker-compose.yml`](docker/hatchet/docker-compose.yml)
+
+The file uses official pre-built Hatchet images from `ghcr.io/hatchet-dev/hatchet/`
+(there is no local Dockerfile to build in this directory). Pull the images and start the
+stack:
+
 ```bash
+cd docker/hatchet
+docker compose pull
 docker compose up -d
 ```
 
-This starts PostgreSQL, Redis, and the Hatchet workflow engine. Wait ~30 seconds for all services to become healthy.
+`docker compose up -d` alone is enough on first run — Compose pulls any missing images
+automatically.
+
+This brings up:
+
+| Service | Purpose |
+|---|---|
+| `hatchet-postgres` | Hatchet's own PostgreSQL database |
+| `hatchet-rabbitmq` | Message queue for Hatchet |
+| `hatchet-migrate` | One-shot database migrations |
+| `hatchet-setup-config` | One-shot setup (encryption keys, default admin user) |
+| `hatchet-engine` | gRPC workflow engine — reachable at `localhost:7077` from the host |
+| `hatchet-dashboard` | Web UI and REST API at [http://localhost:8888](http://localhost:8888) |
+
+Wait about **60 seconds** for the one-shot jobs (`hatchet-migrate`,
+`hatchet-setup-config`) to finish and `hatchet-dashboard` to start. To watch progress:
+
+```bash
+docker compose logs -f hatchet-setup-config hatchet-dashboard
+```
+
+When ready, `hatchet-engine` and `hatchet-dashboard` should show as running:
+
+```bash
+docker compose ps
+```
+
+Configure the Manus backend to reach Hatchet via `HATCHET_CLIENT_HOST_PORT=localhost:7077`
+in `backend/.env` (see step 3 below for the API token).
+
+#### PostgreSQL and Redis
+
+The application database and Redis cache must also be available before starting Manus.
+For the local four-terminal setup below, connection settings are in `backend/.env.example`
+(`localhost:5432` for PostgreSQL, `localhost:6379` for Redis). Install and run them on
+the host, or use your own preferred method.
+
+For a fully Docker-based deployment (application image plus infrastructure), see
+[`docker/README.md`](docker/README.md).
 
 ### 3. Configure Hatchet
 
 Open the Hatchet dashboard at [http://localhost:8888](http://localhost:8888) and sign in:
 
 - Email: `admin@example.com`
-- Password: `Admin123!!`
+- Password: `Admin1234!`
 
 Go to **Settings → API Tokens → Create Token**, copy the token, then add it to `backend/.env`:
 
@@ -106,10 +161,12 @@ process just needs to be up so publishing works whenever you use it. See
 
 ```bash
 # Stop the app processes with Ctrl+C in each terminal, then:
-docker compose down
 
-# To also delete all data:
-docker compose down -v
+# Hatchet stack
+cd docker/hatchet && docker compose down
+
+# To also delete Hatchet data:
+cd docker/hatchet && docker compose down -v
 ```
 
 ## Development notes
