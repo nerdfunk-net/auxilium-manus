@@ -74,17 +74,6 @@ GitPython, pyATS/Genie
 
 **Integrations:** Nautobot API, Cisco ISE, pyATS, Mattermost
 
-## Dashboard routes
-
-| Route | Feature |
-|---|---|
-| `/workflows` | Workflow editor (React Flow canvas) |
-| `/workflows/runs` | Workflow execution history and step results |
-| `/inventory` | Inventory builder |
-| `/settings/[section]` | Settings (`general`, `sources`, `credentials`, `users`, `hatchet`, `redis`, `logging`, `version-control`) |
-
-`/settings` redirects to `/settings/general`. `/` redirects to `/workflows`.
-
 ## Examples
 
 **Config backup workflow** — selects devices from Nautobot, pulls their running and
