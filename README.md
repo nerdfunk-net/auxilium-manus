@@ -74,6 +74,23 @@ GitPython, pyATS/Genie
 
 **Integrations:** Nautobot API, Cisco ISE, pyATS, Mattermost
 
+## The app
+
+**View the result of a run** — browse run history, see per-step status and duration, and
+inspect fan-out runs across multiple devices:
+
+![Runs view: workflow run history with per-step success status and fan-out summary](screenshots/view-run-results.png)
+
+**Look at the result of a device** — drill into a single device to inspect attribute bags,
+configs, command output, and rendered templates from that run:
+
+![Device run result: per-device overview with attribute bags, configs, command output, and rendered templates](screenshots/view-run-result-of-device.png)
+
+**Build your Nautobot inventory** — filter devices from a Nautobot source with logical
+expressions and preview the matching targets before you run a workflow:
+
+![Inventory Builder: build dynamic device inventories from Nautobot using logical filters](screenshots/build-your-inventory.png)
+
 ## Examples
 
 **Config backup workflow** — selects devices from Nautobot, pulls their running and
