@@ -9,11 +9,14 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
-from core.auth import _load_active_user
+from core.auth import _load_active_user, get_current_user_allow_password_change
 from core.config import settings
+from core.database import get_db
 from core.models.users import User
+from routers.auth import router as auth_router
 from services.auth.auth_service import AuthenticationError, AuthService
 
 
@@ -139,6 +142,24 @@ class BumpTokenVersionTests(unittest.TestCase):
 
 def _now_ts() -> int:
     return int(datetime.now(UTC).timestamp())
+
+
+class LogoutEndpointTests(unittest.TestCase):
+    def test_logout_bumps_token_version(self) -> None:
+        auth_service = MagicMock()
+        app = FastAPI()
+        app.include_router(auth_router, prefix="/api")
+        app.dependency_overrides[get_db] = lambda: MagicMock()
+        app.dependency_overrides[get_current_user_allow_password_change] = lambda: _user(
+            user_id=7
+        )
+
+        with patch("routers.auth.AuthService", lambda _db: auth_service):
+            with TestClient(app) as client:
+                response = client.post("/api/auth/logout")
+
+        self.assertEqual(response.status_code, 204)
+        auth_service.bump_token_version.assert_called_once_with(7)
 
 
 class UserServiceBumpTests(unittest.TestCase):

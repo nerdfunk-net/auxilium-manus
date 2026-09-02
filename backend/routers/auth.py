@@ -97,6 +97,19 @@ async def change_password(
     return _build_user_response(user, db)
 
 
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    current_user: User = Depends(get_current_user_allow_password_change),
+    db: Session = Depends(get_db),
+) -> None:
+    """Revoke every outstanding token for the caller by bumping token_version.
+
+    Uses ``get_current_user_allow_password_change`` so a user who is mid
+    forced-password-change can still sign out.
+    """
+    AuthService(db).bump_token_version(current_user.id)
+
+
 @router.post("/refresh", response_model=SessionResponse)
 async def refresh_token(
     request: Request,
