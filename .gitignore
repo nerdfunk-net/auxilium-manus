@@ -226,9 +226,11 @@ cockpit-ng
 cockpit
 
 # git and artifact data
+data
 data/git
 data/artifacts
 data/exports
+data/logs
 
 # custom CA certificates managed via /tools/add-certificate (see INSTALL_CERTIFICATE_FILES)
 config/certs/*.crt
@@ -243,4 +245,3 @@ docker/data/
 .DS_Store
 backend/.env.test
 backend/tests/nautobot-baseline.yaml
-data/logs
