@@ -1,0 +1,21 @@
+# Development override: relaxes ENV and enables API docs. Secrets still
+# come from docker/.env either way — see docker-compose.yml — so a
+# development stack never ships the old hardcoded defaults by accident.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+x-dev-env: &dev-env
+  ENV: development
+  DOCS_ENABLED: "true"
+
+services:
+  manus-web:
+    environment:
+      <<: *dev-env
+  manus-worker:
+    environment:
+      <<: *dev-env
+  manus-background-worker:
+    environment:
+      <<: *dev-env

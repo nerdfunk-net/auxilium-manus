@@ -18,7 +18,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 
+RUN groupadd --system manus \
+ && useradd --system --gid manus --home-dir /app --shell /usr/sbin/nologin manus \
+ && mkdir -p /app/data /app/config/certs \
+ && chown -R manus:manus /app
+
 ENV PYTHONPATH=/app/backend
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "hatchet.worker"]
+COPY docker/entrypoint-worker.sh /app/entrypoint-worker.sh
+RUN chmod 755 /app/entrypoint-worker.sh
+
+# No USER here on purpose: the entrypoint drops privileges (see entrypoint-worker.sh).
+CMD ["/app/entrypoint-worker.sh"]

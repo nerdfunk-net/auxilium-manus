@@ -110,22 +110,30 @@ COPY docker/supervisord-web.conf /etc/supervisor/conf.d/supervisord-web.conf
 COPY docker/supervisord-worker.conf /etc/supervisor/conf.d/supervisord-worker.conf
 COPY docker/supervisord-background-worker.conf /etc/supervisor/conf.d/supervisord-background-worker.conf
 COPY docker/start.sh ./start.sh
-RUN chmod +x start.sh
+RUN chmod 755 start.sh
 
-RUN mkdir -p /app/data/settings \
+# Unprivileged runtime account, shared by all three compose services
+# (manus-web/-worker/-background-worker all run this same image, selecting
+# behaviour via SUPERVISORD_CONF). start.sh runs as root only long enough to
+# install operator CA certs and fix bind-mount ownership, then drops to it —
+# see start.sh for the setpriv re-exec.
+RUN groupadd --system manus \
+ && useradd --system --gid manus --home-dir /app --shell /usr/sbin/nologin manus \
+ && mkdir -p /app/data/settings \
     /app/data/git \
     /app/data/cache \
     /app/data/logs \
     /app/config/certs \
     /var/log/supervisor \
-    && chown -R root:root /app/data \
-    && chmod -R 755 /app/data
+    /run/supervisor \
+ && chown -R manus:manus /app/data /app/config /var/log/supervisor /run/supervisor
 
 EXPOSE 3000 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD sh -c "curl -f http://localhost:${FRONTEND_PORT} && curl -f http://localhost:8000/health || exit 1"
 
+# No USER here on purpose: the entrypoint drops privileges (see start.sh).
 CMD ["./start.sh"]
 
 LABEL org.opencontainers.image.title="Auxilium Manus All-in-One"

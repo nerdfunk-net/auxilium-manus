@@ -21,7 +21,10 @@ if [ ! -f .env ]; then
     echo "📝 Creating environment configuration..."
     cp .env.example .env
     echo "✅ Created .env file from template"
-    echo "⚠️  Please edit .env with your actual configuration values before continuing"
+    echo "⚠️  .env has no secrets filled in yet — SECRET_KEY, INITIAL_PASSWORD,"
+    echo "   CREDENTIAL_ENCRYPTION_KEY, DATABASE_PASSWORD, MANUS_REDIS_PASSWORD,"
+    echo "   and HATCHET_CLIENT_TOKEN are all required. 'docker compose up' below"
+    echo "   refuses to start until every one of them is set."
     echo ""
     read -p "Press Enter after updating .env file, or Ctrl+C to exit..."
 fi

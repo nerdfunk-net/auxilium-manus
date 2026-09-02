@@ -25,14 +25,40 @@ Place `.crt` files in `docker/certs/` and rebuild with `Dockerfile.basic` or ext
 
 ## Runtime failures
 
-### Backend won't start (SECRET_KEY / INITIAL_PASSWORD)
+### `docker compose up` refuses to start (missing secret)
 
-In production (`ENV=production`), the backend requires non-default secrets:
+This is the normal, expected path — `docker-compose.yml` has no working
+defaults for `SECRET_KEY`, `INITIAL_PASSWORD`, `CREDENTIAL_ENCRYPTION_KEY`,
+`DATABASE_PASSWORD`, `MANUS_REDIS_PASSWORD`, or `HATCHET_CLIENT_TOKEN` on
+purpose. Copy the template and fill it in:
+
+```bash
+cd docker
+cp .env.example .env
+# edit .env — SECRET_KEY and CREDENTIAL_ENCRYPTION_KEY: openssl rand -hex 32
+docker compose up -d
+```
+
+For a local development stack (relaxed `ENV`, `/docs` enabled — secrets are
+still required, just not the old hardcoded values):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+### Backend won't start outside Compose (`docker run` directly)
+
+The same guards apply to a container started without Compose (`ENV=production`
+requires non-default secrets, checked at startup in
+`backend/core/production_guards.py`):
 
 ```bash
 -e ENV=production \
--e SECRET_KEY=<at-least-32-chars> \
--e INITIAL_PASSWORD=<not-admin>
+-e SECRET_KEY=<at-least-32-chars, not the repo default> \
+-e INITIAL_PASSWORD=<12+ chars, not "admin"> \
+-e CREDENTIAL_ENCRYPTION_KEY=<different from SECRET_KEY> \
+-e DATABASE_PASSWORD=<non-default> \
+-e MANUS_REDIS_PASSWORD=<non-empty>
 ```
 
 ### Database connection refused

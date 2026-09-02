@@ -9,12 +9,15 @@
 #   docker compose up -d
 #
 # Backend settings for manus-web / manus-worker / manus-background-worker are
-# declared in x-manus-app-env below (mirrors backend/.env.example). Edit
-# values here — not via docker/.env.
+# declared in x-manus-app-env below. Secrets (SECRET_KEY, INITIAL_PASSWORD,
+# CREDENTIAL_ENCRYPTION_KEY, DATABASE_PASSWORD, MANUS_REDIS_PASSWORD,
+# HATCHET_CLIENT_TOKEN) come from docker/.env — copy docker/.env.example to
+# docker/.env and fill it in; `docker compose up` refuses to start without
+# it. Non-secret defaults (ENV, DOCS_ENABLED, INITIAL_USERNAME,
+# INSTALL_CERTIFICATE_FILES) can also be overridden there but need not be.
 #
 # Networks:
-#   frontend — user-facing + app data (postgres, redis, web, worker); published ports
-#   hatchet  — isolated (--internal): gRPC to hatchet-engine (no outside routing)
+#   backend — postgres, redis, web, worker, background-worker; published ports
 #
 # manus-web: bind address, backend port, BACKEND_URL, and NODE_ENV are set by
 # supervisord-web.conf. manus-worker runs only the live Hatchet worker
@@ -27,16 +30,16 @@
 
 x-manus-app-env: &manus-app-env
   # Application
-  ENV: development
-  SECRET_KEY: change-in-production-use-at-least-32-characters
+  ENV: "${ENV:-production}"
+  SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is required. Generate one with `openssl rand -hex 32`}"
   ACCESS_TOKEN_EXPIRE_MINUTES: 60
-  DOCS_ENABLED: "true"
+  DOCS_ENABLED: "${DOCS_ENABLED:-false}"
   TRUSTED_PROXY_IPS: ""
-  INITIAL_USERNAME: admin
-  INITIAL_PASSWORD: admin
+  INITIAL_USERNAME: "${INITIAL_USERNAME:-admin}"
+  INITIAL_PASSWORD: "${INITIAL_PASSWORD:?INITIAL_PASSWORD is required and must be 12+ characters}"
 
   # Credential vault
-  CREDENTIAL_ENCRYPTION_KEY: ""
+  CREDENTIAL_ENCRYPTION_KEY: "${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required and must differ from SECRET_KEY. Generate one with `openssl rand -hex 32`}"
   DATA_DIRECTORY: /app/data
   KDF_ITERATIONS: 100000
 
@@ -46,17 +49,17 @@ x-manus-app-env: &manus-app-env
   DATABASE_NAME: manus
   DATABASE_MAINTENANCE_NAME: postgres
   DATABASE_USERNAME: postgres
-  DATABASE_PASSWORD: postgres
+  DATABASE_PASSWORD: "${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}"
 
   # Redis (host/port point at the compose redis service)
   MANUS_REDIS_HOST: manus-redis
   MANUS_REDIS_PORT: 6379
-  MANUS_REDIS_PASSWORD: changeme
+  MANUS_REDIS_PASSWORD: "${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}"
   MANUS_REDIS_KEY_PREFIX: manus-cache
 
   # Hatchet workflow engine (reached on the isolated hatchet network)
   # Create a token at http://localhost:8888 → Settings → API Tokens
-  HATCHET_CLIENT_TOKEN: "get-from-your-hatchet-dashboard"
+  HATCHET_CLIENT_TOKEN: "${HATCHET_CLIENT_TOKEN:?HATCHET_CLIENT_TOKEN is required. Create one at the Hatchet dashboard (Settings, API Tokens)}"
   HATCHET_CLIENT_HOST_PORT: hatchet-engine:7070
   HATCHET_CLIENT_TLS_STRATEGY: none
   HATCHET_CLIENT_DEBUG: "false"
@@ -84,7 +87,7 @@ x-manus-app-env: &manus-app-env
 
   # Install config/certs/*.crt into the system trust store on startup (every
   # service). Requires update-ca-certificates (present in the image).
-  INSTALL_CERTIFICATE_FILES: "false"
+  INSTALL_CERTIFICATE_FILES: "${INSTALL_CERTIFICATE_FILES:-false}"
 
 services:
   manus-postgres:
@@ -94,7 +97,7 @@ services:
     environment:
       POSTGRES_DB: manus
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -111,12 +114,12 @@ services:
     image: redis:8-alpine
     container_name: manus-redis
     hostname: manud-redis
-    command: redis-server --appendonly yes --requirepass changeme
+    command: redis-server --appendonly yes --requirepass ${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}
     volumes:
       - redis_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "changeme", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${MANUS_REDIS_PASSWORD:?MANUS_REDIS_PASSWORD is required}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

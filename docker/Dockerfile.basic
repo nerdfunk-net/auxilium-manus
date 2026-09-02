@@ -52,12 +52,19 @@ ENV NODE_ENV=production
 ENV ENV=production
 ENV BACKEND_URL=http://127.0.0.1:8000
 
-RUN mkdir -p /app/data /var/log/supervisor
+# Unprivileged runtime account. start.sh runs as root only long enough to
+# install operator CA certs and fix bind-mount ownership, then drops to it —
+# see start.sh for the setpriv re-exec.
+RUN groupadd --system manus \
+ && useradd --system --gid manus --home-dir /app --shell /usr/sbin/nologin manus \
+ && mkdir -p /app/data /app/config/certs /var/log/supervisor /run/supervisor \
+ && chown -R manus:manus /app/data /app/config /var/log/supervisor /run/supervisor
 
 COPY docker/supervisord-web.conf /etc/supervisor/conf.d/supervisord.conf
 COPY docker/start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN chmod 755 /app/start.sh
 
 EXPOSE 3000 8000
 
+# No USER here on purpose: the entrypoint drops privileges (see start.sh).
 CMD ["/app/start.sh"]

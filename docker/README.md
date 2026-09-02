@@ -42,16 +42,32 @@ Wait ~60 seconds for `hatchet-setup-config` to finish and `hatchet-dashboard` to
 1. Open http://localhost:8888
 2. Sign in: `admin@example.com` / `Admin1234!`
 3. Go to **Settings → API Tokens → Create Token** and copy the token
-4. Set `HATCHET_CLIENT_TOKEN` in `docker/docker-compose.yml` (`x-manus-app-env`)
+4. Set `HATCHET_CLIENT_TOKEN` in `docker/.env` (see step 3)
 
 ### 3. Start the application stack
 
+`docker-compose.yml` has no working defaults for `SECRET_KEY`,
+`INITIAL_PASSWORD`, `CREDENTIAL_ENCRYPTION_KEY`, `DATABASE_PASSWORD`,
+`MANUS_REDIS_PASSWORD`, or `HATCHET_CLIENT_TOKEN` — `docker compose up`
+refuses to start without them, on purpose (see [DOCKER.md](./DOCKER.md)).
+Copy the template and fill it in first:
+
 ```bash
 cd docker
+cp .env.example .env
+# edit .env — SECRET_KEY and CREDENTIAL_ENCRYPTION_KEY: openssl rand -hex 32
 docker compose up -d --build
 ```
 
-Or run the helper script:
+For local development (relaxed `ENV`, `/docs` enabled — secrets in `.env`
+are still required):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+Or run the helper script, which creates `.env` from the template
+interactively if it doesn't exist yet:
 
 ```bash
 ./start-docker.sh
@@ -151,7 +167,8 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 | `Dockerfile.basic` | Faster online development build |
 | `Dockerfile.worker` | Standalone Hatchet worker (optional) |
 | `docker-compose.yml` | App stack: postgres, redis, web, live worker, background worker (`frontend` + `hatchet` networks) |
-| `.env.example` | Optional template (prefer editing `x-manus-app-env` in compose) |
+| `docker-compose.dev.yml` | Development override (`ENV=development`, `DOCS_ENABLED=true`) — use with `-f docker-compose.yml -f docker-compose.dev.yml` |
+| `.env.example` | Required secrets template — copy to `.env` before `docker compose up` |
 | `hatchet/docker-compose.yml` | Hatchet stack (engine, dashboard, dependencies) |
 | `pyats/docker-compose.yml` | Optional pyATS shim stack (see `pyats/README.md`) |
 | `prepare-all-in-one.sh` | Build and export air-gap image |
@@ -163,24 +180,23 @@ See [README-ALL-IN-ONE.md](./README-ALL-IN-ONE.md) for the full air-gap guide. I
 
 ## Environment variables
 
-Copy `.env.example` to `.env`. Key values:
+Copy `.env.example` to `.env` and fill in the required values:
 
 ```bash
-HATCHET_CLIENT_TOKEN=          # API token from Hatchet dashboard
-HATCHET_CLIENT_HOST_PORT=hatchet-engine:7070   # isolated hatchet network
-HATCHET_CLIENT_TLS_STRATEGY=none
-
-POSTGRES_DB=manus              # mapped to DATABASE_* inside the app containers
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-MANUS_REDIS_PASSWORD=changeme  # Redis host/port are fixed to the redis service
-
-# CREDENTIAL_ENCRYPTION_KEY=   # recommended in production; falls back to SECRET_KEY
+SECRET_KEY=                    # openssl rand -hex 32
+INITIAL_PASSWORD=               # 12+ characters; the admin must change it on first login regardless
+CREDENTIAL_ENCRYPTION_KEY=      # openssl rand -hex 32, must differ from SECRET_KEY
+DATABASE_PASSWORD=              # shared by manus-postgres and the app containers
+MANUS_REDIS_PASSWORD=           # shared by manus-redis and the app containers
+HATCHET_CLIENT_TOKEN=           # API token from the Hatchet dashboard (step 2 above)
 ```
 
-Compose hardcodes in-container hostnames (`postgres`, `redis`) and maps `POSTGRES_*` into `DATABASE_*` for the app. Bind address, backend port, `BACKEND_URL`, and `NODE_ENV` for processes inside `manus-web` are set by `supervisord-web.conf`, not by `.env`.
+`docker compose up` refuses to start until every one of these is set — see
+[DOCKER.md](./DOCKER.md) if you hit that. `ENV`, `DOCS_ENABLED`,
+`INITIAL_USERNAME`, and `INSTALL_CERTIFICATE_FILES` are optional overrides
+with working defaults; see `.env.example` for the full list.
 
-See `.env.example` for the full template.
+Compose hardcodes in-container hostnames (`manus-postgres`, `manus-redis`) and other non-secret settings (`HATCHET_CLIENT_HOST_PORT`, `HATCHET_CLIENT_TLS_STRATEGY`, ports, retention/logging defaults) directly in `x-manus-app-env` — edit `docker-compose.yml` itself for those, not `.env`. Bind address, backend port, `BACKEND_URL`, and `NODE_ENV` for processes inside `manus-web` are set by `supervisord-web.conf`.
 
 ## Proxy support
 
