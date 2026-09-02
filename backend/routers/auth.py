@@ -5,14 +5,21 @@ from ipaddress import ip_address
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from core.auth import AUTHENTICATE_HEADER, get_current_user
+from core.auth import AUTHENTICATE_HEADER, get_current_user_allow_password_change
 from core.config import settings
 from core.database import get_db
 from core.models.users import User
 from dependencies import get_login_rate_limiter
-from models.auth import LoginRequest, SessionResponse, TokenResponse, UserResponse
+from models.auth import (
+    LoginRequest,
+    PasswordChangeRequest,
+    SessionResponse,
+    TokenResponse,
+    UserResponse,
+)
 from services.auth.auth_service import AuthenticationError, AuthService
 from services.auth.login_rate_limiter import LoginRateLimiter, RateLimitExceededError
+from services.auth.password_policy import PasswordPolicyError
 from services.auth.rbac_service import RBACService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -53,10 +60,41 @@ async def login(
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_allow_password_change),
     db: Session = Depends(get_db),
 ) -> UserResponse:
     return _build_user_response(current_user, db)
+
+
+@router.post("/change-password", response_model=UserResponse)
+async def change_password(
+    body: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user_allow_password_change),
+    db: Session = Depends(get_db),
+    rate_limiter: LoginRateLimiter = Depends(get_login_rate_limiter),
+) -> UserResponse:
+    # Reuse the login rate limiter (a distinct key namespace) so the
+    # current_password check above cannot be brute-forced.
+    rate_limit_key = f"change-password:{current_user.id}"
+    try:
+        rate_limiter.check(rate_limit_key)
+    except RateLimitExceededError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many password change attempts",
+        ) from exc
+
+    try:
+        user = AuthService(db).change_password(
+            current_user, body.current_password, body.new_password
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    rate_limiter.clear(rate_limit_key)
+    return _build_user_response(user, db)
 
 
 @router.post("/refresh", response_model=SessionResponse)
@@ -109,6 +147,10 @@ def _build_user_response(user: User, db: Session) -> UserResponse:
         id=user.id,
         username=user.username,
         is_active=user.is_active,
+        # bool(...): a synthetic/unflushed User (as in some tests) has this
+        # column as None rather than the server_default until refreshed from
+        # the database; a real persisted row is always a proper bool.
+        must_change_password=bool(user.must_change_password),
         roles=rbac.get_user_roles(user.id),
         permissions=rbac.get_user_permission_strings(user.id),
     )

@@ -16,6 +16,10 @@ from services.auth.rbac_service import RBACService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 AUTHENTICATE_HEADER = {"WWW-Authenticate": "Bearer"}
+PASSWORD_CHANGE_REQUIRED_DETAIL = {
+    "code": "password_change_required",
+    "message": "You must change your password before continuing",
+}
 
 
 def verify_token(
@@ -44,10 +48,7 @@ def verify_token(
     return payload
 
 
-def get_current_user(
-    token_payload: dict[str, Any] = Depends(verify_token),
-    db: Session = Depends(get_db),
-) -> User:
+def _load_active_user(token_payload: dict[str, Any], db: Session) -> User:
     user_id = token_payload.get("user_id")
 
     if not isinstance(user_id, int):
@@ -69,40 +70,57 @@ def get_current_user(
     return user
 
 
-def _require_user_id(token_payload: dict[str, Any]) -> int:
-    user_id = token_payload.get("user_id")
+def get_current_user_allow_password_change(
+    token_payload: dict[str, Any] = Depends(verify_token),
+    db: Session = Depends(get_db),
+) -> User:
+    """Like ``get_current_user``, but does not block a user whose
+    ``must_change_password`` flag is set.
 
-    if not isinstance(user_id, int):
+    For ``/auth/me``, ``/auth/change-password``, and ``/auth/refresh`` only —
+    every other endpoint must depend on ``get_current_user`` so a client
+    cannot skip the forced password change by simply not reading the flag.
+    """
+    return _load_active_user(token_payload, db)
+
+
+def get_current_user(
+    user: User = Depends(get_current_user_allow_password_change),
+) -> User:
+    # `is True`, not truthy: must_change_password is a strictly-typed bool
+    # column, always exactly True or False once loaded from a real row.
+    if user.must_change_password is True:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token",
-            headers=AUTHENTICATE_HEADER,
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PASSWORD_CHANGE_REQUIRED_DETAIL,
         )
-
-    return user_id
+    return user
 
 
 def _require_active_user_id(token_payload: dict[str, Any], db: Session) -> int:
-    """Like ``_require_user_id``, but also rejects deactivated users.
+    """Like ``get_current_user``, but returns the user id for callers (the
+    ``require_*`` dependency factories below) that don't otherwise need the
+    full ``User`` object.
 
-    ``get_current_user`` already does this check, but permission/role
-    dependencies are frequently used on their own (e.g. router-level
-    ``dependencies=[Depends(require_permission(...))]``) without
-    ``get_current_user`` in the chain, so deactivating a user must be
-    enforced here too — otherwise a still-valid JWT keeps working for a
-    deactivated account until it naturally expires.
+    Permission/role dependencies are frequently used on their own (e.g.
+    router-level ``dependencies=[Depends(require_permission(...))]``)
+    without ``get_current_user`` in the chain, so both deactivation and the
+    forced-password-change gate must be enforced here too — otherwise a
+    still-valid JWT keeps working for a deactivated account, or a user who
+    hasn't replaced a bootstrap/admin-set password, until it naturally
+    expires.
     """
-    user_id = _require_user_id(token_payload)
-    user = UserRepository(db).get_by_id(user_id)
+    user = _load_active_user(token_payload, db)
 
-    if user is None or not user.is_active:
+    # `is True`, not truthy: must_change_password is a strictly-typed bool
+    # column, always exactly True or False once loaded from a real row.
+    if user.must_change_password is True:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token",
-            headers=AUTHENTICATE_HEADER,
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PASSWORD_CHANGE_REQUIRED_DETAIL,
         )
 
-    return user_id
+    return user.id
 
 
 def require_permission(resource: str, action: str):
