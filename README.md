@@ -76,6 +76,11 @@ GitPython, pyATS/Genie
 
 ## The app
 
+**Workflow editor** — design automation on a visual canvas; drag steps from the panel on
+the right to get started:
+
+![Workflow editor: empty canvas with the Steps panel for adding device selection, commands, conditions, and artifacts](screenshots/manus-starting-page.png)
+
 **View the result of a run** — browse run history, see per-step status and duration, and
 inspect fan-out runs across multiple devices:
 
