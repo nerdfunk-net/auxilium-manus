@@ -54,6 +54,12 @@ class OIDCAutoProvisioningDisabledError(RuntimeError):
     """Raised when a user doesn't exist and the provider disallows auto-provisioning."""
 
 
+class OIDCIdentityConflictError(RuntimeError):
+    """Raised when the IdP username collides with a local account that this
+    OIDC identity is not bound to. Never auto-link — an IdP-controlled claim
+    must not be able to select an existing local account."""
+
+
 @dataclass(frozen=True)
 class OIDCConfig:
     issuer: str
@@ -240,11 +246,15 @@ class OIDCService:
                 f"from provider '{provider_id}'"
             )
 
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not subject:
+            raise OIDCError(f"ID token from provider '{provider_id}' has no 'sub' claim")
+
         return {
             "username": username,
             "email": claims.get(mappings["email"]),
             "display_name": claims.get(mappings["name"]),
-            "sub": claims.get("sub"),
+            "sub": subject,
             "provider_id": provider_id,
         }
 
@@ -255,25 +265,29 @@ class OIDCService:
         provider = self._get_provider_config(provider_id)
         users = UserRepository(db)
         username = user_data["username"]
+        subject: str = user_data["sub"]
 
-        existing = users.get_by_username(username)
+        # 1. The only path that returns an existing user: exact identity match.
+        existing = users.get_by_oidc_identity(provider_id, subject)
         if existing is not None:
-            updates: dict[str, Any] = {}
-            if user_data.get("email") and existing.email != user_data["email"]:
-                updates["email"] = user_data["email"]
-            if user_data.get("display_name") and existing.display_name != user_data["display_name"]:
-                updates["display_name"] = user_data["display_name"]
-            if existing.oidc_provider != provider_id:
-                updates["oidc_provider"] = provider_id
-
-            if updates:
-                existing = users.update_user(existing.id, **updates) or existing
-
+            existing = self._sync_profile(users, existing, user_data)
             if not existing.is_active:
                 raise OIDCApprovalPendingError(username, existing.email, provider_id)
-
             return existing
 
+        # 2. Username collision with a row this identity is not bound to.
+        #    Local accounts, accounts from another provider, and accounts from the
+        #    same provider with a different subject are all refused (no TOFU).
+        if users.get_by_username(username) is not None:
+            logger.warning(
+                "OIDC login refused: provider=%s username collides with an existing account",
+                provider_id,
+            )
+            raise OIDCIdentityConflictError(
+                "This identity cannot be linked to an existing account; ask an administrator"
+            )
+
+        # 3. New user, provisioned inactive exactly as before.
         if not provider.get("auto_provision", True):
             raise OIDCAutoProvisioningDisabledError(
                 f"User '{username}' does not exist and auto-provisioning is disabled "
@@ -288,6 +302,7 @@ class OIDCService:
             email=user_data.get("email"),
             display_name=user_data.get("display_name"),
             oidc_provider=provider_id,
+            oidc_subject=subject,
         )
 
         default_role = provider.get("default_role") or FALLBACK_DEFAULT_ROLE
@@ -304,6 +319,19 @@ class OIDCService:
         rbac.assign_role_to_user_by_name(new_user.id, default_role)
 
         raise OIDCApprovalPendingError(username, new_user.email, provider_id)
+
+    @staticmethod
+    def _sync_profile(users: UserRepository, user: User, user_data: dict[str, Any]) -> User:
+        """Refresh email/display_name from the IdP. Never touches username,
+        oidc_provider, or oidc_subject."""
+        updates: dict[str, Any] = {}
+        if user_data.get("email") and user.email != user_data["email"]:
+            updates["email"] = user_data["email"]
+        if user_data.get("display_name") and user.display_name != user_data["display_name"]:
+            updates["display_name"] = user_data["display_name"]
+        if not updates:
+            return user
+        return users.update_user(user.id, **updates) or user
 
     async def get_end_session_url(self, provider_id: str, id_token_hint: str | None) -> str | None:
         config = await self.get_oidc_config(provider_id)

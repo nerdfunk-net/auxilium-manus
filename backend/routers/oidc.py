@@ -32,6 +32,7 @@ from services.auth.oidc_service import (
     OIDCApprovalPendingError,
     OIDCAutoProvisioningDisabledError,
     OIDCError,
+    OIDCIdentityConflictError,
     OIDCService,
 )
 
@@ -198,6 +199,8 @@ async def handle_callback(
             oidc_provider=exc.provider_id,
         )
     except OIDCAutoProvisioningDisabledError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except OIDCIdentityConflictError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except OIDCError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
