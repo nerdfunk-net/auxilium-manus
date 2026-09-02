@@ -51,9 +51,22 @@ const DialogContent = React.forwardRef<
   React.ComponentProps<typeof DialogPrimitive.Content> & {
     overlayClassName?: string;
     showOverlay?: boolean;
+    // For a dialog the user must not be able to dismiss without acting (e.g.
+    // a forced password change): hides the X button. Combine with
+    // onEscapeKeyDown/onPointerDownOutside (both preventDefault) to also
+    // block Escape and outside-click.
+    hideCloseButton?: boolean;
   }
 >(function DialogContent(
-  { className, overlayClassName, showOverlay = true, children, style, ...props },
+  {
+    className,
+    overlayClassName,
+    showOverlay = true,
+    hideCloseButton = false,
+    children,
+    style,
+    ...props
+  },
   ref,
 ) {
   return (
@@ -70,10 +83,12 @@ const DialogContent = React.forwardRef<
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:pointer-events-none">
-          <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        {hideCloseButton ? null : (
+          <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:pointer-events-none">
+            <XIcon className="size-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
       </DialogPrimitive.Content>
     </DialogPortal>
   );

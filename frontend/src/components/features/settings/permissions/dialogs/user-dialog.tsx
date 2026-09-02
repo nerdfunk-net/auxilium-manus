@@ -17,6 +17,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -29,7 +30,16 @@ import type { RbacUser } from "../types";
 
 const formSchema = z.object({
   username: z.string().min(1, "Required").max(255),
-  password: z.string().optional(),
+  // Blank is allowed here (edit mode: "leave blank to keep"); when non-blank
+  // it must meet the same policy the backend enforces
+  // (services/auth/password_policy.py).
+  password: z
+    .string()
+    .max(128, "Must be at most 128 characters")
+    .optional()
+    .refine((value) => !value || value.length >= 12, {
+      message: "Must be at least 12 characters",
+    }),
   is_active: z.boolean(),
 });
 
@@ -106,6 +116,9 @@ export function UserDialog({ open, mode, user, isSaving = false, onClose, onSubm
                   <FormControl>
                     <Input autoComplete="new-password" type="password" {...field} />
                   </FormControl>
+                  <FormDescription>
+                    At least 12 characters. The user must change it at next login.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

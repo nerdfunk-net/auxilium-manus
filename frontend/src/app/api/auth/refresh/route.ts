@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { AUTH_COOKIE_NAME, clearAuthCookie, type AuthUser } from "@/lib/auth";
 import { proxyRequest } from "@/lib/api-proxy";
+import { parseAuthUser } from "@/lib/auth-response-parser";
 
 interface BackendSessionResponse {
   access_token: string;
@@ -63,36 +64,26 @@ export async function POST(request: Request) {
 async function parseSessionResponse(
   response: Response,
 ): Promise<BackendSessionResponse | null> {
-  let payload: Partial<BackendSessionResponse>;
+  let payload: { access_token?: unknown; expires_in?: unknown; user?: unknown };
 
   try {
-    payload = (await response.json()) as Partial<BackendSessionResponse>;
+    payload = (await response.json()) as typeof payload;
   } catch {
     return null;
   }
 
-  if (
-    typeof payload.access_token !== "string" ||
-    typeof payload.expires_in !== "number" ||
-    !payload.user ||
-    typeof payload.user.id !== "number" ||
-    typeof payload.user.username !== "string" ||
-    typeof payload.user.is_active !== "boolean" ||
-    !Array.isArray(payload.user.roles) ||
-    !Array.isArray(payload.user.permissions)
-  ) {
+  if (typeof payload.access_token !== "string" || typeof payload.expires_in !== "number") {
+    return null;
+  }
+
+  const user = parseAuthUser(payload.user);
+  if (!user) {
     return null;
   }
 
   return {
     access_token: payload.access_token,
     expires_in: payload.expires_in,
-    user: {
-      id: payload.user.id,
-      is_active: payload.user.is_active,
-      roles: payload.user.roles,
-      permissions: payload.user.permissions,
-      username: payload.user.username,
-    },
+    user,
   };
 }

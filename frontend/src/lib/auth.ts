@@ -28,9 +28,15 @@ export interface AuthUser {
   id: number;
   username: string;
   is_active: boolean;
+  must_change_password: boolean;
   roles: string[];
   permissions: string[];
 }
+
+// Matches core.auth.PASSWORD_CHANGE_REQUIRED_DETAIL["code"] on the backend.
+// useApi checks a 403 response body for this to trigger the forced
+// change-password dialog even on a route the frontend hasn't special-cased.
+export const PASSWORD_CHANGE_REQUIRED_CODE = "password_change_required";
 
 export interface LoginResponse {
   user: AuthUser;

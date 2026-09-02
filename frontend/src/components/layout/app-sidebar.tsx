@@ -3,6 +3,7 @@
 import {
   Boxes,
   FileCode,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Network,
@@ -13,8 +14,9 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
+import { ChangePasswordDialog } from "@/components/features/auth/change-password-dialog";
 import { Button } from "@/components/ui/button";
 import type { AuthUser } from "@/lib/auth";
 import { useAuthStore } from "@/lib/auth-store";
@@ -87,6 +89,7 @@ export function AppSidebar() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const queryClient = useQueryClient();
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const visibleItems = useMemo(
     () => navigationItems.filter((item) => item.canShow(user)),
@@ -140,8 +143,19 @@ export function AppSidebar() {
           Design workflows, run against your network inventory.
         </p>
         <Button
-          aria-label="Sign out"
+          aria-label="Change password"
           className="mt-3 w-full justify-start"
+          onClick={() => setShowChangePassword(true)}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <KeyRound className="size-4" />
+          Change password
+        </Button>
+        <Button
+          aria-label="Sign out"
+          className="w-full justify-start"
           onClick={handleLogout}
           size="sm"
           type="button"
@@ -151,6 +165,7 @@ export function AppSidebar() {
           Sign out
         </Button>
       </div>
+      <ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} />
     </aside>
   );
 }

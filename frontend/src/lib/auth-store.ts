@@ -13,6 +13,7 @@ interface AuthState {
   login: (credentials: { username: string; password: string }) => Promise<void>;
   logout: (queryClient?: QueryClient) => Promise<void>;
   setUser: (user: AuthUser) => void;
+  markPasswordChangeRequired: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -21,6 +22,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   error: null,
   setUser: (user) => {
     set({ user });
+  },
+  markPasswordChangeRequired: () => {
+    set((state) =>
+      state.user ? { user: { ...state.user, must_change_password: true } } : {},
+    );
   },
   loadCurrentUser: async () => {
     set({ isLoading: true, error: null });

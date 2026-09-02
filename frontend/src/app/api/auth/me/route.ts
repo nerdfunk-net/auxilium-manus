@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { AUTH_COOKIE_NAME, clearAuthCookie, type AuthUser } from "@/lib/auth";
 import { proxyRequest } from "@/lib/api-proxy";
+import { parseAuthUser } from "@/lib/auth-response-parser";
 
 export async function GET(request: Request) {
   const cookieStore = await cookies();
@@ -47,29 +48,9 @@ export async function GET(request: Request) {
 }
 
 async function parseUserResponse(response: Response): Promise<AuthUser | null> {
-  let payload: Partial<AuthUser>;
-
   try {
-    payload = (await response.json()) as Partial<AuthUser>;
+    return parseAuthUser(await response.json());
   } catch {
     return null;
   }
-
-  if (
-    typeof payload.id !== "number" ||
-    typeof payload.username !== "string" ||
-    typeof payload.is_active !== "boolean" ||
-    !Array.isArray(payload.roles) ||
-    !Array.isArray(payload.permissions)
-  ) {
-    return null;
-  }
-
-  return {
-    id: payload.id,
-    is_active: payload.is_active,
-    roles: payload.roles,
-    permissions: payload.permissions,
-    username: payload.username,
-  };
 }
