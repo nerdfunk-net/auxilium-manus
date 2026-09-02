@@ -388,6 +388,135 @@ round-trip per *run*, not per device.
 
 ---
 
+## When an SSH session opens and closes
+
+Fan-out decides *how many* SSH sessions are open at once. This section covers
+the other half: for any one device, **when does its SSH connection open, and
+when is it torn down?** The short answer is that connections are managed by a
+`DeviceSessionPool` (`backend/services/network/netmiko/session_pool.py`) whose
+lifetime is tied to an **execution segment**, not to the run as a whole — and
+closing is deterministic (end of a segment), never an idle timer.
+
+### A "segment" is one `StepRunner`'s lifetime
+
+`StepRunner` (`backend/services/execution/step_runner.py`) creates exactly one
+`DeviceSessionPool` in its constructor, and whoever builds a `StepRunner` is
+required to `close()` that pool in a `finally` when the segment ends. A run has
+one segment when fan-out is off, and several when it's on:
+
+| Segment | What runs in it | Owns a pool |
+|---|---|---|
+| Parent, phase 1 | Everything up to and including the inventory step | yes |
+| Fan-out child (`DeviceGroupExecution`) | The child branch — inventory step's downstream nodes, up to but **not** including Fan In — for one device (`per_device`) or one chunk (`chunked`) | yes, one per child |
+| Parent, phase 4 (post-join resume) | Fan In and every node after it | yes, a fresh one |
+
+There is no shared, run-wide connection pool. Each segment's pool is
+independent and is disconnected + shut down when that segment finishes.
+
+### How a session is acquired and reused
+
+Every SSH step reaches the network only through
+`DeviceSessionPool.run_on_device(...)`. The pool keys live connections by
+`(host, device_type, credential_reference)`:
+
+- **Open:** lazily, on the **first** `run_on_device` call for a given key in
+  that segment — i.e. when the first SSH step in the segment actually runs
+  against that device. Merely reaching the segment opens nothing.
+- **Reuse:** a second SSH step against the same device *in the same segment*
+  reuses the already-open session — no re-login. Between steps the session is
+  held open and kept warm with a TCP keepalive (`NETMIKO_KEEPALIVE_SECONDS`,
+  default `30`). Each step must leave the session in privileged-exec base mode
+  so the next step can reuse it.
+- **Reconnect:** if the pooled session has dropped (`is_alive()` is false) when
+  the next step needs it, the pool transparently reconnects before running the
+  op.
+- **Close:** when the owning segment ends. `close()` disconnects every live
+  session and shuts down the pool's thread executor. It is idempotent and
+  never raises — a segment that opened no sessions still calls it harmlessly.
+
+### Fan-out **off**: one login per device, held for the whole run
+
+With fan-out disabled the entire run is a single segment. A device's session
+opens when the first SSH step runs against it and stays open until the run
+finishes (or until a durable wait — see "suspend" below). If the workflow has
+`Get Device Configs` followed later by `Deploy Rendered Template` against the
+same devices, both steps share one login per device.
+
+### Fan-out **on**: one login per device, closed when its child finishes
+
+This is the important case for the 300-device backup. With
+`mode: per_device, max_concurrency: 10`:
+
+```
+        ┌──────────── one child = one segment = one SSH login ────────────┐
+Get from Nautobot ─► Get Nautobot Attributes ─► Get Device Configs ─► (child ends)
+ (parent, phase 1)   (child: HTTP, no SSH)      (child: opens the        │
+  no SSH — emits                                 SSH session here)       ▼
+  fan-out signal)                                                  pool.close()
+                                                                   → SSH closed
+                     ┌─────────── parent, phase 4: fresh empty pool ───────────┐
+                     Fan In ─► Git Pull ─► Store Artifact ×N ─► Git Push
+                     (no SSH steps — this segment's pool stays empty)
+```
+
+Concretely:
+
+1. `get-nautobot-devices` runs in the parent's phase-1 segment and emits the
+   fan-out signal. No SSH. That segment's pool is closed immediately after
+   (`workflow_run.py` phase-1 `finally`).
+2. Each device runs as its own `DeviceGroupExecution` child with its own
+   `StepRunner` and pool. `Get Nautobot Attributes` is an HTTP read (no
+   session). `Get Device Configs` calls `run_on_device` — **that** is where
+   the one SSH login for this device happens.
+3. When the child finishes its branch (the last node before Fan In), its
+   `finally` runs `close_device_sessions()` and the SSH connection is torn
+   down. **The session closes at the end of the child, which is before Fan In —
+   not at Fan In.** By the time Fan In runs, every child's session is already
+   gone.
+4. Fan In, Git Pull, Store Artifact and Git Push run in the parent's phase-4
+   segment. It has its own pool, but none of those are SSH steps, so it never
+   opens a connection.
+
+So "10 concurrent SSH sessions" = `max_concurrency: 10` children in flight,
+each holding exactly one session. The moment a child completes, its session
+closes, its semaphore slot frees, and the next queued device's child starts
+and opens a fresh session. It is a rolling pool, not a batch — see the slot
+diagram under **`max_concurrency`** above.
+
+### `suspend` vs `close`: durable waits
+
+Before a **durable wait** inside a segment — chiefly a debug-mode step pause —
+the runner calls `suspend()` instead of `close()`: every live session is
+disconnected (an idle device would drop the TCP session during the wait
+anyway), but the pool stays usable and reconnects lazily on the next network
+step. A routine (non-debug) backup has no such waits, so this never fires for
+it. The `Wait & Run` fan-out approval gate is *not* one of these cases — it
+pauses in the parent during child dispatch, where no pool is held at all, so
+there is nothing to suspend.
+
+### The pooling toggle
+
+`NETMIKO_SESSION_POOLING` (Settings → Netmiko, default `true`) controls reuse
+*within* a segment. With it off, `run_on_device` falls back to legacy
+per-call behaviour: every SSH step connects, runs one command batch, and
+disconnects before returning. The "opens in the child, closes when the child
+ends" boundary is unchanged — you just get one login per SSH step instead of
+one shared login per child. `NETMIKO_POOL_WORKERS` (default `10`) sizes each
+pool's thread executor; a `per_device` child only ever touches one device, so
+it uses one.
+
+### Summary
+
+| | Fan-out off | Fan-out on (`per_device`) |
+|---|---|---|
+| Session opens | First SSH step to touch the device, in the single run-wide segment | First SSH step in that device's child |
+| Session reused by later SSH steps | Yes, for the whole run | Yes, within that child only |
+| Session closes | End of the run | End of that child (before Fan In) |
+| Closed early on a durable wait | `suspend()` on a debug pause — reconnects lazily | `suspend()` inside the child, if it hits one |
+| What closes it | `StepRunner` `finally` → `pool.close()` | Same, per child |
+
+---
+
 ## A separate axis: overlapping *runs* of the same workflow (background tier)
 
 Everything above controls devices *within one run*. It says nothing about
