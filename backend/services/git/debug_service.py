@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from services.git.config import set_git_author
-from services.git.env import set_ssl_env
+from services.git.env import build_git_env_overrides
 from services.git.repository_service import GitRepositoryService
 from services.git.shared_utils import get_git_repo_by_id
 
@@ -305,68 +305,72 @@ def _push_debug_commit(
         origin = repo.remote("origin")
         original_url = list(origin.urls)[0]
 
-        with set_ssl_env(repository):
-            with git_auth_service.setup_auth_environment(repository) as (
-                auth_url,
-                _username,
-                _token,
-                _ssh_key_path,
-            ):
-                if auth_type != "ssh_key":
-                    origin.set_url(auth_url)
+        with git_auth_service.setup_auth_environment(repository) as (
+            auth_url,
+            _username,
+            _token,
+            _ssh_key_path,
+        ):
+            overrides = build_git_env_overrides(
+                repository,
+                ssh_key_path=_ssh_key_path if auth_type == "ssh_key" else None,
+            )
+            if auth_type != "ssh_key":
+                origin.set_url(auth_url)
 
-                try:
+            try:
+                with repo.git.custom_environment(**overrides):
                     push_info = origin.push(
                         refspec=f"{repository['branch']}:{repository['branch']}"
                     )
 
-                    _restore_origin_url(origin, original_url, auth_type)
+                _restore_origin_url(origin, original_url, auth_type)
 
-                    if push_info and len(push_info) > 0:
-                        push_result = push_info[0]
-                        if push_result.flags & push_result.ERROR:
-                            return _debug_result(
-                                False,
-                                f"Push failed: {push_result.summary}",
-                                error=push_result.summary,
-                                error_type="PushError",
-                                commit_sha=commit_sha,
-                                suggestion=(
-                                    "Check repository permissions and credentials"
-                                ),
-                            )
+                if push_info and len(push_info) > 0:
+                    push_result = push_info[0]
+                    if push_result.flags & push_result.ERROR:
                         return _debug_result(
-                            True,
-                            "Push test successful - changes pushed to remote",
+                            False,
+                            f"Push failed: {push_result.summary}",
+                            error=push_result.summary,
+                            error_type="PushError",
                             commit_sha=commit_sha,
-                            commit_message=commit_message,
-                            branch=repository["branch"],
-                            remote="origin",
-                            file_path=str(test_file_path),
-                            push_summary=push_result.summary,
-                            verified=True,
+                            suggestion=(
+                                "Check repository permissions and credentials"
+                            ),
                         )
                     return _debug_result(
-                        False,
-                        "Push completed but no feedback received",
-                        error="No push info returned",
-                        error_type="UnknownPushResult",
+                        True,
+                        "Push test successful - changes pushed to remote",
                         commit_sha=commit_sha,
+                        commit_message=commit_message,
+                        branch=repository["branch"],
+                        remote="origin",
+                        file_path=str(test_file_path),
+                        push_summary=push_result.summary,
+                        verified=True,
                     )
+                return _debug_result(
+                    False,
+                    "Push completed but no feedback received",
+                    error="No push info returned",
+                    error_type="UnknownPushResult",
+                    commit_sha=commit_sha,
+                )
 
-                except Exception as push_error:
-                    _restore_origin_url(origin, original_url, auth_type)
+            except Exception as push_error:
+                _restore_origin_url(origin, original_url, auth_type)
 
-                    error_message = str(push_error)
-                    return _debug_result(
-                        False,
-                        f"Failed to push: {error_message}",
-                        error=error_message,
-                        error_type=type(push_error).__name__,
-                        stage="git_push",
-                        commit_sha=commit_sha,
-                        suggestion=_push_error_suggestion(error_message),
-                    )
+                error_message = str(push_error)
+                return _debug_result(
+                    False,
+                    f"Failed to push: {error_message}",
+                    error=error_message,
+                    error_type=type(push_error).__name__,
+                    stage="git_push",
+                    commit_sha=commit_sha,
+                    suggestion=_push_error_suggestion(error_message),
+                )
 
     except Exception as remote_error:
         return _debug_result(

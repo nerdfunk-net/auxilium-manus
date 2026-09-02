@@ -15,12 +15,9 @@ duplication of auth setup logic.
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import contextmanager
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse, urlunparse
-
-from services.git.ssh_command import build_git_ssh_command
 
 logger = logging.getLogger(__name__)
 
@@ -242,13 +239,13 @@ class GitAuthenticationService:
 
     @contextmanager
     def setup_auth_environment(self, repository: dict):
-        """Context manager to setup authentication environment for Git operations.
+        """Context manager that resolves Git credentials for one operation.
 
-        Handles:
-        - SSH command setup for SSH key authentication
-        - Credential resolution
-        - Environment variable management
-        - Automatic cleanup on exit
+        It resolves ``credential_name`` (falling back to an inline token) and,
+        for token auth over http(s), yields a URL with credentials embedded.
+        It does **not** touch ``os.environ``: SSH-key setup is done per-call by
+        the caller via ``services.git.env.build_git_env_overrides`` (which builds
+        ``GIT_SSH_COMMAND``) and passed to GitPython/subprocess as ``env=``.
 
         Args:
             repository: Repository metadata dict with auth_type, credential_name, url, etc.
@@ -258,18 +255,14 @@ class GitAuthenticationService:
             - clone_url: URL with auth injected (for token auth) or original (for SSH)
             - username: Resolved username
             - token: Resolved token/password
-            - ssh_key_path: Path to SSH key file (for SSH auth)
+            - ssh_key_path: Path to SSH key file (for SSH auth), for the caller to
+              hand to ``build_git_env_overrides``
 
         Example:
             with auth_service.setup_auth_environment(repo) as (url, user, token, ssh_key):
-                if ssh_key:
-                    # SSH auth is configured via GIT_SSH_COMMAND env var
-                    Repo.clone_from(url, path)
-                else:
-                    # Token auth - url has credentials embedded
-                    Repo.clone_from(url, path)
+                overrides = build_git_env_overrides(repo, ssh_key_path=ssh_key)
+                Repo.clone_from(url, path, env=overrides)
         """
-        # Resolve credentials
         username, token, ssh_key_path = self.resolve_credentials(repository)
         if not token:
             inline_token = repository.get("token")
@@ -279,39 +272,26 @@ class GitAuthenticationService:
         auth_type = repository.get("auth_type", "token")
         original_url = repository.get("url", "")
 
-        # Save original environment
-        original_ssh_command = os.environ.get("GIT_SSH_COMMAND")
-
-        try:
-            if auth_type == "ssh_key" and ssh_key_path:
-                # Set up SSH command for SSH key auth
-                os.environ["GIT_SSH_COMMAND"] = build_git_ssh_command(ssh_key_path)
+        if auth_type == "ssh_key" and ssh_key_path:
+            logger.info(
+                "Using SSH key authentication for repository '%s'",
+                repository.get("name"),
+            )
+            # For SSH, return original URL; GIT_SSH_COMMAND is built per-call by the caller.
+            yield original_url, username, token, ssh_key_path
+        else:
+            # For token auth, build authenticated URL
+            clone_url = original_url
+            parsed = urlparse(original_url) if original_url else None
+            if parsed and parsed.scheme in ["http", "https"] and token:
+                clone_url = self.build_auth_url(original_url, username, token)
                 logger.info(
-                    "Using SSH key authentication for repository '%s'",
+                    "Using token authentication for repository '%s'",
                     repository.get("name"),
                 )
-                # For SSH, return original URL
-                yield original_url, username, token, ssh_key_path
             else:
-                # For token auth, build authenticated URL
-                clone_url = original_url
-                parsed = urlparse(original_url) if original_url else None
-                if parsed and parsed.scheme in ["http", "https"] and token:
-                    clone_url = self.build_auth_url(original_url, username, token)
-                    logger.info(
-                        "Using token authentication for repository '%s'",
-                        repository.get("name"),
-                    )
-                else:
-                    logger.info(
-                        "Using no authentication for repository '%s'",
-                        repository.get("name"),
-                    )
-                # For token auth, return authenticated URL
-                yield clone_url, username, token, ssh_key_path
-        finally:
-            # Restore original SSH command environment
-            if original_ssh_command is not None:
-                os.environ["GIT_SSH_COMMAND"] = original_ssh_command
-            elif "GIT_SSH_COMMAND" in os.environ:
-                del os.environ["GIT_SSH_COMMAND"]
+                logger.info(
+                    "Using no authentication for repository '%s'",
+                    repository.get("name"),
+                )
+            yield clone_url, username, token, ssh_key_path

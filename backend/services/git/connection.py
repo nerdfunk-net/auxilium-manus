@@ -11,7 +11,6 @@ This service handles testing Git repository connections, including:
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -19,8 +18,7 @@ from pathlib import Path
 from core.safe_urls import UnsafeURLError, validate_git_remote_url
 from models.git_repositories import GitConnectionTestRequest, GitConnectionTestResponse
 from services.git.auth import GitAuthenticationService
-from services.git.env import set_ssl_env
-from services.git.ssh_command import build_git_ssh_command
+from services.git.env import build_git_env_overrides, merge_git_environ
 
 logger = logging.getLogger(__name__)
 
@@ -132,16 +130,19 @@ class GitConnectionService:
                     resolved_token=resolved_token,
                 )
 
-                # Test clone with SSL environment
-                with set_ssl_env(temp_repo):
-                    return self._test_clone(
-                        clone_url=clone_url,
-                        branch=test_request.branch,
-                        test_path=test_path,
-                        auth_type=auth_type,
-                        ssh_key_path=ssh_key_path,
-                        test_request=test_request,
-                    )
+                # Build the per-call git environment (never mutates os.environ).
+                overrides = build_git_env_overrides(
+                    temp_repo,
+                    ssh_key_path=ssh_key_path if auth_type == "ssh_key" else None,
+                )
+                return self._test_clone(
+                    clone_url=clone_url,
+                    branch=test_request.branch,
+                    test_path=test_path,
+                    auth_type=auth_type,
+                    env=merge_git_environ(overrides),
+                    test_request=test_request,
+                )
 
         except subprocess.TimeoutExpired:
             logger.warning("Git connection test timed out")
@@ -259,7 +260,7 @@ class GitConnectionService:
         branch: str,
         test_path: Path,
         auth_type: str,
-        ssh_key_path: str,
+        env: dict[str, str],
         test_request: GitConnectionTestRequest,
     ) -> GitConnectionTestResponse:
         """Perform the actual shallow clone test.
@@ -269,19 +270,14 @@ class GitConnectionService:
             branch: Branch to clone
             test_path: Local path for test clone
             auth_type: Authentication type
-            ssh_key_path: SSH key path if using SSH auth
+            env: Full environment for the git subprocess, already built by
+                ``build_git_env_overrides`` + ``merge_git_environ`` (includes
+                ``GIT_SSH_COMMAND`` for ssh_key auth). ``os.environ`` is untouched.
             test_request: Original test request
 
         Returns:
             GitConnectionTestResponse with test results
         """
-        # Set up environment
-        env = os.environ.copy()
-
-        # Handle SSH key authentication
-        if auth_type == "ssh_key" and ssh_key_path:
-            env["GIT_SSH_COMMAND"] = build_git_ssh_command(ssh_key_path)
-
         # Build shallow clone command
         cmd = [
             "git",

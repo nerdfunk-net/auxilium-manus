@@ -43,7 +43,7 @@ from git.exc import GitCommandError, InvalidGitRepositoryError
 from core.safe_urls import validate_git_remote_url
 from services.git.auth import GitAuthenticationService
 from services.git.config import set_git_author
-from services.git.env import set_ssl_env
+from services.git.env import build_git_env_overrides
 from services.git.paths import repo_path as get_repo_path
 
 logger = logging.getLogger(__name__)
@@ -232,24 +232,25 @@ class GitService:
         target_path.mkdir(parents=True, exist_ok=True)
 
         try:
-            with set_ssl_env(repository):
-                with self._auth.setup_auth_environment(repository) as (
+            with self._auth.setup_auth_environment(repository) as (
+                clone_url,
+                username,
+                token,
+                ssh_key_path,
+            ):
+                overrides = build_git_env_overrides(repository, ssh_key_path=ssh_key_path)
+                repo = Repo.clone_from(
                     clone_url,
-                    username,
-                    token,
-                    ssh_key_path,
-                ):
-                    repo = Repo.clone_from(
-                        clone_url,
-                        target_path,
-                        branch=repository.get("branch", "main"),
-                    )
-                    logger.info(
-                        "Cloned repository %s from %s",
-                        repository.get("name"),
-                        repository.get("url"),
-                    )
-                    return repo
+                    target_path,
+                    branch=repository.get("branch", "main"),
+                    env=overrides,
+                )
+                logger.info(
+                    "Cloned repository %s from %s",
+                    repository.get("name"),
+                    repository.get("url"),
+                )
+                return repo
         except Exception:
             # Cleanup partial clone on failure
             try:
@@ -277,56 +278,57 @@ class GitService:
 
             branch = repository.get("branch", "main")
 
-            with set_ssl_env(repository):
-                with self._auth.setup_auth_environment(repository) as (
-                    auth_url,
-                    username,
-                    token,
-                    ssh_key_path,
-                ):
-                    origin = repo.remotes.origin
-                    original_url = None
+            with self._auth.setup_auth_environment(repository) as (
+                auth_url,
+                username,
+                token,
+                ssh_key_path,
+            ):
+                overrides = build_git_env_overrides(repository, ssh_key_path=ssh_key_path)
+                origin = repo.remotes.origin
+                original_url = None
 
-                    try:
-                        # For token auth, temporarily update remote URL
-                        if token and not ssh_key_path:
-                            original_url = list(origin.urls)[0]
-                            origin.set_url(auth_url)
+                try:
+                    # For token auth, temporarily update remote URL
+                    if token and not ssh_key_path:
+                        original_url = list(origin.urls)[0]
+                        origin.set_url(auth_url)
 
-                        # Perform pull. origin.pull() returns one FetchInfo per
-                        # ref fetched — that count is 1 even when the branch was
-                        # already up to date, so it is not a commit count.
-                        # Diff HEAD before/after to count commits actually pulled.
-                        head_before = repo.head.commit.hexsha if repo.head.is_valid() else None
+                    # Perform pull. origin.pull() returns one FetchInfo per
+                    # ref fetched — that count is 1 even when the branch was
+                    # already up to date, so it is not a commit count.
+                    # Diff HEAD before/after to count commits actually pulled.
+                    head_before = repo.head.commit.hexsha if repo.head.is_valid() else None
+                    with repo.git.custom_environment(**overrides):
                         origin.pull(branch)
-                        head_after = repo.head.commit.hexsha if repo.head.is_valid() else None
+                    head_after = repo.head.commit.hexsha if repo.head.is_valid() else None
 
-                        if head_before and head_after and head_before != head_after:
-                            commits_pulled = sum(
-                                1 for _ in repo.iter_commits(f"{head_before}..{head_after}")
-                            )
-                        else:
-                            commits_pulled = 0
-
-                        logger.info(
-                            "Pulled %s commits from %s",
-                            commits_pulled,
-                            repository.get("name"),
+                    if head_before and head_after and head_before != head_after:
+                        commits_pulled = sum(
+                            1 for _ in repo.iter_commits(f"{head_before}..{head_after}")
                         )
+                    else:
+                        commits_pulled = 0
 
-                        return PullResult(
-                            success=True,
-                            message=f"Successfully pulled {commits_pulled} commits",
-                            commits_pulled=commits_pulled,
-                            branch=branch,
-                        )
-                    finally:
-                        # Restore original URL for token auth
-                        if original_url:
-                            try:
-                                origin.set_url(original_url)
-                            except Exception:
-                                pass
+                    logger.info(
+                        "Pulled %s commits from %s",
+                        commits_pulled,
+                        repository.get("name"),
+                    )
+
+                    return PullResult(
+                        success=True,
+                        message=f"Successfully pulled {commits_pulled} commits",
+                        commits_pulled=commits_pulled,
+                        branch=branch,
+                    )
+                finally:
+                    # Restore original URL for token auth
+                    if original_url:
+                        try:
+                            origin.set_url(original_url)
+                        except Exception:
+                            pass
 
         except GitCommandError as e:
             logger.error("Git pull failed: %s", e)
@@ -370,55 +372,56 @@ class GitService:
 
             push_branch = branch or repository.get("branch", "main")
 
-            with set_ssl_env(repository):
-                with self._auth.setup_auth_environment(repository) as (
-                    auth_url,
-                    username,
-                    token,
-                    ssh_key_path,
-                ):
-                    origin = repo.remotes.origin
-                    original_url = None
+            with self._auth.setup_auth_environment(repository) as (
+                auth_url,
+                username,
+                token,
+                ssh_key_path,
+            ):
+                overrides = build_git_env_overrides(repository, ssh_key_path=ssh_key_path)
+                origin = repo.remotes.origin
+                original_url = None
 
-                    try:
-                        # For token auth, temporarily update remote URL
-                        if token and not ssh_key_path:
-                            original_url = list(origin.urls)[0]
-                            origin.set_url(auth_url)
+                try:
+                    # For token auth, temporarily update remote URL
+                    if token and not ssh_key_path:
+                        original_url = list(origin.urls)[0]
+                        origin.set_url(auth_url)
 
-                        # Perform push
+                    # Perform push
+                    with repo.git.custom_environment(**overrides):
                         push_info = origin.push(refspec=f"{push_branch}:{push_branch}")
 
-                        # Check push result
-                        if push_info:
-                            for info in push_info:
-                                if info.flags & info.ERROR:
-                                    return PushResult(
-                                        success=False,
-                                        message=f"Push failed: {info.summary}",
-                                        pushed=False,
-                                        branch=push_branch,
-                                    )
+                    # Check push result
+                    if push_info:
+                        for info in push_info:
+                            if info.flags & info.ERROR:
+                                return PushResult(
+                                    success=False,
+                                    message=f"Push failed: {info.summary}",
+                                    pushed=False,
+                                    branch=push_branch,
+                                )
 
-                        logger.info(
-                            "Successfully pushed to %s branch %s",
-                            repository.get("name"),
-                            push_branch,
-                        )
+                    logger.info(
+                        "Successfully pushed to %s branch %s",
+                        repository.get("name"),
+                        push_branch,
+                    )
 
-                        return PushResult(
-                            success=True,
-                            message=f"Successfully pushed to {push_branch}",
-                            pushed=True,
-                            branch=push_branch,
-                        )
-                    finally:
-                        # Restore original URL for token auth
-                        if original_url:
-                            try:
-                                origin.set_url(original_url)
-                            except Exception:
-                                pass
+                    return PushResult(
+                        success=True,
+                        message=f"Successfully pushed to {push_branch}",
+                        pushed=True,
+                        branch=push_branch,
+                    )
+                finally:
+                    # Restore original URL for token auth
+                    if original_url:
+                        try:
+                            origin.set_url(original_url)
+                        except Exception:
+                            pass
 
         except GitCommandError as e:
             err_str = str(e)
@@ -530,34 +533,35 @@ class GitService:
             if repo is None:
                 repo = self.open_or_clone(repository)
 
-            with set_ssl_env(repository):
-                with self._auth.setup_auth_environment(repository) as (
-                    auth_url,
-                    username,
-                    token,
-                    ssh_key_path,
-                ):
-                    origin = repo.remotes.origin
-                    original_url = None
+            with self._auth.setup_auth_environment(repository) as (
+                auth_url,
+                username,
+                token,
+                ssh_key_path,
+            ):
+                overrides = build_git_env_overrides(repository, ssh_key_path=ssh_key_path)
+                origin = repo.remotes.origin
+                original_url = None
 
-                    try:
-                        if token and not ssh_key_path:
-                            original_url = list(origin.urls)[0]
-                            origin.set_url(auth_url)
+                try:
+                    if token and not ssh_key_path:
+                        original_url = list(origin.urls)[0]
+                        origin.set_url(auth_url)
 
+                    with repo.git.custom_environment(**overrides):
                         origin.fetch()
 
-                        logger.info("Fetched updates from %s", repository.get("name"))
-                        return GitResult(
-                            success=True,
-                            message="Successfully fetched updates",
-                        )
-                    finally:
-                        if original_url:
-                            try:
-                                origin.set_url(original_url)
-                            except Exception:
-                                pass
+                    logger.info("Fetched updates from %s", repository.get("name"))
+                    return GitResult(
+                        success=True,
+                        message="Successfully fetched updates",
+                    )
+                finally:
+                    if original_url:
+                        try:
+                            origin.set_url(original_url)
+                        except Exception:
+                            pass
 
         except Exception as e:
             logger.error("Fetch failed: %s", e)
