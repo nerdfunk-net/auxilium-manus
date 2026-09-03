@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from hatchet_sdk.clients.rest.exceptions import NotFoundException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -119,11 +120,27 @@ class ScheduleService:
                 raise ValidationFailedError("run_at must be in the future")
 
     def _delete_hatchet_entry(self, schedule: WorkflowSchedule) -> None:
+        """Best-effort removal of the schedule's Hatchet cron/scheduled entry.
+
+        A 404 means Hatchet already has no such entry — a consumed one-time
+        trigger, an entry lost across a Hatchet restart, or a double delete.
+        That is the desired end state, so it is logged and ignored; only an
+        unexpected failure is surfaced as a 5xx.
+        """
         try:
             if schedule.hatchet_cron_id:
                 hatchet.cron.delete(schedule.hatchet_cron_id)
             if schedule.hatchet_scheduled_id:
                 hatchet.scheduled.delete(schedule.hatchet_scheduled_id)
+        except NotFoundException:
+            logger.info(
+                "Hatchet schedule entry already gone for schedule_id=%s workflow_id=%s "
+                "(cron_id=%s scheduled_id=%s) — nothing to remove",
+                schedule.id,
+                schedule.workflow_id,
+                schedule.hatchet_cron_id,
+                schedule.hatchet_scheduled_id,
+            )
         except Exception as exc:
             raise_internal_server_error(
                 logger,

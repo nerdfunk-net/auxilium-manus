@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,37 @@ export function WorkflowBuilderPage() {
       void requestRun(id);
     };
   }, [requestRun]);
+
+  // Cross-route "Load Workflow" / "Show Run" requests (Schedules page). The
+  // caller only sets `pendingWorkflowLoad` + navigates here; we run the normal
+  // full load, then hand off to /workflows/runs if `thenRuns` was asked.
+  const router = useRouter();
+  const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
+  const pendingWorkflowLoad = useWorkflowBuilderStore((state) => state.pendingWorkflowLoad);
+  const clearPendingWorkflowLoad = useWorkflowBuilderStore(
+    (state) => state.clearPendingWorkflowLoad,
+  );
+  const { handleLoadWorkflow } = persistence;
+  // Ref (not state): the handoff is driven by the store `workflowId` changing,
+  // so it needs no re-render of its own.
+  const awaitingRunsHandoffRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!pendingWorkflowLoad || isPluginsLoading) return;
+    const { workflowId: pendingId, thenRuns } = pendingWorkflowLoad;
+    clearPendingWorkflowLoad();
+    awaitingRunsHandoffRef.current = thenRuns ? pendingId : null;
+    handleLoadWorkflow({ id: pendingId });
+  }, [pendingWorkflowLoad, isPluginsLoading, clearPendingWorkflowLoad, handleLoadWorkflow]);
+
+  useEffect(() => {
+    // The load has landed (store metadata now reflects the target) — safe to
+    // leave the builder for the runs view without racing the canvas apply.
+    const target = awaitingRunsHandoffRef.current;
+    if (target == null || workflowId !== target) return;
+    awaitingRunsHandoffRef.current = null;
+    router.replace("/workflows/runs");
+  }, [workflowId, router]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

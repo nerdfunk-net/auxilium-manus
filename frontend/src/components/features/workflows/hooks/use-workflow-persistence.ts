@@ -158,7 +158,7 @@ export function useWorkflowPersistence({
   }, []);
 
   const handleLoadWorkflow = useCallback(
-    (summary: WorkflowSummary) => {
+    (summary: Pick<WorkflowSummary, "id">) => {
       apiCall<WorkflowResponse>(`workflows/${summary.id}`)
         .then((full) => {
           const loaded = canvasFromWorkflowResponse(full, plugins);

@@ -63,6 +63,14 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   /** Stack for breadcrumb; [] means root. Last item = current view. */
   groupNavigationStack: string[];
   canvasDraft: CanvasDraft | null;
+  /**
+   * A cross-route request to load a workflow into the builder — set from
+   * outside the builder (e.g. the Schedules page's "Load Workflow" / "Show
+   * Run" actions) and consumed on mount by the builder page (full load) or
+   * the runs page (metadata-only). `thenRuns` asks the builder to hand off to
+   * `/workflows/runs` once the load lands. Cleared as soon as it is picked up.
+   */
+  pendingWorkflowLoad: { workflowId: number; thenRuns: boolean } | null;
   /** Shared by every auto-layout entry point (selection panel, canvas-level
    * control) — not a persisted workflow setting, just a UI preference. */
   autoLayoutDirection: AutoLayoutDirection;
@@ -111,6 +119,10 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   setWorkflowIsVersionControlled: (isVersionControlled: boolean) => void;
   loadWorkflow: (meta: WorkflowMetadata) => void;
   resetToNew: () => void;
+  /** Queue a cross-route "open this workflow" request (see
+   * `pendingWorkflowLoad`). Navigation is the caller's job. */
+  requestWorkflowLoad: (workflowId: number, thenRuns?: boolean) => void;
+  clearPendingWorkflowLoad: () => void;
   /**
    * Drop any in-progress canvas draft and workflow metadata that does NOT
    * belong to `userId`. Called whenever the authenticated user changes so the
@@ -168,6 +180,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   activeGroupId: null,
   groupNavigationStack: [],
   canvasDraft: null,
+  pendingWorkflowLoad: null,
   autoLayoutDirection: "horizontal",
   snapToGrid: false,
   showGrid: false,
@@ -268,6 +281,9 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       ...RESET_BUILDER_STATE,
       lastAction: "New workflow created",
     }),
+  requestWorkflowLoad: (workflowId, thenRuns = false) =>
+    set({ pendingWorkflowLoad: { workflowId, thenRuns } }),
+  clearPendingWorkflowLoad: () => set({ pendingWorkflowLoad: null }),
   reconcileDraftOwner: (userId) =>
     set((state) => {
       const draft = state.canvasDraft;

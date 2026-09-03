@@ -30,8 +30,10 @@ import { ScheduleParameterFields } from "../components/schedule-parameter-fields
 import {
   DEFAULT_TIMING,
   ScheduleTimingFields,
-  type TimingValue,
+  describeTimingRun,
   timingFromSchedule,
+  useUtcClock,
+  type TimingValue,
 } from "../components/schedule-timing-fields";
 import { useScheduleMutations } from "../hooks/use-schedule-mutations";
 import type {
@@ -143,102 +145,133 @@ export function ScheduleEditorDialog({ onOpenChange, schedule }: ScheduleEditorD
     createSchedule.mutate(data, { onSuccess: () => onOpenChange(false) });
   };
 
+  const utcClock = useUtcClock();
+  const runSummary = describeTimingRun(timing);
+  const sectionLabel =
+    "text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground";
+
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit schedule" : "New schedule"}</DialogTitle>
-          <DialogDescription>
-            Run a workflow on a timer with its own inventory and credentials. The
-            workflow is published to the background tier so overlapping runs are
-            serialised.
-          </DialogDescription>
+      <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b px-6 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <DialogTitle>{isEdit ? "Edit schedule" : "New schedule"}</DialogTitle>
+              <DialogDescription>
+                Run a workflow on a timer with its own inventory and credentials. The
+                workflow is published to the background tier so overlapping runs are
+                serialised.
+              </DialogDescription>
+            </div>
+            <div className="shrink-0 rounded-md border bg-muted/40 px-3 py-1.5 text-right">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Now (UTC)
+              </p>
+              <p className="font-mono text-sm text-foreground">{utcClock}</p>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="grid gap-1">
-            <Label className="text-xs">Workflow</Label>
-            <Select
-              value={workflowId != null ? String(workflowId) : ""}
-              onValueChange={(v) => setWorkflowId(Number(v))}
-              disabled={isEdit}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a workflow" />
-              </SelectTrigger>
-              <SelectContent>
-                {(workflowsQuery.data?.workflows ?? []).map((wf) => (
-                  <SelectItem key={wf.id} value={String(wf.id)}>
-                    {wf.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-1">
+              <Label className="text-xs">Workflow</Label>
+              <Select
+                value={workflowId != null ? String(workflowId) : ""}
+                onValueChange={(v) => setWorkflowId(Number(v))}
+                disabled={isEdit}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a workflow" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(workflowsQuery.data?.workflows ?? []).map((wf) => (
+                    <SelectItem key={wf.id} value={String(wf.id)}>
+                      {wf.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="grid gap-1">
-            <Label className="text-xs" htmlFor="schedule-name">
-              Name
-            </Label>
-            <Input
-              id="schedule-name"
-              placeholder="e.g. Site A nightly"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-
-          {workflowId != null ? (
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
-                Parameters
+            <div className="grid gap-1">
+              <Label className="text-xs" htmlFor="schedule-name">
+                Name
               </Label>
-              <ScheduleParameterFields
-                attributes={staticAttributes}
-                values={paramValues}
-                onChange={setParamValues}
+              <Input
+                id="schedule-name"
+                placeholder="e.g. Site A nightly"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
               />
             </div>
-          ) : null}
-
-          <div className="space-y-1.5">
-            <Label className="text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
-              Timer
-            </Label>
-            <ScheduleTimingFields value={timing} onChange={setTiming} />
           </div>
 
-          <div className="grid gap-1">
-            <Label className="text-xs" htmlFor="schedule-concurrency">
-              Concurrency limit
-            </Label>
-            <Input
-              id="schedule-concurrency"
-              type="number"
-              min={1}
-              value={concurrencyLimit}
-              onChange={(e) => setConcurrencyLimit(e.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Maximum overlapping runs of this workflow. 1 = a new run waits for the
-              previous one to finish.
-            </p>
-          </div>
+          <div className="mt-5 grid gap-6 sm:grid-cols-2">
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className={sectionLabel}>Timer</Label>
+                <ScheduleTimingFields value={timing} onChange={setTiming} />
+              </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs" htmlFor="schedule-enabled">
-              Enabled
-            </Label>
-            <Switch id="schedule-enabled" checked={enabled} onCheckedChange={setEnabled} />
+              <div className="rounded-md border bg-muted/30 px-3 py-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Runs
+                </p>
+                <p className="text-[13px] text-foreground">{runSummary.utc}</p>
+                {runSummary.local ? (
+                  <p className="text-[11.5px] text-muted-foreground">{runSummary.local}</p>
+                ) : null}
+              </div>
+
+              <div className="grid gap-1">
+                <Label className="text-xs" htmlFor="schedule-concurrency">
+                  Concurrency limit
+                </Label>
+                <Input
+                  id="schedule-concurrency"
+                  type="number"
+                  min={1}
+                  value={concurrencyLimit}
+                  onChange={(e) => setConcurrencyLimit(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Maximum overlapping runs of this workflow. 1 = a new run waits for the
+                  previous one to finish.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                <Label className="text-xs" htmlFor="schedule-enabled">
+                  Enabled
+                </Label>
+                <Switch id="schedule-enabled" checked={enabled} onCheckedChange={setEnabled} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className={sectionLabel}>Parameters</Label>
+              {workflowId == null ? (
+                <p className="text-[12px] text-muted-foreground">
+                  Select a workflow to see its run parameters.
+                </p>
+              ) : (
+                <ScheduleParameterFields
+                  attributes={staticAttributes}
+                  values={paramValues}
+                  onChange={setParamValues}
+                />
+              )}
+            </div>
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} type="button">
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={pending} type="button">
-            {pending ? "Saving…" : isEdit ? "Save schedule" : "Create schedule"}
+            {pending ? "Saving…" : isEdit ? "Save schedule" : "Add schedule"}
           </Button>
         </DialogFooter>
       </DialogContent>

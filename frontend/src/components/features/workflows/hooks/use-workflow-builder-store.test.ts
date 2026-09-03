@@ -118,3 +118,27 @@ describe("resetToNew", () => {
     expect(next.lastAction).toBe("New workflow created");
   });
 });
+
+describe("requestWorkflowLoad / clearPendingWorkflowLoad", () => {
+  it("queues a load request with the thenRuns flag", () => {
+    useWorkflowBuilderStore.getState().requestWorkflowLoad(42, true);
+    expect(useWorkflowBuilderStore.getState().pendingWorkflowLoad).toEqual({
+      workflowId: 42,
+      thenRuns: true,
+    });
+  });
+
+  it("defaults thenRuns to false", () => {
+    useWorkflowBuilderStore.getState().requestWorkflowLoad(7);
+    expect(useWorkflowBuilderStore.getState().pendingWorkflowLoad).toEqual({
+      workflowId: 7,
+      thenRuns: false,
+    });
+  });
+
+  it("clears the pending request", () => {
+    useWorkflowBuilderStore.getState().requestWorkflowLoad(7);
+    useWorkflowBuilderStore.getState().clearPendingWorkflowLoad();
+    expect(useWorkflowBuilderStore.getState().pendingWorkflowLoad).toBeNull();
+  });
+});

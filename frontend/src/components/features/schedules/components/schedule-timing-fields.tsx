@@ -62,7 +62,55 @@ export function timingFromSchedule(
   };
 }
 
-function useCurrentUtcTime(): string {
+const DAY_LABEL: Record<string, string> = Object.fromEntries(
+  DAY_OPTIONS.map((d) => [d.value, d.label]),
+);
+
+/** Plain-language "when does this run" for the summary line: the authoritative
+ * UTC phrasing plus, where meaningful, the viewer's own local time. */
+export function describeTimingRun(value: TimingValue): { utc: string; local: string | null } {
+  const localTimeFromUtcHhMm = (hhmm: string): string | null => {
+    const [h, m] = hhmm.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    const d = new Date();
+    d.setUTCHours(h, m, 0, 0);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  if (value.schedule_type === "once") {
+    if (!value.runAt) return { utc: "Pick a date and time.", local: null };
+    const d = new Date(`${value.runAt}:00Z`);
+    if (Number.isNaN(d.getTime())) return { utc: "Pick a date and time.", local: null };
+    return {
+      utc: `Once — ${value.runAt.replace("T", " ")} UTC`,
+      local: `your time: ${d.toLocaleString()}`,
+    };
+  }
+  if (value.frequency === "hourly") {
+    return { utc: `Every hour at :${value.minute.padStart(2, "0")} UTC`, local: null };
+  }
+  if (value.frequency === "custom") {
+    return {
+      utc: value.customCron.trim()
+        ? `cron "${value.customCron.trim()}" (UTC)`
+        : "Enter a cron expression.",
+      local: null,
+    };
+  }
+  const local = localTimeFromUtcHhMm(value.time);
+  const localSuffix = local ? `, your time: ${local}` : "";
+  if (value.frequency === "daily") {
+    return { utc: `Every day at ${value.time} UTC${localSuffix}`, local: null };
+  }
+  const days =
+    value.days.length > 0
+      ? value.days.map((d) => DAY_LABEL[d] ?? d).join(", ")
+      : "no days selected";
+  return { utc: `${days} at ${value.time} UTC${localSuffix}`, local: null };
+}
+
+/** Live "YYYY-MM-DD HH:MM:SS UTC" string, ticking once a second. */
+export function useUtcClock(): string {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -77,7 +125,6 @@ interface ScheduleTimingFieldsProps {
 }
 
 export function ScheduleTimingFields({ value, onChange }: ScheduleTimingFieldsProps) {
-  const currentUtcTime = useCurrentUtcTime();
   const minRunAt = useMemo(() => new Date().toISOString().slice(0, 16), []);
 
   const patch = useCallback(
@@ -97,10 +144,7 @@ export function ScheduleTimingFields({ value, onChange }: ScheduleTimingFieldsPr
 
   return (
     <div className="space-y-3">
-      <p className="text-[11.5px] text-muted-foreground">
-        All times are UTC. Current time:{" "}
-        <span className="font-mono text-foreground">{currentUtcTime}</span>
-      </p>
+      <p className="text-[11.5px] text-muted-foreground">All times below are UTC.</p>
 
       <Tabs
         value={value.schedule_type}

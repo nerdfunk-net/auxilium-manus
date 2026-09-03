@@ -152,6 +152,18 @@ class ScheduleServiceListDeleteTests(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             svc.delete_schedule(999, user_id=7)
 
+    def test_delete_hatchet_entry_tolerates_404(self) -> None:
+        from hatchet_sdk.clients.rest.exceptions import NotFoundException
+
+        svc = _service()
+        row = _schedule_row(id=5, hatchet_scheduled_id="sched-gone")
+        with patch("services.execution.schedule_service.hatchet") as hatchet_mock:
+            hatchet_mock.scheduled.delete.side_effect = NotFoundException(
+                http_resp=None, body='{"message":"scheduled workflow run not found"}'
+            )
+            # Must not raise — the entry is already gone, which is the goal.
+            svc._delete_hatchet_entry(row)
+
 
 class ScheduleServiceUpdateTests(unittest.TestCase):
     def setUp(self) -> None:

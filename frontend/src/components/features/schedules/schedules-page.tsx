@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CalendarClock, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CalendarClock, FolderOpen, Loader2, Pencil, PlayCircle, Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useWorkflowBuilderStore } from "@/components/features/workflows/hooks/use-workflow-builder-store";
 import {
   Dialog,
   DialogContent,
@@ -49,13 +51,59 @@ function describeParams(schedule: WorkflowSchedule): string {
   return entries.map(([k, v]) => `${k}=${String(v)}`).join(", ");
 }
 
+interface PendingWorkflowNav {
+  workflowId: number;
+  workflowName: string;
+  thenRuns: boolean;
+}
+
 export function SchedulesPage() {
+  const router = useRouter();
   const { data: schedules, isLoading } = useSchedulesQuery();
   const { updateSchedule, deleteSchedule } = useScheduleMutations();
+
+  const builderWorkflowId = useWorkflowBuilderStore((state) => state.workflowId);
+  const builderIsDirty = useWorkflowBuilderStore((state) => state.isDirty);
+  const requestWorkflowLoad = useWorkflowBuilderStore((state) => state.requestWorkflowLoad);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<WorkflowSchedule | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WorkflowSchedule | null>(null);
+  const [pendingNav, setPendingNav] = useState<PendingWorkflowNav | null>(null);
+
+  const goToBuilder = useCallback(
+    (workflowId: number, thenRuns: boolean) => {
+      requestWorkflowLoad(workflowId, thenRuns);
+      router.push("/workflows");
+    },
+    [requestWorkflowLoad, router],
+  );
+
+  const loadWorkflow = useCallback(
+    (schedule: WorkflowSchedule, thenRuns: boolean) => {
+      const alreadyLoaded = builderWorkflowId === schedule.workflow_id;
+      // Show Run for the already-loaded workflow: just switch views — the runs
+      // page never touches the canvas, so unsaved edits are safe.
+      if (thenRuns && alreadyLoaded) {
+        router.push("/workflows/runs");
+        return;
+      }
+      if (alreadyLoaded && !builderIsDirty) {
+        router.push(thenRuns ? "/workflows/runs" : "/workflows");
+        return;
+      }
+      if (builderIsDirty) {
+        setPendingNav({
+          workflowId: schedule.workflow_id,
+          workflowName: schedule.workflow_name ?? "the workflow",
+          thenRuns,
+        });
+        return;
+      }
+      goToBuilder(schedule.workflow_id, thenRuns);
+    },
+    [builderWorkflowId, builderIsDirty, goToBuilder, router],
+  );
 
   const openCreate = useCallback(() => {
     setEditing(null);
@@ -152,6 +200,26 @@ export function SchedulesPage() {
                     <TableCell>
                       <div className="flex justify-end gap-1">
                         <Button
+                          aria-label="Load workflow in builder"
+                          title="Load workflow"
+                          size="icon"
+                          type="button"
+                          variant="ghost"
+                          onClick={() => loadWorkflow(schedule, false)}
+                        >
+                          <FolderOpen className="size-4" />
+                        </Button>
+                        <Button
+                          aria-label="Show runs for this workflow"
+                          title="Show runs"
+                          size="icon"
+                          type="button"
+                          variant="ghost"
+                          onClick={() => loadWorkflow(schedule, true)}
+                        >
+                          <PlayCircle className="size-4" />
+                        </Button>
+                        <Button
                           aria-label="Edit schedule"
                           size="icon"
                           type="button"
@@ -216,6 +284,35 @@ export function SchedulesPage() {
               }}
             >
               {deleteSchedule.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingNav != null} onOpenChange={(next) => !next && setPendingNav(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogDescription>
+              The workflow builder has unsaved changes. Loading{" "}
+              <span className="font-medium">{pendingNav?.workflowName}</span> will discard
+              them.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPendingNav(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!pendingNav) return;
+                goToBuilder(pendingNav.workflowId, pendingNav.thenRuns);
+                setPendingNav(null);
+              }}
+            >
+              Discard &amp; load
             </Button>
           </DialogFooter>
         </DialogContent>
