@@ -114,9 +114,10 @@ RUN chmod 755 start.sh
 
 # Unprivileged runtime account, shared by all three compose services
 # (manus-web/-worker/-background-worker all run this same image, selecting
-# behaviour via SUPERVISORD_CONF). start.sh runs as root only long enough to
-# install operator CA certs and fix bind-mount ownership, then drops to it —
-# see start.sh for the setpriv re-exec.
+# behaviour via SUPERVISORD_CONF). start.sh + supervisord run as root only to
+# install operator CA certs, fix bind-mount ownership, and open the /dev/stdout
+# log fds; every [program:*] then runs as this account via `user=manus`
+# (see docker/supervisord*.conf).
 RUN groupadd --system manus \
  && useradd --system --gid manus --home-dir /app --shell /usr/sbin/nologin manus \
  && mkdir -p /app/data/settings \
@@ -133,7 +134,8 @@ EXPOSE 3000 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD sh -c "curl -f http://localhost:${FRONTEND_PORT} && curl -f http://localhost:8000/health || exit 1"
 
-# No USER here on purpose: the entrypoint drops privileges (see start.sh).
+# No USER here on purpose: supervisord runs as root and each [program:*] drops
+# to the unprivileged 'manus' account via `user=` (see docker/supervisord*.conf).
 CMD ["./start.sh"]
 
 LABEL org.opencontainers.image.title="Auxilium Manus All-in-One"
