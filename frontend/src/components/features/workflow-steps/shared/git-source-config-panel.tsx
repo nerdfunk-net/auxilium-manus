@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
 import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
+import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
 
 const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 
@@ -54,11 +55,7 @@ export function GitSourceConfigPanel({
             git
           </Badge>
         </div>
-        {repositoryId !== null ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{repositoryId}</p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
+        <GitRepositoryValue repositoryId={repositoryId} />
         <Button
           className="h-7 w-full text-xs"
           size="sm"

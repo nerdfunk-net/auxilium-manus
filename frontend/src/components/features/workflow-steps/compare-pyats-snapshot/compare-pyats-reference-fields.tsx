@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
+import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
 
 type ReferenceLocation = "filesystem" | "git";
 
@@ -94,11 +95,7 @@ export function ComparePyatsReferenceFields({
                 git
               </Badge>
             </div>
-            {gitRepositoryId !== null ? (
-              <p className="font-mono text-[11px] text-muted-foreground">{gitRepositoryId}</p>
-            ) : (
-              <p className="text-[11px] text-warning-foreground">Not configured</p>
-            )}
+            <GitRepositoryValue repositoryId={gitRepositoryId} />
             <Button
               className="h-7 w-full text-xs"
               size="sm"

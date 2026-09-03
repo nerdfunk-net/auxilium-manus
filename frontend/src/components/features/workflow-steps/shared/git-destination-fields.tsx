@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 
 import { COMMIT_MESSAGE_PLACEHOLDERS } from "./filename-placeholders";
 import { GitRepositorySelectDialog } from "./git-repository-select-dialog";
+import { GitRepositoryValue } from "./git-repository-value";
 
 export interface GitDestinationValues {
   git_repository_id: number | null;
@@ -46,11 +47,7 @@ export function GitDestinationFields({
             git
           </Badge>
         </div>
-        {gitRepositoryId !== null ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{gitRepositoryId}</p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
+        <GitRepositoryValue repositoryId={gitRepositoryId} />
         <Button
           className="h-7 w-full text-xs"
           size="sm"

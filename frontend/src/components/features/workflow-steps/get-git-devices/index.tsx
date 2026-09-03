@@ -26,6 +26,7 @@ import {
   type FanOutConfig,
 } from "../shared/fan-out-config";
 import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
+import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
 import { GitDevicesPreviewDialog } from "./preview-dialog";
 import { GetGitDevicesHelpPanel } from "./help-panel";
 
@@ -130,13 +131,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           </Badge>
         </div>
 
-        {repositoryId !== null ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {repositoryId}
-          </p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">Not configured</p>
-        )}
+        <GitRepositoryValue repositoryId={repositoryId} />
 
         <Button
           className="h-7 w-full text-xs"

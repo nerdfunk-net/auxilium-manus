@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 
 import type { GitDevicePreview } from "@/hooks/queries/use-get-git-devices-preview-mutation";
+import { useGitRepositoryLabel } from "@/components/features/workflow-steps/shared/git-repository-value";
 
 interface GitDevicesPreviewDialogProps {
   open: boolean;
@@ -25,6 +26,8 @@ export function GitDevicesPreviewDialog({
   devices,
   repositoryId,
 }: GitDevicesPreviewDialogProps) {
+  const repositoryLabel = useGitRepositoryLabel(repositoryId);
+
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
@@ -34,7 +37,7 @@ export function GitDevicesPreviewDialog({
             {devices.length} device{devices.length !== 1 ? "s" : ""} found in
             repository{" "}
             <code className="rounded bg-muted px-1 font-mono text-xs">
-              {repositoryId}
+              {repositoryLabel ?? repositoryId}
             </code>
           </DialogDescription>
         </DialogHeader>

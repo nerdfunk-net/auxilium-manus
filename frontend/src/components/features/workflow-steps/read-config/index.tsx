@@ -18,6 +18,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
+import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
 
 import { ReadConfigHelpPanel } from "./help-panel";
 
@@ -134,11 +135,7 @@ function ReadConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
               git
             </Badge>
           </div>
-          {gitRepositoryId !== null ? (
-            <p className="font-mono text-[11px] text-muted-foreground">{gitRepositoryId}</p>
-          ) : (
-            <p className="text-[11px] text-warning-foreground">Not configured</p>
-          )}
+          <GitRepositoryValue repositoryId={gitRepositoryId} />
           <Button
             className="h-7 w-full text-xs"
             size="sm"
