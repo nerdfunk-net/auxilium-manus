@@ -16,6 +16,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 import type {
+  ReferenceKind,
   StaticAttributeDef,
   StaticAttributeType,
 } from "../types/workflow-persistence";
@@ -32,10 +33,24 @@ const DEFAULT_NEW_ATTRIBUTE: StaticAttributeDef = {
   required: false,
 };
 
+const REFERENCE_KIND_OPTIONS: { value: ReferenceKind; label: string }[] = [
+  { value: "inventory", label: "Inventory" },
+  { value: "credential", label: "SSH credential" },
+];
+
 function defaultForType(type: StaticAttributeType): string | number | boolean | undefined {
   if (type === "boolean") return false;
-  if (type === "number") return undefined;
   return undefined;
+}
+
+/** The patch to apply when the type dropdown changes — keeps `ref_kind` set iff
+ * `reference` so the backend's StaticAttributeDef validator accepts the save. */
+function patchForTypeChange(next: StaticAttributeType): Partial<StaticAttributeDef> {
+  return {
+    type: next,
+    default: defaultForType(next),
+    ref_kind: next === "reference" ? "inventory" : undefined,
+  };
 }
 
 export function WorkflowStaticAttributesPanel({
@@ -119,10 +134,7 @@ export function WorkflowStaticAttributesPanel({
                 <Select
                   value={attr.type}
                   onValueChange={(next) =>
-                    updateAt(index, {
-                      type: next as StaticAttributeType,
-                      default: defaultForType(next as StaticAttributeType),
-                    })
+                    updateAt(index, patchForTypeChange(next as StaticAttributeType))
                   }
                 >
                   <SelectTrigger className="h-7 flex-1 text-xs">
@@ -132,10 +144,29 @@ export function WorkflowStaticAttributesPanel({
                     <SelectItem value="string">String</SelectItem>
                     <SelectItem value="number">Number</SelectItem>
                     <SelectItem value="boolean">Boolean</SelectItem>
+                    <SelectItem value="reference">Reference</SelectItem>
                   </SelectContent>
                 </Select>
 
-                {attr.type === "boolean" ? (
+                {attr.type === "reference" ? (
+                  <Select
+                    value={attr.ref_kind ?? "inventory"}
+                    onValueChange={(next) =>
+                      updateAt(index, { ref_kind: next as ReferenceKind })
+                    }
+                  >
+                    <SelectTrigger className="h-7 flex-1 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REFERENCE_KIND_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : attr.type === "boolean" ? (
                   <div className="flex h-7 flex-1 items-center justify-between rounded-md border border-input px-2">
                     <Label className="text-[11px] text-muted-foreground">Default</Label>
                     <Switch
@@ -167,6 +198,13 @@ export function WorkflowStaticAttributesPanel({
                   />
                 )}
               </div>
+              {attr.type === "reference" ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Value (an{" "}
+                  {attr.ref_kind === "credential" ? "SSH credential name" : "inventory"}) is
+                  chosen per run / per schedule, scoped to whoever triggers it.
+                </p>
+              ) : null}
 
               <div className="flex items-center justify-between gap-2 pt-0.5">
                 <Label className="text-[11px] text-muted-foreground">

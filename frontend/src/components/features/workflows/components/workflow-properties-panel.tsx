@@ -16,7 +16,6 @@ import { SelectedEdgePanel } from "./selected-edge-panel";
 import { SelectedStepPanel } from "./selected-step-panel";
 import { StepCatalog } from "./step-catalog";
 import { WorkflowBackgroundTierPanel } from "./workflow-background-tier-panel";
-import { WorkflowSchedulePanel } from "./workflow-schedule-panel";
 import { WorkflowStaticAttributesPanel } from "./workflow-static-attributes-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 import type { PluginDefinition } from "../types/plugin-registry";
@@ -245,7 +244,6 @@ export function WorkflowPropertiesPanel({
             />
           ) : (
             <div className="space-y-6">
-              <WorkflowSchedulePanel />
               <WorkflowStaticAttributesPanel
                 value={staticAttributes}
                 onChange={onStaticAttributesChange}

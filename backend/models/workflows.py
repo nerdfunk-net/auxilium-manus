@@ -3,23 +3,43 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 WorkflowVisibility = Literal["public", "private"]
-StaticAttributeType = Literal["string", "number", "boolean"]
+StaticAttributeType = Literal["string", "number", "boolean", "reference"]
+# Kinds a `type == "reference"` attribute may point at. Registry-driven — the
+# authoritative resolver map lives in services/execution/reference_resolver.py.
+ReferenceKind = Literal["inventory", "credential"]
 
 
 class StaticAttributeDef(BaseModel):
-    """One run-scoped trigger input the operator supplies when starting a run
-    manually. Resolved values are seeded into every device's attribute_bags
-    under the reserved "run_input" bag — see
+    """One run-scoped trigger input supplied when a run is started — manually by
+    the operator, or per-schedule by a WorkflowSchedule. Resolved values are
+    persisted on WorkflowRun.run_inputs and seeded into every device's
+    attribute_bags under the reserved "run_input" bag — see
     services/execution/run_input_validation.py and
-    services/workflow_context/run_inputs.py."""
+    services/workflow_context/run_inputs.py.
+
+    A ``type == "reference"`` attribute does not carry a literal value but a
+    reference to another row: ``ref_kind == "inventory"`` stores an inventory
+    id (int), ``ref_kind == "credential"`` stores a credential name (str). The
+    reference is resolved at dispatch time, scoped to the triggering user — see
+    services/execution/reference_resolver.py.
+    """
 
     name: str = Field(..., min_length=1, max_length=100)
     type: StaticAttributeType
+    ref_kind: ReferenceKind | None = None
     default: Any | None = None
     required: bool = False
+
+    @model_validator(mode="after")
+    def _check_ref_kind(self) -> StaticAttributeDef:
+        if self.type == "reference" and self.ref_kind is None:
+            raise ValueError("ref_kind is required when type is 'reference'")
+        if self.type != "reference" and self.ref_kind is not None:
+            raise ValueError("ref_kind is only valid when type is 'reference'")
+        return self
 
 
 class WorkflowCreate(BaseModel):

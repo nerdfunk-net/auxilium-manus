@@ -30,8 +30,8 @@ import {
   sourceStepCopy,
   type ContentSource,
 } from "./upload-config-config";
+import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
 import {
-  UploadConfigCredentialFields,
   UploadConfigSocketTimeoutFields,
   UploadConfigTransferFields,
 } from "./upload-config-fields";
@@ -54,8 +54,6 @@ function UploadConfigConfigPanel({
     }
   }, [nodeId, config, onChange]);
 
-  const credentialReference =
-    typeof config.credential_reference === "string" ? config.credential_reference : "";
   const contentSource = (config.content_source as ContentSource) || "updated_content";
   const sourceStepNodeId =
     typeof config.source_step_node_id === "string" ? config.source_step_node_id : "";
@@ -89,13 +87,6 @@ function UploadConfigConfigPanel({
   const contentSourceHint = useMemo(
     () => UPLOAD_CONFIG_SOURCE_OPTIONS.find((option) => option.value === contentSource)?.hint,
     [contentSource],
-  );
-
-  const handleCredentialChange = useCallback(
-    (value: string) => {
-      onChange(buildUploadConfigConfig(config, { credential_reference: value }));
-    },
-    [config, onChange],
   );
 
   const handleContentSourceChange = useCallback(
@@ -195,10 +186,7 @@ function UploadConfigConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <UploadConfigCredentialFields
-        credentialReference={credentialReference}
-        onCredentialChange={handleCredentialChange}
-      />
+      <SshCredentialField config={config} onChange={onChange} />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

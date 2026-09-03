@@ -4,6 +4,8 @@ from services.network.netmiko.connection import DEFAULT_READ_TIMEOUT
 def get_config() -> dict:
     return {
         "credential_reference": "",
+        "credential_source": "fixed",
+        "credential_param": "",
         "source_step_node_id": "",
         "parsed_output_key": "",
         "execution_mode": "config_mode",

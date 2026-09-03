@@ -80,5 +80,44 @@ def _coerce(attr: StaticAttributeDef, value: Any, errors: list[str]) -> Any:
             return value
         errors.append(f"{attr.name}: expected a boolean")
         return None
+    if attr.type == "reference":
+        return _coerce_reference(attr, value, errors)
     errors.append(f"{attr.name}: unsupported type {attr.type!r}")
+    return None
+
+
+def _coerce_reference(attr: StaticAttributeDef, value: Any, errors: list[str]) -> Any:
+    """Shape-only check for a ``type == "reference"`` value. Existence and
+    per-user access are verified separately at schedule-save / dispatch time by
+    services/execution/reference_resolver.py (which needs a DB session and the
+    acting user); this only guarantees the payload is the right shape.
+
+    - ``ref_kind == "inventory"`` → a positive int (an int-like str is coerced).
+    - ``ref_kind == "credential"`` → a non-empty str (a credential vault name).
+    """
+    if attr.ref_kind == "inventory":
+        if isinstance(value, bool):
+            errors.append(f"{attr.name}: expected an inventory id")
+            return None
+        if isinstance(value, int):
+            candidate = value
+        elif isinstance(value, str):
+            try:
+                candidate = int(value)
+            except ValueError:
+                errors.append(f"{attr.name}: expected an inventory id")
+                return None
+        else:
+            errors.append(f"{attr.name}: expected an inventory id")
+            return None
+        if candidate <= 0:
+            errors.append(f"{attr.name}: expected a positive inventory id")
+            return None
+        return candidate
+    if attr.ref_kind == "credential":
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        errors.append(f"{attr.name}: expected a credential name")
+        return None
+    errors.append(f"{attr.name}: unsupported ref_kind {attr.ref_kind!r}")
     return None

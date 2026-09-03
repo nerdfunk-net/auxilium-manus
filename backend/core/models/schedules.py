@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base
@@ -13,12 +13,24 @@ class WorkflowSchedule(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     uuid: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, index=True)
+    # NOT unique — a workflow may carry many schedules (e.g. one per site /
+    # inventory, each with its own run_inputs). The legacy UNIQUE constraint is
+    # dropped by a one-off ALTER (see doc/SCHEDULES.md); AutoSchemaMigration does
+    # not drop constraints.
     workflow_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("workflows.id", ondelete="CASCADE"),
         nullable=False,
-        unique=True,
         index=True,
+    )
+    # Operator-facing label, unique only by convention within a workflow.
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Per-schedule static-attribute values, merged with the workflow's declared
+    # defaults at dispatch by resolve_run_inputs(). Shape-validated at save time;
+    # `reference` values additionally checked against the target row for
+    # created_by (see services/execution/reference_resolver.py).
+    run_inputs: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict, server_default="{}"
     )
     # cron | once
     schedule_type: Mapped[str] = mapped_column(String(10), nullable=False)

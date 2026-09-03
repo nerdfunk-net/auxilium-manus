@@ -654,7 +654,7 @@ ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboa
 5. Add sidebar link in `/components/layout/app-sidebar.tsx`
 6. Use query hooks in components (NOT manual `useState + useEffect`)
 
-Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`.
+Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`. Timed runs live at `/schedules` (the **Schedules** app) — many parameterized schedules per workflow; see `doc/SCHEDULES.md`.
 
 ### Adding New Permission
 1. UI: `/settings/users` → Permissions tab lists the catalog; create a permission from

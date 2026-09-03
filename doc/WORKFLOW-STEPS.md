@@ -546,11 +546,33 @@ manually — a TACACS+ key for a rollout, a VLAN ID, a one-off note — rather t
 value baked into the canvas at design time. This is **not** a canvas step:
 
 - **Declaration**: a workflow-level schema (`Workflow.static_attributes`, a list
-  of `{name, type, default, required}` — `type` is `string` | `number` | `boolean`)
-  edited in the properties panel's "nothing selected" state
-  (`WorkflowStaticAttributesPanel`, alongside `WorkflowSchedulePanel`), and saved
-  as part of the normal workflow Save action — the same way `canvas_nodes` /
-  `canvas_edges` are.
+  of `{name, type, ref_kind?, default, required}` — `type` is `string` | `number`
+  | `boolean` | `reference`) edited in the properties panel's "nothing selected"
+  state (`WorkflowStaticAttributesPanel`), and saved as part of the normal
+  workflow Save action — the same way `canvas_nodes` / `canvas_edges` are.
+- **`reference`-typed attributes** don't carry a literal — they carry a pointer
+  to another row, resolved at dispatch *scoped to the triggering user*. `ref_kind`
+  is required and selects the resolver
+  (`services/execution/reference_resolver.py::REF_RESOLVERS`):
+  - `ref_kind: "inventory"` → value is an **inventory id** (int); resolved via
+    the RBAC-checked `InventoryService.get_inventory(id, username=…)`.
+    `get-nautobot-devices` reads it when its `inventory_source` config is
+    `"run_param"` (pointing at `inventory_param`), replacing the canvas
+    `device_filter` snapshot for that run.
+  - `ref_kind: "credential"` → value is a **credential vault name** (str);
+    late-bound per triggering user (a private credential wins over a global one
+    of the same name — see `credential_resolver._resolve_credential`). Every SSH
+    step reads it when its `credential_source` config is `"run_param"` (pointing
+    at `credential_param`).
+  This is how one workflow definition serves many sites/teams: a schedule (or a
+  manual run) supplies a different inventory id and credential name each time.
+  Adding a new `ref_kind` (e.g. `nautobot_source`, `git_repo`) is one class +
+  one `REF_RESOLVERS` entry plus the matching literal in `models/workflows.py`.
+- **Where reference values are validated**: shape only in `resolve_run_inputs`
+  (a positive int / a non-empty str — it is pure, no DB). Existence + access +
+  type/expiry is `validate_reference_inputs`, called at **schedule-save**
+  (`ScheduleService`, → 422) and again in `scheduled_trigger.dispatch` (→ failed
+  run) so a broken reference can't slip through unattended.
 - **Why not a canvas step**: a "request input" step feeding a downstream node
   alongside `get-nautobot-devices` doesn't work under today's connection rules.
   `frontend/src/lib/capability-types.ts`'s `isValidConnection` requires a
@@ -567,15 +589,15 @@ value baked into the canvas at design time. This is **not** a canvas step:
     `WorkflowRunInputsDialog` in `workflow-builder-page.tsx`) prompts for
     values when `static_attributes` is non-empty, then passes them as
     `run_inputs` on `WorkflowRunCreate`.
-  - **Scheduled (cron) trigger**: `hatchet/workflows/scheduled_trigger.py::dispatch`
-    has no operator to prompt, so only declared defaults are available. **A
-    workflow with a required, default-less static attribute is manual-trigger
-    only** — every scheduled run for it fails immediately
-    (`status="failed"`, `error_category="configuration"`) rather than
-    dispatching with an incomplete `run_input` bag.
+  - **Scheduled (cron) trigger**: each `WorkflowSchedule` carries its own
+    `run_inputs` bag (set in the Schedules app, `/schedules`), merged with the
+    workflow's declared defaults by `scheduled_trigger.py::dispatch`. A required,
+    default-less attribute the schedule doesn't cover still fails that run
+    immediately (`status="failed"`, `error_category="configuration"`).
   - Both paths validate/default-fill through the same pure helper —
     `services/execution/run_input_validation.py::resolve_run_inputs` — so a
-    manual 400 and a scheduled run failure never disagree on what's valid.
+    manual 400, a schedule-save 422, and a scheduled run failure never disagree
+    on what's valid.
 - **Storage**: resolved values are persisted on `WorkflowRun.run_inputs`.
 - **Making values usable by steps**: device-attribute resolution
   (`services/workflow_context/attribute_path.py::resolve_device_attribute`)

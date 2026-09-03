@@ -58,6 +58,24 @@ class ResolveSshCredentialTests(unittest.TestCase):
         with self.assertRaises(CredentialReferenceInvalidError):
             resolve_ssh_credential(MagicMock(), "lab-ssh", acting_user_id=1)
 
+    def test_private_credential_wins_over_global_of_same_name(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            {**_credential(1, name="shared", cred_type="ssh"), "visibility": "global"},
+            {
+                **_credential(2, name="shared", cred_type="ssh"),
+                "username": "owner",
+                "visibility": "private",
+            },
+        ]
+        self.mock_service.get_decrypted_password.return_value = "secret"
+
+        username, _ = resolve_ssh_credential(MagicMock(), "shared", acting_user_id=1)
+
+        self.assertEqual(username, "owner")
+        self.mock_service.get_decrypted_password.assert_called_once_with(
+            2, acting_user_id=1
+        )
+
 
 class ResolveGenericCredentialTests(unittest.TestCase):
     def setUp(self) -> None:

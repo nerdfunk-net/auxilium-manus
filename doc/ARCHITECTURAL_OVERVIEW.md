@@ -176,34 +176,52 @@ server-side scheduler. Neither the frontend/browser nor even the FastAPI API
 process needs to be running for it to fire — only PostgreSQL and the Hatchet
 **worker** process matter.
 
+> **Many schedules per workflow, each parameterized.** A workflow is no longer
+> limited to one schedule. `workflow_schedules.workflow_id` is a plain indexed
+> FK (not `UNIQUE`), each row carries its own `name` and `run_inputs` (a
+> per-schedule static-attribute value bag), and schedules are managed from the
+> dedicated **Schedules** app (`/schedules`), not the workflow builder's
+> properties panel. See `doc/SCHEDULES.md`. The mechanics below are otherwise
+> unchanged.
+
 ### 1. Saving a schedule registers it with Hatchet immediately
 
-`ScheduleService.upsert_schedule` (`backend/services/execution/schedule_service.py`)
-registers the schedule directly with Hatchet at save time:
+`ScheduleService.create_schedule` / `update_schedule`
+(`backend/services/execution/schedule_service.py`) registers the schedule
+directly with Hatchet at save time:
 
 ```python
-if data.schedule_type == "cron":
+if schedule.schedule_type == "cron":
     result = hatchet.cron.create(
         workflow_name="ScheduledWorkflowTrigger",
-        cron_name=f"workflow-{workflow_id}",
-        expression=data.cron_expression,
-        input={"workflow_id": workflow_id, "schedule_id": schedule.id},
-        additional_metadata={"workflow_id": workflow_id},
+        cron_name=f"workflow-{schedule.workflow_id}-schedule-{schedule.id}",
+        expression=schedule.cron_expression,
+        input={"workflow_id": schedule.workflow_id, "schedule_id": schedule.id},
+        additional_metadata={"workflow_id": schedule.workflow_id},
     )
 else:
     result = hatchet.scheduled.create(
         workflow_name="ScheduledWorkflowTrigger",
-        trigger_at=data.run_at,
-        input={"workflow_id": workflow_id, "schedule_id": schedule.id},
-        additional_metadata={"workflow_id": workflow_id},
+        trigger_at=schedule.run_at,
+        input={"workflow_id": schedule.workflow_id, "schedule_id": schedule.id},
+        additional_metadata={"workflow_id": schedule.workflow_id},
     )
 ```
 
 Both paths target a fixed wrapper workflow, `ScheduledWorkflowTrigger`, with a
 small, fixed payload (`workflow_id`, `schedule_id` — not the workflow
-definition itself). The returned Hatchet cron/scheduled ID is persisted on
-the `WorkflowSchedule` row (`hatchet_cron_id` / `hatchet_scheduled_id`) so it
-can be deleted or replaced later (`_delete_hatchet_entry`).
+definition or the `run_inputs` themselves). The `cron_name` is keyed on the
+**schedule** id, not just the workflow, so a workflow's multiple schedules
+don't collide. The returned Hatchet cron/scheduled ID is persisted on the
+`WorkflowSchedule` row (`hatchet_cron_id` / `hatchet_scheduled_id`) so it can
+be deleted or replaced later (`_delete_hatchet_entry`).
+
+Creating a schedule also **publishes the workflow to the background tier**
+(`BackgroundTierService.publish`, concurrency limit from the dialog, default
+`1`) so overlapping fires of the same workflow are serialised by Hatchet
+rather than each opening its own device fan-out — see "Background-tier
+workflows" below. This is why `POST /api/schedules` requires
+`workflows:publish`.
 
 ### 2. Firing is owned by Hatchet, independent of the app
 
@@ -226,12 +244,17 @@ the worker process when triggered:
 2. Creates a fresh `WorkflowRun` row (`trigger_type="scheduled"`).
 3. Marks the schedule triggered — disabling it if `schedule_type == "once"`
    (a one-time trigger is consumed on fire; a cron keeps repeating).
-4. Resolves `run_inputs` from the workflow's declared static-attribute
-   *defaults only* (`services/execution/run_input_validation.py::resolve_run_inputs`)
-   — there is no operator to prompt for a scheduled run. A required static
-   attribute with no default fails the run immediately
-   (`status="failed"`, `error_category="configuration"`) rather than
-   dispatching with an incomplete input bag.
+4. Resolves `run_inputs` by merging the **schedule's own `run_inputs`** with
+   the workflow's declared static-attribute defaults
+   (`services/execution/run_input_validation.py::resolve_run_inputs`), then
+   re-checks every `type: "reference"` value still resolves for the schedule
+   owner (`services/execution/reference_resolver.py::validate_reference_inputs`
+   — inventory not deleted, credential not rotated away). A required attribute
+   still missing, or a reference that no longer resolves, fails the run
+   immediately (`status="failed"`, `error_category="configuration"`) rather
+   than dispatching with an incomplete/broken input bag. `triggered_by_id` is
+   the schedule's `created_by_id`, so credential/inventory resolution is scoped
+   to that user.
 5. Dispatches into the execution engine exactly like a manual "Run" click
    would, via the same resolver both paths share:
    `resolve_dispatch_workflow(workflow, db).run_no_wait(WorkflowRunInput(run_id=run.id))`
@@ -248,10 +271,10 @@ the worker process when triggered:
   frontend can be down. A workflow published to the background tier
   additionally needs the **dynamic worker process** (`hatchet/dynamic_worker.py`)
   up — see "Background-tier workflows" below.
-- A workflow with a **required static attribute that has no default** is
-  effectively manual-trigger-only: every scheduled/cron run for it will fail
-  immediately with a configuration error instead of executing, since nothing
-  can supply that value unattended.
+- A **required static attribute with no default** must be supplied by the
+  schedule's own `run_inputs` (the Schedules app validates this at save time).
+  A schedule that doesn't cover it — or a manual-trigger workflow with no
+  schedule — still fails such a run immediately with a configuration error.
 
 ---
 

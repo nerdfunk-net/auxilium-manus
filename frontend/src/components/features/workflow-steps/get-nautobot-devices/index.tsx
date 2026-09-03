@@ -18,6 +18,10 @@ import {
 } from "../shared/nautobot-source-config";
 import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dialog";
 import {
+  RunParamSourceField,
+  type RunParamSourceMode,
+} from "../shared/run-param-source-field";
+import {
   FanOutConfigSection,
   fanOutFromConfig,
   type FanOutConfig,
@@ -73,6 +77,20 @@ function DeviceSelectionConfigPanel({
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
   const inventoryMeta = useMemo(() => inventoryMetaFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
+
+  const inventorySource: RunParamSourceMode =
+    config.inventory_source === "run_param" ? "run_param" : "fixed";
+  const inventoryParam =
+    typeof config.inventory_param === "string" ? config.inventory_param : "";
+
+  const handleInventorySourceChange = useCallback(
+    (mode: RunParamSourceMode) => onChange({ ...config, inventory_source: mode }),
+    [config, onChange],
+  );
+  const handleInventoryParamChange = useCallback(
+    (name: string) => onChange({ ...config, inventory_param: name }),
+    [config, onChange],
+  );
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const [selectOpen, setSelectOpen] = useState(false);
@@ -185,14 +203,15 @@ function DeviceSelectionConfigPanel({
         </Button>
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">inventory</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            saved
-          </Badge>
-        </div>
-
+      <RunParamSourceField
+        label="Inventory"
+        refKind="inventory"
+        mode={inventorySource}
+        paramName={inventoryParam}
+        onModeChange={handleInventorySourceChange}
+        onParamNameChange={handleInventoryParamChange}
+      >
+        <div className="space-y-1.5">
         {inventoryLabel ? (
           <div className="flex items-start gap-2 rounded-md border border-step-border bg-step-surface/50 px-2.5 py-2">
             <FileText className="mt-0.5 size-3.5 shrink-0 text-step-hover" aria-hidden />
@@ -244,7 +263,8 @@ function DeviceSelectionConfigPanel({
         {!canPreview && hasInventory && !credentials.isReady ? (
           <p className="text-[11px] text-warning-foreground">Configure a Nautobot source to preview.</p>
         ) : null}
-      </div>
+        </div>
+      </RunParamSourceField>
 
       <FanOutConfigSection value={fanOut} onChange={handleFanOutChange} />
 

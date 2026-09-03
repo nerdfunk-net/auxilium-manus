@@ -1,12 +1,19 @@
 export type WorkflowVisibility = "public" | "private";
-export type StaticAttributeType = "string" | "number" | "boolean";
+export type StaticAttributeType = "string" | "number" | "boolean" | "reference";
+
+/** Kinds a `type: "reference"` attribute can point at. The resolver registry
+ * lives in backend/services/execution/reference_resolver.py. */
+export type ReferenceKind = "inventory" | "credential";
 
 /** A run-scoped trigger input declared on a workflow. Resolved values are
  * seeded into every device's attribute_bags["run_input"] at run time — see
- * doc/WORKFLOW-STEPS.md "Static attributes". */
+ * doc/WORKFLOW-STEPS.md "Static attributes". A `type: "reference"` attribute
+ * carries not a literal but a pointer to another row (inventory id, or
+ * credential vault name), resolved at dispatch scoped to the triggering user. */
 export interface StaticAttributeDef {
   name: string;
   type: StaticAttributeType;
+  ref_kind?: ReferenceKind | null;
   default?: string | number | boolean;
   required: boolean;
 }

@@ -2,6 +2,7 @@
 
 import {
   Boxes,
+  CalendarClock,
   FileCode,
   KeyRound,
   LayoutDashboard,
@@ -66,6 +67,13 @@ const navigationItems: NavigationItem[] = [
     href: "/workflows/runs",
     isActive: (pathname) => pathname === "/workflows/runs",
     canShow: (user) => hasPermission(user, "workflow_runs", "read"),
+  },
+  {
+    label: "Schedules",
+    icon: CalendarClock,
+    href: "/schedules",
+    isActive: (pathname) => pathname === "/schedules",
+    canShow: (user) => hasPermission(user, "workflows", "execute"),
   },
   {
     label: "Settings",

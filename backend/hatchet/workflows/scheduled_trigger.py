@@ -38,6 +38,10 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
     from repositories.run_repository import RunRepository
     from repositories.schedule_repository import ScheduleRepository
     from repositories.workflow_repository import WorkflowRepository
+    from services.execution.reference_resolver import (
+        ReferenceValidationError,
+        validate_reference_inputs,
+    )
     from services.execution.run_input_validation import (
         RunInputValidationError,
         resolve_run_inputs,
@@ -72,13 +76,21 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
         # so a workflow permanently missing a required input doesn't spin.
         schedule_repo.mark_triggered(schedule, disable=(schedule.schedule_type == "once"))
 
-        # Scheduled runs never have an operator to prompt, so only declared
-        # defaults are available — a required attribute with no default can
-        # never be satisfied here and fails this run immediately rather than
-        # dispatching into Hatchet with an incomplete run_input bag.
+        # A scheduled run has no operator to prompt: values come from the
+        # schedule's own run_inputs merged with the workflow's declared
+        # defaults. A required attribute still missing here, or a `reference`
+        # value that no longer resolves for the schedule owner (inventory
+        # deleted, credential rotated), fails this run immediately with a
+        # configuration error rather than dispatching an incomplete bag.
         try:
-            run_inputs = resolve_run_inputs(static_attributes, {})
-        except RunInputValidationError as exc:
+            run_inputs = resolve_run_inputs(static_attributes, schedule.run_inputs or {})
+            validate_reference_inputs(
+                static_attributes,
+                run_inputs,
+                db=db,
+                acting_user_id=schedule.created_by_id,
+            )
+        except (RunInputValidationError, ReferenceValidationError) as exc:
             run_repo.update_run_status(
                 run,
                 status="failed",

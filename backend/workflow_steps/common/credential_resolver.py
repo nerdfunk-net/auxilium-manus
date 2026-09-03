@@ -35,11 +35,17 @@ def _resolve_credential(
     credentials = service.list_credentials(
         include_expired=False, source="general", acting_user_id=acting_user_id
     )
-    match = next((item for item in credentials if item["name"] == reference), None)
-    if match is None:
+    matches = [item for item in credentials if item["name"] == reference]
+    if not matches:
         raise CredentialReferenceNotFoundError(
             f"Credential {reference!r} not found in credential vault"
         )
+    # A private credential and a global one can share a name. Resolution is
+    # "bring your own credential" — the actor's private entry wins over the
+    # shared global one, mirroring RBAC user-override precedence.
+    match = next(
+        (item for item in matches if item.get("visibility") == "private"), matches[0]
+    )
     if match["type"] not in allowed_types:
         raise CredentialReferenceInvalidError(
             f"Credential {reference!r} must be type {type_error_label}, got {match['type']!r}"

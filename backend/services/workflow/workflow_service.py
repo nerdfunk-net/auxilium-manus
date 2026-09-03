@@ -308,6 +308,6 @@ class WorkflowService:
         workflow, _ = result
         if workflow.creator_id != user_id:
             raise AccessDeniedError("Access denied")
-        ScheduleService(self.db).delete_schedule_for_workflow_unchecked(workflow_id)
+        ScheduleService(self.db).delete_schedules_for_workflow_unchecked(workflow_id)
         BackgroundTierService(self.db).unpublish_for_workflow_unchecked(workflow_id)
         self.repo.delete(workflow)

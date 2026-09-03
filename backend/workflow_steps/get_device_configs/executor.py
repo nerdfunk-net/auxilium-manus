@@ -23,6 +23,7 @@ from services.artifacts import ArtifactService
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
 
@@ -259,8 +260,15 @@ async def execute(
     if db is None:
         raise RuntimeError("get-device-configs: WorkflowRun has no active DB session")
 
+    credential_reference = resolve_config_reference(
+        config,
+        source_key="credential_source",
+        param_key="credential_param",
+        literal_key="credential_reference",
+        run_inputs=run.run_inputs,
+    )
     username, password = resolve_ssh_credential(
-        db, parsed.credential_reference, acting_user_id=run.triggered_by_id
+        db, credential_reference, acting_user_id=run.triggered_by_id
     )
     include_running, include_startup = _config_targets(parsed.config_format)
     netmiko = NetmikoService(pool=device_sessions)
@@ -270,7 +278,7 @@ async def execute(
         "get-device-configs run_id=%s devices=%d credential=%s format=%s",
         run.id,
         total,
-        parsed.credential_reference,
+        credential_reference,
         parsed.config_format,
     )
 

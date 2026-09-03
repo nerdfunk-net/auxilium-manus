@@ -7,18 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
-import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
 import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
 
 import { PyATSSourceSelectDialog } from "../shared/pyats-source-select-dialog";
@@ -57,6 +50,10 @@ function buildRunCommandConfig(
   return {
     credential_reference:
       typeof config.credential_reference === "string" ? config.credential_reference : "",
+    credential_source:
+      config.credential_source === "run_param" ? "run_param" : "fixed",
+    credential_param:
+      typeof config.credential_param === "string" ? config.credential_param : "",
     commands: parseCommands(config),
     use_textfsm: parseUseTextfsm(config),
     network_driver_override:
@@ -83,17 +80,7 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
       onChange(buildRunCommandConfig(config));
     }
   }, [nodeId, config, onChange]);
-  const { data, isLoading } = useCredentialsQuery();
-  const sshCredentials = useMemo(
-    () =>
-      (data?.credentials ?? []).filter(
-        (credential) => credential.type === "ssh" && credential.status !== "expired",
-      ),
-    [data?.credentials],
-  );
 
-  const credentialReference =
-    typeof config.credential_reference === "string" ? config.credential_reference : "";
   const commands = useMemo(() => parseCommands(config), [config]);
   const useTextfsm = useMemo(() => parseUseTextfsm(config), [config]);
   const networkDriverOverride =
@@ -104,13 +91,6 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
   const genieOutputKey = useMemo(() => parseGenieOutputKey(config), [config]);
   const { data: pyatsSourcesData } = usePyATSSourcesQuery();
   const hasPyatsSource = (pyatsSourcesData?.sources.length ?? 0) > 0;
-
-  const handleCredentialChange = useCallback(
-    (value: string) => {
-      onChange(buildRunCommandConfig(config, { credential_reference: value }));
-    },
-    [config, onChange],
-  );
 
   const handleCommandChange = useCallback(
     (index: number, value: string) => {
@@ -173,41 +153,7 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">credential_reference</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            credential_ref
-          </Badge>
-        </div>
-
-        {isLoading ? (
-          <p className="text-[11px] text-muted-foreground">Loading credentials…</p>
-        ) : sshCredentials.length === 0 && !credentialReference ? (
-          <p className="text-[11px] text-warning-foreground">
-            No SSH credentials in Settings → Credentials
-          </p>
-        ) : (
-          <Select value={credentialReference} onValueChange={handleCredentialChange}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select SSH credential" />
-            </SelectTrigger>
-            <SelectContent>
-              {credentialReference &&
-                !sshCredentials.some((credential) => credential.name === credentialReference) && (
-                  <SelectItem value={credentialReference} disabled>
-                    {credentialReference} (not accessible)
-                  </SelectItem>
-                )}
-              {sshCredentials.map((credential) => (
-                <SelectItem key={credential.id} value={credential.name}>
-                  {credential.name} ({credential.username})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
+      <SshCredentialField config={config} onChange={onChange} />
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">

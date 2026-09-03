@@ -112,6 +112,37 @@ class NautobotSourceService:
         devices, _ = await self.preview_inventory(operations)
         return await self.export_service.analyze_devices(devices)
 
+    async def resolve_saved_inventory_devices_by_id(
+        self, inventory_id: int, username: str | None
+    ) -> list[DeviceInfo]:
+        """Load a saved inventory by id (RBAC-checked against *username*) and
+        resolve it to devices — the runtime counterpart of
+        ``analyze_inventory``, used by the ``get-nautobot-devices`` step when
+        its inventory is chosen from a run parameter instead of the canvas.
+
+        Raises ``ValueError`` if the inventory does not exist; ``PermissionError``
+        (from the persistence layer) if it is private to another user.
+        """
+        from utils.inventory_converter import convert_saved_inventory_to_operations
+
+        if self._persistence_service is None:
+            raise ValueError("Persistence service is not configured")
+
+        inventory = self._persistence_service.get_inventory(inventory_id, username=username)
+        if not inventory:
+            raise ValueError(f"Inventory with ID {inventory_id} not found")
+
+        if inventory.get("inventory_type") == "static":
+            device_ids = inventory.get("device_ids") or []
+            return await self.resolve_devices_by_ids(device_ids) if device_ids else []
+
+        conditions = inventory.get("conditions", [])
+        if not conditions:
+            return []
+        operations = convert_saved_inventory_to_operations(conditions)
+        devices, _ = await self.preview_inventory(operations)
+        return devices
+
     async def search_devices_by_name(self, name_filter: str, limit: int = 20) -> list[DeviceInfo]:
         """Return devices whose name contains ``name_filter`` (case-insensitive)."""
         devices = await self.query_service._query_devices_by_name(name_filter, use_contains=True)

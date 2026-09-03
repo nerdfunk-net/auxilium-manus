@@ -7,7 +7,7 @@ import contextlib
 import logging
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sqlalchemy.orm import object_session
@@ -28,6 +28,7 @@ from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.content_resolver import CONTENT_SOURCES, list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
 
@@ -361,7 +362,16 @@ async def execute(
     node_id: str,
     device_sessions: DeviceSessionPool,
 ) -> list[StepOutcome]:
-    parsed = _parse_upload_config(config)
+    parsed = replace(
+        _parse_upload_config(config),
+        credential_reference=resolve_config_reference(
+            config,
+            source_key="credential_source",
+            param_key="credential_param",
+            literal_key="credential_reference",
+            run_inputs=run.run_inputs,
+        ),
+    )
 
     db = object_session(run)
     if db is None:

@@ -23,6 +23,7 @@ from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,13 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name=name, context=context) for name in _OUTCOME_NAMES]
 
-    credential_reference = str(config.get("credential_reference") or "").strip()
+    credential_reference = resolve_config_reference(
+        config,
+        source_key="credential_source",
+        param_key="credential_param",
+        literal_key="credential_reference",
+        run_inputs=run.run_inputs,
+    )
     network_driver_override = str(config.get("network_driver_override") or "").strip() or None
 
     db = object_session(run)

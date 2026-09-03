@@ -17,6 +17,10 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import {
+  RunParamSourceField,
+  type RunParamSourceMode,
+} from "@/components/features/workflow-steps/shared/run-param-source-field";
 
 import { PyATSSourceSelectDialog } from "../shared/pyats-source-select-dialog";
 import { pyatsSourceIdFromConfig, PYATS_SOURCE_ID_KEY } from "../shared/pyats-source-config";
@@ -55,10 +59,24 @@ function AddPyatsTestbedConfigPanel({ config, onChange }: PluginConfigPanelProps
     [config, onChange],
   );
 
+  const credentialSource: RunParamSourceMode =
+    config.credential_source === "run_param" ? "run_param" : "fixed";
+  const credentialParam = stringFromConfig(config, "credential_param");
+
   const handleCredentialChange = useCallback(
     (value: string) => {
       onChange({ ...config, [CREDENTIAL_REFERENCE_KEY]: value });
     },
+    [config, onChange],
+  );
+
+  const handleCredentialSourceChange = useCallback(
+    (mode: RunParamSourceMode) => onChange({ ...config, credential_source: mode }),
+    [config, onChange],
+  );
+
+  const handleCredentialParamChange = useCallback(
+    (name: string) => onChange({ ...config, credential_param: name }),
     [config, onChange],
   );
 
@@ -96,14 +114,14 @@ function AddPyatsTestbedConfigPanel({ config, onChange }: PluginConfigPanelProps
         </Button>
       </div>
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">{CREDENTIAL_REFERENCE_KEY}</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            credential_ref
-          </Badge>
-        </div>
-
+      <RunParamSourceField
+        label="Credential"
+        refKind="credential"
+        mode={credentialSource}
+        paramName={credentialParam}
+        onModeChange={handleCredentialSourceChange}
+        onParamNameChange={handleCredentialParamChange}
+      >
         {isLoading ? (
           <p className="text-[11px] text-muted-foreground">Loading credentials…</p>
         ) : usableCredentials.length === 0 && !credentialReference ? (
@@ -132,7 +150,7 @@ function AddPyatsTestbedConfigPanel({ config, onChange }: PluginConfigPanelProps
             </SelectContent>
           </Select>
         )}
-      </div>
+      </RunParamSourceField>
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

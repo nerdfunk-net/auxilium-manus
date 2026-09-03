@@ -25,6 +25,24 @@ plugins:
           data_type: string
           required: true
           example: prod-lab
+        - name: inventory_source
+          description: >
+            "fixed" (default) resolves the canvas device_filter / device_ids snapshot.
+            "run_param" resolves the inventory id held in the run parameter named by
+            inventory_param — a workflow static_attribute of type "reference",
+            ref_kind "inventory" — scoped to the user that triggered the run. Lets one
+            workflow target a different saved inventory per manual run or per schedule.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: inventory_param
+          description: >
+            Name of the run parameter (workflow static_attribute) that carries the
+            inventory id, used only when inventory_source is "run_param".
+          data_type: string
+          required: false
+          example: target_inventory
         - name: inventory_id
           description: ID of the saved inventory selected in the workflow builder.
           data_type: integer
@@ -381,9 +399,28 @@ plugins:
           required: true
           example: lab-pyats
         - name: credential_reference
-          description: Reference to credentials stored in the backend.
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
           data_type: credential_ref
-          required: true
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param — a workflow
+            static_attribute of type "reference", ref_kind "credential" — resolved per
+            triggering user (their private credential wins over a global one of the same
+            name). Lets one workflow run under a different team's credentials per schedule.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
         - name: network_driver_override
           description: Override the resolved pyATS os for all devices in this step.
           data_type: string
@@ -1092,9 +1129,28 @@ plugins:
     metadata:
       configuration_input:
         - name: credential_reference
-          description: Reference to credentials stored in the backend.
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
           data_type: credential_ref
-          required: true
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param — a workflow
+            static_attribute of type "reference", ref_kind "credential" — resolved per
+            triggering user (their private credential wins over a global one of the same
+            name). Lets one workflow run under a different team's credentials per schedule.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
         - name: config_format
           description: Format of the configuration to retrieve.
           data_type: string
@@ -1169,9 +1225,28 @@ plugins:
     metadata:
       configuration_input:
         - name: credential_reference
-          description: Reference to credentials stored in the backend.
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
           data_type: credential_ref
-          required: true
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param — a workflow
+            static_attribute of type "reference", ref_kind "credential" — resolved per
+            triggering user (their private credential wins over a global one of the same
+            name). Lets one workflow run under a different team's credentials per schedule.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
         - name: commands
           description: CLI commands to execute in order.
           data_type: string_list
@@ -1230,9 +1305,28 @@ plugins:
     metadata:
       configuration_input:
         - name: credential_reference
-          description: Reference to credentials stored in the backend.
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
           data_type: credential_ref
-          required: true
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param — a workflow
+            static_attribute of type "reference", ref_kind "credential" — resolved per
+            triggering user (their private credential wins over a global one of the same
+            name). Lets one workflow run under a different team's credentials per schedule.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
         - name: source_step_node_id
           description: >
             Canvas node id of the Render Jinja Template step whose rendered
@@ -1537,9 +1631,28 @@ plugins:
     metadata:
       configuration_input:
         - name: credential_reference
-          description: Reference to credentials stored in the backend.
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
           data_type: credential_ref
-          required: true
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param — a workflow
+            static_attribute of type "reference", ref_kind "credential" — resolved per
+            triggering user (their private credential wins over a global one of the same
+            name). Lets one workflow run under a different team's credentials per schedule.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
         - name: network_driver_override
           description: Override the Netmiko device type for all devices in this step.
           data_type: string
@@ -2198,9 +2311,28 @@ plugins:
     metadata:
       configuration_input:
         - name: credential_reference
-          description: Reference to credentials stored in the backend.
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
           data_type: credential_ref
-          required: true
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param — a workflow
+            static_attribute of type "reference", ref_kind "credential" — resolved per
+            triggering user (their private credential wins over a global one of the same
+            name). Lets one workflow run under a different team's credentials per schedule.
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
         - name: content_source
           description: Which upstream content to upload.
           data_type: string

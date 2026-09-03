@@ -134,6 +134,9 @@ export function buildUploadConfigConfig(
   return {
     credential_reference:
       typeof config.credential_reference === "string" ? config.credential_reference : "",
+    credential_source: config.credential_source === "run_param" ? "run_param" : "fixed",
+    credential_param:
+      typeof config.credential_param === "string" ? config.credential_param : "",
     content_source: typeof config.content_source === "string" ? config.content_source : "updated_content",
     source_step_node_id:
       typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",

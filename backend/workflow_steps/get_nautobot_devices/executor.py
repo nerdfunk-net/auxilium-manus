@@ -15,11 +15,25 @@ from services.artifacts import ArtifactService
 from workflow_steps.common.device_builders import device_context_from_nautobot
 from workflow_steps.common.fan_out import build_fan_out_metadata
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.run_param_reference import resolve_config_reference
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
+
+
+def _acting_username(db: Any, user_id: int | None) -> str | None:
+    """Username of the user that triggered this run — used to RBAC-scope a
+    run-parameter inventory lookup to global + that user's private inventories.
+    ``None`` for a system-triggered run with no user (only global inventories
+    then resolve, via the persistence layer's access check)."""
+    if user_id is None:
+        return None
+    from repositories.user_repository import UserRepository
+
+    user = UserRepository(db).get_by_id(user_id)
+    return user.username if user else None
 
 
 def _filter_tree_to_operations(tree: dict[str, Any]) -> list[LogicalOperation]:
@@ -89,7 +103,41 @@ async def execute(
     credentials = resolve_nautobot_credentials(db, source_id, step_id="get-nautobot-devices")
     source_service = service_factory.build_nautobot_source_service(credentials, db)
 
-    if inventory_type == "static":
+    if str(config.get("inventory_source") or "fixed").strip() == "run_param":
+        raw_reference = resolve_config_reference(
+            config,
+            source_key="inventory_source",
+            param_key="inventory_param",
+            literal_key="inventory_id",
+            run_inputs=run.run_inputs,
+        )
+        try:
+            inventory_id = int(raw_reference)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"get-nautobot-devices: run parameter did not resolve to an inventory id "
+                f"(got {raw_reference!r})"
+            ) from exc
+
+        acting_username = _acting_username(db, run.triggered_by_id)
+        logger.info(
+            "get-nautobot-devices run_id=%s source_id=%s inventory_source=run_param "
+            "inventory_id=%s acting_user=%s",
+            run.id,
+            source_id,
+            inventory_id,
+            acting_username,
+        )
+        try:
+            devices = await source_service.resolve_saved_inventory_devices_by_id(
+                inventory_id, acting_username
+            )
+        except PermissionError as exc:
+            raise ValueError(
+                f"get-nautobot-devices: inventory {inventory_id} is not accessible to the "
+                f"user that triggered this run"
+            ) from exc
+    elif inventory_type == "static":
         logger.info(
             "get-nautobot-devices run_id=%s source_id=%s inventory_type=static device_ids=%d",
             run.id,

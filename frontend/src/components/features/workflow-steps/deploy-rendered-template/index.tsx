@@ -19,7 +19,8 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
-import { DeployCredentialFields, DeployReadTimeoutFields } from "./deploy-fields";
+import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
+import { DeployReadTimeoutFields } from "./deploy-fields";
 import { DeployRenderedTemplateHelpPanel } from "./help-panel";
 
 const DEFAULT_READ_TIMEOUT = 60;
@@ -48,6 +49,9 @@ function buildDeployRenderedTemplateConfig(
   return {
     credential_reference:
       typeof config.credential_reference === "string" ? config.credential_reference : "",
+    credential_source: config.credential_source === "run_param" ? "run_param" : "fixed",
+    credential_param:
+      typeof config.credential_param === "string" ? config.credential_param : "",
     source_step_node_id:
       typeof config.source_step_node_id === "string" ? config.source_step_node_id : "",
     parsed_output_key:
@@ -86,8 +90,6 @@ function DeployRenderedTemplateConfigPanel({
     }
   }, [nodeId, config, onChange]);
 
-  const credentialReference =
-    typeof config.credential_reference === "string" ? config.credential_reference : "";
   const sourceStepNodeId =
     typeof config.source_step_node_id === "string" ? config.source_step_node_id : "";
   const parsedOutputKey =
@@ -109,13 +111,6 @@ function DeployRenderedTemplateConfigPanel({
   const selectedSourceStep = useMemo(
     () => sourceSteps.find((step) => step.nodeId === sourceStepNodeId) ?? null,
     [sourceSteps, sourceStepNodeId],
-  );
-
-  const handleCredentialChange = useCallback(
-    (value: string) => {
-      onChange(buildDeployRenderedTemplateConfig(config, { credential_reference: value }));
-    },
-    [config, onChange],
   );
 
   const handleSourceStepSelect = useCallback(
@@ -202,10 +197,7 @@ function DeployRenderedTemplateConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <DeployCredentialFields
-        credentialReference={credentialReference}
-        onCredentialChange={handleCredentialChange}
-      />
+      <SshCredentialField config={config} onChange={onChange} />
 
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">

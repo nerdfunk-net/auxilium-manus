@@ -28,6 +28,7 @@ from services.network.pyats.platform import resolve_pyats_os
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_pyats_testbed.config import get_config
 from workflow_steps.common.credential_resolver import resolve_generic_credential
+from workflow_steps.common.run_param_reference import resolve_config_reference
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -37,15 +38,21 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "add-pyats-testbed"
 
 
-def _parse_config(config: dict[str, Any]) -> tuple[str, str, str | None]:
+def _parse_config(
+    config: dict[str, Any], run_inputs: dict[str, Any] | None
+) -> tuple[str, str, str | None]:
     defaults = get_config()
     pyats_source_id = str(config.get("pyats_source_id") or defaults["pyats_source_id"]).strip()
     if not pyats_source_id:
         raise ValueError(f"{_STEP_ID}: pyats_source_id is required")
 
-    credential_reference = str(
-        config.get("credential_reference") or defaults["credential_reference"]
-    ).strip()
+    credential_reference = resolve_config_reference(
+        config,
+        source_key="credential_source",
+        param_key="credential_param",
+        literal_key="credential_reference",
+        run_inputs=run_inputs,
+    )
     if not credential_reference:
         raise ValueError(f"{_STEP_ID}: credential_reference is required")
 
@@ -96,7 +103,9 @@ async def execute(
     if not context.devices:
         return [StepOutcome(name="success", context=context)]
 
-    pyats_source_id, credential_reference, network_driver_override = _parse_config(config)
+    pyats_source_id, credential_reference, network_driver_override = _parse_config(
+        config, run.run_inputs
+    )
 
     db = object_session(run)
     if db is None:
