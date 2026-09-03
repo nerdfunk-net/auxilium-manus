@@ -336,7 +336,9 @@ class GitOperationsService:
         logger.error(
             "Sync failed for repository %s: %s (error_id=%s)", repo_id, result.message, error_id
         )
-        raise SyncExecutionError(error_id, f"Sync failed for repository {repo_id}: {result.message}")
+        raise SyncExecutionError(
+            error_id, f"Sync failed for repository {repo_id}: {result.message}"
+        )
 
     def remove_and_sync_and_record(self, repo_id: int, git_cache_service: Any) -> dict[str, Any]:
         repository = self._repos.get_repository(repo_id)
