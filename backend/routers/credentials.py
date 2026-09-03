@@ -41,7 +41,7 @@ def _service(db: Session = Depends(get_db)) -> CredentialsService:
     response_model=CredentialListResponse,
     dependencies=[Depends(require_permission("credentials", "read"))],
 )
-async def list_credentials(
+def list_credentials(
     include_expired: bool = Query(False),
     source: str = Query("general"),
     current_user: User = Depends(get_current_user),
@@ -61,7 +61,7 @@ async def list_credentials(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("credentials", "write"))],
 )
-async def create_credential(
+def create_credential(
     payload: CredentialCreate,
     current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),
@@ -90,7 +90,7 @@ async def create_credential(
     response_model=CredentialResponse,
     dependencies=[Depends(require_permission("credentials", "write"))],
 )
-async def update_credential(
+def update_credential(
     cred_id: int,
     payload: CredentialUpdate,
     current_user: User = Depends(get_current_user),
@@ -123,7 +123,7 @@ async def update_credential(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("credentials", "delete"))],
 )
-async def delete_credential(
+def delete_credential(
     cred_id: int,
     current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),
@@ -141,7 +141,7 @@ async def delete_credential(
     response_model=CredentialPasswordResponse,
     dependencies=[Depends(require_permission("credentials", "reveal"))],
 )
-async def get_credential_password(
+def get_credential_password(
     cred_id: int,
     current_user: User = Depends(get_current_user),
     service: CredentialsService = Depends(_service),

@@ -32,7 +32,7 @@ def _service(db: Session = Depends(get_db)) -> CacheSettingsService:
     response_model=CacheSettingsResponse,
     dependencies=[Depends(require_permission("cache_settings", "read"))],
 )
-async def get_cache_settings(
+def get_cache_settings(
     service: CacheSettingsService = Depends(_service),
 ) -> CacheSettingsResponse:
     return service.get_settings()
@@ -43,7 +43,7 @@ async def get_cache_settings(
     response_model=CacheSettingsResponse,
     dependencies=[Depends(require_permission("cache_settings", "write"))],
 )
-async def update_cache_settings(
+def update_cache_settings(
     body: CacheSettings,
     service: CacheSettingsService = Depends(_service),
 ) -> CacheSettingsResponse:
@@ -55,7 +55,7 @@ async def update_cache_settings(
     response_model=CacheStatsResponse,
     dependencies=[Depends(require_permission("cache_settings", "read"))],
 )
-async def get_cache_stats(
+def get_cache_stats(
     service: CacheSettingsService = Depends(_service),
 ) -> CacheStatsResponse:
     return service.get_stats()
@@ -66,7 +66,7 @@ async def get_cache_stats(
     response_model=CacheClearResponse,
     dependencies=[Depends(require_permission("cache_settings", "write"))],
 )
-async def clear_cache(
+def clear_cache(
     service: CacheSettingsService = Depends(_service),
 ) -> CacheClearResponse:
     return service.clear()

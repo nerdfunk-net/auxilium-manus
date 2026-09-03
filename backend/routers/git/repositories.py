@@ -31,7 +31,7 @@ router = APIRouter(prefix="/git-repositories", tags=["git-repositories"])
     response_model=GitRepositoryListResponse,
     dependencies=[Depends(require_permission("git.repositories", "read"))],
 )
-async def get_repositories(
+def get_repositories(
     category: str | None = None,
     active_only: bool = False,
     current_user: dict = Depends(get_current_user),
@@ -56,7 +56,7 @@ async def get_repositories(
     response_model=GitRepositoryResponse,
     dependencies=[Depends(require_permission("git.repositories", "read"))],
 )
-async def get_repository(
+def get_repository(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     git_repo_manager: GitRepositoryService = Depends(get_git_repository_service),
@@ -81,7 +81,7 @@ async def get_repository(
     "/{repo_id}/edit",
     dependencies=[Depends(require_permission("git.repositories", "read"))],
 )
-async def get_repository_for_edit(
+def get_repository_for_edit(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     git_repo_manager: GitRepositoryService = Depends(get_git_repository_service),
@@ -105,7 +105,7 @@ async def get_repository_for_edit(
     response_model=GitRepositoryResponse,
     dependencies=[Depends(require_permission("git.repositories", "write"))],
 )
-async def create_repository(
+def create_repository(
     repository: GitRepositoryRequest,
     current_user: dict = Depends(get_current_user),
     git_repo_manager: GitRepositoryService = Depends(get_git_repository_service),
@@ -140,7 +140,7 @@ async def create_repository(
     response_model=GitRepositoryResponse,
     dependencies=[Depends(require_permission("git.repositories", "write"))],
 )
-async def update_repository(
+def update_repository(
     repo_id: int,
     repository: GitRepositoryUpdateRequest,
     current_user: dict = Depends(get_current_user),
@@ -187,7 +187,7 @@ async def update_repository(
     "/{repo_id}",
     dependencies=[Depends(require_permission("git.repositories", "delete"))],
 )
-async def delete_repository(
+def delete_repository(
     repo_id: int,
     hard_delete: bool = True,
     current_user: dict = Depends(get_current_user),
@@ -217,7 +217,7 @@ async def delete_repository(
     response_model=GitConnectionTestResponse,
     dependencies=[Depends(require_permission("git.repositories", "read"))],
 )
-async def test_git_connection(
+def test_git_connection(
     test_request: GitConnectionTestRequest,
     current_user: dict = Depends(get_current_user),
     git_connection_service=Depends(get_git_connection_service),
@@ -256,7 +256,7 @@ async def test_git_connection(
     "/health",
     dependencies=[Depends(require_permission("git.repositories", "read"))],
 )
-async def health_check(
+def health_check(
     current_user: dict = Depends(get_current_user),
     git_repo_manager: GitRepositoryService = Depends(get_git_repository_service),
 ):

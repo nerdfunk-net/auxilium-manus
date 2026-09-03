@@ -29,7 +29,7 @@ def _service(db: Session = Depends(get_db)) -> RBACService:
     response_model=list[Permission],
     dependencies=[Depends(require_permission("rbac.permissions", "read"))],
 )
-async def list_permissions(service: RBACService = Depends(_service)) -> list[Permission]:
+def list_permissions(service: RBACService = Depends(_service)) -> list[Permission]:
     return [Permission.model_validate(p) for p in service.list_permissions()]
 
 
@@ -39,7 +39,7 @@ async def list_permissions(service: RBACService = Depends(_service)) -> list[Per
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("rbac.permissions", "write"))],
 )
-async def create_permission(
+def create_permission(
     payload: PermissionCreate,
     service: RBACService = Depends(_service),
 ) -> Permission:
@@ -59,7 +59,7 @@ async def create_permission(
     response_model=Permission,
     dependencies=[Depends(require_permission("rbac.permissions", "read"))],
 )
-async def get_permission(
+def get_permission(
     permission_id: int,
     service: RBACService = Depends(_service),
 ) -> Permission:
@@ -74,7 +74,7 @@ async def get_permission(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("rbac.permissions", "delete"))],
 )
-async def delete_permission(permission_id: int, service: RBACService = Depends(_service)) -> None:
+def delete_permission(permission_id: int, service: RBACService = Depends(_service)) -> None:
     deleted = service.delete_permission(permission_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found")

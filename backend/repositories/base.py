@@ -17,7 +17,7 @@ class BaseRepository[T]:
         self.model = model
 
     @contextmanager
-    def _db_session(self, db: Session | None = None) -> Generator[Session, None, None]:
+    def _db_session(self, db: Session | None = None) -> Generator[Session]:
         if db is not None:
             yield db
         else:

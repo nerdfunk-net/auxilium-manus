@@ -46,7 +46,7 @@ def _build_probe_response(raw: dict[str, object]) -> UpdateAttributeProbeRespons
 
 
 @router.post("/probe", response_model=UpdateAttributeProbeResponse)
-async def probe_regex(
+def probe_regex(
     request: UpdateAttributeProbeRequest,
     _: User = Depends(get_current_user),
 ) -> UpdateAttributeProbeResponse:
@@ -65,7 +65,7 @@ async def probe_regex(
 
 
 @router.post("/probe/device", response_model=UpdateAttributeProbeResponse)
-async def probe_regex_from_device(
+def probe_regex_from_device(
     request: UpdateAttributeProbeDeviceRequest,
     _: User = Depends(get_current_user),
 ) -> UpdateAttributeProbeResponse:

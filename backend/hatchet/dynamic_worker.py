@@ -109,8 +109,8 @@ async def _self_restart_on_change(
 
 def _make_lifespan(
     initial_fingerprint: tuple[int, datetime | None],
-) -> Callable[[], AsyncGenerator[None, None]]:
-    async def lifespan() -> AsyncGenerator[None, None]:
+) -> Callable[[], AsyncGenerator[None]]:
+    async def lifespan() -> AsyncGenerator[None]:
         async with worker_services.start_all(BACKGROUND_WORKER_PROCESS_NAME):
             watcher = asyncio.create_task(
                 _self_restart_on_change(

@@ -36,7 +36,7 @@ def get_plugin_service(request: Request) -> PluginRegistryService:
 
 
 @router.get("", response_model=PluginListResponse)
-async def list_plugins(
+def list_plugins(
     include_disabled: bool = Query(default=False),
     service: PluginRegistryService = Depends(get_plugin_service),
 ) -> PluginListResponse:
@@ -44,7 +44,7 @@ async def list_plugins(
 
 
 @router.get("/registry", response_model=PluginRegistryResponse)
-async def get_plugin_registry(
+def get_plugin_registry(
     service: PluginRegistryService = Depends(get_plugin_service),
 ) -> PluginRegistryResponse:
     registry = service.get_registry()
@@ -52,7 +52,7 @@ async def get_plugin_registry(
 
 
 @router.get("/{plugin_id}/get-config", response_model=PluginConfigResponse)
-async def get_plugin_config(
+def get_plugin_config(
     plugin_id: str,
     service: PluginRegistryService = Depends(get_plugin_service),
 ) -> PluginConfigResponse:
@@ -64,7 +64,7 @@ async def get_plugin_config(
 
 
 @router.get("/{plugin_id}", response_model=PluginDefinition)
-async def get_plugin(
+def get_plugin(
     plugin_id: str,
     include_disabled: bool = Query(default=False),
     service: PluginRegistryService = Depends(get_plugin_service),

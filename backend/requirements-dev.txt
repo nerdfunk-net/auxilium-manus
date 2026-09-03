@@ -4,3 +4,11 @@
 pytest==9.1.1
 pytest-cov==7.1.0
 fakeredis==2.37.1
+
+# Static analysis / security — also run in .github/workflows/backend-ci.yml.
+# Bandit's checks are covered by ruff's `S` (flake8-bandit) ruleset, which runs on
+# Python 3.14 and shares one suppression syntax (`# noqa`); a standalone bandit is
+# intentionally not pinned here.
+ruff==0.15.13
+pip-audit==2.9.0
+pyright==1.1.406

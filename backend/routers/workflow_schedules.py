@@ -28,7 +28,7 @@ def _service(db: Session = Depends(get_db)) -> ScheduleService:
     response_model=list[WorkflowScheduleResponse],
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def list_schedules(
+def list_schedules(
     workflow_id: int | None = None,
     current_user: User = Depends(get_current_user),
     service: ScheduleService = Depends(_service),
@@ -46,7 +46,7 @@ async def list_schedules(
         Depends(require_permission("workflows", "publish")),
     ],
 )
-async def create_schedule(
+def create_schedule(
     body: WorkflowScheduleCreate,
     current_user: User = Depends(get_current_user),
     service: ScheduleService = Depends(_service),
@@ -59,7 +59,7 @@ async def create_schedule(
     response_model=WorkflowScheduleResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def get_schedule(
+def get_schedule(
     schedule_id: int,
     current_user: User = Depends(get_current_user),
     service: ScheduleService = Depends(_service),
@@ -72,7 +72,7 @@ async def get_schedule(
     response_model=WorkflowScheduleResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def update_schedule(
+def update_schedule(
     schedule_id: int,
     body: WorkflowScheduleUpdate,
     current_user: User = Depends(get_current_user),
@@ -88,7 +88,7 @@ async def update_schedule(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def delete_schedule(
+def delete_schedule(
     schedule_id: int,
     current_user: User = Depends(get_current_user),
     service: ScheduleService = Depends(_service),

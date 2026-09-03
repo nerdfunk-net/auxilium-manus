@@ -6,7 +6,12 @@ import socket
 import unittest
 from unittest.mock import MagicMock, patch
 
-from core.safe_urls import UnsafeURLError, validate_git_remote_url, validate_outbound_http_url
+from core.safe_urls import (
+    UnsafeURLError,
+    validate_git_remote_url,
+    validate_outbound_http_url,
+    validate_outbound_http_url_async,
+)
 
 
 def _addrinfo(ip: str):
@@ -99,6 +104,17 @@ class GitRemoteUrlSshPolicyTests(unittest.TestCase):
             )
 
 
+class AsyncWrapperTests(unittest.IsolatedAsyncioTestCase):
+    async def test_async_wrapper_offloads_and_normalizes(self) -> None:
+        with patch("core.safe_urls.socket.getaddrinfo", return_value=_addrinfo("10.0.0.5")):
+            result = await validate_outbound_http_url_async("https://nautobot.example.com/")
+        self.assertEqual(result, "https://nautobot.example.com")
+
+    async def test_async_wrapper_rejects_metadata_host(self) -> None:
+        with self.assertRaises(UnsafeURLError):
+            await validate_outbound_http_url_async("http://169.254.169.254/")
+
+
 class ClientUrlValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_ise_ers_request_validates_before_httpx(self) -> None:
         from services.ise.client import ISEService
@@ -108,7 +124,7 @@ class ClientUrlValidationTests(unittest.IsolatedAsyncioTestCase):
         service = ISEService()
         service._client_verify = MagicMock()
         with patch(
-            "services.ise.client.validate_outbound_http_url",
+            "services.ise.client.validate_outbound_http_url_async",
             side_effect=UnsafeURLError("blocked"),
         ) as validate_mock:
             with self.assertRaises(ISEValidationError):
@@ -131,7 +147,7 @@ class ClientUrlValidationTests(unittest.IsolatedAsyncioTestCase):
         service = NautobotService()
         service._client_verify = MagicMock()
         with patch(
-            "services.nautobot.client.validate_outbound_http_url",
+            "services.nautobot.client.validate_outbound_http_url_async",
             side_effect=UnsafeURLError("blocked"),
         ) as validate_mock:
             with self.assertRaises(NautobotValidationError):

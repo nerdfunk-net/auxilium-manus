@@ -32,7 +32,7 @@ def _service(db: Session = Depends(get_db)) -> RunService:
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def trigger_run(
+def trigger_run(
     workflow_id: int,
     body: WorkflowRunCreate,
     current_user: User = Depends(get_current_user),
@@ -46,7 +46,7 @@ async def trigger_run(
     response_model=WorkflowRunListResponse,
     dependencies=[Depends(require_permission("workflow_runs", "read"))],
 )
-async def list_runs(
+def list_runs(
     workflow_id: int,
     status: list[str] | None = Query(
         None,
@@ -80,7 +80,7 @@ async def list_runs(
     response_model=WorkflowRunResponse,
     dependencies=[Depends(require_permission("workflow_runs", "read"))],
 )
-async def get_run(
+def get_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
@@ -93,7 +93,7 @@ async def get_run(
     response_model=ArtifactContentResponse,
     dependencies=[Depends(require_permission("workflow_runs", "read"))],
 )
-async def get_run_artifact(
+def get_run_artifact(
     run_id: int,
     artifact_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -111,7 +111,7 @@ async def get_run_artifact(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("workflow_runs", "delete"))],
 )
-async def delete_run(
+def delete_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
@@ -124,7 +124,7 @@ async def delete_run(
     response_model=WorkflowRunResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def cancel_run(
+def cancel_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
@@ -137,7 +137,7 @@ async def cancel_run(
     response_model=WorkflowRunResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def step_run(
+def step_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
@@ -150,7 +150,7 @@ async def step_run(
     response_model=WorkflowRunResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def continue_run(
+def continue_run(
     run_id: int,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
@@ -163,7 +163,7 @@ async def continue_run(
     response_model=WorkflowRunResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def approve_batch(
+def approve_batch(
     run_id: int,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),
@@ -176,7 +176,7 @@ async def approve_batch(
     response_model=WorkflowRunResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],
 )
-async def approve_all(
+def approve_all(
     run_id: int,
     current_user: User = Depends(get_current_user),
     service: RunService = Depends(_service),

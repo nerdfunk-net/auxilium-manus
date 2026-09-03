@@ -24,7 +24,7 @@ def _service(db: Session = Depends(get_db)) -> BackgroundTierService:
     response_model=BackgroundTierResponse | None,
     dependencies=[Depends(require_permission("workflows", "publish"))],
 )
-async def get_background_tier(
+def get_background_tier(
     workflow_id: int,
     current_user: User = Depends(get_current_user),
     service: BackgroundTierService = Depends(_service),
@@ -37,7 +37,7 @@ async def get_background_tier(
     response_model=BackgroundTierResponse,
     dependencies=[Depends(require_permission("workflows", "publish"))],
 )
-async def publish_workflow(
+def publish_workflow(
     workflow_id: int,
     body: BackgroundTierUpsert,
     current_user: User = Depends(get_current_user),
@@ -51,7 +51,7 @@ async def publish_workflow(
     response_model=bool,
     dependencies=[Depends(require_permission("workflows", "publish"))],
 )
-async def has_active_runs(
+def has_active_runs(
     workflow_id: int,
     service: BackgroundTierService = Depends(_service),
 ) -> bool:
@@ -63,7 +63,7 @@ async def has_active_runs(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("workflows", "publish"))],
 )
-async def unpublish_workflow(
+def unpublish_workflow(
     workflow_id: int,
     current_user: User = Depends(get_current_user),
     service: BackgroundTierService = Depends(_service),

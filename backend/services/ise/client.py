@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.ise.common.exceptions import (
     ISEAPIError,
@@ -36,7 +36,8 @@ class ISEService:
 
     async def startup(self) -> None:
         self._client_verify = httpx.AsyncClient(verify=create_verified_ssl_context())
-        self._client_no_verify = httpx.AsyncClient(verify=False)
+        # verify=False is an opt-in per-source setting (verify_ssl); see doc/SECURITY-NOTES.md
+        self._client_no_verify = httpx.AsyncClient(verify=False)  # noqa: S501
         logger.info("ISEService started")
 
     async def shutdown(self) -> None:
@@ -63,7 +64,7 @@ class ISEService:
             raise ISEValidationError("ISE base URL, username, and password are required")
 
         try:
-            base = validate_outbound_http_url(credentials.base_url, resolve_dns=True)
+            base = await validate_outbound_http_url_async(credentials.base_url)
         except UnsafeURLError as exc:
             raise ISEValidationError(str(exc)) from exc
 

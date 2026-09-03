@@ -70,7 +70,7 @@ def _normalize_device_entries(raw_devices: Any) -> list[_DeviceEntry]:
 
 def _device_context_from_entry(entry: _DeviceEntry, *, index: int, node_id: str) -> DeviceContext:
     display_name = entry.name or entry.ip_address
-    assert display_name is not None  # enforced by _normalize_device_entries
+    assert display_name is not None  # noqa: S101  # narrowing; see _normalize_device_entries
 
     digest = hashlib.sha256(
         f"{node_id}:{entry.name or ''}:{entry.ip_address or ''}:{index}".encode()

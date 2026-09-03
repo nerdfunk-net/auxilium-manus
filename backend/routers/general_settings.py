@@ -26,7 +26,7 @@ def _service(db: Session = Depends(get_db)) -> GeneralSettingsService:
     response_model=GeneralSettingsResponse,
     dependencies=[Depends(require_permission("general_settings", "read"))],
 )
-async def get_general_settings(
+def get_general_settings(
     service: GeneralSettingsService = Depends(_service),
 ) -> GeneralSettingsResponse:
     return service.get_settings()
@@ -37,7 +37,7 @@ async def get_general_settings(
     response_model=GeneralSettingsResponse,
     dependencies=[Depends(require_permission("general_settings", "write"))],
 )
-async def update_general_settings(
+def update_general_settings(
     body: GeneralSettings,
     service: GeneralSettingsService = Depends(_service),
 ) -> GeneralSettingsResponse:

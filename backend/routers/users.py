@@ -45,7 +45,7 @@ def _to_response(user, rbac: RBACService) -> UserAdminResponse:  # noqa: ANN001
     response_model=UserListResponse,
     dependencies=[Depends(require_permission("users", "read"))],
 )
-async def list_users(
+def list_users(
     service: UserService = Depends(_user_service),
     rbac: RBACService = Depends(_rbac_service),
 ) -> UserListResponse:
@@ -58,7 +58,7 @@ async def list_users(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("users", "write"))],
 )
-async def create_user(
+def create_user(
     payload: UserCreate,
     service: UserService = Depends(_user_service),
     rbac: RBACService = Depends(_rbac_service),
@@ -82,7 +82,7 @@ async def create_user(
     response_model=UserAdminResponse,
     dependencies=[Depends(require_permission("users", "read"))],
 )
-async def get_user(
+def get_user(
     user_id: int,
     service: UserService = Depends(_user_service),
     rbac: RBACService = Depends(_rbac_service),
@@ -98,7 +98,7 @@ async def get_user(
     response_model=UserAdminResponse,
     dependencies=[Depends(require_permission("users", "write"))],
 )
-async def update_user(
+def update_user(
     user_id: int,
     payload: UserUpdate,
     service: UserService = Depends(_user_service),
@@ -133,7 +133,7 @@ async def update_user(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("users", "delete"))],
 )
-async def delete_user(
+def delete_user(
     user_id: int,
     service: UserService = Depends(_user_service),
     current_user: User = Depends(get_current_user),
@@ -151,7 +151,7 @@ async def delete_user(
     response_model=UserAdminResponse,
     dependencies=[Depends(require_permission("users", "write"))],
 )
-async def set_user_active(
+def set_user_active(
     user_id: int,
     is_active: bool,
     service: UserService = Depends(_user_service),

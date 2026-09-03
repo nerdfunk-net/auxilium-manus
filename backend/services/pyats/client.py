@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.pyats.credentials import PyATSCredentials
@@ -32,7 +32,8 @@ class PyATSShimService:
 
     async def startup(self) -> None:
         self._client_verify = httpx.AsyncClient(verify=create_verified_ssl_context())
-        self._client_no_verify = httpx.AsyncClient(verify=False)
+        # verify=False is an opt-in per-source setting (verify_ssl); see doc/SECURITY-NOTES.md
+        self._client_no_verify = httpx.AsyncClient(verify=False)  # noqa: S501
         logger.info("PyATSShimService started")
 
     async def shutdown(self) -> None:
@@ -45,10 +46,10 @@ class PyATSShimService:
         logger.info("PyATSShimService shut down")
 
     async def check_health(self, credentials: PyATSCredentials) -> dict[str, Any]:
-        return await self._get(f"{self._base_url(credentials)}/health", credentials)
+        return await self._get(f"{await self._base_url(credentials)}/health", credentials)
 
     async def check_pyats_health(self, credentials: PyATSCredentials) -> dict[str, Any]:
-        return await self._get(f"{self._base_url(credentials)}/health/pyats", credentials)
+        return await self._get(f"{await self._base_url(credentials)}/health/pyats", credentials)
 
     async def run_job(
         self,
@@ -59,7 +60,7 @@ class PyATSShimService:
         commands: list[str],
         timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
-        base = self._base_url(credentials)
+        base = await self._base_url(credentials)
         body: dict[str, Any] = {"operation": operation, "devices": devices, "commands": commands}
         if timeout_seconds is not None:
             body["timeout_seconds"] = timeout_seconds
@@ -98,7 +99,7 @@ class PyATSShimService:
         devices: dict[str, dict[str, Any]],
         timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
-        base = self._base_url(credentials)
+        base = await self._base_url(credentials)
         body: dict[str, Any] = {"devices": devices}
         request_timeout = timeout_seconds or credentials.timeout
         headers = {"Authorization": f"Bearer {credentials.token}"}
@@ -139,7 +140,7 @@ class PyATSShimService:
         exclude_keys: list[str] | None = None,
         timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
-        base = self._base_url(credentials)
+        base = await self._base_url(credentials)
         body: dict[str, Any] = {"snapshot_a": snapshot_a, "snapshot_b": snapshot_b}
         if exclude_keys:
             body["exclude"] = exclude_keys
@@ -195,11 +196,11 @@ class PyATSShimService:
             raise PyATSAPIError(f"pyATS shim request failed with status {response.status_code}")
         return response.json()
 
-    def _base_url(self, credentials: PyATSCredentials) -> str:
+    async def _base_url(self, credentials: PyATSCredentials) -> str:
         if not credentials.base_url:
             raise PyATSValidationError("pyATS shim URL is required")
         try:
-            return validate_outbound_http_url(credentials.base_url, resolve_dns=True)
+            return await validate_outbound_http_url_async(credentials.base_url)
         except UnsafeURLError as exc:
             raise PyATSValidationError(str(exc)) from exc
 

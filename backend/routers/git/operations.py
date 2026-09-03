@@ -24,7 +24,7 @@ router = APIRouter(prefix="/git/{repo_id}", tags=["git-operations"])
 
 
 @router.get("/status", dependencies=[Depends(require_permission("git.operations", "read"))])
-async def get_repository_status(
+def get_repository_status(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     git_operations_service=Depends(get_git_operations_service),
@@ -50,7 +50,7 @@ async def get_repository_status(
 
 
 @router.post("/sync", dependencies=[Depends(require_permission("git.operations", "execute"))])
-async def sync_repository(
+def sync_repository(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     git_operations_service=Depends(get_git_operations_service),
@@ -74,7 +74,7 @@ async def sync_repository(
     "/remove-and-sync",
     dependencies=[Depends(require_permission("git.operations", "execute"))],
 )
-async def remove_and_sync_repository(
+def remove_and_sync_repository(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     git_operations_service=Depends(get_git_operations_service),
@@ -95,7 +95,7 @@ async def remove_and_sync_repository(
 
 
 @router.get("/info", dependencies=[Depends(require_permission("git.operations", "read"))])
-async def get_repository_info(
+def get_repository_info(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     git_operations_service=Depends(get_git_operations_service),
@@ -110,7 +110,7 @@ async def get_repository_info(
 
 
 @router.get("/debug", dependencies=[Depends(require_permission("git.operations", "read"))])
-async def debug_git(
+def debug_git(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     git_operations_service=Depends(get_git_operations_service),

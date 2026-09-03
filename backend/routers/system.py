@@ -27,7 +27,7 @@ def _service() -> SystemService:
     response_model=SchemaStatusResponse,
     dependencies=[Depends(require_permission("system.database", "read"))],
 )
-async def get_schema_status(service: SystemService = Depends(_service)) -> SchemaStatusResponse:
+def get_schema_status(service: SystemService = Depends(_service)) -> SchemaStatusResponse:
     return service.schema_status()
 
 
@@ -39,7 +39,7 @@ async def get_schema_status(service: SystemService = Depends(_service)) -> Schem
         Depends(require_permission("system.database", "write")),
     ],
 )
-async def migrate_schema(
+def migrate_schema(
     force: bool = False, service: SystemService = Depends(_service)
 ) -> SchemaMigrationResponse:
     return service.migrate_schema(force=force)
@@ -53,7 +53,7 @@ async def migrate_schema(
         Depends(require_permission("system.rbac", "write")),
     ],
 )
-async def reseed_rbac(
+def reseed_rbac(
     remove_existing: bool = False,
     db: Session = Depends(get_db),
     service: SystemService = Depends(_service),

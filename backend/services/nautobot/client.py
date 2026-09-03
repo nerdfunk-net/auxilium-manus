@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.nautobot.common.exceptions import (
     NautobotAPIError,
@@ -36,7 +36,8 @@ class NautobotService:
 
     async def startup(self) -> None:
         self._client_verify = httpx.AsyncClient(verify=create_verified_ssl_context())
-        self._client_no_verify = httpx.AsyncClient(verify=False)
+        # verify=False is an opt-in per-source setting (verify_ssl); see doc/SECURITY-NOTES.md
+        self._client_no_verify = httpx.AsyncClient(verify=False)  # noqa: S501
         logger.info("NautobotService started")
 
     async def shutdown(self) -> None:
@@ -76,7 +77,7 @@ class NautobotService:
             raise NautobotValidationError("Nautobot URL and token are required")
 
         try:
-            base = validate_outbound_http_url(credentials.url, resolve_dns=True)
+            base = await validate_outbound_http_url_async(credentials.url)
         except UnsafeURLError as exc:
             raise NautobotValidationError(str(exc)) from exc
 
@@ -126,7 +127,7 @@ class NautobotService:
             raise NautobotValidationError("Nautobot URL and token are required")
 
         try:
-            base = validate_outbound_http_url(credentials.url, resolve_dns=True)
+            base = await validate_outbound_http_url_async(credentials.url)
         except UnsafeURLError as exc:
             raise NautobotValidationError(str(exc)) from exc
 

@@ -26,6 +26,17 @@ class BuildKeyCacheTests(unittest.TestCase):
             _build_key("a-high-entropy-secret", 200_000),
         )
 
+    def test_pbkdf2_stretches_once_across_many_service_constructions(self) -> None:
+        # Regression for FABLE_BACKEND_20260902.md §4.2: PBKDF2 used to run on every
+        # EncryptionService() (i.e. every credentials request), stalling the loop.
+        with (
+            mock.patch.object(crypto, "_iterations", return_value=100_000),
+            mock.patch("core.crypto.PBKDF2HMAC", wraps=crypto.PBKDF2HMAC) as spy,
+        ):
+            for _ in range(5):
+                EncryptionService("a-high-entropy-secret")
+        self.assertEqual(spy.call_count, 1)
+
 
 class IterationsFromSettingsTests(unittest.TestCase):
     def setUp(self) -> None:

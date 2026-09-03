@@ -26,7 +26,7 @@ def _service(db: Session = Depends(get_db)) -> LoggingSettingsService:
     response_model=LoggingSettingsResponse,
     dependencies=[Depends(require_permission("logging_settings", "read"))],
 )
-async def get_logging_settings(
+def get_logging_settings(
     service: LoggingSettingsService = Depends(_service),
 ) -> LoggingSettingsResponse:
     return service.get_settings()
@@ -37,7 +37,7 @@ async def get_logging_settings(
     response_model=LoggingSettingsResponse,
     dependencies=[Depends(require_permission("logging_settings", "write"))],
 )
-async def update_logging_settings(
+def update_logging_settings(
     body: LoggingSettings,
     service: LoggingSettingsService = Depends(_service),
 ) -> LoggingSettingsResponse:

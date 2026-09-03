@@ -320,10 +320,10 @@ async def execute(
             context=context,
         )
         if result.kind == "abort":
-            assert result.outcome is not None
+            assert result.outcome is not None  # noqa: S101  # type narrowing on result.kind
             return [result.outcome]
 
-        assert result.device is not None
+        assert result.device is not None  # noqa: S101  # type narrowing on result.kind
         updated_devices[device_id] = result.device
         if result.ok:
             updated_count += 1

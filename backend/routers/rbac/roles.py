@@ -51,7 +51,7 @@ def _to_role_with_permissions(service: RBACService, role) -> RoleWithPermissions
     response_model=list[Role],
     dependencies=[Depends(require_permission("rbac.roles", "read"))],
 )
-async def list_roles(service: RBACService = Depends(_service)) -> list[Role]:
+def list_roles(service: RBACService = Depends(_service)) -> list[Role]:
     return [Role.model_validate(r) for r in service.list_roles()]
 
 
@@ -61,7 +61,7 @@ async def list_roles(service: RBACService = Depends(_service)) -> list[Role]:
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("rbac.roles", "write"))],
 )
-async def create_role(
+def create_role(
     payload: RoleCreate,
     service: RBACService = Depends(_service),
     current_user: User = Depends(get_current_user),
@@ -88,7 +88,7 @@ async def create_role(
     response_model=RoleWithPermissions,
     dependencies=[Depends(require_permission("rbac.roles", "read"))],
 )
-async def get_role(role_id: int, service: RBACService = Depends(_service)) -> RoleWithPermissions:
+def get_role(role_id: int, service: RBACService = Depends(_service)) -> RoleWithPermissions:
     role = service.get_role(role_id)
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
@@ -100,7 +100,7 @@ async def get_role(role_id: int, service: RBACService = Depends(_service)) -> Ro
     response_model=Role,
     dependencies=[Depends(require_permission("rbac.roles", "write"))],
 )
-async def update_role(
+def update_role(
     role_id: int,
     payload: RoleUpdate,
     service: RBACService = Depends(_service),
@@ -125,7 +125,7 @@ async def update_role(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("rbac.roles", "delete"))],
 )
-async def delete_role(role_id: int, service: RBACService = Depends(_service)) -> None:
+def delete_role(role_id: int, service: RBACService = Depends(_service)) -> None:
     role = service.get_role(role_id)
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
@@ -143,7 +143,7 @@ async def delete_role(role_id: int, service: RBACService = Depends(_service)) ->
     response_model=list[Permission],
     dependencies=[Depends(require_permission("rbac.roles", "read"))],
 )
-async def get_role_permissions(
+def get_role_permissions(
     role_id: int,
     service: RBACService = Depends(_service),
 ) -> list[Permission]:
@@ -157,7 +157,7 @@ async def get_role_permissions(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("rbac.roles", "write"))],
 )
-async def assign_role_permission(
+def assign_role_permission(
     role_id: int,
     payload: RolePermissionAssignment,
     service: RBACService = Depends(_service),
@@ -181,7 +181,7 @@ async def assign_role_permission(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("rbac.roles", "write"))],
 )
-async def remove_role_permission(
+def remove_role_permission(
     role_id: int,
     permission_id: int,
     service: RBACService = Depends(_service),

@@ -32,7 +32,7 @@ router = APIRouter(
 
 
 @router.get("", response_model=PyATSSourceListResponse)
-async def list_pyats_sources(
+def list_pyats_sources(
     _: User = Depends(get_current_user),
     service: PyATSSourceConfigService = Depends(get_pyats_source_config_service),
 ) -> PyATSSourceListResponse:
@@ -47,7 +47,7 @@ async def list_pyats_sources(
 
 
 @router.get("/{source_id}", response_model=PyATSSourceResponse)
-async def get_pyats_source(
+def get_pyats_source(
     source_id: str,
     _: User = Depends(get_current_user),
     service: PyATSSourceConfigService = Depends(get_pyats_source_config_service),
@@ -68,7 +68,7 @@ async def get_pyats_source(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("sources.pyats", "write"))],
 )
-async def create_pyats_source(
+def create_pyats_source(
     request: PyATSSourceCreateRequest,
     _: User = Depends(get_current_user),
     service: PyATSSourceConfigService = Depends(get_pyats_source_config_service),
@@ -97,7 +97,7 @@ async def create_pyats_source(
     response_model=PyATSSourceResponse,
     dependencies=[Depends(require_permission("sources.pyats", "write"))],
 )
-async def update_pyats_source(
+def update_pyats_source(
     source_id: str,
     request: PyATSSourceUpdateRequest,
     _: User = Depends(get_current_user),
@@ -127,7 +127,7 @@ async def update_pyats_source(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("sources.pyats", "delete"))],
 )
-async def delete_pyats_source(
+def delete_pyats_source(
     source_id: str,
     _: User = Depends(get_current_user),
     service: PyATSSourceConfigService = Depends(get_pyats_source_config_service),

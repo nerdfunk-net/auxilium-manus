@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
 import socket
@@ -55,6 +56,18 @@ def validate_outbound_http_url(url: str, *, resolve_dns: bool = True) -> str:
         _assert_resolved_hosts_allowed(host)
 
     return raw.rstrip("/")
+
+
+async def validate_outbound_http_url_async(url: str) -> str:
+    """``validate_outbound_http_url(url, resolve_dns=True)`` off the event loop.
+
+    ``_assert_resolved_hosts_allowed`` calls the blocking ``socket.getaddrinfo``.
+    Callers that run inside ``async def`` (the external-API clients) must not stall
+    the event loop on DNS, so the whole validation is pushed to a worker thread.
+    Synchronous callers reached only from the threadpool keep using
+    ``validate_outbound_http_url`` directly.
+    """
+    return await asyncio.to_thread(validate_outbound_http_url, url, resolve_dns=True)
 
 
 def validate_git_remote_url(url: str, *, resolve_dns: bool = True) -> str:

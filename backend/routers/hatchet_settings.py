@@ -22,7 +22,7 @@ def _service() -> HatchetSettingsService:
     response_model=HatchetConfigResponse,
     dependencies=[Depends(require_permission("hatchet_settings", "read"))],
 )
-async def get_hatchet_settings(
+def get_hatchet_settings(
     service: HatchetSettingsService = Depends(_service),
 ) -> HatchetConfigResponse:
     return service.get_config()

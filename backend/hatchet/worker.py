@@ -40,7 +40,7 @@ configure_logging(WORKER_PROCESS_NAME)
 logger = logging.getLogger(__name__)
 
 
-async def lifespan() -> AsyncGenerator[None, None]:
+async def lifespan() -> AsyncGenerator[None]:
     async with worker_services.start_all(WORKER_PROCESS_NAME):
         yield
 

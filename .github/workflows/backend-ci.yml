@@ -1,0 +1,86 @@
+name: backend-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+defaults:
+  run:
+    working-directory: backend
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      # ruff lint covers flake8-bandit (`S`) and flake8-async (`ASYNC`); see pyproject.toml.
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+  types:
+    runs-on: ubuntu-latest
+    # TODO(FABLE_REST): pyright basic mode has ~149 pre-existing findings. This job
+    # is advisory until they are cleared; drop continue-on-error once `pyright` is green.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - name: pyright
+        run: pyright
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install pip-audit==2.9.0
+      - name: pip-audit
+        # PYSEC-2026-2858: paramiko (transitive via netmiko) accepts SHA-1 for RSA
+        # keys; no fixed release yet. Re-check when a fixed paramiko ships.
+        run: pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
+
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - run: python scripts/check_asyncio_run.py
+      - run: python scripts/check_http_500_leaks.py
+      - run: python scripts/check_router_repositories.py
+      - run: python scripts/check_text_sql.py
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      # tests/unit uses in-memory SQLite + fakeredis — no Postgres/Redis services.
+      # addopts in pyproject.toml enforces --cov-fail-under=81.
+      - name: pytest (unit) + coverage ratchet
+        run: python -m pytest

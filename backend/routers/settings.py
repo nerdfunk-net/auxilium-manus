@@ -34,7 +34,7 @@ def _service(db: Session = Depends(get_db)) -> SettingsService:
     response_model=SettingListResponse,
     dependencies=[Depends(require_permission("settings", "read"))],
 )
-async def list_settings(
+def list_settings(
     key_prefix: str | None = Query(None, max_length=255),
     _current_user: User = Depends(get_current_user),
     service: SettingsService = Depends(_service),
@@ -47,7 +47,7 @@ async def list_settings(
     response_model=SettingResponse,
     dependencies=[Depends(require_permission("settings", "read"))],
 )
-async def get_setting(
+def get_setting(
     key: str,
     _current_user: User = Depends(get_current_user),
     service: SettingsService = Depends(_service),
@@ -61,7 +61,7 @@ async def get_setting(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("settings", "write"))],
 )
-async def create_setting(
+def create_setting(
     body: SettingCreate,
     _current_user: User = Depends(get_current_user),
     service: SettingsService = Depends(_service),
@@ -74,7 +74,7 @@ async def create_setting(
     response_model=SettingResponse,
     dependencies=[Depends(require_permission("settings", "write"))],
 )
-async def update_setting(
+def update_setting(
     key: str,
     body: SettingUpdate,
     _current_user: User = Depends(get_current_user),
@@ -88,7 +88,7 @@ async def update_setting(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("settings", "write"))],
 )
-async def delete_setting(
+def delete_setting(
     key: str,
     _current_user: User = Depends(get_current_user),
     service: SettingsService = Depends(_service),

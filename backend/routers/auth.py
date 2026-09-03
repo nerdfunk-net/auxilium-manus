@@ -26,7 +26,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(
+def login(
     request: Request,
     credentials: LoginRequest,
     db: Session = Depends(get_db),
@@ -59,7 +59,7 @@ async def login(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(
+def get_me(
     current_user: User = Depends(get_current_user_allow_password_change),
     db: Session = Depends(get_db),
 ) -> UserResponse:
@@ -67,7 +67,7 @@ async def get_me(
 
 
 @router.post("/change-password", response_model=SessionResponse)
-async def change_password(
+def change_password(
     body: PasswordChangeRequest,
     current_user: User = Depends(get_current_user_allow_password_change),
     db: Session = Depends(get_db),
@@ -108,7 +108,7 @@ async def change_password(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(
+def logout(
     current_user: User = Depends(get_current_user_allow_password_change),
     db: Session = Depends(get_db),
 ) -> None:
@@ -121,7 +121,7 @@ async def logout(
 
 
 @router.post("/refresh", response_model=SessionResponse)
-async def refresh_token(
+def refresh_token(
     request: Request,
     db: Session = Depends(get_db),
 ) -> SessionResponse:

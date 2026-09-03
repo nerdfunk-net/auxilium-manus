@@ -41,7 +41,7 @@ def _service(db: Session = Depends(get_db)) -> WorkflowService:
     response_model=WorkflowListResponse,
     dependencies=[Depends(require_permission("workflows", "read"))],
 )
-async def list_workflows(
+def list_workflows(
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
 ) -> WorkflowListResponse:
@@ -53,7 +53,7 @@ async def list_workflows(
     response_model=WorkflowNameCheckResponse,
     dependencies=[Depends(require_permission("workflows", "read"))],
 )
-async def check_workflow_name(
+def check_workflow_name(
     name: str = Query(..., min_length=1, max_length=255),
     folder: str = Query("/", max_length=500),
     visibility: str = Query("private"),
@@ -75,7 +75,7 @@ async def check_workflow_name(
     response_model=WorkflowResponse,
     dependencies=[Depends(require_permission("workflows", "read"))],
 )
-async def get_workflow(
+def get_workflow(
     workflow_id: int,
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
@@ -89,7 +89,7 @@ async def get_workflow(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("workflows", "write"))],
 )
-async def create_workflow(
+def create_workflow(
     body: WorkflowCreate,
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
@@ -109,7 +109,7 @@ async def create_workflow(
     response_model=WorkflowResponse,
     dependencies=[Depends(require_permission("workflows", "write"))],
 )
-async def update_workflow(
+def update_workflow(
     workflow_id: int,
     body: WorkflowUpdate,
     current_user: User = Depends(get_current_user),
@@ -133,7 +133,7 @@ async def update_workflow(
     response_model=WorkflowGitHistoryResponse,
     dependencies=[Depends(require_permission("workflows", "read"))],
 )
-async def get_workflow_git_history(
+def get_workflow_git_history(
     workflow_id: int,
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
@@ -151,7 +151,7 @@ async def get_workflow_git_history(
     response_model=WorkflowGitDiffResponse,
     dependencies=[Depends(require_permission("workflows", "read"))],
 )
-async def diff_workflow_git_versions(
+def diff_workflow_git_versions(
     workflow_id: int,
     body: WorkflowGitDiffRequest,
     current_user: User = Depends(get_current_user),
@@ -175,7 +175,7 @@ async def diff_workflow_git_versions(
     response_model=WorkflowResponse,
     dependencies=[Depends(require_permission("workflows", "write"))],
 )
-async def restore_workflow_git_version(
+def restore_workflow_git_version(
     workflow_id: int,
     body: WorkflowGitRestoreRequest,
     current_user: User = Depends(get_current_user),
@@ -199,7 +199,7 @@ async def restore_workflow_git_version(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("workflows", "delete"))],
 )
-async def delete_workflow(
+def delete_workflow(
     workflow_id: int,
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),

@@ -35,7 +35,7 @@ def _service() -> CertificateService:
     response_model=ScanResponse,
     dependencies=[Depends(require_permission("system.certificates", "read"))],
 )
-async def scan_certificates(
+def scan_certificates(
     service: CertificateService = Depends(_service),
 ) -> ScanResponse:
     return service.scan()
@@ -68,7 +68,7 @@ async def upload_certificate(
         Depends(require_permission("system.certificates", "write")),
     ],
 )
-async def add_certificate_to_system(
+def add_certificate_to_system(
     body: AddCertificateRequest,
     service: CertificateService = Depends(_service),
 ) -> AddCertificateResponse:
@@ -85,7 +85,7 @@ async def add_certificate_to_system(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("system.certificates", "write"))],
 )
-async def delete_certificate(
+def delete_certificate(
     filename: str,
     service: CertificateService = Depends(_service),
 ) -> None:

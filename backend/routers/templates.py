@@ -42,7 +42,7 @@ def _service(db: Session = Depends(get_db)) -> TemplatesService:
     response_model=TemplateListResponse,
     dependencies=[Depends(require_permission("templates", "read"))],
 )
-async def list_templates(
+def list_templates(
     category: str | None = Query(None),
     search: str | None = Query(None),
     _current_user: User = Depends(get_current_user),
@@ -57,7 +57,7 @@ async def list_templates(
     response_model=list[str],
     dependencies=[Depends(require_permission("templates", "read"))],
 )
-async def list_categories(
+def list_categories(
     _current_user: User = Depends(get_current_user),
     service: TemplatesService = Depends(_service),
 ) -> list[str]:
@@ -69,7 +69,7 @@ async def list_categories(
     response_model=TemplateRenderResponse,
     dependencies=[Depends(require_permission("templates", "read"))],
 )
-async def render_template(
+def render_template(
     payload: TemplateRenderRequest,
     _current_user: User = Depends(get_current_user),
     service: TemplatesService = Depends(_service),
@@ -91,7 +91,7 @@ async def render_template(
     response_model=TemplateResponse,
     dependencies=[Depends(require_permission("templates", "read"))],
 )
-async def get_template(
+def get_template(
     template_id: int,
     _current_user: User = Depends(get_current_user),
     service: TemplatesService = Depends(_service),
@@ -110,7 +110,7 @@ async def get_template(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("templates", "write"))],
 )
-async def create_template(
+def create_template(
     payload: TemplateCreate,
     current_user: User = Depends(get_current_user),
     service: TemplatesService = Depends(_service),
@@ -144,7 +144,7 @@ async def create_template(
     response_model=TemplateResponse,
     dependencies=[Depends(require_permission("templates", "write"))],
 )
-async def update_template(
+def update_template(
     template_id: int,
     payload: TemplateUpdate,
     current_user: User = Depends(get_current_user),
@@ -186,7 +186,7 @@ async def update_template(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("templates", "delete"))],
 )
-async def delete_template(
+def delete_template(
     template_id: int,
     hard_delete: bool = Query(True),
     _current_user: User = Depends(get_current_user),

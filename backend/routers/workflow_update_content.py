@@ -28,7 +28,7 @@ router = APIRouter(
 
 
 @router.post("/probe", response_model=UpdateContentProbeResponse)
-async def probe_content_replace(
+def probe_content_replace(
     request: UpdateContentProbeRequest,
     _: User = Depends(get_current_user),
 ) -> UpdateContentProbeResponse:

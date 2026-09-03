@@ -730,14 +730,23 @@ cd frontend && npm run dev
 # Frontend: http://localhost:3001
 # Backend: http://localhost:8001
 
-# Ruff (Python lint/format rules in backend/pyproject.toml) — run from time to time
-# or before larger backend changes; from backend/: `ruff check .` (optionally `--fix`)
+# Ruff (Python lint rules in backend/pyproject.toml — E/F/I/UP/B/S/ASYNC, target py314) —
+# run before larger backend changes; from backend/: `ruff check .` (optionally `--fix`).
+# `S` (flake8-bandit) is our security linter; suppress a vetted finding with `# noqa: Sxxx`
+# plus a one-line reason. There is NO project-wide `ruff format` gate (the tree is not
+# format-clean); do not run `ruff format .` repo-wide.
 ruff check .
 
-# Dev test deps (once): pip install -r requirements-dev.txt
+# Dev test deps (once): pip install -r requirements-dev.txt  (ruff, pip-audit, pyright)
 # Tests (unittest or pytest):
 python -m pytest
 # or: python -m unittest discover -s tests
+
+# CI (.github/workflows/backend-ci.yml) runs, on every backend PR: ruff check, pyright
+# (basic mode — advisory until its backlog clears), pip-audit, the four guard scripts
+# below, and the test suite with the coverage ratchet. Run them locally before pushing:
+pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
+pyright
 
 # Integration tests (opt-in; real Nautobot / Gitea / Postgres / Cisco device).
 # NOT part of the default run or the coverage ratchet. Needs backend/.env.test

@@ -527,7 +527,7 @@ class _FanOutDispatchPlan:
 def _parse_fan_out_dispatch(signal: Any) -> _FanOutDispatchPlan:
     from services.execution.step_runner import FanOutSignal
 
-    assert isinstance(signal, FanOutSignal)
+    assert isinstance(signal, FanOutSignal)  # noqa: S101  # type narrowing
 
     fan_out_config = signal.fan_out_config
     mode = fan_out_config.get("mode", "per_device")

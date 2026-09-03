@@ -59,7 +59,7 @@ def _build_user_permissions(service: RBACService, user_id: int) -> UserPermissio
 
 
 @router.get("/me/permissions", response_model=UserPermissions)
-async def get_my_permissions(
+def get_my_permissions(
     current_user: User = Depends(get_current_user),
     service: RBACService = Depends(_service),
 ) -> UserPermissions:
@@ -71,7 +71,7 @@ async def get_my_permissions(
     response_model=list[str],
     dependencies=[Depends(require_permission("users", "read"))],
 )
-async def get_user_roles(user_id: int, service: RBACService = Depends(_service)) -> list[str]:
+def get_user_roles(user_id: int, service: RBACService = Depends(_service)) -> list[str]:
     return service.get_user_roles(user_id)
 
 
@@ -80,7 +80,7 @@ async def get_user_roles(user_id: int, service: RBACService = Depends(_service))
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("users", "write"))],
 )
-async def assign_user_role(
+def assign_user_role(
     user_id: int,
     payload: UserRoleAssignment,
     db: Session = Depends(get_db),
@@ -103,7 +103,7 @@ async def assign_user_role(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("users", "write"))],
 )
-async def remove_user_role(
+def remove_user_role(
     user_id: int,
     role_id: int,
     service: RBACService = Depends(_service),
@@ -125,7 +125,7 @@ async def remove_user_role(
     response_model=UserPermissions,
     dependencies=[Depends(require_permission("users", "read"))],
 )
-async def get_user_permissions(
+def get_user_permissions(
     user_id: int,
     service: RBACService = Depends(_service),
 ) -> UserPermissions:
@@ -137,7 +137,7 @@ async def get_user_permissions(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("users", "write"))],
 )
-async def set_user_permission_override(
+def set_user_permission_override(
     user_id: int,
     payload: UserPermissionAssignment,
     db: Session = Depends(get_db),
@@ -162,7 +162,7 @@ async def set_user_permission_override(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("users", "write"))],
 )
-async def remove_user_permission_override(
+def remove_user_permission_override(
     user_id: int,
     permission_id: int,
     service: RBACService = Depends(_service),

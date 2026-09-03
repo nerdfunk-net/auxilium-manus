@@ -25,7 +25,7 @@ router = APIRouter(prefix="/git-repositories", tags=["git-debug"])
         Depends(require_permission("git.debug", "execute")),
     ],
 )
-async def debug_read_test(
+def debug_read_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     debug_service=Depends(get_git_debug_service),
@@ -46,7 +46,7 @@ async def debug_read_test(
         Depends(require_permission("git.debug", "execute")),
     ],
 )
-async def debug_write_test(
+def debug_write_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     debug_service=Depends(get_git_debug_service),
@@ -67,7 +67,7 @@ async def debug_write_test(
         Depends(require_permission("git.debug", "execute")),
     ],
 )
-async def debug_delete_test(
+def debug_delete_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     debug_service=Depends(get_git_debug_service),
@@ -88,7 +88,7 @@ async def debug_delete_test(
         Depends(require_permission("git.debug", "execute")),
     ],
 )
-async def debug_push_test(
+def debug_push_test(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     debug_service=Depends(get_git_debug_service),
@@ -110,7 +110,7 @@ async def debug_push_test(
         Depends(require_permission("git.debug", "read")),
     ],
 )
-async def debug_diagnostics(
+def debug_diagnostics(
     repo_id: int,
     current_user: dict = Depends(get_current_user),
     debug_service=Depends(get_git_debug_service),

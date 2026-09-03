@@ -6,6 +6,14 @@
 `doc/plans/FABLE_BACKEND_S8_S10_S11.md` — see the Status column in §5.3 for commit hashes.
 S9 and S14–S16 remain open.
 
+**Update 2026-09-03:** First-hardening-pass items 7 and 9 were done per
+`doc/plans/FABLE_REST.md`: §4.2 sync-only route handlers are now plain `def`
+(threadpool), DNS resolution in the async external-API clients is offloaded via
+`core.safe_urls.validate_outbound_http_url_async`, the Fernet-key cache (already
+shipped in S12) gained a regression test, and `.github/workflows/backend-ci.yml`
+runs ruff (with `S`/`ASYNC`), pyright, pip-audit, the four guard scripts, and the
+test suite. `bandit` is covered by ruff's `S` ruleset rather than a standalone tool.
+
 Reviewer: Claude Fable 5.1
 Scope: `backend/` (FastAPI app, Hatchet workers, workflow steps). Frontend touched only where it
 is part of the auth chain (Next.js proxy and cookie handling).
@@ -167,8 +175,8 @@ with Fernet and redacted to `***REDACTED***` before persistence (`services/workf
 | Files ≤ 800 lines, functions < 50 lines (global rule) | ❌ | 2 files over 800 lines; 43 functions over 80 lines (largest 259). See §6 |
 | Immutability (global rule) | n/a | SQLAlchemy mutation is idiomatic and the Python rule set allows the override; frozen dataclasses are used for value objects (`OIDCConfig`, `RbacSeedResult`, `FanOutSignal` is mutable by design) |
 | 80 % coverage, TDD | ✅ | Coverage ratchet `--cov-fail-under=81` enforced in `pyproject.toml` |
-| Ruff | ✅ | 3 trivial findings. Note `target-version = "py312"` while runtime is 3.14 |
-| Security scanning (`bandit`, dependency audit) | ❌ | Not in `requirements-dev.txt`; no CI directory exists in the repo |
+| Ruff | ✅ | Clean. `target-version = "py314"`; `S` (flake8-bandit) and `ASYNC` now enabled |
+| Security scanning (`bandit`, dependency audit) | ✅ | ruff `S` ruleset + `pip-audit` in `.github/workflows/backend-ci.yml` (2026-09-03) |
 | Docs current | ⚠️ | CLAUDE.md says 14 tables (now 18). 11 code/doc references point to `doc/FABLE-ANALYSIS.md`, which was deleted in commit `01ee1a9` |
 
 ---
@@ -234,10 +242,10 @@ or `git.Git().update_environment`) instead of mutating the process.
   `user_roles → role_permissions` would do. Not a correctness problem, but it is on every request.
 - **Pydantic strictness**: add `model_config = ConfigDict(extra="forbid")` to request models
   (currently 11 of the request models have it).
-- **Ruff `target-version`** should be `py314` so `UP` rules can modernize further; consider
-  enabling `S` (bandit rules), `ASYNC` (blocking calls in async), `T20` (print), and `BLE`.
-- **No static type checker** (mypy/pyright) is configured. With 96 % annotation coverage the
-  codebase is ready for `pyright --level basic` in CI.
+- **Ruff `target-version`** ~~should be~~ **is** `py314` (2026-09-03); `S` (bandit rules) and
+  `ASYNC` (blocking calls in async) are enabled. `T20` (print) and `BLE` still worth considering.
+- **Static type checker**: `pyright` (basic mode) is now configured in `pyproject.toml` and runs
+  in CI as an advisory job — ~149 pre-existing basic-mode findings to clear before it blocks.
 - **`# noqa` count**: 62 in non-test code, mostly `E712` on boolean comparisons in SQLAlchemy
   (`== True`). Use `.is_(True)` and drop the suppressions.
 
@@ -431,12 +439,19 @@ hide a per-device state machine that would be easier to test as small functions.
 **First hardening pass (1–2 weeks)**
 
 5. S5 — `iat`/`jti`/`token_version`, absolute session lifetime, invalidate on password/username
-   change and logout.
-6. S7 — stop mutating `os.environ` in git code.
-7. §4.2 — convert sync-only handlers to `def`, cache the Fernet key, thread-offload git and DNS.
+   change and logout. **Done.**
+6. S7 — stop mutating `os.environ` in git code. **Done.**
+7. §4.2 — convert sync-only handlers to `def`, ~~cache the Fernet key~~ (already done in S12),
+   thread-offload git and DNS. **Done (2026-09-03, `doc/plans/FABLE_REST.md`)** — handlers in
+   29 router modules are now `def`; DNS in the async source clients goes through
+   `validate_outbound_http_url_async`. Git offload was already covered by making the git
+   routers `def` (threadpool) plus the pre-existing `run_in_executor` in `git/devices.py`.
 8. S8, S10, S11 — path check helper, bootstrap-admin re-grant, advisory lock around `init_db`.
-9. Add `bandit`/ruff `S` rules, `pip-audit`, and `pyright` to a CI workflow that also runs the
-   four guard scripts and the test suite.
+   **Done.**
+9. Add ~~`bandit`~~/ruff `S` rules, `pip-audit`, and `pyright` to a CI workflow that also runs
+   the four guard scripts and the test suite. **Done (2026-09-03)** —
+   `.github/workflows/backend-ci.yml`. ruff `S` replaces standalone bandit (bandit ≤ 1.9.4
+   crashes on the Python 3.14 AST and uses a separate `# nosec` syntax).
 
 **Backlog**
 

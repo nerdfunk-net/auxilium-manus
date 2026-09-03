@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.mattermost.common.exceptions import MattermostAPIError, MattermostValidationError
 from services.mattermost.credentials import MattermostCredentials
@@ -32,7 +32,8 @@ class MattermostService:
 
     async def startup(self) -> None:
         self._client_verify = httpx.AsyncClient(verify=create_verified_ssl_context())
-        self._client_no_verify = httpx.AsyncClient(verify=False)
+        # verify=False is an opt-in per-source setting (verify_ssl); see doc/SECURITY-NOTES.md
+        self._client_no_verify = httpx.AsyncClient(verify=False)  # noqa: S501
         logger.info("MattermostService started")
 
     async def shutdown(self) -> None:
@@ -52,7 +53,7 @@ class MattermostService:
         raises a timeout/connection error, and success returns the
         authenticated (bot) user's profile.
         """
-        base = self._base_url(credentials)
+        base = await self._base_url(credentials)
         headers = {"Authorization": f"Bearer {credentials.token}"}
         try:
             response = await self._do_request(
@@ -97,7 +98,7 @@ class MattermostService:
 
         ``GET /api/v4/teams/name/{team_name}/channels/name/{channel_name}``.
         """
-        base = self._base_url(credentials)
+        base = await self._base_url(credentials)
         headers = {"Authorization": f"Bearer {credentials.token}"}
         try:
             response = await self._do_request(
@@ -143,7 +144,7 @@ class MattermostService:
         self, credentials: MattermostCredentials, channel_id: str, message: str
     ) -> dict[str, Any]:
         """Post a message to a channel. ``POST /api/v4/posts``."""
-        base = self._base_url(credentials)
+        base = await self._base_url(credentials)
         headers = {"Authorization": f"Bearer {credentials.token}"}
         try:
             response = await self._do_request(
@@ -182,11 +183,11 @@ class MattermostService:
                 f"Mattermost returned a non-JSON response (HTTP {response.status_code})"
             ) from exc
 
-    def _base_url(self, credentials: MattermostCredentials) -> str:
+    async def _base_url(self, credentials: MattermostCredentials) -> str:
         if not credentials.base_url:
             raise MattermostValidationError("Mattermost URL is required")
         try:
-            return validate_outbound_http_url(credentials.base_url, resolve_dns=True)
+            return await validate_outbound_http_url_async(credentials.base_url)
         except UnsafeURLError as exc:
             raise MattermostValidationError(str(exc)) from exc
 

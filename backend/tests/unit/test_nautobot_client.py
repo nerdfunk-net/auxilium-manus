@@ -49,7 +49,7 @@ def _service_with_mock_client(response: MagicMock | Exception) -> NautobotServic
 class _PatchValidator(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         patcher = patch(
-            "services.nautobot.client.validate_outbound_http_url",
+            "services.nautobot.client.validate_outbound_http_url_async",
             return_value="http://nautobot.test",
         )
         self.addCleanup(patcher.stop)

@@ -32,7 +32,7 @@ router = APIRouter(
 
 
 @router.get("", response_model=MattermostSourceListResponse)
-async def list_mattermost_sources(
+def list_mattermost_sources(
     _: User = Depends(get_current_user),
     service: MattermostSourceConfigService = Depends(get_mattermost_source_config_service),
 ) -> MattermostSourceListResponse:
@@ -47,7 +47,7 @@ async def list_mattermost_sources(
 
 
 @router.get("/{source_id}", response_model=MattermostSourceResponse)
-async def get_mattermost_source(
+def get_mattermost_source(
     source_id: str,
     _: User = Depends(get_current_user),
     service: MattermostSourceConfigService = Depends(get_mattermost_source_config_service),
@@ -68,7 +68,7 @@ async def get_mattermost_source(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("sources.mattermost", "write"))],
 )
-async def create_mattermost_source(
+def create_mattermost_source(
     request: MattermostSourceCreateRequest,
     _: User = Depends(get_current_user),
     service: MattermostSourceConfigService = Depends(get_mattermost_source_config_service),
@@ -97,7 +97,7 @@ async def create_mattermost_source(
     response_model=MattermostSourceResponse,
     dependencies=[Depends(require_permission("sources.mattermost", "write"))],
 )
-async def update_mattermost_source(
+def update_mattermost_source(
     source_id: str,
     request: MattermostSourceUpdateRequest,
     _: User = Depends(get_current_user),
@@ -127,7 +127,7 @@ async def update_mattermost_source(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permission("sources.mattermost", "delete"))],
 )
-async def delete_mattermost_source(
+def delete_mattermost_source(
     source_id: str,
     _: User = Depends(get_current_user),
     service: MattermostSourceConfigService = Depends(get_mattermost_source_config_service),

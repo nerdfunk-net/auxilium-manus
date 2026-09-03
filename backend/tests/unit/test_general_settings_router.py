@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Iterator
 from unittest.mock import MagicMock
 
@@ -67,3 +68,12 @@ def test_get_settings_allowed_with_permission(
 
     assert response.status_code == 200
     assert response.json()["session_timeout_minutes"] == 20
+
+
+def test_handlers_run_in_threadpool_not_on_the_event_loop() -> None:
+    # FABLE_BACKEND_20260902.md §4.2: sync-only handlers must be plain `def` so
+    # FastAPI offloads their blocking SQLAlchemy work to the threadpool.
+    from routers.general_settings import get_general_settings, update_general_settings
+
+    assert not inspect.iscoroutinefunction(get_general_settings)
+    assert not inspect.iscoroutinefunction(update_general_settings)

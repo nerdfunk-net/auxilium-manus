@@ -23,7 +23,7 @@ router = APIRouter(
 
 
 @router.get("/files/search")
-async def search_repository_files(
+def search_repository_files(
     repo_id: int,
     query: str = "",
     limit: int = 50,
@@ -34,7 +34,7 @@ async def search_repository_files(
 
 
 @router.get("/files/{commit_hash}/commit")
-async def get_files(
+def get_files(
     repo_id: int,
     commit_hash: str,
     file_path: str = None,
@@ -45,7 +45,7 @@ async def get_files(
 
 
 @router.get("/files/{file_path:path}/history")
-async def get_file_history(
+def get_file_history(
     repo_id: int,
     file_path: str,
     current_user: dict = Depends(get_current_user),
@@ -55,7 +55,7 @@ async def get_file_history(
 
 
 @router.get("/files/{file_path:path}/complete-history")
-async def get_file_complete_history(
+def get_file_complete_history(
     repo_id: int,
     file_path: str,
     from_commit: str = None,
@@ -72,7 +72,7 @@ async def get_file_complete_history(
 
 
 @router.get("/file-content")
-async def get_file_content(
+def get_file_content(
     repo_id: int,
     path: str,
     current_user: dict = Depends(get_current_user),
@@ -85,7 +85,7 @@ async def get_file_content(
 
 
 @router.get("/file-content-parsed")
-async def get_file_content_parsed(
+def get_file_content_parsed(
     repo_id: int,
     path: str,
     current_user: dict = Depends(get_current_user),
@@ -97,7 +97,7 @@ async def get_file_content_parsed(
 
 
 @router.get("/tree")
-async def get_directory_tree(
+def get_directory_tree(
     repo_id: int,
     path: str = "",
     current_user: dict = Depends(get_current_user),
@@ -107,7 +107,7 @@ async def get_directory_tree(
 
 
 @router.get("/directory")
-async def get_directory_files(
+def get_directory_files(
     repo_id: int,
     path: str = "",
     current_user: dict = Depends(get_current_user),
@@ -117,7 +117,7 @@ async def get_directory_files(
 
 
 @router.get("/csv-files")
-async def list_csv_files(
+def list_csv_files(
     repo_id: int,
     query: str = "",
     limit: int = 200,
@@ -128,7 +128,7 @@ async def list_csv_files(
 
 
 @router.get("/csv-headers")
-async def get_csv_headers(
+def get_csv_headers(
     repo_id: int,
     path: str,
     delimiter: str = ",",

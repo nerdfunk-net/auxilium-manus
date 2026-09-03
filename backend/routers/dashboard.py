@@ -31,7 +31,7 @@ def _dashboard_service(db: Session = Depends(get_db)) -> DashboardService:
 
 
 @router.get("/layout", response_model=DashboardLayoutResponse)
-async def get_dashboard_layout(
+def get_dashboard_layout(
     current_user: User = Depends(get_current_user),
     service: UserPreferenceService = Depends(_preference_service),
 ) -> DashboardLayoutResponse:
@@ -39,7 +39,7 @@ async def get_dashboard_layout(
 
 
 @router.put("/layout", response_model=DashboardLayoutResponse)
-async def update_dashboard_layout(
+def update_dashboard_layout(
     body: DashboardLayoutUpdate,
     current_user: User = Depends(get_current_user),
     service: UserPreferenceService = Depends(_preference_service),
@@ -52,7 +52,7 @@ async def update_dashboard_layout(
     response_model=DashboardScheduleListResponse,
     dependencies=[Depends(require_permission("workflows", "read"))],
 )
-async def get_dashboard_schedules(
+def get_dashboard_schedules(
     current_user: User = Depends(get_current_user),
     service: DashboardService = Depends(_dashboard_service),
 ) -> DashboardScheduleListResponse:
@@ -64,7 +64,7 @@ async def get_dashboard_schedules(
     response_model=DashboardRecentRunsResponse,
     dependencies=[Depends(require_permission("workflow_runs", "read"))],
 )
-async def get_dashboard_recent_runs(
+def get_dashboard_recent_runs(
     limit: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     service: DashboardService = Depends(_dashboard_service),
@@ -77,7 +77,7 @@ async def get_dashboard_recent_runs(
     response_model=DashboardNotificationListResponse,
     dependencies=[Depends(require_permission("workflow_runs", "read"))],
 )
-async def get_dashboard_notifications(
+def get_dashboard_notifications(
     limit: int = Query(10, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     service: DashboardService = Depends(_dashboard_service),

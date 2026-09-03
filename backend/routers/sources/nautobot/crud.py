@@ -32,7 +32,7 @@ router = APIRouter(prefix="/sources/nautobot", tags=["sources-nautobot"])
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("sources.nautobot", "write"))],
 )
-async def create_inventory(
+def create_inventory(
     request: CreateInventoryRequest,
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
@@ -77,7 +77,7 @@ async def create_inventory(
     response_model=ListInventoriesResponse,
     dependencies=[Depends(require_permission("sources.nautobot", "read"))],
 )
-async def list_inventories(
+def list_inventories(
     scope: str | None = None,
     active_only: bool = True,
     group_path: str | None = None,
@@ -104,7 +104,7 @@ async def list_inventories(
     response_model=ListInventoriesResponse,
     dependencies=[Depends(require_permission("sources.nautobot", "read"))],
 )
-async def search_inventories(
+def search_inventories(
     query: str,
     active_only: bool = True,
     current_user: User = Depends(get_current_user),
@@ -125,7 +125,7 @@ async def search_inventories(
     response_model=InventoryResponse,
     dependencies=[Depends(require_permission("sources.nautobot", "read"))],
 )
-async def get_inventory_by_name(
+def get_inventory_by_name(
     inventory_name: str,
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
@@ -148,7 +148,7 @@ async def get_inventory_by_name(
     "/export/{inventory_id}",
     dependencies=[Depends(require_permission("sources.nautobot", "read"))],
 )
-async def export_inventory(
+def export_inventory(
     inventory_id: int,
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
@@ -216,7 +216,7 @@ async def export_inventory(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("sources.nautobot", "write"))],
 )
-async def import_inventory(
+def import_inventory(
     request: ImportInventoryRequest,
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
@@ -276,7 +276,7 @@ async def import_inventory(
     response_model=InventoryResponse,
     dependencies=[Depends(require_permission("sources.nautobot", "read"))],
 )
-async def get_inventory(
+def get_inventory(
     inventory_id: int,
     current_user: User = Depends(get_current_user),
     persistence: InventoryService = Depends(get_inventory_service),
@@ -302,7 +302,7 @@ async def get_inventory(
     response_model=InventoryResponse,
     dependencies=[Depends(require_permission("sources.nautobot", "write"))],
 )
-async def update_inventory(
+def update_inventory(
     inventory_id: int,
     request: UpdateInventoryRequest,
     current_user: User = Depends(get_current_user),
@@ -349,7 +349,7 @@ async def update_inventory(
     response_model=InventoryDeleteResponse,
     dependencies=[Depends(require_permission("sources.nautobot", "delete"))],
 )
-async def delete_inventory(
+def delete_inventory(
     inventory_id: int,
     hard_delete: bool = Query(default=True),
     current_user: User = Depends(get_current_user),
