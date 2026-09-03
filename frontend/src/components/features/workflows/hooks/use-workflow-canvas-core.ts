@@ -9,6 +9,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/hooks/use-toast";
+import { useAuthStore } from "@/lib/auth-store";
 
 import {
   EMPTY_WORKFLOW_EDGES as EMPTY_EDGES,
@@ -60,6 +61,17 @@ export function useWorkflowCanvasCore() {
   const requestFitView = useWorkflowBuilderStore((state) => state.requestFitView);
   const { toast } = useToast();
 
+  // The canvasDraft singleton survives a soft client-side logout navigation
+  // (see use-session-manager.ts), so it must be pinned to the user who
+  // created it — a draft is only ever restored for that same user. Captured
+  // at mount, when the user is by definition still authenticated: by the time
+  // logout unmounts this component, `useAuthStore.user` has already been
+  // cleared to null, so reading it in the unmount snapshot would mis-stamp
+  // the draft as unowned and lose it on the owner's next login. The identity
+  // cannot change within a single mount — logging in as someone else always
+  // routes through /login, which unmounts and remounts this hook.
+  const [mountUserId] = useState(() => useAuthStore.getState().user?.id ?? null);
+
   // The canvas (nodes/edges) is local React state scoped to this component,
   // while workflowId survives in the Zustand store across route changes
   // (e.g. navigating to /workflows/runs and back). Captured once at mount so
@@ -75,7 +87,13 @@ export function useWorkflowCanvasCore() {
   // unsaved edits (including plain node moves).
   const [initialCanvasDraft] = useState(() => {
     const draft = useWorkflowBuilderStore.getState().canvasDraft;
-    return draft && draft.workflowId === mountWorkflowId ? draft : null;
+    if (!draft) return null;
+    // Never restore a draft that belongs to a different user — e.g. an idle
+    // logout followed by someone else logging in on the same browser tab.
+    // (DashboardShell also clears it on the auth change; this is the
+    // synchronous guard that runs during render, before that effect.)
+    if (draft.userId !== mountUserId) return null;
+    return draft.workflowId === mountWorkflowId ? draft : null;
   });
 
   // Canvas state architecture (see doc/FEATURE-GROUPING.md "Canvas state
@@ -138,6 +156,7 @@ export function useWorkflowCanvasCore() {
       const snapshot = canvasSnapshotRef.current;
       setCanvasDraft({
         workflowId: currentWorkflowId,
+        userId: mountUserId,
         nodes: snapshot.allNodes,
         edges: snapshot.allEdges,
         groups: snapshot.groups,
@@ -145,7 +164,7 @@ export function useWorkflowCanvasCore() {
         viewport: viewportRef.current,
       });
     };
-  }, [setCanvasDraft]);
+  }, [setCanvasDraft, mountUserId]);
 
   // Auto-enter a step's group when it is newly focused (e.g. from the
   // executions panel) so the selected node is actually visible on the current

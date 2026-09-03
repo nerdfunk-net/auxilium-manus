@@ -90,6 +90,11 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
       // (use-workflow-builder-store.ts) that lets an unsaved workflow survive
       // navigating away and back, so it would silently discard the user's
       // in-progress edits on the next login instead of restoring them.
+      // The draft is pinned to its owner (CanvasDraft.userId), so keeping it
+      // in memory only lets the *same* user resume — a different account
+      // logging in on this tab has it cleared by DashboardShell's
+      // reconcileDraftOwner effect and by the restore guard in
+      // use-workflow-canvas-core.ts.
       router.replace(`/login?reason=${reason}`);
       router.refresh();
     },

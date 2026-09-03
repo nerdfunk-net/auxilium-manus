@@ -19,6 +19,14 @@ type RunMode = "normal" | "debug";
  * navigates to another route (Inventory, Runs, Settings) and back.
  */
 interface CanvasDraft {
+  /**
+   * The authenticated user this draft belongs to (null only for a draft
+   * snapshotted before the user was known). A draft is restored on remount
+   * only when it belongs to the current user, so an idle/manual logout
+   * followed by a *different* user logging in on the same browser tab never
+   * inherits the previous person's unsaved canvas. See `reconcileDraftOwner`.
+   */
+  userId: number | null;
   workflowId: number | null;
   nodes: PersistedCanvasNode[];
   edges: WorkflowCanvasEdge[];
@@ -103,6 +111,16 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   setWorkflowIsVersionControlled: (isVersionControlled: boolean) => void;
   loadWorkflow: (meta: WorkflowMetadata) => void;
   resetToNew: () => void;
+  /**
+   * Drop any in-progress canvas draft and workflow metadata that does NOT
+   * belong to `userId`. Called whenever the authenticated user changes so the
+   * module-level singleton (which a soft client-side logout navigation
+   * deliberately keeps in memory) cannot surface one person's unsaved work to
+   * the next person on the same tab. A no-op when the draft already belongs to
+   * `userId` — that is the intended "resume my unsaved workflow after an idle
+   * logout" path.
+   */
+  reconcileDraftOwner: (userId: number | null) => void;
 }
 
 const NEW_WORKFLOW_DEFAULTS: WorkflowMetadata = {
@@ -113,6 +131,25 @@ const NEW_WORKFLOW_DEFAULTS: WorkflowMetadata = {
   workflowFolder: "/",
   workflowVisibility: "private",
   workflowIsVersionControlled: false,
+};
+
+/**
+ * The store fields (metadata + transient selection/navigation) that a "start
+ * from a blank workflow" transition clears. Shared by `resetToNew` (menu
+ * "New") and `reconcileDraftOwner` (a different user logged in) so the two
+ * stay in sync; the latter additionally nulls `canvasDraft`.
+ */
+const RESET_BUILDER_STATE: Partial<WorkflowBuilderState> = {
+  ...NEW_WORKFLOW_DEFAULTS,
+  workflowStatus: "Draft",
+  isDirty: false,
+  activeRunId: null,
+  activeGroupId: null,
+  groupNavigationStack: [],
+  rightPanelTab: "steps",
+  selectedNodeId: null,
+  selectedEdgeId: null,
+  configModalNodeId: null,
 };
 
 export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
@@ -228,16 +265,31 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
     }),
   resetToNew: () =>
     set({
-      ...NEW_WORKFLOW_DEFAULTS,
-      workflowStatus: "Draft",
-      isDirty: false,
-      activeRunId: null,
-      activeGroupId: null,
-      groupNavigationStack: [],
-      rightPanelTab: "steps",
-      selectedNodeId: null,
-      selectedEdgeId: null,
-      configModalNodeId: null,
+      ...RESET_BUILDER_STATE,
       lastAction: "New workflow created",
+    }),
+  reconcileDraftOwner: (userId) =>
+    set((state) => {
+      const draft = state.canvasDraft;
+      // Same owner → the intended "resume my unsaved workflow after an idle
+      // logout" path; leave the draft and all metadata untouched.
+      if (draft && draft.userId === userId) return {};
+      // Nothing stale to clear (fresh singleton / already blank).
+      if (
+        !draft &&
+        state.workflowId === null &&
+        state.workflowUuid === null &&
+        !state.isDirty
+      ) {
+        return {};
+      }
+      // A different user (or a pre-identity draft): wipe everything back to a
+      // blank workflow so the next person starts clean.
+      return {
+        ...RESET_BUILDER_STATE,
+        canvasDraft: null,
+        pendingFitViewNodeIds: null,
+        lastAction: "Ready to design workflow",
+      };
     }),
 }));
