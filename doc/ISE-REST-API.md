@@ -24,6 +24,7 @@ is currently no live ISE instance to re-verify against.
 - [Permissions](#permissions)
 - [Calling this from a workflow step](#calling-this-from-a-workflow-step)
 - [ISE quirks discovered during development](#ise-quirks-discovered-during-development)
+- [Known API gaps](#known-api-gaps)
 - [Manual test scripts](#manual-test-scripts)
 
 ## File map
@@ -474,6 +475,33 @@ verified by direct HTTP probing of the sandbox before it was decommissioned.
    arbitrary group membership, and is what
    `GET /devices/ndg/{group_name}` (`ISENetworkDeviceService.list_devices_by_group`)
    relies on.
+
+## Known API gaps
+
+**TACACS+ shared secret retirement (key rollover) is GUI-only — not exposed
+by ERS.** ISE has a "retire" feature for changing a device's TACACS+ shared
+secret without an outage: in the GUI (Work Centers > Device Administration >
+Network Resources > Default Devices > TACACS Authentication Settings, or the
+per-device equivalent), an admin sets a new shared secret together with a
+**retirement period in days (range 1–99, default 7)**; during that window
+ISE accepts *both* the old and new shared secret from the device, and the
+admin can extend or terminate the retirement period early. This is
+documented consistently across the ISE 3.1–3.4 Administrator Guides
+("Device Administration" chapter).
+
+The ERS `NetworkDevice.tacacsSettings` object only has two fields —
+`sharedSecret` and `connectModeOptions` (see the `POST /devices` example
+above) — confirmed against both the DevNet ERS API reference and this
+codebase's own live-verified schema. There is no `retired`,
+`previousSharedSecret`, `retirementPeriod`, or equivalent field, and no
+other ERS endpoint exposes this feature. **A dual-key overlap window during
+a TACACS+ key change cannot be driven through the API**; `PUT
+/devices/{device_id}` with a new `tacacsSettings.sharedSecret` is an atomic
+swap (see [Update — merge-safe](#update--merge-safe)) — the old key stops
+working the instant the request succeeds. Coordinating a key change on a
+live device therefore means either accepting a brief outage window, or
+performing the retirement step by hand in the ISE GUI outside of any
+workflow step built on this integration.
 
 ## Manual test scripts
 

@@ -242,9 +242,9 @@ tacacs-server host {{ server.address }}
             </p>
             <CodeBlock>{`command.name     the exact command string, e.g. "show ip int brief"
 command.raw      the raw text output
-command.parsed   the TextFSM-parsed rows (only set if "use_textfsm" was
-                 checked on the Run Command step — otherwise it is null
-                 and you should use command.raw instead)`}</CodeBlock>
+command.parsed   the TextFSM-parsed rows (only set if the Run Command step's
+                 "parser" was set to "textfsm" — otherwise it is null and
+                 you should use command.raw instead)`}</CodeBlock>
             <p>Example — loop over parsed interface rows:</p>
             <CodeBlock>{`{% for row in command.parsed %}
 {{ row.interface }}: {{ row.status }}/{{ row.proto }}

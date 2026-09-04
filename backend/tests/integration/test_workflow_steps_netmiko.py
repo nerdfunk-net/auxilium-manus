@@ -168,7 +168,7 @@ def test_run_command_textfsm(run, cisco_device, ssh_credential, tmp_path) -> Non
                 config={
                     "credential_reference": ssh_credential,
                     "commands": ["show ip interface brief"],
-                    "use_textfsm": True,
+                    "parser": "textfsm",
                 },
                 context=_ctx(run, cisco_device),
                 run=run,
@@ -177,11 +177,19 @@ def test_run_command_textfsm(run, cisco_device, ssh_credential, tmp_path) -> Non
                 device_sessions=pool,
             )
             success = next(o for o in outcomes if o.name == "success")
-            cr = success.context.devices["d1"].command_results["c1"][0]
+            device = success.context.devices["d1"]
+            cr = device.command_results["c1"][0]
             import json
 
             parsed = json.loads(artifacts.read_content(cr.output_ref.artifact_id))
             assert isinstance(parsed, list)
+
+            # Normalized inline shape: identical to what parser="genie" would
+            # produce, so downstream steps (route-on-attribute, Jinja, etc.)
+            # don't need to know which parser ran.
+            inline = device.parsed["parsed"]["show ip interface brief"]
+            assert inline["error"] is None
+            assert inline["parsed"] == parsed
         finally:
             await pool.close()
 

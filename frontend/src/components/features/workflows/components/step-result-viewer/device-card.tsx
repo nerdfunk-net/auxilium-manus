@@ -15,6 +15,7 @@ import { DeviceConfigsContent } from "./device-configs-content";
 import { DeviceDetailDialog } from "./device-detail-dialog";
 import { DeviceErrorList } from "./device-error-list";
 import { DeviceGenieConfigContent } from "./device-genie-config-content";
+import { DeviceParsedCommandOutputContent } from "./device-parsed-command-output-content";
 import { DeviceParsedTemplatesContent } from "./device-parsed-templates-content";
 import { DeviceSnapshotContent } from "./device-snapshot-content";
 import { DeviceStatusIcon } from "./devices-section";
@@ -22,6 +23,7 @@ import {
   getComparisonDiffEntries,
   getComparisonResultEntries,
   getGenieParsedConfigEntries,
+  getParsedCommandOutputEntries,
   getParsedTemplateEntries,
   getSnapshotEntries,
 } from "./parsed-guards";
@@ -56,14 +58,20 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
     () => getSnapshotEntries(device.parsed ?? {}),
     [device.parsed],
   );
+  const parsedCommandOutputEntries = useMemo(
+    () => getParsedCommandOutputEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
   const hasParsedTemplates = parsedTemplateEntries.length > 0;
   const hasComparisons =
     comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0;
   const hasGenieConfig = genieConfigEntries.length > 0;
   const hasSnapshot = snapshotEntries.length > 0;
+  const hasParsedCommandOutput = parsedCommandOutputEntries.length > 0;
   const [showComparisons, setShowComparisons] = useState(hasComparisons);
   const [showGenieConfig, setShowGenieConfig] = useState(false);
   const [showSnapshot, setShowSnapshot] = useState(false);
+  const [showParsedCommandOutput, setShowParsedCommandOutput] = useState(false);
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
   const configCount =
     (device.running_config_ref ? 1 : 0) + (device.startup_config_ref ? 1 : 0);
@@ -184,6 +192,21 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
               ))}
             </div>
           ) : null}
+          {hasParsedCommandOutput ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Parsed command output
+              </p>
+              {parsedCommandOutputEntries.map(({ key, entry }) => (
+                <div key={key} className="text-xs text-muted-foreground">
+                  <span className="font-mono">parsed.{key}</span>
+                  {" · "}
+                  {Object.keys(entry).length} command
+                  {Object.keys(entry).length !== 1 ? "s" : ""}
+                </div>
+              ))}
+            </div>
+          ) : null}
           {hasSnapshot ? (
             <div className="mt-2 space-y-1">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -212,6 +235,7 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
           hasComparisons ||
           hasGenieConfig ||
           hasSnapshot ||
+          hasParsedCommandOutput ||
           attributeBagNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {attributeBagNames.length > 0 ? (
@@ -281,6 +305,15 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
                   {showSnapshot ? "Hide" : "Show"} Genie snapshot
                 </button>
               ) : null}
+              {hasParsedCommandOutput ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowParsedCommandOutput((value) => !value)}
+                >
+                  {showParsedCommandOutput ? "Hide" : "Show"} parsed command output
+                </button>
+              ) : null}
             </div>
           ) : null}
           {showAttributeBags && attributeBagNames.length > 0 ? (
@@ -315,6 +348,9 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
           ) : null}
           {showSnapshot && hasSnapshot ? (
             <DeviceSnapshotContent runId={runId ?? null} entries={snapshotEntries} />
+          ) : null}
+          {showParsedCommandOutput && hasParsedCommandOutput ? (
+            <DeviceParsedCommandOutputContent entries={parsedCommandOutputEntries} />
           ) : null}
         </div>
       </div>

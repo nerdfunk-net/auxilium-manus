@@ -1,5 +1,7 @@
 import type {
   GenieParsedConfigEntry,
+  ParsedCommandEntry,
+  ParsedCommandOutputEntry,
   ParsedComparisonDiffEntry,
   ParsedComparisonResultEntry,
   ParsedTemplateEntry,
@@ -107,4 +109,43 @@ export function getSnapshotEntries(
   return Object.entries(parsed)
     .filter(([, value]) => isSnapshotEntry(value))
     .map(([key, entry]) => ({ key, entry: entry as SnapshotEntry }));
+}
+
+function isParsedCommandEntry(value: unknown): value is ParsedCommandEntry {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "parsed" in value &&
+    "error" in value
+  );
+}
+
+/** run-command's normalized `{"<command>": {parsed, error}}` output — see
+ * `ParsedCommandOutputEntry` in ./types. */
+export function isParsedCommandOutputEntry(
+  value: unknown,
+): value is ParsedCommandOutputEntry {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  if (
+    isParsedTemplateEntry(value) ||
+    isComparisonResultEntry(value) ||
+    isComparisonDiffEntry(value) ||
+    isGenieParsedConfigEntry(value) ||
+    isSnapshotEntry(value)
+  ) {
+    return false;
+  }
+  const commandEntries = Object.values(value as Record<string, unknown>);
+  return commandEntries.length > 0 && commandEntries.every(isParsedCommandEntry);
+}
+
+export function getParsedCommandOutputEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: ParsedCommandOutputEntry }> {
+  return Object.entries(parsed)
+    .filter(([, value]) => isParsedCommandOutputEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as ParsedCommandOutputEntry }));
 }

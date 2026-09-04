@@ -83,3 +83,18 @@ export interface SnapshotEntry {
   step_node_id: string;
   features: Record<string, SnapshotFeatureResult>;
 }
+
+/**
+ * Normalized per-command structured output from run-command when its
+ * `parser` is "textfsm" or "genie": `{"<command>": {parsed, error}}` at
+ * `device.parsed.<parsed_output_key>`. Both parsers write this same shape
+ * (see doc/WORKFLOW-STEPS.md "Normalized command-output parsing") so a
+ * command that couldn't be parsed carries `error` with `parsed: null`
+ * instead of failing the device.
+ */
+export interface ParsedCommandEntry {
+  parsed: unknown;
+  error: string | null;
+}
+
+export type ParsedCommandOutputEntry = Record<string, ParsedCommandEntry>;

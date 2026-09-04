@@ -433,6 +433,40 @@ that needs the same device connection info should declare
 `requires: [pyats_testbed]` and read the bag rather than re-resolving its own
 credential, the same way Add Testbed → Get & Parse Config do.
 
+### Normalized command-output parsing (`run-command`)
+
+`run-command`'s `parser` config selects **at most one** parser — `"none"` (default,
+raw text only), `"textfsm"` (netmiko/ntc-templates, no extra setup), or `"genie"`
+(via the pyATS shim above, requires `pyats_source_id`). Whichever is selected, the
+parsed result lands in the **same shape**, inline in `DeviceContext.parsed`, at:
+
+```
+parsed.<parsed_output_key>.<command> = {"parsed": <data-or-None>, "error": <str-or-None>}
+```
+
+`parsed_output_key` defaults to `"parsed"`. This is the one deliberate parity point
+between the two parsers: a downstream step (`route-on-attribute`'s `attribute_path`,
+a Jinja template, `log-attributes`) reads `parsed.<parsed_output_key>.<command>.parsed`
+the same way regardless of which parser produced it — it never branches on
+`parser == "textfsm"` vs `"genie"`.
+
+Both parsers are **non-fatal per command**: a command with no matching TextFSM
+template, or no Genie parser, gets `{"parsed": None, "error": "<reason>"}` for that
+command only — it never fails a device whose raw command execution already
+succeeded. Because of this, `Capability.PARSED` is never a guaranteed `produces` for
+`run-command` (see `effective_produces` in `services/workflow_context/guards.py`); a
+step that needs structured command output should declare `requires_parsed:
+[<parsed_output_key>]` rather than assuming the capability.
+
+**Do not build a second bridge from raw/parsed command output into `device.parsed`.**
+`filter-output` and `render-jinja-template` also write to `device.parsed`, but only
+artifact-ref *metadata* (`{"artifact_ref": ..., "size_bytes": ...}`) for their own
+large/exportable content — that is a different, intentionally separate contract for
+`store-artifact`-style consumers, not something `route-on-attribute` or a Jinja
+`parsed.*` placeholder can read as a literal value. `run-command`'s `parser` output
+above is the only inline, attribute-path-readable structured data a command
+produces.
+
 ### Optional modules
 
 | File         | Purpose                                              |

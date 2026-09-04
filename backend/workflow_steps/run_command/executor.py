@@ -67,20 +67,27 @@ def _parse_commands(config: dict[str, Any]) -> list[str]:
     return commands
 
 
-def _parse_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
+_PARSER_MODES = frozenset({"none", "textfsm", "genie"})
 
 
-def _parse_use_textfsm(config: dict[str, Any]) -> bool:
-    return _parse_bool(config.get("use_textfsm", False))
+def _parse_parser_mode(config: dict[str, Any]) -> str:
+    """Which parser (if any) normalizes this step's command output.
 
-
-def _parse_use_genie(config: dict[str, Any]) -> bool:
-    return _parse_bool(config.get("use_genie", False))
+    "textfsm" and "genie" are mutually exclusive: whichever is selected, the
+    result lands inline at ``parsed.<parsed_output_key>.<command>`` in the same
+    ``{"parsed": ..., "error": ...}`` shape (see ``_enrich_with_textfsm`` /
+    ``_enrich_with_genie``), so a downstream step never needs to know which
+    parser produced it.
+    """
+    raw = config.get("parser")
+    if raw is None:
+        raw = _default_config()["parser"]
+    mode = str(raw).strip().lower()
+    if mode not in _PARSER_MODES:
+        raise ValueError(
+            f"run-command: parser must be one of {sorted(_PARSER_MODES)}, got {mode!r}"
+        )
+    return mode
 
 
 def _build_summary(*, content: str, use_textfsm: bool) -> str:
@@ -288,12 +295,69 @@ def _partition_device_results(
     return success_devices, failed_devices, raw_outputs_by_device
 
 
+def _enrich_with_textfsm(
+    *,
+    success_devices: dict[str, DeviceContext],
+    raw_outputs_by_device: dict[str, dict[str, str]],
+    parsed_output_key: str,
+    run_id: Any,
+) -> dict[str, DeviceContext]:
+    """Normalize netmiko's TextFSM output into the same inline shape Genie
+    enrichment uses (``parsed.<parsed_output_key>.<command> = {"parsed", "error"}``),
+    so a downstream step reads structured command output the same way
+    regardless of which parser produced it.
+
+    Non-fatal per command, matching Genie: netmiko falls back to returning the
+    raw device text unchanged when no TextFSM template matches a command, so
+    that command's ``output`` isn't valid JSON here -- record it as an error
+    on that one command instead of failing the whole device.
+    """
+    enriched: dict[str, DeviceContext] = dict(success_devices)
+    ok_count = 0
+    error_count = 0
+    for device_id, device in success_devices.items():
+        raw_outputs = raw_outputs_by_device.get(device_id) or {}
+        if not raw_outputs:
+            continue
+        parsed_entry: dict[str, Any] = {}
+        for command, output in raw_outputs.items():
+            try:
+                data = json.loads(output)
+            except json.JSONDecodeError:
+                parsed_entry[command] = {
+                    "parsed": None,
+                    "error": "TextFSM did not match this command's output (no template found)",
+                }
+                error_count += 1
+                continue
+            parsed_entry[command] = {"parsed": data, "error": None}
+            ok_count += 1
+        parsed = dict(device.parsed)
+        parsed[parsed_output_key] = parsed_entry
+        enriched[device_id] = device.model_copy(
+            update={
+                "parsed": parsed,
+                "capabilities": device.capabilities | {Capability.PARSED},
+            }
+        )
+
+    logger.info(
+        "run-command textfsm parsing finished run_id=%s devices=%d commands_ok=%d "
+        "commands_error=%d",
+        run_id,
+        len(enriched),
+        ok_count,
+        error_count,
+    )
+    return enriched
+
+
 async def _enrich_with_genie(
     *,
     success_devices: dict[str, DeviceContext],
     raw_outputs_by_device: dict[str, dict[str, str]],
     pyats_source_id: str,
-    genie_output_key: str,
+    parsed_output_key: str,
     network_driver_override: str | None,
     db: Session,
     run_id: Any,
@@ -354,7 +418,7 @@ async def _enrich_with_genie(
             else:
                 ok_count += 1
         parsed = dict(device.parsed)
-        parsed[genie_output_key] = parsed_entry
+        parsed[parsed_output_key] = parsed_entry
         enriched[device_id] = device.model_copy(
             update={
                 "parsed": parsed,
@@ -417,18 +481,18 @@ async def execute(
         run_inputs=run.run_inputs,
     )
     commands = _parse_commands(config)
-    use_textfsm = _parse_use_textfsm(config)
+    parser_mode = _parse_parser_mode(config)
+    use_textfsm = parser_mode == "textfsm"
     network_driver_override = str(config.get("network_driver_override") or "").strip() or None
 
-    use_genie = _parse_use_genie(config)
     pyats_source_id = str(config.get("pyats_source_id") or "").strip()
-    genie_output_key = ""
-    if use_genie:
-        if not pyats_source_id:
-            raise ValueError("run-command: pyats_source_id is required when use_genie is enabled")
-        genie_output_key = parse_output_key(
-            config.get("genie_output_key") or _default_config()["genie_output_key"]
+    parsed_output_key = ""
+    if parser_mode != "none":
+        parsed_output_key = parse_output_key(
+            config.get("parsed_output_key") or _default_config()["parsed_output_key"]
         )
+    if parser_mode == "genie" and not pyats_source_id:
+        raise ValueError("run-command: pyats_source_id is required when parser is 'genie'")
 
     db = object_session(run)
     if db is None:
@@ -441,15 +505,13 @@ async def execute(
     total = len(context.devices)
 
     logger.info(
-        "run-command run_id=%s devices=%d credential=%s commands=%d textfsm=%s override=%s "
-        "genie=%s",
+        "run-command run_id=%s devices=%d credential=%s commands=%d parser=%s override=%s",
         run.id,
         total,
         credential_reference,
         len(commands),
-        use_textfsm,
+        parser_mode,
         network_driver_override,
-        use_genie,
     )
 
     results = await asyncio.gather(
@@ -477,12 +539,19 @@ async def execute(
 
     success_devices, failed_devices, raw_outputs_by_device = _partition_device_results(results)
 
-    if use_genie:
+    if parser_mode == "textfsm":
+        success_devices = _enrich_with_textfsm(
+            success_devices=success_devices,
+            raw_outputs_by_device=raw_outputs_by_device,
+            parsed_output_key=parsed_output_key,
+            run_id=run.id,
+        )
+    elif parser_mode == "genie":
         success_devices = await _enrich_with_genie(
             success_devices=success_devices,
             raw_outputs_by_device=raw_outputs_by_device,
             pyats_source_id=pyats_source_id,
-            genie_output_key=genie_output_key,
+            parsed_output_key=parsed_output_key,
             network_driver_override=network_driver_override,
             db=db,
             run_id=run.id,

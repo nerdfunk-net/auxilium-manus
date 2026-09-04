@@ -1254,38 +1254,41 @@ plugins:
           example:
             - show version
             - show running-config
-        - name: use_textfsm
-          description: Parse command output with TextFSM templates when available.
-          data_type: boolean
+        - name: parser
+          description: >
+            Which parser (if any) normalizes command output into structured data:
+            "none" (default, raw text only), "textfsm" (netmiko/ntc-templates), or
+            "genie" (via the pyATS shim — only available when a pyATS source is
+            configured under Settings → Sources). Whichever is selected, the parsed
+            result lands inline at the same location — parsed.<parsed_output_key>.
+            <command> = {parsed, error} — so downstream steps (Route on Attribute,
+            Jinja templates, Log Attributes) never need to know which parser
+            produced it.
+          data_type: string
           required: false
-          default: false
+          default: none
+          example: textfsm
         - name: network_driver_override
           description: Override the Netmiko device type for all devices in this step.
           data_type: string
           required: false
           example: cisco_ios
-        - name: use_genie
-          description: >
-            Parse command output with Genie via the pyATS shim. Only available when a
-            pyATS source is configured under Settings → Sources.
-          data_type: boolean
-          required: false
-          default: false
         - name: pyats_source_id
           description: >
             ID of a pyATS source configured under Settings → Sources. Required when
-            use_genie is true.
+            parser is "genie".
           data_type: string
           required: false
           example: lab-pyats
-        - name: genie_output_key
+        - name: parsed_output_key
           description: >
-            Unique key for this step's Genie-parsed output on each device (used by
-            downstream Jinja templates and Log Attributes as
-            parsed.<genie_output_key>). Nested per command.
+            Unique key for this step's parsed output on each device (used by
+            downstream Route on Attribute, Jinja templates, and Log Attributes as
+            parsed.<parsed_output_key>.<command>.parsed). Nested per command.
+            Only used when parser is not "none".
           data_type: string
           required: false
-          default: genie
+          default: parsed
 
   - id: deploy-rendered-template
     name: Deploy rendered Template
@@ -1407,12 +1410,16 @@ plugins:
             Dot path to the attribute to match. Use device.* for core fields
             (device.network_driver), bag paths for enriched attributes
             (nautobot.role.name, git.filename, custom.field), or parsed.* for a
-            step's parsed output (parsed.cisco_config.running.hostname, from
-            parse-cisco-config/render-jinja-template/filter-output). A
-            parsed.* leaf holding a list or dict (e.g.
+            step's inline parsed output — parsed.cisco_config.running.hostname
+            from Parse Cisco Config, or parsed.<parsed_output_key>.<command>.parsed
+            from Run Command when its parser is "textfsm" or "genie" (see
+            doc/WORKFLOW-STEPS.md). Filter Output and Render Jinja Template write
+            only artifact-ref metadata to parsed.*, not literal content — not
+            usable here. A parsed.* leaf holding a list or dict (e.g.
             parsed.cisco_config.running.aaa_servers.servers) can't be matched as
             a literal value, but {exists}/{empty}/{absent} still work to route
-            on whether it's populated.
+            on whether it's populated. A list can only be indexed with the
+            field[key=value] filter form, not a numeric index.
           data_type: string
           required: true
           example: device.network_driver

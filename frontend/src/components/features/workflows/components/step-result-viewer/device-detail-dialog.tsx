@@ -2,6 +2,7 @@
 
 import {
   Boxes,
+  Braces,
   FileCode2,
   FileText,
   GitCompareArrows,
@@ -30,6 +31,7 @@ import { DeviceCommandResultsContent } from "./device-command-results-content";
 import { DeviceComparisonDiffsContent } from "./device-comparison-diff-content";
 import { DeviceConfigSection } from "./device-config-section";
 import { DeviceErrorList } from "./device-error-list";
+import { DeviceParsedCommandOutputContent } from "./device-parsed-command-output-content";
 import { DeviceParsedTemplatesContent } from "./device-parsed-templates-content";
 import { DeviceSnapshotContent } from "./device-snapshot-content";
 import { DeviceStatusIcon } from "./devices-section";
@@ -37,6 +39,7 @@ import {
   getComparisonDiffEntries,
   getComparisonResultEntries,
   getGenieParsedConfigEntries,
+  getParsedCommandOutputEntries,
   getParsedTemplateEntries,
   getSnapshotEntries,
 } from "./parsed-guards";
@@ -88,6 +91,10 @@ export function DeviceDetailDialog({
   );
   const snapshotEntries = useMemo(
     () => getSnapshotEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
+  const parsedCommandOutputEntries = useMemo(
+    () => getParsedCommandOutputEntries(device.parsed ?? {}),
     [device.parsed],
   );
   const commandResultCount = useMemo(
@@ -192,6 +199,21 @@ export function DeviceDetailDialog({
       });
     }
 
+    if (parsedCommandOutputEntries.length > 0) {
+      list.push({
+        id: "parsed-command-output",
+        label: "Parsed command output",
+        icon: Braces,
+        count: parsedCommandOutputEntries.reduce(
+          (total, { entry }) => total + Object.keys(entry).length,
+          0,
+        ),
+        render: () => (
+          <DeviceParsedCommandOutputContent entries={parsedCommandOutputEntries} expanded />
+        ),
+      });
+    }
+
     if (parsedTemplateEntries.length > 0) {
       list.push({
         id: "rendered-templates",
@@ -260,6 +282,7 @@ export function DeviceDetailDialog({
     comparisonResultEntries,
     device,
     genieConfigEntries,
+    parsedCommandOutputEntries,
     parsedTemplateEntries,
     runId,
     snapshotEntries,

@@ -62,15 +62,15 @@ def _list_node(host: str):
 
 
 def _cmd_node(ref: str):
-    # use_textfsm so the step actually produces PARSED (StepRunner's post-step
-    # guard enforces the registry's declared `produces`).
+    # parser: textfsm so the step actually produces PARSED (StepRunner's
+    # post-step guard enforces the registry's declared `produces`).
     return node(
         "cmd",
         "run-command",
         {
             "credential_reference": ref,
             "commands": ["show ip interface brief"],
-            "use_textfsm": True,
+            "parser": "textfsm",
         },
     )
 

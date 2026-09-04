@@ -6,7 +6,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -19,7 +25,15 @@ import { pyatsSourceIdFromConfig, PYATS_SOURCE_ID_KEY } from "../shared/pyats-so
 import { RunCommandHelpPanel } from "./help-panel";
 
 const DEFAULT_COMMANDS = ["show version"];
-const DEFAULT_GENIE_OUTPUT_KEY = "genie";
+const DEFAULT_PARSED_OUTPUT_KEY = "parsed";
+
+type ParserMode = "none" | "textfsm" | "genie";
+
+const PARSER_MODE_OPTIONS: { value: ParserMode; label: string }[] = [
+  { value: "none", label: "None (raw text only)" },
+  { value: "textfsm", label: "TextFSM (netmiko/ntc-templates)" },
+  { value: "genie", label: "Genie (pyATS)" },
+];
 
 function parseCommands(config: Record<string, unknown>): string[] {
   const raw = config.commands;
@@ -29,18 +43,14 @@ function parseCommands(config: Record<string, unknown>): string[] {
   return raw.map((item) => (typeof item === "string" ? item : ""));
 }
 
-function parseUseTextfsm(config: Record<string, unknown>): boolean {
-  return config.use_textfsm === true;
+function parseParserMode(config: Record<string, unknown>): ParserMode {
+  return config.parser === "textfsm" || config.parser === "genie" ? config.parser : "none";
 }
 
-function parseUseGenie(config: Record<string, unknown>): boolean {
-  return config.use_genie === true;
-}
-
-function parseGenieOutputKey(config: Record<string, unknown>): string {
-  return typeof config.genie_output_key === "string" && config.genie_output_key.trim()
-    ? config.genie_output_key
-    : DEFAULT_GENIE_OUTPUT_KEY;
+function parseParsedOutputKey(config: Record<string, unknown>): string {
+  return typeof config.parsed_output_key === "string" && config.parsed_output_key.trim()
+    ? config.parsed_output_key
+    : DEFAULT_PARSED_OUTPUT_KEY;
 }
 
 function buildRunCommandConfig(
@@ -55,14 +65,13 @@ function buildRunCommandConfig(
     credential_param:
       typeof config.credential_param === "string" ? config.credential_param : "",
     commands: parseCommands(config),
-    use_textfsm: parseUseTextfsm(config),
+    parser: parseParserMode(config),
     network_driver_override:
       typeof config.network_driver_override === "string"
         ? config.network_driver_override
         : "",
-    use_genie: parseUseGenie(config),
     [PYATS_SOURCE_ID_KEY]: pyatsSourceIdFromConfig(config),
-    genie_output_key: parseGenieOutputKey(config),
+    parsed_output_key: parseParsedOutputKey(config),
     ...patch,
   };
 }
@@ -82,13 +91,12 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
   }, [nodeId, config, onChange]);
 
   const commands = useMemo(() => parseCommands(config), [config]);
-  const useTextfsm = useMemo(() => parseUseTextfsm(config), [config]);
+  const parserMode = useMemo(() => parseParserMode(config), [config]);
   const networkDriverOverride =
     typeof config.network_driver_override === "string" ? config.network_driver_override : "";
 
-  const useGenie = useMemo(() => parseUseGenie(config), [config]);
   const pyatsSourceId = useMemo(() => pyatsSourceIdFromConfig(config), [config]);
-  const genieOutputKey = useMemo(() => parseGenieOutputKey(config), [config]);
+  const parsedOutputKey = useMemo(() => parseParsedOutputKey(config), [config]);
   const { data: pyatsSourcesData } = usePyATSSourcesQuery();
   const hasPyatsSource = (pyatsSourcesData?.sources.length ?? 0) > 0;
 
@@ -116,9 +124,9 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
     [commands, config, onChange],
   );
 
-  const handleTextfsmChange = useCallback(
-    (checked: boolean) => {
-      onChange(buildRunCommandConfig(config, { use_textfsm: checked }));
+  const handleParserModeChange = useCallback(
+    (value: string) => {
+      onChange(buildRunCommandConfig(config, { parser: value }));
     },
     [config, onChange],
   );
@@ -130,13 +138,6 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
     [config, onChange],
   );
 
-  const handleGenieChange = useCallback(
-    (checked: boolean) => {
-      onChange(buildRunCommandConfig(config, { use_genie: checked }));
-    },
-    [config, onChange],
-  );
-
   const handleSourceIdChange = useCallback(
     (newSourceId: string) => {
       onChange(buildRunCommandConfig(config, { [PYATS_SOURCE_ID_KEY]: newSourceId }));
@@ -144,9 +145,9 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
     [config, onChange],
   );
 
-  const handleGenieOutputKeyChange = useCallback(
+  const handleParsedOutputKeyChange = useCallback(
     (value: string) => {
-      onChange(buildRunCommandConfig(config, { genie_output_key: value }));
+      onChange(buildRunCommandConfig(config, { parsed_output_key: value }));
     },
     [config, onChange],
   );
@@ -218,97 +219,90 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
         </p>
       </div>
 
-      <div className="flex items-start gap-2">
-        <input
-          id="use-textfsm"
-          type="checkbox"
-          checked={useTextfsm}
-          onChange={(event) => handleTextfsmChange(event.target.checked)}
-          className="mt-0.5 size-4 rounded border"
-        />
-        <div className="space-y-0.5">
-          <Label htmlFor="use-textfsm" className="font-mono text-xs font-medium">
-            use_textfsm
-          </Label>
-          <p className="text-[11px] text-muted-foreground">
-            Parse command output with TextFSM when a template is available.
-          </p>
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">parser</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
         </div>
+        <Select value={parserMode} onValueChange={handleParserModeChange}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PARSER_MODE_OPTIONS.filter(
+              (option) => option.value !== "genie" || hasPyatsSource,
+            ).map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">
+          Normalizes command output into structured data. Whichever parser you pick,
+          downstream steps read it the same way.
+        </p>
       </div>
 
-      {hasPyatsSource && (
+      {parserMode !== "none" && (
         <div className="space-y-2 border-t pt-3">
-          <div className="flex items-start gap-2">
-            <input
-              id="use-genie"
-              type="checkbox"
-              checked={useGenie}
-              onChange={(event) => handleGenieChange(event.target.checked)}
-              className="mt-0.5 size-4 rounded border"
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="use-genie" className="font-mono text-xs font-medium">
-                use_genie
-              </Label>
-              <p className="text-[11px] text-muted-foreground">
-                Parse command output with Genie via the pyATS shim.
-              </p>
-            </div>
-          </div>
-
-          {useGenie && (
-            <div className="space-y-2 pl-1">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-xs font-medium">{PYATS_SOURCE_ID_KEY}</span>
-                  <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                    pyats
-                  </Badge>
-                </div>
-
-                {pyatsSourceId ? (
-                  <p className="font-mono text-[11px] text-muted-foreground">{pyatsSourceId}</p>
-                ) : (
-                  <p className="text-[11px] text-warning-foreground">Not configured</p>
-                )}
-
-                <Button
-                  className="h-7 w-full text-xs"
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                  onClick={() => setSourceDialogOpen(true)}
-                >
-                  {pyatsSourceId ? "Edit Source" : "Configure Source"}
-                </Button>
+          {parserMode === "genie" && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-xs font-medium">{PYATS_SOURCE_ID_KEY}</span>
+                <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                  pyats
+                </Badge>
               </div>
 
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-xs font-medium">genie_output_key</span>
-                  <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-                    string
-                  </Badge>
-                </div>
-                <Input
-                  value={genieOutputKey}
-                  onChange={(event) => handleGenieOutputKeyChange(event.target.value)}
-                  placeholder="genie"
-                  className="h-8 font-mono text-xs"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Key for this step&apos;s Genie-parsed output on each device.
-                </p>
-              </div>
+              {pyatsSourceId ? (
+                <p className="font-mono text-[11px] text-muted-foreground">{pyatsSourceId}</p>
+              ) : (
+                <p className="text-[11px] text-warning-foreground">Not configured</p>
+              )}
+
+              <Button
+                className="h-7 w-full text-xs"
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => setSourceDialogOpen(true)}
+              >
+                {pyatsSourceId ? "Edit Source" : "Configure Source"}
+              </Button>
+
+              <PyATSSourceSelectDialog
+                open={sourceDialogOpen}
+                selectedSourceId={pyatsSourceId}
+                onClose={() => setSourceDialogOpen(false)}
+                onSave={handleSourceIdChange}
+              />
             </div>
           )}
 
-          <PyATSSourceSelectDialog
-            open={sourceDialogOpen}
-            selectedSourceId={pyatsSourceId}
-            onClose={() => setSourceDialogOpen(false)}
-            onSave={handleSourceIdChange}
-          />
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">parsed_output_key</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                string
+              </Badge>
+            </div>
+            <Input
+              value={parsedOutputKey}
+              onChange={(event) => handleParsedOutputKeyChange(event.target.value)}
+              placeholder="parsed"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Key for this step&apos;s parsed output on each device (
+              <span className="font-mono">
+                parsed.{parsedOutputKey || "parsed"}.&quot;&lt;command&gt;&quot;
+              </span>
+              ).
+            </p>
+          </div>
         </div>
       )}
     </div>

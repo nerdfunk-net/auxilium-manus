@@ -89,11 +89,13 @@ def effective_produces(
         return frozenset()
     if step_type == "run-command":
         # The registry lists ``produces: [parsed]``, but the executor only
-        # stamps Capability.PARSED under ``use_genie`` — and even then Genie
-        # enrichment is a documented non-fatal skip when the pyATS source is
-        # unavailable. So a plain / TextFSM run-command guarantees nothing on
-        # the capability level; downstream steps that need structured data
-        # declare ``requires_parsed`` and are checked on their own input.
+        # stamps Capability.PARSED when ``parser`` is "textfsm" or "genie" —
+        # and both are documented non-fatal per command (a command with no
+        # matching TextFSM template, or no Genie parser, just gets
+        # {"parsed": None, "error": ...} instead of failing the device). So a
+        # plain / parsed run-command guarantees nothing on the capability
+        # level; downstream steps that need structured data declare
+        # ``requires_parsed`` and are checked on their own input.
         return frozenset()
     return spec.produces
 

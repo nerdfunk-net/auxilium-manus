@@ -59,7 +59,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show version"],
-                    "use_textfsm": False,
+                    "parser": "none",
                 },
                 context=context,
                 run=run,
@@ -104,7 +104,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show ip route"],
-                    "use_textfsm": True,
+                    "parser": "textfsm",
                 },
                 context=WorkflowContext(
                     run_id="run-uuid-1",
@@ -117,8 +117,16 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        summary = outcomes[0].context.devices["device-1"].command_results["node-1"][0].summary
+        device = outcomes[0].context.devices["device-1"]
+        summary = device.command_results["node-1"][0].summary
         self.assertEqual(summary, "2 row(s) parsed")
+
+        # Normalized inline shape: identical to what parser="genie" produces,
+        # so downstream steps don't need to know which parser ran.
+        self.assertEqual(
+            device.parsed["parsed"]["show ip route"], {"parsed": parsed, "error": None}
+        )
+        self.assertIn(Capability.PARSED, device.capabilities)
 
     async def test_resolves_credential_scoped_to_triggering_user(self) -> None:
         run = MagicMock()
@@ -149,7 +157,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show version"],
-                    "use_textfsm": False,
+                    "parser": "none",
                 },
                 context=WorkflowContext(
                     run_id="run-uuid-1",
@@ -223,14 +231,34 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    async def test_use_genie_without_source_id_raises(self) -> None:
+    async def test_invalid_parser_raises(self) -> None:
         run = MagicMock()
         with self.assertRaises(ValueError):
             await execute(
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show version"],
-                    "use_genie": True,
+                    "parser": "bogus",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_genie_parser_without_source_id_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "parser": "genie",
                     "pyats_source_id": "",
                 },
                 context=WorkflowContext(
@@ -244,7 +272,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-    async def test_genie_disabled_leaves_parsed_empty(self) -> None:
+    async def test_parser_none_leaves_parsed_empty(self) -> None:
         run = MagicMock()
         run.id = 1
         db = MagicMock()
@@ -272,7 +300,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show version"],
-                    "use_genie": False,
+                    "parser": "none",
                 },
                 context=WorkflowContext(
                     run_id="run-uuid-1",
@@ -335,9 +363,9 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show version"],
-                    "use_genie": True,
+                    "parser": "genie",
                     "pyats_source_id": "lab-pyats",
-                    "genie_output_key": "genie",
+                    "parsed_output_key": "genie",
                 },
                 context=WorkflowContext(
                     run_id="run-uuid-1",
@@ -403,7 +431,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show version"],
-                    "use_genie": True,
+                    "parser": "genie",
                     "pyats_source_id": "lab-pyats",
                 },
                 context=WorkflowContext(
@@ -420,8 +448,8 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 1)
         device = outcomes[0].context.devices["device-1"]
         self.assertEqual(device.status, DeviceStatus.OK)
-        self.assertIsNone(device.parsed["genie"]["show version"]["parsed"])
-        self.assertEqual(device.parsed["genie"]["show version"]["error"], "ParserNotFound")
+        self.assertIsNone(device.parsed["parsed"]["show version"]["parsed"])
+        self.assertEqual(device.parsed["parsed"]["show version"]["error"], "ParserNotFound")
 
     async def test_genie_infra_failure_does_not_fail_device(self) -> None:
         run = MagicMock()
@@ -459,7 +487,7 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 config={
                     "credential_reference": "lab-ssh",
                     "commands": ["show version"],
-                    "use_genie": True,
+                    "parser": "genie",
                     "pyats_source_id": "lab-pyats",
                 },
                 context=WorkflowContext(
@@ -476,7 +504,61 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(outcomes), 1)
         device = outcomes[0].context.devices["device-1"]
         self.assertEqual(device.status, DeviceStatus.OK)
-        self.assertNotIn("genie", device.parsed)
+        self.assertNotIn("parsed", device.parsed)
+
+    async def test_textfsm_no_match_records_per_command_error_without_failing_device(
+        self,
+    ) -> None:
+        """Mirrors test_genie_per_command_error_does_not_fail_device: netmiko
+        falls back to raw text when no TextFSM template matches, which isn't
+        valid JSON -- that must land as a per-command error, not a device
+        failure, same as an unmatched Genie parser."""
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="% Invalid input detected",
+                    command_outputs={"show bogus": "% Invalid input detected"},
+                )
+            )
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show bogus"],
+                    "parser": "textfsm",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        device = outcomes[0].context.devices["device-1"]
+        self.assertEqual(device.status, DeviceStatus.OK)
+        self.assertIn(Capability.PARSED, device.capabilities)
+        self.assertIsNone(device.parsed["parsed"]["show bogus"]["parsed"])
+        self.assertIsNotNone(device.parsed["parsed"]["show bogus"]["error"])
 
 
 if __name__ == "__main__":
