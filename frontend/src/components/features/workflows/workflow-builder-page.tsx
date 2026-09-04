@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
@@ -30,6 +30,7 @@ import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
 import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import { useWorkflowCanvas } from "./hooks/use-workflow-canvas";
+import { useWorkflowKeyboardShortcuts } from "./hooks/use-workflow-keyboard-shortcuts";
 import { useWorkflowPersistence } from "./hooks/use-workflow-persistence";
 import { useWorkflowRunActions } from "./hooks/use-workflow-run-actions";
 
@@ -63,6 +64,16 @@ export function WorkflowBuilderPage() {
       void requestRun(id);
     };
   }, [requestRun]);
+
+  const { handleSave, handleOpen, setIsSaveAsOpen } = persistence;
+  const handleSaveAsShortcut = useCallback(() => {
+    setIsSaveAsOpen(true);
+  }, [setIsSaveAsOpen]);
+  useWorkflowKeyboardShortcuts({
+    onSave: handleSave,
+    onSaveAs: handleSaveAsShortcut,
+    onOpen: handleOpen,
+  });
 
   // Cross-route "Load Workflow" / "Show Run" requests (Schedules page). The
   // caller only sets `pendingWorkflowLoad` + navigates here; we run the normal

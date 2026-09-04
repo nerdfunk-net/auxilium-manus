@@ -38,6 +38,8 @@ import {
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
 
+const SHORTCUT_MODIFIER = "Ctrl+";
+
 interface WorkflowTopbarProps {
   onNew: () => void;
   onOpen: () => void;
@@ -163,6 +165,9 @@ export function WorkflowTopbar({
             <DropdownMenuItem onSelect={onOpen}>
               <FolderOpen className="size-4" />
               Open…
+              <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+                {SHORTCUT_MODIFIER}O
+              </span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onManage}>
               <FolderCog className="size-4" />
@@ -172,10 +177,16 @@ export function WorkflowTopbar({
             <DropdownMenuItem onSelect={onSave}>
               <Save className="size-4" />
               Save
+              <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+                {SHORTCUT_MODIFIER}S
+              </span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onSaveAs}>
               <SaveAll className="size-4" />
               Save As…
+              <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+                {SHORTCUT_MODIFIER}Shift+S
+              </span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onVersionControl} disabled={!workflowId}>
