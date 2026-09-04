@@ -226,13 +226,13 @@ export function ISESourceDialog({
                   id="ise-credential"
                   value={field.value ?? null}
                   onChange={(next) => field.onChange(next ?? undefined)}
-                  credentialType="token"
+                  credentialType="generic"
                 />
               )}
             />
             <p className="text-xs text-muted-foreground">
-              ISE uses this credential&apos;s username and secret — pick a token
-              credential that has a username set.
+              ISE authenticates with HTTP Basic Auth — pick a Basic Auth
+              credential with a username and password set.
             </p>
             {errors.credentialId ? (
               <p className="text-xs text-destructive">Select a credential.</p>

@@ -42,7 +42,7 @@ const formSchema = z
   .object({
     name: z.string().min(1, "Required").max(128),
     username: z.string().min(1, "Required").max(128),
-    type: z.enum(["ssh", "ssh_key", "token"]),
+    type: z.enum(["ssh", "ssh_key", "token", "generic"]),
     password: z.string().optional(),
     ssh_private_key: z.string().optional(),
     ssh_passphrase: z.string().optional(),
@@ -80,7 +80,7 @@ const USERNAME_HINTS: Record<CredentialType, string> = {
   ssh: "admin",
   ssh_key: "git",
   token: "the account the token belongs to, if required",
-  generic: "",
+  generic: "admin",
   tacacs: "",
 };
 
@@ -110,7 +110,7 @@ export function CredentialFormDialog({
       form.reset({
         name: credential.name,
         username: credential.username,
-        type: editableType as "ssh" | "ssh_key" | "token",
+        type: editableType as "ssh" | "ssh_key" | "token" | "generic",
         password: "",
         ssh_private_key: "",
         ssh_passphrase: "",

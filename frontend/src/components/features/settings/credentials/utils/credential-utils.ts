@@ -33,20 +33,21 @@ export function credentialStatusLabel(status: CredentialStatus): string {
   return STATUS_LABELS[status];
 }
 
-/** Credential types selectable in the Credentials UI. "generic" and "tacacs"
- * exist on the backend but are created programmatically by other features
- * (Sources connections, TACACS device auth) — not offered here. */
+/** Credential types selectable in the Credentials UI. "tacacs" exists on the
+ * backend but is created programmatically by other features (TACACS device
+ * auth) — not offered here. */
 export const SELECTABLE_CREDENTIAL_TYPES: readonly CredentialType[] = [
   "ssh",
   "ssh_key",
   "token",
+  "generic",
 ];
 
 const TYPE_LABELS: Record<CredentialType, string> = {
   ssh: "SSH Login",
   ssh_key: "SSH Key",
   token: "Token",
-  generic: "Generic",
+  generic: "Basic Auth (Username + Password)",
   tacacs: "TACACS",
 };
 
