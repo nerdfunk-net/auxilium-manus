@@ -25,8 +25,8 @@ export async function requirePermissionOr404(resource: string, action: string): 
     notFound();
   }
 
-  const payload = (await userResponse.json()) as { user: AuthUser };
-  if (!payload.user.permissions.includes(`${resource}:${action}`)) {
+  const user = (await userResponse.json()) as AuthUser;
+  if (!user.permissions.includes(`${resource}:${action}`)) {
     notFound();
   }
 }
