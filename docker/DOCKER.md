@@ -21,7 +21,16 @@ Or use the helper:
 
 ### Certificate errors (private CA)
 
-Place `.crt` files in `docker/certs/` and rebuild with `Dockerfile.basic` or extend `Dockerfile.all-in-one`.
+For the `docker compose` / all-in-one stack, drop `.crt` files in repo-root
+`config/certs/` and set `INSTALL_CERTIFICATE_FILES=true` in `docker/.env` — that
+directory is bind-mounted into every service (`../config:/app/config`) and
+installed at container startup, no rebuild needed. `docker/certs/` is only for
+a build-time `Dockerfile.basic` image (baked into the image at `docker build`
+time, not bind-mounted); it does nothing for `Dockerfile.all-in-one`.
+
+`docker/start.sh` installs the certs as root before dropping to the
+unprivileged `manus` user; the app then logs "N certificate(s) already
+installed, nothing to do" rather than re-copying them.
 
 ## Runtime failures
 

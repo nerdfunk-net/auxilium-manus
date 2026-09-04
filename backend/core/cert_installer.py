@@ -53,9 +53,19 @@ def install_certificates(
         return
 
     copied_count = 0
+    already_installed_count = 0
     for cert_file in cert_files:
+        dest = system_ca_dir / cert_file.name
+        # A prior root-owned run (e.g. docker/start.sh, before this process
+        # dropped to the unprivileged runtime account) may have already
+        # installed the identical file. Re-copying it would only fail with a
+        # misleading "Permission denied" once running as that unprivileged
+        # user — skip it instead of logging a false failure.
+        if dest.exists() and dest.read_bytes() == cert_file.read_bytes():
+            already_installed_count += 1
+            continue
         try:
-            shutil.copy2(cert_file, system_ca_dir / cert_file.name)
+            shutil.copy2(cert_file, dest)
             logger.info("Copied: %s", cert_file.name)
             copied_count += 1
         except PermissionError:
@@ -64,7 +74,13 @@ def install_certificates(
             logger.error("Failed to copy %s: %s", cert_file.name, e)
 
     if copied_count == 0:
-        logger.info("No certificates were copied")
+        if already_installed_count:
+            logger.info(
+                "%s certificate(s) already installed, nothing to do",
+                already_installed_count,
+            )
+        else:
+            logger.info("No certificates were copied")
         return
 
     logger.info("Running update-ca-certificates...")

@@ -141,6 +141,43 @@ def test_permission_denied_copying_cert_skips_refresh(
     run_mock.assert_not_called()
 
 
+def test_skips_cert_already_installed_by_root(
+    enabled: None,
+    certs_dir: Path,
+    system_ca_dir: Path,
+    run_mock: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A prior root-owned run may have already copied the identical file;
+    re-copying it as an unprivileged user would only fail with a misleading
+    Permission denied. Skip it instead."""
+    caplog.set_level("INFO")
+    _write_cert(certs_dir, "ca.crt")
+    system_ca_dir.mkdir(parents=True)
+    _write_cert(system_ca_dir, "ca.crt")
+
+    cert_installer.install_certificates(certs_dir, system_ca_dir)
+
+    run_mock.assert_not_called()
+    assert "already installed" in caplog.text
+
+
+def test_reinstalls_cert_when_content_differs_from_existing(
+    enabled: None,
+    certs_dir: Path,
+    system_ca_dir: Path,
+    run_mock: MagicMock,
+) -> None:
+    _write_cert(certs_dir, "ca.crt")
+    system_ca_dir.mkdir(parents=True)
+    (system_ca_dir / "ca.crt").write_text("stale content")
+
+    cert_installer.install_certificates(certs_dir, system_ca_dir)
+
+    assert (system_ca_dir / "ca.crt").read_text() == _PEM
+    run_mock.assert_called_once()
+
+
 def test_update_ca_certificates_missing_is_swallowed(
     enabled: None, certs_dir: Path, system_ca_dir: Path, run_mock: MagicMock
 ) -> None:
