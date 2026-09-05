@@ -25,6 +25,8 @@ export interface WorkflowExportFile {
   description: string | null;
   folder: string | null;
   visibility: WorkflowVisibility;
+  /** Wiki markdown notes only — the wiki's Changes audit trail is never exported. */
+  notes: string | null;
   canvas_nodes: Record<string, unknown>[];
   canvas_edges: Record<string, unknown>[];
   canvas_groups: Record<string, unknown>[];

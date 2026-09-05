@@ -4,6 +4,10 @@ import type { Template, TemplateListItem } from "@/components/features/templates
 import { queryKeys } from "@/lib/query-keys";
 
 import type { WorkflowExportFile } from "../types/workflow-export";
+import type {
+  WorkflowNotesResponse,
+  WorkflowResponse,
+} from "../types/workflow-persistence";
 import {
   applyCredentialRemap,
   applyTemplateIdRemap,
@@ -31,11 +35,11 @@ interface ExecuteWorkflowImportSaveArgs {
   credentialRemap: Map<string, string>;
   apiCall: <T>(path: string, init?: RequestInit) => Promise<T>;
   queryClient: QueryClient;
-  createWorkflow: (payload: WorkflowImportSavePayload) => Promise<unknown>;
+  createWorkflow: (payload: WorkflowImportSavePayload) => Promise<WorkflowResponse>;
   updateWorkflow: (args: {
     id: number;
     data: WorkflowImportSavePayload;
-  }) => Promise<unknown>;
+  }) => Promise<WorkflowResponse>;
 }
 
 export async function executeWorkflowImportSave({
@@ -81,9 +85,19 @@ export async function executeWorkflowImportSave({
     static_attributes: importFile.static_attributes,
   };
 
-  if (overwriteId !== undefined) {
-    await updateWorkflow({ id: overwriteId, data: payload });
-  } else {
-    await createWorkflow(payload);
-  }
+  const workflow =
+    overwriteId !== undefined
+      ? await updateWorkflow({ id: overwriteId, data: payload })
+      : await createWorkflow(payload);
+
+  // Notes live outside WorkflowCreate/WorkflowUpdate (see WorkflowNotesUpdate
+  // in backend/models/workflows.py) — set via the dedicated endpoint. The
+  // wiki's Changes audit trail is intentionally never touched by import.
+  await apiCall<WorkflowNotesResponse>(`workflows/${workflow.id}/notes`, {
+    method: "PATCH",
+    body: JSON.stringify({ notes: importFile.notes }),
+  });
+  await queryClient.invalidateQueries({
+    queryKey: queryKeys.workflows.detail(workflow.id),
+  });
 }

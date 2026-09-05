@@ -110,6 +110,8 @@ export function parseWorkflowExportFile(raw: unknown): WorkflowExportFile {
     description: typeof obj.description === "string" ? obj.description : null,
     folder: typeof obj.folder === "string" ? obj.folder : null,
     visibility: obj.visibility === "public" ? "public" : "private",
+    // Legacy export files predate wiki notes — default to none.
+    notes: typeof obj.notes === "string" ? obj.notes : null,
     canvas_nodes: obj.canvas_nodes as Record<string, unknown>[],
     canvas_edges: obj.canvas_edges as Record<string, unknown>[],
     canvas_groups: obj.canvas_groups as Record<string, unknown>[],

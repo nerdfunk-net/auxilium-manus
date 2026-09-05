@@ -56,6 +56,7 @@ export function useWorkflowExportMutation() {
         description: wf.description,
         folder: wf.folder,
         visibility: wf.visibility,
+        notes: wf.notes ?? null,
         canvas_nodes: canvasNodes,
         canvas_edges: wf.canvas_edges ?? [],
         canvas_groups: wf.canvas_groups ?? [],
