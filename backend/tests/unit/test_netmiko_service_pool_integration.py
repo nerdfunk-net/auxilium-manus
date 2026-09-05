@@ -37,7 +37,14 @@ class FakeSession:
     def is_alive(self) -> bool:
         return self.connected
 
-    def send_commands(self, commands: list[str], *, use_textfsm: bool = False) -> CommandResult:
+    def send_commands(
+        self,
+        commands: list[str],
+        *,
+        use_textfsm: bool = False,
+        read_timeout: int | None = None,
+        auto_confirm_prompts: bool = False,
+    ) -> CommandResult:
         return CommandResult(
             success=True, output="ok", command_outputs={c: "ok" for c in commands}
         )

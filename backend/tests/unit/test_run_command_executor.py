@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.network.netmiko.connection import CommandResult as NetmikoCommandResult
+from services.network.netmiko.connection import DeployResult as NetmikoDeployResult
 from services.pyats.common.exceptions import PyATSAPIError
 from workflow_steps.run_command.executor import execute
 
@@ -559,6 +560,254 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(Capability.PARSED, device.capabilities)
         self.assertIsNone(device.parsed["parsed"]["show bogus"]["parsed"])
         self.assertIsNotNone(device.parsed["parsed"]["show bogus"]["error"])
+
+    async def test_exec_mode_auto_confirm_prompts_summary_suffix(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="ok",
+                    command_outputs={"reload": "ok", "show version": "Cisco IOS"},
+                    confirmed_prompts=["reload"],
+                )
+            )
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["reload", "show version"],
+                    "parser": "none",
+                    "auto_confirm_prompts": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        device = outcomes[0].context.devices["device-1"]
+        results = {r.command: r for r in device.command_results["node-1"]}
+        self.assertIn("confirmation prompt auto-confirmed", results["reload"].summary)
+        self.assertNotIn("confirmation prompt auto-confirmed", results["show version"].summary)
+        self.assertTrue(netmiko.send_commands.call_args.kwargs["auto_confirm_prompts"])
+
+    async def test_config_mode_success_stores_single_result(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(success=True, config_output="ok")
+            )
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["interface Gi0/0", "no shutdown"],
+                    "execution_mode": "config_mode",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        device = outcomes[0].context.devices["device-1"]
+        results = device.command_results["node-1"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].command, "run-command-config-mode")
+        netmiko.send_commands.assert_not_called()
+
+    async def test_config_mode_failure_stores_session_log_artifact(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(
+                    success=False,
+                    error="Pattern not detected",
+                    session_log="LAB(config-if)#",
+                )
+            )
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["interface Gi0/0"],
+                    "execution_mode": "config_mode",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(outcomes), 2)
+        failed_device = outcomes[1].context.devices["device-1"]
+        results = failed_device.command_results["node-1"]
+        self.assertEqual(results[0].command, "run-command-config-mode")
+        self.assertEqual(results[1].command, "netmiko-session-log")
+
+    async def test_config_mode_write_config_after_execution_stores_save_result(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(
+                    success=True, config_output="ok", save_output="ok"
+                )
+            )
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["interface Gi0/0"],
+                    "execution_mode": "config_mode",
+                    "write_config_after_execution": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        device = outcomes[0].context.devices["device-1"]
+        results = device.command_results["node-1"]
+        self.assertEqual(results[1].command, "copy running-config startup-config")
+        self.assertTrue(netmiko.deploy_config.call_args.kwargs["write_config"])
+
+    async def test_parser_with_config_mode_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["interface Gi0/0"],
+                    "parser": "textfsm",
+                    "execution_mode": "config_mode",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_parser_with_auto_confirm_prompts_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "parser": "genie",
+                    "pyats_source_id": "lab-pyats",
+                    "auto_confirm_prompts": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_write_config_after_execution_with_exec_mode_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "execution_mode": "exec_mode",
+                    "write_config_after_execution": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
 
 
 if __name__ == "__main__":

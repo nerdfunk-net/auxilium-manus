@@ -1263,7 +1263,8 @@ plugins:
             result lands inline at the same location — parsed.<parsed_output_key>.
             <command> = {parsed, error} — so downstream steps (Route on Attribute,
             Jinja templates, Log Attributes) never need to know which parser
-            produced it.
+            produced it. parser must be "none" when execution_mode is "config_mode"
+            or auto_confirm_prompts is enabled — the two are mutually exclusive.
           data_type: string
           required: false
           default: none
@@ -1289,6 +1290,44 @@ plugins:
           data_type: string
           required: false
           default: parsed
+        - name: execution_mode
+          description: >
+            How commands are sent to the device: exec_mode (default — send each
+            command individually as an exec-level command, today's only behavior) or
+            config_mode (enter configuration mode once, send every command, then
+            exit). parser must be "none" when execution_mode is config_mode.
+          data_type: string
+          required: false
+          default: exec_mode
+          example: config_mode
+        - name: write_config_after_execution
+          description: >
+            After a successful config_mode run, run "copy running-config
+            startup-config" and confirm the prompt automatically. Only valid when
+            execution_mode is config_mode — an error otherwise.
+          data_type: boolean
+          required: false
+          default: false
+        - name: read_timeout
+          description: >
+            Seconds to wait for each command's response before failing with a
+            Netmiko "Pattern not detected" timeout. Applies in both exec_mode and
+            config_mode. On a config_mode failure, the raw Netmiko session log up to
+            the failure is stored as an artifact for diagnosis.
+          data_type: integer
+          required: false
+          default: 60
+          example: 120
+        - name: auto_confirm_prompts
+          description: >
+            RISK: when a command triggers a Cisco-style interactive confirmation
+            (e.g. "...Do you want to continue? [confirm]"), automatically press
+            Enter to accept it instead of failing. Disabled by default. parser must
+            be "none" when this is enabled. Any command actually confirmed this way
+            is recorded in the step's output summary and worker logs.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: deploy-rendered-template
     name: Deploy rendered Template

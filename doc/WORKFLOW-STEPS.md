@@ -400,6 +400,11 @@ Key points for step authors:
   live session available for a rollback step.
 - Emergency rollback: `settings.netmiko_session_pooling = False` restores the
   legacy fresh-session-per-call behavior without a code change.
+- `run-command`'s `execution_mode: "config_mode"` branch calls the exact same
+  `NetmikoService.deploy_config()` codepath as `deploy-rendered-template`, so it
+  inherits the same base-state-on-return guarantee (`exit_config_mode()` always
+  runs, including after a mid-loop `auto_confirm_prompts` confirmation) without
+  any new code.
 
 ### Calling pyATS from a step
 
@@ -443,6 +448,15 @@ parsed result lands in the **same shape**, inline in `DeviceContext.parsed`, at:
 ```
 parsed.<parsed_output_key>.<command> = {"parsed": <data-or-None>, "error": <str-or-None>}
 ```
+
+`parser` is mutually exclusive with `execution_mode: "config_mode"` and with
+`auto_confirm_prompts: true` — `run-command` raises a `ValueError` at execute-time if
+`parser` is anything other than `"none"` while either of those is set. Config-mode
+output isn't line-addressable the way exec-mode output is (see
+`deploy-rendered-template`'s identical constraint), and a confirm-handling command's
+output isn't guaranteed to be well-formed TextFSM/Genie input either. `parser`
+defaults to `"none"`, and `execution_mode` defaults to `"exec_mode"` — set `parser` to
+a real value only when staying in `exec_mode` with `auto_confirm_prompts` off.
 
 `parsed_output_key` defaults to `"parsed"`. This is the one deliberate parity point
 between the two parsers: a downstream step (`route-on-attribute`'s `attribute_path`,

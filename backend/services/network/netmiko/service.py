@@ -67,6 +67,8 @@ class NetmikoService:
         privileged: bool = True,
         use_textfsm: bool = False,
         device_type: str | None = None,
+        read_timeout: int | None = None,
+        auto_confirm_prompts: bool = False,
     ) -> CommandResult:
         del privileged  # pooled sessions always connect privileged; see module docstring
         resolved_device_type = device_type or resolve_netmiko_device_type(
@@ -75,7 +77,12 @@ class NetmikoService:
         )
 
         def _op(session: NetmikoDeviceSession) -> CommandResult:
-            return session.send_commands(commands, use_textfsm=use_textfsm)
+            return session.send_commands(
+                commands,
+                use_textfsm=use_textfsm,
+                read_timeout=read_timeout or DEFAULT_READ_TIMEOUT,
+                auto_confirm_prompts=auto_confirm_prompts,
+            )
 
         return await self._pool.run_on_device(
             host=host,

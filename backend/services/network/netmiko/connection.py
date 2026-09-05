@@ -32,6 +32,7 @@ class CommandResult:
     output: str = ""
     command_outputs: dict[str, str] = field(default_factory=dict)
     error: str | None = None
+    confirmed_prompts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -247,28 +248,52 @@ class NetmikoDeviceSession:
         *,
         read_timeout: int = DEFAULT_READ_TIMEOUT,
         use_textfsm: bool = False,
+        auto_confirm_prompts: bool = False,
     ) -> CommandResult:
+        if auto_confirm_prompts and use_textfsm:
+            # Confirm-handling reads output via expect_string; textfsm-parsed structures
+            # aren't strings, so the confirm-cue check in _send_command_confirming can't
+            # apply. Callers must resolve parsing before turning this on.
+            raise ValueError(
+                "send_commands: use_textfsm and auto_confirm_prompts are mutually exclusive"
+            )
+
         self.connect()
         outputs: dict[str, str] = {}
         combined: list[str] = []
+        confirmed: list[str] = []
 
         try:
             for command in commands:
-                raw = self.connection.send_command(
-                    command,
-                    use_textfsm=use_textfsm,
-                    read_timeout=read_timeout,
-                )
-                text = serialize_command_output(raw)
+                if auto_confirm_prompts:
+                    text, was_confirmed = self._send_command_confirming(
+                        command, read_timeout=read_timeout
+                    )
+                    if was_confirmed:
+                        confirmed.append(command)
+                else:
+                    raw = self.connection.send_command(
+                        command,
+                        use_textfsm=use_textfsm,
+                        read_timeout=read_timeout,
+                    )
+                    text = serialize_command_output(raw)
                 outputs[command] = text
                 combined.append(text)
             return CommandResult(
                 success=True,
                 output="\n".join(combined),
                 command_outputs=outputs,
+                confirmed_prompts=confirmed,
             )
         except Exception as exc:
-            return CommandResult(success=False, output="\n".join(combined), error=str(exc))
+            return CommandResult(
+                success=False,
+                output="\n".join(combined),
+                command_outputs=outputs,
+                error=str(exc),
+                confirmed_prompts=confirmed,
+            )
 
     def _confirm_prompt_pattern(self) -> str:
         base_prompt = re.escape(getattr(self.connection, "base_prompt", ""))
