@@ -26,6 +26,7 @@ export interface UseWorkflowSaveOptions {
     workflowFolder: string;
     workflowVisibility: WorkflowVisibility;
     workflowIsVersionControlled: boolean;
+    workflowNotes: string | null;
   }) => void;
   setIsSaveAsOpen: (open: boolean) => void;
   openAfterSave: boolean;
@@ -98,6 +99,7 @@ export function useWorkflowSave({
           workflowFolder: saved.folder ?? "/",
           workflowVisibility: saved.visibility as WorkflowVisibility,
           workflowIsVersionControlled: saved.is_version_controlled,
+          workflowNotes: saved.notes ?? null,
         });
         setIsSaveAsOpen(false);
         markSaved(`Saved as "${saved.name}"`);
@@ -171,6 +173,7 @@ export function useWorkflowSave({
           workflowFolder: saved.folder ?? "/",
           workflowVisibility: saved.visibility as WorkflowVisibility,
           workflowIsVersionControlled: saved.is_version_controlled,
+          workflowNotes: saved.notes ?? null,
         });
         setIsSaveAsOpen(false);
         markSaved(`Saved as "${saved.name}"`);

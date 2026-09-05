@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, CheckCircle2, Clock, Grid3x3, LayoutGrid, Magnet, MoveHorizontal, MoveVertical, XCircle } from "lucide-react";
+import { Activity, BookOpen, CheckCircle2, Clock, Grid3x3, LayoutGrid, Magnet, MoveHorizontal, MoveVertical, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,11 +14,13 @@ const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "paused"]);
 interface WorkflowRunControlsProps {
   onAutoLayout: () => void;
   isAutoLayoutRunning?: boolean;
+  onOpenWiki: () => void;
 }
 
 export function WorkflowRunControls({
   onAutoLayout,
   isAutoLayoutRunning = false,
+  onOpenWiki,
 }: WorkflowRunControlsProps) {
   const workflowStatus = useWorkflowBuilderStore((state) => state.workflowStatus);
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
@@ -139,6 +141,16 @@ export function WorkflowRunControls({
           <LayoutGrid className="size-3.5" aria-hidden />
           {isAutoLayoutRunning ? "Laying out…" : "Auto layout"}
         </Button>
+        <div className="mx-0.5 h-4 w-px bg-border" />
+        <button
+          aria-label="Workflow wiki"
+          className="flex items-center justify-center rounded-[7px] border p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+          onClick={onOpenWiki}
+          title="Workflow wiki — notes and change history"
+          type="button"
+        >
+          <BookOpen className="size-3.5" aria-hidden />
+        </button>
       </span>
     </footer>
   );

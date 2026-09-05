@@ -69,6 +69,7 @@ export function useWorkflowPersistence({
   const [isOpenConfirmOpen, setIsOpenConfirmOpen] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isWikiOpen, setIsWikiOpen] = useState(false);
   const [isNewConfirmOpen, setIsNewConfirmOpen] = useState(false);
   const [openAfterSave, setOpenAfterSave] = useState(false);
   const [runAfterSave, setRunAfterSave] = useState(false);
@@ -171,6 +172,7 @@ export function useWorkflowPersistence({
             workflowFolder: full.folder ?? "/",
             workflowVisibility: full.visibility as WorkflowVisibility,
             workflowIsVersionControlled: full.is_version_controlled,
+            workflowNotes: full.notes ?? null,
           });
           if (loaded.migrated) {
             markDirty();
@@ -193,6 +195,7 @@ export function useWorkflowPersistence({
         workflowFolder: full.folder ?? "/",
         workflowVisibility: full.visibility as WorkflowVisibility,
         workflowIsVersionControlled: full.is_version_controlled,
+        workflowNotes: full.notes ?? null,
       });
       markSaved(`Restored "${full.name}"`);
     },
@@ -217,6 +220,7 @@ export function useWorkflowPersistence({
       isOpenConfirmOpen,
       isManageOpen,
       isHistoryOpen,
+      isWikiOpen,
       isNewConfirmOpen,
       openAfterSave,
       runAfterSave,
@@ -225,6 +229,7 @@ export function useWorkflowPersistence({
       setIsOpenConfirmOpen,
       setIsManageOpen,
       setIsHistoryOpen,
+      setIsWikiOpen,
       setIsNewConfirmOpen,
       closeSaveAs,
       confirmNew,
@@ -253,6 +258,7 @@ export function useWorkflowPersistence({
       isOpenConfirmOpen,
       isManageOpen,
       isHistoryOpen,
+      isWikiOpen,
       isNewConfirmOpen,
       openAfterSave,
       runAfterSave,

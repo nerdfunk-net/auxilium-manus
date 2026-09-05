@@ -11,6 +11,7 @@ from core.domain_exceptions import (
     ValidationFailedError,
 )
 from core.models.workflows import Workflow
+from models.workflow_changes import WorkflowChangeListResponse
 from models.workflows import (
     StaticAttributeDef,
     WorkflowCreate,
@@ -19,6 +20,7 @@ from models.workflows import (
     WorkflowGitSyncStatus,
     WorkflowListResponse,
     WorkflowNameCheckResponse,
+    WorkflowNotesResponse,
     WorkflowResponse,
     WorkflowSummary,
     WorkflowUpdate,
@@ -27,6 +29,7 @@ from repositories.workflow_repository import WorkflowRepository
 from services.execution.background_tier_service import BackgroundTierService
 from services.execution.graph import GraphCycleError, topological_order
 from services.execution.schedule_service import ScheduleService
+from services.workflow.workflow_change_service import WorkflowChangeService
 from services.workflow.workflow_git_service import WorkflowGitService, WorkflowGitSyncResult
 
 logger = logging.getLogger(__name__)
@@ -85,6 +88,7 @@ def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSum
         folder=workflow.folder,
         visibility=workflow.visibility,
         is_version_controlled=workflow.is_version_controlled,
+        notes=workflow.notes,
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
     )
@@ -116,6 +120,7 @@ def _to_response(
         folder=workflow.folder,
         visibility=workflow.visibility,
         is_version_controlled=workflow.is_version_controlled,
+        notes=workflow.notes,
         canvas_nodes=workflow.canvas_nodes,
         canvas_edges=workflow.canvas_edges,
         canvas_groups=workflow.canvas_groups,
@@ -131,6 +136,7 @@ class WorkflowService:
         self.db = db
         self.repo = WorkflowRepository(db)
         self.git = WorkflowGitService(db)
+        self.changes = WorkflowChangeService(db)
 
     def list_workflows(self, user_id: int) -> WorkflowListResponse:
         logger.debug("Listing accessible workflows user_id=%s", user_id)
@@ -181,6 +187,13 @@ class WorkflowService:
             git_result = self.git.sync_workflow_to_git(
                 wf, action="create", actor_username=actor_username
             )
+            self.changes.record_change(
+                wf.id,
+                action="created",
+                actor_id=user_id,
+                actor_username=actor_username,
+                git_result=git_result,
+            )
             return _to_response(wf, creator_username, git_result)
         except DomainError:
             raise
@@ -217,6 +230,13 @@ class WorkflowService:
             logger.info("Workflow updated id=%s user_id=%s", workflow_id, user_id)
             git_result = self.git.sync_workflow_to_git(
                 workflow, action="update", actor_username=actor_username
+            )
+            self.changes.record_change(
+                workflow_id,
+                action="updated",
+                actor_id=user_id,
+                actor_username=actor_username,
+                git_result=git_result,
             )
             return _to_response(workflow, creator_username, git_result)
         except DomainError:
@@ -268,6 +288,22 @@ class WorkflowService:
             right_lines=diff["right_lines"],
             stats=diff["stats"],
         )
+
+    def get_workflow_changes(self, workflow_id: int, user_id: int) -> WorkflowChangeListResponse:
+        self._get_readable_workflow(workflow_id, user_id)
+        return self.changes.list_changes(workflow_id)
+
+    def update_notes(
+        self, workflow_id: int, user_id: int, notes: str | None
+    ) -> WorkflowNotesResponse:
+        result = self.repo.get_by_id(workflow_id)
+        if result is None:
+            raise NotFoundError("Workflow not found")
+        workflow, _creator_username = result
+        if workflow.creator_id != user_id:
+            raise AccessDeniedError("Access denied")
+        workflow = self.repo.update(workflow, {"notes": notes})
+        return WorkflowNotesResponse(notes=workflow.notes, updated_at=workflow.updated_at)
 
     def _get_readable_workflow(self, workflow_id: int, user_id: int) -> Workflow:
         result = self.repo.get_by_id(workflow_id)

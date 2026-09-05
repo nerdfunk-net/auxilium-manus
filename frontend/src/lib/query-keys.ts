@@ -21,6 +21,7 @@ export const queryKeys = {
     list: () => [...queryKeys.workflows.all, "list"] as const,
     detail: (id: number) => [...queryKeys.workflows.all, "detail", id] as const,
     backgroundTier: (id: number) => [...queryKeys.workflows.all, "background-tier", id] as const,
+    changes: (id: number) => [...queryKeys.workflows.all, "changes", id] as const,
   },
   schedules: {
     all: ["schedules"] as const,

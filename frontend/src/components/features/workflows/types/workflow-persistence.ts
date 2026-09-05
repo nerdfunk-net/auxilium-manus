@@ -52,6 +52,7 @@ export interface WorkflowSummary {
   folder: string | null;
   visibility: WorkflowVisibility;
   is_version_controlled: boolean;
+  notes?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -103,6 +104,31 @@ export interface WorkflowGitDiffResponse {
 export interface WorkflowListResponse {
   workflows: WorkflowSummary[];
   total: number;
+}
+
+export type WorkflowChangeAction = "created" | "updated";
+
+/** One row of the "Changes" tab's audit trail — see WorkflowChangeResponse in
+ * backend/models/workflow_changes.py. `has_diff` gates the diff-viewer icon:
+ * true only when this save also produced a git commit with a known parent. */
+export interface WorkflowChangeEntry {
+  id: number;
+  actor_id: number | null;
+  actor_username: string | null;
+  action: WorkflowChangeAction;
+  commit_sha: string | null;
+  parent_commit_sha: string | null;
+  has_diff: boolean;
+  created_at: string;
+}
+
+export interface WorkflowChangeListResponse {
+  changes: WorkflowChangeEntry[];
+}
+
+export interface WorkflowNotesResponse {
+  notes: string | null;
+  updated_at: string;
 }
 
 export interface PluginConfigResponse {

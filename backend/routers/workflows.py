@@ -10,6 +10,7 @@ from core.database import get_db
 from core.domain_exceptions import DomainError
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
+from models.workflow_changes import WorkflowChangeListResponse
 from models.workflows import (
     WorkflowCreate,
     WorkflowGitDiffRequest,
@@ -18,6 +19,8 @@ from models.workflows import (
     WorkflowGitRestoreRequest,
     WorkflowListResponse,
     WorkflowNameCheckResponse,
+    WorkflowNotesResponse,
+    WorkflowNotesUpdate,
     WorkflowResponse,
     WorkflowUpdate,
 )
@@ -126,6 +129,45 @@ def update_workflow(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to update workflow", exc)
+
+
+@router.get(
+    "/{workflow_id}/changes",
+    response_model=WorkflowChangeListResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
+def get_workflow_changes(
+    workflow_id: int,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+) -> WorkflowChangeListResponse:
+    try:
+        return service.get_workflow_changes(workflow_id=workflow_id, user_id=current_user.id)
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to get workflow changes", exc)
+
+
+@router.patch(
+    "/{workflow_id}/notes",
+    response_model=WorkflowNotesResponse,
+    dependencies=[Depends(require_permission("workflows", "write"))],
+)
+def update_workflow_notes(
+    workflow_id: int,
+    body: WorkflowNotesUpdate,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+) -> WorkflowNotesResponse:
+    try:
+        return service.update_notes(
+            workflow_id=workflow_id, user_id=current_user.id, notes=body.notes
+        )
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to update workflow notes", exc)
 
 
 @router.get(

@@ -44,6 +44,9 @@ interface WorkflowMetadata {
   workflowFolder: string;
   workflowVisibility: WorkflowVisibility;
   workflowIsVersionControlled: boolean;
+  /** Wiki notes (markdown), edited independently of the canvas save path —
+   * see use-workflow-notes-mutation.ts. Not part of canvasPersistPayload. */
+  workflowNotes: string | null;
 }
 
 interface WorkflowBuilderState extends WorkflowMetadata {
@@ -117,6 +120,7 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   setWorkflowFolder: (folder: string) => void;
   setWorkflowVisibility: (visibility: WorkflowVisibility) => void;
   setWorkflowIsVersionControlled: (isVersionControlled: boolean) => void;
+  setWorkflowNotes: (notes: string | null) => void;
   loadWorkflow: (meta: WorkflowMetadata) => void;
   resetToNew: () => void;
   /** Queue a cross-route "open this workflow" request (see
@@ -143,6 +147,7 @@ const NEW_WORKFLOW_DEFAULTS: WorkflowMetadata = {
   workflowFolder: "/",
   workflowVisibility: "private",
   workflowIsVersionControlled: false,
+  workflowNotes: null,
 };
 
 /**
@@ -260,6 +265,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   setWorkflowVisibility: (workflowVisibility) => set({ workflowVisibility }),
   setWorkflowIsVersionControlled: (workflowIsVersionControlled) =>
     set({ workflowIsVersionControlled }),
+  setWorkflowNotes: (workflowNotes) => set({ workflowNotes }),
   loadWorkflow: (meta) =>
     set({
       workflowId: meta.workflowId,
@@ -269,6 +275,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       workflowFolder: meta.workflowFolder,
       workflowVisibility: meta.workflowVisibility,
       workflowIsVersionControlled: meta.workflowIsVersionControlled,
+      workflowNotes: meta.workflowNotes,
       workflowStatus: "Saved",
       isDirty: false,
       activeRunId: null,

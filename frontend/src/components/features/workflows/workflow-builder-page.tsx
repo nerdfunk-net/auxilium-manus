@@ -27,6 +27,7 @@ import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
 import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
 import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
 import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
+import { WorkflowWikiDialog } from "./dialogs/workflow-wiki-dialog";
 import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import { useWorkflowCanvas } from "./hooks/use-workflow-canvas";
@@ -180,6 +181,7 @@ export function WorkflowBuilderPage() {
       <WorkflowRunControls
         isAutoLayoutRunning={canvas.isAutoLayoutRunning}
         onAutoLayout={() => canvas.handleAutoLayout(null, autoLayoutDirection)}
+        onOpenWiki={() => persistence.setIsWikiOpen(true)}
       />
 
       <WorkflowSaveAsDialog
@@ -212,6 +214,13 @@ export function WorkflowBuilderPage() {
         workflowName={persistence.workflowName}
         onClose={() => persistence.setIsHistoryOpen(false)}
         onRestored={persistence.handleRestored}
+      />
+
+      <WorkflowWikiDialog
+        open={persistence.isWikiOpen}
+        workflowId={persistence.workflowId}
+        workflowName={persistence.workflowName}
+        onClose={() => persistence.setIsWikiOpen(false)}
       />
 
       <Dialog

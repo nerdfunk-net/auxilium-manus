@@ -54,6 +54,7 @@ def _service_with_mocked_repo(workflow: Workflow) -> WorkflowService:
     service.repo.get_by_id.return_value = (workflow, "creator")
     service.repo.create.return_value = workflow
     service.repo.update.side_effect = _apply_update
+    service.changes = MagicMock()
     return service
 
 

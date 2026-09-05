@@ -76,6 +76,7 @@ class WorkflowSummary(BaseModel):
     folder: str | None
     visibility: str
     is_version_controlled: bool
+    notes: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -140,3 +141,12 @@ class WorkflowGitDiffResponse(BaseModel):
 
 class WorkflowGitRestoreRequest(BaseModel):
     commit_sha: str = Field(..., min_length=4)
+
+
+class WorkflowNotesUpdate(BaseModel):
+    notes: str | None = Field(None, max_length=100_000)
+
+
+class WorkflowNotesResponse(BaseModel):
+    notes: str | None
+    updated_at: datetime
