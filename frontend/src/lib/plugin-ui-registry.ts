@@ -14,6 +14,7 @@ import { GetPyatsConfigPlugin } from "@/components/features/workflow-steps/get-p
 import { GetPyatsSnapshotPlugin } from "@/components/features/workflow-steps/get-pyats-snapshot";
 import { ConfigureReplaceConfigPlugin } from "@/components/features/workflow-steps/configure-replace-config";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
+import { GetFromUserPlugin } from "@/components/features/workflow-steps/get-from-user";
 import { GetFromConfigPlugin } from "@/components/features/workflow-steps/get-from-config";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
 import { GetIseDevicesPlugin } from "@/components/features/workflow-steps/get-ise-devices";
@@ -52,6 +53,7 @@ import { UploadConfigPlugin } from "@/components/features/workflow-steps/upload-
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
   "get-from-list": GetFromListPlugin,
+  "get-from-user": GetFromUserPlugin,
   "get-from-config": GetFromConfigPlugin,
   "get-git-devices": GetGitDevicesPlugin,
   "get-ise-devices": GetIseDevicesPlugin,

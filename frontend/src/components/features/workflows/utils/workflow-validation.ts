@@ -7,6 +7,7 @@ import {
 } from "../types/workflow-canvas";
 import type { StaticAttributeDef } from "../types/workflow-persistence";
 import { validateGroupBoundary } from "./canvas-group-boundary";
+import { validateGetFromUserNodes } from "./run-input-attributes";
 
 const EMPTY_GROUPS: CanvasGroup[] = [];
 const EMPTY_STATIC_ATTRIBUTES: StaticAttributeDef[] = [];
@@ -71,6 +72,7 @@ export function validateCanvasWorkflow(
     );
 
   const staticAttributeIssues = validateStaticAttributes(staticAttributes);
+  const getFromUserIssues = validateGetFromUserNodes(nodes);
 
   const issues = [
     ...(hasExecutableStep ? [] : ["Workflow has no steps."]),
@@ -79,6 +81,7 @@ export function validateCanvasWorkflow(
     ),
     ...groupIssues,
     ...staticAttributeIssues,
+    ...getFromUserIssues,
     ...funnelIssues,
   ];
 
@@ -88,6 +91,7 @@ export function validateCanvasWorkflow(
       danglingEdges.length === 0 &&
       groupIssues.length === 0 &&
       staticAttributeIssues.length === 0 &&
+      getFromUserIssues.length === 0 &&
       funnelIssues.length === 0,
     issues,
   };

@@ -741,7 +741,8 @@ it is outside the scope of the in-run context/DB protection above.
 
 ## Fan-out execution
 
-An **inventory step** (`get-nautobot-devices`, `get-git-devices`) may enable
+An **inventory step** (`get-nautobot-devices`, `get-git-devices`, `get-ise-devices`,
+`get-from-list`, `get-from-user`) may enable
 **fan-out**: instead of running the whole workflow once with every device sharing a
 single context, each device — or each chunk of devices — is processed as an independent
 Hatchet **child workflow**. This parallelises per-device work and isolates failures.
@@ -766,8 +767,8 @@ Fan-out lives in the inventory step's `pluginConfig.fan_out`:
 
 The inventory executor copies these values into `context.metadata["_fan_out"]` via the
 shared `workflow_steps/common/fan_out.py::build_fan_out_metadata` helper when `enabled`
-is true (all four inventory steps — `get-nautobot-devices`, `get-git-devices`,
-`get-ise-devices`, `get-from-list` — call this one helper; do not duplicate the
+is true (all five inventory steps — `get-nautobot-devices`, `get-git-devices`,
+`get-ise-devices`, `get-from-list`, `get-from-user` — call this one helper; do not duplicate the
 sanitisation inline in a new inventory step).
 
 ### Wait & Run — user-approved batching

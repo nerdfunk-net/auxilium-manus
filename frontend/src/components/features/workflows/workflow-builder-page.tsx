@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { useWorkflowStepsQuery } from "@/hooks/queries/use-workflow-steps-query";
@@ -28,6 +28,7 @@ import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
 import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
 import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
 import { WorkflowWikiDialog } from "./dialogs/workflow-wiki-dialog";
+import { computeDeviceParamConfigs } from "./utils/device-param-hints";
 import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
 import { useWorkflowCanvas } from "./hooks/use-workflow-canvas";
@@ -52,6 +53,10 @@ export function WorkflowBuilderPage() {
 
   const requestRunRef = useRef<(id: number) => void>(() => {});
   const canvas = useWorkflowCanvas();
+  const deviceParamConfigs = useMemo(
+    () => computeDeviceParamConfigs(canvas.allNodes),
+    [canvas.allNodes],
+  );
   const persistence = useWorkflowPersistence({
     canvas,
     plugins,
@@ -320,7 +325,8 @@ export function WorkflowBuilderPage() {
 
       <WorkflowRunInputsDialog
         open={run.isRunInputsDialogOpen}
-        staticAttributes={canvas.staticAttributes}
+        staticAttributes={run.runInputAttributes}
+        deviceParamConfigs={deviceParamConfigs}
         isSubmitting={run.triggerRun.isPending}
         onOpenChange={run.setIsRunInputsDialogOpen}
         onSubmit={run.handleRunInputsSubmit}

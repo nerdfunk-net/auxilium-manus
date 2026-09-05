@@ -10,6 +10,7 @@ import type {
 } from "../types/workflow-persistence";
 import { repairOrphanGroups } from "./canvas-group-projection";
 import { migrateCanvasState } from "./migrate-canvas";
+import { mergeRunInputAttributes } from "./run-input-attributes";
 
 export function canvasFromWorkflowResponse(
   full: WorkflowResponse,
@@ -31,11 +32,12 @@ export function canvasFromWorkflowResponse(
     plugins,
   );
   const groups = repairOrphanGroups(nodes, loadedGroups);
+  const staticAttributes = mergeRunInputAttributes(nodes, loadedStaticAttributes);
   return {
     nodes,
     edges,
     groups,
-    staticAttributes: loadedStaticAttributes,
+    staticAttributes,
     migrated: migrated || groups.length !== loadedGroups.length,
   };
 }

@@ -26,6 +26,9 @@ import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
 import { buildCronExpression } from "@/components/features/workflows/utils/schedule-cron";
 
+import { computeDeviceParamConfigs } from "@/components/features/workflows/utils/device-param-hints";
+import { mergeRunInputAttributes } from "@/components/features/workflows/utils/run-input-attributes";
+
 import { ScheduleParameterFields } from "../components/schedule-parameter-fields";
 import {
   DEFAULT_TIMING,
@@ -63,6 +66,14 @@ export function ScheduleEditorDialog({ onOpenChange, schedule }: ScheduleEditorD
   const staticAttributes = useMemo(
     () => workflowQuery.data?.static_attributes ?? [],
     [workflowQuery.data],
+  );
+  const runInputAttributes = useMemo(
+    () => mergeRunInputAttributes(workflowQuery.data?.canvas_nodes ?? [], staticAttributes),
+    [workflowQuery.data?.canvas_nodes, staticAttributes],
+  );
+  const deviceParamConfigs = useMemo(
+    () => computeDeviceParamConfigs(workflowQuery.data?.canvas_nodes ?? []),
+    [workflowQuery.data?.canvas_nodes],
   );
 
   const [name, setName] = useState(schedule?.name ?? "");
@@ -257,8 +268,9 @@ export function ScheduleEditorDialog({ onOpenChange, schedule }: ScheduleEditorD
                 </p>
               ) : (
                 <ScheduleParameterFields
-                  attributes={staticAttributes}
+                  attributes={runInputAttributes}
                   values={paramValues}
+                  deviceParamConfigs={deviceParamConfigs}
                   onChange={setParamValues}
                 />
               )}

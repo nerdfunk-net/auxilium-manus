@@ -4,6 +4,7 @@ import type {
   PersistedCanvasNode,
   WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
+import { mergeRunInputAttributes } from "./run-input-attributes";
 
 export function canvasPersistPayload(
   allNodes: PersistedCanvasNode[],
@@ -15,6 +16,6 @@ export function canvasPersistPayload(
     canvas_nodes: allNodes as unknown as Record<string, unknown>[],
     canvas_edges: allEdges as unknown as Record<string, unknown>[],
     canvas_groups: groups as unknown as Record<string, unknown>[],
-    static_attributes: staticAttributes,
+    static_attributes: mergeRunInputAttributes(allNodes, staticAttributes),
   };
 }

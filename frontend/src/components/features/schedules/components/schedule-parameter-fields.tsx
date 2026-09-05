@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -11,21 +10,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
 import { useSavedInventoriesQuery } from "@/hooks/queries/use-saved-inventories-query";
 import type { StaticAttributeDef } from "@/components/features/workflows/types/workflow-persistence";
+
+import { RunInputAttributeField } from "@/components/features/workflows/components/run-input-attribute-field";
+import {
+  EMPTY_DEVICE_PARAM_CONFIGS,
+  type DeviceParamConfig,
+} from "@/components/features/workflows/utils/device-param-hints";
 
 interface ScheduleParameterFieldsProps {
   attributes: StaticAttributeDef[];
   values: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
+  /** From ``computeDeviceParamConfigs(workflow.canvas_nodes)``. */
+  deviceParamConfigs?: Record<string, DeviceParamConfig>;
 }
 
 export function ScheduleParameterFields({
   attributes,
   values,
   onChange,
+  deviceParamConfigs = EMPTY_DEVICE_PARAM_CONFIGS,
 }: ScheduleParameterFieldsProps) {
   const needsInventory = attributes.some(
     (a) => a.type === "reference" && a.ref_kind === "inventory",
@@ -59,7 +66,7 @@ export function ScheduleParameterFields({
       {attributes.map((attr) => {
         const current = values[attr.name];
         const label = (
-          <Label className="text-xs" htmlFor={`param-${attr.name}`}>
+          <Label className="font-mono text-xs font-medium" htmlFor={`param-${attr.name}`}>
             {attr.name}
             {attr.required ? <span className="text-destructive"> *</span> : null}
           </Label>
@@ -117,10 +124,12 @@ export function ScheduleParameterFields({
           return (
             <div key={attr.name} className="flex items-center justify-between gap-2">
               {label}
-              <Switch
+              <RunInputAttributeField
                 id={`param-${attr.name}`}
-                checked={current === true}
-                onCheckedChange={(checked) => setValue(attr.name, checked)}
+                attr={attr}
+                value={current}
+                deviceParamConfigs={deviceParamConfigs}
+                onChange={(next) => setValue(attr.name, next)}
               />
             </div>
           );
@@ -129,20 +138,12 @@ export function ScheduleParameterFields({
         return (
           <div key={attr.name} className="grid gap-1">
             {label}
-            <Input
+            <RunInputAttributeField
               id={`param-${attr.name}`}
-              type={attr.type === "number" ? "number" : "text"}
-              value={current != null ? String(current) : ""}
-              onChange={(e) =>
-                setValue(
-                  attr.name,
-                  attr.type === "number"
-                    ? e.target.value === ""
-                      ? ""
-                      : Number(e.target.value)
-                    : e.target.value,
-                )
-              }
+              attr={attr}
+              value={current}
+              deviceParamConfigs={deviceParamConfigs}
+              onChange={(next) => setValue(attr.name, next)}
             />
           </div>
         );

@@ -703,6 +703,60 @@ plugins:
             chunk_size: 1
             max_concurrency: 0
 
+  - id: get-from-user
+    name: Get from User
+    overview: Ask the operator for devices when the run starts.
+    description: >
+      Prompt the operator to enter one or more target devices when starting
+      the workflow run.
+    artifact_type: inventory_selector
+    directory: get_from_user
+    enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: device_param
+          description: >
+            Name of a workflow static_attribute (type "string") the operator
+            fills in when starting a run. One device per line; each line is a
+            hostname, an IP address, or "name,ip_address".
+          data_type: string
+          required: true
+          example: target_devices
+        - name: lookup_mode
+          description: >
+            UI hint only, never read by the executor. "manual" (default) shows
+            a plain multi-line box in the Run Inputs dialog. "nautobot_search"
+            adds a name-contains typeahead against nautobot_source_id; the
+            operator can still type raw entries as a fallback.
+          data_type: string
+          required: false
+          default: manual
+          example: nautobot_search
+        - name: nautobot_source_id
+          description: >
+            UI hint only, used solely to power Run Inputs dialog suggestions
+            when lookup_mode is "nautobot_search". Not read by the executor.
+          data_type: string
+          required: false
+          example: prod-lab
+        - name: fan_out
+          description: >
+            Fan-out configuration. When enabled, each device (or chunk) is processed
+            as an independent Hatchet child workflow instead of all devices sharing
+            one workflow run.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            mode: per_device
+            chunk_size: 1
+            max_concurrency: 0
+
   - id: get-git-devices
     name: Get from Git
     overview: Select devices from Git inventory files.

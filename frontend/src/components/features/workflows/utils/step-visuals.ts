@@ -32,6 +32,7 @@ import {
   Type,
   type LucideIcon,
   CloudCog,
+  UserRound,
   Wifi,
 } from "lucide-react";
 
@@ -107,6 +108,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "get-pyats-snapshot": Camera,
   "compare-pyats-snapshot": Diff,
   "upload-config": HardDriveUpload,
+  "get-from-user": UserRound,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

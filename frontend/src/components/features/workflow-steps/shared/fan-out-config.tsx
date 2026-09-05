@@ -74,8 +74,8 @@ interface FanOutConfigSectionProps {
 
 /** Shared fan-out configuration block used by every inventory step's
  * ConfigPanel (get-nautobot-devices, get-git-devices, get-ise-devices,
- * get-from-list). See doc/WORKFLOW-STEPS.md "Fan-out execution" and
- * doc/WAIT-AND-RUN.md for the approval-gate semantics. */
+ * get-from-list, get-from-user). See doc/WORKFLOW-STEPS.md "Fan-out execution"
+ * and doc/WAIT-AND-RUN.md for the approval-gate semantics. */
 export function FanOutConfigSection({ value, onChange }: FanOutConfigSectionProps) {
   const handleApprovalChange = (patch: Partial<FanOutApprovalConfig>) => {
     onChange({ approval: { ...value.approval, ...patch } });

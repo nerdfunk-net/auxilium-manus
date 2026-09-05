@@ -7,8 +7,10 @@ import {
   DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG,
   deriveProducesParsed,
 } from "@/components/features/workflow-steps/render-jinja-template/template-config";
+import { DEFAULT_GET_FROM_USER_CONFIG } from "@/components/features/workflow-steps/get-from-user/config";
 
 import type { StaticAttributeDef } from "../types/workflow-persistence";
+import { mergeRunInputAttributes } from "../utils/run-input-attributes";
 import {
   BACKGROUND_Z_INDEX,
   DEFAULT_BACKGROUND_CONFIG,
@@ -46,8 +48,10 @@ export function useCanvasSteps(
 
   const handleNodeConfigChange = useCallback(
     (nodeId: string, config: Record<string, unknown>) => {
-      setAllNodes((current) =>
-        current.map((n) => {
+      let nextNodes: PersistedCanvasNode[] = allNodes;
+
+      setAllNodes((current) => {
+        nextNodes = current.map((n) => {
           if (n.id !== nodeId) {
             return n;
           }
@@ -76,11 +80,16 @@ export function useCanvasSteps(
             };
           }
           return { ...n, data: nextData };
-        }),
-      );
+        });
+        return nextNodes;
+      });
+
+      if (nextNodes.some((n) => n.id === nodeId && n.data.kind === "get-from-user")) {
+        setStaticAttributes((current) => mergeRunInputAttributes(nextNodes, current));
+      }
       markDirty();
     },
-    [setAllNodes, markDirty],
+    [allNodes, setAllNodes, setStaticAttributes, markDirty],
   );
 
   const buildStepNode = useCallback(
@@ -89,6 +98,7 @@ export function useCanvasSteps(
       const isUpdateAttribute = step.kind === "update-attribute";
       const isLabel = step.kind === "label";
       const isBackground = step.kind === "background";
+      const isGetFromUser = step.kind === "get-from-user";
 
       let pluginConfig: Record<string, unknown> | undefined;
       if (isRenderJinja) {
@@ -99,6 +109,8 @@ export function useCanvasSteps(
         pluginConfig = { ...DEFAULT_LABEL_CONFIG };
       } else if (isBackground) {
         pluginConfig = { ...DEFAULT_BACKGROUND_CONFIG };
+      } else if (isGetFromUser) {
+        pluginConfig = { ...DEFAULT_GET_FROM_USER_CONFIG };
       }
 
       const producesParsed = isRenderJinja
@@ -144,15 +156,15 @@ export function useCanvasSteps(
       const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, { x: 160 + nextIndex * 44, y: 460 });
-      // Insertion order doesn't need to special-case backgrounds anymore:
-      // sortNodesForContainment (applied downstream at projection/layering time)
-      // guarantees backgrounds paint behind and precede their children.
       setAllNodes((currentNodes) => [...currentNodes, node]);
+      if (step.kind === "get-from-user") {
+        setStaticAttributes((current) => mergeRunInputAttributes([node], current));
+      }
       appendToActiveGroup(id);
       selectNode(id);
       markDirty();
     },
-    [allNodes.length, buildStepNode, setAllNodes, appendToActiveGroup, selectNode, markDirty],
+    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, selectNode, markDirty],
   );
 
   const handleAddStepAtPosition = useCallback(
@@ -160,15 +172,15 @@ export function useCanvasSteps(
       const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, position);
-      // Insertion order doesn't need to special-case backgrounds anymore:
-      // sortNodesForContainment (applied downstream at projection/layering time)
-      // guarantees backgrounds paint behind and precede their children.
       setAllNodes((currentNodes) => [...currentNodes, node]);
+      if (step.kind === "get-from-user") {
+        setStaticAttributes((current) => mergeRunInputAttributes([node], current));
+      }
       appendToActiveGroup(id);
       selectNode(id);
       markDirty();
     },
-    [allNodes.length, buildStepNode, setAllNodes, appendToActiveGroup, selectNode, markDirty],
+    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, selectNode, markDirty],
   );
 
   const handleDeleteNodes = useCallback(

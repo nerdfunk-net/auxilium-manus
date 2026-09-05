@@ -1,5 +1,6 @@
 import type { Capability } from "@/lib/capability-types";
 
+import { DEFAULT_GET_FROM_USER_CONFIG } from "@/components/features/workflow-steps/get-from-user/config";
 import type { PluginDefinition } from "../types/plugin-registry";
 import {
   BACKGROUND_Z_INDEX,
@@ -145,6 +146,21 @@ export function migrateCanvasState(
           width,
           height,
           style: { ...nextNode.style, width, height },
+          data: { ...nextNode.data, pluginConfig: config },
+        };
+        nodeChanged = true;
+      }
+    }
+
+    if (data.kind === "get-from-user") {
+      const existingParam =
+        typeof data.pluginConfig?.device_param === "string"
+          ? data.pluginConfig.device_param.trim()
+          : "";
+      if (!existingParam) {
+        const config = { ...DEFAULT_GET_FROM_USER_CONFIG, ...(data.pluginConfig ?? {}) };
+        nextNode = {
+          ...nextNode,
           data: { ...nextNode.data, pluginConfig: config },
         };
         nodeChanged = true;

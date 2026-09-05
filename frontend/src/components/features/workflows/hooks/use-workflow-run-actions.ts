@@ -6,6 +6,10 @@ import { useCallback, useMemo, useState } from "react";
 import { useGeneralSettingsQuery } from "@/hooks/queries/use-general-settings-query";
 import { useTriggerRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 
+import {
+  mergeRunInputAttributes,
+  staticAttributesEqual,
+} from "../utils/run-input-attributes";
 import { validateCanvasWorkflow } from "../utils/workflow-validation";
 import type { UseWorkflowCanvasResult } from "./use-workflow-canvas";
 import type { UseWorkflowPersistenceResult } from "./use-workflow-persistence";
@@ -20,7 +24,13 @@ export function useWorkflowRunActions({
   canvas,
   persistence,
 }: UseWorkflowRunActionsOptions) {
-  const { allNodes, allEdges, groups, staticAttributes } = canvas;
+  const {
+    allNodes,
+    allEdges,
+    groups,
+    staticAttributes,
+    handleStaticAttributesChange,
+  } = canvas;
   const { beginSaveAsThenRun, updateWorkflow, workflowId, workflowName } =
     persistence;
 
@@ -38,6 +48,11 @@ export function useWorkflowRunActions({
   const [pendingRunTargetId, setPendingRunTargetId] = useState<number | null>(null);
 
   const triggerRun = useTriggerRunMutation(workflowId);
+
+  const runInputAttributes = useMemo(
+    () => mergeRunInputAttributes(allNodes, staticAttributes),
+    [allNodes, staticAttributes],
+  );
 
   // Dispatches the run once a target workflow id and (if declared) the
   // static-attribute values are known. Split out of the old executeRun so a
@@ -69,6 +84,30 @@ export function useWorkflowRunActions({
     [triggerRun, runMode, setActiveRunId, markRunning, markError, router, generalSettings],
   );
 
+  const ensureRunInputSchemaPersisted = useCallback(
+    async (targetId: number, effectiveAttrs: typeof runInputAttributes) => {
+      try {
+        await updateWorkflow.mutateAsync({
+          id: targetId,
+          data: { static_attributes: effectiveAttrs },
+        });
+        if (!staticAttributesEqual(effectiveAttrs, staticAttributes)) {
+          handleStaticAttributesChange(effectiveAttrs);
+        }
+        return true;
+      } catch {
+        markError("Failed to sync run parameters on the workflow");
+        return false;
+      }
+    },
+    [
+      staticAttributes,
+      updateWorkflow,
+      handleStaticAttributesChange,
+      markError,
+    ],
+  );
+
   const requestRun = useCallback(
     async (
       overrideWorkflowId?: number,
@@ -86,15 +125,39 @@ export function useWorkflowRunActions({
           return;
         }
       }
-      if (staticAttributes.length === 0) {
+
+      const effectiveAttrs = mergeRunInputAttributes(allNodes, staticAttributes);
+      if (effectiveAttrs.length === 0) {
         await dispatchRun(targetId, {});
         return;
       }
+
+      const synced = await ensureRunInputSchemaPersisted(targetId, effectiveAttrs);
+      if (!synced) {
+        return;
+      }
+
       setPendingRunTargetId(targetId);
       setIsRunInputsDialogOpen(true);
     },
-    [workflowId, allNodes, allEdges, groups, staticAttributes, dispatchRun, markError],
+    [
+      workflowId,
+      allNodes,
+      allEdges,
+      groups,
+      staticAttributes,
+      dispatchRun,
+      markError,
+      ensureRunInputSchemaPersisted,
+    ],
   );
+
+  const handleRunInputsDialogOpenChange = useCallback((open: boolean) => {
+    setIsRunInputsDialogOpen(open);
+    if (!open) {
+      setPendingRunTargetId(null);
+    }
+  }, []);
 
   const handleRunInputsSubmit = useCallback(
     async (values: Record<string, string | number | boolean>) => {
@@ -126,15 +189,17 @@ export function useWorkflowRunActions({
       return;
     }
     try {
+      const effectiveAttrs = mergeRunInputAttributes(allNodes, staticAttributes);
       await updateWorkflow.mutateAsync({
         id: workflowId,
         data: {
           canvas_nodes: allNodes as unknown as Record<string, unknown>[],
           canvas_edges: allEdges as unknown as Record<string, unknown>[],
           canvas_groups: groups as unknown as Record<string, unknown>[],
-          static_attributes: staticAttributes,
+          static_attributes: effectiveAttrs,
         },
       });
+      handleStaticAttributesChange(effectiveAttrs);
       markSaved(`Saved "${workflowName}"`);
       await requestRun();
     } catch {
@@ -147,6 +212,7 @@ export function useWorkflowRunActions({
     groups,
     staticAttributes,
     updateWorkflow,
+    handleStaticAttributesChange,
     markSaved,
     markError,
     workflowName,
@@ -164,8 +230,9 @@ export function useWorkflowRunActions({
       isRunConfirmOpen,
       setIsRunConfirmOpen,
       isRunInputsDialogOpen,
-      setIsRunInputsDialogOpen,
+      setIsRunInputsDialogOpen: handleRunInputsDialogOpenChange,
       pendingRunTargetId,
+      runInputAttributes,
       handleRun,
       handleSaveAndRun,
       handleRunSavedVersion,
@@ -177,7 +244,9 @@ export function useWorkflowRunActions({
     [
       isRunConfirmOpen,
       isRunInputsDialogOpen,
+      handleRunInputsDialogOpenChange,
       pendingRunTargetId,
+      runInputAttributes,
       handleRun,
       handleSaveAndRun,
       handleRunSavedVersion,
