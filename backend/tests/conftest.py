@@ -30,3 +30,14 @@ os.environ.setdefault(
     "Z3JwY19icm9hZGNhc3RfYWRkcmVzcyI6ICJsb2NhbGhvc3Q6NzA3NyJ9."
     "dW5pdC10ZXN0LXNpZ25hdHVyZS1ub3QtdmVyaWZpZWQ",
 )
+
+# core.crypto.resolve_credential_secret() reads CREDENTIAL_ENCRYPTION_KEY / SECRET_KEY
+# straight from os.getenv (bypassing core.config.settings' own DEFAULT_SECRET_KEY
+# fallback), so credential-encryption tests need a raw env var, not just a Settings
+# default. CI has no .env; locally .env already sets this (see .env.example).
+os.environ.setdefault("SECRET_KEY", "change-in-production-use-at-least-32-characters")
+
+# core.safe_urls blocks loopback targets unless ALLOW_LOOPBACK_SOURCE_URLS=true; unit
+# tests exercise outbound HTTP clients (Mattermost, git) against local mock servers on
+# 127.0.0.1/::1, so the guard must be relaxed the same way local .env already does.
+os.environ.setdefault("ALLOW_LOOPBACK_SOURCE_URLS", "true")
