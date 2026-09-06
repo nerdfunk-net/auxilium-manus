@@ -5,7 +5,12 @@ from __future__ import annotations
 import unittest
 
 from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
-from services.workflow_context.guards import StepCapabilitySpec, post_step_guard, pre_step_guard
+from services.workflow_context.guards import (
+    StepCapabilitySpec,
+    effective_produces,
+    post_step_guard,
+    pre_step_guard,
+)
 
 
 class WorkflowContextGuardTests(unittest.TestCase):
@@ -110,6 +115,18 @@ class WorkflowContextGuardTests(unittest.TestCase):
         outcomes = [StepOutcome(name="success", context=success_context)]
         with self.assertRaises(RuntimeError):
             post_step_guard(spec=spec, input_context=input_context, outcomes=outcomes)
+
+    def test_effective_produces_relaxes_crypto_attribute_steps(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="decrypt-attribute",
+            requires=frozenset({Capability.IDENTITY}),
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        for step_type in ("encrypt-attribute", "decrypt-attribute"):
+            self.assertEqual(
+                effective_produces(spec=spec, step_type=step_type, config={}),
+                frozenset(),
+            )
 
 
 if __name__ == "__main__":

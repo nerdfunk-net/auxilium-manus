@@ -29,7 +29,9 @@ from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
 from workflow_steps.configure_replace_config.executor import execute as configure_replace_config
+from workflow_steps.decrypt_attribute.executor import execute as decrypt_attribute
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
+from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribute
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
@@ -110,6 +112,8 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "git-pull": git_pull,
     "git-push": git_push,
     "update-attribute": update_attribute,
+    "encrypt-attribute": encrypt_attribute,
+    "decrypt-attribute": decrypt_attribute,
     "update-content": update_content,
     "update-ise-tacacs-key": update_ise_tacacs_key,
     "update-nautobot-device": update_nautobot_device,

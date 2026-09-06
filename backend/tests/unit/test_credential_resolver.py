@@ -9,6 +9,7 @@ from workflow_steps.common.credential_resolver import (
     CredentialReferenceInvalidError,
     CredentialReferenceNotFoundError,
     resolve_generic_credential,
+    resolve_shared_secret_credential,
     resolve_ssh_credential,
 )
 
@@ -119,6 +120,55 @@ class ResolveGenericCredentialTests(unittest.TestCase):
         self.mock_service.list_credentials.return_value = []
         with self.assertRaises(CredentialReferenceNotFoundError):
             resolve_generic_credential(MagicMock(), "missing", acting_user_id=1)
+
+
+class ResolveSharedSecretCredentialTests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = patch("workflow_steps.common.credential_resolver.CredentialsService")
+        self.mock_cls = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock_service = self.mock_cls.return_value
+
+    def test_returns_algorithm_and_passphrase(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            {**_credential(name="vault", cred_type="shared_secret"), "algorithm": "aes-256-gcm"}
+        ]
+        self.mock_service.get_decrypted_password.return_value = "the-passphrase"
+
+        algorithm, passphrase = resolve_shared_secret_credential(
+            MagicMock(), "vault", acting_user_id=1
+        )
+
+        self.assertEqual(algorithm, "aes-256-gcm")
+        self.assertEqual(passphrase, "the-passphrase")
+
+    def test_defaults_algorithm_when_missing(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            _credential(name="vault", cred_type="shared_secret")
+        ]
+        self.mock_service.get_decrypted_password.return_value = "pw"
+
+        algorithm, _ = resolve_shared_secret_credential(MagicMock(), "vault", acting_user_id=1)
+        self.assertEqual(algorithm, "aes-256-gcm")
+
+    def test_rejects_non_shared_secret_type(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            _credential(name="vault", cred_type="ssh")
+        ]
+        with self.assertRaises(CredentialReferenceInvalidError):
+            resolve_shared_secret_credential(MagicMock(), "vault", acting_user_id=1)
+
+    def test_not_found_raises(self) -> None:
+        self.mock_service.list_credentials.return_value = []
+        with self.assertRaises(CredentialReferenceNotFoundError):
+            resolve_shared_secret_credential(MagicMock(), "missing", acting_user_id=1)
+
+    def test_expired_raises(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            _credential(name="vault", cred_type="shared_secret", status="expired")
+        ]
+        with self.assertRaises(CredentialReferenceInvalidError):
+            resolve_shared_secret_credential(MagicMock(), "vault", acting_user_id=1)
 
 
 if __name__ == "__main__":

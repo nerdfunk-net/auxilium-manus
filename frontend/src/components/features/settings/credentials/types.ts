@@ -1,5 +1,11 @@
 export type CredentialStatus = "active" | "expiring" | "expired" | "unknown";
-export type CredentialType = "ssh" | "ssh_key" | "tacacs" | "generic" | "token";
+export type CredentialType =
+  | "ssh"
+  | "ssh_key"
+  | "tacacs"
+  | "generic"
+  | "token"
+  | "shared_secret";
 export type CredentialVisibility = "global" | "private";
 
 export interface Credential {
@@ -7,6 +13,8 @@ export interface Credential {
   name: string;
   username: string;
   type: CredentialType;
+  /** Symmetric algorithm for `shared_secret` credentials; null otherwise. */
+  algorithm: string | null;
   valid_until: string | null;
   is_active: boolean;
   source: string;
@@ -33,6 +41,7 @@ export interface CredentialCreatePayload {
   password?: string;
   ssh_private_key?: string;
   ssh_passphrase?: string;
+  algorithm?: string;
   valid_until?: string;
   visibility: CredentialVisibility;
 }
@@ -44,6 +53,7 @@ export interface CredentialUpdatePayload {
   password?: string;
   ssh_private_key?: string;
   ssh_passphrase?: string;
+  algorithm?: string;
   valid_until?: string;
   visibility?: CredentialVisibility;
 }

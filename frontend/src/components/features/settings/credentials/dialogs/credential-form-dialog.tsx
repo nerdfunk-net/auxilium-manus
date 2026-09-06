@@ -33,25 +33,37 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DEFAULT_SHARED_SECRET_ALGORITHM,
+  SHARED_SECRET_ALGORITHMS,
+} from "@/lib/shared-secret-algorithms";
 
 import type { Credential, CredentialType } from "../types";
 import { SELECTABLE_CREDENTIAL_TYPES, credentialTypeLabel } from "../utils/credential-utils";
 import { toDateInputValue } from "../utils/credential-utils";
 
+const EDITABLE_TYPES = ["ssh", "ssh_key", "token", "generic", "shared_secret"] as const;
+type EditableType = (typeof EDITABLE_TYPES)[number];
+
 const formSchema = z
   .object({
     name: z.string().min(1, "Required").max(128),
-    username: z.string().min(1, "Required").max(128),
-    type: z.enum(["ssh", "ssh_key", "token", "generic"]),
+    username: z.string().max(128),
+    type: z.enum(EDITABLE_TYPES),
     password: z.string().optional(),
     ssh_private_key: z.string().optional(),
     ssh_passphrase: z.string().optional(),
+    algorithm: z.string().optional(),
     valid_until: z.string().optional(),
     visibility: z.enum(["global", "private"]),
   })
   .refine(
     (values) => values.type !== "ssh_key" || Boolean(values.ssh_private_key?.trim()),
     { message: "SSH private key is required", path: ["ssh_private_key"] },
+  )
+  .refine(
+    (values) => values.type === "shared_secret" || Boolean(values.username.trim()),
+    { message: "Required", path: ["username"] },
   );
 
 type FormValues = z.infer<typeof formSchema>;
@@ -72,6 +84,7 @@ const EMPTY_DEFAULTS: FormValues = {
   password: "",
   ssh_private_key: "",
   ssh_passphrase: "",
+  algorithm: DEFAULT_SHARED_SECRET_ALGORITHM,
   valid_until: "",
   visibility: "private",
 };
@@ -82,6 +95,7 @@ const USERNAME_HINTS: Record<CredentialType, string> = {
   token: "the account the token belongs to, if required",
   generic: "admin",
   tacacs: "",
+  shared_secret: "",
 };
 
 export function CredentialFormDialog({
@@ -104,16 +118,17 @@ export function CredentialFormDialog({
       return;
     }
     if (mode === "edit" && credential) {
-      const editableType = SELECTABLE_CREDENTIAL_TYPES.includes(credential.type)
-        ? credential.type
-        : "ssh";
+      const editableType: EditableType = (
+        SELECTABLE_CREDENTIAL_TYPES.includes(credential.type) ? credential.type : "ssh"
+      ) as EditableType;
       form.reset({
         name: credential.name,
         username: credential.username,
-        type: editableType as "ssh" | "ssh_key" | "token" | "generic",
+        type: editableType,
         password: "",
         ssh_private_key: "",
         ssh_passphrase: "",
+        algorithm: credential.algorithm ?? DEFAULT_SHARED_SECRET_ALGORITHM,
         valid_until: toDateInputValue(credential.valid_until),
         visibility: credential.visibility,
       });
@@ -124,13 +139,22 @@ export function CredentialFormDialog({
 
   const handleSubmit = (values: FormValues) => {
     if (mode === "create" && values.type !== "ssh_key" && !values.password?.trim()) {
-      form.setError("password", { message: `${credentialTypeLabel(values.type)} is required` });
+      form.setError("password", {
+        message: `${credentialTypeLabel(values.type)} value is required`,
+      });
       return;
     }
-    onSubmit(values);
+    // A shared secret has no login user — mirror the name so the backend's
+    // non-null username column is satisfied without asking for a second field.
+    const normalized =
+      values.type === "shared_secret"
+        ? { ...values, username: values.name.trim() }
+        : values;
+    onSubmit(normalized);
   };
 
   const isEdit = mode === "edit";
+  const isSharedSecret = type === "shared_secret";
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -186,23 +210,27 @@ export function CredentialFormDialog({
               <FormDescription>
                 {isEdit
                   ? "The type cannot be changed after creation."
-                  : "SSH Login and Token use a username + secret. SSH Key uses a private key."}
+                  : "SSH Login and Token use a username + secret. SSH Key uses a private key. Shared Secret stores a passphrase for Encrypt/Decrypt Attribute steps."}
               </FormDescription>
             </FormItem>
 
-            <FormField
-              control={form.control}
-              name="username"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Username{type === "token" ? " (optional for some hosts)" : ""}</FormLabel>
-                  <FormControl>
-                    <Input placeholder={USERNAME_HINTS[type]} autoComplete="off" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {isSharedSecret ? null : (
+              <FormField
+                control={form.control}
+                name="username"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Username{type === "token" ? " (optional for some hosts)" : ""}
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder={USERNAME_HINTS[type]} autoComplete="off" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             {type === "ssh_key" ? (
               <>
@@ -249,7 +277,11 @@ export function CredentialFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      {type === "token" ? "Token" : "Password"}
+                      {isSharedSecret
+                        ? "Shared secret / passphrase"
+                        : type === "token"
+                          ? "Token"
+                          : "Password"}
                       {isEdit ? " (leave blank to keep)" : ""}
                     </FormLabel>
                     <FormControl>
@@ -260,6 +292,39 @@ export function CredentialFormDialog({
                 )}
               />
             )}
+
+            {isSharedSecret ? (
+              <FormItem>
+                <FormLabel>Algorithm</FormLabel>
+                <Controller
+                  control={form.control}
+                  name="algorithm"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value || DEFAULT_SHARED_SECRET_ALGORITHM}
+                      onValueChange={field.onChange}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {SHARED_SECRET_ALGORITHMS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FormDescription>
+                  Symmetric algorithm used by Encrypt/Decrypt Attribute steps that
+                  reference this secret. A step may override it per node.
+                </FormDescription>
+              </FormItem>
+            ) : null}
 
             <FormField
               control={form.control}

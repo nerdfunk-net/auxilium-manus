@@ -21,19 +21,24 @@ class JinjaTemplateError(ValueError):
     """Raised when a template is invalid or cannot be rendered."""
 
 
+def _unwrap_value(value: Any) -> Any:
+    """Recursively unwrap sealed secret envelopes anywhere in a bag value —
+    including inside lists, so a template can loop an array of per-item secrets
+    (e.g. ``{% for c in nautobot.config_context.credentials %}{{ c.password }}``)."""
+    if is_sealed_secret(value):
+        return unwrap_secret(value)
+    if isinstance(value, dict):
+        return {key: _unwrap_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_unwrap_value(item) for item in value]
+    return value
+
+
 def _unwrap_bag(bag: dict[str, Any]) -> dict[str, Any]:
     """Recursively unwrap sealed secret envelopes so templates can still use
     e.g. ``{{ tacacs.shared_secret }}`` directly — bags stay sealed at rest,
     only the in-memory Jinja namespace built for this render sees cleartext."""
-    out: dict[str, Any] = {}
-    for key, value in bag.items():
-        if is_sealed_secret(value):
-            out[key] = unwrap_secret(value)
-        elif isinstance(value, dict):
-            out[key] = _unwrap_bag(value)
-        else:
-            out[key] = value
-    return out
+    return {key: _unwrap_value(value) for key, value in bag.items()}
 
 
 def build_jinja_context(
@@ -47,6 +52,12 @@ def build_jinja_context(
 
     context = build_template_context(device, run_id=run_id)
     context["workflow"] = {"id": workflow_id or ""}
+    # build_template_context seeds "nautobot"/"git" from the raw bags without
+    # unwrapping — a config-context array of per-item secrets lives there, so
+    # unwrap those namespaces too (not just the pass-through bags below).
+    for fixed_bag in ("nautobot", "git"):
+        if isinstance(context.get(fixed_bag), dict):
+            context[fixed_bag] = _unwrap_bag(context[fixed_bag])
     for bag_name, bag_value in device.attribute_bags.items():
         if bag_name not in context:
             context[bag_name] = _unwrap_bag(dict(bag_value))

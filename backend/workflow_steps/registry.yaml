@@ -1801,6 +1801,106 @@ plugins:
                 multiline: false
                 dotall: false
 
+  - id: encrypt-attribute
+    name: Encrypt Attribute
+    overview: Encrypt an attribute value with a shared secret.
+    description: >
+      Encrypt a cleartext attribute value using a shared secret from the
+      credential vault and write the portable ciphertext token to a
+      destination attribute path (for later persistence to disk or git).
+    artifact_type: control_flow
+    palette_category: attributes
+    directory: encrypt_attribute
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: source_path
+          description: Dot path to the cleartext attribute value to encrypt.
+          data_type: string
+          required: true
+          example: run_input.enable_password
+        - name: destination_path
+          description: >
+            Dot path where the ciphertext token is written. Uses bag.field
+            form; parsed.* / run_input.* are reserved and rejected.
+          data_type: string
+          required: true
+          example: secrets.enable_password_enc
+        - name: credential_reference
+          description: >
+            Name of a shared-secret credential in the vault. The passphrase is
+            never stored in the workflow.
+          data_type: credential_ref
+          required: true
+          example: config-context-vault
+        - name: algorithm
+          description: >
+            Optional algorithm override. Blank uses the credential's configured
+            algorithm.
+          data_type: string
+          required: false
+          example: aes-256-gcm
+
+  - id: decrypt-attribute
+    name: Decrypt Attribute
+    overview: Decrypt an attribute value with a shared secret.
+    description: >
+      Decrypt an encrypted attribute value using a shared secret from the
+      credential vault and store the cleartext as a sealed secret for
+      downstream steps (render a template, deploy to a device).
+    artifact_type: control_flow
+    palette_category: attributes
+    directory: decrypt_attribute
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: source_path
+          description: Dot path to the encrypted attribute value (ciphertext token).
+          data_type: string
+          required: true
+          example: nautobot.config_context.secrets.enable_password
+        - name: destination_path
+          description: >
+            Dot path where the decrypted value is written, sealed. Uses
+            bag.field form; parsed.* / run_input.* are reserved and rejected.
+            Required in scalar mode; optional in list mode (blank rewrites the
+            source list in place).
+          data_type: string
+          required: false
+          example: secrets.enable_password
+        - name: item_field
+          description: >
+            Blank = scalar mode (source_path is one token). Set to a field name
+            for list mode: source_path resolves to a list and this field is
+            decrypted, sealed, on every entry that carries a token.
+          data_type: string
+          required: false
+          example: password
+        - name: credential_reference
+          description: >
+            Name of a shared-secret credential in the vault. The passphrase is
+            never stored in the workflow.
+          data_type: credential_ref
+          required: true
+          example: config-context-vault
+        - name: algorithm
+          description: >
+            Optional algorithm override. Blank trusts the token's own
+            algorithm header / the credential's configured algorithm.
+          data_type: string
+          required: false
+          example: aes-256-gcm
+
   - id: label
     name: Label
     overview: Place styled text on the workflow canvas.

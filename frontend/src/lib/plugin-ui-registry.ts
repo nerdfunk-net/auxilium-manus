@@ -46,6 +46,8 @@ import { FunnelPlugin } from "@/components/features/workflow-steps/funnel";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
+import { EncryptAttributePlugin } from "@/components/features/workflow-steps/encrypt-attribute";
+import { DecryptAttributePlugin } from "@/components/features/workflow-steps/decrypt-attribute";
 import { UpdateContentPlugin } from "@/components/features/workflow-steps/update-content";
 import { UpdateIseTacacsKeyPlugin } from "@/components/features/workflow-steps/update-ise-tacacs-key";
 import { UploadConfigPlugin } from "@/components/features/workflow-steps/upload-config";
@@ -87,6 +89,8 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-push": GitPushPlugin,
   "update-nautobot-device": UpdateNautobotDevicePlugin,
   "update-attribute": UpdateAttributePlugin,
+  "encrypt-attribute": EncryptAttributePlugin,
+  "decrypt-attribute": DecryptAttributePlugin,
   "update-content": UpdateContentPlugin,
   "update-ise-tacacs-key": UpdateIseTacacsKeyPlugin,
   "upload-config": UploadConfigPlugin,

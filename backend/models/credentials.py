@@ -5,10 +5,20 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CredentialType = Literal["ssh", "ssh_key", "tacacs", "generic", "token"]
+from core.passphrase_cipher import normalize_algorithm
+
+CredentialType = Literal["ssh", "ssh_key", "tacacs", "generic", "token", "shared_secret"]
 CredentialStatus = Literal["active", "expiring", "expired", "unknown"]
 CredentialVisibility = Literal["global", "private"]
-ALLOWED_CREDENTIAL_TYPES = frozenset({"ssh", "ssh_key", "tacacs", "generic", "token"})
+ALLOWED_CREDENTIAL_TYPES = frozenset(
+    {"ssh", "ssh_key", "tacacs", "generic", "token", "shared_secret"}
+)
+
+
+def _validate_algorithm(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return normalize_algorithm(value)
 
 
 class CredentialCreate(BaseModel):
@@ -18,6 +28,7 @@ class CredentialCreate(BaseModel):
     password: str | None = None
     ssh_private_key: str | None = None
     ssh_passphrase: str | None = None
+    algorithm: str | None = None
     valid_until: date | None = None
     visibility: CredentialVisibility = "private"
 
@@ -28,6 +39,11 @@ class CredentialCreate(BaseModel):
             raise ValueError("Invalid credential type")
         return value
 
+    @field_validator("algorithm")
+    @classmethod
+    def validate_algorithm(cls, value: str | None) -> str | None:
+        return _validate_algorithm(value)
+
     @model_validator(mode="after")
     def validate_credential_data(self) -> CredentialCreate:
         if self.type == "ssh_key":
@@ -35,6 +51,9 @@ class CredentialCreate(BaseModel):
                 raise ValueError("SSH private key is required for ssh_key type")
         elif not self.password:
             raise ValueError("Password is required for non-ssh_key types")
+        if self.type == "shared_secret":
+            # The passphrase rides in `password`; default the algorithm.
+            self.algorithm = normalize_algorithm(self.algorithm)
         return self
 
 
@@ -45,6 +64,7 @@ class CredentialUpdate(BaseModel):
     password: str | None = None
     ssh_private_key: str | None = None
     ssh_passphrase: str | None = None
+    algorithm: str | None = None
     valid_until: date | None = None
     visibility: CredentialVisibility | None = None
 
@@ -55,6 +75,11 @@ class CredentialUpdate(BaseModel):
             raise ValueError("Invalid credential type")
         return value
 
+    @field_validator("algorithm")
+    @classmethod
+    def validate_algorithm(cls, value: str | None) -> str | None:
+        return _validate_algorithm(value)
+
 
 class CredentialResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -63,6 +88,7 @@ class CredentialResponse(BaseModel):
     name: str
     username: str
     type: str
+    algorithm: str | None = None
     valid_until: str | None
     is_active: bool
     source: str

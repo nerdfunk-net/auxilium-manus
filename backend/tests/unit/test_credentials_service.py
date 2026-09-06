@@ -21,6 +21,7 @@ def _make_credential(**overrides) -> MagicMock:
     credential.name = overrides.get("name", "lab-router")
     credential.username = overrides.get("username", "admin")
     credential.type = overrides.get("type", "ssh")
+    credential.algorithm = overrides.get("algorithm", None)
     credential.valid_until = overrides.get("valid_until", None)
     credential.is_active = overrides.get("is_active", True)
     credential.source = overrides.get("source", "general")
@@ -134,6 +135,51 @@ class CredentialsServiceTests(unittest.TestCase):
         cred_service._repo.find_private_conflict.assert_not_called()
         _, kwargs = cred_service._repo.create.call_args
         self.assertIsNone(kwargs["owner_user_id"])
+
+    def test_create_shared_secret_credential_persists_algorithm(self) -> None:
+        db = MagicMock()
+        cred_service = CredentialsService(db)
+        cred_service._repo = MagicMock()
+        cred_service._repo.find_global_conflict.return_value = None
+        cred_service._repo.create.return_value = _make_credential(
+            type="shared_secret", algorithm="aes-256-gcm", visibility="global"
+        )
+
+        result = cred_service.create_credential(
+            name="vault-key",
+            username="vault-key",
+            cred_type="shared_secret",
+            password="the-passphrase",
+            algorithm="aes-256-gcm",
+            visibility="global",
+            acting_user_id=5,
+        )
+
+        _, kwargs = cred_service._repo.create.call_args
+        self.assertEqual(kwargs["algorithm"], "aes-256-gcm")
+        self.assertIsNotNone(kwargs["password_encrypted"])
+        self.assertEqual(result["algorithm"], "aes-256-gcm")
+        self.assertEqual(result["type"], "shared_secret")
+
+    def test_update_credential_sets_algorithm(self) -> None:
+        db = MagicMock()
+        cred_service = CredentialsService(db)
+        cred_service._repo = MagicMock()
+        existing = _make_credential(type="shared_secret", algorithm="aes-256-gcm")
+        cred_service._repo.get_by_id_for_user.return_value = existing
+        cred_service._repo.update.return_value = existing
+
+        cred_service.update_credential(1, algorithm="aes-256-gcm", acting_user_id=5)
+
+        _, kwargs = cred_service._repo.update.call_args
+        self.assertEqual(kwargs["algorithm"], "aes-256-gcm")
+
+    def test_to_dict_includes_algorithm(self) -> None:
+        cred_service = CredentialsService(MagicMock())
+        result = cred_service._to_dict(
+            _make_credential(type="shared_secret", algorithm="aes-256-gcm")
+        )
+        self.assertEqual(result["algorithm"], "aes-256-gcm")
 
     def test_two_users_can_create_private_credentials_with_same_name(self) -> None:
         db = MagicMock()

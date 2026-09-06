@@ -1,9 +1,12 @@
-"""Resolve stored SSH credentials for workflow steps."""
+"""Resolve stored vault credentials for workflow steps."""
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.orm import Session
 
+from core.passphrase_cipher import normalize_algorithm
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.exceptions import (
     CredentialMissingFieldError,
@@ -16,17 +19,25 @@ class CredentialReferenceNotFoundError(ValueError):
 
 
 class CredentialReferenceInvalidError(ValueError):
-    """Raised when a credential exists but is not usable for SSH."""
+    """Raised when a credential exists but is not usable for the requested purpose."""
 
 
-def _resolve_credential(
+def _resolve_credential_row(
     db: Session,
     credential_reference: str,
     *,
     acting_user_id: int | None,
     allowed_types: frozenset[str],
     type_error_label: str,
-) -> tuple[str, str]:
+) -> tuple[dict[str, Any], CredentialsService]:
+    """Find a visible credential by name and return ``(row, service)``.
+
+    Resolution is scoped to global credentials plus the acting user's own
+    private credentials. ``acting_user_id`` should be the executing run's
+    ``triggered_by_id``; if it is ``None`` (schedule/system run) only global
+    credentials resolve. A private credential wins over a global one of the
+    same name, mirroring RBAC user-override precedence.
+    """
     reference = credential_reference.strip()
     if not reference:
         raise ValueError("credential_reference is not configured")
@@ -40,9 +51,6 @@ def _resolve_credential(
         raise CredentialReferenceNotFoundError(
             f"Credential {reference!r} not found in credential vault"
         )
-    # A private credential and a global one can share a name. Resolution is
-    # "bring your own credential" — the actor's private entry wins over the
-    # shared global one, mirroring RBAC user-override precedence.
     match = next(
         (item for item in matches if item.get("visibility") == "private"), matches[0]
     )
@@ -52,14 +60,32 @@ def _resolve_credential(
         )
     if match["status"] == "expired":
         raise CredentialReferenceInvalidError(f"Credential {reference!r} is expired")
+    return match, service
 
+
+def _resolve_credential(
+    db: Session,
+    credential_reference: str,
+    *,
+    acting_user_id: int | None,
+    allowed_types: frozenset[str],
+    type_error_label: str,
+) -> tuple[str, str]:
+    match, service = _resolve_credential_row(
+        db,
+        credential_reference,
+        acting_user_id=acting_user_id,
+        allowed_types=allowed_types,
+        type_error_label=type_error_label,
+    )
     try:
-        password = service.get_decrypted_password(int(match["id"]), acting_user_id=acting_user_id)
+        password = service.get_decrypted_password(
+            int(match["id"]), acting_user_id=acting_user_id
+        )
     except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
         raise CredentialReferenceInvalidError(
-            f"Credential {reference!r} has no decryptable password"
+            f"Credential {credential_reference.strip()!r} has no decryptable password"
         ) from exc
-
     return str(match["username"]), password
 
 
@@ -106,3 +132,34 @@ def resolve_generic_credential(
         allowed_types=frozenset({"ssh", "generic"}),
         type_error_label="'ssh' or 'generic'",
     )
+
+
+def resolve_shared_secret_credential(
+    db: Session,
+    credential_reference: str,
+    *,
+    acting_user_id: int | None,
+) -> tuple[str, str]:
+    """Resolve a ``shared_secret`` credential to ``(algorithm, passphrase)``.
+
+    Same visibility/precedence/expiry rules as ``resolve_ssh_credential``. The
+    passphrase is stored in the credential's password field; ``algorithm`` is
+    the credential's configured symmetric algorithm (defaulted when unset).
+    """
+    match, service = _resolve_credential_row(
+        db,
+        credential_reference,
+        acting_user_id=acting_user_id,
+        allowed_types=frozenset({"shared_secret"}),
+        type_error_label="'shared_secret'",
+    )
+    try:
+        passphrase = service.get_decrypted_password(
+            int(match["id"]), acting_user_id=acting_user_id
+        )
+    except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
+        raise CredentialReferenceInvalidError(
+            f"Credential {credential_reference.strip()!r} has no stored shared secret"
+        ) from exc
+    algorithm = normalize_algorithm(match.get("algorithm"))
+    return algorithm, passphrase

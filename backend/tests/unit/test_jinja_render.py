@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from models.workflow_context import Capability, DeviceContext, DeviceStatus
+from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
@@ -43,6 +44,34 @@ class JinjaRenderTests(unittest.TestCase):
     def test_render_fails_on_undefined_variable(self) -> None:
         with self.assertRaises(JinjaTemplateError):
             render_jinja_template("{{ missing.value }}", {"device": {"name": "lab"}})
+
+    def test_sealed_secrets_inside_a_list_are_unwrapped_for_the_template(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            attribute_bags={
+                "nautobot": {
+                    "config_context": {
+                        "credentials": [
+                            {"username": "admin", "password": seal_secret("adminpw")},
+                            {"username": "noc", "password": seal_secret("nocpw")},
+                        ]
+                    }
+                }
+            },
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+        )
+        context = build_jinja_context(device, run_id="run-1", workflow_id="wf-1")
+        rendered = render_jinja_template(
+            "{% for c in nautobot.config_context.credentials %}"
+            "user {{ c.username }} secret {{ c.password }}\n"
+            "{% endfor %}",
+            context,
+        )
+        self.assertIn("user admin secret adminpw", rendered)
+        self.assertIn("user noc secret nocpw", rendered)
 
 
 if __name__ == "__main__":

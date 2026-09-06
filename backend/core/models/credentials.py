@@ -25,6 +25,9 @@ class Credential(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False, default="ssh")
+    # Symmetric algorithm for "shared_secret" credentials (see
+    # core.passphrase_cipher). NULL for every other credential type.
+    algorithm: Mapped[str | None] = mapped_column(String(64), nullable=True)
     password_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     ssh_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     ssh_passphrase_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)

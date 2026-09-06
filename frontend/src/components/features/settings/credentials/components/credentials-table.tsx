@@ -9,6 +9,7 @@ import { CredentialTypeBadge } from "../components/credential-type-badge";
 import { CredentialVisibilityBadge } from "../components/credential-visibility-badge";
 import type { Credential } from "../types";
 import { formatValidUntil } from "../utils/credential-utils";
+import { sharedSecretAlgorithmLabel } from "@/lib/shared-secret-algorithms";
 
 interface CredentialsTableProps {
   credentials: Credential[];
@@ -59,6 +60,11 @@ export function CredentialsTable({
               Type
             </p>
             <CredentialTypeBadge type={credential.type} />
+            {credential.type === "shared_secret" ? (
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {sharedSecretAlgorithmLabel(credential.algorithm)}
+              </p>
+            ) : null}
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

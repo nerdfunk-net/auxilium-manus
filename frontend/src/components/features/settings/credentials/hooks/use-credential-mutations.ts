@@ -31,7 +31,7 @@ export function useCredentialMutations() {
       }),
     onSuccess: () => {
       invalidate();
-      toast({ title: "Saved", description: "SSH login credential created." });
+      toast({ title: "Saved", description: "Credential created." });
     },
     onError: (error: Error) => {
       toast({
@@ -51,7 +51,7 @@ export function useCredentialMutations() {
       }),
     onSuccess: () => {
       invalidate();
-      toast({ title: "Saved", description: "SSH login credential updated." });
+      toast({ title: "Saved", description: "Credential updated." });
     },
     onError: (error: Error) => {
       toast({
@@ -67,7 +67,7 @@ export function useCredentialMutations() {
       apiCall<void>(`credentials/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       invalidate();
-      toast({ title: "Removed", description: "SSH login credential deleted." });
+      toast({ title: "Removed", description: "Credential deleted." });
     },
     onError: (error: Error) => {
       toast({

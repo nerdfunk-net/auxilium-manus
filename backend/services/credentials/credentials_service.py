@@ -71,6 +71,7 @@ class CredentialsService:
         visibility: str = "private",
         ssh_private_key: str | None = None,
         ssh_passphrase: str | None = None,
+        algorithm: str | None = None,
         acting_user_id: int | None = None,
     ) -> dict[str, Any]:
         owner_user_id: int | None = None
@@ -89,6 +90,7 @@ class CredentialsService:
             name=name,
             username=username,
             type=cred_type,
+            algorithm=algorithm,
             password_encrypted=self._encryption.encrypt(password) if password else None,
             ssh_key_encrypted=self._encryption.encrypt(ssh_private_key)
             if ssh_private_key
@@ -120,6 +122,7 @@ class CredentialsService:
         visibility: str | None = None,
         ssh_private_key: str | None = None,
         ssh_passphrase: str | None = None,
+        algorithm: str | None = None,
         acting_user_id: int | None = None,
     ) -> dict[str, Any]:
         credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
@@ -155,6 +158,8 @@ class CredentialsService:
             updates["username"] = username
         if cred_type is not None:
             updates["type"] = cred_type
+        if algorithm is not None:
+            updates["algorithm"] = algorithm
         if valid_until is not None:
             updates["valid_until"] = valid_until
         if visibility is not None:
@@ -299,6 +304,7 @@ class CredentialsService:
             "name": credential.name,
             "username": credential.username,
             "type": credential.type,
+            "algorithm": credential.algorithm,
             "valid_until": credential.valid_until,
             "is_active": credential.is_active,
             "source": credential.source,

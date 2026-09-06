@@ -76,6 +76,7 @@ def create_credential(
             visibility=payload.visibility,
             ssh_private_key=payload.ssh_private_key,
             ssh_passphrase=payload.ssh_passphrase,
+            algorithm=payload.algorithm,
             acting_user_id=current_user.id,
         )
         return CredentialResponse.model_validate(result)
@@ -107,6 +108,7 @@ def update_credential(
             visibility=payload.visibility,
             ssh_private_key=payload.ssh_private_key,
             ssh_passphrase=payload.ssh_passphrase,
+            algorithm=payload.algorithm,
             acting_user_id=current_user.id,
         )
         return CredentialResponse.model_validate(result)

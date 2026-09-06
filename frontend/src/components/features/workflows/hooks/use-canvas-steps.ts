@@ -8,6 +8,8 @@ import {
   deriveProducesParsed,
 } from "@/components/features/workflow-steps/render-jinja-template/template-config";
 import { DEFAULT_GET_FROM_USER_CONFIG } from "@/components/features/workflow-steps/get-from-user/config";
+import { DEFAULT_ENCRYPT_ATTRIBUTE_CONFIG } from "@/components/features/workflow-steps/encrypt-attribute/config";
+import { DEFAULT_DECRYPT_ATTRIBUTE_CONFIG } from "@/components/features/workflow-steps/decrypt-attribute/config";
 
 import type { StaticAttributeDef } from "../types/workflow-persistence";
 import { mergeRunInputAttributes } from "../utils/run-input-attributes";
@@ -96,6 +98,8 @@ export function useCanvasSteps(
     (step: StepPayload, id: string, position: { x: number; y: number }): PersistedCanvasNode => {
       const isRenderJinja = step.kind === "render-jinja-template";
       const isUpdateAttribute = step.kind === "update-attribute";
+      const isEncryptAttribute = step.kind === "encrypt-attribute";
+      const isDecryptAttribute = step.kind === "decrypt-attribute";
       const isLabel = step.kind === "label";
       const isBackground = step.kind === "background";
       const isGetFromUser = step.kind === "get-from-user";
@@ -105,6 +109,10 @@ export function useCanvasSteps(
         pluginConfig = { ...DEFAULT_RENDER_JINJA_TEMPLATE_CONFIG };
       } else if (isUpdateAttribute) {
         pluginConfig = { attributes: [] };
+      } else if (isEncryptAttribute) {
+        pluginConfig = { ...DEFAULT_ENCRYPT_ATTRIBUTE_CONFIG };
+      } else if (isDecryptAttribute) {
+        pluginConfig = { ...DEFAULT_DECRYPT_ATTRIBUTE_CONFIG };
       } else if (isLabel) {
         pluginConfig = { ...DEFAULT_LABEL_CONFIG };
       } else if (isBackground) {

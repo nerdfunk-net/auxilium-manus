@@ -41,6 +41,7 @@ export const SELECTABLE_CREDENTIAL_TYPES: readonly CredentialType[] = [
   "ssh_key",
   "token",
   "generic",
+  "shared_secret",
 ];
 
 const TYPE_LABELS: Record<CredentialType, string> = {
@@ -49,6 +50,7 @@ const TYPE_LABELS: Record<CredentialType, string> = {
   token: "Token",
   generic: "Basic Auth (Username + Password)",
   tacacs: "TACACS",
+  shared_secret: "Shared Secret",
 };
 
 export function credentialTypeLabel(type: CredentialType): string {

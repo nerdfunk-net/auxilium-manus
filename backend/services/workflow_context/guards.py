@@ -87,6 +87,12 @@ def effective_produces(
         if _update_attribute_has_guaranteed_write(config):
             return frozenset({Capability.ATTRIBUTES})
         return frozenset()
+    if step_type in ("encrypt-attribute", "decrypt-attribute"):
+        # The registry lists ``produces: [attributes]`` so canvas wiring knows
+        # these steps can add an attribute, but a device whose ``source_path``
+        # resolves to nothing is passed through untouched — so the capability
+        # can't be promised on every device.
+        return frozenset()
     if step_type == "run-command":
         # The registry lists ``produces: [parsed]``, but the executor only
         # stamps Capability.PARSED when ``parser`` is "textfsm" or "genie" —

@@ -88,6 +88,69 @@ def test_create_credential_defaults_to_private_and_passes_acting_user(app: FastA
     assert kwargs["acting_user_id"] == 1
 
 
+def test_create_shared_secret_credential_passes_algorithm(app: FastAPI) -> None:
+    mock_service = MagicMock()
+    mock_service.create_credential.return_value = {
+        "id": 2,
+        "name": "vault-key",
+        "username": "vault-key",
+        "type": "shared_secret",
+        "algorithm": "aes-256-gcm",
+        "valid_until": None,
+        "is_active": True,
+        "source": "general",
+        "owner": None,
+        "owner_user_id": None,
+        "owner_username": None,
+        "visibility": "global",
+        "created_at": None,
+        "updated_at": None,
+        "status": "active",
+        "has_password": True,
+        "has_ssh_key": False,
+        "has_ssh_passphrase": False,
+    }
+    app.dependency_overrides[_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/credentials",
+            json={
+                "name": "vault-key",
+                "username": "vault-key",
+                "type": "shared_secret",
+                "password": "the-passphrase",
+                "algorithm": "aes-256-gcm",
+                "visibility": "global",
+            },
+        )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["algorithm"] == "aes-256-gcm"
+    _, kwargs = mock_service.create_credential.call_args
+    assert kwargs["algorithm"] == "aes-256-gcm"
+    assert kwargs["cred_type"] == "shared_secret"
+
+
+def test_create_shared_secret_credential_rejects_unknown_algorithm(app: FastAPI) -> None:
+    mock_service = MagicMock()
+    app.dependency_overrides[_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/credentials",
+            json={
+                "name": "vault-key",
+                "username": "vault-key",
+                "type": "shared_secret",
+                "password": "pw",
+                "algorithm": "rot13",
+            },
+        )
+
+    assert response.status_code == 422
+
+
 def test_update_credential_returns_404_for_other_users_private_credential(
     app: FastAPI,
 ) -> None:

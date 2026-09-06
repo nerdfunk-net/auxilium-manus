@@ -40,6 +40,7 @@ export function CredentialsSettingsCanvas() {
       password?: string;
       ssh_private_key?: string;
       ssh_passphrase?: string;
+      algorithm?: string;
       valid_until?: string;
       visibility: CredentialVisibility;
     }) => {
@@ -51,6 +52,7 @@ export function CredentialsSettingsCanvas() {
           password: values.password,
           ssh_private_key: values.ssh_private_key,
           ssh_passphrase: values.ssh_passphrase,
+          algorithm: values.type === "shared_secret" ? values.algorithm : undefined,
           valid_until: values.valid_until || undefined,
           visibility: values.visibility,
         },
@@ -69,6 +71,7 @@ export function CredentialsSettingsCanvas() {
         password?: string;
         ssh_private_key?: string;
         ssh_passphrase?: string;
+        algorithm?: string;
         valid_until?: string;
         visibility: CredentialVisibility;
       },
@@ -79,6 +82,7 @@ export function CredentialsSettingsCanvas() {
         password?: string;
         ssh_private_key?: string;
         ssh_passphrase?: string;
+        algorithm?: string;
         valid_until?: string;
         visibility?: CredentialVisibility;
       } = {
@@ -95,6 +99,9 @@ export function CredentialsSettingsCanvas() {
       }
       if (values.ssh_passphrase?.trim()) {
         payload.ssh_passphrase = values.ssh_passphrase;
+      }
+      if (credential.type === "shared_secret" && values.algorithm) {
+        payload.algorithm = values.algorithm;
       }
 
       updateCredential.mutate(
@@ -125,8 +132,9 @@ export function CredentialsSettingsCanvas() {
             <div>
               <h1 className="text-lg font-semibold">Credential vault</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Configure SSH login, SSH key, and token credentials for network device access and
-                Git repositories. Secrets are encrypted in the database.
+                Configure SSH login, SSH key, token, and shared-secret credentials for network
+                device access, Git repositories, and Encrypt/Decrypt Attribute steps. Secrets are
+                encrypted in the database.
               </p>
             </div>
           </div>
