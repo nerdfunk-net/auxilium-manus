@@ -38,10 +38,10 @@ class StepRunnerDeviceSessionsTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "services.execution.step_registry.STEP_REGISTRY", {"noop": _fake_executor}
             ),
-            patch("services.execution.step_runner.pre_step_guard"),
-            patch("services.execution.step_runner.post_step_guard"),
-            patch("services.execution.step_runner.effective_produces"),
-            patch("services.execution.step_runner.capability_spec_from_plugin"),
+            patch("services.execution.step_runner.runner.pre_step_guard"),
+            patch("services.execution.step_runner.runner.post_step_guard"),
+            patch("services.execution.step_runner.runner.effective_produces"),
+            patch("services.execution.step_runner.runner.capability_spec_from_plugin"),
         ):
             await runner._execute_step(
                 step_type="noop",
