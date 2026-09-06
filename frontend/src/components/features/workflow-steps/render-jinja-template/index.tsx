@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { TemplateViewDialog } from "@/components/features/templates/components/template-view-dialog";
 import { useTemplatesQuery } from "@/components/features/templates/hooks/use-templates-query";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -31,6 +33,7 @@ function RenderJinjaTemplateConfigPanel({
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const parsed = useMemo(() => parseRenderJinjaTemplateConfig(config), [config]);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data, isLoading, isError } = useTemplatesQuery();
 
@@ -64,6 +67,7 @@ function RenderJinjaTemplateConfigPanel({
   );
 
   const selectedValue = parsed.template_id !== null ? String(parsed.template_id) : "";
+  const selectedTemplate = templates.find((template) => template.id === parsed.template_id);
   const selectedMissing =
     parsed.template_id !== null &&
     !isLoading &&
@@ -134,7 +138,24 @@ function RenderJinjaTemplateConfigPanel({
         <p className="text-[11px] leading-4 text-muted-foreground">
           The selected template is rendered once per device at workflow runtime.
         </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 w-full text-xs"
+          disabled={parsed.template_id === null || selectedMissing}
+          onClick={() => setPreviewOpen(true)}
+        >
+          Preview Template
+        </Button>
       </div>
+
+      <TemplateViewDialog
+        templateId={parsed.template_id}
+        templateName={selectedTemplate?.name}
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+      />
     </div>
   );
 }

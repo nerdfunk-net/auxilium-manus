@@ -58,6 +58,11 @@ export function RenderJinjaTemplateHelpPanel() {
           step. The selected template body is rendered at workflow runtime with full
           device and run context available to Jinja.
         </p>
+        <p>
+          Use <HelpCode>Preview Template</HelpCode> below the dropdown to view the
+          selected template&apos;s body in a read-only dialog without leaving the
+          builder.
+        </p>
         <HelpExample>
           template_id: 12
           <br />
