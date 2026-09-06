@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
@@ -30,6 +29,7 @@ from services.execution.graph import (
     topological_order,
 )
 from services.execution.step_result_status import derive_step_result_status
+from services.execution.step_runner.signals import FanOutSignal, classify_step_exception
 from services.network.netmiko.session_pool import DeviceSessionPool
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow_context.guards import (
@@ -41,22 +41,6 @@ from services.workflow_context.merge import merge_workflow_contexts
 from services.workflow_context.registry import capability_spec_from_plugin
 from services.workflow_context.run_inputs import seed_run_input_bag
 from services.workflow_context.secret_fields import redact_secrets_in_data
-
-
-@dataclass
-class FanOutSignal:
-    """Returned by execute_all when an inventory step requests fan-out."""
-
-    inventory_node_id: str
-    fan_out_config: dict[str, Any]
-    inventory_outcome: WorkflowContext  # context with all devices + _fan_out metadata
-    step_outcomes: dict[str, dict[str, WorkflowContext]] = field(default_factory=dict)
-    # node_id of the fan-in (join) step downstream of the inventory step, if any.
-    # When set, children stop before it and the parent runs it (and everything
-    # downstream of it) once on the merged context. When None, children run the
-    # whole downstream subgraph (legacy behaviour).
-    join_node_id: str | None = None
-
 
 logger = logging.getLogger(__name__)
 
@@ -70,26 +54,6 @@ def _is_author_disabled(node: dict[str, Any]) -> bool:
     (not a structural node like ``fan-in``)."""
     data = node.get("data") or {}
     return data.get("disabled") is True and data.get("kind") not in _STRUCTURAL_KINDS
-
-
-def classify_step_exception(exc: Exception) -> tuple[str, str]:
-    """Map a raised exception to (error_category, user-facing message).
-
-    Steps follow the convention documented in doc/WORKFLOW-STEPS.md: raise
-    ``ValueError`` for configuration problems (missing/invalid settings,
-    unresolved references) and ``RuntimeError`` for expected-but-failed
-    execution conditions (e.g. a device unreachable). Both are authored by
-    step code with human-readable messages, so it's safe to show them
-    directly. Anything else is an unanticipated bug — its message may
-    contain internals (paths, library-specific text) so it's withheld;
-    only the error_id (correlatable with the full traceback in worker
-    logs) is shown.
-    """
-    if isinstance(exc, ValueError):
-        return "configuration", str(exc) or "This step's configuration is invalid."
-    if isinstance(exc, RuntimeError):
-        return "execution", str(exc) or "This step failed to complete."
-    return "internal", "An unexpected internal error occurred while running this step."
 
 
 @lru_cache(maxsize=1)
