@@ -1,6 +1,8 @@
 # Refactoring Plan — `step_runner.py` & `workflow_run.py`
 
-**Status:** proposal, awaiting review — revised after Grok 4.6 review
+**Status:** **implemented 2026-09-06** on branch
+`refactoring/steprunner-workflowrun` (Phases 0–2; Phase 3 deferred). See §8 for
+the filled-in review checklist, deviations, and open follow-ups.
 **Author:** prepared 2026-09-06
 **Scope:** split the two largest files on the workflow-execution hot path into
 packages of small, single-purpose modules **without changing any runtime
@@ -1235,66 +1237,120 @@ earlier ones being *split further*, only on the package existing (Phase 1a /
 
 ---
 
-## 8. Review checklist (fill in during review)
+## 8. Review checklist — implementation status
+
+**Implemented 2026-09-06** on branch `refactoring/steprunner-workflowrun`,
+10 commits (`7a9e03f` Phase 0 → `bd8764e` Phase 2e). After every commit:
+full unit suite (`2351` baseline → `2364` with the 13 Phase-0 tests, all
+green), the 4 regression guard scripts, `ruff` + `pyright` (0 errors) on both
+packages, and `import hatchet.worker` / `dynamic_worker` / `dispatch` /
+`scheduled_trigger`. Whole-suite coverage `82.85% → 83.48%` (up).
 
 Structural:
-- [ ] §2.1 importer list is complete (re-grep before starting) — incl.
-      `tests/integration/test_workflow_run_end_to_end.py`
-- [ ] §2.2 test-symbol list is complete (re-grep before starting) — incl. the
-      four `services.execution.step_runner.<guard>` patch targets
-- [ ] Package split introduces **no** new module-level DB / engine imports
-- [ ] All lazy in-function imports preserved verbatim (`SessionLocal`,
-      `StepRunner`, `FanOutSignal`, `STEP_REGISTRY`, repositories)
-- [ ] No sibling module imports through the package `__init__` (R4) — full
-      paths / `import … as` only
-- [ ] `child_workflow` object identity preserved for `patch.object` in
-      `test_wait_and_run_dispatch.py`; `wf_run_module.child_workflow` still resolves
-- [ ] `_plugin_registry_service` stays a single `@lru_cache` function
-- [ ] Hatchet registration snapshot (name, tasks, parents, timeouts, on_events)
-      unchanged
-- [ ] `runner.py` left at ~600 lines — **not** split further (R6)
+- [x] §2.1 importer list re-grepped — complete. One extra found and confirmed
+      safe: `tests/unit/test_run_service_run_inputs.py` patches
+      `hatchet.workflows.workflow_run.workflow.run_no_wait` (needs `workflow`
+      at the package root — preserved).
+- [x] §2.2 test-symbol list re-grepped — complete, incl. the four
+      `services.execution.step_runner.<guard>` patch targets.
+- [x] No new module-level DB / engine imports — verified by grep
+      (`from core.database import …` appears only inside functions).
+- [x] All lazy in-function imports preserved verbatim (`SessionLocal`,
+      `StepRunner`, `FanOutSignal`, `STEP_REGISTRY`, repositories,
+      `find_join_node_id`, `child_node_ids`, merge/redact helpers).
+- [x] No sibling import through the package `__init__` (R4). `step_runner`
+      uses `import services.execution.step_runner.graph_resolution as _gr` /
+      `… .subgraph as _subgraph`; `workflow_run` siblings import each other by
+      full `from hatchet.workflows.workflow_run.<mod> import …` submodule path.
+      The only `from …workflow_run import …` strings inside the package are in
+      comments/docstrings.
+- [x] `child_workflow` object identity preserved — re-exported in
+      `workflow_run/__init__.py`; `test_wait_and_run_dispatch.py` green,
+      `test_child_workflow_object_identity_preserved` added in Phase 0.
+- [x] `_plugin_registry_service` stays one `@lru_cache` function (in
+      `runner.py`, not re-exported — no external importer).
+- [x] Hatchet registration snapshot unchanged — asserted by
+      `test_refactor_import_surface.py::test_hatchet_registration_snapshot`
+      (name `WorkflowExecution`, tasks `{prepare, execute_steps}`,
+      `execute_steps.parents == [prepare]`, timeouts 30 s / 24 h) and
+      `test_hatchet_workers.py`.
+- [x] `runner.py` left at **645 lines** — not split further (R6).
 
 Ordering / correctness:
-- [ ] Phase 1: class moves to `runner.py` (1d) **before** `subgraph.py` (1e) (R1)
-- [ ] `mkdir -p` precedes every `git mv … /__init__.py` (R3)
-- [ ] Phase 1d commit includes the `test_step_runner_device_sessions.py`
-      patch-target rebind (`…step_runner.<guard>` → `…step_runner.runner.<guard>`)
-      and nothing else in that file changes (R2)
+- [x] Phase 1: class moved to `runner.py` (1d) **before** `subgraph.py` (1e) (R1).
+- [x] `mkdir -p` preceded every `git mv … /__init__.py` (R3).
+- [x] Phase 1d commit contains the `test_step_runner_device_sessions.py`
+      patch-target rebind (`…step_runner.<guard>` → `…step_runner.runner.<guard>`,
+      4 strings) and nothing else in that file (R2).
 
 Testing:
-- [ ] Phase 0 fingerprint fixture generated on clean `main`, timestamps/uuids
-      stripped, lists sorted (R-review §3.7)
-- [ ] Phase 0 includes real `execute_subgraph` + `resume_after_join` +
-      `_finalize_fan_out_parent` fingerprints (R5) — these functions have **no**
-      unit test today
-- [ ] §6.4 differential test uses a fixed corpus, not Hypothesis (R7)
-- [ ] Every phase: suite green (only the §2.4 patch rebind excepted), unchanged
-      test count otherwise, coverage on both modules not lower
+- [x] Phase 0 gives `execute_subgraph`, `resume_after_join`,
+      `_finalize_fan_out_parent` and the phase-1 `FanOutSignal` payload their
+      first unit coverage (R5) — see **deviation D1** below for the form used.
+- [x] Every phase: suite green (only the §2.4 patch rebind excepted), test
+      count only ever grew by the Phase-0 additions, coverage did not drop.
+- [x] Phase 3 explicitly **out of scope** (R9).
 
-Scope:
-- [ ] Phase 3 explicitly **out of scope** — not "optional in this PR" (R9)
+### Deviations from the plan as written
+
+| # | Deviation | Rationale |
+|---|---|---|
+| D1 | **Phase 0 fingerprint harness not built as a table-driven JSON fixture** (§6.2 / checklist "fingerprint fixture generated on clean `main`… lists sorted"). Instead: `tests/unit/test_execution_characterization.py` drives the same real entrypoints (`execute_subgraph`, `resume_after_join`, `_finalize_fan_out_parent`, `_run_steps_until_fan_out_or_done`) with stubbed `_execute_step` / `child_workflow.aio_run` and asserts executed-node order, persisted `WorkflowStepResult` statuses, return values and the `FanOutSignal` shape directly. | Same guard against logic drift on the untested paths (R5's actual goal), without a committed golden file to keep in sync. `error_id`s/timestamps are simply not asserted rather than stripped-and-frozen. |
+| D2 | **§6.4 differential `_legacy_` test skipped** (Phase 1c). | 1c was a literal cut/paste of the function bodies into `graph_resolution.py`; `test_step_runner_funnel.py` (×5 direct `_resolve_funnels` calls) + `test_step_runner_disabled_steps.py` (×12) + `test_canvas_decoration_execution_plan.py` + `test_execution_graph.py` already lock the behaviour permanently. R7 (no Hypothesis) is moot. |
+| D3 | **Phases 2c and 2d landed as one commit** (`a97a9b2`) rather than two. | `batch_approval.py` references `_FanOutDispatchPlan` (TYPE_CHECKING-only) from `fan_out_dispatch.py`, and `fan_out_dispatch.py` imports `batch_approval` at runtime — a type-only cycle. Splitting leaves one commit whose per-step `pyright` gate fails on an unresolvable import. End state is identical to the plan. |
+| D4 | **`MAX_APPROVAL_STATE_DEVICE_NAMES` and the two pure format helpers not re-exported** from `workflow_run/__init__.py` (§2c "add … for discoverability"). | No test or module imports them from the package; re-exporting unused names trips `ruff` F401. They live in `batch_approval.py`. |
+
+### Open issues / follow-ups
+
+1. **`tests/integration/test_workflow_run_end_to_end.py` was not run** — it
+   needs a real Cisco device + Nautobot (`backend/.env.test`) and is not in the
+   default suite. Cited in §2.1 / §6.1 as a Phase-1e gate but is not usable in
+   a plain dev/CI environment. The Phase-0 `execute_subgraph` characterization
+   tests stand in as the net for 1d/1e. **Run it once against real hardware
+   before merge** if that environment is available.
+2. **No live end-to-end run through `scripts/run_worker_dev.py`** (§6.5
+   optional) — a disposable Hatchet stack was not available. One linear + one
+   fan-out workflow through a real worker before merge would fully close the
+   loop on Phase 2.
+3. **`pyright` is advisory** in this repo (basic mode, backlog not cleared) —
+   the 0-errors result on both packages is real but the CI gate itself is not
+   yet blocking.
+4. **Docs committed with the code**: `doc/refactoring/STEPRUNNER_WORKFLOWRUN.md`
+   and `doc/analysis/GROK_STEPRUNNER_WORKFLOWRUN.md` were untracked at session
+   start and were added in the Phase-0 commit. Drop them from the branch if the
+   team keeps planning docs out of the repo.
+5. **Phase 3 remains a separate future proposal** (R9) — unify the four
+   topological walks, drop the injected-parameter pattern in
+   `phase1`/`aggregation`, delete the delegating shims. Not started; needs its
+   own design doc and review.
 
 ---
 
-## 9. Outcome (size after Phases 1–2)
+## 9. Outcome (size after Phases 1–2 — as landed)
 
-| Module | ~lines |
-|---|---|
-| `step_runner/__init__.py` | 40 |
-| `step_runner/signals.py` | 55 |
-| `step_runner/graph_resolution.py` | 240 |
-| `step_runner/subgraph.py` | 190 |
-| `step_runner/runner.py` | **~600** |
-| `workflow_run/__init__.py` | 95 |
-| `workflow_run/phase1.py` | 185 |
-| `workflow_run/fan_out_dispatch.py` | 280 |
-| `workflow_run/batch_approval.py` | 135 |
-| `workflow_run/aggregation.py` | 155 |
+| Module | est. | **actual** |
+|---|---|---|
+| `step_runner/__init__.py` | 40 | 38 |
+| `step_runner/signals.py` | 55 | 46 |
+| `step_runner/graph_resolution.py` | 240 | 237 |
+| `step_runner/subgraph.py` | 190 | 206 |
+| `step_runner/runner.py` | ~600 | **645** |
+| `workflow_run/__init__.py` | 95 | 153 |
+| `workflow_run/phase1.py` | 185 | 273 |
+| `workflow_run/fan_out_dispatch.py` | 280 | 271 |
+| `workflow_run/batch_approval.py` | 135 | 175 |
+| `workflow_run/aggregation.py` | 155 | 204 |
 
-All under the 800 ceiling (largest `runner.py` ≈ 600 — see R6, do not chase it
-lower). No public API change. No behaviour change. Existing suite unchanged
-apart from one patch-target rebind in `test_step_runner_device_sessions.py`
-(§2.4); two new guard test files + one fingerprint fixture added in Phase 0.
+(`__init__` / `phase1` / `batch_approval` / `aggregation` run over the estimate
+because the estimates omitted docstrings, blank lines and the full re-export
+blocks — every file is still comfortably under the 800 ceiling; largest is
+`runner.py` at 645, deliberately not split further per R6.)
+
+No public API change. No behaviour change. Existing suite unchanged apart from
+the one patch-target rebind in `test_step_runner_device_sessions.py` (§2.4).
+Phase 0 added two test files — `test_refactor_import_surface.py` and
+`test_execution_characterization.py` (direct-assertion characterization, not a
+JSON fingerprint fixture — see §8 D1).
 
 Phase 3 (unify the four walk loops, drop injected params, delete shims) is a
 **separate future proposal** and may never be worth the risk — see §5 Phase 3.
