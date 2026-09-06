@@ -8,6 +8,7 @@ import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
 import { ReadConfigPlugin } from "@/components/features/workflow-steps/read-config";
+import { ReadFromFilePlugin } from "@/components/features/workflow-steps/read-from-file";
 import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/parse-cisco-config";
 import { AddPyatsTestbedPlugin } from "@/components/features/workflow-steps/add-pyats-testbed";
 import { GetPyatsConfigPlugin } from "@/components/features/workflow-steps/get-pyats-config";
@@ -65,6 +66,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "config-to-attributes": ConfigToAttributesPlugin,
   "get-device-configs": GetDeviceConfigsPlugin,
   "read-config": ReadConfigPlugin,
+  "read-from-file": ReadFromFilePlugin,
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "add-pyats-testbed": AddPyatsTestbedPlugin,
   "get-pyats-config": GetPyatsConfigPlugin,

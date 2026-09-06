@@ -36,6 +36,7 @@ export function useTemplateEditor() {
   const [attributes, setAttributes] = useState<string[]>([]);
   const [selectedVariableId, setSelectedVariableId] = useState<string | null>(null);
   const [addVariableOpen, setAddVariableOpen] = useState(false);
+  const [loadVariablesOpen, setLoadVariablesOpen] = useState(false);
   const [variablesHelpOpen, setVariablesHelpOpen] = useState(false);
   const [commandsDialogOpen, setCommandsDialogOpen] = useState(false);
   const [attributesDialogOpen, setAttributesDialogOpen] = useState(false);
@@ -82,6 +83,7 @@ export function useTemplateEditor() {
     setParsedConfig,
     setRunInputSource,
     loadCustomVariables,
+    mergeCustomVariables,
   } = variableManager;
 
   const cleanedCommands = useMemo(
@@ -207,6 +209,14 @@ export function useTemplateEditor() {
     [variableManager.variables],
   );
 
+  const autoVariableNames = useMemo(
+    () =>
+      variableManager.variables
+        .filter((variable) => variable.isAutoFilled)
+        .map((variable) => variable.name),
+    [variableManager.variables],
+  );
+
   const handleRender = useCallback(() => {
     renderer.render(content, variableManager.variables);
   }, [renderer, content, variableManager.variables]);
@@ -217,6 +227,13 @@ export function useTemplateEditor() {
       setSelectedVariableId(id);
     },
     [variableManager],
+  );
+
+  const handleLoadVariables = useCallback(
+    (entries: Parameters<typeof mergeCustomVariables>[0], mode: Parameters<typeof mergeCustomVariables>[1]) => {
+      mergeCustomVariables(entries, mode);
+    },
+    [mergeCustomVariables],
   );
 
   const { handleSave, handleExport, isSaving } = useTemplateEditorSave({
@@ -268,6 +285,7 @@ export function useTemplateEditor() {
       selectedVariableId,
       setSelectedVariableId,
       setAddVariableOpen,
+      setLoadVariablesOpen,
       setVariablesHelpOpen,
       setLinkWorkflowDialogOpen,
       renderer,
@@ -276,8 +294,11 @@ export function useTemplateEditor() {
       handleSave,
       isSaving,
       addVariableOpen,
+      loadVariablesOpen,
       existingVariableNames,
+      autoVariableNames,
       handleAddVariable,
+      handleLoadVariables,
       variablesHelpOpen,
       commandsDialogOpen,
       commands,
@@ -321,8 +342,11 @@ export function useTemplateEditor() {
       handleSave,
       isSaving,
       addVariableOpen,
+      loadVariablesOpen,
       existingVariableNames,
+      autoVariableNames,
       handleAddVariable,
+      handleLoadVariables,
       variablesHelpOpen,
       commandsDialogOpen,
       commands,

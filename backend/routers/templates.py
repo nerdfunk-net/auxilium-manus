@@ -10,6 +10,8 @@ from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.templates import (
+    ParseStructuredRequest,
+    ParseStructuredResponse,
     TemplateCreate,
     TemplateListResponse,
     TemplateRenderRequest,
@@ -17,6 +19,7 @@ from models.templates import (
     TemplateResponse,
     TemplateUpdate,
 )
+from services.parsing import parse_structured_document
 from services.templates.exceptions import (
     TemplateCredentialNotFoundError,
     TemplateNameConflictError,
@@ -84,6 +87,26 @@ def render_template(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to render template", exc)
+
+
+@router.post(
+    "/parse-structured",
+    response_model=ParseStructuredResponse,
+    dependencies=[Depends(require_permission("templates", "read"))],
+)
+def parse_structured(
+    payload: ParseStructuredRequest,
+    _current_user: User = Depends(get_current_user),
+) -> ParseStructuredResponse:
+    """Parse a YAML/JSON blob for the template editor's "Load from file" flow."""
+    try:
+        return ParseStructuredResponse(
+            parsed=parse_structured_document(payload.content, fmt=payload.format)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @router.get(

@@ -23,6 +23,9 @@ _READ_ONLY_DEVICE_FIELDS = frozenset({"id", "source", "source_id"})
 # trigger time for the rest of the run.
 _RESERVED_BAG_NAMES = frozenset({"parsed", "run_input"})
 
+# Public alias for reuse by other attribute writers (e.g. attribute_merge.py).
+RESERVED_BAG_NAMES = _RESERVED_BAG_NAMES
+
 
 def _set_nested(root: dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")

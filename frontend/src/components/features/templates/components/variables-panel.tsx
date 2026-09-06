@@ -1,6 +1,6 @@
 "use client";
 
-import { HelpCircle, Link2, Lock, Plus, X } from "lucide-react";
+import { FileUp, HelpCircle, Link2, Lock, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +18,7 @@ interface VariablesPanelProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onAdd: () => void;
+  onLoadFromFile: () => void;
   onHelp: () => void;
   onRemove: (id: string) => void;
   onUpdateValue: (id: string, value: string) => void;
@@ -29,6 +30,7 @@ export function VariablesPanel({
   selectedId,
   onSelect,
   onAdd,
+  onLoadFromFile,
   onHelp,
   onRemove,
   onUpdateValue,
@@ -76,10 +78,16 @@ export function VariablesPanel({
             </Tooltip>
           ) : null}
         </div>
-        <Button size="sm" type="button" variant="ghost" onClick={onAdd}>
-          <Plus className="size-4" />
-          Add
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button size="sm" type="button" variant="ghost" onClick={onLoadFromFile}>
+            <FileUp className="size-4" />
+            Load
+          </Button>
+          <Button size="sm" type="button" variant="ghost" onClick={onAdd}>
+            <Plus className="size-4" />
+            Add
+          </Button>
+        </div>
       </div>
 
       <ul className="max-h-56 flex-1 overflow-auto p-2">

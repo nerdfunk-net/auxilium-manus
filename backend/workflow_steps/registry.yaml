@@ -1759,6 +1759,83 @@ plugins:
           required: false
           example: cisco_ios
 
+  - id: read-from-file
+    name: Read from File
+    overview: Load a YAML or JSON file into the device attribute bag.
+    description: >
+      Read a YAML or JSON file from the local export directory or a Git repository,
+      parse it once, and deep-merge the resulting mapping into every device's attribute
+      bag at a configurable destination path — so a later Render Jinja Template step can
+      reference the structured data (e.g. {{ data.region }}). Nested objects merge
+      key-by-key; lists are replaced wholesale. When overwrite is false (default),
+      keys already present at the destination are kept and only new keys are added.
+      Fan-out note: in git mode the shared local working tree is refreshed (clone/pull)
+      once per branch, so concurrent fan-out children reading the same repository can
+      contend on the git lock; the merge itself is per-device and side-effect free.
+      Prefer filesystem mode, or read the file before fan-out / after fan-in, when many
+      branches target the same repository.
+    artifact_type: control_flow
+    palette_category: attributes
+    directory: read_from_file
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    consumes: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: source
+          description: >
+            Where to read the file from: "filesystem" (the default export directory,
+            Settings → General) or "git" (a repository under Settings → Git Repositories).
+          data_type: string
+          required: true
+          default: filesystem
+          example: git
+        - name: git_repository_id
+          description: >
+            ID of a Git repository configured under Settings → Git Repositories.
+            Required when source is git; ignored otherwise.
+          data_type: integer
+          required: false
+          example: 3
+        - name: path
+          description: >
+            Relative path of the file within the export directory or the Git repository,
+            e.g. "data/site-defaults.yaml". May include subdirectories; must stay inside
+            the root.
+          data_type: string
+          required: true
+          example: data/site-defaults.yaml
+        - name: format
+          description: >
+            How to parse the file: "yaml", "json", or "auto" (default; picks by file
+            extension, otherwise tries JSON then YAML). The YAML parser also reads JSON.
+          data_type: string
+          required: false
+          default: auto
+          example: yaml
+        - name: destination_path
+          description: >
+            Dotted bag[.field...] path the parsed mapping is deep-merged into, e.g.
+            "data" or "data.site". The first segment is the attribute bag name and may
+            not be a reserved namespace (parsed, run_input) or a device.* scalar field.
+          data_type: string
+          required: true
+          default: data
+          example: data.site
+        - name: overwrite
+          description: >
+            When true, a key from the file replaces a key already present at the
+            destination (nested dicts still merge key-by-key; lists are replaced
+            wholesale). When false (default), existing keys are kept and only new keys
+            are added.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: update-attribute
     name: Update Attribute
     overview: Set or transform device attributes in the workflow.

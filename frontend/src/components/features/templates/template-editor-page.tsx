@@ -13,6 +13,7 @@ import { ConfigureCommandsDialog } from "./components/configure-commands-dialog"
 import { GeneralPanel } from "./components/general-panel";
 import { JinjaHelpDialog } from "./components/jinja-help-dialog";
 import { LinkWorkflowDialog } from "./components/link-workflow-dialog";
+import { LoadVariablesDialog } from "./dialogs/load-variables-dialog";
 import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
 import { ResizableSplit } from "./components/resizable-split";
@@ -92,6 +93,7 @@ function TemplateEditorContent() {
                 selectedId={editor.selectedVariableId}
                 onSelect={editor.setSelectedVariableId}
                 onAdd={() => editor.setAddVariableOpen(true)}
+                onLoadFromFile={() => editor.setLoadVariablesOpen(true)}
                 onHelp={() => editor.setVariablesHelpOpen(true)}
                 onRemove={editor.variableManager.removeVariable}
                 onUpdateValue={editor.variableManager.updateVariableValue}
@@ -160,6 +162,14 @@ function TemplateEditorContent() {
         existingNames={editor.existingVariableNames}
         onClose={() => editor.setAddVariableOpen(false)}
         onAdd={editor.handleAddVariable}
+      />
+
+      <LoadVariablesDialog
+        open={editor.loadVariablesOpen}
+        existingNames={editor.existingVariableNames}
+        autoNames={editor.autoVariableNames}
+        onClose={() => editor.setLoadVariablesOpen(false)}
+        onLoad={editor.handleLoadVariables}
       />
 
       <JinjaHelpDialog

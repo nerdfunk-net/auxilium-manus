@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class ParseStructuredRequest(BaseModel):
+    """Raw text to parse as YAML or JSON for the template editor's
+    "Load variables from file" flow."""
+
+    content: str = Field(..., description="Raw file/paste content to parse")
+    format: Literal["yaml", "json", "auto"] = "auto"
+
+
+class ParseStructuredResponse(BaseModel):
+    parsed: Any
 
 
 class TemplateVariable(BaseModel):

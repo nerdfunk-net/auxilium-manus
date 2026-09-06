@@ -8,7 +8,11 @@ import {
   PARSED_CONFIG_VARIABLE,
 } from "../constants";
 import type { CommandEntry, EditorVariable, TemplateVariableRecord } from "../types";
+import type { ParsedVariableEntry } from "../utils/parse-variables";
 import type { StaticAttributeDef } from "@/components/features/workflows/types/workflow-persistence";
+
+/** How a name collision with an existing custom variable is resolved. */
+export type MergeVariablesMode = "skip" | "overwrite";
 
 let customVariableCounter = 0;
 
@@ -205,6 +209,46 @@ export function useTemplateVariables() {
     });
   }, []);
 
+  const mergeCustomVariables = useCallback(
+    (entries: ParsedVariableEntry[], mode: MergeVariablesMode) => {
+      setVariables((current) => {
+        const autoNames = new Set(
+          current.filter((variable) => variable.isAutoFilled).map((variable) => variable.name),
+        );
+        const byName = new Map(current.map((variable) => [variable.name, variable] as const));
+        let next = current;
+
+        for (const { name, value } of entries) {
+          if (!name || autoNames.has(name)) {
+            continue;
+          }
+          const existing = byName.get(name);
+          if (existing) {
+            if (mode === "overwrite" && !existing.isAutoFilled) {
+              next = next.map((variable) =>
+                variable.id === existing.id ? { ...variable, value } : variable,
+              );
+            }
+            continue;
+          }
+          customVariableCounter += 1;
+          const created: EditorVariable = {
+            id: `custom:${customVariableCounter}`,
+            name,
+            value,
+            type: "custom",
+            isAutoFilled: false,
+          };
+          next = [...next, created];
+          byName.set(name, created);
+        }
+
+        return next;
+      });
+    },
+    [],
+  );
+
   const loadCustomVariables = useCallback(
     (record: Record<string, TemplateVariableRecord>) => {
       const custom: EditorVariable[] = Object.entries(record).map(([name, entry]) => {
@@ -235,6 +279,7 @@ export function useTemplateVariables() {
       toggleParsedConfigVariable,
       setParsedConfig,
       setRunInputSource,
+      mergeCustomVariables,
       loadCustomVariables,
     }),
     [
@@ -249,6 +294,7 @@ export function useTemplateVariables() {
       toggleParsedConfigVariable,
       setParsedConfig,
       setRunInputSource,
+      mergeCustomVariables,
       loadCustomVariables,
     ],
   );

@@ -118,6 +118,13 @@ export const queryKeys = {
         activeOnly ? "active" : "all",
         category ?? "any",
       ] as const,
+    fileContentParsed: (repoId: number | string, path: string) =>
+      [
+        ...queryKeys.gitRepositories.all,
+        "file-content-parsed",
+        String(repoId),
+        path,
+      ] as const,
   },
   workflowVersionControl: {
     all: ["workflow-version-control"] as const,
