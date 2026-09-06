@@ -94,6 +94,18 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
     [setAllNodes, markDirty],
   );
 
+  const handleNodeDisabledChange = useCallback(
+    (nodeId: string, disabled: boolean) => {
+      setAllNodes((current) =>
+        current.map((n) =>
+          n.id !== nodeId ? n : { ...n, data: { ...n.data, disabled } },
+        ),
+      );
+      markDirty();
+    },
+    [setAllNodes, markDirty],
+  );
+
   const handleIncomeHandleSideChange = useCallback(
     (nodeId: string, side: HandleSide) => {
       setAllNodes((current) =>
@@ -240,6 +252,7 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
       handleEdgeLabelBoldChange,
       handleEdgeLabelFontSizeChange,
       handleNodeTitleChange,
+      handleNodeDisabledChange,
       handleIncomeHandleSideChange,
       handleOutcomeHandleSideChange,
       handleAlignNodes,
@@ -254,6 +267,7 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
       handleEdgeLabelBoldChange,
       handleEdgeLabelFontSizeChange,
       handleNodeTitleChange,
+      handleNodeDisabledChange,
       handleIncomeHandleSideChange,
       handleOutcomeHandleSideChange,
       handleAlignNodes,

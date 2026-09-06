@@ -60,6 +60,17 @@ class FanOutSignal:
 
 logger = logging.getLogger(__name__)
 
+# Graph-structure node kinds that never honour an author "disabled" flag —
+# splicing them out would silently reshape fan-out join / merge behaviour.
+_STRUCTURAL_KINDS = frozenset({"fan-in"})
+
+
+def _is_author_disabled(node: dict[str, Any]) -> bool:
+    """True when the author toggled this step off *and* it is a real step
+    (not a structural node like ``fan-in``)."""
+    data = node.get("data") or {}
+    return data.get("disabled") is True and data.get("kind") not in _STRUCTURAL_KINDS
+
 
 def classify_step_exception(exc: Exception) -> tuple[str, str]:
     """Map a raised exception to (error_category, user-facing message).
@@ -203,13 +214,13 @@ class StepRunner:
     def load_execution_graph(
         self, workflow: Workflow
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Read canvas_nodes/canvas_edges and resolve funnel nodes before any
-        caller sees them — the single point where the raw persisted graph
-        becomes the graph StepRunner actually walks.
+        """Read canvas_nodes/canvas_edges and resolve disabled + funnel nodes
+        before any caller sees them — the single point where the raw persisted
+        graph becomes the graph StepRunner actually walks.
 
         Public — external drivers that read a Workflow's canvas and walk it
         themselves must call this instead of reading ``canvas_nodes``/
-        ``canvas_edges`` directly, so they see the same funnel-resolved graph
+        ``canvas_edges`` directly, so they see the same resolved graph
         as execute_all/resume_after_join/execute_subgraph. The Hatchet
         debug-mode per-node loop (``hatchet/workflows/workflow_run.py``) is
         the one such caller today — see ``build_execution_plan``'s docstring
@@ -217,7 +228,108 @@ class StepRunner:
         """
         nodes: list[dict[str, Any]] = workflow.canvas_nodes or []
         edges: list[dict[str, Any]] = workflow.canvas_edges or []
-        return self._resolve_funnels(nodes, edges)
+        # Funnels first: `_resolve_funnels` asserts each funnel has exactly one
+        # outgoing edge (guaranteed by save-time validation on the raw graph).
+        # Resolving disabled steps first could drop that edge (a disabled
+        # terminal step behind a funnel) or rewire a funnel into another funnel,
+        # making funnel resolution raise mid-run. Order matters.
+        nodes, edges = self._resolve_funnels(nodes, edges)
+        return self._resolve_disabled_steps(nodes, edges)
+
+    @staticmethod
+    def _resolve_disabled_steps(
+        nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Splice every step flagged ``data.disabled: true`` out of the graph.
+
+        Two shapes, one rule:
+
+        * **Parked** — a disabled step with no connections is simply dropped.
+        * **Bypassed** — a disabled step wired between neighbours is removed and
+          each edge coming into it is rewired straight to whatever *enabled*
+          node(s) lie beyond it. The walk passes through consecutive disabled
+          steps, so a whole chain ``A -> X(off) -> Y(off) -> B`` collapses to
+          ``A -> B``. The upstream edge keeps its ``sourceHandle`` (outcome
+          name); the far edge's ``targetHandle`` is carried over — same
+          contract as ``_resolve_funnels``.
+
+        When a disabled step *branches* (more than one outgoing edge), only its
+        ``success``/default outcome passes through — a ``failure``/error branch
+        must never fire on an otherwise-successful run. A lone outgoing edge is
+        unambiguous and is always followed.
+
+        Graph-structure nodes (``fan-in``) ignore the flag entirely: removing a
+        join point would silently change fan-out merge semantics. Disabled
+        steps that form a cycle among themselves are skipped rather than
+        recursed into. Runs *after* ``_resolve_funnels`` so a dropped or
+        rewired edge can never leave a funnel malformed.
+        """
+        disabled_ids = {
+            n["id"] for n in nodes if "id" in n and _is_author_disabled(n)
+        }
+        if not disabled_ids:
+            return nodes, edges
+
+        outgoing: dict[str, list[dict[str, Any]]] = {}
+        for edge in edges:
+            outgoing.setdefault(edge.get("source", ""), []).append(edge)
+
+        def enabled_targets_beyond(
+            disabled_id: str, seen: set[str]
+        ) -> list[tuple[str, Any]]:
+            out_edges = outgoing.get(disabled_id, [])
+            if len(out_edges) > 1:
+                out_edges = [
+                    e
+                    for e in out_edges
+                    if (e.get("sourceHandle") or "success") == "success"
+                ]
+            reached: list[tuple[str, Any]] = []
+            for edge in out_edges:
+                target = edge.get("target", "")
+                if not target:
+                    continue
+                if target in disabled_ids:
+                    if target not in seen:
+                        reached.extend(enabled_targets_beyond(target, seen | {target}))
+                else:
+                    reached.append((target, edge.get("targetHandle")))
+            return reached
+
+        resolved_edges: list[dict[str, Any]] = []
+        seen_wires: set[tuple[str, Any, str, Any]] = set()
+
+        def keep(edge: dict[str, Any]) -> None:
+            wire = (
+                edge.get("source", ""),
+                edge.get("sourceHandle"),
+                edge.get("target", ""),
+                edge.get("targetHandle"),
+            )
+            if wire in seen_wires:
+                return
+            seen_wires.add(wire)
+            resolved_edges.append(edge)
+
+        for edge in edges:
+            if edge.get("source", "") in disabled_ids:
+                continue  # replaced by the rewiring below, or dropped
+            target = edge.get("target", "")
+            if target not in disabled_ids:
+                keep(edge)
+                continue
+            for far_target, far_handle in enabled_targets_beyond(target, {target}):
+                keep(
+                    {
+                        **edge,
+                        "id": f"{edge.get('id', 'edge')}::bypass::{far_target}",
+                        "target": far_target,
+                        "targetHandle": far_handle,
+                    }
+                )
+
+        remaining_nodes = [n for n in nodes if n.get("id") not in disabled_ids]
+        return remaining_nodes, resolved_edges
 
     @staticmethod
     def _resolve_funnels(
@@ -274,12 +386,22 @@ class StepRunner:
         return remaining_nodes, resolved_edges
 
     def _is_executable_node(self, node: dict[str, Any]) -> bool:
-        """False for canvas decorations (label, background, …); True otherwise.
+        """False for canvas decorations (label, background, …) and steps the
+        author has disabled; True otherwise.
+
+        Disabled steps are normally already spliced out by
+        ``_resolve_disabled_steps`` in ``load_execution_graph``; this is a
+        belt-and-braces check for any caller that reaches the topological sort
+        with a raw graph (it yields "parked" semantics — the node and its
+        edges are dropped rather than bypassed).
 
         Unknown kinds stay executable so StepRunner still fails with
         ``Unknown step type`` rather than silently dropping them.
         """
-        kind = (node.get("data") or {}).get("kind", "")
+        if _is_author_disabled(node):
+            return False
+        data = node.get("data") or {}
+        kind = data.get("kind", "")
         if not kind:
             return True
         plugin = self.plugin_registry.get_plugin(kind)

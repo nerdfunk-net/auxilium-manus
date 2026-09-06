@@ -163,6 +163,7 @@ export function WorkflowBuilderPage() {
           onEdgeStyleChange={canvas.handleEdgeStyleChange}
           onGroupSelectedSteps={canvas.handleGroupSelectedSteps}
           onNodeTitleChange={canvas.handleNodeTitleChange}
+          onNodeDisabledChange={canvas.handleNodeDisabledChange}
           onOpenGroup={canvas.handleOpenGroup}
           onRenameGroup={canvas.handleRenameGroup}
           onUngroupGroup={canvas.handleUngroupGroup}
@@ -178,6 +179,7 @@ export function WorkflowBuilderPage() {
           plugins={plugins}
           onNodeConfigChange={canvas.handleNodeConfigChange}
           onNodeTitleChange={canvas.handleNodeTitleChange}
+          onNodeDisabledChange={canvas.handleNodeDisabledChange}
           onNodeIncomeHandleSideChange={canvas.handleIncomeHandleSideChange}
           onNodeOutcomeHandleSideChange={canvas.handleOutcomeHandleSideChange}
           workflowNodes={canvas.allNodes}

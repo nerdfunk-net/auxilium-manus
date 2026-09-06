@@ -7,7 +7,7 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
-import { Info, Settings2, Split } from "lucide-react";
+import { Ban, Info, Settings2, Split } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,6 +93,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     typeof fanOut === "object" &&
     (fanOut as Record<string, unknown>).enabled === true;
   const showOutcomeLabels = outcomes.length > 1;
+  const isDisabled = data.disabled === true;
 
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
@@ -117,6 +118,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
         isAwaitingThisStep &&
           "animate-pulse border-step shadow-lg ring-2 ring-step/50",
+        isDisabled && "border-dashed opacity-60 grayscale",
       )}
     >
       {hasTargetHandles ? (
@@ -172,6 +174,15 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                 </TooltipTrigger>
                 <TooltipContent side="top">{data.description}</TooltipContent>
               </Tooltip>
+            ) : null}
+            {isDisabled ? (
+              <Badge
+                className="shrink-0 gap-1 border-muted-foreground/30 bg-muted text-muted-foreground"
+                variant="outline"
+              >
+                <Ban className="size-3" aria-hidden />
+                Disabled
+              </Badge>
             ) : null}
             {fanOutEnabled ? (
               <Badge

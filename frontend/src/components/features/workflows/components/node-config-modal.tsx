@@ -46,6 +46,7 @@ interface NodeConfigModalProps {
   plugins?: PluginDefinition[];
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
+  onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
   onNodeIncomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
   onNodeOutcomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
   workflowNodes?: PersistedCanvasNode[];
@@ -57,6 +58,7 @@ export function NodeConfigModal({
   plugins = EMPTY_PLUGINS,
   onNodeConfigChange,
   onNodeTitleChange,
+  onNodeDisabledChange,
   onNodeIncomeHandleSideChange,
   onNodeOutcomeHandleSideChange,
   workflowNodes = EMPTY_NODES,
@@ -151,6 +153,7 @@ export function NodeConfigModal({
               activeNode={activeNode}
               plugin={plugin}
               onNodeTitleChange={onNodeTitleChange}
+              onNodeDisabledChange={onNodeDisabledChange}
               onNodeIncomeHandleSideChange={onNodeIncomeHandleSideChange}
               onNodeOutcomeHandleSideChange={onNodeOutcomeHandleSideChange}
             />

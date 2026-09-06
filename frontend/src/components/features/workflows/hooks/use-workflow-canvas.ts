@@ -48,6 +48,7 @@ export function useWorkflowCanvas() {
       handleEdgeLabelBoldChange: layout.handleEdgeLabelBoldChange,
       handleEdgeLabelFontSizeChange: layout.handleEdgeLabelFontSizeChange,
       handleNodeTitleChange: layout.handleNodeTitleChange,
+      handleNodeDisabledChange: layout.handleNodeDisabledChange,
       handleIncomeHandleSideChange: layout.handleIncomeHandleSideChange,
       handleOutcomeHandleSideChange: layout.handleOutcomeHandleSideChange,
       handleAlignNodes: layout.handleAlignNodes,

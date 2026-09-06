@@ -54,6 +54,7 @@ interface WorkflowPropertiesPanelProps {
   onDeleteEdge?: (edgeId: string) => void;
   onDuplicateNode?: (nodeId: string) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
+  onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
   onGroupSelectedSteps?: (nodeIds: string[]) => void;
   onRenameGroup?: (groupId: string, title: string) => void;
   onUngroupGroup?: (groupId: string) => void;
@@ -85,6 +86,7 @@ export function WorkflowPropertiesPanel({
   onDeleteEdge,
   onDuplicateNode,
   onNodeTitleChange,
+  onNodeDisabledChange,
   onGroupSelectedSteps,
   onRenameGroup,
   onUngroupGroup,
@@ -236,6 +238,7 @@ export function WorkflowPropertiesPanel({
               node={singleNode}
               onOpenConfig={() => openConfigModal(singleNode.id)}
               onNodeTitleChange={onNodeTitleChange}
+              onNodeDisabledChange={onNodeDisabledChange}
               onDuplicateNode={onDuplicateNode}
               onDeleteNodes={onDeleteNodes}
               onRenameGroup={onRenameGroup}

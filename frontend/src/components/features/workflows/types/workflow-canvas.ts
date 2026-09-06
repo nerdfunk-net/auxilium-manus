@@ -29,6 +29,15 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   artifactPath?: string;
   outcomes?: WorkflowOutcomeField[];
   pluginConfig?: Record<string, unknown>;
+  /**
+   * Author toggle: when true the step is skipped at run time. StepRunner
+   * (`_resolve_disabled_steps`) splices it out of the graph — a disabled step
+   * wired between neighbours is bypassed (its inbound edges rewire to the next
+   * enabled step, and a chain of disabled steps collapses to a pass-through),
+   * a disabled step with no connections is simply parked. The step's
+   * `pluginConfig` is kept intact so re-enabling needs no reconfiguration.
+   */
+  disabled?: boolean;
   /** Side the input handle attaches to. Default "left". Must differ from outcomeHandleSide. */
   incomeHandleSide?: HandleSide;
   /** Side the outcome handles attach to. Default "right". Must differ from incomeHandleSide. */
@@ -167,6 +176,22 @@ export const FUNNEL_KIND = "funnel";
 
 export function isFunnelKind(kind: string | undefined): boolean {
   return kind === FUNNEL_KIND;
+}
+
+/**
+ * Kinds that cannot be disabled via the "disable step" toggle: decorations,
+ * funnels, and graph-structure nodes like `fan-in` whose removal would
+ * silently reshape fan-out join semantics. Mirrors `_STRUCTURAL_KINDS` /
+ * `_is_author_disabled` in `backend/services/execution/step_runner.py`.
+ */
+export const NON_DISABLEABLE_KINDS = new Set<string>([
+  ...CANVAS_DECORATION_KINDS,
+  FUNNEL_KIND,
+  "fan-in",
+]);
+
+export function isDisableableStepKind(kind: string | undefined): boolean {
+  return !!kind && !NON_DISABLEABLE_KINDS.has(kind);
 }
 
 export function reactFlowTypeForKind(kind: string): PersistedCanvasNode["type"] {

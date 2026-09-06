@@ -49,7 +49,10 @@ export function validateCanvasWorkflow(
     (edge) => !nodeIds.has(edge.source) || !nodeIds.has(edge.target),
   );
   const hasExecutableStep = nodes.some(
-    (node) => !isCanvasDecorationKind(node.data.kind) && !isFunnelKind(node.data.kind),
+    (node) =>
+      !isCanvasDecorationKind(node.data.kind) &&
+      !isFunnelKind(node.data.kind) &&
+      node.data.disabled !== true,
   );
 
   const funnelIssues = nodes

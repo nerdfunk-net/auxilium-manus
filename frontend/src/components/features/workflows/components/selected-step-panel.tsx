@@ -1,13 +1,16 @@
 "use client";
 
-import { Copy, FolderOpen, Settings2, Trash2 } from "lucide-react";
+import { Ban, Copy, FolderOpen, Play, Settings2, Trash2 } from "lucide-react";
 import { createElement } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import type { ProjectedCanvasNode } from "../types/workflow-canvas";
+import {
+  isDisableableStepKind,
+  type ProjectedCanvasNode,
+} from "../types/workflow-canvas";
 import { isGroupCanvasNode } from "../utils/canvas-group-projection";
 import {
   CATEGORY_TILE_FALLBACK,
@@ -45,6 +48,7 @@ interface SelectedStepPanelProps {
   node: ProjectedCanvasNode;
   onOpenConfig: () => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
+  onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
   onDuplicateNode?: (nodeId: string) => void;
   onDeleteNodes?: (nodeIds: string[]) => void;
   onRenameGroup?: (groupId: string, title: string) => void;
@@ -56,6 +60,7 @@ export function SelectedStepPanel({
   node,
   onOpenConfig,
   onNodeTitleChange,
+  onNodeDisabledChange,
   onDuplicateNode,
   onDeleteNodes,
   onRenameGroup,
@@ -177,6 +182,25 @@ export function SelectedStepPanel({
         <Settings2 className="size-4" aria-hidden />
         Open configuration
       </Button>
+      {onNodeDisabledChange && isDisableableStepKind(node.data.kind) ? (
+        <Button
+          className="mt-2 w-full gap-1.5"
+          onClick={() => onNodeDisabledChange(node.id, !node.data.disabled)}
+          variant="outline"
+        >
+          {node.data.disabled ? (
+            <>
+              <Play className="size-3.5" aria-hidden />
+              Enable step
+            </>
+          ) : (
+            <>
+              <Ban className="size-3.5" aria-hidden />
+              Disable step (skip during runs)
+            </>
+          )}
+        </Button>
+      ) : null}
       <div className="mt-2 flex gap-2">
         <Button
           className="flex-1 gap-1.5"

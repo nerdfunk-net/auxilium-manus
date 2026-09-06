@@ -9,10 +9,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { TabsContent } from "@/components/ui/tabs";
 
 import type { PluginDefinition } from "../types/plugin-registry";
-import type { HandleSide, PersistedCanvasNode } from "../types/workflow-canvas";
+import {
+  isDisableableStepKind,
+  type HandleSide,
+  type PersistedCanvasNode,
+} from "../types/workflow-canvas";
 
 const MODAL_TAB_CONTENT_CLASS = "mt-0 min-h-0 flex-1 overflow-y-auto p-6";
 
@@ -30,6 +35,7 @@ interface NodeConfigGeneralTabProps {
   activeNode: PersistedCanvasNode;
   plugin: PluginDefinition | undefined;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
+  onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
   onNodeIncomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
   onNodeOutcomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
 }
@@ -38,6 +44,7 @@ export function NodeConfigGeneralTab({
   activeNode,
   plugin,
   onNodeTitleChange,
+  onNodeDisabledChange,
   onNodeIncomeHandleSideChange,
   onNodeOutcomeHandleSideChange,
 }: NodeConfigGeneralTabProps) {
@@ -125,6 +132,28 @@ export function NodeConfigGeneralTab({
           Which sides this step&apos;s input and outcome handles attach to. Income takes priority
           — outcome cannot use the same side.
         </p>
+      ) : null}
+
+      {onNodeDisabledChange && isDisableableStepKind(activeNode.data.kind) ? (
+        <div className="mt-6 max-w-sm rounded-md border p-3">
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-xs font-medium" htmlFor="modal-step-disabled">
+              Disable step
+            </Label>
+            <Switch
+              id="modal-step-disabled"
+              checked={activeNode.data.disabled === true}
+              onCheckedChange={(checked) =>
+                onNodeDisabledChange(activeNode.id, checked)
+              }
+            />
+          </div>
+          <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+            Skipped during runs. The step is bypassed — its connections rewire to
+            the next enabled step — and its configuration is kept for when you
+            re-enable it.
+          </p>
+        </div>
       ) : null}
     </TabsContent>
   );
