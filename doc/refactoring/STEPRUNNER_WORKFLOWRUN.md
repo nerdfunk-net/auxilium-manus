@@ -1302,12 +1302,18 @@ Testing:
 
 ### Open issues / follow-ups
 
-1. **`tests/integration/test_workflow_run_end_to_end.py` was not run** — it
-   needs a real Cisco device + Nautobot (`backend/.env.test`) and is not in the
-   default suite. Cited in §2.1 / §6.1 as a Phase-1e gate but is not usable in
-   a plain dev/CI environment. The Phase-0 `execute_subgraph` characterization
-   tests stand in as the net for 1d/1e. **Run it once against real hardware
-   before merge** if that environment is available.
+1. ~~`tests/integration/test_workflow_run_end_to_end.py` was not run~~ —
+   **done.** With a real Cisco device + Nautobot configured, the full
+   non-mutations integration suite passes: **62 passed, 2 xfailed** (was 52
+   passed / 4 failed / 6 errors). The 6 errors + 4 failures were pre-existing
+   and unrelated to this split — fixed in commit `022cc39`:
+   - `seed_nautobot_source` still seeded an inline `token`; since the
+     source-credential refactor (`3c02e5f`, 2026-08-31) the setting must carry
+     a `credential_id` to a global vault credential. Helper now seeds that
+     credential first.
+   - `test_nautobot_inventory.py` exact-count assertions drifted because the
+     lab carries 3 operator-added devices beyond the 120-device baseline;
+     assertions are now pinned to the baseline-named subset.
 2. **No live end-to-end run through `scripts/run_worker_dev.py`** (§6.5
    optional) — a disposable Hatchet stack was not available. One linear + one
    fan-out workflow through a real worker before merge would fully close the
