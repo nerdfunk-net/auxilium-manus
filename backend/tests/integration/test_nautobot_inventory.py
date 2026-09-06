@@ -3,6 +3,11 @@
 All read-only. Expected counts are derived from ``tests/nautobot-baseline.yaml``
 (120 devices) so they cannot silently drift from the seeded lab data.
 
+The lab may also carry a handful of operator-added devices (manual app testing
+gear etc.) beyond the seeded baseline. Count assertions are therefore pinned to
+the *baseline-named subset* of the live results via ``_seeded_only`` — a drift
+in the seeded data still fails, an extra hand-made device does not.
+
 Requires: a reachable Nautobot at ``NAUTOBOT_HOST`` seeded with the baseline,
 and ``ALLOW_LOOPBACK_SOURCE_URLS=true`` (Nautobot is on loopback).
 """
@@ -31,6 +36,7 @@ _BASELINE_FILE = Path(__file__).resolve().parents[1] / "nautobot-baseline.yaml"
 class Baseline:
     def __init__(self, devices: list[dict]) -> None:
         self.devices = devices
+        self.names = {d["name"] for d in devices}
 
     def by(self, *, status=None, tag=None, location=None) -> list[dict]:
         result = self.devices
@@ -76,6 +82,12 @@ def _op(
     )
 
 
+def _seeded_only(devices, baseline: Baseline):
+    """Live results minus any device the operator added beyond the seeded
+    baseline, so count assertions stay pinned to nautobot-baseline.yaml."""
+    return [d for d in devices if d.name in baseline.names]
+
+
 # --------------------------------------------------------------------------- #
 # Tests
 # --------------------------------------------------------------------------- #
@@ -86,7 +98,10 @@ def test_connection(nautobot_app, credentials) -> None:
 
 def test_preview_all_devices(source_service, baseline) -> None:
     devices, _ = arun(source_service.preview_inventory([]))
-    assert len(devices) == len(baseline.devices) == 120
+    assert len(baseline.devices) == 120
+    seeded = _seeded_only(devices, baseline)
+    assert len(seeded) == 120
+    assert {d.name for d in seeded} == baseline.names
 
 
 def test_filter_by_status_offline(source_service, baseline) -> None:
@@ -106,7 +121,7 @@ def test_filter_by_tag(source_service, baseline, tag, _ignored) -> None:
 
 def test_filter_by_location(source_service, baseline) -> None:
     devices, _ = arun(source_service.preview_inventory([_op("location", "City A")]))
-    assert len(devices) == baseline.count(location="City A")
+    assert len(_seeded_only(devices, baseline)) == baseline.count(location="City A")
 
 
 def test_and_composition(source_service, baseline) -> None:
@@ -135,7 +150,7 @@ def test_negation_via_not_equals(source_service, baseline) -> None:
     devices, _ = arun(
         source_service.preview_inventory([_op("status", "Offline", operator="not_equals")])
     )
-    assert len(devices) == baseline.count(status="Active")
+    assert len(_seeded_only(devices, baseline)) == baseline.count(status="Active")
 
 
 def test_resolve_devices_by_ids(source_service) -> None:
@@ -188,13 +203,15 @@ def test_bad_token_raises(nautobot_app) -> None:
 
 
 @pytest.mark.skipif(not env_helpers.redis_configured(), reason="Redis not configured")
-def test_bulk_device_cache_refresh(credentials, nautobot_app) -> None:
+def test_bulk_device_cache_refresh(credentials, nautobot_app, baseline) -> None:
     import core.database as db_mod
 
     session = db_mod.SessionLocal()
     try:
         svc = service_factory.build_nautobot_source_service(credentials, db=session)
         written = arun(svc.refresh_bulk_device_cache())
-        assert written == 120
+        # Caches every device Nautobot returns — the seeded 120 plus any
+        # operator-added lab device.
+        assert written >= len(baseline.devices) == 120
     finally:
         session.close()

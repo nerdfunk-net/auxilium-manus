@@ -25,13 +25,33 @@ def seed_nautobot_source(
     url: str,
     token: str,
     verify_ssl: bool = False,
+    credential_name: str = "itest-nautobot",
 ) -> str:
     """Create ``sources.nautobot.<id>`` exactly the way the API does.
 
-    ``SettingsService.create_setting`` moves ``token`` into a global
-    ``Credential`` and stores its ``credential_id`` on the setting value — the
-    shape ``resolve_nautobot_credentials`` reads back. Returns the source id.
+    Since the source-credential refactor, a ``sources.nautobot.*`` setting
+    references a global vault ``Credential`` by ``credential_id``; the inline
+    ``token`` sent to ``SettingsService.create_setting`` is discarded
+    (``_normalize_source_value``). So seed the global ``token`` credential
+    first and store *its id* on the setting value — the shape
+    ``get_source_config`` / ``resolve_global_secret`` read back. Returns the
+    source id.
     """
+    _delete_credential_by_name(db, credential_name)
+    credentials = CredentialsService(db)
+    try:
+        created = credentials.create_credential(
+            name=credential_name,
+            username="nautobot",
+            cred_type="token",
+            password=token,
+            source="general",
+            visibility="global",
+        )
+        credential_id = int(created["id"])
+    except CredentialNameConflictError:
+        credential_id = _credential_id_by_name(db, credential_name)
+
     key = f"sources.nautobot.{source_id}"
     service = SettingsService(db)
     try:
@@ -43,7 +63,11 @@ def seed_nautobot_source(
         service.create_setting(
             SettingCreate(
                 key=key,
-                value={"url": url, "verify_ssl": verify_ssl, "token": token},
+                value={
+                    "url": url,
+                    "verify_ssl": verify_ssl,
+                    "credential_id": credential_id,
+                },
                 description="integration-test nautobot source",
             )
         )
@@ -62,6 +86,15 @@ def _delete_credential_by_name(db: Session, name: str) -> None:
                 service.delete_credential(int(cred["id"]))
             except CredentialNotFoundError:
                 pass
+
+
+def _credential_id_by_name(db: Session, name: str) -> int:
+    for cred in CredentialsService(db).list_credentials(
+        include_expired=True, source="general", acting_user_id=None
+    ):
+        if cred["name"] == name:
+            return int(cred["id"])
+    raise NotFoundError(f"credential {name!r} not found after seeding")
 
 
 def seed_ssh_credential(
