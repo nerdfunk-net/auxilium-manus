@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 import services.execution.step_runner.graph_resolution as _gr
+import services.execution.step_runner.subgraph as _subgraph
 from core.config import settings
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.workflows import Workflow
@@ -505,103 +506,6 @@ class StepRunner:
 
         return not (failed or any_reported_failure)
 
-    def _subgraph_node_blocked(
-        self,
-        *,
-        node_id: str,
-        step_type: str,
-        edges: list[dict[str, Any]],
-        step_outcomes: dict[str, dict[str, WorkflowContext]],
-        blocked_nodes: set[str],
-        run_id: int,
-    ) -> bool:
-        if self._step_requires_devices(step_type) and self._blocked_by_upstream_failure(
-            node_id, edges, step_outcomes, blocked_nodes
-        ):
-            blocked_nodes.add(node_id)
-            logger.info(
-                "Subgraph step skipped (blocked by upstream device failure) "
-                "node_id=%s type=%s run_id=%s",
-                node_id,
-                step_type,
-                run_id,
-            )
-            return True
-        return False
-
-    async def _execute_one_subgraph_node(
-        self,
-        *,
-        run: WorkflowRun,
-        workflow: Workflow,
-        node_id: str,
-        step_type: str,
-        step_config: dict[str, Any],
-        edges: list[dict[str, Any]],
-        step_outcomes: dict[str, dict[str, WorkflowContext]],
-    ) -> None:
-        logger.info(
-            "Subgraph step started node_id=%s type=%s run_id=%s",
-            node_id,
-            step_type,
-            run.id,
-        )
-        input_context = self._assemble_input_context(
-            run=run,
-            workflow=workflow,
-            node_id=node_id,
-            edges=edges,
-            step_outcomes=step_outcomes,
-        )
-        outcomes = await self._execute_step(
-            step_type=step_type,
-            config=step_config,
-            context=input_context,
-            run=run,
-            node_id=node_id,
-        )
-        outcomes = self._seed_run_inputs(run, outcomes)
-        self._store_step_outcomes(step_outcomes, node_id, outcomes)
-        summaries = "; ".join(f"{o.name}: {o.summary}" for o in outcomes if o.summary)
-        logger.info(
-            "Subgraph step finished node_id=%s type=%s%s",
-            node_id,
-            step_type,
-            f" summary={summaries}" if summaries else "",
-        )
-
-    def _record_subgraph_node_error(
-        self,
-        *,
-        node_id: str,
-        step_type: str,
-        run_id: int,
-        exc: Exception,
-        step_errors: dict[str, dict[str, str]],
-        step_outcomes: dict[str, dict[str, WorkflowContext]],
-        initial_context: WorkflowContext,
-    ) -> None:
-        error_id = str(uuid.uuid4())
-        category, message = classify_step_exception(exc)
-        logger.error(
-            "Subgraph step failed node_id=%s type=%s run_id=%s error_id=%s category=%s",
-            node_id,
-            step_type,
-            run_id,
-            error_id,
-            category,
-            exc_info=True,
-            extra={"error_id": error_id},
-        )
-        step_errors[node_id] = {
-            "message": message[:4000],
-            "category": category,
-            "error_id": error_id,
-        }
-        self._store_step_outcomes(
-            step_outcomes, node_id, [StepOutcome(name="failure", context=initial_context)]
-        )
-
     async def execute_subgraph(
         self,
         *,
@@ -611,75 +515,18 @@ class StepRunner:
         inventory_node_id: str,
         allowed_node_ids: set[str],
     ) -> tuple[dict[str, dict[str, WorkflowContext]], dict[str, dict[str, str]]]:
-        """Run only the downstream subgraph without writing WorkflowStepResult records.
-
-        Used by child workflows during fan-out. The parent aggregates and persists
-        the returned step outcomes.
-
-        Args:
-            run: The parent WorkflowRun (read-only DB access via object_session).
-            workflow: The workflow definition containing nodes and edges.
-            initial_context: The WorkflowContext with the device subset for this child.
-            inventory_node_id: The node_id of the inventory step that triggered fan-out.
-            allowed_node_ids: Set of node IDs this child should execute.
-
-        Returns:
-            A tuple of:
-            - Mapping of node_id → outcome_name → WorkflowContext for all executed nodes.
-            - Mapping of node_id → {"message", "category", "error_id"} for nodes whose
-              executor raised (see ``classify_step_exception``); the parent folds this
-              into the persisted WorkflowStepResult.error_message/error_category/error_id.
+        """Run only the downstream subgraph without writing WorkflowStepResult
+        records — see ``subgraph.run_subgraph``. Used by fan-out child workflows;
+        the parent aggregates and persists the returned step outcomes.
         """
-        nodes, edges = self.load_execution_graph(workflow)
-        ordered_nodes = self._topological_sort(nodes, edges)
-
-        step_outcomes: dict[str, dict[str, WorkflowContext]] = {
-            inventory_node_id: {"success": initial_context}
-        }
-        step_errors: dict[str, dict[str, str]] = {}
-        blocked_nodes: set[str] = set()
-
-        for node in ordered_nodes:
-            node_id: str = node.get("id", "")
-            if node_id not in allowed_node_ids:
-                continue
-
-            node_data: dict[str, Any] = node.get("data", {})
-            step_type: str = node_data.get("kind", "unknown")
-            step_config: dict[str, Any] = node_data.get("pluginConfig", {})
-
-            if self._subgraph_node_blocked(
-                node_id=node_id,
-                step_type=step_type,
-                edges=edges,
-                step_outcomes=step_outcomes,
-                blocked_nodes=blocked_nodes,
-                run_id=run.id,
-            ):
-                continue
-
-            try:
-                await self._execute_one_subgraph_node(
-                    run=run,
-                    workflow=workflow,
-                    node_id=node_id,
-                    step_type=step_type,
-                    step_config=step_config,
-                    edges=edges,
-                    step_outcomes=step_outcomes,
-                )
-            except Exception as exc:
-                self._record_subgraph_node_error(
-                    node_id=node_id,
-                    step_type=step_type,
-                    run_id=run.id,
-                    exc=exc,
-                    step_errors=step_errors,
-                    step_outcomes=step_outcomes,
-                    initial_context=initial_context,
-                )
-
-        return step_outcomes, step_errors
+        return await _subgraph.run_subgraph(
+            self,
+            run=run,
+            workflow=workflow,
+            initial_context=initial_context,
+            inventory_node_id=inventory_node_id,
+            allowed_node_ids=allowed_node_ids,
+        )
 
     def _assemble_input_context(
         self,
