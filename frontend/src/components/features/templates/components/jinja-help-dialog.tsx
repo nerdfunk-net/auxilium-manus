@@ -76,7 +76,11 @@ run.timestamp`}</CodeBlock>
 git.*        — from "Get Git Devices"
 ise.*        — from "Get from ISE"
 tacacs.*     — from "Get from ISE" (only when that device has a
-               TACACS shared secret configured in ISE)`}</CodeBlock>
+               TACACS shared secret configured in ISE)
+data.*       — from "Read from File" — the namespace is that step's
+               destination path (default "data"). In the editor,
+               "Load" a YAML/JSON file with the same destination
+               path to preview it.`}</CodeBlock>
           </Section>
 
           <Section title="Static attributes (run_input)">
