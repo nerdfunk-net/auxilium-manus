@@ -67,20 +67,34 @@ device.platform          device.network_driver
 device.source            device.source_id
 
 workflow.id              run.id
-run.timestamp`}</CodeBlock>
+run.timestamp            run.date`}</CodeBlock>
             <p>
               Populated only if the matching step ran earlier in the
               workflow:
             </p>
-            <CodeBlock>{`nautobot.*   — from "Get Nautobot Attributes" (or the editor preview)
-git.*        — from "Get Git Devices"
-ise.*        — from "Get from ISE"
-tacacs.*     — from "Get from ISE" (only when that device has a
-               TACACS shared secret configured in ISE)
-data.*       — from "Read from File" — the namespace is that step's
-               destination path (default "data"). In the editor,
-               "Load" a YAML/JSON file with the same destination
-               path to preview it.`}</CodeBlock>
+            <CodeBlock>{`nautobot.*        — "Get Nautobot Attributes" (or the editor preview).
+                    Also written by "Config to Attributes",
+                    "Set Default Attributes" and "Add to Nautobot".
+git.*             — "Get Git Devices"
+ise.*             — "Get from ISE"
+tacacs.*          — "Get from ISE" / "Get ISE TACACS Key" (only when that
+                    device has a TACACS shared secret configured in ISE)
+command,          — "Run Command" — see "Accessing command output" below
+commands,
+commands_by_name
+parsed.*          — "Parse Cisco Config", "Run Command" (parser =
+                    textfsm/genie), the pyATS steps, and the
+                    content/compare steps. One shared namespace, keyed by
+                    each step's output_key — see "The parsed namespace".
+data.*            — "Read from File" (its default destination). "Read from
+                    File", "Update Attribute" and "Set Default Attributes"
+                    each write to a namespace you name in their
+                    destination path — "data" is only the default. In the
+                    editor, "Load" a YAML/JSON file with the same
+                    destination path to preview it.
+pyats_testbed.*   — "Add pyATS Testbed" (internal plumbing for the pyATS
+                    shim — you won't normally reference this in a template)
+run_input.*       — the workflow's static attributes — see below`}</CodeBlock>
           </Section>
 
           <Section title="Static attributes (run_input)">
@@ -204,7 +218,20 @@ tacacs-server host 10.10.10.5 key {{ tacacs.shared_secret }}
             </p>
           </Section>
 
-          <Section title="Parsed Cisco configuration">
+          <Section title="The parsed namespace">
+            <p>
+              Several steps write structured data into one shared{" "}
+              <code>parsed</code> namespace, each under its own key so they
+              never collide. The key is that step&apos;s <code>output_key</code>{" "}
+              (Parse Cisco Config, the pyATS steps, and the content/compare
+              steps like Filter Output, Merge Content, Update Content, Compare
+              Data) or <code>parsed_output_key</code> (Run Command). What
+              follows is the <em>shape</em> each step writes — the namespace
+              itself is always the same one.
+            </p>
+            <p className="font-medium text-foreground">
+              Parse Cisco Config
+            </p>
             <p>
               After a <strong>Parse Cisco Config</strong> step (or checking{" "}
               <strong>Get Configs</strong> in the template editor), the
@@ -237,6 +264,43 @@ parsed.cisco_config.running.banner       parsed.cisco_config.running.unsupported
             <CodeBlock>{`{% for server in parsed.cisco_config.running.aaa_servers.servers %}
 tacacs-server host {{ server.address }}
 {% endfor %}`}</CodeBlock>
+
+            <p className="font-medium text-foreground">Run Command</p>
+            <p>
+              When a <strong>Run Command</strong> step has its{" "}
+              <code>parser</code> set to <code>textfsm</code> or{" "}
+              <code>genie</code>, it normalizes each command&apos;s output and
+              stores it — one entry per command — under its{" "}
+              <code>parsed_output_key</code>. That key defaults to literally{" "}
+              <code>parsed</code>, so the path starts{" "}
+              <code>parsed.parsed</code>. Each command string is a key holding{" "}
+              <code>{"{ parsed, error }"}</code>:
+            </p>
+            <CodeBlock>{`parsed.parsed['show ip interface brief'].parsed   the structured rows
+parsed.parsed['show ip interface brief'].error    null, or why parsing
+                                                  failed for that command`}</CodeBlock>
+            <p>
+              Use bracket notation — the command string is the key and usually
+              contains spaces. Both parsers are best-effort per command: one
+              they have no template for comes back with <code>error</code> set
+              and <code>parsed</code> as <code>null</code> (the device still
+              succeeds). Give each Run Command step a distinct{" "}
+              <code>parsed_output_key</code> if a workflow parses more than
+              once.
+            </p>
+            <p>
+              This is the <strong>only</strong> place <code>genie</code>-parsed
+              output appears. <code>command.parsed</code>,{" "}
+              <code>commands</code> and <code>commands_by_name</code> carry
+              TextFSM rows only — for a <code>genie</code> step they stay{" "}
+              <code>null</code>. See <strong>Accessing command output</strong>{" "}
+              below.
+            </p>
+            <p>Example — loop parsed interface rows from a TextFSM Run Command:</p>
+            <CodeBlock>{`{% set rows = parsed.parsed['show ip interface brief'].parsed %}
+{% for row in rows %}
+! {{ row.intf }} {{ row.ipaddr }} {{ row.status }}
+{% endfor %}`}</CodeBlock>
           </Section>
 
           <Section title="Accessing command output (one command)">
@@ -246,9 +310,13 @@ tacacs-server host {{ server.address }}
             </p>
             <CodeBlock>{`command.name     the exact command string, e.g. "show ip int brief"
 command.raw      the raw text output
-command.parsed   the TextFSM-parsed rows (only set if the Run Command step's
-                 "parser" was set to "textfsm" — otherwise it is null and
-                 you should use command.raw instead)`}</CodeBlock>
+command.parsed   the TextFSM-parsed rows — set only when the Run Command
+                 step's "parser" was "textfsm". Stays null for "none" and
+                 for "genie" (genie output lands only in the parsed
+                 namespace — see "The parsed namespace" above); fall back
+                 to command.raw in those cases.
+command.success  whether the command ran cleanly
+command.node_id  canvas node id of the Run Command step that produced it`}</CodeBlock>
             <p>Example — loop over parsed interface rows:</p>
             <CodeBlock>{`{% for row in command.parsed %}
 {{ row.interface }}: {{ row.status }}/{{ row.proto }}
@@ -269,7 +337,11 @@ commands_by_name    the same commands, keyed by their exact command string`}</Co
             <p>
               Each entry has the same fields as <code>command</code> above:{" "}
               <code>name</code>, <code>raw</code>, <code>parsed</code>,{" "}
-              <code>success</code>, <code>node_id</code>.
+              <code>success</code>, <code>node_id</code>. The same{" "}
+              <code>parsed</code> rule applies — it holds TextFSM rows only.
+              For a <code>genie</code> step, read{" "}
+              <code>parsed.&lt;parsed_output_key&gt;</code> instead (see{" "}
+              <strong>The parsed namespace</strong>).
             </p>
             <p>
               Pick a specific command by name — this is the clearest option
@@ -315,6 +387,22 @@ Version: {{ version.parsed[0].version if version.parsed else version.raw }}`}</C
               <code>commands_by_name</code> exactly as they appear at workflow
               runtime — so a template you write and preview here behaves the
               same once it runs after real Run Command steps.
+            </p>
+            <p>
+              The preview covers the TextFSM path only. It does not run{" "}
+              <code>genie</code>, and it does not build the per-command{" "}
+              <code>parsed.&lt;parsed_output_key&gt;</code> namespace that a
+              real Run Command step writes when its <code>parser</code> is{" "}
+              <code>textfsm</code> or <code>genie</code>. To preview a template
+              that reads that namespace, add a <code>parsed</code> variable by
+              hand (or <strong>Load</strong> one from a JSON file) shaped like{" "}
+              <code>{"{ parsed: { \"<command>\": { parsed: [...], error: null } } }"}</code>
+              . The same applies to <code>data</code> and any other
+              attribute-bag namespace written by <strong>Read from File</strong>
+              , <strong>Update Attribute</strong> or{" "}
+              <strong>Set Default Attributes</strong>: there is no live step in
+              the editor, so add or <strong>Load</strong> the namespace to
+              preview against it.
             </p>
             <p>
               Selecting a test device also populates <code>device</code> (name,

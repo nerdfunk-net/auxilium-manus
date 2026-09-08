@@ -1,0 +1,92 @@
+# Auxilium Manus — OpenBao (secrets vault, optional)
+#
+# OpenBao is the Linux Foundation fork of HashiCorp Vault; its HTTP API is
+# Vault-compatible, so the Python `hvac` client talks to it unchanged (point
+# hvac at this container's URL + token). The CLI binary inside the image is
+# `bao` (not `vault`).
+#
+# This compose file runs OpenBao in DEV MODE by default: a single unsealed,
+# IN-MEMORY instance with a fixed root token. Perfect for local development;
+# all data is lost when the container stops. See "Persistent mode" below to
+# switch to file storage for anything you want to keep.
+#
+# Prerequisite: the app stack's `backend` network must already exist (created
+# automatically the first time `docker/docker-compose.yml` is brought up).
+# Running this standalone? Create it once:
+#   docker network create backend
+#
+# Start:
+#   cd docker/openbao
+#   cp .env.example .env          # set OPENBAO_DEV_ROOT_TOKEN to a random secret
+#   docker compose up -d
+#
+# Verify:
+#   docker compose exec openbao bao status          # Sealed: false, HA: disabled
+#   curl -s http://127.0.0.1:8200/v1/sys/health     # {"initialized":true,"sealed":false,...}
+#   BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=<root> bao secrets list   # if bao is installed on host
+#
+# Reachability (same pattern as docker/pyats and docker/mattermost):
+#   - Backend containerized on the `backend` network (manus-web / manus-worker
+#     from docker/docker-compose.yml):
+#       URL: http://openbao:8200      (container DNS name)
+#   - Backend running natively on the host (the CLAUDE.md dev workflow —
+#     `python start.py` / `python scripts/run_worker_dev.py`):
+#       URL: http://127.0.0.1:8200    (the published port below)
+#     The backend rejects loopback source URLs by default — set
+#     ALLOW_LOOPBACK_SOURCE_URLS=true in backend/.env for this local-lab case.
+#
+# The published port is bound to 127.0.0.1 only — reachable from this machine,
+# not the LAN. A containerized backend reaches it over the `backend` network.
+#
+# Note on mlock: recent OpenBao dropped mlock support, so there is no
+# `cap_add: IPC_LOCK` and no `disable_mlock` here. Harden the host instead —
+# disable or encrypt swap (https://openbao.org/docs/install/#post-installation-hardening).
+#
+# ── Persistent mode (file storage) ───────────────────────────────────────────
+# Dev mode keeps nothing. The image entrypoint always appends
+# `-config=/openbao/config` when the command starts with `server`, so in dev
+# mode that directory MUST stay empty (do not mount ./config) — a storage
+# stanza would collide with `-dev`. To persist secrets across restarts:
+#   1. command:  ->  server
+#   2. Drop the BAO_DEV_ROOT_TOKEN_ID env var.
+#   3. Uncomment the two `volumes:` mounts below and the top-level `volumes:` block.
+#   4. docker compose up -d
+#   5. Initialise + unseal ONCE (store the keys somewhere safe):
+#        docker compose exec openbao bao operator init
+#        docker compose exec openbao bao operator unseal   # x3 with 3 distinct keys
+#      OpenBao starts SEALED after every restart; re-run `bao operator unseal`
+#      (or configure auto-unseal) each time.
+
+services:
+  openbao:
+    image: openbao/openbao:latest   # pin a tag (e.g. openbao/openbao:2.4.1) for reproducible builds
+    container_name: openbao
+    hostname: openbao
+    restart: unless-stopped
+    command: server -dev -dev-listen-address=0.0.0.0:8200
+    environment:
+      # Dev mode only: fixed root token so hvac/CLI can authenticate immediately.
+      BAO_DEV_ROOT_TOKEN_ID: "${OPENBAO_DEV_ROOT_TOKEN:?Set OPENBAO_DEV_ROOT_TOKEN in docker/openbao/.env}"
+      # Used by the `bao` CLI inside the container (healthcheck, exec).
+      BAO_ADDR: "http://127.0.0.1:8200"
+    ports:
+      - "127.0.0.1:8200:8200"
+    # volumes:                              # persistent mode only — keep unmounted in dev
+    #   - ./config:/openbao/config:ro
+    #   - bao_data:/openbao/data
+    healthcheck:
+      # `bao status` exits 0 when unsealed, 2 when sealed, 1 on error.
+      test: ["CMD", "bao", "status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+
+# volumes:
+#   bao_data:                              # persistent mode only
+
+networks:
+  backend:
+    external: true
