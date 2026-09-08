@@ -129,6 +129,69 @@ class AggregateAndPersistFinalTests(unittest.TestCase):
 
         self.assertEqual(self._status_for("b"), "skipped")
 
+    def test_multi_outcome_step_with_empty_failure_outcome_is_success(self) -> None:
+        """A compare-style step emits match/mismatch/failure unconditionally; when
+        every device matched, the empty ``failure`` outcome must not mark it
+        ``failed`` (regression: fan-out parent used key presence, not device
+        counts)."""
+        devices = {"d0": _device("d0")}
+        matched = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices=devices)
+        empty = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={})
+        child_results = [
+            {
+                "execute_device_group": {
+                    "a": {
+                        "match": matched.model_dump(mode="json"),
+                        "mismatch": empty.model_dump(mode="json"),
+                        "failure": empty.model_dump(mode="json"),
+                    }
+                }
+            }
+        ]
+
+        success, _ = _aggregate_and_persist(
+            run_repo=self.run_repo,
+            run_id=self.run.id,
+            signal=self.signal,
+            canvas_nodes=CANVAS_NODES,
+            canvas_edges=CANVAS_EDGES,
+            child_results=child_results,
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(self._status_for("a"), "success")
+
+    def test_multi_outcome_step_with_populated_failure_outcome_is_failed(self) -> None:
+        """Same shape, but a device actually landed in ``failure`` and none
+        elsewhere -> the node is ``failed``."""
+        failed_ctx = WorkflowContext(
+            run_id="run-1", workflow_id="wf-1", devices={"d0": _device("d0")}
+        )
+        empty = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={})
+        child_results = [
+            {
+                "execute_device_group": {
+                    "a": {
+                        "match": empty.model_dump(mode="json"),
+                        "mismatch": empty.model_dump(mode="json"),
+                        "failure": failed_ctx.model_dump(mode="json"),
+                    }
+                }
+            }
+        ]
+
+        success, _ = _aggregate_and_persist(
+            run_repo=self.run_repo,
+            run_id=self.run.id,
+            signal=self.signal,
+            canvas_nodes=CANVAS_NODES,
+            canvas_edges=CANVAS_EDGES,
+            child_results=child_results,
+        )
+
+        self.assertFalse(success)
+        self.assertEqual(self._status_for("a"), "failed")
+
 
 if __name__ == "__main__":
     unittest.main()

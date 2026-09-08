@@ -50,6 +50,22 @@ export function isComparisonDiffEntry(value: unknown): value is ParsedComparison
   );
 }
 
+/**
+ * compare-pyats-snapshot stores `{nodeId}.comparison_diff` as a
+ * `{ feature: ParsedComparisonDiffEntry }` map (one entry per differing Genie
+ * feature) rather than the single flat entry compare-data writes. Both shapes
+ * must render in the detail view.
+ */
+function isComparisonDiffFeatureMap(
+  value: unknown,
+): value is Record<string, ParsedComparisonDiffEntry> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const entries = Object.values(value as Record<string, unknown>);
+  return entries.length > 0 && entries.every(isComparisonDiffEntry);
+}
+
 export function getComparisonResultEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedComparisonResultEntry }> {
@@ -61,9 +77,17 @@ export function getComparisonResultEntries(
 export function getComparisonDiffEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedComparisonDiffEntry }> {
-  return Object.entries(parsed)
-    .filter(([, value]) => isComparisonDiffEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as ParsedComparisonDiffEntry }));
+  const result: Array<{ key: string; entry: ParsedComparisonDiffEntry }> = [];
+  for (const [key, value] of Object.entries(parsed)) {
+    if (isComparisonDiffEntry(value)) {
+      result.push({ key, entry: value });
+    } else if (isComparisonDiffFeatureMap(value)) {
+      for (const [feature, entry] of Object.entries(value)) {
+        result.push({ key: `${key} · ${feature}`, entry });
+      }
+    }
+  }
+  return result;
 }
 
 export function isGenieParsedConfigEntry(value: unknown): value is GenieParsedConfigEntry {
@@ -73,7 +97,8 @@ export function isGenieParsedConfigEntry(value: unknown): value is GenieParsedCo
   if (
     isParsedTemplateEntry(value) ||
     isComparisonResultEntry(value) ||
-    isComparisonDiffEntry(value)
+    isComparisonDiffEntry(value) ||
+    isComparisonDiffFeatureMap(value)
   ) {
     return false;
   }
@@ -133,6 +158,7 @@ export function isParsedCommandOutputEntry(
     isParsedTemplateEntry(value) ||
     isComparisonResultEntry(value) ||
     isComparisonDiffEntry(value) ||
+    isComparisonDiffFeatureMap(value) ||
     isGenieParsedConfigEntry(value) ||
     isSnapshotEntry(value)
   ) {

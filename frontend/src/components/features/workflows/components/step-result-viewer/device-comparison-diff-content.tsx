@@ -3,7 +3,26 @@
 import { Badge } from "@/components/ui/badge";
 
 import { ConfigArtifactPanel } from "./config-artifact-panel";
-import type { ParsedComparisonDiffEntry, ParsedComparisonResultEntry } from "./types";
+import type {
+  ComparisonDiffStats,
+  ParsedComparisonDiffEntry,
+  ParsedComparisonResultEntry,
+} from "./types";
+
+/** compare-data reports +/- line counts; compare-pyats-snapshot reports a
+ * structure-aware line_count. Render whichever is present. */
+function formatDiffStats(stats: ComparisonDiffStats | undefined): string | null {
+  if (!stats) {
+    return null;
+  }
+  if (stats.additions != null || stats.deletions != null) {
+    return `+${stats.additions ?? 0} / -${stats.deletions ?? 0}`;
+  }
+  if (stats.line_count != null) {
+    return `${stats.line_count} changed line${stats.line_count === 1 ? "" : "s"}`;
+  }
+  return null;
+}
 
 export function DeviceComparisonDiffsContent({
   runId,
@@ -34,9 +53,9 @@ export function DeviceComparisonDiffsContent({
             >
               {entry.matched ? "match" : "mismatch"}
             </Badge>
-            {entry.diff_stats ? (
+            {formatDiffStats(entry.diff_stats) ? (
               <span className="text-[11px] text-muted-foreground">
-                +{entry.diff_stats.additions} / -{entry.diff_stats.deletions}
+                {formatDiffStats(entry.diff_stats)}
               </span>
             ) : null}
           </div>
@@ -63,9 +82,9 @@ export function DeviceComparisonDiffsContent({
         <div key={key} className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-mono text-[10px] text-muted-foreground">key: {key}</p>
-            {entry.diff_stats ? (
+            {formatDiffStats(entry.diff_stats) ? (
               <span className="text-[11px] text-muted-foreground">
-                +{entry.diff_stats.additions} / -{entry.diff_stats.deletions}
+                {formatDiffStats(entry.diff_stats)}
               </span>
             ) : null}
           </div>
@@ -74,12 +93,30 @@ export function DeviceComparisonDiffsContent({
               Diff content is available from a workflow run detail view.
             </p>
           ) : (
-            <ConfigArtifactPanel
-              runId={runId}
-              label="Unified diff"
-              artifactRef={entry.artifact_ref}
-              expanded={expanded}
-            />
+            <>
+              <ConfigArtifactPanel
+                runId={runId}
+                label="Unified diff"
+                artifactRef={entry.artifact_ref}
+                expanded={expanded}
+              />
+              {entry.live_snapshot_ref && entry.reference_snapshot_ref ? (
+                <div className="grid gap-3 pt-1 lg:grid-cols-2">
+                  <ConfigArtifactPanel
+                    runId={runId}
+                    label="Current snapshot"
+                    artifactRef={entry.live_snapshot_ref}
+                    expanded={expanded}
+                  />
+                  <ConfigArtifactPanel
+                    runId={runId}
+                    label="Baseline snapshot"
+                    artifactRef={entry.reference_snapshot_ref}
+                    expanded={expanded}
+                  />
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       ))}

@@ -21,6 +21,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _derive_child_node_status(
+    node_outcomes: dict[str, list[WorkflowContext]],
+    *,
+    has_any_failure: bool,
+) -> str:
+    """Persisted status for one child-branch node from its merged fan-out outcomes.
+
+    Counts *devices* per outcome rather than testing outcome-name presence: a step
+    may legitimately emit an empty ``failure`` outcome (and use positive outcome
+    names other than ``success`` -- e.g. compare-data / compare-pyats-snapshot
+    emit ``match``/``mismatch``/``failure`` unconditionally). Key-presence checks
+    marked every such step ``failed`` even when every device matched. This mirrors
+    the non-fan-out path, ``step_result_status.derive_step_result_status``, which
+    is device-count based.
+    """
+    failure_devices = sum(len(ctx.devices) for ctx in node_outcomes.get("failure", []))
+    ok_devices = sum(
+        len(ctx.devices)
+        for name, ctx_list in node_outcomes.items()
+        if name != "failure"
+        for ctx in ctx_list
+    )
+    if has_any_failure or failure_devices > 0:
+        return "partial" if ok_devices > 0 else "failed"
+    return "success"
+
+
 async def _finalize_fan_out_parent(
     *,
     run_id: int,
@@ -183,10 +210,9 @@ def _aggregate_and_persist(
         merged_outcomes[node_id] = node_merged
 
         if step_result is not None:
-            if has_any_failure or "failure" in node_outcomes:
-                status = "partial" if "success" in node_outcomes else "failed"
-            else:
-                status = "success"
+            status = _derive_child_node_status(
+                node_outcomes, has_any_failure=has_any_failure
+            )
             if status == "failed":
                 any_node_failed = True
             err = node_errors.get(node_id)

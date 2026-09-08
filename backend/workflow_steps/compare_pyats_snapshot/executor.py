@@ -26,7 +26,10 @@ there is no {feature} filename placeholder. A device routes to ``match`` only
 when every selected feature is identical, to ``mismatch`` when any feature
 differs, and to ``failure`` when any feature is absent/failed on either side or
 the shim diff call itself fails. Per-feature diff text is stored under
-``device.parsed["{node_id}.comparison_diff"]`` as a ``{feature: entry}`` map.
+``device.parsed["{node_id}.comparison_diff"]`` as a ``{feature: entry}`` map;
+each mismatched entry also carries ``live_snapshot_ref`` / ``reference_snapshot_ref``
+artifacts holding the full JSON of both sides, so the run detail view can show
+exactly what differs rather than only Genie's str(Diff) text.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -117,8 +121,24 @@ def _extract_feature(
     return data, None
 
 
-# (feature_name, "match" | "mismatch", diff_text when mismatch else None)
-_FeatureResult = tuple[str, str, str | None]
+def _dump_snapshot_side(data: Any) -> str:
+    """Pretty, deterministic JSON for one side of a feature comparison. ``default=str``
+    keeps non-JSON-native leaves (rare in Genie output) from breaking the dump."""
+    return json.dumps(data, indent=2, sort_keys=True, default=str)
+
+
+@dataclass(frozen=True)
+class _FeatureResult:
+    """One feature's diff outcome. ``diff_text`` / ``live_data`` / ``reference_data``
+    are only populated when ``status == "mismatch"`` -- they back the per-feature
+    diff artifact and the two full-snapshot JSON artifacts surfaced in the run
+    detail view."""
+
+    feature: str
+    status: str  # "match" | "mismatch"
+    diff_text: str | None = None
+    live_data: Any = None
+    reference_data: Any = None
 
 
 async def _build_device_result(
@@ -143,18 +163,37 @@ async def _build_device_result(
     per_feature: dict[str, dict[str, Any]] = {}
     mismatched_features: list[str] = []
 
-    for feature, status, diff_text in feature_results:
-        if status != "mismatch":
+    for result in feature_results:
+        feature = result.feature
+        if result.status != "mismatch":
             per_feature[feature] = {"matched": True}
             continue
         mismatched_features.append(feature)
-        text = diff_text or ""
+        text = result.diff_text or ""
         diff_ref = await artifact_service.store(
             content=text,
             kind="comparison_diff",
             device_id=device_id,
             run_id=context_run_id,
             media_type="text/plain",
+        )
+        # Persist both sides in full so the run detail view can show exactly what
+        # differs -- the Genie str(Diff) text above is derived from these and its
+        # line prefixes are not confirmed against a real pyATS install (see
+        # doc/PYATS_INTEGRATION.md "Open items").
+        live_ref = await artifact_service.store(
+            content=_dump_snapshot_side(result.live_data),
+            kind="comparison_snapshot",
+            device_id=device_id,
+            run_id=context_run_id,
+            media_type="application/json",
+        )
+        reference_ref = await artifact_service.store(
+            content=_dump_snapshot_side(result.reference_data),
+            kind="comparison_snapshot",
+            device_id=device_id,
+            run_id=context_run_id,
+            media_type="application/json",
         )
         # A format-agnostic stand-in for additions/deletions: Genie's str(Diff)
         # line prefixes are not confirmed against a real pyATS install (see
@@ -164,6 +203,8 @@ async def _build_device_result(
             "kind": "comparison_diff",
             "matched": False,
             "artifact_ref": diff_ref.model_dump(mode="json"),
+            "live_snapshot_ref": live_ref.model_dump(mode="json"),
+            "reference_snapshot_ref": reference_ref.model_dump(mode="json"),
             "diff_stats": diff_stats,
             "reference_location": reference_location,
             "reference_path": reference_path,
@@ -393,9 +434,17 @@ async def _compare_one_device(
             )
 
         if response.get("identical"):
-            feature_results.append((feature, "match", None))
+            feature_results.append(_FeatureResult(feature=feature, status="match"))
         else:
-            feature_results.append((feature, "mismatch", str(response.get("diff") or "")))
+            feature_results.append(
+                _FeatureResult(
+                    feature=feature,
+                    status="mismatch",
+                    diff_text=str(response.get("diff") or ""),
+                    live_data=live_data,
+                    reference_data=reference_data,
+                )
+            )
 
     return await _build_device_result(
         device_id=device_id,

@@ -32,6 +32,17 @@ export interface ParsedTemplateEntry {
   kind: string;
 }
 
+/**
+ * compare-data writes `{ additions, deletions }` (line-diff based); the
+ * structure-aware compare-pyats-snapshot writes `{ line_count }` since Genie's
+ * str(Diff) line prefixes aren't a reliable +/- signal. Both keys are optional.
+ */
+export interface ComparisonDiffStats {
+  additions?: number;
+  deletions?: number;
+  line_count?: number;
+}
+
 export interface ParsedComparisonResultEntry {
   kind: "comparison_result";
   matched: boolean;
@@ -39,7 +50,7 @@ export interface ParsedComparisonResultEntry {
   reference_path?: string;
   reference_location?: string;
   content_source?: string;
-  diff_stats?: { additions: number; deletions: number };
+  diff_stats?: ComparisonDiffStats;
   comparison_diff_key?: string;
 }
 
@@ -47,12 +58,19 @@ export interface ParsedComparisonDiffEntry {
   kind: "comparison_diff";
   matched: boolean;
   artifact_ref: ArtifactRef;
+  /** Full JSON of the live ("current") snapshot side — present for pyATS
+   * snapshot comparisons so the detail view can show exactly what differs. */
+  live_snapshot_ref?: ArtifactRef;
+  /** Full JSON of the reference ("baseline") snapshot side. */
+  reference_snapshot_ref?: ArtifactRef;
   step_node_id: string;
   reference_path?: string;
   reference_location?: string;
   content_source?: string;
-  diff_stats?: { additions: number; deletions: number };
+  diff_stats?: ComparisonDiffStats;
   output_key?: string;
+  /** Genie feature name — set by compare-pyats-snapshot's per-feature entries. */
+  feature?: string;
 }
 
 /**

@@ -216,6 +216,17 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("peers", diff_text)
 
+        # Both full snapshot sides are persisted so the detail view can show the
+        # raw JSON, not just the derived diff text.
+        live_json = await artifact_service.resolve(
+            ArtifactRef.model_validate(diff_entry["live_snapshot_ref"])
+        )
+        reference_json = await artifact_service.resolve(
+            ArtifactRef.model_validate(diff_entry["reference_snapshot_ref"])
+        )
+        self.assertEqual(json.loads(live_json), {"peers": 2})
+        self.assertEqual(json.loads(reference_json), {"peers": 1})
+
     async def test_multiple_features_all_match_routes_to_match(self) -> None:
         device = _device_with_snapshot(
             ArtifactRef(artifact_id="placeholder", kind="pyats_snapshot")
