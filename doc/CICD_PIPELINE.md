@@ -9,11 +9,12 @@ This complements `doc/WORKFLOW-STEPS.md` (the `open-change-request` step contrac
 `doc/SCHEDULES.md` (the "external event → fresh WorkflowRun" dispatch pattern this reuses).
 Read those for the parts this doc does not repeat.
 
-**Status:** Implemented (Phases 1–3): data model, change-request service + routes,
-the `open-change-request` step, the inbound git webhook, and the full frontend
-(Change Requests view, step ConfigPanel, git-repo webhook settings). Pending:
-the deploy-branch override on `git-pull`/`git-clone` and the auto-reconcile /
-expire sweep (Phase 4). See `~/.claude/plans/that-sounds-intriguing-i-tidy-lake.md`.
+**Status:** Implemented. Backend (data model, change-request service + routes,
+the `open-change-request` step, the inbound git webhook, the
+`use_change_request_branch` override on `git-pull`/`git-clone`, and the
+reconcile/expire sweep in `PurgeWorkflowRunRetention`) and the full frontend
+(Change Requests view, step ConfigPanel, git-repo webhook settings). See
+`~/.claude/plans/that-sounds-intriguing-i-tidy-lake.md` for the phasing.
 
 ---
 
@@ -47,7 +48,7 @@ APPROVAL
       git_repositories.webhook_auto_deploy = true  →  staged → deploying + dispatch
 
 DEPLOY RUN (separate workflow, change_request_id=42, trigger_type=webhook|manual)
-  git-pull (use_change_request_branch=true → pulls manus/cr-42)
+  git-clone (use_change_request_branch=true → checks out manus/cr-42)
     → get-from-config → configure-replace-config → compare-pyats-snapshot
   run finishes → reconcile → ChangeRequest.status = deployed | failed
 ```
@@ -113,12 +114,15 @@ serialises the git sequence, but keep pipelines one-per-repo).
 ### 3.3 Build the deploy workflow
 
 An ordinary workflow, composed from existing steps. It reads the CR branch by setting
-**`use_change_request_branch = true`** on its `git-pull` (or `git-clone`) step — when the
-run was triggered by a CR approval, that step pulls `manus/cr-{id}` instead of the repo
-default branch. Typical shape:
+**`use_change_request_branch = true`** on its `git-clone` (or `git-pull`) step — when the
+run was triggered by a CR approval, that step targets `manus/cr-{id}` instead of the repo
+default branch (ordinary runs are unaffected). Prefer **`git-clone`**: it does a fresh
+checkout of the CR branch. `git-pull` fetches the CR branch and merges it into whatever
+the working tree is currently on, which is only equivalent when the CR branch
+fast-forwards from the default branch. Typical shape:
 
 ```
-git-pull (use_change_request_branch=true)
+git-clone (use_change_request_branch=true)
   → get-from-config → configure-replace-config → compare-pyats-snapshot
 ```
 

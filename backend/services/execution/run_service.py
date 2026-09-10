@@ -289,6 +289,9 @@ class RunService:
                 logger.warning("Could not cancel Hatchet run hatchet_run_id=%s", run.hatchet_run_id)
 
         self.run_repo.update_run_status(run, status="cancelled")
+        from services.change_requests.change_request_service import maybe_reconcile_deploy_run
+
+        maybe_reconcile_deploy_run(self.db, run)
         step_results = self.run_repo.get_step_results_for_run(run_id)
         return _run_to_response(run, username, step_results)
 

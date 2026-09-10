@@ -2816,6 +2816,14 @@ plugins:
           data_type: integer
           required: true
           example: 3
+        - name: use_change_request_branch
+          description: >
+            When this run deploys an approved change request, clone the change
+            request's per-change branch (manus/cr-{id}) instead of the default
+            branch. No effect on ordinary runs.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: git-pull
     name: Git Pull
@@ -2839,6 +2847,14 @@ plugins:
           data_type: integer
           required: true
           example: 3
+        - name: use_change_request_branch
+          description: >
+            When this run deploys an approved change request, pull the change
+            request's per-change branch (manus/cr-{id}) instead of the default
+            branch. No effect on ordinary runs.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: git-push
     name: Git Push

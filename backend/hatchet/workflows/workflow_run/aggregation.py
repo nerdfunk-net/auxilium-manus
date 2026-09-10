@@ -117,6 +117,12 @@ async def _finalize_fan_out_parent(
             finished_at=datetime.now(UTC),
         )
 
+        from services.change_requests.change_request_service import (
+            maybe_reconcile_deploy_run,
+        )
+
+        maybe_reconcile_deploy_run(db, run)
+
     return final_status
 
 

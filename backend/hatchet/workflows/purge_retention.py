@@ -1,11 +1,19 @@
-"""Periodic Hatchet workflow that purges old workflow runs and orphaned
-filesystem artifacts.
+"""Periodic Hatchet workflow for background housekeeping.
 
-Runs the same RetentionService as scripts/purge_retention.py, but automatically
-inside the app whenever the Hatchet worker is running — no external crontab has
-to be installed. Deletes workflow_runs in terminal states older than
-RUN_RETENTION_DAYS, then sweeps data/artifacts/ for any artifact whose run_id no
-longer matches an existing run.
+Two independent tasks run on the same cron:
+
+* ``purge_retention`` — deletes workflow_runs in terminal states older than
+  RUN_RETENTION_DAYS (gated on RUN_RETENTION_ENABLED), then sweeps
+  data/artifacts/ for any artifact whose run_id no longer matches a run. Same
+  RetentionService as scripts/purge_retention.py.
+* ``reconcile_change_requests`` — expires stale ``staged`` change requests past
+  their TTL and finalises any ``deploying`` change request whose deploy run
+  already reached a terminal status but whose detail page nobody opened (the
+  detail GET reconciles on read; this catches the rest). See
+  ``doc/CICD_PIPELINE.md``.
+
+Runs automatically inside the app whenever the Hatchet worker is up — no
+external crontab required.
 """
 
 from __future__ import annotations
@@ -51,3 +59,20 @@ async def purge_retention(input: EmptyModel, ctx: Context) -> dict:
         "artifacts_deleted": result.artifacts_deleted,
         "retention_days": result.retention_days,
     }
+
+
+@workflow.task(name="reconcile_change_requests")
+async def reconcile_change_requests(input: EmptyModel, ctx: Context) -> dict:
+    from core.database import SessionLocal
+    from services.change_requests.change_request_service import ChangeRequestService
+
+    with SessionLocal() as db:
+        service = ChangeRequestService(db)
+        expired = service.expire_sweep()
+        finalised = service.reconcile_all_in_flight()
+
+    if expired or finalised:
+        logger.info(
+            "Change-request sweep: %s expired, %s finalised", expired, finalised
+        )
+    return {"expired": expired, "finalised": finalised}

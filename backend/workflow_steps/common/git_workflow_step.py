@@ -114,6 +114,14 @@ def _failure_outcomes(
     ]
 
 
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 async def run_git_workflow_step(
     *,
     config: dict[str, Any],
@@ -125,7 +133,7 @@ async def run_git_workflow_step(
     operation: GitOperation,
     operation_name: str,
 ) -> list[StepOutcome]:
-    del run, artifact_service
+    del artifact_service
 
     repository_id = _git_repository_id(config)
     if repository_id is None:
@@ -152,6 +160,23 @@ async def run_git_workflow_step(
             git_repository_id=repository_id,
             message=str(exc),
         )
+
+    # CI/CD pipeline: when this run deploys a change request and the step opted
+    # in, operate on the change request's per-change branch instead of the
+    # repository's default branch.
+    if _parse_bool(config.get("use_change_request_branch")):
+        from workflow_steps.common.change_request_context import resolve_cr_ref
+
+        cr_ref = resolve_cr_ref(run)
+        if cr_ref is not None:
+            branch, _commit = cr_ref
+            repository = {**repository, "branch": branch}
+            logger.info(
+                "%s targeting change-request branch %s run_id=%s",
+                step_id,
+                branch,
+                context.run_id,
+            )
 
     import service_factory
 

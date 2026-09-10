@@ -250,6 +250,11 @@ async def _phase1_run_or_early_finish(
                 status=final_status,
                 finished_at=datetime.now(UTC),
             )
+            from services.change_requests.change_request_service import (
+                maybe_reconcile_deploy_run,
+            )
+
+            maybe_reconcile_deploy_run(db, run)
             logger.info("Run finished run_id=%s status=%s", run_id, final_status)
             return {"run_id": run_id, "status": final_status}
 

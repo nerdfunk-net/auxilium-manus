@@ -49,6 +49,28 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def maybe_reconcile_deploy_run(db: Session, run: object) -> None:
+    """Flip a change request to deployed/failed the moment its deploy run
+    reaches a terminal status. Cheap no-op for every non-deploy run (guarded by
+    ``run.change_request_id``); safe to call from the Hatchet worker's own
+    session. Never raises — a reconcile failure must not fail the run.
+    """
+    change_request_id = getattr(run, "change_request_id", None)
+    if not change_request_id:
+        return
+    try:
+        repo = ChangeRequestRepository(db)
+        change_request = repo.get_by_id(int(change_request_id))
+        if change_request is not None:
+            ChangeRequestService(db).reconcile(change_request)
+    except Exception:  # noqa: BLE001 — best-effort; logged, never propagated
+        logger.warning(
+            "Failed to reconcile change request for run change_request_id=%s",
+            change_request_id,
+            exc_info=True,
+        )
+
+
 class ChangeRequestService:
     def __init__(self, db: Session) -> None:
         self.db = db
