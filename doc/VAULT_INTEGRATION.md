@@ -24,6 +24,7 @@ codebase behaves exactly as before.
 - [Configuration](#configuration)
 - [Ops runbook](#ops-runbook)
 - [Local development](#local-development)
+- [Tests](#tests)
 - [Deferred / follow-ups](#deferred--follow-ups)
 
 ## Why optional / design goals
@@ -92,11 +93,15 @@ backend/repositories/credentials_repository.py        create_no_commit / update_
 backend/routers/credentials.py            with_management writer + GET /credentials/vault/status
 backend/service_factory.py                _vault_service / _vault_management_service singletons
 
+frontend/src/lib/query-keys.ts            + queryKeys.credentials.vaultStatus()
 frontend/src/components/features/settings/credentials/
   hooks/use-vault-status-query.ts
   components/credential-backend-badge.tsx
   dialogs/credential-form-dialog.tsx       + storage-backend select (shown only when vault enabled)
   components/credentials-table.tsx         + Backend column
+
+backend/tests/unit/test_vault_*.py                       client, auth, config guards, service dispatch, router
+backend/tests/integration/test_vault_integration.py      opt-in, against a live OpenBao
 ```
 
 ## Data model
@@ -377,6 +382,10 @@ Manual bootstrap by the container/app admin (no delivery pipeline).
 
 ## Local development
 
+**`docker/openbao/README.md`** is the copy-paste quickstart — it starts the dev
+container and configures the `manus` mount, both policies, and both AppRoles in
+one pasteable block. The short version:
+
 `docker/openbao/docker-compose.yaml` runs OpenBao in dev mode on
 `127.0.0.1:8200` with a known root token. Then:
 
@@ -395,6 +404,35 @@ Restart the backend — the logs show the runtime + management `OpenBaoService`
 started and a token acquired. The credential form now shows the **Storage
 backend** selector.
 
+## Tests
+
+**Unit** (`backend/tests/unit/`, always run, mocked — no OpenBao needed):
+
+| File | Covers |
+|---|---|
+| `test_vault_client.py` | `OpenBaoService` KV v2 URL/body shaping, `403`/`404`/`5xx`/connect-error mapping, TTL cache hit / refresh / no-cache-on-failure |
+| `test_vault_auth_strategy.py` | `build_auth_strategy` selection, `AppRoleAuth.login`, `SecretID`-from-file, `TokenAuth` dev-only guard, `VaultTokenManager` login / renew / 403-fallback / invalidate |
+| `test_vault_config_guards.py` | `production_guards` vault checks (https-only, no token outside dev, AppRole + management material required, cert material) |
+| `test_credentials_service_vault.py` | `storage_backend` dispatch on a real SQLite `Credential` table: create write-through, rollback on OpenBao failure, `get_decrypted_*` vault branch, fail-closed, `_to_dict` `has_*` from `vault_secret_fields`, `update` backend-change → 422 |
+| `test_credentials_router_vault.py` | `GET /credentials/vault/status`, `422` when vault not configured, `503` when OpenBao down, `with_management` writer wiring |
+
+**Integration** (`backend/tests/integration/test_vault_integration.py`, opt-in —
+never part of a plain `pytest`). Needs a reachable OpenBao (the `docker/openbao`
+dev container is enough) with `VAULT_ADDR` + `VAULT_TOKEN` (a root/privileged
+token, used only to bootstrap a scratch mount + policies + AppRoles) in
+`backend/.env.test`; `VAULT_KV_MOUNT` overrides the mount name (default
+`manus-itest`). Skips cleanly when unset or unreachable (`require_openbao`
+fixture). Covers, against the live server: KV write/read/delete wire shapes, the
+read-only `manus-app` policy actually blocking writes, `renew-self` and
+revoked-token re-login, `CredentialsService` create → resolve (incl. the
+workflow-step name path) → delete end to end, and fail-closed with a `local`
+credential still resolving.
+
+```bash
+cd backend && source ../.venv/bin/activate
+python -m pytest tests/integration/test_vault_integration.py --no-cov
+```
+
 ## Deferred / follow-ups
 
 - **Redis-backed shared secret cache** — `SecretCache` Protocol already in place.
@@ -408,5 +446,6 @@ backend** selector.
 - **Read-only-vault deployment mode** (`VAULT_MANAGEMENT_ENABLED=false`) where
   ops pre-provision secrets and the UI hides the vault write option.
 - **Collapsing the three resolver seams into one `CredentialManager` facade** —
-  worthwhile cleanup, separate PR, its own regression/test burden.
+  worthwhile cleanup, separate PR, its own regression/test burden. Scoped in
+  `doc/refactoring/CREDENTIAL_MANAGER_CONSOLIDATION.md`.
 - **SecretID delivery automation** — stays a manual ops bootstrap for now.
