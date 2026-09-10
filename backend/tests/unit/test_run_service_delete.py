@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from core.domain_exceptions import DomainError
+from core.models.change_requests import ChangeRequest
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
@@ -39,6 +40,7 @@ class RunServiceDeleteTests(unittest.TestCase):
                 Workflow.__table__,
                 WorkflowRun.__table__,
                 WorkflowStepResult.__table__,
+                ChangeRequest.__table__,
             ],
         )
         self.addCleanup(engine.dispose)

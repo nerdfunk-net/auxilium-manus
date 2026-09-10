@@ -40,6 +40,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("workflows", "publish", "Publish or unpublish a workflow to the background execution tier"),
     ("workflow_runs", "read", "View workflow run history, logs, and artifacts"),
     ("workflow_runs", "delete", "Delete workflow run history"),
+    ("change_requests", "read", "View change requests and rendered-config diffs"),
+    ("change_requests", "approve", "Approve, deploy, or reject a change request"),
     ("netmiko", "execute", "Run commands against network devices via Netmiko"),
     ("credentials", "read", "View credential metadata"),
     ("credentials", "write", "Create or update credentials"),

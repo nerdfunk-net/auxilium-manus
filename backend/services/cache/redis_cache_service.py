@@ -100,6 +100,26 @@ class RedisCacheService:
         except Exception as e:
             logger.error("Cache set error for key '%s': %s", key, e)
 
+    def set_if_absent(self, key: str, data: Any, ttl_seconds: int) -> bool:
+        """Atomically set ``key`` to ``data`` with a TTL only if it does not
+        already exist (Redis ``SET key val NX EX ttl``). Returns True when the
+        key was created (caller holds the "lock"), False when it already existed
+        or on any Redis error (caller must treat that as "not acquired").
+
+        Used for short-lived advisory locks — e.g. serialising concurrent
+        change-request staging on one git repo.
+        """
+        try:
+            redis_key = self._make_key(key)
+            created = self._redis.set(redis_key, json.dumps(data), nx=True, ex=ttl_seconds)
+            return bool(created)
+        except (TypeError, ValueError) as e:
+            logger.error("Failed to serialize lock data for key '%s': %s", key, e)
+            return False
+        except Exception as e:
+            logger.error("Cache set_if_absent error for key '%s': %s", key, e)
+            return False
+
     def delete(self, key: str) -> bool:
         """Delete a specific cache entry by key.
 

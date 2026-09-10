@@ -37,6 +37,15 @@ class WorkflowRun(Base):
     # filled in) at the time this run was triggered.
     run_inputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     hatchet_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # Set when this run is a *deploy run* dispatched by a ChangeRequest approval
+    # (see doc/CICD_PIPELINE.md). Drives status reconciliation and the
+    # use_change_request_branch override on git-pull/git-clone.
+    change_request_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("change_requests.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # configuration | execution | internal — see step_runner.classify_step_exception
     error_category: Mapped[str | None] = mapped_column(String(20), nullable=True)

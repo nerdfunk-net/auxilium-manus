@@ -22,6 +22,7 @@ from repositories.plugin_repository import PluginRepository
 from routers.auth import router as auth_router
 from routers.cache_settings import router as cache_settings_router
 from routers.certificates import router as certificates_router
+from routers.change_requests import router as change_requests_router
 from routers.credentials import router as credentials_router
 from routers.dashboard import router as dashboard_router
 from routers.general_settings import router as general_settings_router
@@ -160,6 +161,7 @@ app.include_router(workflow_crypto_attribute_router, prefix=settings.api_prefix)
 app.include_router(workflows_router, prefix=settings.api_prefix)
 app.include_router(workflow_runs_router, prefix=settings.api_prefix)
 app.include_router(workflow_schedules_router, prefix=settings.api_prefix)
+app.include_router(change_requests_router, prefix=settings.api_prefix)
 app.include_router(workflow_background_tier_router, prefix=settings.api_prefix)
 app.include_router(dashboard_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)

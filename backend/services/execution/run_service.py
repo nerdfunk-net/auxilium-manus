@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -122,28 +123,44 @@ class RunService:
             raise AccessDeniedError("Access denied")
         return workflow
 
-    def trigger_run(
+    def _create_and_dispatch_run(
         self,
-        workflow_id: int,
-        data: WorkflowRunCreate,
-        user_id: int,
-    ) -> WorkflowRunResponse:
-        workflow = self._assert_workflow_access(workflow_id, user_id)
+        workflow: Workflow,
+        *,
+        triggered_by_id: int | None,
+        trigger_type: str,
+        device_ids: list[str],
+        run_inputs: dict[str, Any],
+        run_mode: str = "normal",
+        change_request_id: int | None = None,
+    ) -> WorkflowRun:
+        """Create a WorkflowRun and dispatch it into the Hatchet engine.
 
-        try:
-            run_inputs = resolve_run_inputs(workflow.static_attributes, data.run_inputs)
-        except RunInputValidationError as exc:
-            raise ValidationFailedError(str(exc)) from exc
-
+        The single blessed run-creation path — shared by manual triggers
+        (``trigger_run``), scheduled triggers, and change-request approvals.
+        ``run_inputs`` must already be resolved/validated by the caller (the
+        approval path replays captured inputs verbatim and must NOT re-resolve
+        ``reference`` values the approver cannot see). On a dispatch failure the
+        run is marked ``failed`` and a 500 is raised.
+        """
         run = self.run_repo.create_run(
-            workflow_id=workflow_id,
-            triggered_by_id=user_id,
-            trigger_type=data.trigger_type,
-            device_ids=data.device_ids,
-            run_mode=data.run_mode,
+            workflow_id=workflow.id,
+            triggered_by_id=triggered_by_id,
+            trigger_type=trigger_type,
+            device_ids=device_ids,
+            run_mode=run_mode,
             run_inputs=run_inputs,
         )
-        logger.info("Created run id=%s workflow_id=%s user_id=%s", run.id, workflow_id, user_id)
+        if change_request_id is not None:
+            run.change_request_id = change_request_id
+            self.db.commit()
+        logger.info(
+            "Created run id=%s workflow_id=%s triggered_by=%s trigger_type=%s",
+            run.id,
+            workflow.id,
+            triggered_by_id,
+            trigger_type,
+        )
 
         try:
             from hatchet.workflows.dispatch import resolve_dispatch_workflow
@@ -172,6 +189,29 @@ class RunService:
             )
             raise_internal_server_error(logger, "Workflow execution engine unavailable")
 
+        return run
+
+    def trigger_run(
+        self,
+        workflow_id: int,
+        data: WorkflowRunCreate,
+        user_id: int,
+    ) -> WorkflowRunResponse:
+        workflow = self._assert_workflow_access(workflow_id, user_id)
+
+        try:
+            run_inputs = resolve_run_inputs(workflow.static_attributes, data.run_inputs)
+        except RunInputValidationError as exc:
+            raise ValidationFailedError(str(exc)) from exc
+
+        run = self._create_and_dispatch_run(
+            workflow,
+            triggered_by_id=user_id,
+            trigger_type=data.trigger_type,
+            device_ids=data.device_ids,
+            run_inputs=run_inputs,
+            run_mode=data.run_mode,
+        )
         return _run_to_response(run, None, [])
 
     def list_runs(

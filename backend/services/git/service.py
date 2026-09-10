@@ -345,11 +345,32 @@ class GitService:
                 branch=repository.get("branch", "main"),
             )
 
+    def checkout_new_branch(self, repo: Repo, name: str, base_ref: str) -> None:
+        """Create (or reset) a local branch ``name`` starting from ``base_ref``
+        and check it out. ``git checkout -B`` is used so a retry of a failed
+        stage run is idempotent. Raises on any git error — callers convert to a
+        ``RuntimeError``.
+        """
+        try:
+            repo.git.checkout("-B", name, base_ref)
+            logger.info("Checked out branch %s from %s", name, base_ref)
+        except GitCommandError as e:
+            logger.error("checkout -B %s from %s failed: %s", name, base_ref, e)
+            raise
+
+    def diff_refs(self, repo: Repo, ref_a: str, ref_b: str) -> str:
+        """Unified whole-tree diff of what ``ref_b`` adds on top of ``ref_a``
+        (two-dot ``ref_a..ref_b``). Returns the raw ``git diff`` text.
+        """
+        return repo.git.diff(f"{ref_a}..{ref_b}")
+
     def push(
         self,
         repository: dict,
         repo: Repo | None = None,
         branch: str | None = None,
+        *,
+        force: bool = False,
     ) -> PushResult:
         """Push local commits to remote repository.
 
@@ -360,6 +381,8 @@ class GitService:
             repository: Repository metadata dict
             repo: Optional existing Repo instance (will open if not provided)
             branch: Optional branch name (uses repository config if not provided)
+            force: If True, force-push (``+ref:ref``). Used for per-change
+                branches whose local ref may have been reset by ``checkout -B``.
 
         Returns:
             PushResult with operation status
@@ -389,8 +412,9 @@ class GitService:
                         origin.set_url(auth_url)
 
                     # Perform push
+                    refspec = f"{'+' if force else ''}{push_branch}:{push_branch}"
                     with repo.git.custom_environment(**overrides):
-                        push_info = origin.push(refspec=f"{push_branch}:{push_branch}")
+                        push_info = origin.push(refspec=refspec)
 
                     # Check push result
                     if push_info:
