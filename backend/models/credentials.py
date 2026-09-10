@@ -10,6 +10,7 @@ from core.passphrase_cipher import normalize_algorithm
 CredentialType = Literal["ssh", "ssh_key", "tacacs", "generic", "token", "shared_secret"]
 CredentialStatus = Literal["active", "expiring", "expired", "unknown"]
 CredentialVisibility = Literal["global", "private"]
+CredentialStorageBackend = Literal["local", "vault"]
 ALLOWED_CREDENTIAL_TYPES = frozenset(
     {"ssh", "ssh_key", "tacacs", "generic", "token", "shared_secret"}
 )
@@ -31,6 +32,9 @@ class CredentialCreate(BaseModel):
     algorithm: str | None = None
     valid_until: date | None = None
     visibility: CredentialVisibility = "private"
+    # "local" (default, encrypted in Postgres) or "vault" (written to OpenBao by
+    # the backend). The secret value still arrives in `password` / `ssh_private_key`.
+    storage_backend: CredentialStorageBackend = "local"
 
     @field_validator("type")
     @classmethod
@@ -67,6 +71,9 @@ class CredentialUpdate(BaseModel):
     algorithm: str | None = None
     valid_until: date | None = None
     visibility: CredentialVisibility | None = None
+    # Reserved for the future local <-> vault move action. The service currently
+    # rejects a value that differs from the credential's current backend (422).
+    storage_backend: CredentialStorageBackend | None = None
 
     @field_validator("type")
     @classmethod
@@ -96,6 +103,8 @@ class CredentialResponse(BaseModel):
     owner_user_id: int | None
     owner_username: str | None
     visibility: CredentialVisibility
+    storage_backend: CredentialStorageBackend = "local"
+    vault_path: str | None = None
     created_at: datetime | None
     updated_at: datetime | None
     status: CredentialStatus

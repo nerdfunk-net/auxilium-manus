@@ -85,6 +85,27 @@ class Settings:
     oidc_redirect_uri_allowlist: list[str]
     allow_netmiko_arbitrary_hosts: bool
     allowed_file_extensions: list[str]
+    vault_enabled: bool
+    vault_addr: str
+    vault_kv_mount: str
+    vault_namespace: str
+    vault_auth_method: str
+    vault_role_id: str
+    vault_secret_id: str
+    vault_secret_id_file: str
+    vault_token: str
+    vault_client_cert: str
+    vault_client_key: str
+    vault_ca_cert: str
+    vault_verify_ssl: bool
+    vault_token_period_seconds: int
+    vault_renew_buffer_seconds: int
+    vault_timeout_seconds: int
+    vault_cache_ttl_seconds: int
+    vault_manage_role_id: str
+    vault_manage_secret_id: str
+    vault_manage_secret_id_file: str
+    vault_manage_token: str
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
@@ -155,6 +176,30 @@ class Settings:
         self.allowed_file_extensions = self._get_csv(
             "ALLOWED_FILE_EXTENSIONS", DEFAULT_ALLOWED_FILE_EXTENSIONS
         )
+        # OpenBao (Vault) — optional external secret storage. All env-based, like
+        # DATABASE_* / SECRET_KEY; never a Settings-KV row. See doc/VAULT_INTEGRATION.md.
+        self.vault_enabled = self._get_bool("VAULT_ENABLED", False)
+        self.vault_addr = environ.get("VAULT_ADDR", "")
+        self.vault_kv_mount = environ.get("VAULT_KV_MOUNT", "manus")
+        self.vault_namespace = environ.get("VAULT_NAMESPACE", "")
+        self.vault_auth_method = environ.get("VAULT_AUTH_METHOD", "approle")
+        self.vault_role_id = environ.get("VAULT_ROLE_ID", "")
+        self.vault_secret_id = environ.get("VAULT_SECRET_ID", "")
+        self.vault_secret_id_file = environ.get("VAULT_SECRET_ID_FILE", "")
+        self.vault_token = environ.get("VAULT_TOKEN", "")
+        self.vault_client_cert = environ.get("VAULT_CLIENT_CERT", "")
+        self.vault_client_key = environ.get("VAULT_CLIENT_KEY", "")
+        self.vault_ca_cert = environ.get("VAULT_CACERT", "")
+        self.vault_verify_ssl = self._get_bool("VAULT_VERIFY_SSL", True)
+        self.vault_token_period_seconds = self._get_int("VAULT_TOKEN_PERIOD_SECONDS", 3600)
+        self.vault_renew_buffer_seconds = self._get_int("VAULT_RENEW_BUFFER_SECONDS", 600)
+        self.vault_timeout_seconds = self._get_int("VAULT_TIMEOUT_SECONDS", 5)
+        self.vault_cache_ttl_seconds = self._get_int("VAULT_CACHE_TTL_SECONDS", 45)
+        self.vault_manage_role_id = environ.get("VAULT_MANAGE_ROLE_ID", "")
+        self.vault_manage_secret_id = environ.get("VAULT_MANAGE_SECRET_ID", "")
+        self.vault_manage_secret_id_file = environ.get("VAULT_MANAGE_SECRET_ID_FILE", "")
+        self.vault_manage_token = environ.get("VAULT_MANAGE_TOKEN", "")
+        self._validate_vault()
         from core.dev_tools import dev_tools_enabled
 
         validate_non_development_secrets(
@@ -166,6 +211,17 @@ class Settings:
             enable_dev_tools=dev_tools_enabled(),
             redis_password=self.redis_password,
             allow_netmiko_arbitrary_hosts=self.allow_netmiko_arbitrary_hosts,
+            vault_enabled=self.vault_enabled,
+            vault_addr=self.vault_addr,
+            vault_auth_method=self.vault_auth_method,
+            vault_role_id=self.vault_role_id,
+            vault_secret_id=self.vault_secret_id,
+            vault_secret_id_file=self.vault_secret_id_file,
+            vault_client_cert=self.vault_client_cert,
+            vault_client_key=self.vault_client_key,
+            vault_manage_role_id=self.vault_manage_role_id,
+            vault_manage_secret_id=self.vault_manage_secret_id,
+            vault_manage_secret_id_file=self.vault_manage_secret_id_file,
         )
 
     def _validate_run_retention(self) -> None:
@@ -175,6 +231,32 @@ class Settings:
             raise RuntimeError("RUN_RETENTION_BATCH_SIZE must be at least 1")
         if not self.run_retention_cron_schedule.strip():
             raise RuntimeError("RUN_RETENTION_CRON_SCHEDULE must not be empty")
+
+    def _validate_vault(self) -> None:
+        """Structural, environment-agnostic checks for the OpenBao settings.
+
+        Secret-strength / TLS / production-only checks live in
+        core.production_guards.validate_non_development_secrets.
+        """
+        if not self.vault_enabled:
+            return
+        if not self.vault_addr.strip():
+            raise RuntimeError("VAULT_ADDR must be set when VAULT_ENABLED=true")
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.vault_addr)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise RuntimeError("VAULT_ADDR must be a valid http(s) URL")
+        if self.vault_auth_method not in ("approle", "cert", "token"):
+            raise RuntimeError("VAULT_AUTH_METHOD must be one of: approle, cert, token")
+        if self.vault_token_period_seconds < 60:
+            raise RuntimeError("VAULT_TOKEN_PERIOD_SECONDS must be at least 60")
+        if self.vault_renew_buffer_seconds >= self.vault_token_period_seconds:
+            raise RuntimeError(
+                "VAULT_RENEW_BUFFER_SECONDS must be smaller than VAULT_TOKEN_PERIOD_SECONDS"
+            )
+        if not 30 <= self.vault_cache_ttl_seconds <= 300:
+            raise RuntimeError("VAULT_CACHE_TTL_SECONDS must be between 30 and 300")
 
     def _validate_refresh_token_max_age(self) -> None:
         if self.refresh_token_max_age_hours < 1:

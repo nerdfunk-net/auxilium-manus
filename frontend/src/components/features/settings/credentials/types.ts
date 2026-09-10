@@ -7,6 +7,7 @@ export type CredentialType =
   | "token"
   | "shared_secret";
 export type CredentialVisibility = "global" | "private";
+export type CredentialStorageBackend = "local" | "vault";
 
 export interface Credential {
   id: number;
@@ -22,6 +23,8 @@ export interface Credential {
   owner_user_id: number | null;
   owner_username: string | null;
   visibility: CredentialVisibility;
+  storage_backend: CredentialStorageBackend;
+  vault_path: string | null;
   created_at: string | null;
   updated_at: string | null;
   status: CredentialStatus;
@@ -44,6 +47,7 @@ export interface CredentialCreatePayload {
   algorithm?: string;
   valid_until?: string;
   visibility: CredentialVisibility;
+  storage_backend: CredentialStorageBackend;
 }
 
 export interface CredentialUpdatePayload {
@@ -56,4 +60,6 @@ export interface CredentialUpdatePayload {
   algorithm?: string;
   valid_until?: string;
   visibility?: CredentialVisibility;
+  /** Reserved for a future local <-> vault move; the backend currently rejects changes. */
+  storage_backend?: CredentialStorageBackend;
 }

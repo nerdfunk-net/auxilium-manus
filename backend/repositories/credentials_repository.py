@@ -100,6 +100,34 @@ class CredentialsRepository:
         self.db.refresh(credential)
         return credential
 
+    def create_no_commit(self, **kwargs) -> Credential:
+        """Insert + flush (assigns the PK) but do not commit.
+
+        Used by the vault write-through path: the service flushes to obtain the
+        id it needs for the KV path, writes to OpenBao, then commits once (or
+        rolls back if the OpenBao write fails).
+        """
+        credential = Credential(**kwargs)
+        self.db.add(credential)
+        self.db.flush()
+        self.db.refresh(credential)
+        return credential
+
+    def commit(self) -> None:
+        self.db.commit()
+
+    def rollback(self) -> None:
+        self.db.rollback()
+
+    def refresh(self, credential: Credential) -> None:
+        self.db.refresh(credential)
+
+    def update_no_commit(self, credential: Credential, **kwargs) -> Credential:
+        for key, value in kwargs.items():
+            setattr(credential, key, value)
+        self.db.flush()
+        return credential
+
     def update(self, credential: Credential, **kwargs) -> Credential:
         for key, value in kwargs.items():
             setattr(credential, key, value)

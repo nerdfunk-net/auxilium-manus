@@ -19,6 +19,11 @@ from contextlib import contextmanager
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse, urlunparse
 
+from services.credentials.exceptions import (
+    CredentialVaultNotConfiguredError,
+    CredentialVaultUnavailableError,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,6 +62,10 @@ class GitAuthenticationService:
                 return self._resolve_from_manager(cred_mgr, credential_name, auth_type)
             finally:
                 db.close()
+        except (CredentialVaultUnavailableError, CredentialVaultNotConfiguredError):
+            # A vault-backed credential could not be reached — fail loudly rather
+            # than silently degrade to "no auth".
+            raise
         except Exception as e:
             logger.error(
                 "Failed to resolve credentials for '%s': %s",
@@ -130,6 +139,11 @@ class GitAuthenticationService:
                     password = cred_mgr.get_decrypted_password(match["id"], acting_user_id=None)
                     logger.debug("Successfully decrypted password for '%s'", credential_name)
                     return username, password, None
+                except (
+                    CredentialVaultUnavailableError,
+                    CredentialVaultNotConfiguredError,
+                ):
+                    raise
                 except Exception as de:
                     logger.error(
                         "Failed to decrypt credential '%s': %s",
@@ -161,6 +175,8 @@ class GitAuthenticationService:
                 token = cred_mgr.get_decrypted_password(match["id"], acting_user_id=None)
                 logger.debug("Successfully decrypted token for '%s'", credential_name)
                 return username, token, None
+            except (CredentialVaultUnavailableError, CredentialVaultNotConfiguredError):
+                raise
             except Exception as de:
                 logger.error(
                     "Failed to decrypt credential '%s': %s",

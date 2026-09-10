@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from services.vault.client import OpenBaoService
 
 from core.config import settings
 from repositories.inventory_repository import InventoryRepository
@@ -29,6 +34,12 @@ _ise_service: ISEService | None = None
 _pyats_service: PyATSShimService | None = None
 _mattermost_service: MattermostService | None = None
 _login_rate_limiter: LoginRateLimiter | None = None
+# OpenBao (Vault). Both are None unless VAULT_ENABLED. `_vault_service` is the
+# read-only runtime client (manus-app policy); `_vault_management_service` is the
+# write-capable client (manus-manage policy), injected only into credential-manager
+# write endpoints. See doc/VAULT_INTEGRATION.md.
+_vault_service: OpenBaoService | None = None
+_vault_management_service: OpenBaoService | None = None
 
 
 def get_nautobot_app_service() -> NautobotService:
@@ -204,12 +215,34 @@ def build_git_connection_service():
     return GitConnectionService()
 
 
-def build_credentials_service(db: Session | None = None):
+def get_vault_service() -> OpenBaoService | None:
+    return _vault_service
+
+
+def set_vault_service(service: OpenBaoService | None) -> None:
+    global _vault_service
+    _vault_service = service
+
+
+def get_vault_management_service() -> OpenBaoService | None:
+    return _vault_management_service
+
+
+def set_vault_management_service(service: OpenBaoService | None) -> None:
+    global _vault_management_service
+    _vault_management_service = service
+
+
+def build_credentials_service(db: Session | None = None, *, with_management: bool = False):
     from core.database import SessionLocal
     from services.credentials.credentials_service import CredentialsService
 
     session = db if db is not None else SessionLocal()
-    return CredentialsService(session)
+    return CredentialsService(
+        session,
+        vault_reader=_vault_service,
+        vault_writer=_vault_management_service if with_management else None,
+    )
 
 
 def build_git_debug_service():

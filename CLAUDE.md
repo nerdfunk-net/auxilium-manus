@@ -625,7 +625,20 @@ DATABASE_PASSWORD=password
 INITIAL_USERNAME=admin
 INITIAL_PASSWORD=admin
 ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboard)
+VAULT_ENABLED=false    # optional OpenBao secret storage; see doc/VAULT_INTEGRATION.md
 ```
+
+**OpenBao (Vault) — optional.** When `VAULT_ENABLED=true`, a credential can be stored
+in OpenBao instead of the encrypted PostgreSQL columns; the choice is per-credential
+in the credential-manager UI. The app runs unchanged with it disabled (default).
+Auth is AppRole (primary), cert/mTLS, or a dev-only static token; a periodic client
+token is held in memory and renewed automatically. Two OpenBao roles: a read-only
+`manus-app` runtime role and a write-capable `manus-manage` role used only by the
+credential-manager write endpoints. All config is env-based (`VAULT_*`), validated at
+startup by `core/production_guards.py`. Resolution is fail-closed: a `vault`-backed
+credential whose OpenBao is unreachable fails loudly while `local` credentials keep
+working. Full architecture, KV layout, and the ops runbook (mount, policies, AppRole
+bootstrap, SecretID rotation) are in `doc/VAULT_INTEGRATION.md`.
 
 **Frontend** (`.env.local`):
 ```bash

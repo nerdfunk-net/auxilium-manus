@@ -108,6 +108,7 @@ export const queryKeys = {
       includeExpired
         ? ([...queryKeys.credentials.all, "list", "with-expired"] as const)
         : ([...queryKeys.credentials.all, "list"] as const),
+    vaultStatus: () => [...queryKeys.credentials.all, "vault-status"] as const,
   },
   gitRepositories: {
     all: ["git-repositories"] as const,

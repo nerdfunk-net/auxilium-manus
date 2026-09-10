@@ -111,6 +111,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await mattermost_service.startup()
     service_factory.set_mattermost_app_service(mattermost_service)
 
+    # OpenBao (Vault) — no-op unless VAULT_ENABLED. See doc/VAULT_INTEGRATION.md.
+    from core.vault import start_vault_services, stop_vault_services
+
+    await start_vault_services()
+
     service_factory.build_cache_service()
 
     yield
@@ -119,6 +124,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await ise_service.shutdown()
     await pyats_service.shutdown()
     await mattermost_service.shutdown()
+    await stop_vault_services()
 
 
 app = FastAPI(

@@ -11,7 +11,13 @@ import { CredentialFormDialog } from "../credentials/dialogs/credential-form-dia
 import { DeleteCredentialDialog } from "../credentials/dialogs/delete-credential-dialog";
 import { useCredentialMutations } from "../credentials/hooks/use-credential-mutations";
 import { useCredentialsQuery } from "../credentials/hooks/use-credentials-query";
-import type { Credential, CredentialType, CredentialVisibility } from "../credentials/types";
+import { useVaultStatusQuery } from "../credentials/hooks/use-vault-status-query";
+import type {
+  Credential,
+  CredentialStorageBackend,
+  CredentialType,
+  CredentialVisibility,
+} from "../credentials/types";
 
 type DialogState =
   | { type: "closed" }
@@ -24,6 +30,8 @@ export function CredentialsSettingsCanvas() {
   const [includeExpired, setIncludeExpired] = useState(false);
 
   const { data, isLoading } = useCredentialsQuery({ includeExpired });
+  const { data: vaultStatus } = useVaultStatusQuery();
+  const vaultEnabled = vaultStatus?.enabled ?? false;
   const { createCredential, updateCredential, deleteCredential } =
     useCredentialMutations();
 
@@ -43,6 +51,7 @@ export function CredentialsSettingsCanvas() {
       algorithm?: string;
       valid_until?: string;
       visibility: CredentialVisibility;
+      storage_backend: CredentialStorageBackend;
     }) => {
       createCredential.mutate(
         {
@@ -55,6 +64,7 @@ export function CredentialsSettingsCanvas() {
           algorithm: values.type === "shared_secret" ? values.algorithm : undefined,
           valid_until: values.valid_until || undefined,
           visibility: values.visibility,
+          storage_backend: values.storage_backend,
         },
         { onSuccess: () => setDialog({ type: "closed" }) },
       );
@@ -176,6 +186,7 @@ export function CredentialsSettingsCanvas() {
         open={dialog.type === "create"}
         mode="create"
         isSaving={createCredential.isPending}
+        vaultEnabled={vaultEnabled}
         onClose={() => setDialog({ type: "closed" })}
         onSubmit={handleCreate}
       />
@@ -185,6 +196,7 @@ export function CredentialsSettingsCanvas() {
         mode="edit"
         credential={dialog.type === "edit" ? dialog.credential : undefined}
         isSaving={updateCredential.isPending}
+        vaultEnabled={vaultEnabled}
         onClose={() => setDialog({ type: "closed" })}
         onSubmit={(values) => {
           if (dialog.type === "edit") {

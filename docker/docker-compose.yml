@@ -89,6 +89,29 @@ x-manus-app-env: &manus-app-env
   # service). Requires update-ca-certificates (present in the image).
   INSTALL_CERTIFICATE_FILES: "${INSTALL_CERTIFICATE_FILES:-false}"
 
+  # OpenBao (Vault) — OPTIONAL. Disabled unless VAULT_ENABLED=true. When on,
+  # VAULT_ADDR + the AppRole material (runtime + management) must be provided.
+  # See doc/VAULT_INTEGRATION.md. https:// is required outside development.
+  VAULT_ENABLED: "${VAULT_ENABLED:-false}"
+  VAULT_ADDR: "${VAULT_ADDR:-}"
+  VAULT_KV_MOUNT: "${VAULT_KV_MOUNT:-manus}"
+  VAULT_NAMESPACE: "${VAULT_NAMESPACE:-}"
+  VAULT_AUTH_METHOD: "${VAULT_AUTH_METHOD:-approle}"
+  VAULT_VERIFY_SSL: "${VAULT_VERIFY_SSL:-true}"
+  VAULT_CACERT: "${VAULT_CACERT:-}"
+  VAULT_ROLE_ID: "${VAULT_ROLE_ID:-}"
+  VAULT_SECRET_ID: "${VAULT_SECRET_ID:-}"
+  VAULT_SECRET_ID_FILE: "${VAULT_SECRET_ID_FILE:-}"
+  VAULT_MANAGE_ROLE_ID: "${VAULT_MANAGE_ROLE_ID:-}"
+  VAULT_MANAGE_SECRET_ID: "${VAULT_MANAGE_SECRET_ID:-}"
+  VAULT_MANAGE_SECRET_ID_FILE: "${VAULT_MANAGE_SECRET_ID_FILE:-}"
+  VAULT_CLIENT_CERT: "${VAULT_CLIENT_CERT:-}"
+  VAULT_CLIENT_KEY: "${VAULT_CLIENT_KEY:-}"
+  VAULT_TOKEN_PERIOD_SECONDS: "${VAULT_TOKEN_PERIOD_SECONDS:-3600}"
+  VAULT_RENEW_BUFFER_SECONDS: "${VAULT_RENEW_BUFFER_SECONDS:-600}"
+  VAULT_TIMEOUT_SECONDS: "${VAULT_TIMEOUT_SECONDS:-5}"
+  VAULT_CACHE_TTL_SECONDS: "${VAULT_CACHE_TTL_SECONDS:-45}"
+
 services:
   manus-postgres:
     image: postgres:17

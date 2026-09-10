@@ -50,6 +50,12 @@ async def start_all(process_name: str = WORKER_PROCESS_NAME) -> AsyncIterator[No
     await mattermost_service.startup()
     service_factory.set_mattermost_app_service(mattermost_service)
 
+    # OpenBao (Vault) — no-op unless VAULT_ENABLED. Each worker process holds its
+    # own token + renewal loop. See doc/VAULT_INTEGRATION.md.
+    from core.vault import start_vault_services, stop_vault_services
+
+    await start_vault_services()
+
     service_factory.build_cache_service()
     logger.info("Worker services initialized for process=%s", process_name)
     try:
@@ -59,4 +65,5 @@ async def start_all(process_name: str = WORKER_PROCESS_NAME) -> AsyncIterator[No
         await ise_service.shutdown()
         await pyats_service.shutdown()
         await mattermost_service.shutdown()
+        await stop_vault_services()
         logger.info("Worker services shut down")

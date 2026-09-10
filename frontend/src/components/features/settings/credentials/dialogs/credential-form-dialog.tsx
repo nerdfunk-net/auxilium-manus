@@ -39,10 +39,19 @@ import {
 } from "@/lib/shared-secret-algorithms";
 
 import type { Credential, CredentialType } from "../types";
-import { SELECTABLE_CREDENTIAL_TYPES, credentialTypeLabel } from "../utils/credential-utils";
+import {
+  SELECTABLE_CREDENTIAL_TYPES,
+  credentialTypeLabel,
+} from "../utils/credential-utils";
 import { toDateInputValue } from "../utils/credential-utils";
 
-const EDITABLE_TYPES = ["ssh", "ssh_key", "token", "generic", "shared_secret"] as const;
+const EDITABLE_TYPES = [
+  "ssh",
+  "ssh_key",
+  "token",
+  "generic",
+  "shared_secret",
+] as const;
 type EditableType = (typeof EDITABLE_TYPES)[number];
 
 const formSchema = z
@@ -56,13 +65,16 @@ const formSchema = z
     algorithm: z.string().optional(),
     valid_until: z.string().optional(),
     visibility: z.enum(["global", "private"]),
+    storage_backend: z.enum(["local", "vault"]),
   })
   .refine(
-    (values) => values.type !== "ssh_key" || Boolean(values.ssh_private_key?.trim()),
+    (values) =>
+      values.type !== "ssh_key" || Boolean(values.ssh_private_key?.trim()),
     { message: "SSH private key is required", path: ["ssh_private_key"] },
   )
   .refine(
-    (values) => values.type === "shared_secret" || Boolean(values.username.trim()),
+    (values) =>
+      values.type === "shared_secret" || Boolean(values.username.trim()),
     { message: "Required", path: ["username"] },
   );
 
@@ -73,6 +85,8 @@ interface CredentialFormDialogProps {
   mode: "create" | "edit";
   credential?: Credential;
   isSaving?: boolean;
+  /** When true, offer a choice between local (database) and OpenBao storage. */
+  vaultEnabled?: boolean;
   onClose: () => void;
   onSubmit: (values: FormValues) => void;
 }
@@ -87,6 +101,7 @@ const EMPTY_DEFAULTS: FormValues = {
   algorithm: DEFAULT_SHARED_SECRET_ALGORITHM,
   valid_until: "",
   visibility: "private",
+  storage_backend: "local",
 };
 
 const USERNAME_HINTS: Record<CredentialType, string> = {
@@ -103,6 +118,7 @@ export function CredentialFormDialog({
   mode,
   credential,
   isSaving = false,
+  vaultEnabled = false,
   onClose,
   onSubmit,
 }: CredentialFormDialogProps) {
@@ -119,7 +135,9 @@ export function CredentialFormDialog({
     }
     if (mode === "edit" && credential) {
       const editableType: EditableType = (
-        SELECTABLE_CREDENTIAL_TYPES.includes(credential.type) ? credential.type : "ssh"
+        SELECTABLE_CREDENTIAL_TYPES.includes(credential.type)
+          ? credential.type
+          : "ssh"
       ) as EditableType;
       form.reset({
         name: credential.name,
@@ -131,6 +149,7 @@ export function CredentialFormDialog({
         algorithm: credential.algorithm ?? DEFAULT_SHARED_SECRET_ALGORITHM,
         valid_until: toDateInputValue(credential.valid_until),
         visibility: credential.visibility,
+        storage_backend: credential.storage_backend,
       });
       return;
     }
@@ -138,7 +157,11 @@ export function CredentialFormDialog({
   }, [credential, form, mode, open]);
 
   const handleSubmit = (values: FormValues) => {
-    if (mode === "create" && values.type !== "ssh_key" && !values.password?.trim()) {
+    if (
+      mode === "create" &&
+      values.type !== "ssh_key" &&
+      !values.password?.trim()
+    ) {
       form.setError("password", {
         message: `${credentialTypeLabel(values.type)} value is required`,
       });
@@ -158,94 +181,121 @@ export function CredentialFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit credential" : "Add credential"}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? "Edit credential" : "Add credential"}
+          </DialogTitle>
           <DialogDescription>
-            Credentials are encrypted at rest. Secrets are never shown again after saving.
+            Credentials are encrypted at rest. Secrets are never shown again
+            after saving.
           </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
-          <form className="space-y-4" onSubmit={form.handleSubmit(handleSubmit)}>
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Credential ID</FormLabel>
-                  <FormControl>
-                    <Input placeholder="lab-core-switch" {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Unique identifier referenced by workflow steps and Git repository config.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormItem>
-              <FormLabel>Type</FormLabel>
-              <Controller
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {SELECTABLE_CREDENTIAL_TYPES.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {credentialTypeLabel(option)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              <FormDescription>
-                {isEdit
-                  ? "The type cannot be changed after creation."
-                  : "SSH Login and Token use a username + secret. SSH Key uses a private key. Shared Secret stores a passphrase for Encrypt/Decrypt Attribute steps."}
-              </FormDescription>
-            </FormItem>
-
-            {isSharedSecret ? null : (
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={form.handleSubmit(handleSubmit)}
+          >
+            <div className="flex-1 space-y-4 overflow-y-auto px-1 py-1">
               <FormField
                 control={form.control}
-                name="username"
+                name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Username{type === "token" ? " (optional for some hosts)" : ""}
-                    </FormLabel>
+                    <FormLabel>Credential ID</FormLabel>
                     <FormControl>
-                      <Input placeholder={USERNAME_HINTS[type]} autoComplete="off" {...field} />
+                      <Input placeholder="lab-core-switch" {...field} />
                     </FormControl>
+                    <FormDescription>
+                      Unique identifier referenced by workflow steps and Git
+                      repository config.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            )}
 
-            {type === "ssh_key" ? (
-              <>
+              <FormItem>
+                <FormLabel>Type</FormLabel>
+                <Controller
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={isEdit}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {SELECTABLE_CREDENTIAL_TYPES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {credentialTypeLabel(option)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FormDescription>
+                  {isEdit
+                    ? "The type cannot be changed after creation."
+                    : "SSH Login and Token use a username + secret. SSH Key uses a private key. Shared Secret stores a passphrase for Encrypt/Decrypt Attribute steps."}
+                </FormDescription>
+              </FormItem>
+
+              {vaultEnabled ? (
+                <FormItem>
+                  <FormLabel>Storage backend</FormLabel>
+                  <Controller
+                    control={form.control}
+                    name="storage_backend"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        disabled={isEdit}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="local">
+                            Local — encrypted database
+                          </SelectItem>
+                          <SelectItem value="vault">OpenBao vault</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FormDescription>
+                    {isEdit
+                      ? "An existing credential cannot be moved between backends yet."
+                      : "Vault credentials are written to OpenBao; only a reference is stored in the database."}
+                  </FormDescription>
+                </FormItem>
+              ) : null}
+
+              {isSharedSecret ? null : (
                 <FormField
                   control={form.control}
-                  name="ssh_private_key"
+                  name="username"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        SSH private key{isEdit ? " (leave blank to keep)" : ""}
+                        Username
+                        {type === "token" ? " (optional for some hosts)" : ""}
                       </FormLabel>
                       <FormControl>
-                        <Textarea
-                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                          className="min-h-32 font-mono text-xs"
+                        <Input
+                          placeholder={USERNAME_HINTS[type]}
                           autoComplete="off"
                           {...field}
                         />
@@ -254,121 +304,157 @@ export function CredentialFormDialog({
                     </FormItem>
                   )}
                 />
+              )}
+
+              {type === "ssh_key" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="ssh_private_key"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          SSH private key
+                          {isEdit ? " (leave blank to keep)" : ""}
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                            className="min-h-32 font-mono text-xs"
+                            autoComplete="off"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="ssh_passphrase"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Key passphrase (optional)
+                          {isEdit ? " — leave blank to keep" : ""}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            autoComplete="new-password"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : (
                 <FormField
                   control={form.control}
-                  name="ssh_passphrase"
+                  name="password"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        Key passphrase (optional){isEdit ? " — leave blank to keep" : ""}
+                        {isSharedSecret
+                          ? "Shared secret / passphrase"
+                          : type === "token"
+                            ? "Token"
+                            : "Password"}
+                        {isEdit ? " (leave blank to keep)" : ""}
                       </FormLabel>
                       <FormControl>
-                        <Input type="password" autoComplete="new-password" {...field} />
+                        <Input
+                          type="password"
+                          autoComplete="new-password"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              </>
-            ) : (
+              )}
+
+              {isSharedSecret ? (
+                <FormItem>
+                  <FormLabel>Algorithm</FormLabel>
+                  <Controller
+                    control={form.control}
+                    name="algorithm"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value || DEFAULT_SHARED_SECRET_ALGORITHM}
+                        onValueChange={field.onChange}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SHARED_SECRET_ALGORITHMS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FormDescription>
+                    Symmetric algorithm used by Encrypt/Decrypt Attribute steps
+                    that reference this secret. A step may override it per node.
+                  </FormDescription>
+                </FormItem>
+              ) : null}
+
               <FormField
                 control={form.control}
-                name="password"
+                name="valid_until"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {isSharedSecret
-                        ? "Shared secret / passphrase"
-                        : type === "token"
-                          ? "Token"
-                          : "Password"}
-                      {isEdit ? " (leave blank to keep)" : ""}
-                    </FormLabel>
+                    <FormLabel>Valid until</FormLabel>
                     <FormControl>
-                      <Input type="password" autoComplete="new-password" {...field} />
+                      <Input type="date" {...field} />
                     </FormControl>
+                    <FormDescription>
+                      Optional expiry date for credential rotation tracking.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            )}
 
-            {isSharedSecret ? (
-              <FormItem>
-                <FormLabel>Algorithm</FormLabel>
-                <Controller
-                  control={form.control}
-                  name="algorithm"
-                  render={({ field }) => (
-                    <Select
-                      value={field.value || DEFAULT_SHARED_SECRET_ALGORITHM}
-                      onValueChange={field.onChange}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {SHARED_SECRET_ALGORITHMS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                <FormDescription>
-                  Symmetric algorithm used by Encrypt/Decrypt Attribute steps that
-                  reference this secret. A step may override it per node.
-                </FormDescription>
-              </FormItem>
-            ) : null}
+              <FormField
+                control={form.control}
+                name="visibility"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel>Make this credential global</FormLabel>
+                      <FormDescription>
+                        Global credentials are visible and usable by all users —
+                        required for Git repositories and other background
+                        integrations. Private credentials are visible only to
+                        you.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value === "global"}
+                        onCheckedChange={(checked) =>
+                          field.onChange(checked ? "global" : "private")
+                        }
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
 
-            <FormField
-              control={form.control}
-              name="valid_until"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Valid until</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Optional expiry date for credential rotation tracking.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="visibility"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
-                  <div className="space-y-0.5">
-                    <FormLabel>Make this credential global</FormLabel>
-                    <FormDescription>
-                      Global credentials are visible and usable by all users — required for Git
-                      repositories and other background integrations. Private credentials are
-                      visible only to you.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value === "global"}
-                      onCheckedChange={(checked) =>
-                        field.onChange(checked ? "global" : "private")
-                      }
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <DialogFooter>
+            <DialogFooter className="shrink-0 pt-4">
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>

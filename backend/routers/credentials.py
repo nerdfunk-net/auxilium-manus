@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
+from core.config import settings
 from core.database import get_db
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
@@ -16,11 +17,15 @@ from models.credentials import (
     CredentialResponse,
     CredentialUpdate,
 )
+from service_factory import get_vault_management_service, get_vault_service
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.exceptions import (
     CredentialMissingFieldError,
     CredentialNameConflictError,
     CredentialNotFoundError,
+    CredentialStorageBackendChangeError,
+    CredentialVaultNotConfiguredError,
+    CredentialVaultUnavailableError,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,7 +38,28 @@ router = APIRouter(
 
 
 def _service(db: Session = Depends(get_db)) -> CredentialsService:
-    return CredentialsService(db)
+    # Credential-manager endpoints get the write-capable management OpenBao client
+    # (used only on create/update/delete of vault-backed rows). Runtime/step code
+    # constructs CredentialsService via service_factory.build_credentials_service
+    # without a writer, so it stays structurally read-only.
+    return CredentialsService(
+        db,
+        vault_reader=get_vault_service(),
+        vault_writer=get_vault_management_service(),
+    )
+
+
+@router.get(
+    "/vault/status",
+    dependencies=[Depends(require_permission("credentials", "read"))],
+)
+def vault_status() -> dict[str, bool]:
+    """Whether the OpenBao storage backend is available on this deployment.
+
+    Pure settings read — no OpenBao call. Live reachability is a documented later
+    addition (see doc/VAULT_INTEGRATION.md).
+    """
+    return {"enabled": settings.vault_enabled}
 
 
 @router.get(
@@ -77,11 +103,23 @@ def create_credential(
             ssh_private_key=payload.ssh_private_key,
             ssh_passphrase=payload.ssh_passphrase,
             algorithm=payload.algorithm,
+            storage_backend=payload.storage_backend,
             acting_user_id=current_user.id,
         )
         return CredentialResponse.model_validate(result)
     except CredentialNameConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except (CredentialVaultNotConfiguredError, CredentialMissingFieldError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except CredentialVaultUnavailableError as exc:
+        raise_internal_server_error(
+            logger,
+            "OpenBao unavailable while creating credential",
+            exc,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to create credential", exc)
 
@@ -109,6 +147,7 @@ def update_credential(
             ssh_private_key=payload.ssh_private_key,
             ssh_passphrase=payload.ssh_passphrase,
             algorithm=payload.algorithm,
+            storage_backend=payload.storage_backend,
             acting_user_id=current_user.id,
         )
         return CredentialResponse.model_validate(result)
@@ -116,6 +155,21 @@ def update_credential(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except CredentialNameConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CredentialStorageBackendChangeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except CredentialVaultNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except CredentialVaultUnavailableError as exc:
+        raise_internal_server_error(
+            logger,
+            "OpenBao unavailable while updating credential",
+            exc,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to update credential", exc)
 
@@ -155,5 +209,12 @@ def get_credential_password(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except CredentialMissingFieldError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (CredentialVaultUnavailableError, CredentialVaultNotConfiguredError) as exc:
+        raise_internal_server_error(
+            logger,
+            "OpenBao unavailable while revealing credential",
+            exc,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to retrieve credential password", exc)
