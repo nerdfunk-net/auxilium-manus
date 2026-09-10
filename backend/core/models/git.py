@@ -10,7 +10,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.sql import func, text
+from sqlalchemy.sql import func
 
 from core.models.base import Base
 
@@ -39,9 +39,9 @@ class GitRepository(Base):
     # the deploy run immediately, otherwise it only marks the change request
     # reviewed and a human clicks "Deploy".
     webhook_secret_encrypted = Column(LargeBinary)
-    webhook_auto_deploy = Column(
-        Boolean, nullable=False, server_default=text("false")
-    )
+    # Python-side default (not server_default): AutoSchemaMigration's ADD COLUMN
+    # path only renders `default=` for bools, so this backfills existing rows.
+    webhook_auto_deploy = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

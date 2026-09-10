@@ -386,6 +386,16 @@ in the meantime. For a repo only this workflow writes to, it's optional; for a
 shared repo, keep it — placed after the Fan In it costs one extra network
 round-trip per *run*, not per device.
 
+### Gating a config change on human review
+
+When the render should be **reviewed before it touches devices**, end the stage
+workflow with `open-change-request` instead of `git-push`: it commits the
+rendered configs to a per-change branch and records a change request. Approval
+(a UI click or a signed git webhook) then dispatches a separate deploy workflow
+(`git-clone` with `use_change_request_branch: true` → `configure-replace-config`).
+`open-change-request` is a git step like the rest — it must sit **after the Fan
+In**. Full design: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
+
 ---
 
 ## When an SSH session opens and closes

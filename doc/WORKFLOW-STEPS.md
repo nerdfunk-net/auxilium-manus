@@ -936,7 +936,7 @@ the **same external resources**. A step is fan-out-safe when it:
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent children overwrite/race. |
-| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. |
+| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` / `open-change-request` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. `open-change-request` additionally creates a branch — place it after a Fan In node. |
 
 **Guidance for git-backed exports under fan-out:** place a **Fan In** node between the
 per-device branch and the git/store steps. The per-device work (configs, commands,
@@ -948,6 +948,16 @@ commits, so it is not a substitute for the fan-in node.
 > If you add a step that mutates a shared external resource, either require it to sit after
 > a fan-in node, document its fan-out behaviour in `registry.yaml`, and/or prefer
 > per-device-unique writes.
+
+### Change requests (CI/CD pipeline)
+
+`open-change-request` is a persistent-artifact step that ends a *stage run*: it commits
+the rendered configs to a per-change git branch, pushes it, stores a diff, and records a
+`ChangeRequest` row awaiting review. Approval (a UI click or a signed git webhook)
+dispatches a **separate** deploy run — an ordinary workflow whose `git-clone` / `git-pull`
+step sets `use_change_request_branch: true` to target that branch. The long review is a DB
+row, not a Hatchet pause (the `execute_steps` task is capped at 24 h). Full spec, data
+model, webhook, and API: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
 
 ---
 

@@ -471,3 +471,27 @@ uses — full validation, then a *new* mirrored commit. Restore never runs
 `git reset`/`git revert`/history rewrite, so Git history only ever grows
 forward, and a "bad" restore is itself just one more commit to restore away
 from.
+
+## Change requests: a review gate as two decoupled runs
+
+A config change that must be reviewed before it reaches devices is **not** a
+paused workflow — the `execute_steps` durable task is capped at 24 h, and a
+review can take days. Instead the pipeline is two ordinary `WorkflowRun`s
+joined by a `change_requests` row:
+
+1. A **stage run** ends in the `open-change-request` step, which renders the
+   configs, pushes them to a per-change git branch, stores a diff, and writes
+   the `ChangeRequest` in `status="staged"`. The run then finishes normally —
+   the "wait" is just that row.
+2. Approval — a JWT `POST /change-requests/{id}/approve` **or** a signed inbound
+   git webhook (`POST /webhooks/git/{repo_id}`, the one unauthenticated,
+   non-proxy entry point, guarded by HMAC + rate limit + replay dedup +
+   fail-closed) — atomically transitions the row and dispatches a **deploy
+   run** through the same `resolve_dispatch_workflow(...).run_no_wait(...)` path
+   a schedule uses. `WorkflowRun.change_request_id` links the deploy run back;
+   `git-clone`/`git-pull` with `use_change_request_branch: true` then operate on
+   the change request's branch. Every state move is a conditional
+   `UPDATE ... WHERE status IN (...)`, so a UI click racing a webhook yields
+   exactly one deploy run.
+
+Full spec: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).

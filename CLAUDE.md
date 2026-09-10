@@ -16,7 +16,7 @@ Workflows consist of ordered and dependency-aware steps. The output of one step 
 ### Core Principles
 - **Complete separation**: Frontend (port 3000) ↔ Backend (port 8000)
 - **API proxy pattern**: Frontend → Next.js `/api/proxy/*` → Backend (NEVER direct backend calls)
-- **PostgreSQL single database** with 14 tables (9 domain tables + 5 RBAC tables, defined in `/backend/core/models/`)
+- **PostgreSQL single database** with 15 tables (10 domain tables + 5 RBAC tables, defined in `/backend/core/models/`)
 - **Layered backend**: Model → Repository → Service → Router
 - **Feature-based organization**: Group by domain, not by technical role
 - **Server Components default**: Use `'use client'` only when necessary
@@ -131,6 +131,7 @@ export default function MyFeatureRoute() {
 **Backend Core:**
 - `/backend/core/models/` - SQLAlchemy table definitions (one file per domain)
   - `base.py` - `Base` (declarative base)
+  - `change_requests.py` - `ChangeRequest`
   - `credentials.py` - `Credential`
   - `git.py` - `GitRepository`
   - `inventories.py` - `Inventory`
@@ -313,7 +314,7 @@ it. Frontend: `useApi`'s `buildApiErrorMessage` recognizes that 403 code and fli
 
 ## Database Schema (Key Tables)
 
-**Domain tables:** `users`, `credentials`, `git_repositories`, `inventories`, `settings`, `templates`, `workflows`, `workflow_runs`, `workflow_step_results`
+**Domain tables:** `users`, `credentials`, `git_repositories`, `inventories`, `settings`, `templates`, `workflows`, `workflow_runs`, `workflow_step_results`, `change_requests`
 **RBAC tables:** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 
 ## UI/UX Standards
@@ -667,7 +668,7 @@ ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboa
 5. Add sidebar link in `/components/layout/app-sidebar.tsx`
 6. Use query hooks in components (NOT manual `useState + useEffect`)
 
-Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`. Timed runs live at `/schedules` (the **Schedules** app) — many parameterized schedules per workflow; see `doc/SCHEDULES.md`.
+Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`. Timed runs live at `/schedules` (the **Schedules** app) — many parameterized schedules per workflow; see `doc/SCHEDULES.md`. Staged config changes awaiting review live at `/change-requests` (the **Change Requests** app) — see `doc/CICD_PIPELINE.md`.
 
 ### Adding New Permission
 1. UI: `/settings/users` → Permissions tab lists the catalog; create a permission from
@@ -956,11 +957,15 @@ remote creates/uses a `GitRepository` row.
 
 ### Workflow Steps
 Every git-consuming step (`git-clone`, `git-pull`, `git-push`, `get-git-devices`,
-`store-artifact`, `get-from-config`, `read-config`, `compare-data`,
+`store-artifact`, `open-change-request`, `get-from-config`, `read-config`, `compare-data`,
 `compare-pyats-snapshot`, `set-default-attributes`) stores `git_repository_id: int`
 (FK to `git_repositories.id`) in its plugin config — never a string source id.
 Resolve it via `workflow_steps.common.git_repository_loader.load_git_repository`,
 never by re-implementing a lookup inline in the executor.
+
+`git-clone` / `git-pull` also accept `use_change_request_branch: bool` — when the run
+was dispatched by a change-request approval (`WorkflowRun.change_request_id`), the step
+targets the change request's `manus/cr-{id}` branch. See `doc/CICD_PIPELINE.md`.
 
 ### DO:
 - ✅ Add a `GitRepository` row (via the CRUD API/Settings UI) for any new git-backed

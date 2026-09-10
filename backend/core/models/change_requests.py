@@ -82,9 +82,15 @@ class ChangeRequest(Base):
     # {additions, deletions, files, truncated} — list badges + a truncation notice.
     diff_stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    # staged | approved | deploying | deployed | failed | rejected | expired
+    # staged | approved | deploying | deployed | failed | rejected | expired.
+    # Both defaults on purpose: native CREATE TABLE uses server_default; the
+    # AutoSchemaMigration ADD COLUMN path only renders a Python-side `default`.
     status: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default=text("'staged'"), index=True
+        String(16),
+        nullable=False,
+        default="staged",
+        server_default=text("'staged'"),
+        index=True,
     )
 
     approved_by_id: Mapped[int | None] = mapped_column(
