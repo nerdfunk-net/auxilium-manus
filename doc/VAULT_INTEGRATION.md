@@ -140,19 +140,29 @@ true secrets (`password` / `token` / `ssh_key` / `ssh_passphrase`) go to OpenBao
 
 ## The resolution seam
 
-Consolidation happens **at the decrypt layer, not the public-API layer.** The
-three resolver modules —
+Vault dispatch happens **at the decrypt layer.** Every path that turns a
+credential reference into secret material now goes through one facade,
+`services/credentials/manager.py::CredentialManager`, with a method per shape:
 
-- `workflow_steps/common/credential_resolver.py` (by name),
-- `services/credentials/source_credentials.py` (by id, global-only),
-- `services/git/auth.py` (by name + `auth_type`),
+- `ssh()` / `generic()` / `shared_secret()` — by name, honour `acting_user_id`
+  (private-then-global),
+- `source_credential()` / `source_secret()` — by id, global-only,
+- `git(repository)` — by name + `auth_type`, global-only, forgiving.
 
-— plus every ad-hoc reader (`preview_service`, the reveal endpoint,
-`settings_service` Nautobot decrypt) all bottom out at four `CredentialsService`
-methods: `get_decrypted_password`, `get_decrypted_ssh_key`,
-`get_decrypted_ssh_passphrase`, `get_ssh_key_path`. Those four now check
-`storage_backend` and either Fernet-decrypt or call `OpenBaoService.read_kv`. The
-resolver modules themselves are untouched.
+The three historical resolver modules are now thin adapters over it that keep
+each domain's existing return shape and error taxonomy:
+
+- `workflow_steps/common/credential_resolver.py` — tuple returns,
+  `CredentialReference{NotFound,Invalid}Error`,
+- `services/credentials/source_credentials.py` — `SourceCredentialError`,
+- `services/git/auth.py::GitAuthenticationService` — also owns git-transport
+  concerns (`build_auth_url`, `setup_auth_environment`, `normalize_url`).
+
+`CredentialManager` and every ad-hoc reader (`preview_service`, the reveal
+endpoint, `settings_service` Nautobot decrypt) bottom out at four
+`CredentialsService` methods: `get_decrypted_password`, `get_decrypted_ssh_key`,
+`get_decrypted_ssh_passphrase`, `get_ssh_key_path`. Those four check
+`storage_backend` and either Fernet-decrypt or call `OpenBaoService.read_kv`.
 
 `CredentialsService.__init__(db, *, vault_reader=None, vault_writer=None)`:
 
@@ -445,7 +455,9 @@ python -m pytest tests/integration/test_vault_integration.py --no-cov
   `token_expires_at`, last-renew) + a `/health/ready` contribution.
 - **Read-only-vault deployment mode** (`VAULT_MANAGEMENT_ENABLED=false`) where
   ops pre-provision secrets and the UI hides the vault write option.
-- **Collapsing the three resolver seams into one `CredentialManager` facade** —
-  worthwhile cleanup, separate PR, its own regression/test burden. Scoped in
+- **Retiring the three thin resolver adapters** (`credential_resolver.py`,
+  `source_credentials.py`, `GitAuthenticationService.resolve_credentials`) by
+  cutting their ~20 call sites over to `CredentialManager` directly — deferred;
+  pure delegation, no logic to drift. See
   `doc/refactoring/CREDENTIAL_MANAGER_CONSOLIDATION.md`.
 - **SecretID delivery automation** — stays a manual ops bootstrap for now.

@@ -33,33 +33,31 @@ class GitAuthenticationService:
     def resolve_credentials(self, repository: dict) -> tuple[str | None, str | None, str | None]:
         """Resolve username, token/password, and SSH key path from credential_name.
 
+        Git sync/clone/debug flows have no acting-user context anywhere in this
+        call chain (background jobs, not an authenticated HTTP request), so
+        resolution is scoped to global credentials only — a private credential
+        matching ``credential_name`` is treated as not found. Known limitation:
+        git repositories cannot use private credentials, only global ones.
+
         Args:
             repository: Repository metadata dict with credential_name and auth_type
 
         Returns:
             Tuple of (username, token, ssh_key_path) - ssh_key_path is set for ssh_key auth
         """
-        auth_type = repository.get("auth_type", "token")
         credential_name = repository.get("credential_name")
-
-        logger.debug(
-            "Resolving credentials: credential_name='%s', auth_type='%s'",
-            credential_name,
-            auth_type,
-        )
-
         if not credential_name:
             logger.debug("No credential_name provided, returning None")
             return None, None, None
 
         try:
-            import service_factory
             from core.database import SessionLocal
+            from services.credentials.manager import CredentialManager
 
             db = SessionLocal()
             try:
-                cred_mgr = service_factory.build_credentials_service(db)
-                return self._resolve_from_manager(cred_mgr, credential_name, auth_type)
+                secret = CredentialManager(db).git(repository)
+                return secret.username, secret.token, secret.ssh_key_path
             finally:
                 db.close()
         except (CredentialVaultUnavailableError, CredentialVaultNotConfiguredError):
@@ -74,124 +72,6 @@ class GitAuthenticationService:
                 exc_info=True,
             )
             return None, None, None
-
-    def _resolve_from_manager(
-        self,
-        cred_mgr,
-        credential_name: str,
-        auth_type: str,
-    ) -> tuple[str | None, str | None, str | None]:
-        # Git sync/clone/debug flows have no acting-user context anywhere in
-        # this call chain (background jobs, not an authenticated HTTP
-        # request). acting_user_id=None scopes credential resolution to
-        # global credentials only — a private credential matching
-        # credential_name is treated as not found. Known limitation: git
-        # repositories cannot use private credentials, only global ones.
-        creds = cred_mgr.list_credentials(include_expired=False, acting_user_id=None)
-        logger.debug(
-            "Found %s active credentials, searching for '%s' with type '%s'",
-            len(creds),
-            credential_name,
-            auth_type,
-        )
-
-        if auth_type == "ssh_key":
-            match = next(
-                (c for c in creds if c["name"] == credential_name and c["type"] == "ssh_key"),
-                None,
-            )
-            if match:
-                logger.debug(
-                    "Found SSH key credential: id=%s, username=%s",
-                    match["id"],
-                    match.get("username"),
-                )
-                ssh_key_path = cred_mgr.get_ssh_key_path(match["id"], acting_user_id=None)
-                if ssh_key_path:
-                    logger.debug("SSH key path resolved: %s", ssh_key_path)
-                    return match.get("username"), None, ssh_key_path
-                logger.error(
-                    "SSH key file not found for credential '%s'",
-                    credential_name,
-                )
-                return None, None, None
-
-            logger.warning(
-                "SSH key credential '%s' not found in %s credentials",
-                credential_name,
-                len(creds),
-            )
-            return None, None, None
-
-        if auth_type == "generic":
-            match = next(
-                (c for c in creds if c["name"] == credential_name and c["type"] == "generic"),
-                None,
-            )
-            if match:
-                username = match.get("username")
-                logger.debug(
-                    "Found generic credential: id=%s, username=%s",
-                    match["id"],
-                    username,
-                )
-                try:
-                    password = cred_mgr.get_decrypted_password(match["id"], acting_user_id=None)
-                    logger.debug("Successfully decrypted password for '%s'", credential_name)
-                    return username, password, None
-                except (
-                    CredentialVaultUnavailableError,
-                    CredentialVaultNotConfiguredError,
-                ):
-                    raise
-                except Exception as de:
-                    logger.error(
-                        "Failed to decrypt credential '%s': %s",
-                        credential_name,
-                        de,
-                        exc_info=True,
-                    )
-                    return None, None, None
-
-            logger.warning(
-                "Generic credential '%s' not found in %s credentials",
-                credential_name,
-                len(creds),
-            )
-            return None, None, None
-
-        match = next(
-            (c for c in creds if c["name"] == credential_name and c["type"] == "token"),
-            None,
-        )
-        if match:
-            username = match.get("username")
-            logger.debug(
-                "Found token credential: id=%s, username=%s",
-                match["id"],
-                username,
-            )
-            try:
-                token = cred_mgr.get_decrypted_password(match["id"], acting_user_id=None)
-                logger.debug("Successfully decrypted token for '%s'", credential_name)
-                return username, token, None
-            except (CredentialVaultUnavailableError, CredentialVaultNotConfiguredError):
-                raise
-            except Exception as de:
-                logger.error(
-                    "Failed to decrypt credential '%s': %s",
-                    credential_name,
-                    de,
-                    exc_info=True,
-                )
-                return None, None, None
-
-        logger.warning(
-            "Token credential '%s' not found in %s credentials",
-            credential_name,
-            len(creds),
-        )
-        return None, None, None
 
     def build_auth_url(self, url: str, username: str | None, token: str | None) -> str:
         """Return a URL with HTTP(S) basic auth credentials injected.

@@ -20,7 +20,7 @@ def _credential(cred_id: int = 1, *, name: str, cred_type: str, status: str = "a
 
 class ResolveSshCredentialTests(unittest.TestCase):
     def setUp(self) -> None:
-        patcher = patch("workflow_steps.common.credential_resolver.CredentialsService")
+        patcher = patch("services.credentials.manager.CredentialsService")
         self.mock_cls = patcher.start()
         self.addCleanup(patcher.stop)
         self.mock_service = self.mock_cls.return_value
@@ -80,7 +80,7 @@ class ResolveSshCredentialTests(unittest.TestCase):
 
 class ResolveGenericCredentialTests(unittest.TestCase):
     def setUp(self) -> None:
-        patcher = patch("workflow_steps.common.credential_resolver.CredentialsService")
+        patcher = patch("services.credentials.manager.CredentialsService")
         self.mock_cls = patcher.start()
         self.addCleanup(patcher.stop)
         self.mock_service = self.mock_cls.return_value
@@ -124,7 +124,7 @@ class ResolveGenericCredentialTests(unittest.TestCase):
 
 class ResolveSharedSecretCredentialTests(unittest.TestCase):
     def setUp(self) -> None:
-        patcher = patch("workflow_steps.common.credential_resolver.CredentialsService")
+        patcher = patch("services.credentials.manager.CredentialsService")
         self.mock_cls = patcher.start()
         self.addCleanup(patcher.stop)
         self.mock_service = self.mock_cls.return_value

@@ -15,7 +15,7 @@ from services.credentials.source_credentials import (
 
 class SourceCredentialsHelperTests(unittest.TestCase):
     def setUp(self) -> None:
-        patcher = patch("services.credentials.source_credentials.CredentialsService")
+        patcher = patch("services.credentials.manager.CredentialsService")
         self.mock_cls = patcher.start()
         self.addCleanup(patcher.stop)
         self.mock_service = self.mock_cls.return_value
