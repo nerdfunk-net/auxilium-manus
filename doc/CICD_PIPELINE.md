@@ -48,8 +48,9 @@ APPROVAL
       git_repositories.webhook_auto_deploy = true  →  staged → deploying + dispatch
 
 DEPLOY RUN (separate workflow, change_request_id=42, trigger_type=webhook|manual)
-  git-clone (use_change_request_branch=true → checks out manus/cr-42)
-    → get-from-config → configure-replace-config → compare-pyats-snapshot
+  from-change-request  (rebuilds the device list from the CR snapshot,
+                        checks out manus/cr-42, loads each reviewed .cfg)
+    → upload-config → configure-replace-config → compare-pyats-snapshot
   run finishes → reconcile → ChangeRequest.status = deployed | failed
 ```
 
@@ -113,21 +114,57 @@ serialises the git sequence, but keep pipelines one-per-repo).
 
 ### 3.3 Build the deploy workflow
 
-An ordinary workflow, composed from existing steps. It reads the CR branch by setting
-**`use_change_request_branch = true`** on its `git-clone` (or `git-pull`) step — when the
-run was triggered by a CR approval, that step targets `manus/cr-{id}` instead of the repo
-default branch (ordinary runs are unaffected). Prefer **`git-clone`**: it does a fresh
-checkout of the CR branch. `git-pull` fetches the CR branch and merges it into whatever
-the working tree is currently on, which is only equivalent when the CR branch
-fast-forwards from the default branch. Typical shape:
+Start it with the **From Change Request** (`from-change-request`) step. A deploy run
+carries no operator-selected devices, so this step is the inventory source: when the run
+was dispatched by a CR approval it
+
+- rebuilds the device list from the identity snapshot the `open-change-request` step
+  stored on the change request (`id`, `name`, `hostname`, `platform`, `network_driver`,
+  `primary_ip4`, `config_path`) — no `get-nautobot-devices` / `get-git-devices` needed;
+- checks out `manus/cr-{id}` into the repo working tree (`checkout_branch`);
+- loads each device's committed config as `running_config` (`load_configs`), so
+  `{device.name}` and the reviewed file are both available downstream.
+
+It **fails** if the run was not started by a change request, and it needs a CR created by
+the current `open-change-request` (older CRs have no device snapshot — re-run the stage
+workflow).
+
+Then apply the reviewed bytes with `configure replace` + `configure confirm` (device-native
+pre/post diff, automatic rollback):
 
 ```
-git-clone (use_change_request_branch=true)
-  → get-from-config → configure-replace-config → compare-pyats-snapshot
+from-change-request
+  → upload-config            (content_source: running_config  ← change from the
+                              "updated_content" default; source_step_node_id is
+                              then not needed. destination_filename + file_system, e.g. flash:)
+  → configure-replace-config (same destination_filename + file_system)
+  → compare-pyats-snapshot   (optional — validate operational state after)
 ```
 
-`configure-replace-config` gives you a device-native pre/post diff and IOS
-`configure confirm` rollback; `compare-pyats-snapshot` validates operational state after.
+`upload-config` and `configure-replace-config` take their own `credential_reference`
+(`fixed`, or `run_param` reading from the CR's captured `run_inputs`).
+
+If the reviewed change is a **partial** delta that should be layered onto the running
+config rather than replacing it wholesale, swap `configure-replace-config` for
+`merge-config`, which issues `copy <source_filename> running-config` over SSH (answering
+the `Destination filename [running-config]? ` prompt automatically) — there is no rollback
+timer, so this is an additive merge:
+
+```
+from-change-request
+  → upload-config   (destination_filename + file_system, e.g. flash:)
+  → merge-config    (source_filename = <file_system><destination_filename>, e.g. flash:partial.cfg)
+```
+
+`merge-config` shares the same `credential_reference` model (`fixed` / `run_param`) and,
+like `configure-replace-config`, expects the file already staged by `upload-config`.
+
+If your devices don't support `configure replace`, replace the last two steps with a
+`render-jinja-template` (re-emitting from the loaded `running_config`) + `deploy-rendered-template`
+— but then you are pushing re-rendered lines, not the exact reviewed file.
+
+Pin this workflow on the stage step's `deploy_workflow_id`, or pick it in the
+**Approve & Deploy** dialog.
 
 ### 3.4 Review and deploy
 
@@ -163,9 +200,10 @@ Correlation: any pushed commit SHA equal to a `staged` CR's `commit_sha` trigger
 - **`change_requests`** (`backend/core/models/change_requests.py`) — links
   `source_workflow_id` / `source_run_id` → `deploy_workflow_id` / `deploy_run_id`,
   `git_repository_id`, `base_branch`, `branch`, `commit_sha`, captured `device_ids` /
-  `run_inputs`, `diff_artifact_id` / `diff_stats`, `status`, approval/rejection audit
-  columns, `expires_at`. Partial unique index on `(git_repository_id, commit_sha)` where
-  `status in ('staged','approved','deploying')`.
+  `run_inputs`, a `devices` snapshot (nullable JSON — slim per-device identity + committed
+  `config_path`, consumed by `from-change-request`), `diff_artifact_id` / `diff_stats`,
+  `status`, approval/rejection audit columns, `expires_at`. Partial unique index on
+  `(git_repository_id, commit_sha)` where `status in ('staged','approved','deploying')`.
 - **`workflow_runs.change_request_id`** (`backend/core/models/runs.py`) — nullable FK; the
   deploy run's link back to its CR (drives `reconcile` and the deploy-branch override).
 - **`git_repositories.webhook_secret_encrypted`** (Fernet, `core.crypto.EncryptionService`)
@@ -189,7 +227,8 @@ Correlation: any pushed commit SHA equal to a `staged` CR's `commit_sha` trigger
 | Helper | `backend/services/change_requests/repo_lock.py` | per-repo Redis advisory lock (fail-soft) |
 | Helper | `backend/core/webhook_signatures.py` | `verify_github_signature`, `verify_gitlab_token` (`hmac` / `secrets.compare_digest`) |
 | Run engine | `backend/services/execution/run_service.py` | `_create_and_dispatch_run(...)` — shared by manual / approve / webhook, reuses `resolve_dispatch_workflow(...).run_no_wait(...)` |
-| Step | `backend/workflow_steps/open_change_request/` | `executor.py` + `config.py`; registered in `step_registry.py` and `registry.yaml` |
+| Step (stage) | `backend/workflow_steps/open_change_request/` | renders → branch → commit → push → diff → `ChangeRequest`; captures the `devices` snapshot |
+| Step (deploy inventory) | `backend/workflow_steps/from_change_request/` | rebuilds `DeviceContext`s from the CR snapshot, checks out `manus/cr-{id}`, loads each `.cfg` as `running_config` |
 | Router | `backend/routers/change_requests.py` | JWT + `change_requests:read\|approve`: list / get / diff / approve / deploy / reject |
 | Router | `backend/routers/webhooks.py` | unauthenticated `POST /webhooks/git/{repo_id}` |
 | RBAC | `backend/services/auth/rbac_seed.py` | `change_requests:read`, `change_requests:approve` |
@@ -234,7 +273,7 @@ Feature dir `frontend/src/components/features/change-requests/`.
 | Types | `types/change-request.ts` |
 | Query keys | `frontend/src/lib/query-keys.ts` → `changeRequests.{list,detail,diff}` |
 | Sidebar | `frontend/src/components/layout/app-sidebar.tsx` — "Change Requests" (`change_requests:read`) |
-| Step ConfigPanel | `frontend/src/components/features/workflow-steps/open-change-request/index.tsx` + `frontend/src/lib/plugin-ui-registry.ts` |
+| Step ConfigPanels | `frontend/src/components/features/workflow-steps/open-change-request/index.tsx`, `.../from-change-request/index.tsx`, and the `use_change_request_branch` toggle in `.../shared/git-source-config-panel.tsx` (git-clone / git-pull) — all registered in `frontend/src/lib/plugin-ui-registry.ts` |
 | Git repo dialog | `frontend/src/components/features/settings/dialogs/git-repository-dialog.tsx` (webhook secret, auto-deploy switch, copyable webhook URL) |
 
 Detail-pane buttons are gated on `hasPermission(user, "change_requests", "approve")` and
@@ -254,7 +293,9 @@ the CR status; a `deploying` CR polls until terminal.
 | CR un-actioned past TTL | Sweep → `expired`. |
 | `open-change-request` inside a fan-out branch | Unsupported — must be placed after Fan In. |
 | Concurrent stage runs, same repo | Serialised by the `cr-stage:{repo_id}` Redis lock; still discouraged. |
-| Deploy run without `use_change_request_branch` | Deploys the repo default branch — a config mistake, not enforced. |
+| Deploy run without `use_change_request_branch` (and no `from-change-request`) | Deploys the repo default branch — a config mistake, not enforced. |
+| CR created before the `devices` snapshot existed | `from-change-request` raises — re-run the stage workflow to get a snapshot. |
+| `from-change-request` in a non-deploy run | Raises `ValueError` — it only works when `run.change_request_id` is set. |
 
 ### 4.5 Security notes
 
@@ -276,7 +317,9 @@ artifact, CR row, failure paths), `test_webhook_signatures.py`, `test_webhook_se
 (auto-deploy vs mark-reviewed, bad/missing signature, fail-closed, replay dedup, GitLab
 `checkout_sha`), `test_git_service_branch_diff.py`, `test_change_request_deploy_branch.py`
 (`use_change_request_branch` override, `maybe_reconcile_deploy_run`),
-`test_run_service_delete.py` (updated for the new FK). Frontend:
+`test_from_change_request_executor.py` (rebuild devices, branch checkout, config load,
+no-CR / empty-snapshot errors), `test_run_service_delete.py` (updated for the new FK).
+Frontend:
 `components/change-requests/components/unified-diff-view.test.ts`.
 
 **Not yet written:** end-to-end integration tests against a real Gitea

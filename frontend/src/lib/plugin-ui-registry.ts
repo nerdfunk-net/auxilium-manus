@@ -5,6 +5,7 @@ import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-
 import { ComparePyatsSnapshotPlugin } from "@/components/features/workflow-steps/compare-pyats-snapshot";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
+import { MergeConfigPlugin } from "@/components/features/workflow-steps/merge-config";
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
 import { GetDeviceConfigsPlugin } from "@/components/features/workflow-steps/get-device-configs";
 import { ReadConfigPlugin } from "@/components/features/workflow-steps/read-config";
@@ -46,6 +47,7 @@ import { BackgroundPlugin } from "@/components/features/workflow-steps/backgroun
 import { FunnelPlugin } from "@/components/features/workflow-steps/funnel";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
 import { OpenChangeRequestPlugin } from "@/components/features/workflow-steps/open-change-request";
+import { FromChangeRequestPlugin } from "@/components/features/workflow-steps/from-change-request";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
 import { EncryptAttributePlugin } from "@/components/features/workflow-steps/encrypt-attribute";
@@ -60,6 +62,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-from-user": GetFromUserPlugin,
   "get-from-config": GetFromConfigPlugin,
   "get-git-devices": GetGitDevicesPlugin,
+  "from-change-request": FromChangeRequestPlugin,
   "get-ise-devices": GetIseDevicesPlugin,
   "get-ise-tacacs-key": GetIseTacacsKeyPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,
@@ -77,9 +80,10 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "route-on-attribute": RouteOnAttributePlugin,
   "route-on-content": RouteOnContentPlugin,
   "list-contains": ListContainsPlugin,
-  "reachable": ReachablePlugin,
+  reachable: ReachablePlugin,
   "login-successful": LoginSuccessfulPlugin,
   "fan-in": FanInPlugin,
+  "merge-config": MergeConfigPlugin,
   "merge-content": MergeContentPlugin,
   "filter-output": FilterOutputPlugin,
   "compare-data": CompareDataPlugin,

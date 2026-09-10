@@ -73,6 +73,12 @@ class ChangeRequest(Base):
     device_ids: Mapped[list] = mapped_column(
         JSON, nullable=False, default=list, server_default="[]"
     )
+    # Slim per-device identity snapshot the from-change-request step rehydrates
+    # into DeviceContexts so the deploy workflow needs no upstream inventory:
+    # [{id, name, hostname, platform, network_driver, primary_ip4, config_path}].
+    # Nullable: added to an existing table, and AutoSchemaMigration's ADD COLUMN
+    # path cannot backfill a NOT NULL JSON column (see §4.1 of doc/CICD_PIPELINE.md).
+    devices: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     run_inputs: Mapped[dict] = mapped_column(
         JSON, nullable=False, default=dict, server_default="{}"
     )

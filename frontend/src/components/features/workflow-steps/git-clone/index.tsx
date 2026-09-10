@@ -9,6 +9,7 @@ export const GitClonePlugin: PluginUIComponent = {
     <GitSourceConfigPanel
       {...props}
       description="Clone or re-clone the selected Git repository before other steps run."
+      showChangeRequestBranchToggle
     />
   ),
   HelpPanel: GitCloneHelpPanel,

@@ -128,9 +128,10 @@ def _all_rendered_templates(device: Any, parsed_output_key: str | None) -> list[
 
 def _collect_rendered_files(
     *, config: dict[str, Any], context: WorkflowContext
-) -> list[tuple[str, Any]]:
-    """Return (relative_path, artifact_ref) pairs for every rendered file across
-    all devices. Raises ValueError if nothing upstream produced content.
+) -> list[tuple[str, str, Any]]:
+    """Return (device_id, relative_path, artifact_ref) triples for every rendered
+    file across all devices. Raises ValueError if nothing upstream produced
+    content.
     """
     content_source = parse_content_source(config)
     source_step_node_id = str(config.get("source_step_node_id") or "").strip() or None
@@ -139,8 +140,8 @@ def _collect_rendered_files(
     strict = parse_strict_templates(config)
     repo_subdir = str(_config_value(config, "repository_subdirectory") or "").strip("/\\")
 
-    pairs: list[tuple[str, Any]] = []
-    for device in context.devices.values():
+    triples: list[tuple[str, str, Any]] = []
+    for device_id, device in context.devices.items():
         if content_source == "rendered_template" and source_step_node_id is None:
             items = _all_rendered_templates(device, parsed_output_key)
         else:
@@ -161,14 +162,36 @@ def _collect_rendered_files(
             )
             if repo_subdir:
                 rel = sanitize_relative_path(f"{repo_subdir}/{rel}")
-            pairs.append((rel, item.artifact_ref))
+            triples.append((device_id, rel, item.artifact_ref))
 
-    if not pairs:
+    if not triples:
         raise ValueError(
             f"{_STEP_ID}: no {content_source!r} content found upstream. "
             "Add a render-jinja-template step before this one."
         )
-    return pairs
+    return triples
+
+
+def _device_snapshot(
+    context: WorkflowContext, device_paths: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Slim per-device identity + committed config path, stored on the change
+    request so the from-change-request step can rebuild the deploy inventory.
+    """
+    snapshot: list[dict[str, Any]] = []
+    for device_id, device in context.devices.items():
+        snapshot.append(
+            {
+                "id": device_id,
+                "name": device.name,
+                "hostname": device.hostname,
+                "platform": device.platform,
+                "network_driver": device.network_driver,
+                "primary_ip4": device.primary_ip4,
+                "config_path": device_paths.get(device_id),
+            }
+        )
+    return snapshot
 
 
 def _stage_to_git(
@@ -300,8 +323,10 @@ async def execute(
         return _failure_outcomes(context=context, node_id=node_id, message=str(exc))
 
     resolved_files: list[tuple[str, str]] = []
-    for rel_path, artifact_ref in rendered:
+    device_paths: dict[str, str] = {}
+    for device_id, rel_path, artifact_ref in rendered:
         resolved_files.append((rel_path, await artifact_service.resolve(artifact_ref)))
+        device_paths.setdefault(device_id, rel_path)
 
     # Templates use the integer WorkflowRun.id ({run.id} → 42) so the branch is
     # short and human-correlatable; artifact storage still keys off the run uuid.
@@ -356,6 +381,7 @@ async def execute(
     diff_stats = {**_diff_stats(diff_text), "truncated": truncated}
 
     device_ids = list(run.device_ids or list(context.devices.keys()))
+    devices_snapshot = _device_snapshot(context, device_paths)
     db = get_db_session()
     try:
         from core.domain_exceptions import ConflictError
@@ -372,6 +398,7 @@ async def execute(
                 commit_sha=staged["commit_sha"],
                 title=title,
                 device_ids=device_ids,
+                devices=devices_snapshot,
                 run_inputs=dict(run.run_inputs or {}),
                 diff_artifact_id=diff_ref.artifact_id,
                 diff_stats=diff_stats,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 ChangeRequestStatus = Literal[
     "staged", "approved", "deploying", "deployed", "failed", "rejected", "expired"
@@ -40,12 +40,24 @@ class ChangeRequestResponse(ChangeRequestSummary):
     base_branch: str | None
     git_repository_id: int | None
     device_ids: list[str] = []
+    # Nullable in the DB for change requests created before the snapshot existed.
+    devices: list[dict[str, Any]] = []
     run_inputs: dict[str, Any] = {}
     diff_artifact_id: str | None = None
     deploy_error: str | None = None
     reject_reason: str | None = None
     approved_by_id: int | None = None
     approved_by_username: str | None = None
+
+    @field_validator("device_ids", "devices", mode="before")
+    @classmethod
+    def _list_null_to_empty(cls, value: Any) -> Any:
+        return [] if value is None else value
+
+    @field_validator("run_inputs", mode="before")
+    @classmethod
+    def _dict_null_to_empty(cls, value: Any) -> Any:
+        return {} if value is None else value
 
 
 class ChangeRequestListResponse(BaseModel):

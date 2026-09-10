@@ -9,6 +9,7 @@ export const GitPullPlugin: PluginUIComponent = {
     <GitSourceConfigPanel
       {...props}
       description="Pull the latest remote changes once for the selected Git repository."
+      showChangeRequestBranchToggle
     />
   ),
   HelpPanel: GitPullHelpPanel,

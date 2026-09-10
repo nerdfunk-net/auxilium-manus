@@ -144,6 +144,45 @@ class NetmikoService:
             op=_op,
         )
 
+    async def merge_config(
+        self,
+        *,
+        host: str,
+        network_driver: str | None,
+        platform: str | None,
+        username: str,
+        password: str,
+        source_filename: str,
+        credential_reference: str,
+        device_type: str | None = None,
+        read_timeout: int | None = None,
+    ) -> CommandResult:
+        """Merge a partial config file already on the device into the running
+        config via ``copy <source_filename> running-config`` (the merge-config
+        step). Answers the ``Destination filename [running-config]? `` prompt and
+        leaves the session at the base prompt -- see
+        ``NetmikoDeviceSession.merge_running_config``.
+        """
+        resolved_device_type = device_type or resolve_netmiko_device_type(
+            network_driver=network_driver,
+            platform=platform,
+        )
+
+        def _op(session: NetmikoDeviceSession) -> CommandResult:
+            return session.merge_running_config(
+                source_filename,
+                read_timeout=read_timeout or DEFAULT_READ_TIMEOUT,
+            )
+
+        return await self._pool.run_on_device(
+            host=host,
+            device_type=resolved_device_type,
+            credential_reference=credential_reference,
+            username=username,
+            password=password,
+            op=_op,
+        )
+
     async def get_running_config(
         self,
         *,

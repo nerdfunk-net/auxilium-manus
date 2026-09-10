@@ -367,7 +367,8 @@ packages from outside `StepRunner` / `STEP_REGISTRY`.
 
 **Full design:** `doc/DURABLE_SSH_SESSION.md`.
 
-SSH steps (`run-command`, `get-device-configs`, `deploy-rendered-template`) share
+SSH steps (`run-command`, `get-device-configs`, `deploy-rendered-template`,
+`merge-config`) share
 live Netmiko sessions across steps within one execution segment (a phase-1 walk,
 a phase-4 post-join resume, or a fan-out child) via `DeviceSessionPool`
 (`services/network/netmiko/session_pool.py`). `StepRunner` owns one pool per
@@ -480,6 +481,28 @@ large/exportable content — that is a different, intentionally separate contrac
 `parsed.*` placeholder can read as a literal value. `run-command`'s `parser` output
 above is the only inline, attribute-path-readable structured data a command
 produces.
+
+### Applying a partial config — `merge-config`
+
+`merge-config` (`artifact_type: command_execution`) is a small SSH step that layers a
+**partial** config file already on the device onto the running config by issuing
+`copy <source_filename> running-config` and answering the one interactive prompt,
+`Destination filename [running-config]? `, with Enter. IOS runs the file in
+non-interactive batch mode, so per-line `[confirm]` prompts (e.g. a changed `username`)
+are auto-bypassed by the copy engine; the prompt handler
+(`NetmikoDeviceSession.merge_running_config`) still runs a small bounded loop
+(`_MERGE_MAX_PROMPT_ANSWERS`, default 5) so an unexpected extra prompt is answered rather
+than hanging, and a device is failed if the transcript carries `%Error` / `Invalid input`
+/ `%Warning`. It reuses the Run Command backend (`NetmikoService` / `DeviceSessionPool`,
+`resolve_config_reference` + `resolve_ssh_credential`, `resolve_connection_device_type`)
+and exposes only `source_filename`, credentials, `network_driver_override`, and
+`read_timeout`. It adds no capability (`produces: []`), so it is **not** in the
+`run-command` `effective_produces` special-case in `services/workflow_context/guards.py`.
+
+Contrast `configure-replace-config`, which replaces the **complete** running config via
+the pyATS shim (`configure replace … force time N` + `configure confirm`) with an
+automatic rollback timer. Use `merge-config` for additive deltas (the CI/CD pipeline's
+partial-config path) and `configure-replace-config` for full-config deployments.
 
 ### Optional modules
 
@@ -934,7 +957,7 @@ the **same external resources**. A step is fan-out-safe when it:
 
 | Step kind | Fan-out safe? | Why |
 |-----------|---------------|-----|
-| `get-device-configs`, `run-command`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
+| `get-device-configs`, `run-command`, `merge-config`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent children overwrite/race. |
 | `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` / `open-change-request` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. `open-change-request` additionally creates a branch — place it after a Fan In node. |
 

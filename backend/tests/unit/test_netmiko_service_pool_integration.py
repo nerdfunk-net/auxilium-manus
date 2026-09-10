@@ -49,6 +49,18 @@ class FakeSession:
             success=True, output="ok", command_outputs={c: "ok" for c in commands}
         )
 
+    def merge_running_config(
+        self, source_filename: str, *, read_timeout: int | None = None
+    ) -> CommandResult:
+        command = f"copy {source_filename} running-config"
+        self.last_merge = (source_filename, read_timeout)
+        return CommandResult(
+            success=True,
+            output="1024 bytes copied",
+            command_outputs={command: "1024 bytes copied"},
+            confirmed_prompts=["destination filename"],
+        )
+
 
 class NetmikoServicePoolReuseTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
@@ -132,6 +144,31 @@ class NetmikoServicePoolReuseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNot(probe_session, pooled_entry.session)
             self.assertFalse(probe_session.connected)
             self.assertEqual(probe_session.disconnect_calls, 1)
+            await pool.close()
+
+    async def test_merge_config_routes_through_pool(self) -> None:
+        with patch("services.network.netmiko.session_pool.NetmikoDeviceSession", FakeSession):
+            pool = DeviceSessionPool(max_workers=2)
+            service = NetmikoService(pool=pool)
+
+            result = await service.merge_config(
+                host="10.0.0.1",
+                network_driver="cisco_ios",
+                platform=None,
+                username="admin",
+                password="secret",
+                source_filename="flash:partial.cfg",
+                credential_reference="lab-ssh",
+                read_timeout=120,
+            )
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.confirmed_prompts, ["destination filename"])
+            pooled_entry = next(iter(pool._sessions.values()))
+            self.assertEqual(
+                pooled_entry.session.last_merge, ("flash:partial.cfg", 120)
+            )
+            self.assertEqual(pooled_entry.session.connect_calls, 1)
             await pool.close()
 
 

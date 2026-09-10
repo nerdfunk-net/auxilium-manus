@@ -34,6 +34,7 @@ from workflow_steps.deploy_rendered_template.executor import execute as deploy_r
 from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribute
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
+from workflow_steps.from_change_request.executor import execute as from_change_request
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_from_config.executor import execute as get_from_config
 from workflow_steps.get_from_list.executor import execute as get_from_list
@@ -52,6 +53,7 @@ from workflow_steps.list_contains.executor import execute as list_contains
 from workflow_steps.log_attributes.executor import execute as log_attributes
 from workflow_steps.log_message.executor import execute as log_message
 from workflow_steps.login_successful.executor import execute as login_successful
+from workflow_steps.merge_config.executor import execute as merge_config
 from workflow_steps.merge_content.executor import execute as merge_content
 from workflow_steps.notify.executor import execute as notify
 from workflow_steps.notify_mattermost.executor import execute as notify_mattermost
@@ -82,6 +84,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-from-user": get_from_user,
     "get-from-config": get_from_config,
     "get-git-devices": get_git_devices,
+    "from-change-request": from_change_request,
     "get-ise-devices": get_ise_devices,
     "get-ise-tacacs-key": get_ise_tacacs_key,
     "add-to-ise": add_to_ise,
@@ -105,6 +108,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "reachable": reachable,
     "login-successful": login_successful,
     "fan-in": fan_in,
+    "merge-config": merge_config,
     "merge-content": merge_content,
     "filter-output": filter_output,
     "compare-data": compare_data,

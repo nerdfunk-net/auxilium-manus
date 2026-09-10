@@ -1383,6 +1383,78 @@ plugins:
           required: false
           default: false
 
+  - id: merge-config
+    name: Merge Config
+    overview: Merge a partial config file into a device's running config over SSH.
+    description: >
+      Merge a partial configuration file already staged on the device (e.g. by an
+      upstream Upload Config step) into the running config by issuing Cisco IOS
+      'copy <source_filename> running-config' over SSH and answering the
+      'Destination filename [running-config]? ' prompt with Enter. The file's
+      commands are layered onto the running config in the device's non-interactive
+      batch mode. This is an additive merge with no rollback timer -- use Configure
+      Replace Config when you need to replace the complete running config with
+      rollback protection. A device fails if the copy reports '%Error', 'Invalid
+      input' or '%Warning', if it has no hostname / IP, on SSH connect / auth
+      failure, or if prompts never clear.
+    artifact_type: command_execution
+    directory: merge_config
+    enabled: true
+    requires: [identity]
+    produces: []
+    consumes: []
+    primary_output: command_output
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: credential_reference
+          description: >
+            Credential vault name to use when credential_source is "fixed" (the default).
+          data_type: credential_ref
+          required: false
+        - name: credential_source
+          description: >
+            "fixed" (default) uses credential_reference. "run_param" uses the credential
+            vault name held in the run parameter named by credential_param -- a workflow
+            static_attribute of type "reference", ref_kind "credential" -- resolved per
+            triggering user (their private credential wins over a global one of the same
+            name).
+          data_type: string
+          required: false
+          default: fixed
+          example: run_param
+        - name: credential_param
+          description: >
+            Name of the run parameter (workflow static_attribute) carrying the credential
+            vault name, used only when credential_source is "run_param".
+          data_type: string
+          required: false
+          example: ssh_credential
+        - name: source_filename
+          description: >
+            Path to the partial config file already on the device, as passed to
+            'copy <source_filename> running-config' (device filesystem prefix included).
+            The file is assumed to have been placed there by an upstream Upload Config
+            step.
+          data_type: string
+          required: true
+          example: "flash:partial.cfg"
+        - name: network_driver_override
+          description: Override the Netmiko device type for all devices in this step.
+          data_type: string
+          required: false
+          example: cisco_ios
+        - name: read_timeout
+          description: >
+            Seconds to wait for each prompt / the device's response before failing with a
+            Netmiko "Pattern not detected" timeout. Raise for large files or slow devices.
+          data_type: integer
+          required: false
+          default: 60
+          example: 120
+
   - id: deploy-rendered-template
     name: Deploy rendered Template
     overview: Push a rendered template's commands to connected devices.
@@ -2982,6 +3054,41 @@ plugins:
           default: 168
         - name: strict_templates
           description: Fail when a namespaced placeholder resolves empty.
+          data_type: boolean
+          required: false
+          default: true
+
+  - id: from-change-request
+    name: From Change Request
+    overview: Start a deploy workflow from an approved change request.
+    description: >
+      Inventory step for a deploy workflow. When the run was dispatched by a
+      change-request approval it rebuilds the device list from the snapshot the
+      Open Change Request step captured, checks out the manus/cr-{id} branch, and
+      loads each device's reviewed config as running_config — so a deploy
+      workflow can be just: From Change Request → Upload Config → Configure
+      Replace Config. Fails if the run was not started by a change request. See
+      doc/CICD_PIPELINE.md.
+    artifact_type: inventory_selector
+    directory: from_change_request
+    enabled: true
+    requires: []
+    produces: [identity, running_config]
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: checkout_branch
+          description: >
+            Also check out the change request's manus/cr-{id} branch into the
+            repository working tree so later git-reading steps see it.
+          data_type: boolean
+          required: false
+          default: true
+        - name: load_configs
+          description: >
+            Load each device's committed config file (from the change request's
+            device snapshot) as running_config.
           data_type: boolean
           required: false
           default: true

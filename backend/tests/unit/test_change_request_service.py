@@ -171,6 +171,14 @@ class ChangeRequestServiceTests(unittest.TestCase):
         with self.assertRaises(ConflictError):
             self._staged_cr(commit_sha="dup")
 
+    def test_get_tolerates_null_json_columns_on_legacy_rows(self) -> None:
+        # Rows created before the `devices` column existed have devices=NULL.
+        cr = self._staged_cr()
+        cr.devices = None
+        self.db.commit()
+        resp = self.service.get(cr.id, USER_ID)
+        self.assertEqual(resp.devices, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,6 +25,20 @@ DEFAULT_READ_TIMEOUT = 60
 # loop that watches for this cue and answers it (see deploy_config()).
 _CONFIRMATION_CUE = "confirm"
 
+# "copy <src> running-config" asks one interactive question,
+# "Destination filename [running-config]? ", which must be answered with Enter
+# (see merge_running_config()). The file itself then loads in IOS
+# non-interactive batch mode, so per-line "[confirm]" prompts are handled by the
+# copy engine -- we still watch for _CONFIRMATION_CUE defensively.
+_MERGE_DESTINATION_CUE = "destination filename"
+_MERGE_PROMPT_CUES = (_MERGE_DESTINATION_CUE, _CONFIRMATION_CUE)
+# Expected real answer count is 1; the bound stops an unexpected prompt loop
+# from hanging one read_timeout per iteration forever.
+_MERGE_MAX_PROMPT_ANSWERS = 5
+# IOS keeps loading (and returns to the prompt) after these lines, so netmiko
+# sees a clean success -- merge_running_config() scans the transcript for them.
+_COPY_ERROR_MARKERS = ("%error", "invalid input", "%warning")
+
 
 @dataclass
 class CommandResult:
@@ -101,6 +115,25 @@ def _strip_running_config_banner(raw: str) -> str:
         else:
             break
     return "\n".join(lines[index:])
+
+
+def _copy_error_in(output: str) -> str | None:
+    """Return the offending line when a ``copy <src> running-config`` load
+    reported a device-side error, else ``None``.
+
+    IOS keeps loading (and still returns to the prompt) after an
+    ``%Error opening ...`` line, a bad ``%Warning ...`` line, or an
+    ``Invalid input detected ...`` line, so netmiko sees a clean success -- the
+    transcript has to be scanned to notice the merge did not actually apply.
+    """
+    lowered = output.lower()
+    for marker in _COPY_ERROR_MARKERS:
+        if marker in lowered:
+            for line in output.splitlines():
+                if marker in line.lower():
+                    return line.strip()
+            return marker
+    return None
 
 
 class NetmikoDeviceSession:
@@ -295,9 +328,11 @@ class NetmikoDeviceSession:
                 confirmed_prompts=confirmed,
             )
 
-    def _confirm_prompt_pattern(self) -> str:
+    def _confirm_prompt_pattern(self, *, extra_cues: tuple[str, ...] = ()) -> str:
         base_prompt = re.escape(getattr(self.connection, "base_prompt", ""))
-        return rf"(?:{base_prompt}.*$|#\s*$|{_CONFIRMATION_CUE})"
+        alternatives = [rf"{base_prompt}.*$", r"#\s*$", _CONFIRMATION_CUE]
+        alternatives.extend(re.escape(cue) for cue in extra_cues)
+        return rf"(?:{'|'.join(alternatives)})"
 
     def _send_command_confirming(self, command: str, *, read_timeout: int) -> tuple[str, bool]:
         """Send one command; if it raises a Cisco-style '[confirm]' prompt,
@@ -315,6 +350,95 @@ class NetmikoDeviceSession:
             read_timeout=read_timeout, read_entire_line=True
         )
         return output, True
+
+    def merge_running_config(
+        self,
+        source_filename: str,
+        *,
+        read_timeout: int = DEFAULT_READ_TIMEOUT,
+    ) -> CommandResult:
+        """Run ``copy <source_filename> running-config`` and answer its one
+        interactive prompt -- ``Destination filename [running-config]? `` -- with
+        Enter, then read through to the privileged-exec base ``#`` prompt.
+
+        IOS runs the file in non-interactive batch mode, so per-line
+        ``[confirm]`` prompts are auto-bypassed by the copy engine; in practice
+        there is exactly one prompt (or none, with ``file prompt quiet``). The
+        answer step is still wrapped in a small bounded loop
+        (``<= _MERGE_MAX_PROMPT_ANSWERS``) so an unexpected extra prompt is
+        nudged with Enter instead of hanging until ``read_timeout``.
+
+        The session is always left at the base prompt on return (or, on the
+        exception path, left for the pool to reconnect lazily) so a later step
+        can safely reuse it -- see doc/DURABLE_SSH_SESSION.md.
+        """
+        self.connect()
+        command = f"copy {source_filename} running-config"
+        pattern = self._confirm_prompt_pattern(extra_cues=(_MERGE_DESTINATION_CUE,))
+        cue_re = re.compile("|".join(re.escape(cue) for cue in _MERGE_PROMPT_CUES), re.I)
+        answered: list[str] = []
+
+        try:
+            # Stops at the "Destination filename" prompt, or -- with
+            # "file prompt quiet" -- straight back at the base prompt.
+            output = self.connection.send_command(
+                command, expect_string=pattern, read_timeout=read_timeout
+            )
+            chunk = output
+
+            for _ in range(_MERGE_MAX_PROMPT_ANSWERS):
+                match = cue_re.search(chunk)
+                if match is None:
+                    break  # last read ended on the base-prompt alternative
+                answered.append(match.group(0).lower())
+                self.connection.write_channel(self.connection.RETURN)
+                # read_until_pattern (NOT read_until_prompt): returns at the next
+                # cue OR the base prompt, whichever comes first.
+                chunk = self.connection.read_until_pattern(
+                    pattern=pattern, read_timeout=read_timeout
+                )
+                output += chunk
+            else:
+                # Loop exhausted with a prompt still pending. Drain to the base
+                # prompt so the pooled session stays usable, then fail.
+                self.connection.write_channel(self.connection.RETURN)
+                output += self.connection.read_until_prompt(
+                    read_timeout=read_timeout, read_entire_line=True
+                )
+                return CommandResult(
+                    success=False,
+                    output=output,
+                    command_outputs={command: output},
+                    error=(
+                        f"{command!r} still prompting after "
+                        f"{_MERGE_MAX_PROMPT_ANSWERS} answered prompt(s); aborted"
+                    ),
+                    confirmed_prompts=answered,
+                )
+
+            error = _copy_error_in(output)
+            if error is not None:
+                return CommandResult(
+                    success=False,
+                    output=output,
+                    command_outputs={command: output},
+                    error=error,
+                    confirmed_prompts=answered,
+                )
+            return CommandResult(
+                success=True,
+                output=output,
+                command_outputs={command: output},
+                confirmed_prompts=answered,
+            )
+        except Exception as exc:
+            return CommandResult(
+                success=False,
+                output="",
+                command_outputs={},
+                error=str(exc),
+                confirmed_prompts=answered,
+            )
 
     def _send_config_set_confirming(
         self, commands: list[str], *, read_timeout: int
