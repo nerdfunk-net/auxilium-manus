@@ -85,6 +85,47 @@ def _diff_stats(diff_text: str) -> dict[str, int | bool]:
     return {"additions": additions, "deletions": deletions, "files": files}
 
 
+def _all_rendered_templates(device: Any, parsed_output_key: str | None) -> list[Any]:
+    """Every rendered-template artifact on a device, regardless of which
+    render-jinja-template step produced it. Used when ``source_step_node_id`` is
+    not set — committing all rendered configs to the review branch is a safe
+    default (unlike deploy-rendered-template, which must target one step).
+    """
+    from models.workflow_context import ArtifactRef
+    from workflow_steps.common.content_resolver import ExportableContent
+
+    entries = (
+        [(parsed_output_key, device.parsed.get(parsed_output_key))]
+        if parsed_output_key
+        else list(device.parsed.items())
+    )
+    items: list[Any] = []
+    for key, raw in entries:
+        if not isinstance(raw, dict):
+            continue
+        artifact_raw = raw.get("artifact_ref")
+        if not (isinstance(artifact_raw, dict) and artifact_raw.get("artifact_id")):
+            continue
+        if raw.get("kind") not in (None, "rendered_template"):
+            continue
+        if not raw.get("step_node_id"):
+            continue
+        ref = ArtifactRef.model_validate(artifact_raw)
+        items.append(
+            ExportableContent(
+                kind="rendered_template",
+                media_type=ref.media_type,
+                artifact_ref=ref,
+                extra={
+                    "content_source": "rendered_template",
+                    "output_key": str(raw.get("output_key") or key),
+                    "source_step_node_id": str(raw.get("step_node_id") or ""),
+                },
+            )
+        )
+    return items
+
+
 def _collect_rendered_files(
     *, config: dict[str, Any], context: WorkflowContext
 ) -> list[tuple[str, Any]]:
@@ -100,12 +141,15 @@ def _collect_rendered_files(
 
     pairs: list[tuple[str, Any]] = []
     for device in context.devices.values():
-        items = list_exportable_content(
-            device,
-            content_source=content_source,
-            source_step_node_id=source_step_node_id,
-            parsed_output_key=parsed_output_key,
-        )
+        if content_source == "rendered_template" and source_step_node_id is None:
+            items = _all_rendered_templates(device, parsed_output_key)
+        else:
+            items = list_exportable_content(
+                device,
+                content_source=content_source,
+                source_step_node_id=source_step_node_id,
+                parsed_output_key=parsed_output_key,
+            )
         for index, item in enumerate(items):
             extra = dict(item.extra)
             extra["index"] = index + 1

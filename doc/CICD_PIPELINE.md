@@ -99,7 +99,7 @@ get-nautobot-devices → fan-in → render-jinja-template → open-change-reques
 | field | purpose |
 |---|---|
 | `git_repository_id` | where the CR branch is pushed |
-| `content_source` / `source_step_node_id` | the upstream `render-jinja-template` node whose output is committed |
+| `source_step_node_id` | which upstream `render-jinja-template` node's output to commit. Optional — the ConfigPanel auto-fills it when the workflow has exactly one render step; left blank, every rendered template on the devices is committed |
 | `filename_template` | e.g. `{device.name}.cfg` |
 | `branch_template` | default `manus/cr-{run.id}` |
 | `commit_message_template`, `title_template` | free text with `{run.id}`, `{workflow.name}` |

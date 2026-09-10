@@ -2926,7 +2926,11 @@ plugins:
           default: rendered_template
           example: rendered_template
         - name: source_step_node_id
-          description: Canvas node id of the upstream render-jinja-template step.
+          description: >
+            Canvas node id of the upstream render-jinja-template step to commit.
+            Optional — when unset, every rendered template on the devices is
+            committed. The UI auto-fills this when the workflow has exactly one
+            render step.
           data_type: string
           required: false
         - name: parsed_output_key

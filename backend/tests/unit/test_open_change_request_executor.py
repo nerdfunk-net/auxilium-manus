@@ -95,6 +95,27 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         return WorkflowContext(run_id="run-uuid", workflow_id="7", devices={"d1": device})
 
+    async def _context_with_rendered_template(
+        self, *, node_id: str = "render-1"
+    ) -> WorkflowContext:
+        ref = await self.artifacts.store(
+            content="hostname d1\n", kind="rendered_template", device_id="d1", run_id="run-uuid"
+        )
+        device = DeviceContext(
+            id="d1",
+            name="d1",
+            hostname="d1.local",
+            parsed={
+                "device_config": {
+                    "artifact_ref": ref.model_dump(mode="json"),
+                    "kind": "rendered_template",
+                    "step_node_id": node_id,
+                    "output_key": "device_config",
+                }
+            },
+        )
+        return WorkflowContext(run_id="run-uuid", workflow_id="7", devices={"d1": device})
+
     def _run(self) -> SimpleNamespace:
         return SimpleNamespace(id=42, device_ids=["d1"], run_inputs={"vlan": 10})
 
@@ -146,6 +167,22 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
         joined = "\n".join(logs.output)
         self.assertIn("open-change-request started", joined)
         self.assertIn("created change_request_id=", joined)
+
+    async def test_rendered_template_without_source_step_node_id(self) -> None:
+        # source_step_node_id is optional for open-change-request: with it unset,
+        # every rendered template on the devices is committed.
+        context = await self._context_with_rendered_template()
+        outcomes = await execute(
+            config={"git_repository_id": 3, "content_source": "rendered_template"},
+            context=context,
+            run=self._run(),
+            artifact_service=self.artifacts,
+            node_id=NODE_ID,
+            device_sessions=None,
+        )
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        self.assertTrue((self.repo_root / "d1.cfg").exists())
+        self.assertEqual(self.db.execute(select(ChangeRequest)).scalar_one().status, "staged")
 
     async def test_missing_git_repository_id_fails(self) -> None:
         context = await self._context_with_running_config()
