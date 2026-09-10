@@ -22,6 +22,10 @@ export interface GitRepositoryUpsertPayload {
   git_author_email?: string | null;
   description?: string | null;
   is_active?: boolean;
+  // Inbound git-webhook config (CI/CD pipeline). An empty string clears the
+  // stored secret; omitting the field keeps it.
+  webhook_secret?: string;
+  webhook_auto_deploy?: boolean;
 }
 
 export interface GitConnectionTestPayload {

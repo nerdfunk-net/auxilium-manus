@@ -4,6 +4,7 @@ import {
   Boxes,
   CalendarClock,
   FileCode,
+  GitPullRequestArrow,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -74,6 +75,13 @@ const navigationItems: NavigationItem[] = [
     href: "/schedules",
     isActive: (pathname) => pathname === "/schedules",
     canShow: (user) => hasPermission(user, "workflows", "execute"),
+  },
+  {
+    label: "Change Requests",
+    icon: GitPullRequestArrow,
+    href: "/change-requests",
+    isActive: (pathname) => pathname.startsWith("/change-requests"),
+    canShow: (user) => hasPermission(user, "change_requests", "read"),
   },
   {
     label: "Settings",

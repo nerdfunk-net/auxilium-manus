@@ -61,6 +61,15 @@ export const queryKeys = {
     all: ["general"] as const,
     settings: () => [...queryKeys.general.all, "settings"] as const,
   },
+  changeRequests: {
+    all: ["change-requests"] as const,
+    list: (statusKey?: string) =>
+      statusKey
+        ? ([...queryKeys.changeRequests.all, "list", statusKey] as const)
+        : ([...queryKeys.changeRequests.all, "list"] as const),
+    detail: (id: number) => [...queryKeys.changeRequests.all, "detail", id] as const,
+    diff: (id: number) => [...queryKeys.changeRequests.all, "diff", id] as const,
+  },
   workflowRuns: {
     all: ["workflow-runs"] as const,
     list: (workflowId: number, filtersKey?: string) =>

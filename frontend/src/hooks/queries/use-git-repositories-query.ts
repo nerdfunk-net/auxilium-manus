@@ -25,6 +25,8 @@ export interface GitRepositoryRecord {
   updated_at: string;
   last_sync: string | null;
   sync_status: string | null;
+  has_webhook_secret: boolean;
+  webhook_auto_deploy: boolean;
 }
 
 interface GitRepositoryListResponse {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -31,6 +31,7 @@ import type {
 import {
   useGitRepositoriesMutations,
   type GitConnectionTestPayload,
+  type GitRepositoryUpsertPayload,
 } from "@/hooks/queries/use-git-repositories-mutations";
 
 import { useCredentialsQuery } from "../credentials/hooks/use-credentials-query";
@@ -53,6 +54,8 @@ const repositorySchema = z.object({
   credentialName: z.string().optional(),
   verifySsl: z.boolean(),
   description: z.string().max(1000).optional(),
+  webhookSecret: z.string().optional(),
+  webhookAutoDeploy: z.boolean(),
 });
 
 type RepositoryFormValues = z.infer<typeof repositorySchema>;
@@ -66,6 +69,8 @@ const EMPTY_DEFAULTS: RepositoryFormValues = {
   credentialName: "",
   verifySsl: true,
   description: "",
+  webhookSecret: "",
+  webhookAutoDeploy: false,
 };
 
 interface GitRepositoryDialogProps {
@@ -113,6 +118,8 @@ export function GitRepositoryDialog({
       credentialName: repository?.credential_name ?? "",
       verifySsl: repository?.verify_ssl ?? true,
       description: repository?.description ?? "",
+      webhookSecret: "",
+      webhookAutoDeploy: repository?.webhook_auto_deploy ?? false,
     });
   }, [open, repository, reset]);
 
@@ -125,7 +132,8 @@ export function GitRepositoryDialog({
 
   const onSubmit = useCallback(
     (values: RepositoryFormValues) => {
-      const payload = {
+      const webhookSecret = values.webhookSecret?.trim() ?? "";
+      const payload: GitRepositoryUpsertPayload = {
         name: values.name.trim(),
         category: values.category,
         url: values.url.trim(),
@@ -134,6 +142,10 @@ export function GitRepositoryDialog({
         credential_name: values.credentialName || null,
         verify_ssl: values.verifySsl,
         description: values.description?.trim() || null,
+        webhook_auto_deploy: values.webhookAutoDeploy,
+        // On edit, an empty field means "keep the stored secret" — only send it
+        // when the user typed something. On create, send it (or empty).
+        ...(webhookSecret || !isEdit ? { webhook_secret: webhookSecret } : {}),
       };
 
       if (isEdit && repository) {
@@ -161,6 +173,19 @@ export function GitRepositoryDialog({
   }, [getValues, testConnection]);
 
   const isSaving = createRepository.isPending || updateRepository.isPending;
+
+  const [copiedWebhookUrl, setCopiedWebhookUrl] = useState(false);
+  const webhookUrl =
+    isEdit && repository && typeof window !== "undefined"
+      ? `${window.location.origin}/api/proxy/webhooks/git/${repository.id}`
+      : null;
+  const copyWebhookUrl = useCallback(() => {
+    if (!webhookUrl) return;
+    void navigator.clipboard?.writeText(webhookUrl).then(() => {
+      setCopiedWebhookUrl(true);
+      setTimeout(() => setCopiedWebhookUrl(false), 1500);
+    });
+  }, [webhookUrl]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -355,6 +380,76 @@ export function GitRepositoryDialog({
               >
                 {testConnection.isPending ? "Testing…" : "Test connection"}
               </Button>
+            </div>
+
+            <div className="space-y-3 rounded-lg border px-4 py-3">
+              <div>
+                <Label className="mb-0">Inbound webhook (CI/CD pipeline)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Lets GitHub/GitLab advance a staged change request. See
+                  doc/CICD_PIPELINE.md.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="git-repo-webhook-secret">
+                  Webhook secret
+                  {isEdit && repository?.has_webhook_secret ? " (set — leave blank to keep)" : ""}
+                </Label>
+                <Input
+                  id="git-repo-webhook-secret"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder={
+                    isEdit && repository?.has_webhook_secret ? "••••••••" : "GitHub HMAC secret / GitLab token"
+                  }
+                  {...register("webhookSecret")}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="git-repo-webhook-auto-deploy" className="mb-0">
+                    Auto-deploy on webhook
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    On: a verified webhook queues the deploy run immediately. Off: it
+                    only marks the change request reviewed.
+                  </p>
+                </div>
+                <Controller
+                  control={control}
+                  name="webhookAutoDeploy"
+                  render={({ field }) => (
+                    <Switch
+                      id="git-repo-webhook-auto-deploy"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+
+              {webhookUrl ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="git-repo-webhook-url">Webhook URL</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="git-repo-webhook-url"
+                      readOnly
+                      value={webhookUrl}
+                      className="font-mono text-xs"
+                    />
+                    <Button type="button" size="sm" variant="outline" onClick={copyWebhookUrl}>
+                      {copiedWebhookUrl ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Save the repository to get its webhook URL.
+                </p>
+              )}
             </div>
           </div>
 

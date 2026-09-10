@@ -9,10 +9,11 @@ This complements `doc/WORKFLOW-STEPS.md` (the `open-change-request` step contrac
 `doc/SCHEDULES.md` (the "external event → fresh WorkflowRun" dispatch pattern this reuses).
 Read those for the parts this doc does not repeat.
 
-**Status:** Backend implemented (Phases 1–2): data model, change-request service +
-routes, the `open-change-request` step, and the inbound git webhook. Frontend
-(Phase 3), the deploy-branch override + auto-reconcile sweep (Phase 4) are pending.
-See `~/.claude/plans/that-sounds-intriguing-i-tidy-lake.md` for the full phasing.
+**Status:** Implemented (Phases 1–3): data model, change-request service + routes,
+the `open-change-request` step, the inbound git webhook, and the full frontend
+(Change Requests view, step ConfigPanel, git-repo webhook settings). Pending:
+the deploy-branch override on `git-pull`/`git-clone` and the auto-reconcile /
+expire sweep (Phase 4). See `~/.claude/plans/that-sounds-intriguing-i-tidy-lake.md`.
 
 ---
 
