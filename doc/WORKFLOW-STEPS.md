@@ -499,10 +499,18 @@ and exposes only `source_filename`, credentials, `network_driver_override`, and
 `read_timeout`. It adds no capability (`produces: []`), so it is **not** in the
 `run-command` `effective_produces` special-case in `services/workflow_context/guards.py`.
 
-Contrast `configure-replace-config`, which replaces the **complete** running config via
-the pyATS shim (`configure replace … force time N` + `configure confirm`) with an
-automatic rollback timer. Use `merge-config` for additive deltas (the CI/CD pipeline's
-partial-config path) and `configure-replace-config` for full-config deployments.
+`merge-config` and `configure-replace-config` are the two config-deploy steps; choose by
+what the staged file contains:
+
+- **`merge-config`** — a **partial** file (a rendered template covering only a few
+  sections, an ACL snippet, some `interface` blocks). Adds those lines, leaves everything
+  else untouched, no rollback timer.
+- **`configure-replace-config`** — a **complete** device configuration (a full, edited
+  `show running-config`). `configure replace … force time N` + `configure confirm` (via
+  the pyATS shim) makes the running config match the file exactly — it *removes* lines the
+  file omits — with a device-native rollback timer and pre/post diff verification. **A
+  partial file fails this step**: it either strips out everything the file doesn't mention
+  or fails `configure replace`'s own validation.
 
 ### Optional modules
 

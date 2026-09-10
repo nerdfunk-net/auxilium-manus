@@ -129,8 +129,23 @@ It **fails** if the run was not started by a change request, and it needs a CR c
 the current `open-change-request` (older CRs have no device snapshot — re-run the stage
 workflow).
 
-Then apply the reviewed bytes with `configure replace` + `configure confirm` (device-native
-pre/post diff, automatic rollback):
+#### Choosing the deploy step
+
+There are **two** steps that push a staged file onto the device, and the right one depends
+entirely on what the reviewed file contains:
+
+| The reviewed file is… | Use | Why |
+|---|---|---|
+| a **complete** device configuration (a full `show running-config`, edited) | **`configure-replace-config`** (`workflow_steps/configure_replace_config/`) | `configure replace` diffs the file against the running config and applies **and removes** lines so the device ends up matching the file exactly, with a device-native rollback timer and pre/post diff verification. |
+| a **partial** config — only the lines that changed (a rendered Jinja template of a few sections, an ACL snippet, a handful of `interface` blocks) | **`merge-config`** (`workflow_steps/merge_config/`) | `copy <file> running-config` **layers** the file's lines onto the running config over SSH and touches nothing else. No rollback timer — it is an additive merge. |
+
+> **Do not point `configure-replace-config` at a partial file.** It expects a whole-device
+> config; given a fragment it will try to strip out everything the fragment doesn't mention
+> (or the pre/post `configure replace` validation fails outright), and the step fails. If
+> your template renders only some sections, use `merge-config`.
+
+**Complete config → `configure-replace-config`** (device-native pre/post diff, automatic
+rollback):
 
 ```
 from-change-request
@@ -141,14 +156,9 @@ from-change-request
   → compare-pyats-snapshot   (optional — validate operational state after)
 ```
 
-`upload-config` and `configure-replace-config` take their own `credential_reference`
-(`fixed`, or `run_param` reading from the CR's captured `run_inputs`).
-
-If the reviewed change is a **partial** delta that should be layered onto the running
-config rather than replacing it wholesale, swap `configure-replace-config` for
-`merge-config`, which issues `copy <source_filename> running-config` over SSH (answering
-the `Destination filename [running-config]? ` prompt automatically) — there is no rollback
-timer, so this is an additive merge:
+**Partial config / rendered fragment → `merge-config`** (issues
+`copy <source_filename> running-config` over SSH, answering the
+`Destination filename [running-config]? ` prompt automatically — additive, no rollback):
 
 ```
 from-change-request
@@ -156,12 +166,14 @@ from-change-request
   → merge-config    (source_filename = <file_system><destination_filename>, e.g. flash:partial.cfg)
 ```
 
-`merge-config` shares the same `credential_reference` model (`fixed` / `run_param`) and,
-like `configure-replace-config`, expects the file already staged by `upload-config`.
+Both `upload-config`, `configure-replace-config`, and `merge-config` take their own
+`credential_reference` (`fixed`, or `run_param` reading from the CR's captured
+`run_inputs`), and both deploy steps expect the file already staged by `upload-config`.
 
-If your devices don't support `configure replace`, replace the last two steps with a
-`render-jinja-template` (re-emitting from the loaded `running_config`) + `deploy-rendered-template`
-— but then you are pushing re-rendered lines, not the exact reviewed file.
+If your devices don't support `configure replace` and you still need a full-config push,
+replace the last two steps with a `render-jinja-template` (re-emitting from the loaded
+`running_config`) + `deploy-rendered-template` — but then you are pushing re-rendered
+lines, not the exact reviewed file.
 
 Pin this workflow on the stage step's `deploy_workflow_id`, or pick it in the
 **Approve & Deploy** dialog.

@@ -20,30 +20,40 @@ export function MergeConfigHelpPanel() {
           <HelpCode>copy &lt;source_filename&gt; running-config</HelpCode>,
           answering the{" "}
           <HelpCode>Destination filename [running-config]?</HelpCode> prompt
-          with Enter. The file&apos;s commands are layered onto the running
-          config in the device&apos;s non-interactive batch mode — this is an
-          additive merge, not a replace, and there is no rollback timer.
+          with Enter. The file&apos;s lines are <strong>layered onto</strong>{" "}
+          the running config in the device&apos;s non-interactive batch mode —
+          this is an additive merge, not a replace, and there is no rollback
+          timer. Lines already on the device that the file doesn&apos;t mention
+          are left untouched.
         </p>
         <p>
-          Requires devices from an upstream inventory step, a valid SSH
-          credential from Settings → Credentials, and the partial config file
-          already present on the device (stage it with an upstream Upload Config
-          step).
+          Use this step when the staged file is a <strong>partial</strong>{" "}
+          config — a rendered Jinja template covering only a few sections, an
+          ACL snippet, a handful of <HelpCode>interface</HelpCode> blocks. It
+          requires devices from an upstream inventory step, a valid SSH
+          credential from Settings → Credentials, and the file already present
+          on the device (stage it with an upstream Upload Config step).
         </p>
       </HelpSection>
 
       <HelpSection title="Merge Config vs Configure Replace Config">
         <p>
-          <span className="font-medium">Merge Config</span> layers a partial
-          file on top of the running config over SSH, with no rollback. Use it
-          for incremental changes produced by the CI/CD pipeline.
+          These are the two config-deploy steps; pick by what the file contains.
         </p>
         <p>
-          <span className="font-medium">Configure Replace Config</span> replaces
-          the <span className="font-medium">complete</span> running config via{" "}
+          <span className="font-medium">Merge Config</span> (this step) — the
+          file holds only the lines that changed. It runs{" "}
+          <HelpCode>copy … running-config</HelpCode> over SSH, adds those lines,
+          and changes nothing else. No rollback timer.
+        </p>
+        <p>
+          <span className="font-medium">Configure Replace Config</span> — the
+          file is a <span className="font-medium">complete</span> device config
+          (a full, edited <HelpCode>show running-config</HelpCode>). It runs{" "}
           <HelpCode>configure replace … force time N</HelpCode> +{" "}
-          <HelpCode>configure confirm</HelpCode> (pyATS shim), auto-reverting if
-          the change is not confirmed. Use it for full-config deployments.
+          <HelpCode>configure confirm</HelpCode> so the running config ends up
+          matching the file exactly, with a device-native rollback timer.
+          Feeding it a partial file fails the step.
         </p>
       </HelpSection>
 

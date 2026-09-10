@@ -582,27 +582,15 @@ plugins:
 
   - id: configure-replace-config
     name: Configure Replace Config
-    overview: Apply a config file via 'configure replace' and confirm the change.
+    overview: Apply a COMPLETE config file via 'configure replace' and confirm the change.
     description: >
-      Replace the running configuration with a file already on the device
-      (e.g. from an upstream Upload Config step) using Cisco's 'configure
-      replace ... force time N', then reconnect and send 'configure confirm'
-      to cancel the device's automatic rollback timer. Reconnecting to send
-      'configure confirm' doubles as the connectivity check -- if the
-      replace broke reachability, that call fails outright and the device
-      auto-reverts on its own timer. If the device reports no pending
-      Rollback Confirmed Change (e.g. the timer already expired, or another
-      session already confirmed it), the step also fails so the outcome
-      isn't silently assumed. Two optional config-text diffs
-      ('show archive config differences') bracket the replace: a pre-check
-      can skip the replace entirely when the target already matches the
-      running config, and a post-check fails the device if the running
-      config still differs from the target after 'configure confirm'
-      succeeded -- both diffs are stored as artifacts. Requires an upstream
-      Add Testbed step, and requires config archiving enabled on the device
-      (e.g. 'archive' / 'path flash:archive') -- otherwise the device
-      rejects the command with "Turn config archive on before using
-      Rollback Confirmed Change".
+      Replace the running config with a file already on the device using Cisco's
+      'configure replace ... force time N' + 'configure confirm', with an
+      automatic on-device rollback timer and optional pre/post config-text diffs.
+      The file MUST be a complete device configuration -- a partial file fails the
+      step; use Merge Config to layer a few lines instead. Requires an upstream
+      Add Testbed step and config archiving enabled on the device. See the Help
+      tab for the full failure model.
     artifact_type: command_execution
     palette_category: pyats
     directory: configure_replace_config
@@ -1391,10 +1379,13 @@ plugins:
       upstream Upload Config step) into the running config by issuing Cisco IOS
       'copy <source_filename> running-config' over SSH and answering the
       'Destination filename [running-config]? ' prompt with Enter. The file's
-      commands are layered onto the running config in the device's non-interactive
-      batch mode. This is an additive merge with no rollback timer -- use Configure
-      Replace Config when you need to replace the complete running config with
-      rollback protection. A device fails if the copy reports '%Error', 'Invalid
+      lines are layered onto the running config in the device's non-interactive
+      batch mode; lines already on the device that the file omits are left
+      untouched. Use this for a partial file -- a rendered template covering only
+      a few sections, an ACL snippet, a handful of interfaces. This is an additive
+      merge with no rollback timer -- use Configure Replace Config when the file
+      is a complete device configuration that should replace the running config
+      wholesale. A device fails if the copy reports '%Error', 'Invalid
       input' or '%Warning', if it has no hostname / IP, on SSH connect / auth
       failure, or if prompts never clear.
     artifact_type: command_execution
