@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
-from sqlalchemy.sql import func
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+)
+from sqlalchemy.sql import func, text
 
 from core.models.base import Base
 
@@ -24,6 +33,15 @@ class GitRepository(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     last_sync = Column(DateTime(timezone=True))
     sync_status = Column(String(255))
+    # Inbound git-webhook config (CI/CD pipeline — see doc/CICD_PIPELINE.md).
+    # Fernet ciphertext of the GitHub HMAC secret / GitLab token; never returned
+    # by the API. webhook_auto_deploy: when true a verified webhook dispatches
+    # the deploy run immediately, otherwise it only marks the change request
+    # reviewed and a human clicks "Deploy".
+    webhook_secret_encrypted = Column(LargeBinary)
+    webhook_auto_deploy = Column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

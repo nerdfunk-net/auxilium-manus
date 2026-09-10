@@ -47,6 +47,7 @@ from routers.sources.pyats import pyats_source_crud_router, pyats_source_ops_rou
 from routers.system import router as system_router
 from routers.templates import router as templates_router
 from routers.users import router as users_router
+from routers.webhooks import router as webhooks_router
 from routers.workflow_background_tier import router as workflow_background_tier_router
 from routers.workflow_crypto_attribute import router as workflow_crypto_attribute_router
 from routers.workflow_runs import router as workflow_runs_router
@@ -162,6 +163,7 @@ app.include_router(workflows_router, prefix=settings.api_prefix)
 app.include_router(workflow_runs_router, prefix=settings.api_prefix)
 app.include_router(workflow_schedules_router, prefix=settings.api_prefix)
 app.include_router(change_requests_router, prefix=settings.api_prefix)
+app.include_router(webhooks_router, prefix=settings.api_prefix)
 app.include_router(workflow_background_tier_router, prefix=settings.api_prefix)
 app.include_router(dashboard_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)

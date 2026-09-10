@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
+from core.config import settings
+from core.crypto import EncryptionService
 from core.models import GitRepository
 from repositories import GitRepositoryRepository
 
@@ -30,12 +33,17 @@ class GitRepositoryService:
         self._db = db
         self._repo = GitRepositoryRepository(db)
 
+    @cached_property
+    def _encryption(self) -> EncryptionService:
+        return EncryptionService(settings.credential_encryption_key or settings.secret_key)
+
     def create_repository(self, repo_data: dict[str, Any]) -> int:
         """Create a new git repository record. Returns new ID."""
         try:
             if self._repo.name_exists(repo_data["name"], db=self._db):
                 raise ValueError(f"Repository with name '{repo_data['name']}' already exists")
 
+            webhook_secret = repo_data.get("webhook_secret")
             new_repo = self._repo.create(
                 db=self._db,
                 name=repo_data["name"],
@@ -50,6 +58,10 @@ class GitRepositoryService:
                 git_author_email=repo_data.get("git_author_email"),
                 description=repo_data.get("description"),
                 is_active=repo_data.get("is_active", True),
+                webhook_secret_encrypted=(
+                    self._encryption.encrypt(webhook_secret) if webhook_secret else None
+                ),
+                webhook_auto_deploy=bool(repo_data.get("webhook_auto_deploy", False)),
             )
 
             logger.info("Created git repository: %s (ID: %s)", repo_data["name"], new_repo.id)
@@ -101,8 +113,16 @@ class GitRepositoryService:
                 "git_author_email",
                 "description",
                 "is_active",
+                "webhook_auto_deploy",
             ]
             update_kwargs = {k: v for k, v in repo_data.items() if k in valid_fields}
+            # A non-empty webhook_secret is (re)encrypted; an explicit empty
+            # string clears it; omitting the key leaves the stored secret.
+            if "webhook_secret" in repo_data:
+                secret = repo_data.get("webhook_secret")
+                update_kwargs["webhook_secret_encrypted"] = (
+                    self._encryption.encrypt(secret) if secret else None
+                )
             if not update_kwargs:
                 return False
 
@@ -178,8 +198,22 @@ class GitRepositoryService:
             logger.exception("Health check failed")
             return {"status": "error", "error": "unavailable", "database": "PostgreSQL"}
 
+    def get_webhook_secret(self, repo_id: int) -> str | None:
+        """Decrypt and return a repository's webhook secret. Only the webhook
+        router should call this — ``_to_dict`` / ``load_git_repository`` never
+        expose it.
+        """
+        repo = self._repo.get_by_id(repo_id, db=self._db)
+        if repo is None or not repo.webhook_secret_encrypted:
+            return None
+        return self._encryption.decrypt(repo.webhook_secret_encrypted)
+
     def _to_dict(self, repo: GitRepository) -> dict[str, Any]:
-        """Convert GitRepository model to dictionary."""
+        """Convert GitRepository model to dictionary.
+
+        The webhook secret is deliberately omitted; only its presence is
+        exposed via ``has_webhook_secret``.
+        """
         return {
             "id": repo.id,
             "name": repo.name,
@@ -196,6 +230,8 @@ class GitRepositoryService:
             "is_active": repo.is_active,
             "last_sync": repo.last_sync.isoformat() if repo.last_sync else None,
             "sync_status": repo.sync_status,
+            "has_webhook_secret": repo.webhook_secret_encrypted is not None,
+            "webhook_auto_deploy": bool(repo.webhook_auto_deploy),
             "created_at": repo.created_at.isoformat() if repo.created_at else None,
             "updated_at": repo.updated_at.isoformat() if repo.updated_at else None,
         }

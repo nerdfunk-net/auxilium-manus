@@ -38,6 +38,16 @@ class GitRepositoryRequest(BaseModel):
     git_author_email: str | None = Field(None, description="Git author email for commits")
     description: str | None = Field(None, description="Repository description")
     is_active: bool = Field(default=True, description="Repository is active")
+    webhook_secret: str | None = Field(
+        None,
+        description="Inbound git-webhook secret (GitHub HMAC secret / GitLab token). "
+        "Write-only; never returned.",
+    )
+    webhook_auto_deploy: bool = Field(
+        default=False,
+        description="When true a verified webhook dispatches the deploy run immediately; "
+        "otherwise it only marks the change request reviewed.",
+    )
 
 
 class GitRepositoryResponse(BaseModel):
@@ -58,6 +68,8 @@ class GitRepositoryResponse(BaseModel):
     updated_at: str
     last_sync: str | None = None
     sync_status: str | None = None
+    has_webhook_secret: bool = False
+    webhook_auto_deploy: bool = False
 
 
 class GitRepositoryListResponse(BaseModel):
@@ -78,6 +90,9 @@ class GitRepositoryUpdateRequest(BaseModel):
     git_author_email: str | None = None
     description: str | None = None
     is_active: bool | None = None
+    # An empty string clears the stored secret; omitting the field keeps it.
+    webhook_secret: str | None = None
+    webhook_auto_deploy: bool | None = None
 
 
 class GitConnectionTestRequest(BaseModel):
