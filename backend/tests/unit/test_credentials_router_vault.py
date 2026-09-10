@@ -42,11 +42,17 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     return application
 
 
-def test_vault_status_reports_disabled_by_default(app: FastAPI) -> None:
+@pytest.mark.parametrize("enabled", [False, True])
+def test_vault_status_echoes_settings_flag(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch, enabled: bool
+) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "vault_enabled", enabled)
     with TestClient(app) as client:
         response = client.get("/api/credentials/vault/status")
     assert response.status_code == 200
-    assert response.json() == {"enabled": False}
+    assert response.json() == {"enabled": enabled}
 
 
 def _create_payload(**overrides) -> dict:

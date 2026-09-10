@@ -14,6 +14,7 @@ and never touches the 81% coverage ratchet.
 | 2 — Git service | `test_git_service.py` | `services/git/*` |
 | 3 — Database | `test_db_bootstrap.py`, `test_repositories_crud.py`, `test_run_persistence.py` | `core/database.py`, `migrations/auto_schema.py`, repositories, run persistence |
 | 4 — Workflow steps | `test_workflow_steps_{netmiko,nautobot,git}.py` | executors that depend on external services |
+| 5 — OpenBao / Vault | `test_vault_integration.py` | `services/vault/*`, `CredentialsService` vault dispatch |
 | cross-cutting | `test_workflow_run_end_to_end.py` | `StepRunner.execute_all` |
 | Phase 2 (opt-in) | `test_mutations_optin.py` | device writes, `git-push`, Nautobot writes |
 
@@ -33,6 +34,7 @@ and never touches the 81% coverage ratchet.
    | `GIT_TEST_REPO_URL` / `GIT_TEST_REPO_TOKEN` / `GIT_TEST_REPO_BRANCH` / `GIT_TEST_REPO_VERIFY_SSL` | Gitea lab repo |
    | `CISCO_DEVICE` / `CISCO_DEVICE_USERNAME` / `CISCO_DEVICE_PASSWORD` | Cisco IOS lab device |
    | `MANUS_REDIS_HOST` (optional) | enables the bulk-device-cache test |
+   | `VAULT_ADDR` / `VAULT_TOKEN` (optional) | OpenBao for `test_vault_integration.py`. `VAULT_TOKEN` is a root/privileged token used only to bootstrap a scratch mount + policies + AppRoles. `VAULT_KV_MOUNT` overrides the mount name (default `manus-itest`). The `docker/openbao` dev container satisfies this. |
 
 2. Create + schema-sync the test database once:
 

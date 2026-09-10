@@ -152,6 +152,15 @@ def require_cisco_device() -> None:
         pytest.skip(f"Cisco device unreachable at {cisco.host}:22")
 
 
+@pytest.fixture(scope="session")
+def require_openbao() -> None:
+    if not env_helpers.openbao_configured():
+        pytest.skip("VAULT_ADDR / VAULT_TOKEN not set in backend/.env.test")
+    addr = env_helpers.openbao().addr.rstrip("/")
+    if not _http_alive(f"{addr}/v1/sys/health"):
+        pytest.skip(f"OpenBao unreachable at {addr}")
+
+
 # --------------------------------------------------------------------------- #
 # Database lifecycle
 # --------------------------------------------------------------------------- #

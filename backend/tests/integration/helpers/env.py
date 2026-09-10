@@ -49,6 +49,13 @@ class CiscoEnv:
     password: str
 
 
+@dataclass(frozen=True)
+class OpenBaoEnv:
+    addr: str
+    token: str  # a root / privileged token — used only to bootstrap the test vault
+    mount: str
+
+
 def nautobot() -> NautobotEnv:
     return NautobotEnv(
         url=_require("NAUTOBOT_HOST"),
@@ -78,3 +85,18 @@ def cisco() -> CiscoEnv:
 
 def redis_configured() -> bool:
     return bool(os.environ.get("MANUS_REDIS_HOST", "").strip())
+
+
+def openbao() -> OpenBaoEnv:
+    return OpenBaoEnv(
+        addr=_require("VAULT_ADDR"),
+        token=_require("VAULT_TOKEN"),
+        mount=os.environ.get("VAULT_KV_MOUNT", "manus-itest"),
+    )
+
+
+def openbao_configured() -> bool:
+    return bool(
+        os.environ.get("VAULT_ADDR", "").strip()
+        and os.environ.get("VAULT_TOKEN", "").strip()
+    )
