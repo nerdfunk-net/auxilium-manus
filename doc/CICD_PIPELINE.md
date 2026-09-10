@@ -171,7 +171,12 @@ Correlation: any pushed commit SHA equal to a `staged` CR's `commit_sha` trigger
 - **`git_repositories.webhook_secret_encrypted`** (Fernet, `core.crypto.EncryptionService`)
   and **`git_repositories.webhook_auto_deploy`** (`backend/core/models/git.py`).
 - Schema is created by `AutoSchemaMigration` at startup (`doc/MIGRATION_SYSTEM.md`); no
-  migration files.
+  migration files. Two gotchas of the auto-migration's `ADD COLUMN` path: a `NOT NULL`
+  column needs a Python-side `default=` (not just `server_default`) to backfill existing
+  rows — hence `webhook_auto_deploy` uses `default=False`; and it does not emit the FK
+  `REFERENCES` clause, so `workflow_runs.change_request_id` is a plain nullable integer at
+  the DB level until a real migration adds the constraint (the app never relies on the
+  cascade).
 
 ### 4.2 Backend
 
@@ -202,21 +207,38 @@ per-repo lock, `checkout_new_branch`, write files (`GitArtifactSink.write_text`)
 Approval never re-validates `run_inputs` — they were validated when the stage run was
 triggered and are replayed verbatim into the deploy run.
 
+### 4.2b HTTP endpoints
+
+| method | path | auth | notes |
+|---|---|---|---|
+| `GET` | `/api/change-requests` | `change_requests:read` | list; optional `?status=` (repeatable) |
+| `GET` | `/api/change-requests/{id}` | `change_requests:read` | reconciles on read |
+| `GET` | `/api/change-requests/{id}/diff` | `change_requests:read` | the unified-diff artifact |
+| `POST` | `/api/change-requests/{id}/approve` | `change_requests:approve` | `staged → deploying` + dispatch; body `{deploy_workflow_id?}` |
+| `POST` | `/api/change-requests/{id}/deploy` | `change_requests:approve` | `approved → deploying` + dispatch (after a webhook review) |
+| `POST` | `/api/change-requests/{id}/reject` | `change_requests:approve` | body `{reason?}` |
+| `POST` | `/api/webhooks/git/{git_repository_id}` | **none** (HMAC / shared secret) | see §3.5 |
+
 ### 4.3 Frontend
+
+Feature dir `frontend/src/components/features/change-requests/`.
 
 | area | file |
 |---|---|
 | Route stub | `frontend/src/app/(dashboard)/change-requests/page.tsx` |
-| List + detail | `frontend/src/components/features/change-requests/` (`change-requests-panel.tsx`, `change-request-detail-pane.tsx`, `change-request-status-badge.tsx`) |
-| Hooks | `frontend/src/hooks/queries/use-change-requests-query.ts`, `use-change-request-query.ts`, `use-change-request-diff-query.ts`, `use-change-request-mutations.ts` |
-| Query keys | `frontend/src/lib/query-keys.ts` → `changeRequests` |
-| Sidebar | `frontend/src/components/layout/app-sidebar.tsx` |
+| Page (master list + detail) | `change-requests-page.tsx` |
+| Detail pane | `components/change-request-detail-pane.tsx` (Approve & Deploy / Deploy / Reject dialogs, diff) |
+| Status badge | `components/change-request-status-badge.tsx` (7 statuses) |
+| Diff view | `components/unified-diff-view.tsx` (line-coloured `<pre>`, truncation notice) — plus `unified-diff-view.test.ts` |
+| Hooks | `hooks/use-change-requests-query.ts` (list, polls while any row `deploying`), `hooks/use-change-request-query.ts` (detail, polls while `deploying`), `hooks/use-change-request-diff-query.ts`, `hooks/use-change-request-mutations.ts` (`approve` / `deploy` / `reject`) |
+| Types | `types/change-request.ts` |
+| Query keys | `frontend/src/lib/query-keys.ts` → `changeRequests.{list,detail,diff}` |
+| Sidebar | `frontend/src/components/layout/app-sidebar.tsx` — "Change Requests" (`change_requests:read`) |
 | Step ConfigPanel | `frontend/src/components/features/workflow-steps/open-change-request/index.tsx` + `frontend/src/lib/plugin-ui-registry.ts` |
-| Git repo dialog | `frontend/src/components/features/settings/dialogs/git-repository-dialog.tsx` (webhook secret, auto-deploy switch, URL copy) |
+| Git repo dialog | `frontend/src/components/features/settings/dialogs/git-repository-dialog.tsx` (webhook secret, auto-deploy switch, copyable webhook URL) |
 
 Detail-pane buttons are gated on `hasPermission(user, "change_requests", "approve")` and
-the CR status. The diff uses the existing git-diff viewer; a `deploying` CR polls until
-terminal.
+the CR status; a `deploying` CR polls until terminal.
 
 ### 4.4 Rules & edge cases
 
@@ -244,3 +266,20 @@ terminal.
   (only `has_webhook_secret: bool`).
 - `webhook_auto_deploy = true` means a valid signed push pushes config to devices with no
   Auxilium Manus UI interaction — enable it only for repos whose PR review is the gate.
+
+### 4.6 Tests
+
+Backend unit (`backend/tests/unit/`): `test_change_request_service.py` (state machine,
+button↔webhook race, reconcile, expire, duplicate-commit conflict),
+`test_open_change_request_executor.py` (branch templating, `checkout -B`, force-push, diff
+artifact, CR row, failure paths), `test_webhook_signatures.py`, `test_webhook_service.py`
+(auto-deploy vs mark-reviewed, bad/missing signature, fail-closed, replay dedup, GitLab
+`checkout_sha`), `test_git_service_branch_diff.py`, `test_change_request_deploy_branch.py`
+(`use_change_request_branch` override, `maybe_reconcile_deploy_run`),
+`test_run_service_delete.py` (updated for the new FK). Frontend:
+`components/change-requests/components/unified-diff-view.test.ts`.
+
+**Not yet written:** end-to-end integration tests against a real Gitea
+(`backend/tests/integration/` — opt-in, not in the coverage ratchet): a stage run pushing
+`manus/cr-*` and an approve dispatching a deploy run; a signed inbound webhook advancing a
+change request with replay/bad-signature cases.
