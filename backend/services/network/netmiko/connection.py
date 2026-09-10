@@ -331,7 +331,9 @@ class NetmikoDeviceSession:
     def _confirm_prompt_pattern(self, *, extra_cues: tuple[str, ...] = ()) -> str:
         base_prompt = re.escape(getattr(self.connection, "base_prompt", ""))
         alternatives = [rf"{base_prompt}.*$", r"#\s*$", _CONFIRMATION_CUE]
-        alternatives.extend(re.escape(cue) for cue in extra_cues)
+        # Netmiko compiles this string case-sensitively; IOS prints the merge
+        # prompt as "Destination filename ...", so match extra cues case-insensitively.
+        alternatives.extend(rf"(?i:{re.escape(cue)})" for cue in extra_cues)
         return rf"(?:{'|'.join(alternatives)})"
 
     def _send_command_confirming(self, command: str, *, read_timeout: int) -> tuple[str, bool]:
@@ -393,9 +395,11 @@ class NetmikoDeviceSession:
                 answered.append(match.group(0).lower())
                 self.connection.write_channel(self.connection.RETURN)
                 # read_until_pattern (NOT read_until_prompt): returns at the next
-                # cue OR the base prompt, whichever comes first.
+                # cue OR the base prompt, whichever comes first. re.M so the
+                # ``<base>.*$`` / ``#\s*$`` alternatives anchor per line, matching
+                # how netmiko's own send_command(expect_string=...) searches.
                 chunk = self.connection.read_until_pattern(
-                    pattern=pattern, read_timeout=read_timeout
+                    pattern=pattern, read_timeout=read_timeout, re_flags=re.M
                 )
                 output += chunk
             else:

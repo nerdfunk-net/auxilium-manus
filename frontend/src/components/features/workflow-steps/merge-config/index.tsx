@@ -89,17 +89,6 @@ function MergeConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        Applies a <span className="font-medium">partial</span> config already on
-        the device (stage it with an upstream Upload Config step) via{" "}
-        <span className="font-mono">
-          copy &lt;source_filename&gt; running-config
-        </span>
-        . The &ldquo;Destination filename&rdquo; prompt is always answered
-        automatically. For a full-config replace with rollback, use Configure
-        Replace Config.
-      </p>
-
       <SshCredentialField config={config} onChange={onChange} />
 
       <div className="space-y-1.5">

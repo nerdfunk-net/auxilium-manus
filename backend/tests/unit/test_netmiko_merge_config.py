@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -193,6 +194,18 @@ class MergeRunningConfigTests(unittest.TestCase):
         self.assertEqual(
             session._confirm_prompt_pattern(), r"(?:R1.*$|#\s*$|confirm)"
         )
+
+    def test_merge_pattern_matches_real_prompt_casing(self) -> None:
+        # Netmiko compiles expect_string case-sensitively (with re.M); IOS prints
+        # "Destination filename ...", so the cue must match despite the capital D.
+        session = _session()
+        session._connection = SimpleNamespace(base_prompt="LAB")
+        pattern = session._confirm_prompt_pattern(extra_cues=("destination filename",))
+        self.assertIsNotNone(
+            re.search(pattern, "Destination filename [running-config]? ", flags=re.M)
+        )
+        self.assertIsNotNone(re.search(pattern, "LAB#", flags=re.M))
+        self.assertIsNone(re.search(pattern, "show version", flags=re.M))
 
 
 if __name__ == "__main__":
