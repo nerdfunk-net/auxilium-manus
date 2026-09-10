@@ -43,6 +43,7 @@ export function parseTemplateExportPayload(
   return {
     name: obj.name.trim(),
     description: typeof obj.description === "string" ? obj.description : null,
+    notes: typeof obj.notes === "string" ? obj.notes : null,
     template_type:
       typeof obj.template_type === "string" && obj.template_type.trim()
         ? obj.template_type

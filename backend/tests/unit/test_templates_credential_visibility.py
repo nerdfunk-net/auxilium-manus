@@ -56,6 +56,7 @@ class TemplateCredentialVisibilityTests(unittest.TestCase):
             self.service.create_template(
                 name="tpl-1",
                 description=None,
+                notes=None,
                 template_type="jinja2",
                 category="netmiko",
                 content="",
@@ -81,6 +82,7 @@ class TemplateCredentialVisibilityTests(unittest.TestCase):
         result = self.service.create_template(
             name="tpl-2",
             description=None,
+            notes=None,
             template_type="jinja2",
             category="netmiko",
             content="",

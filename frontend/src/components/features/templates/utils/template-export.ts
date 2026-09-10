@@ -19,6 +19,7 @@ export function templateToExportPayload(
     Template,
     | "name"
     | "description"
+    | "notes"
     | "template_type"
     | "category"
     | "content"
@@ -31,6 +32,7 @@ export function templateToExportPayload(
   return {
     name: template.name,
     description: template.description,
+    notes: template.notes ?? null,
     template_type: template.template_type,
     category: template.category,
     content: template.content ?? "",
@@ -57,6 +59,7 @@ export function templateExportToCreatePayload(
   return {
     name: payload.name,
     description: payload.description,
+    notes: payload.notes ?? null,
     template_type: payload.template_type,
     category: payload.category,
     content: payload.content,

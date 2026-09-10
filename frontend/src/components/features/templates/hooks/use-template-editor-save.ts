@@ -19,6 +19,7 @@ type TemplateVariablesManager = ReturnType<typeof useTemplateVariables>;
 interface UseTemplateEditorSaveOptions {
   name: string;
   description: string;
+  notes: string;
   templateType: TemplateType;
   content: string;
   cleanedCommands: string[];
@@ -48,6 +49,7 @@ function buildCustomVariables(
 export function useTemplateEditorSave({
   name,
   description,
+  notes,
   templateType,
   content,
   cleanedCommands,
@@ -75,6 +77,7 @@ export function useTemplateEditorSave({
     const envelope = buildTemplateExportFile({
       name: name.trim(),
       description: description || null,
+      notes: notes || null,
       template_type: templateType,
       category: TEMPLATE_CATEGORY,
       content,
@@ -91,6 +94,7 @@ export function useTemplateEditorSave({
   }, [
     name,
     description,
+    notes,
     templateType,
     content,
     cleanedCommands,
@@ -113,6 +117,7 @@ export function useTemplateEditorSave({
     const payload = {
       name: name.trim(),
       description: description || null,
+      notes: notes,
       template_type: templateType,
       category: TEMPLATE_CATEGORY,
       content,
@@ -136,6 +141,7 @@ export function useTemplateEditorSave({
   }, [
     name,
     description,
+    notes,
     templateType,
     content,
     cleanedCommands,

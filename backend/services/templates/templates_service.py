@@ -84,6 +84,7 @@ class TemplatesService:
         *,
         name: str,
         description: str | None,
+        notes: str | None,
         template_type: str,
         category: str,
         content: str,
@@ -106,6 +107,7 @@ class TemplatesService:
             template_type=template_type,
             category=category,
             description=description,
+            notes=notes,
             content=content,
             variables=json.dumps(variables),
             pre_run_command=commands[0] if commands else None,
@@ -125,6 +127,7 @@ class TemplatesService:
         *,
         name: str | None = None,
         description: str | None = None,
+        notes: str | None = None,
         template_type: str | None = None,
         category: str | None = None,
         content: str | None = None,
@@ -150,6 +153,8 @@ class TemplatesService:
             updates["name"] = name
         if description is not None:
             updates["description"] = description
+        if notes is not None:
+            updates["notes"] = notes
         if template_type is not None:
             updates["template_type"] = template_type
         if category is not None:
@@ -232,6 +237,7 @@ class TemplatesService:
             "template_type": template.template_type,
             "category": template.category,
             "description": template.description,
+            "notes": template.notes,
             "content": template.content,
             "variables": variables,
             "pre_run_commands": _load_commands(template),

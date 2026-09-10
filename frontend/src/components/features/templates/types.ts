@@ -28,6 +28,8 @@ export interface Template {
   template_type: string;
   category: string;
   description: string | null;
+  /** Free-form Markdown wiki notes, edited inline in the template editor. */
+  notes: string | null;
   content: string;
   variables: Record<string, TemplateVariableRecord>;
   pre_run_commands: string[];
@@ -43,6 +45,7 @@ export interface Template {
 export interface TemplateCreatePayload {
   name: string;
   description?: string | null;
+  notes?: string | null;
   template_type: string;
   category: string;
   content: string;

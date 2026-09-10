@@ -142,6 +142,7 @@ def create_template(
         result = service.create_template(
             name=payload.name,
             description=payload.description,
+            notes=payload.notes,
             template_type=payload.template_type,
             category=payload.category,
             content=payload.content,
@@ -183,6 +184,7 @@ def update_template(
             template_id,
             name=payload.name,
             description=payload.description,
+            notes=payload.notes,
             template_type=payload.template_type,
             category=payload.category,
             content=payload.content,

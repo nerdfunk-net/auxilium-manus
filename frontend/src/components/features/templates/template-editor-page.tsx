@@ -1,10 +1,12 @@
 "use client";
 
-import { ArrowLeft, Download, FileCode, Play, RefreshCw, Save } from "lucide-react";
+import { ArrowLeft, BookOpen, Download, FileCode, Play, RefreshCw, Save } from "lucide-react";
 import { Suspense } from "react";
 
 import { CanvasErrorBoundary } from "@/components/features/workflows/components/canvas-error-boundary";
 import { Button } from "@/components/ui/button";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
+import { cn } from "@/lib/utils";
 
 import { AddVariableDialog } from "./components/add-variable-dialog";
 import { CodeEditorPanel } from "./components/code-editor-panel";
@@ -103,31 +105,51 @@ function TemplateEditorContent() {
           }
           right={
             <div className="h-full min-h-[480px] overflow-hidden rounded-lg border">
-              <CanvasErrorBoundary fallbackTitle="The editor failed to render">
-                <CodeEditorPanel
-                  value={editor.content}
-                  language={editor.templateType}
-                  onChange={editor.setContent}
+              <div className={cn("h-full", editor.wikiOpen && "hidden")}>
+                <CanvasErrorBoundary fallbackTitle="The editor failed to render">
+                  <CodeEditorPanel
+                    value={editor.content}
+                    language={editor.templateType}
+                    onChange={editor.setContent}
+                  />
+                </CanvasErrorBoundary>
+              </div>
+              <div className={cn("h-full p-3", !editor.wikiOpen && "hidden")}>
+                <MarkdownEditor
+                  value={editor.notes}
+                  onChange={editor.setNotes}
+                  placeholder="Document this template in Markdown: purpose, variables, gotchas, examples…"
+                  className="flex h-full min-h-0 flex-col gap-2"
                 />
-              </CanvasErrorBoundary>
+              </div>
             </div>
           }
         />
 
         <div className="flex items-center justify-between border-t pt-4">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={editor.renderer.isRendering || !editor.content.trim()}
-            onClick={editor.handleRender}
-          >
-            {editor.renderer.isRendering ? (
-              <RefreshCw className="size-4 animate-spin" />
-            ) : (
-              <Play className="size-4" />
-            )}
-            Show Rendered Template
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={editor.renderer.isRendering || !editor.content.trim()}
+              onClick={editor.handleRender}
+            >
+              {editor.renderer.isRendering ? (
+                <RefreshCw className="size-4 animate-spin" />
+              ) : (
+                <Play className="size-4" />
+              )}
+              Show Rendered Template
+            </Button>
+            <Button
+              type="button"
+              variant={editor.wikiOpen ? "default" : "outline"}
+              onClick={() => editor.setWikiOpen((open) => !open)}
+            >
+              <BookOpen className="size-4" />
+              Wiki
+            </Button>
+          </div>
 
           <div className="flex items-center gap-2">
             <Button

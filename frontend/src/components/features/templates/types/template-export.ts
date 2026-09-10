@@ -6,6 +6,7 @@ export const TEMPLATE_EXPORT_FORMAT = "auxilium-template-v1" as const;
 export interface TemplateExportPayload {
   name: string;
   description: string | null;
+  notes: string | null;
   template_type: string;
   category: string;
   content: string;

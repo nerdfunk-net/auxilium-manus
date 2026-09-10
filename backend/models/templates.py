@@ -29,6 +29,7 @@ class TemplateVariable(BaseModel):
 class TemplateCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    notes: str | None = Field(default=None, max_length=100_000)
     template_type: str = Field(default="jinja2", max_length=50)
     category: str = Field(default="netmiko", max_length=100)
     content: str = ""
@@ -42,6 +43,7 @@ class TemplateCreate(BaseModel):
 class TemplateUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    notes: str | None = Field(default=None, max_length=100_000)
     template_type: str | None = Field(default=None, max_length=50)
     category: str | None = Field(default=None, max_length=100)
     content: str | None = None
@@ -61,6 +63,7 @@ class TemplateResponse(BaseModel):
     template_type: str
     category: str
     description: str | None
+    notes: str | None
     content: str
     variables: dict[str, Any]
     pre_run_commands: list[str] = Field(default_factory=list)

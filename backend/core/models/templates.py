@@ -30,6 +30,8 @@ class Template(Base):
         String(100), nullable=False, default="netmiko", index=True
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Free-form Markdown wiki notes, edited alongside the template in the editor.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # JSON string: {name: {"value": str, "type": str}}
     variables: Mapped[str] = mapped_column(Text, nullable=False, default="{}")

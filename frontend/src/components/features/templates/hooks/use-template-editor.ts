@@ -26,6 +26,8 @@ export function useTemplateEditor() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [notes, setNotes] = useState("");
+  const [wikiOpen, setWikiOpen] = useState(false);
   const [templateType, setTemplateType] = useState<TemplateType>("jinja2");
   const [content, setContent] = useState("");
   const [sourceId, setSourceId] = useState("");
@@ -100,6 +102,7 @@ export function useTemplateEditor() {
     loadedRef.current = true;
     setName(template.name);
     setDescription(template.description ?? "");
+    setNotes(template.notes ?? "");
     setTemplateType((template.template_type as TemplateType) ?? "jinja2");
     setContent(template.content ?? "");
     setCommands(template.pre_run_commands ?? []);
@@ -239,6 +242,7 @@ export function useTemplateEditor() {
   const { handleSave, handleExport, isSaving } = useTemplateEditorSave({
     name,
     description,
+    notes,
     templateType,
     content,
     cleanedCommands,
@@ -261,6 +265,10 @@ export function useTemplateEditor() {
       setName,
       description,
       setDescription,
+      notes,
+      setNotes,
+      wikiOpen,
+      setWikiOpen,
       templateType,
       setTemplateType,
       content,
@@ -323,6 +331,8 @@ export function useTemplateEditor() {
       isLoading,
       name,
       description,
+      notes,
+      wikiOpen,
       templateType,
       content,
       sources,
