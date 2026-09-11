@@ -12,21 +12,11 @@ never applied automatically on startup.
 import logging
 from typing import Any
 
-from sqlalchemy import text
-
 from core.database import engine
 from core.models import Base
-from migrations.auto_schema import AutoSchemaMigration, SchemaDiff
+from migrations.auto_schema import AutoSchemaMigration
 
 logger = logging.getLogger(__name__)
-
-
-def pg_cast(canonical_type: str) -> str:
-    _map = {
-        "TIMESTAMP WITH TIME ZONE": "TIMESTAMPTZ",
-        "DOUBLE PRECISION": "DOUBLE PRECISION",
-    }
-    return _map.get(canonical_type, canonical_type)
 
 
 class SchemaManager:
@@ -61,45 +51,6 @@ class SchemaManager:
             "extra_indexes": [{"table": t, "index": i} for t, i in diff.extra_indexes],
         }
 
-    def _apply_column_diffs(self, diff: SchemaDiff, force: bool) -> dict[str, Any]:
-        applied: list[str] = []
-        skipped: list[str] = []
-        errors: list[str] = []
-
-        for cd in sorted(diff.column_diffs, key=lambda d: (d.table, d.column)):
-            if not cd.safe and not force:
-                skipped.append(f"{cd.table}.{cd.column}")
-                continue
-
-            stmts = []
-            if cd.type_changed:
-                cast = pg_cast(cd.model_type)
-                stmts.append(
-                    f"ALTER COLUMN {cd.column} TYPE {cd.model_type} USING {cd.column}::{cast}"
-                )
-            if cd.nullable_changed:
-                if cd.model_nullable:
-                    stmts.append(f"ALTER COLUMN {cd.column} DROP NOT NULL")
-                else:
-                    stmts.append(f"ALTER COLUMN {cd.column} SET NOT NULL")
-
-            for stmt in stmts:
-                try:
-                    with self._auto.engine.connect() as conn:
-                        conn.execute(text(f"ALTER TABLE {cd.table} {stmt}"))
-                        conn.commit()
-                    change = (
-                        f"{cd.db_type} -> {cd.model_type}"
-                        if cd.type_changed
-                        else "nullable changed"
-                    )
-                    applied.append(f"{cd.table}.{cd.column} ({change})")
-                except Exception as e:
-                    logger.error("Failed to alter %s.%s: %s", cd.table, cd.column, e)
-                    errors.append(f"{cd.table}.{cd.column}: failed to apply")
-
-        return {"applied": applied, "skipped": skipped, "errors": errors}
-
     def perform_migration(self, force: bool = False) -> dict[str, Any]:
         """
         Apply schema changes.
@@ -131,8 +82,8 @@ class SchemaManager:
                 "errors": ["Structural migration failed — check backend logs."],
             }
 
-        col_results = self._apply_column_diffs(diff, force=force)
-        all_errors = col_results["errors"]
+        col_result = self._auto.apply_column_diffs(diff, force=force)
+        all_errors = [f"{label}: {msg}" for label, msg in col_result.failed]
 
         return {
             "success": len(all_errors) == 0,
@@ -144,7 +95,7 @@ class SchemaManager:
             "tables_created": safe_results.get("tables_created", 0),
             "columns_added": safe_results.get("columns_added", 0),
             "indexes_created": safe_results.get("indexes_created", 0),
-            "column_changes_applied": col_results["applied"],
-            "column_changes_skipped": col_results["skipped"],
+            "column_changes_applied": col_result.succeeded,
+            "column_changes_skipped": col_result.skipped,
             "errors": all_errors,
         }

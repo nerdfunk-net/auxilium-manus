@@ -32,7 +32,6 @@ from sqlalchemy import text  # noqa: E402
 
 from core.database import engine  # noqa: E402
 from core.models import Base  # noqa: E402
-from core.schema_manager import pg_cast  # noqa: E402
 from migrations.auto_schema import AutoSchemaMigration, SchemaDiff  # noqa: E402
 
 _WIDTH = 64
@@ -147,90 +146,56 @@ def _drop_extra_columns(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
     return columns_dropped
 
 
+# The four functions below are thin CLI reporting wrappers. The actual
+# apply logic (FK-dependency ordering + deferred-constraint handling for
+# tables, ALTER TABLE for columns/indexes/type changes) lives in exactly
+# one place — AutoSchemaMigration, in migrations/auto_schema.py — so this
+# CLI, the automatic startup sync, and SchemaManager (the HTTP-facing
+# admin "sync schema" action) can't drift out of sync with each other.
+
+
 def _create_missing_tables(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
-    tables_created = 0
-    for table_name in diff.missing_tables:
-        try:
-            table = auto.base.metadata.tables[table_name]
-            table.create(bind=auto.engine)
-            print(f"  Created table: {table_name}")
-            tables_created += 1
-        except Exception as e:
-            print(f"  Failed to create table {table_name}: {e}")
-    return tables_created
+    result = auto.create_tables(diff.missing_tables)
+    for name in result.created:
+        print(f"  Created table: {name}")
+    for name, err in result.failed:
+        print(f"  Failed to create table {name}: {err}")
+    for name in result.constraints_added:
+        print(f"  Added deferred foreign key constraint: {name}")
+    for name, err in result.constraints_failed:
+        print(f"  Failed to add deferred foreign key constraint {name}: {err}")
+    return len(result.created)
 
 
 def _add_missing_columns(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
-    columns_added = 0
-    for table_name, col_name in diff.missing_columns:
-        try:
-            table = auto.base.metadata.tables[table_name]
-            column = next(c for c in table.columns if c.name == col_name)
-            col_def = auto.get_column_definition(column)
-            with auto.engine.connect() as conn:
-                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}"))
-                conn.commit()
-            print(f"  Added column: {table_name}.{col_name}")
-            columns_added += 1
-        except Exception as e:
-            print(f"  Failed to add column {table_name}.{col_name}: {e}")
-    return columns_added
+    result = auto.add_columns(diff.missing_columns)
+    for label in result.succeeded:
+        print(f"  Added column: {label}")
+    for label, err in result.failed:
+        print(f"  Failed to add column {label}: {err}")
+    return len(result.succeeded)
 
 
 def _apply_column_diffs(
     diff: SchemaDiff, auto: AutoSchemaMigration, *, force: bool
 ) -> tuple[int, int]:
-    types_changed = skipped = 0
-    for cd in diff.column_diffs:
-        if not cd.safe and not force:
-            risky_desc = (
-                f"{cd.db_type} -> {cd.model_type}" if cd.type_changed else "NULL -> NOT NULL"
-            )
-            print(
-                f"  Skipped risky change: {cd.table}.{cd.column} "
-                f"({risky_desc}) — rerun with --force"
-            )
-            skipped += 1
-            continue
-        try:
-            stmts = []
-            if cd.type_changed:
-                cast = pg_cast(cd.model_type)
-                stmts.append(
-                    f"ALTER COLUMN {cd.column} TYPE {cd.model_type} USING {cd.column}::{cast}"
-                )
-            if cd.nullable_changed:
-                if cd.model_nullable:
-                    stmts.append(f"ALTER COLUMN {cd.column} DROP NOT NULL")
-                else:
-                    stmts.append(f"ALTER COLUMN {cd.column} SET NOT NULL")
-            for stmt in stmts:
-                with auto.engine.connect() as conn:
-                    conn.execute(text(f"ALTER TABLE {cd.table} {stmt}"))
-                    conn.commit()
-            change = f"{cd.db_type} -> {cd.model_type}" if cd.type_changed else "nullable changed"
-            print(f"  Changed: {cd.table}.{cd.column} ({change})")
-            types_changed += 1
-        except Exception as e:
-            print(f"  Failed to change {cd.table}.{cd.column}: {e}")
-    return types_changed, skipped
+    result = auto.apply_column_diffs(diff, force=force)
+    for label in result.skipped:
+        print(f"  Skipped risky change: {label} — rerun with --force")
+    for label in result.succeeded:
+        print(f"  Changed: {label}")
+    for label, err in result.failed:
+        print(f"  Failed to change {label}: {err}")
+    return len(result.succeeded), len(result.skipped)
 
 
 def _create_missing_indexes(diff: SchemaDiff, auto: AutoSchemaMigration) -> int:
-    indexes_created = 0
-    for table_name, idx_name in diff.missing_indexes:
-        try:
-            table = auto.base.metadata.tables.get(table_name)
-            if not table:
-                continue
-            index = next((i for i in table.indexes if i.name == idx_name), None)
-            if index:
-                index.create(bind=auto.engine)
-                print(f"  Created index: {idx_name}")
-                indexes_created += 1
-        except Exception as e:
-            print(f"  Failed to create index {idx_name}: {e}")
-    return indexes_created
+    result = auto.create_indexes(diff.missing_indexes)
+    for name in result.succeeded:
+        print(f"  Created index: {name}")
+    for name, err in result.failed:
+        print(f"  Failed to create index {name}: {err}")
+    return len(result.succeeded)
 
 
 def _print_migrate_summary(

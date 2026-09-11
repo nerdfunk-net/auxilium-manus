@@ -5,6 +5,7 @@ Compares SQLAlchemy models with actual database schema and applies changes.
 
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from sqlalchemy import inspect, text
@@ -15,6 +16,16 @@ logger = logging.getLogger(__name__)
 
 # Tables that are not part of the application models and should be ignored.
 _SKIP_TABLES = {"schema_migrations", "alembic_version"}
+
+
+def pg_cast(canonical_type: str) -> str:
+    """Map a canonical column type (see normalize_pg_type) to the PostgreSQL
+    cast target used in `USING col::<cast>` when changing a column's type."""
+    _map = {
+        "TIMESTAMP WITH TIME ZONE": "TIMESTAMPTZ",
+        "DOUBLE PRECISION": "DOUBLE PRECISION",
+    }
+    return _map.get(canonical_type, canonical_type)
 
 
 def normalize_pg_type(type_str: str) -> str:
@@ -112,6 +123,32 @@ class SchemaDiff:
         return bool(
             self.missing_tables or self.missing_columns or self.column_diffs or self.missing_indexes
         )
+
+
+@dataclass
+class ApplyResult:
+    """Outcome of applying one batch of schema changes (columns, indexes, or
+    column type/nullable diffs). `succeeded`/`failed` entries are display
+    labels (e.g. "table.column"), not raw identifiers. Shared by
+    AutoSchemaMigration's apply methods so callers (run(), SchemaManager,
+    scripts/database/sync.py) don't each format their own."""
+
+    succeeded: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class TableCreationResult:
+    """Outcome of AutoSchemaMigration.create_tables(). Constraints are
+    reported separately from tables because a FK constraint broken out of a
+    table-level cycle (see create_tables) is applied afterwards, as its own
+    ALTER TABLE step."""
+
+    created: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+    constraints_added: list[str] = field(default_factory=list)
+    constraints_failed: list[tuple[str, str]] = field(default_factory=list)
 
 
 class AutoSchemaMigration:
@@ -346,28 +383,37 @@ class AutoSchemaMigration:
     # Schema application (used by startup and sync.py --migrate)
     # ------------------------------------------------------------------
 
-    def create_missing_tables(self) -> int:
-        """Create tables that exist in models but not in database."""
-        existing_tables = self.get_existing_tables()
-        model_tables = set(self.base.metadata.tables.keys())
-        missing_tables = model_tables - existing_tables
+    # ------------------------------------------------------------------
+    # Apply primitives — the single implementation of "how to create
+    # tables / add columns / create indexes / apply column diffs".
+    #
+    # Both the automatic startup sync (run(), below) and the manual
+    # `scripts/database/sync.py --migrate` CLI call these same methods
+    # (the latter via the diff it already computed with analyze(), so
+    # `--table` filtering is respected) instead of each keeping its own
+    # copy — see doc/MIGRATION_SYSTEM.md. core.schema_manager.SchemaManager
+    # (the HTTP-facing admin "sync schema" action) also builds on these via
+    # apply_column_diffs() for the safe/risky type-change split.
+    # ------------------------------------------------------------------
 
-        if not missing_tables:
-            return 0
+    def create_tables(self, table_names: Iterable[str]) -> TableCreationResult:
+        """Create the named tables, in FK-dependency order.
 
-        # Create in FK-dependency order (parents before children) so a table
-        # referencing another missing table doesn't fail before its
-        # dependency exists. Unlike plain `metadata.sorted_tables`,
-        # sort_tables_and_constraints() pulls any use_alter=True foreign key
-        # (see WorkflowRun.change_request_id) out of its table's CREATE TABLE
-        # and returns it separately, so table-level FK cycles don't block
-        # ordering of the rest of the graph.
-        tables_to_create = [
-            t for t in self.base.metadata.tables.values() if t.name in missing_tables
-        ]
-        ordered = sort_tables_and_constraints(tables_to_create)
+        Unlike plain `metadata.sorted_tables`, sort_tables_and_constraints()
+        pulls any use_alter=True foreign key (see WorkflowRun.change_request_id)
+        out of its table's CREATE TABLE and returns it separately, so a
+        table-level FK cycle (e.g. change_requests <-> workflow_runs) doesn't
+        block ordering of the rest of the graph. That constraint is then
+        added via a deferred ALTER TABLE once every table exists.
+        """
+        result = TableCreationResult()
+        names = {n for n in table_names if n not in _SKIP_TABLES}
+        if not names:
+            return result
 
-        created_count = 0
+        tables = [t for t in self.base.metadata.tables.values() if t.name in names]
+        ordered = sort_tables_and_constraints(tables)
+
         deferred_constraints = []
         for table, fkcs in ordered:
             # table is None for the trailing entry that carries constraints
@@ -378,15 +424,14 @@ class AutoSchemaMigration:
             if table is None:
                 deferred_constraints.extend(fkcs)
                 continue
-            if table.name in _SKIP_TABLES:
-                continue
             try:
                 logger.info("Creating missing table: %s", table.name)
                 table.create(bind=self.engine)
-                created_count += 1
+                result.created.append(table.name)
                 logger.info("Created table: %s", table.name)
             except Exception as e:
                 logger.error("Failed to create table %s: %s", table.name, e)
+                result.failed.append((table.name, str(e)))
 
         for fkc in deferred_constraints:
             try:
@@ -395,76 +440,147 @@ class AutoSchemaMigration:
                 )
                 with self.engine.begin() as conn:
                     conn.execute(AddConstraint(fkc))
+                result.constraints_added.append(fkc.name)
                 logger.info("Added deferred foreign key constraint: %s", fkc.name)
             except Exception as e:
                 logger.error("Failed to add deferred foreign key constraint %s: %s", fkc.name, e)
+                result.constraints_failed.append((fkc.name, str(e)))
 
-        return created_count
+        return result
+
+    def add_columns(self, columns: Iterable[tuple[str, str]]) -> ApplyResult:
+        """Add the given (table_name, column_name) columns via ALTER TABLE."""
+        result = ApplyResult()
+        for table_name, col_name in columns:
+            label = f"{table_name}.{col_name}"
+            try:
+                table = self.base.metadata.tables[table_name]
+                column = next(c for c in table.columns if c.name == col_name)
+
+                if column.primary_key:
+                    logger.warning("Skipping primary key column %s in %s", col_name, table_name)
+                    continue
+
+                col_def = self.get_column_definition(column)
+                alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}"
+
+                logger.info("Adding column %s", label)
+                logger.debug("SQL: %s", alter_sql)
+
+                with self.engine.connect() as conn:
+                    conn.execute(text(alter_sql))
+                    conn.commit()
+
+                result.succeeded.append(label)
+                logger.info("Added column: %s", label)
+
+            except Exception as e:
+                logger.error("Failed to add column %s: %s", label, e)
+                result.failed.append((label, str(e)))
+
+        return result
+
+    def create_indexes(self, indexes: Iterable[tuple[str, str]]) -> ApplyResult:
+        """Create the given (table_name, index_name) indexes."""
+        result = ApplyResult()
+        for table_name, idx_name in indexes:
+            try:
+                table = self.base.metadata.tables.get(table_name)
+                if table is None:
+                    continue
+                index = next((i for i in table.indexes if i.name == idx_name), None)
+                if index is None:
+                    continue
+                logger.info("Creating index %s on %s", idx_name, table_name)
+                index.create(bind=self.engine)
+                result.succeeded.append(idx_name)
+                logger.info("Created index: %s", idx_name)
+            except Exception as e:
+                logger.warning("Failed to create index %s: %s", idx_name, e)
+                result.failed.append((idx_name, str(e)))
+
+        return result
+
+    def apply_column_diffs(self, diff: SchemaDiff, force: bool = False) -> ApplyResult:
+        """Apply type/nullable changes from `diff.column_diffs`.
+
+        Safe changes (see ColumnDiff.safe) are always applied; risky ones
+        (may truncate data, or add NOT NULL to a column that may hold NULLs)
+        are only applied when force=True, and reported in `skipped` otherwise.
+        """
+        result = ApplyResult()
+        for cd in sorted(diff.column_diffs, key=lambda d: (d.table, d.column)):
+            label = f"{cd.table}.{cd.column}"
+            if not cd.safe and not force:
+                result.skipped.append(label)
+                continue
+
+            stmts = []
+            if cd.type_changed:
+                cast = pg_cast(cd.model_type)
+                stmts.append(
+                    f"ALTER COLUMN {cd.column} TYPE {cd.model_type} USING {cd.column}::{cast}"
+                )
+            if cd.nullable_changed:
+                stmt = "DROP NOT NULL" if cd.model_nullable else "SET NOT NULL"
+                stmts.append(f"ALTER COLUMN {cd.column} {stmt}")
+
+            change = f"{cd.db_type} -> {cd.model_type}" if cd.type_changed else "nullable changed"
+            try:
+                for stmt in stmts:
+                    with self.engine.connect() as conn:
+                        conn.execute(text(f"ALTER TABLE {cd.table} {stmt}"))
+                        conn.commit()
+                result.succeeded.append(f"{label} ({change})")
+                logger.info("Changed: %s (%s)", label, change)
+            except Exception as e:
+                logger.error("Failed to alter %s: %s", label, e)
+                result.failed.append((label, "failed to apply"))
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Diff-driven wrappers — compute what's missing for the *whole* schema
+    # and apply it via the primitives above. Used by run() (startup).
+    # ------------------------------------------------------------------
+
+    def create_missing_tables(self) -> int:
+        """Create tables that exist in models but not in database."""
+        existing_tables = self.get_existing_tables()
+        model_tables = set(self.base.metadata.tables.keys())
+        missing_tables = model_tables - existing_tables
+        return len(self.create_tables(missing_tables).created)
 
     def add_missing_columns(self) -> int:
         """Add columns that exist in models but not in database."""
         existing_tables = self.get_existing_tables()
-        added_count = 0
+        pairs: list[tuple[str, str]] = []
 
         for table_name, table in self.base.metadata.tables.items():
             if table_name not in existing_tables or table_name in _SKIP_TABLES:
                 continue
-
             existing_columns = self.get_existing_columns(table_name)
-            model_columns = {col.name: col for col in table.columns}
-            missing_columns = set(model_columns.keys()) - existing_columns
+            missing_columns = {col.name for col in table.columns} - existing_columns
+            pairs.extend((table_name, col_name) for col_name in missing_columns)
 
-            if not missing_columns:
-                continue
-
-            for col_name in missing_columns:
-                try:
-                    column = model_columns[col_name]
-
-                    if column.primary_key:
-                        logger.warning("Skipping primary key column %s in %s", col_name, table_name)
-                        continue
-
-                    col_def = self.get_column_definition(column)
-                    alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}"
-
-                    logger.info("Adding column %s.%s", table_name, col_name)
-                    logger.debug("SQL: %s", alter_sql)
-
-                    with self.engine.connect() as conn:
-                        conn.execute(text(alter_sql))
-                        conn.commit()
-
-                    added_count += 1
-                    logger.info("Added column: %s.%s", table_name, col_name)
-
-                except Exception as e:
-                    logger.error("Failed to add column %s.%s: %s", table_name, col_name, e)
-
-        return added_count
+        return len(self.add_columns(pairs).succeeded)
 
     def create_missing_indexes(self) -> int:
         """Create indexes that exist in models but not in database."""
         existing_tables = self.get_existing_tables()
-        created_count = 0
+        pairs: list[tuple[str, str]] = []
 
         for table_name, table in self.base.metadata.tables.items():
             if table_name not in existing_tables or table_name in _SKIP_TABLES:
                 continue
-
             existing_indexes = self.get_existing_indexes(table_name)
+            pairs.extend(
+                (table_name, index.name)
+                for index in table.indexes
+                if index.name and index.name not in existing_indexes
+            )
 
-            for index in table.indexes:
-                if index.name and index.name not in existing_indexes:
-                    try:
-                        logger.info("Creating index %s on %s", index.name, table_name)
-                        index.create(bind=self.engine)
-                        created_count += 1
-                        logger.info("Created index: %s", index.name)
-                    except Exception as e:
-                        logger.warning("Failed to create index %s: %s", index.name, e)
-
-        return created_count
+        return len(self.create_indexes(pairs).succeeded)
 
     def run(self) -> dict[str, int]:
         """
