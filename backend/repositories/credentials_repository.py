@@ -56,7 +56,7 @@ class CredentialsRepository:
         )
         if source:
             stmt = stmt.where(Credential.source == source)
-        rows = self.db.execute(stmt.order_by(Credential.name.asc())).all()
+        rows = self.db.execute(stmt.order_by(Credential.id.asc())).all()
         return [(row[0], row[1]) for row in rows]
 
     def find_global_conflict(

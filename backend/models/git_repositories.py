@@ -16,6 +16,7 @@ class GitCategory(StrEnum):
     CSV_EXPORTS = "csv_exports"
     WORKFLOWS = "workflows"
     WORKFLOW_STEPS = "workflow_steps"
+    CICD_PIPELINE = "cicd_pipeline"
 
 
 class GitAuthType(StrEnum):

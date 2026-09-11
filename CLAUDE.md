@@ -926,7 +926,8 @@ remote creates/uses a `GitRepository` row.
   `git_author_name`/`git_author_email`, `is_active`, `sync_status`.
 - `backend/models/git_repositories.py` — Pydantic request/response models,
   `GitCategory` enum (`device_configs`, `cockpit_configs`, `templates`, `agent`,
-  `csv_imports`, `csv_exports`, `workflows`, `workflow_steps`), `GitAuthType` enum.
+  `csv_imports`, `csv_exports`, `workflows`, `workflow_steps`, `cicd_pipeline`),
+  `GitAuthType` enum.
 - `backend/services/git/repository_service.py` — `GitRepositoryService`: CRUD for the
   `git_repositories` table only (no git operations). `_to_dict()` is the canonical
   "repository dict" shape every git operation below consumes.

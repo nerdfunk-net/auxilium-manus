@@ -35,15 +35,7 @@ import {
 } from "@/hooks/queries/use-git-repositories-mutations";
 
 import { useCredentialsQuery } from "../credentials/hooks/use-credentials-query";
-
-const GIT_CATEGORIES = [
-  {
-    value: "workflow_steps",
-    label: "Workflow steps (git-clone, get-git-devices, …)",
-  },
-  { value: "workflows", label: "Workflow Version Control" },
-  { value: "device_configs", label: "Device configs" },
-] as const;
+import { GIT_CATEGORIES } from "../git-repositories/utils/git-repository-utils";
 
 const repositorySchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
@@ -189,7 +181,7 @@ export function GitRepositoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-md">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? "Edit Git repository" : "Add Git repository"}
