@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.schema import AddConstraint, sort_tables_and_constraints
 
 logger = logging.getLogger(__name__)
 
@@ -356,11 +357,27 @@ class AutoSchemaMigration:
 
         # Create in FK-dependency order (parents before children) so a table
         # referencing another missing table doesn't fail before its
-        # dependency exists.
-        ordered_tables = [t for t in self.base.metadata.sorted_tables if t.name in missing_tables]
+        # dependency exists. Unlike plain `metadata.sorted_tables`,
+        # sort_tables_and_constraints() pulls any use_alter=True foreign key
+        # (see WorkflowRun.change_request_id) out of its table's CREATE TABLE
+        # and returns it separately, so table-level FK cycles don't block
+        # ordering of the rest of the graph.
+        tables_to_create = [
+            t for t in self.base.metadata.tables.values() if t.name in missing_tables
+        ]
+        ordered = sort_tables_and_constraints(tables_to_create)
 
         created_count = 0
-        for table in ordered_tables:
+        deferred_constraints = []
+        for table, fkcs in ordered:
+            # table is None for the trailing entry that carries constraints
+            # sort_tables_and_constraints() pulled out of inline CREATE TABLE
+            # (use_alter=True, or ones it had to break to resolve a cycle) —
+            # every other entry's fkcs are the ones table.create() already
+            # renders inline, listed here for informational purposes only.
+            if table is None:
+                deferred_constraints.extend(fkcs)
+                continue
             if table.name in _SKIP_TABLES:
                 continue
             try:
@@ -370,6 +387,17 @@ class AutoSchemaMigration:
                 logger.info("Created table: %s", table.name)
             except Exception as e:
                 logger.error("Failed to create table %s: %s", table.name, e)
+
+        for fkc in deferred_constraints:
+            try:
+                logger.info(
+                    "Adding deferred foreign key constraint %s on %s", fkc.name, fkc.table.name
+                )
+                with self.engine.begin() as conn:
+                    conn.execute(AddConstraint(fkc))
+                logger.info("Added deferred foreign key constraint: %s", fkc.name)
+            except Exception as e:
+                logger.error("Failed to add deferred foreign key constraint %s: %s", fkc.name, e)
 
         return created_count
 

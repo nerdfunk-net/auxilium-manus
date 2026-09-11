@@ -40,9 +40,21 @@ class WorkflowRun(Base):
     # Set when this run is a *deploy run* dispatched by a ChangeRequest approval
     # (see doc/CICD_PIPELINE.md). Drives status reconciliation and the
     # use_change_request_branch override on git-pull/git-clone.
+    #
+    # change_requests.source_run_id/deploy_run_id reference workflow_runs.id,
+    # so this column's FK back to change_requests.id forms a table-level
+    # cycle. use_alter=True (with an explicit name, required by every
+    # dialect's ALTER TABLE ADD CONSTRAINT) tells SQLAlchemy to emit this
+    # constraint separately, after both tables exist, instead of inline in
+    # CREATE TABLE — see AutoSchemaMigration.create_missing_tables.
     change_request_id: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("change_requests.id", ondelete="SET NULL"),
+        ForeignKey(
+            "change_requests.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_workflow_runs_change_request_id",
+        ),
         nullable=True,
         index=True,
     )
