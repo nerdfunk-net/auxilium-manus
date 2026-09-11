@@ -2720,6 +2720,19 @@ plugins:
           data_type: integer
           required: false
           default: 10
+        - name: verify_content
+          description: >
+            Verify the uploaded content by comparing a locally computed checksum
+            against the device's own `verify` command output.
+          data_type: boolean
+          required: false
+          default: false
+        - name: verify_algorithm
+          description: Checksum algorithm for verify_content ("md5" or "sha512").
+          data_type: string
+          required: false
+          default: md5
+          example: sha512
 
   - id: render-jinja-template
     name: Render Jinja Template

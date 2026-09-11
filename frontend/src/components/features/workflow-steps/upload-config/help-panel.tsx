@@ -126,6 +126,48 @@ export function UploadConfigHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Verify uploaded content">
+        <p>
+          <HelpCode>verify_content</HelpCode> compares a checksum computed locally over
+          the uploaded content against the checksum the device itself computes for the
+          file it just stored. When enabled, choose <HelpCode>verify_algorithm</HelpCode>{" "}
+          — <span className="font-medium text-foreground">MD5</span> (default) or{" "}
+          <span className="font-medium text-foreground">SHA-512</span>. After the
+          transfer, the step runs the device&apos;s own{" "}
+          <HelpCode>verify /&lt;algorithm&gt; &lt;file_system&gt;&lt;destination_filename&gt;</HelpCode>{" "}
+          command and parses the fingerprint out of its output, ignoring everything
+          else (banner lines, progress dots, etc.).
+        </p>
+        <HelpExample>
+          verify_content: true
+          <br />
+          verify_algorithm: md5
+          <br />
+          <span className="text-muted-foreground">
+            → runs: verify /md5 bootflash:startup-config-new.cfg
+          </span>
+        </HelpExample>
+        <p>
+          If the device&apos;s checksum doesn&apos;t match, or its output can&apos;t be
+          parsed, the device is routed out the <HelpCode>failure</HelpCode> outcome even
+          though the file transfer itself succeeded.
+        </p>
+        <HelpWarning title="Cisco IOS / IOS-XE always append an extra newline">
+          <p>
+            Cisco IOS and IOS-XE unconditionally add one more{" "}
+            <span className="font-mono">\n</span> to whatever bytes were sent when
+            storing a text file — on top of any newline the uploaded content already
+            ended with. If the content already ended with a newline (the usual case),
+            the stored file ends with a trailing blank line;{" "}
+            <HelpCode>more</HelpCode> shows this as identical either way. On those
+            platforms the step accounts for this automatically before comparing
+            checksums. This adjustment only applies when the device&apos;s driver is{" "}
+            <HelpCode>cisco_ios</HelpCode> or <HelpCode>cisco_xe</HelpCode>; other
+            platforms are compared byte-for-byte.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Network driver override">
         <p>
           <HelpCode>network_driver_override</HelpCode> replaces each device&apos;s
@@ -165,8 +207,10 @@ export function UploadConfigHelpPanel() {
           <li>
             <span className="font-medium text-foreground">failure</span> — SSH
             connection failed, no matching content was found for the configured
-            source, or the transfer itself failed (e.g. SCP disabled on the device,
-            or the destination already exists and overwrite is off).
+            source, the transfer itself failed (e.g. SCP disabled on the device,
+            or the destination already exists and overwrite is off), or — when{" "}
+            <HelpCode>verify_content</HelpCode> is enabled — the device&apos;s checksum
+            didn&apos;t match or couldn&apos;t be parsed.
           </li>
         </ul>
       </HelpSection>

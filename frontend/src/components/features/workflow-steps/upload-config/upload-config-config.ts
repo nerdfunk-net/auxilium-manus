@@ -57,6 +57,13 @@ export const UPLOAD_CONFIG_SOURCE_OPTIONS = [
 
 export type ContentSource = (typeof UPLOAD_CONFIG_SOURCE_OPTIONS)[number]["value"];
 
+export const VERIFY_ALGORITHM_OPTIONS = [
+  { value: "md5", label: "MD5" },
+  { value: "sha512", label: "SHA-512" },
+] as const;
+
+export type VerifyAlgorithm = (typeof VERIFY_ALGORITHM_OPTIONS)[number]["value"];
+
 const SOURCE_STEP_NOT_REQUIRED = new Set<ContentSource>([
   "running_config",
   "startup_config",
@@ -153,6 +160,8 @@ export function buildUploadConfigConfig(
       typeof config.socket_timeout === "number" && Number.isFinite(config.socket_timeout)
         ? config.socket_timeout
         : DEFAULT_SOCKET_TIMEOUT,
+    verify_content: config.verify_content === true,
+    verify_algorithm: config.verify_algorithm === "sha512" ? "sha512" : "md5",
     ...patch,
   };
 }

@@ -12,4 +12,6 @@ def get_config() -> dict:
         "inline_transfer": False,
         "network_driver_override": "",
         "socket_timeout": 10,
+        "verify_content": False,
+        "verify_algorithm": "md5",
     }

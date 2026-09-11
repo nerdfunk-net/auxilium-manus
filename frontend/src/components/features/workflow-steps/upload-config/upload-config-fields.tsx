@@ -1,10 +1,23 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-import { MAX_SOCKET_TIMEOUT, MIN_SOCKET_TIMEOUT } from "./upload-config-config";
+import {
+  MAX_SOCKET_TIMEOUT,
+  MIN_SOCKET_TIMEOUT,
+  VERIFY_ALGORITHM_OPTIONS,
+  type VerifyAlgorithm,
+} from "./upload-config-config";
 
 export interface UploadConfigSocketTimeoutFieldsProps {
   socketTimeout: number;
@@ -97,5 +110,58 @@ export function UploadConfigTransferFields({
         </div>
       </div>
     </>
+  );
+}
+
+export interface UploadConfigVerifyFieldsProps {
+  verifyContent: boolean;
+  verifyAlgorithm: VerifyAlgorithm;
+  onVerifyContentChange: (checked: boolean) => void;
+  onVerifyAlgorithmChange: (value: VerifyAlgorithm) => void;
+}
+
+export function UploadConfigVerifyFields({
+  verifyContent,
+  verifyAlgorithm,
+  onVerifyContentChange,
+  onVerifyAlgorithmChange,
+}: UploadConfigVerifyFieldsProps) {
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="verify-content"
+          checked={verifyContent}
+          onCheckedChange={(checked) => onVerifyContentChange(checked === true)}
+        />
+        <Label htmlFor="verify-content" className="font-mono text-xs font-medium">
+          verify_content
+        </Label>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Compare a checksum of the uploaded content against the device&apos;s own{" "}
+        <span className="font-mono">verify</span> command output after the transfer.
+      </p>
+      {verifyContent ? (
+        <div className="space-y-1 pl-1">
+          <Label className="text-[11px] text-muted-foreground">Algorithm</Label>
+          <Select
+            value={verifyAlgorithm}
+            onValueChange={(value) => onVerifyAlgorithmChange(value as VerifyAlgorithm)}
+          >
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {VERIFY_ALGORITHM_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+    </div>
   );
 }

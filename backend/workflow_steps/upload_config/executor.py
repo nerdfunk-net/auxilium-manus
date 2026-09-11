@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass, replace
 from typing import Any
@@ -36,6 +38,22 @@ _STEP_ID = "upload-config"
 _SOURCE_STEP_ID_EXEMPT = frozenset({"running_config", "startup_config", "latest_command_output"})
 _MIN_SOCKET_TIMEOUT = 5
 _MAX_SOCKET_TIMEOUT = 300
+_VERIFY_ALGORITHMS = frozenset({"md5", "sha512"})
+# Matches Cisco IOS/IOS-XE `verify /<algo> (<fs>:<file>) = <hex>` output; ignores any
+# other banner/progress lines (e.g. the leading ".Done!").
+_VERIFY_HASH_PATTERN = re.compile(
+    r"verify\s+/\S+\s+\([^)]*\)\s*=\s*([0-9a-fA-F]+)", re.IGNORECASE
+)
+# Cisco IOS/IOS-XE unconditionally append one extra "\n" to whatever bytes were
+# actually sent when storing a text file — confirmed in Netmiko's own cisco_ios.py
+# file_md5()/config_md5() ("Cisco IOS automatically adds this": `file_contents + "\n"`,
+# with no stripping of any newline already present first) and empirically: uploading
+# content that already ended in a single "\n" produced a device checksum matching that
+# content plus a *second* trailing "\n" (a trailing blank line), not a normalized
+# single newline. Both device types resolve to the same CiscoIosSSH/
+# CiscoIosFileTransfer driver in Netmiko. Other platforms (NX-OS, ASA, Junos, EOS, …)
+# have no such documented behavior, so the adjustment below is scoped to these two.
+_NEWLINE_APPENDED_DEVICE_TYPES = frozenset({"cisco_ios", "cisco_xe"})
 
 
 @dataclass(frozen=True)
@@ -50,6 +68,8 @@ class _ParsedUploadConfig:
     inline_transfer: bool
     network_driver_override: str | None
     socket_timeout: int
+    verify_content: bool
+    verify_algorithm: str
 
 
 def _parse_bool(config: dict[str, Any], key: str) -> bool:
@@ -73,6 +93,15 @@ def _parse_socket_timeout(config: dict[str, Any]) -> int:
         raise ValueError(
             f"upload-config: socket_timeout must be between {_MIN_SOCKET_TIMEOUT} "
             f"and {_MAX_SOCKET_TIMEOUT} seconds"
+        )
+    return value
+
+
+def _parse_verify_algorithm(config: dict[str, Any]) -> str:
+    value = str(config.get("verify_algorithm") or "md5").strip().lower()
+    if value not in _VERIFY_ALGORITHMS:
+        raise ValueError(
+            f"upload-config: verify_algorithm must be one of {sorted(_VERIFY_ALGORITHMS)}"
         )
     return value
 
@@ -110,6 +139,8 @@ def _parse_upload_config(config: dict[str, Any]) -> _ParsedUploadConfig:
         inline_transfer=_parse_bool(config, "inline_transfer"),
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         socket_timeout=_parse_socket_timeout(config),
+        verify_content=_parse_bool(config, "verify_content"),
+        verify_algorithm=_parse_verify_algorithm(config),
     )
 
 
@@ -159,6 +190,82 @@ async def _load_upload_content(
             message=f"No {parsed.content_source} found for the configured source",
         )
     return await artifact_service.resolve(items[0].artifact_ref)
+
+
+def _compute_local_digest(content: str, algorithm: str, *, device_type: str | None) -> str:
+    if device_type in _NEWLINE_APPENDED_DEVICE_TYPES:
+        content = content + "\n"
+    data = content.encode("utf-8")
+    if algorithm == "md5":
+        # Matches Cisco's `verify /md5` output; used for integrity comparison against
+        # vendor CLI tooling, not as a security control.
+        digest = hashlib.md5(data)  # noqa: S324
+    else:
+        digest = hashlib.sha512(data)
+    return digest.hexdigest()
+
+
+async def _verify_uploaded_content(
+    *,
+    host: str,
+    device: DeviceContext,
+    node_id: str,
+    parsed: _ParsedUploadConfig,
+    content_text: str,
+    username: str,
+    password: str,
+    netmiko: NetmikoService,
+    device_type: str | None,
+) -> tuple[bool, CommandResult, str | None]:
+    local_digest = _compute_local_digest(
+        content_text, parsed.verify_algorithm, device_type=device_type
+    )
+    target = f"{parsed.file_system}{parsed.destination_filename}"
+    command = f"verify /{parsed.verify_algorithm} {target}"
+
+    result = await netmiko.send_commands(
+        host=host,
+        network_driver=device.network_driver,
+        platform=device.platform,
+        username=username,
+        password=password,
+        commands=[command],
+        device_type=device_type,
+        credential_reference=parsed.credential_reference,
+    )
+    if not result.success:
+        message = result.error or f"verify command failed: {command}"
+        failed_result = CommandResult(
+            node_id=node_id, command=command, success=False, summary=message
+        )
+        return False, failed_result, message
+
+    output = result.command_outputs.get(command, "") or result.output
+    match = _VERIFY_HASH_PATTERN.search(output)
+    if match is None:
+        message = (
+            f"Could not parse a {parsed.verify_algorithm} checksum from the device's "
+            "verify output"
+        )
+        failed_result = CommandResult(
+            node_id=node_id, command=command, success=False, summary=message
+        )
+        return False, failed_result, message
+
+    device_digest = match.group(1).lower()
+    if device_digest != local_digest.lower():
+        message = (
+            f"{parsed.verify_algorithm} mismatch: expected {local_digest}, "
+            f"device reported {device_digest}"
+        )
+        failed_result = CommandResult(
+            node_id=node_id, command=command, success=False, summary=message
+        )
+        return False, failed_result, message
+
+    summary = f"{parsed.verify_algorithm} checksum verified ({device_digest})"
+    ok_result = CommandResult(node_id=node_id, command=command, success=True, summary=summary)
+    return True, ok_result, None
 
 
 async def _upload_on_device(
@@ -259,6 +366,38 @@ async def _upload_on_device(
             }
         )
         return device_id, failed, False
+
+    if parsed.verify_content:
+        verify_ok, verify_command_result, verify_message = await _verify_uploaded_content(
+            host=host,
+            device=device,
+            node_id=node_id,
+            parsed=parsed,
+            content_text=content_text,
+            username=username,
+            password=password,
+            netmiko=netmiko,
+            device_type=device_type,
+        )
+        updated_command_results[node_id] = [
+            *updated_command_results[node_id],
+            verify_command_result,
+        ]
+        if not verify_ok:
+            verify_err = DeviceError(
+                node_id=node_id,
+                step_id=_STEP_ID,
+                code="verify_failed",
+                message=verify_message or "Content verification failed",
+            )
+            failed = device.model_copy(
+                update={
+                    "status": DeviceStatus.FAILED,
+                    "errors": [*device.errors, verify_err],
+                    "command_results": updated_command_results,
+                }
+            )
+            return device_id, failed, False
 
     enriched = device.model_copy(
         update={

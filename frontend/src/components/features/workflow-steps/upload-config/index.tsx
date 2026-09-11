@@ -29,11 +29,13 @@ import {
   needsSourceStepNodeId,
   sourceStepCopy,
   type ContentSource,
+  type VerifyAlgorithm,
 } from "./upload-config-config";
 import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
 import {
   UploadConfigSocketTimeoutFields,
   UploadConfigTransferFields,
+  UploadConfigVerifyFields,
 } from "./upload-config-fields";
 
 function UploadConfigConfigPanel({
@@ -70,6 +72,8 @@ function UploadConfigConfigPanel({
     typeof config.socket_timeout === "number" && Number.isFinite(config.socket_timeout)
       ? config.socket_timeout
       : MIN_SOCKET_TIMEOUT;
+  const verifyContent = config.verify_content === true;
+  const verifyAlgorithm: VerifyAlgorithm = config.verify_algorithm === "sha512" ? "sha512" : "md5";
 
   const stepNodeIdRequired = needsSourceStepNodeId(contentSource);
   const outputKeyNeeded = needsParsedOutputKey(contentSource);
@@ -180,6 +184,20 @@ function UploadConfigConfigPanel({
         ? Math.min(MAX_SOCKET_TIMEOUT, Math.max(MIN_SOCKET_TIMEOUT, parsed))
         : MIN_SOCKET_TIMEOUT;
       onChange(buildUploadConfigConfig(config, { socket_timeout: clamped }));
+    },
+    [config, onChange],
+  );
+
+  const handleVerifyContentChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildUploadConfigConfig(config, { verify_content: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleVerifyAlgorithmChange = useCallback(
+    (value: VerifyAlgorithm) => {
+      onChange(buildUploadConfigConfig(config, { verify_algorithm: value }));
     },
     [config, onChange],
   );
@@ -321,6 +339,13 @@ function UploadConfigConfigPanel({
         inlineTransfer={inlineTransfer}
         onOverwriteChange={handleOverwriteChange}
         onInlineTransferChange={handleInlineTransferChange}
+      />
+
+      <UploadConfigVerifyFields
+        verifyContent={verifyContent}
+        verifyAlgorithm={verifyAlgorithm}
+        onVerifyContentChange={handleVerifyContentChange}
+        onVerifyAlgorithmChange={handleVerifyAlgorithmChange}
       />
 
       <div className="space-y-1.5">
