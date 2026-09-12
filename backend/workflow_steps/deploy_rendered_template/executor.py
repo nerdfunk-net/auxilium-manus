@@ -45,6 +45,7 @@ class _ParsedDeployConfig:
     write_config_after_execution: bool
     read_timeout: int
     auto_confirm_prompts: bool
+    dry_run: bool
 
 
 def _default_config() -> dict[str, Any]:
@@ -96,6 +97,15 @@ def _parse_auto_confirm_prompts(config: dict[str, Any]) -> bool:
     return bool(value)
 
 
+def _parse_dry_run(config: dict[str, Any]) -> bool:
+    value = config.get("dry_run", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
     source_step_node_id = str(config.get("source_step_node_id") or "").strip()
     if not source_step_node_id:
@@ -110,6 +120,7 @@ def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
         write_config_after_execution=_parse_write_config(config),
         read_timeout=_parse_read_timeout(config),
         auto_confirm_prompts=_parse_auto_confirm_prompts(config),
+        dry_run=_parse_dry_run(config),
     )
 
 
@@ -134,6 +145,21 @@ def _fail_device(
         }
     )
     return device_id, failed, False
+
+
+def _dry_run_device(
+    *, device: DeviceContext, node_id: str, payload: dict[str, Any]
+) -> DeviceContext:
+    """Record what this step would have deployed, keyed by node_id so multiple
+    dry-run steps in the same workflow don't clobber each other's preview.
+
+    This is execution-preview metadata, not a workflow-consumable attribute --
+    it belongs on dry_run_results, not attribute_bags (which downstream Jinja
+    templates and Update Attribute/Log Attributes steps read and write).
+    """
+    results = dict(device.dry_run_results)
+    results[node_id] = payload
+    return device.model_copy(update={"status": DeviceStatus.OK, "dry_run_results": results})
 
 
 async def _load_deploy_commands(
@@ -353,6 +379,21 @@ async def _deploy_on_device(
     if isinstance(loaded, tuple):
         return loaded
 
+    if parsed.dry_run:
+        updated = _dry_run_device(
+            device=device,
+            node_id=node_id,
+            payload={
+                "would_deploy": True,
+                "execution_mode": parsed.execution_mode,
+                "commands": loaded,
+                "host": host,
+                "write_config_after_execution": parsed.write_config_after_execution,
+                "source_step_node_id": parsed.source_step_node_id,
+            },
+        )
+        return device_id, updated, True
+
     try:
         result = await _run_deploy_config(
             host=host,
@@ -514,7 +555,7 @@ async def execute(
     logger.info(
         "deploy-rendered-template started run_id=%s node_id=%s devices=%d credential=%s "
         "source=%s mode=%s write_config=%s override=%s read_timeout=%d "
-        "auto_confirm_prompts=%s",
+        "auto_confirm_prompts=%s dry_run=%s",
         run.id,
         node_id,
         total,
@@ -525,6 +566,7 @@ async def execute(
         parsed.network_driver_override,
         parsed.read_timeout,
         parsed.auto_confirm_prompts,
+        parsed.dry_run,
     )
 
     results = await asyncio.gather(

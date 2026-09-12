@@ -1370,6 +1370,17 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: dry_run
+          description: >
+            When enabled, this step does not send any commands to devices — it
+            only records what would happen. For each device, writes an entry to
+            dry_run_results.<this step's node id> describing the commands and
+            execution_mode that would have run. No command_results entry is
+            created and no artifacts are stored for that device on this step.
+            Visible in the run's detail view under the device's Dry Run section.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: merge-config
     name: Merge Config
@@ -1541,6 +1552,18 @@ plugins:
             rendered template is expected and safe to auto-accept. Any
             command actually confirmed this way is recorded in the step's
             output summary and worker logs.
+          data_type: boolean
+          required: false
+          default: false
+        - name: dry_run
+          description: >
+            When enabled, this step resolves the rendered template but does not
+            deploy it to devices. For each device, writes an entry to
+            dry_run_results.<this step's node id> describing the commands and
+            execution_mode that would have been deployed. No command_results
+            entry is created and no artifacts are stored for that device on this
+            step. Visible in the run's detail view under the device's Dry Run
+            section.
           data_type: boolean
           required: false
           default: false

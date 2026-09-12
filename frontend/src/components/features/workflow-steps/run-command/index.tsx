@@ -98,6 +98,7 @@ function buildRunCommandConfig(
         ? config.read_timeout
         : DEFAULT_READ_TIMEOUT,
     auto_confirm_prompts: config.auto_confirm_prompts === true,
+    dry_run: config.dry_run === true,
     ...patch,
   };
 
@@ -144,6 +145,7 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
       ? config.read_timeout
       : DEFAULT_READ_TIMEOUT;
   const autoConfirmPrompts = config.auto_confirm_prompts === true;
+  const dryRun = config.dry_run === true;
   const parserLocked = executionMode === "config_mode" || autoConfirmPrompts;
 
   const pyatsSourceId = useMemo(() => pyatsSourceIdFromConfig(config), [config]);
@@ -226,6 +228,13 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
   const handleAutoConfirmPromptsChange = useCallback(
     (checked: boolean) => {
       onChange(buildRunCommandConfig(config, { auto_confirm_prompts: checked }));
+    },
+    [config, onChange],
+  );
+
+  const handleDryRunChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildRunCommandConfig(config, { dry_run: checked }));
     },
     [config, onChange],
   );
@@ -320,6 +329,28 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
         {executionModeHint ? (
           <p className="text-[11px] text-muted-foreground">{executionModeHint}</p>
         ) : null}
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-start gap-2">
+          <input
+            id="dry-run"
+            type="checkbox"
+            checked={dryRun}
+            onChange={(event) => handleDryRunChange(event.target.checked)}
+            className="mt-0.5 size-4 rounded border"
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor="dry-run" className="font-mono text-xs font-medium">
+              dry_run
+            </Label>
+            <p className="text-[11px] text-muted-foreground">
+              Do not send anything to devices. Records what would happen under{" "}
+              <span className="font-mono">dry_run_results</span> for this step, visible in the
+              run&apos;s detail view.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="space-y-1.5">

@@ -173,6 +173,18 @@ export function DeployRenderedTemplateHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="Dry run">
+        <p>
+          Enabling <HelpCode>dry_run</HelpCode> still resolves the rendered
+          template but skips deploying it to the device. Instead, for each device
+          the step records what it would have deployed under{" "}
+          <HelpCode>dry_run_results.&lt;this step&apos;s node id&gt;</HelpCode> —
+          visible in the run&apos;s detail view under that device&apos;s Dry Run
+          section. No command output or artifacts are produced for the step while
+          dry run is enabled.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>

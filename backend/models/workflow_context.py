@@ -99,6 +99,7 @@ class DeviceContext(BaseModel):
     startup_config_ref: ArtifactRef | None = None
     parsed: dict[str, Any] = Field(default_factory=dict)
     command_results: dict[str, list[CommandResult]] = Field(default_factory=dict)
+    dry_run_results: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     capabilities: set[Capability] = Field(default_factory=set)
     status: DeviceStatus = DeviceStatus.PENDING

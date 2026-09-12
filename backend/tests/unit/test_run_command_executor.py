@@ -788,6 +788,156 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
+    async def test_dry_run_exec_mode_skips_netmiko_and_populates_dry_run_results(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock()
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "parser": "none",
+                    "dry_run": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        device = outcomes[0].context.devices["device-1"]
+        netmiko.send_commands.assert_not_called()
+        self.assertNotIn("node-1", device.command_results)
+        preview = device.dry_run_results["node-1"]
+        self.assertTrue(preview["would_execute"])
+        self.assertEqual(preview["execution_mode"], "exec_mode")
+        self.assertEqual(preview["commands"], ["show version"])
+        self.assertEqual(device.status, DeviceStatus.OK)
+
+    async def test_dry_run_config_mode_skips_netmiko_and_populates_dry_run_results(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock()
+
+            outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["interface Gi0/0", "no shutdown"],
+                    "execution_mode": "config_mode",
+                    "dry_run": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(outcomes[0].name, "success")
+        device = outcomes[0].context.devices["device-1"]
+        netmiko.deploy_config.assert_not_called()
+        self.assertNotIn("node-1", device.command_results)
+        preview = device.dry_run_results["node-1"]
+        self.assertTrue(preview["would_execute"])
+        self.assertEqual(preview["execution_mode"], "config_mode")
+        self.assertEqual(preview["commands"], ["interface Gi0/0", "no shutdown"])
+
+    async def test_dry_run_multiple_steps_keyed_by_node_id(self) -> None:
+        """Two dry-run steps in the same workflow must not clobber each
+        other's preview -- dry_run_results is keyed by node_id."""
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko_cls.return_value.send_commands = AsyncMock()
+
+            first_outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "dry_run": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+            intermediate_device = first_outcomes[0].context.devices["device-1"]
+
+            second_outcomes = await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show ip route"],
+                    "dry_run": True,
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": intermediate_device},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-2",
+                device_sessions=MagicMock(),
+            )
+
+        final_device = second_outcomes[0].context.devices["device-1"]
+        dry_run_bag = final_device.dry_run_results
+        self.assertEqual(dry_run_bag["node-1"]["commands"], ["show version"])
+        self.assertEqual(dry_run_bag["node-2"]["commands"], ["show ip route"])
+
     async def test_write_config_after_execution_with_exec_mode_raises(self) -> None:
         run = MagicMock()
         with self.assertRaises(ValueError):

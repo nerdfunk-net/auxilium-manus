@@ -138,6 +138,15 @@ def _parse_auto_confirm_prompts(config: dict[str, Any]) -> bool:
     return bool(value)
 
 
+def _parse_dry_run(config: dict[str, Any]) -> bool:
+    value = config.get("dry_run", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _validate_mode_combination(
     *, parser_mode: str, execution_mode: str, auto_confirm_prompts: bool
 ) -> None:
@@ -169,6 +178,7 @@ class _ParsedRunCommandConfig:
     write_config_after_execution: bool
     read_timeout: int
     auto_confirm_prompts: bool
+    dry_run: bool
 
 
 def _parse_run_command_config(config: dict[str, Any]) -> _ParsedRunCommandConfig:
@@ -177,6 +187,7 @@ def _parse_run_command_config(config: dict[str, Any]) -> _ParsedRunCommandConfig
     execution_mode = _parse_execution_mode(config)
     auto_confirm_prompts = _parse_auto_confirm_prompts(config)
     write_config_after_execution = _parse_write_config(config)
+    dry_run = _parse_dry_run(config)
 
     _validate_mode_combination(
         parser_mode=parser_mode,
@@ -209,6 +220,7 @@ def _parse_run_command_config(config: dict[str, Any]) -> _ParsedRunCommandConfig
         write_config_after_execution=write_config_after_execution,
         read_timeout=_parse_read_timeout(config),
         auto_confirm_prompts=auto_confirm_prompts,
+        dry_run=dry_run,
     )
 
 
@@ -248,6 +260,21 @@ def _fail_device(
     return device_id, failed, False
 
 
+def _dry_run_device(
+    *, device: DeviceContext, node_id: str, payload: dict[str, Any]
+) -> DeviceContext:
+    """Record what this step would have done, keyed by node_id so multiple
+    dry-run steps in the same workflow don't clobber each other's preview.
+
+    This is execution-preview metadata, not a workflow-consumable attribute --
+    it belongs on dry_run_results, not attribute_bags (which downstream Jinja
+    templates and Update Attribute/Log Attributes steps read and write).
+    """
+    results = dict(device.dry_run_results)
+    results[node_id] = payload
+    return device.model_copy(update={"status": DeviceStatus.OK, "dry_run_results": results})
+
+
 async def _run_on_device(
     *,
     device_id: str,
@@ -263,6 +290,7 @@ async def _run_on_device(
     credential_reference: str,
     read_timeout: int,
     auto_confirm_prompts: bool,
+    dry_run: bool,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, bool, dict[str, str]]:
@@ -282,6 +310,19 @@ async def _run_on_device(
         platform=device.platform,
         override=network_driver_override,
     )
+
+    if dry_run:
+        updated = _dry_run_device(
+            device=device,
+            node_id=node_id,
+            payload={
+                "would_execute": True,
+                "execution_mode": "exec_mode",
+                "commands": commands,
+                "host": host,
+            },
+        )
+        return device_id, updated, True, {}
 
     try:
         result = await netmiko.send_commands(
@@ -385,6 +426,7 @@ async def _run_on_device_logged(
     credential_reference: str,
     read_timeout: int,
     auto_confirm_prompts: bool,
+    dry_run: bool,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, bool, dict[str, str]]:
@@ -411,6 +453,7 @@ async def _run_on_device_logged(
         credential_reference=credential_reference,
         read_timeout=read_timeout,
         auto_confirm_prompts=auto_confirm_prompts,
+        dry_run=dry_run,
         netmiko=netmiko,
         artifact_service=artifact_service,
     )
@@ -746,6 +789,20 @@ async def _run_config_mode_on_device(
             message=f"Device {device_id} has no hostname or primary IP",
         )
 
+    if parsed.dry_run:
+        updated = _dry_run_device(
+            device=device,
+            node_id=node_id,
+            payload={
+                "would_execute": True,
+                "execution_mode": "config_mode",
+                "commands": parsed.commands,
+                "host": host,
+                "write_config_after_execution": parsed.write_config_after_execution,
+            },
+        )
+        return device_id, updated, True
+
     try:
         result = await _run_command_config_mode(
             host=host,
@@ -906,7 +963,7 @@ async def execute(
 
     logger.info(
         "run-command run_id=%s devices=%d credential=%s mode=%s commands=%d parser=%s "
-        "override=%s read_timeout=%d write_config=%s auto_confirm_prompts=%s",
+        "override=%s read_timeout=%d write_config=%s auto_confirm_prompts=%s dry_run=%s",
         run.id,
         total,
         parsed.credential_reference,
@@ -917,6 +974,7 @@ async def execute(
         parsed.read_timeout,
         parsed.write_config_after_execution,
         parsed.auto_confirm_prompts,
+        parsed.dry_run,
     )
 
     if parsed.execution_mode == "config_mode":
@@ -972,6 +1030,7 @@ async def execute(
                 credential_reference=parsed.credential_reference,
                 read_timeout=parsed.read_timeout,
                 auto_confirm_prompts=parsed.auto_confirm_prompts,
+                dry_run=parsed.dry_run,
                 netmiko=netmiko,
                 artifact_service=artifact_service,
             )

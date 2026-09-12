@@ -44,6 +44,7 @@ export interface DeviceContext {
   startup_config_ref: ArtifactRef | null;
   parsed: Record<string, unknown>;
   command_results: Record<string, CommandResult[]>;
+  dry_run_results: Record<string, Record<string, unknown>>;
   capabilities: Capability[];
   status: DeviceStatus;
   errors: DeviceError[];

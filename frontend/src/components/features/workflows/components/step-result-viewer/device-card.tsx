@@ -13,6 +13,7 @@ import { DeviceCommandResultsContent } from "./device-command-results-content";
 import { DeviceComparisonDiffsContent } from "./device-comparison-diff-content";
 import { DeviceConfigsContent } from "./device-configs-content";
 import { DeviceDetailDialog } from "./device-detail-dialog";
+import { DeviceDryRunContent, getDryRunEntries } from "./device-dry-run-content";
 import { DeviceErrorList } from "./device-error-list";
 import { DeviceGenieConfigContent } from "./device-genie-config-content";
 import { DeviceParsedCommandOutputContent } from "./device-parsed-command-output-content";
@@ -68,6 +69,12 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
   const hasGenieConfig = genieConfigEntries.length > 0;
   const hasSnapshot = snapshotEntries.length > 0;
   const hasParsedCommandOutput = parsedCommandOutputEntries.length > 0;
+  const dryRunEntries = useMemo(
+    () => getDryRunEntries(device.dry_run_results),
+    [device.dry_run_results],
+  );
+  const hasDryRun = dryRunEntries.length > 0;
+  const [showDryRun, setShowDryRun] = useState(true);
   const [showComparisons, setShowComparisons] = useState(hasComparisons);
   const [showGenieConfig, setShowGenieConfig] = useState(false);
   const [showSnapshot, setShowSnapshot] = useState(false);
@@ -236,8 +243,18 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
           hasGenieConfig ||
           hasSnapshot ||
           hasParsedCommandOutput ||
+          hasDryRun ||
           attributeBagNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {hasDryRun ? (
+                <button
+                  type="button"
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => setShowDryRun((value) => !value)}
+                >
+                  {showDryRun ? "Hide" : "Show"} dry run ({dryRunEntries.length})
+                </button>
+              ) : null}
               {attributeBagNames.length > 0 ? (
                 <button
                   type="button"
@@ -314,6 +331,11 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
                   {showParsedCommandOutput ? "Hide" : "Show"} parsed command output
                 </button>
               ) : null}
+            </div>
+          ) : null}
+          {showDryRun && hasDryRun ? (
+            <div className="mt-2">
+              <DeviceDryRunContent entries={dryRunEntries} />
             </div>
           ) : null}
           {showAttributeBags && attributeBagNames.length > 0 ? (

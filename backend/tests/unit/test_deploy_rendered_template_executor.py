@@ -477,6 +477,52 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed_device = next(o for o in outcomes if o.name == "failure").context.devices["device-1"]
         self.assertEqual(failed_device.errors[-1].code, "rendered_template_missing")
 
+    async def test_dry_run_skips_deploy_and_populates_dry_run_results(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        resolve_mock = AsyncMock(return_value=RENDERED_TEXT)
+        with (
+            patch(
+                "workflow_steps.deploy_rendered_template.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
+            patch.object(artifact_service, "resolve", new=resolve_mock),
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock()
+
+            outcomes = await execute(
+                config=_base_config(dry_run=True),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].name, "success")
+        device = outcomes[0].context.devices["device-1"]
+        netmiko.deploy_config.assert_not_called()
+        resolve_mock.assert_awaited_once()
+        self.assertNotIn("deploy-1", device.command_results)
+        preview = device.dry_run_results["deploy-1"]
+        self.assertTrue(preview["would_deploy"])
+        self.assertEqual(preview["execution_mode"], "config_mode")
+        self.assertEqual(preview["commands"], ["interface Gi0/0", " description test"])
+        self.assertEqual(preview["source_step_node_id"], "render-jinja-template-3")
+
     async def test_save_failure_marks_device_failed(self) -> None:
         run = MagicMock()
         run.id = 1

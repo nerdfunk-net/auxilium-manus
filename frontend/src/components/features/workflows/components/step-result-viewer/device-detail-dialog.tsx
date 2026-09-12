@@ -5,6 +5,7 @@ import {
   Braces,
   FileCode2,
   FileText,
+  FlaskConical,
   GitCompareArrows,
   Info,
   Layers,
@@ -30,6 +31,7 @@ import { ContentViewer } from "./content-viewer";
 import { DeviceCommandResultsContent } from "./device-command-results-content";
 import { DeviceComparisonDiffsContent } from "./device-comparison-diff-content";
 import { DeviceConfigSection } from "./device-config-section";
+import { DeviceDryRunContent, getDryRunEntries } from "./device-dry-run-content";
 import { DeviceErrorList } from "./device-error-list";
 import { DeviceParsedCommandOutputContent } from "./device-parsed-command-output-content";
 import { DeviceParsedTemplatesContent } from "./device-parsed-templates-content";
@@ -72,6 +74,10 @@ export function DeviceDetailDialog({
         (name) => Object.keys(attributeBags[name] ?? {}).length > 0,
       ),
     [attributeBags],
+  );
+  const dryRunEntries = useMemo(
+    () => getDryRunEntries(device.dry_run_results),
+    [device.dry_run_results],
   );
   const parsedTemplateEntries = useMemo(
     () => getParsedTemplateEntries(device.parsed ?? {}),
@@ -141,6 +147,16 @@ export function DeviceDetailDialog({
         ),
       },
     ];
+
+    if (dryRunEntries.length > 0) {
+      list.push({
+        id: "dry-run",
+        label: "Dry run",
+        icon: FlaskConical,
+        count: dryRunEntries.length,
+        render: () => <DeviceDryRunContent entries={dryRunEntries} />,
+      });
+    }
 
     if (attributeBagNames.length > 0) {
       list.push({
@@ -281,6 +297,7 @@ export function DeviceDetailDialog({
     comparisonDiffEntries,
     comparisonResultEntries,
     device,
+    dryRunEntries,
     genieConfigEntries,
     parsedCommandOutputEntries,
     parsedTemplateEntries,

@@ -15,4 +15,5 @@ def get_config() -> dict:
         "write_config_after_execution": False,
         "read_timeout": DEFAULT_READ_TIMEOUT,
         "auto_confirm_prompts": False,
+        "dry_run": False,
     }
