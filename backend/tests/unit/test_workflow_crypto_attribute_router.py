@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from core.auth import get_current_user, verify_token
+from core.database import get_db
 from core.models.users import User
 from routers.workflow_crypto_attribute import router as crypto_router
 from services.auth.rbac_service import RBACService
@@ -18,6 +22,10 @@ def _make_user(user_id: int = 1) -> User:
     return user
 
 
+def _override_db() -> Iterator[MagicMock]:
+    yield MagicMock()
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
@@ -25,6 +33,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     app.include_router(crypto_router, prefix="/api")
     app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
     app.dependency_overrides[get_current_user] = lambda: _make_user(1)
+    app.dependency_overrides[get_db] = _override_db
     return TestClient(app)
 
 
