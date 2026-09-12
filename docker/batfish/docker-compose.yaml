@@ -1,0 +1,100 @@
+# Auxilium Manus — Batfish (network config analysis, optional)
+#
+# Batfish (https://github.com/batfish/batfish) parses already-collected device
+# configs into a vendor-neutral model and answers offline questions against it
+# (routing tables, path/reachability tracing, ACL "does this traffic get
+# permitted" checks, BGP/OSPF session validation, snapshot diffs) — it never
+# opens a connection to a live device itself. This runs the official
+# `batfish/allinone` image: one container bundling the coordinator (which
+# stores "networks" and "snapshots") and the worker that answers questions,
+# talked to over its own client protocol on ports 9996/9997 (the `pybatfish`
+# library is the client; there's no REST/HTTP API to curl by hand).
+#
+# The OSS coordinator has NO AUTHENTICATION of its own — anyone who can reach
+# ports 9996/9997 can create/read/delete networks and snapshots. That's why,
+# like docker/pyats and docker/openbao, the published ports are bound to
+# 127.0.0.1 only and the container also joins the app's shared `backend`
+# Docker network. Never publish these ports beyond localhost.
+#
+# The upstream image's default entrypoint (`wrapper.sh`) also starts a bundled
+# Jupyter notebook server on 0.0.0.0:8888 (pre-loaded with pybatfish, for
+# interactive tutorials) and kills the whole container if that process ever
+# exits. We don't use it — the app talks to Batfish through `pybatfish`'s
+# `Session` from backend code, not the notebook UI — so `command:` below
+# replaces the entrypoint with just the Java coordinator/worker process,
+# lifted verbatim from wrapper.sh. This also sidesteps 8888 colliding with the
+# Hatchet dashboard's published port (docker/hatchet/docker-compose.yml).
+#
+# Prerequisite: the app stack's `backend` network must already exist (created
+# automatically the first time `docker/docker-compose.yml` is brought up).
+# Running this standalone? Create it once:
+#   docker network create backend
+#
+# Start:
+#   cd docker/batfish
+#   cp .env.example .env          # optional — only needed to pin/override the image tag
+#   docker compose up -d
+#
+# Verify (from the host, since the published ports are localhost-only):
+#   docker compose ps                                                       # STATUS should read "healthy"
+#   docker compose exec batfish bash -c 'exec 3<>/dev/tcp/localhost/9996'   # exit 0 = port open
+#   (this image logs almost nothing at the default -loglevel warn — an empty
+#   `docker compose logs` is normal, not a sign it isn't running)
+#
+# Reachability (same pattern as docker/pyats and docker/openbao):
+#   - Backend containerized on the `backend` network (manus-web / manus-worker
+#     from docker/docker-compose.yml):
+#       host: batfish   ports: 9996, 9997   (container DNS name)
+#   - Backend running natively on the host (the CLAUDE.md dev workflow —
+#     `python start.py` / `python scripts/run_worker_dev.py`):
+#       host: 127.0.0.1   ports: 9996, 9997   (the published ports below)
+#
+# Storage: snapshots and network metadata persist in the `batfish_data` named
+# volume (mounted at /data, Batfish's default `-storagebase`), so they survive
+# container restarts. Delete the volume to wipe all stored networks/snapshots.
+
+services:
+  batfish:
+    image: batfish/allinone:${BATFISH_IMAGE_TAG:-latest}
+    container_name: batfish
+    restart: unless-stopped
+    entrypoint: []
+    command:
+      - java
+      - -XX:-UseCompressedOops
+      - -XX:+UseContainerSupport
+      - -XX:MaxRAMPercentage=80
+      - -Dlog4j.configurationFile=log4j2.yaml
+      - -cp
+      - allinone-bundle.jar
+      - org.batfish.allinone.Main
+      - -runclient
+      - "false"
+      - -loglevel
+      - warn
+      - -coordinatorargs
+      - -templatedirs questions -containerslocation /data/containers
+    ports:
+      - "127.0.0.1:9996:9996"
+      - "127.0.0.1:9997:9997"
+    volumes:
+      - batfish_data:/data
+    healthcheck:
+      # No curl in this image; a raw TCP connect to the coordinator's work
+      # port is enough to confirm the process is up and listening. Must be
+      # invoked as `bash` explicitly — CMD-SHELL runs /bin/sh here, which is
+      # not bash and doesn't support the /dev/tcp pseudo-device.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9996"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backend
+
+volumes:
+  batfish_data:
+
+networks:
+  backend:
+    external: true
