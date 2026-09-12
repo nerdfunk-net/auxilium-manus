@@ -314,7 +314,7 @@ export function WorkflowImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Import Workflow</DialogTitle>
           <DialogDescription>
@@ -322,42 +322,47 @@ export function WorkflowImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 py-2">
-          <WorkflowImportFileField
-            importFile={importFile}
-            parseError={parseError}
-            onParsed={handleFileParsed}
-            onError={handleFileError}
-          />
-
-          <WorkflowImportMetadataFields
-            importFile={importFile}
-            register={register}
-            errors={errors}
-            visibility={visibility}
-            setValue={setValue}
-            onClearPendingOverwrite={() => setPendingOverwrite(null)}
-            pendingOverwrite={pendingOverwrite}
-            onConfirmOverwrite={() =>
-              pendingOverwrite &&
-              void performSave(
-                pendingOverwrite.values,
-                pendingOverwrite.existingId,
-              )
-            }
-            showTemplateSummary={showTemplateSummary}
-            templateImportSummary={templateImportSummary}
-          />
-
-          {showCredentialMapping ? (
-            <WorkflowImportCredentialRemap
-              requirements={remapRequirements}
-              credentials={sshCredentials}
-              value={credentialRemap}
-              onChange={handleRemapChange}
-              isLoading={credentialsLoading}
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="flex-1 space-y-4 overflow-y-auto px-1 py-1">
+            <WorkflowImportFileField
+              importFile={importFile}
+              parseError={parseError}
+              onParsed={handleFileParsed}
+              onError={handleFileError}
             />
-          ) : null}
+
+            <WorkflowImportMetadataFields
+              importFile={importFile}
+              register={register}
+              errors={errors}
+              visibility={visibility}
+              setValue={setValue}
+              onClearPendingOverwrite={() => setPendingOverwrite(null)}
+              pendingOverwrite={pendingOverwrite}
+              onConfirmOverwrite={() =>
+                pendingOverwrite &&
+                void performSave(
+                  pendingOverwrite.values,
+                  pendingOverwrite.existingId,
+                )
+              }
+              showTemplateSummary={showTemplateSummary}
+              templateImportSummary={templateImportSummary}
+            />
+
+            {showCredentialMapping ? (
+              <WorkflowImportCredentialRemap
+                requirements={remapRequirements}
+                credentials={sshCredentials}
+                value={credentialRemap}
+                onChange={handleRemapChange}
+                isLoading={credentialsLoading}
+              />
+            ) : null}
+          </div>
 
           <WorkflowImportFormFooter
             onClose={handleClose}

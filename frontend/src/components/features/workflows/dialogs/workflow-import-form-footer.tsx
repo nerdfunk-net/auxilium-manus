@@ -15,7 +15,7 @@ export function WorkflowImportFormFooter({
   submitLabel,
 }: WorkflowImportFormFooterProps) {
   return (
-    <DialogFooter>
+    <DialogFooter className="shrink-0 pt-4">
       <Button type="button" variant="outline" onClick={onClose}>
         Cancel
       </Button>
