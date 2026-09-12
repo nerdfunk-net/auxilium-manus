@@ -22,6 +22,7 @@ def validate_non_development_secrets(
     allow_netmiko_arbitrary_hosts: bool = False,
     vault_enabled: bool = False,
     vault_addr: str = "",
+    vault_verify_ssl: bool = True,
     vault_auth_method: str = "approle",
     vault_role_id: str = "",
     vault_secret_id: str = "",
@@ -62,6 +63,11 @@ def validate_non_development_secrets(
     if vault_enabled:
         if not vault_addr.lower().startswith("https://"):
             raise RuntimeError("VAULT_ADDR must use https outside development")
+        if not vault_verify_ssl:
+            raise RuntimeError(
+                "VAULT_VERIFY_SSL must not be disabled outside development "
+                "(point VAULT_CACERT at the OpenBao CA bundle instead)"
+            )
         if vault_auth_method == "token":
             raise RuntimeError("VAULT_AUTH_METHOD=token is only allowed in development")
         if vault_auth_method == "approle":

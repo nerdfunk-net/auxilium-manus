@@ -101,6 +101,27 @@ class VaultProductionGuardTests(unittest.TestCase):
             vault_client_key="/etc/manus/vault.key",
         )
 
+    def test_verify_ssl_false_rejected_outside_dev(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "VAULT_VERIFY_SSL"):
+            _guard(
+                vault_enabled=True,
+                vault_addr="https://vault.internal:8200",
+                vault_verify_ssl=False,
+                vault_auth_method="approle",
+                vault_role_id="r",
+                vault_secret_id="s",
+                vault_manage_role_id="mr",
+                vault_manage_secret_id="ms",
+            )
+
+    def test_verify_ssl_false_allowed_in_development(self) -> None:
+        _guard(
+            environment="development",
+            vault_enabled=True,
+            vault_addr="https://vault.internal:8200",
+            vault_verify_ssl=False,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

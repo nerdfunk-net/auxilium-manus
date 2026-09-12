@@ -309,7 +309,7 @@ All env-based; read in `core/config.py`, structurally validated in
 | `VAULT_TOKEN` / `VAULT_MANAGE_TOKEN` | — | Dev-only static tokens. |
 | `VAULT_CLIENT_CERT` / `VAULT_CLIENT_KEY` | — | Cert-auth material. |
 | `VAULT_CACERT` | — | CA bundle for the OpenBao server cert. |
-| `VAULT_VERIFY_SSL` | `true` | |
+| `VAULT_VERIFY_SSL` | `true` | `false` is refused outside development — use `VAULT_CACERT` for a private CA instead of disabling verification. |
 | `VAULT_TOKEN_PERIOD_SECONDS` | `3600` | Mirror of the role's `token_period`. Min 60. |
 | `VAULT_RENEW_BUFFER_SECONDS` | `600` | Renew this long before the period ends. Must be `<` the period. |
 | `VAULT_TIMEOUT_SECONDS` | `5` | Per-request HTTP timeout. |

@@ -213,6 +213,7 @@ class Settings:
             allow_netmiko_arbitrary_hosts=self.allow_netmiko_arbitrary_hosts,
             vault_enabled=self.vault_enabled,
             vault_addr=self.vault_addr,
+            vault_verify_ssl=self.vault_verify_ssl,
             vault_auth_method=self.vault_auth_method,
             vault_role_id=self.vault_role_id,
             vault_secret_id=self.vault_secret_id,
