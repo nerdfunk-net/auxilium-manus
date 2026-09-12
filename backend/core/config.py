@@ -1,4 +1,4 @@
-from ipaddress import ip_address
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from os import environ
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -23,25 +23,34 @@ DEFAULT_ALLOWED_FILE_EXTENSIONS = ".cfg,.conf,.txt,.yaml,.yml,.json,.xml,.ini,.m
 load_dotenv(DEFAULT_ENV_FILE)
 
 
-def validate_trusted_proxy_ips(values: set[str]) -> set[str]:
-    """Reject unparsable or unspecified (0.0.0.0 / ::) TRUSTED_PROXY_IPS entries."""
-    cleaned: set[str] = set()
+TrustedProxyNetworks = frozenset[IPv4Network | IPv6Network]
+
+
+def validate_trusted_proxy_ips(values: set[str]) -> TrustedProxyNetworks:
+    """Parse TRUSTED_PROXY_IPS entries (bare IPs or CIDRs) into networks.
+
+    A bare IP becomes a /32 (/128) network. Rejects unparsable entries, the
+    unspecified address (0.0.0.0 / ::), and catch-all networks (/0).
+    """
+    cleaned: set[IPv4Network | IPv6Network] = set()
     for raw in values:
         try:
-            parsed = ip_address(raw)
+            network = ip_network(raw, strict=False)
         except ValueError as exc:
-            raise RuntimeError(f"TRUSTED_PROXY_IPS contains an invalid IP: {raw}") from exc
-        if parsed.is_unspecified:
+            raise RuntimeError(f"TRUSTED_PROXY_IPS contains an invalid IP or CIDR: {raw}") from exc
+        if network.prefixlen == 0:
+            raise RuntimeError(f"TRUSTED_PROXY_IPS must not include a catch-all network: {raw}")
+        if network.network_address.is_unspecified:
             raise RuntimeError(f"TRUSTED_PROXY_IPS must not include unspecified address {raw}")
-        cleaned.add(str(parsed))
-    return cleaned
+        cleaned.add(network)
+    return frozenset(cleaned)
 
 
 class Settings:
     app_name: str = "Auxilium Manus API"
     api_prefix: str = "/api"
     environment: str
-    trusted_proxy_ips: set[str]
+    trusted_proxy_networks: TrustedProxyNetworks
     docs_enabled: bool
     plugins_file: Path
     secret_key: str
@@ -109,7 +118,7 @@ class Settings:
 
     def __init__(self) -> None:
         self.environment = environ.get("ENV", "development")
-        self.trusted_proxy_ips = validate_trusted_proxy_ips(
+        self.trusted_proxy_networks = validate_trusted_proxy_ips(
             set(self._get_csv("TRUSTED_PROXY_IPS", ""))
         )
         self.docs_enabled = self._get_bool("DOCS_ENABLED", self.environment == "development")
@@ -211,6 +220,7 @@ class Settings:
             enable_dev_tools=dev_tools_enabled(),
             redis_password=self.redis_password,
             allow_netmiko_arbitrary_hosts=self.allow_netmiko_arbitrary_hosts,
+            trusted_proxy_ips_configured=bool(self.trusted_proxy_networks),
             vault_enabled=self.vault_enabled,
             vault_addr=self.vault_addr,
             vault_verify_ssl=self.vault_verify_ssl,

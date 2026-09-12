@@ -48,3 +48,42 @@ def test_resolve_credentials_treats_private_only_match_as_not_found() -> None:
         )
 
     assert (username, token, ssh_key_path) == (None, None, None)
+
+
+def test_setup_auth_environment_discards_ephemeral_key() -> None:
+    service = GitAuthenticationService()
+    repository = {"auth_type": "ssh_key", "url": "git@example.com:org/repo.git"}
+
+    with (
+        patch.object(
+            service,
+            "resolve_credentials",
+            return_value=("git", None, "/data/ssh_keys/tmp/some-key"),
+        ),
+        patch("services.git.auth.discard_ephemeral_ssh_key") as mock_discard,
+    ):
+        with service.setup_auth_environment(repository) as (_, _username, _token, ssh_key_path):
+            assert ssh_key_path == "/data/ssh_keys/tmp/some-key"
+
+    mock_discard.assert_called_once_with("/data/ssh_keys/tmp/some-key")
+
+
+def test_setup_auth_environment_discards_ephemeral_key_even_on_error() -> None:
+    service = GitAuthenticationService()
+    repository = {"auth_type": "ssh_key", "url": "git@example.com:org/repo.git"}
+
+    with (
+        patch.object(
+            service,
+            "resolve_credentials",
+            return_value=("git", None, "/data/ssh_keys/tmp/some-key"),
+        ),
+        patch("services.git.auth.discard_ephemeral_ssh_key") as mock_discard,
+    ):
+        try:
+            with service.setup_auth_environment(repository):
+                raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+
+    mock_discard.assert_called_once_with("/data/ssh_keys/tmp/some-key")

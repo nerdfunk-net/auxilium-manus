@@ -193,6 +193,14 @@ A successful `POST /auth/change-password` returns a fresh `SessionResponse` (new
 `app/api/auth/change-password/route.ts` re-sets the auth cookie from it so the
 forced-change flow does not bounce the user back to login.
 
+**Login rate limiting (T1).** `POST /auth/login` is limited on two independent
+*failure* budgets: per client IP (20 failures/60s) and per username (100
+failures/15min); a success clears only the username bucket. The client IP comes
+from `core/client_ip.py::resolve_client_host` — the rightmost `X-Forwarded-For`
+hop that is not itself a trusted proxy, honoured only when the direct peer is in
+`TRUSTED_PROXY_IPS` (IPs or CIDRs; required outside development). See
+`docker/DOCKER.md` "Client IP and login rate limiting".
+
 ### RBAC Data Model
 Five tables in `/backend/core/models/rbac.py`: `roles`, `permissions`, `role_permissions`,
 `user_roles`, `user_permissions`. `user_permissions` holds per-user overrides (an explicit
@@ -213,13 +221,15 @@ permissions — the delegation-bound model (no privilege amplification):
 | P3 | Any grant, override, or removal touching `rbac.*`, `users`, or `system.*` requires `admin`. |
 | P4 | Any change to a user who currently holds `admin` requires `admin`. |
 | P5 | System roles (`is_system=True`) cannot be renamed, deleted, or have `is_system` changed. |
-| P6 | The last user holding `admin` cannot lose it (role removal, deactivation, deletion) — an invariant, not actor-gated: it also blocks an `actor_user_id=None` internal caller. |
+| P6 | The last **active** user holding `admin` cannot lose it (role removal, deactivation, deletion) — an invariant, not actor-gated: it also blocks an `actor_user_id=None` internal caller. Deactivated admins do not count toward the count of remaining admins. |
 | P7 | Internal callers (seed, lifespan) pass `actor_user_id=None` and bypass P1–P4. |
+| P8 | A password reset or username change of another user is allowed only when the target's effective permissions are a subset of the actor's and contain no protected permission (else requires `admin`). |
 
 Every mutating `RBACService`/`UserService` method takes `actor_user_id: int | None`; routers
 pass `current_user.id` and map `AccessDeniedError` (a `DomainError`) to 403. See
 `backend/services/auth/rbac_service.py` (`assert_not_self`, `may_touch_target`,
-`assert_actor_holds`, `assert_not_last_admin`) and `backend/services/users/user_service.py`.
+`assert_actor_holds`, `assert_not_last_admin`, `assert_may_take_over`) and
+`backend/services/users/user_service.py`.
 
 ### Permission Pattern
 Format: `{resource}:{action}` (e.g., `users:read`, `settings:write`, `credentials:delete`)

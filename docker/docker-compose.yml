@@ -34,7 +34,8 @@ x-manus-app-env: &manus-app-env
   SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is required. Generate one with `openssl rand -hex 32`}"
   ACCESS_TOKEN_EXPIRE_MINUTES: 60
   DOCS_ENABLED: "${DOCS_ENABLED:-false}"
-  TRUSTED_PROXY_IPS: ""
+  # all-in-one: Next.js proxies to the backend over loopback. Split deployment: the frontend host/CIDR.
+  TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-127.0.0.1}"
   INITIAL_USERNAME: "${INITIAL_USERNAME:-admin}"
   INITIAL_PASSWORD: "${INITIAL_PASSWORD:?INITIAL_PASSWORD is required and must be 12+ characters}"
 

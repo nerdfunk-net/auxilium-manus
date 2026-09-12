@@ -57,6 +57,7 @@ bao policy write manus-app manus-app.hcl
 echo 'path "manus/data/credentials/*"     { capabilities = ["create", "read", "update", "delete"] }'  > manus-manage.hcl
 echo 'path "manus/delete/credentials/*"   { capabilities = ["update"] }'                             >> manus-manage.hcl
 echo 'path "manus/metadata/credentials/*" { capabilities = ["read", "delete"] }'                     >> manus-manage.hcl
+echo 'path "manus/destroy/credentials/*"  { capabilities = ["update"] }'                             >> manus-manage.hcl
 bao policy write manus-manage manus-manage.hcl
 
 # --- AppRole auth + the two roles ----------------------------------------

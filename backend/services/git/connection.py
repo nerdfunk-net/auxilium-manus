@@ -17,6 +17,7 @@ from pathlib import Path
 
 from core.safe_urls import UnsafeURLError, validate_git_remote_url
 from models.git_repositories import GitConnectionTestRequest, GitConnectionTestResponse
+from services.credentials.credentials_service import discard_ephemeral_ssh_key
 from services.git.auth import GitAuthenticationService
 from services.git.env import build_git_env_overrides, merge_git_environ
 
@@ -90,59 +91,65 @@ class GitConnectionService:
                 resolved_username, resolved_token, ssh_key_path = self._auth.resolve_credentials(
                     temp_repo
                 )
+                try:
+                    # resolve_credentials() only looks at credential_name (returns
+                    # (None, None, None) when it's unset) — fall back to the inline
+                    # username/token on the request itself, same as
+                    # GitAuthenticationService.setup_auth_environment does for the
+                    # real clone/pull path. Without this, a request with an inline
+                    # token and no stored credential would silently attempt an
+                    # unauthenticated clone.
+                    if not resolved_token and test_request.token:
+                        resolved_token = test_request.token
+                        resolved_username = resolved_username or test_request.username
 
-                # resolve_credentials() only looks at credential_name (returns
-                # (None, None, None) when it's unset) — fall back to the inline
-                # username/token on the request itself, same as
-                # GitAuthenticationService.setup_auth_environment does for the
-                # real clone/pull path. Without this, a request with an inline
-                # token and no stored credential would silently attempt an
-                # unauthenticated clone.
-                if not resolved_token and test_request.token:
-                    resolved_token = test_request.token
-                    resolved_username = resolved_username or test_request.username
+                    # Log resolved credentials (without exposing secrets)
+                    logger.info("Credential resolution results:")
+                    logger.info(
+                        "  - Username: %s",
+                        resolved_username if resolved_username else "None",
+                    )
+                    logger.info(
+                        "  - Token/Password: %s", "<present>" if resolved_token else "None"
+                    )
+                    logger.info(
+                        "  - SSH Key Path: %s", ssh_key_path if ssh_key_path else "None"
+                    )
 
-                # Log resolved credentials (without exposing secrets)
-                logger.info("Credential resolution results:")
-                logger.info(
-                    "  - Username: %s",
-                    resolved_username if resolved_username else "None",
-                )
-                logger.info("  - Token/Password: %s", "<present>" if resolved_token else "None")
-                logger.info("  - SSH Key Path: %s", ssh_key_path if ssh_key_path else "None")
+                    # Validate credential resolution
+                    validation_result = self._validate_credentials(
+                        test_request=test_request,
+                        auth_type=auth_type,
+                        resolved_username=resolved_username,
+                        resolved_token=resolved_token,
+                        ssh_key_path=ssh_key_path,
+                    )
+                    if validation_result:
+                        return validation_result
 
-                # Validate credential resolution
-                validation_result = self._validate_credentials(
-                    test_request=test_request,
-                    auth_type=auth_type,
-                    resolved_username=resolved_username,
-                    resolved_token=resolved_token,
-                    ssh_key_path=ssh_key_path,
-                )
-                if validation_result:
-                    return validation_result
+                    # Build authenticated clone URL
+                    clone_url = self._build_clone_url(
+                        test_request=test_request,
+                        auth_type=auth_type,
+                        resolved_username=resolved_username,
+                        resolved_token=resolved_token,
+                    )
 
-                # Build authenticated clone URL
-                clone_url = self._build_clone_url(
-                    test_request=test_request,
-                    auth_type=auth_type,
-                    resolved_username=resolved_username,
-                    resolved_token=resolved_token,
-                )
-
-                # Build the per-call git environment (never mutates os.environ).
-                overrides = build_git_env_overrides(
-                    temp_repo,
-                    ssh_key_path=ssh_key_path if auth_type == "ssh_key" else None,
-                )
-                return self._test_clone(
-                    clone_url=clone_url,
-                    branch=test_request.branch,
-                    test_path=test_path,
-                    auth_type=auth_type,
-                    env=merge_git_environ(overrides),
-                    test_request=test_request,
-                )
+                    # Build the per-call git environment (never mutates os.environ).
+                    overrides = build_git_env_overrides(
+                        temp_repo,
+                        ssh_key_path=ssh_key_path if auth_type == "ssh_key" else None,
+                    )
+                    return self._test_clone(
+                        clone_url=clone_url,
+                        branch=test_request.branch,
+                        test_path=test_path,
+                        auth_type=auth_type,
+                        env=merge_git_environ(overrides),
+                        test_request=test_request,
+                    )
+                finally:
+                    discard_ephemeral_ssh_key(ssh_key_path)
 
         except subprocess.TimeoutExpired:
             logger.warning("Git connection test timed out")

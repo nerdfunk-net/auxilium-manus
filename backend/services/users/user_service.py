@@ -40,10 +40,14 @@ class UserService:
         actor_user_id: int | None = None,
     ) -> User | None:
         # Guards first, write once, so a request that renames and deactivates in
-        # the same call either fully passes or fully fails (P1, P4, P6).
+        # the same call either fully passes or fully fails (P1, P4, P6, R1).
         self._rbac.may_touch_target(actor_user_id, user_id)
         if is_active is False:
             self._assert_can_remove(user_id, actor_user_id)
+        if password is not None or username is not None:
+            # A password reset is an account takeover; a rename is an identity
+            # change. Both are bounded by the target's effective rights (R1).
+            self._rbac.assert_may_take_over(actor_user_id, user_id)
 
         target = self._repo.get_by_id(user_id)
         if password is not None:

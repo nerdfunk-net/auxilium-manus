@@ -178,6 +178,20 @@ endpoint, `settings_service` Nautobot decrypt) bottom out at four
 `CredentialVaultNotConfiguredError` out of its otherwise-broad `except` so a vault
 outage on a git clone fails loudly instead of degrading to "no auth".
 
+**SSH keys.** A `vault`-backed `ssh_key` credential is materialised into
+`data/ssh_keys/tmp/` (0700 directory, 0600 file, `tempfile.mkstemp`) only for the
+duration of one git operation, then removed —
+`GitAuthenticationService.setup_auth_environment` discards it in a `finally`
+(`services/credentials/credentials_service.py::discard_ephemeral_ssh_key`); the
+three other direct `resolve_credentials` callers
+(`services/git/connection.py::test_connection`,
+`services/git/debug_service.py::_collect_auth_and_push_diagnostics` / `test_push`)
+do the same. Stale files older than one hour (a crashed process) are purged on
+the next write. This is a change from the pre-V2 behaviour, where a vault-backed
+key was written permanently under `data/ssh_keys/` just like a `local` key —
+see `doc/SECURITY-NOTES.md` for the accepted-risk note on `local` keys, which
+keep the permanent export.
+
 ## OpenBao client
 
 `OpenBaoService` (`services/vault/client.py`) follows the
@@ -187,13 +201,15 @@ client with an ephemeral fallback) but synchronous. KV v2 REST:
 | Method | Call |
 |---|---|
 | `read_kv(path)` | `GET /v1/<mount>/data/<path>` → `data.data`; consults + fills the TTL cache |
-| `write_kv(path, data)` | `POST /v1/<mount>/data/<path>` body `{"data": {...}}`; refreshes the cache entry |
-| `delete_kv(path)` | `DELETE /v1/<mount>/data/<path>`; invalidates the cache entry |
+| `write_kv(path, data)` | `POST /v1/<mount>/data/<path>` body `{"data": {...}}`; refreshes the cache entry; returns the new KV v2 version number when OpenBao reports one |
+| `destroy_kv_versions(path, versions)` | `POST /v1/<mount>/destroy/<path>` body `{"versions": [...]}`; permanently destroys the given versions (V3) |
+| `delete_kv(path)` | `DELETE /v1/<mount>/metadata/<path>`; destroys **every** version, not just the latest (V3); invalidates the cache entry |
 | `health()` | `GET /v1/sys/health` (unauthenticated) |
 
 `_request` adds `X-Vault-Token` (from `VaultTokenManager.current()`) and
-`X-Vault-Namespace`. Status mapping: `403` → invalidate token + `VaultPermissionError`;
-`404` → `VaultSecretNotFoundError`; connect error / sealed / `5xx` →
+`X-Vault-Namespace`. Status mapping: a first `403` invalidates the token and
+retries the request once after re-login (V4); a second `403` (fresh token) →
+`VaultPermissionError`; `404` → `VaultSecretNotFoundError`; connect error / sealed / `5xx` →
 `VaultUnavailableError`. **Failures are never cached.** TLS uses
 `core/ssl_config.create_verified_ssl_context()` (or `VAULT_CACERT`), extended
 with the client cert/key when `VAULT_AUTH_METHOD=cert`.
@@ -221,12 +237,21 @@ the database, or Redis — so a process restart always re-authenticates.
   TTL). `VAULT_TOKEN_PERIOD_SECONDS` (default 3600) mirrors it for the renew
   cadence.
 - `OpenBaoService._renew_loop` (async, one per process) wakes every
-  `token_period − VAULT_RENEW_BUFFER_SECONDS` and calls
-  `POST /v1/auth/token/renew-self`.
-- On `403` / expiry the manager drops the token and does a full `login()`.
-- A `403` on any KV request also invalidates the token; the next request
-  re-logs-in (so recovery after an OpenBao outage doesn't wait for the renew
-  loop).
+  `min(configured, granted_lease − buffer)` — driven by the lease OpenBao
+  actually returned on login/renew, not just the configured
+  `VAULT_TOKEN_PERIOD_SECONDS` (V4) — and calls `POST /v1/auth/token/renew-self`.
+  A renew failure retries after a fixed 60 s rather than waiting a full period.
+- On `403` / expiry the manager drops the token and does a full `login()`. A
+  token that is leased but not renewable (an AppRole without `token_period`) is
+  proactively re-logged-in on the next renew tick instead of being left to expire.
+- A `403` on any KV request re-logs-in and retries the same request once,
+  transparently, so a single token expiry never fails a caller; a second `403`
+  with a fresh token is a genuine policy denial and does not drop the token
+  again (avoids a login storm on a policy typo or wrong mount).
+- A lease/period mismatch or a non-renewable token is logged at WARNING once at
+  startup (`VaultTokenManager.warn_if_lease_mismatch`), so a misconfigured
+  AppRole role is visible in the logs instead of surfacing only as a repeating
+  403.
 - Each API process and each Hatchet worker logs in independently and runs its own
   renew loop. Set the AppRole `secret_id_num_uses = 0` so re-logins over the
   SecretID's lifetime don't exhaust it.
@@ -266,8 +291,10 @@ manus/credentials/<sanitised-name>-<id>
 ```
 
 The app always knows the exact path from the DB row; **no `list` capability is
-needed or granted.** On update, provided fields are merged into the existing
-secret (KV v2 auto-versions); the latest version is always read.
+needed or granted.** On update the merged secret is written as a new version and
+the previous version is destroyed (`destroy_kv_versions`); on delete the
+`metadata` endpoint removes every version. No superseded secret stays readable
+by the runtime role (V3).
 
 ## Caching
 
@@ -289,7 +316,7 @@ with no `CredentialsService` change. Not built yet.
 | OpenBao not configured (`VAULT_ENABLED` false) | `local` credentials work normally. The UI hides the storage-backend picker. Resolving a `vault` row (shouldn't happen) → `CredentialVaultNotConfiguredError`. |
 | OpenBao configured but unreachable at **startup** | App boots (soft-fail; logged at ERROR). The renew loop keeps retrying login. `vault` resolution raises `CredentialVaultUnavailableError`; `local` resolution is unaffected. |
 | OpenBao goes down **at runtime** | Same — `vault` resolution fails loudly (workflow step fails, git op fails loudly, `GET /credentials/{id}/password` → 503 with `{message, error_id}`), `local` keeps working. Cached secrets within their TTL still serve; the cache is never consulted on a failed read. |
-| Token denied (`403`) | Token invalidated, `VaultPermissionError`, next request re-logs-in. |
+| Token denied (`403`) | First `403`: token invalidated, request re-logged-in and retried once, transparently. Second `403` (fresh token, same request): `VaultPermissionError`, token kept — a genuine policy denial. |
 
 ## Configuration
 
@@ -345,6 +372,7 @@ Manual bootstrap by the container/app admin (no delivery pipeline).
    }
    path "manus/delete/credentials/*"   { capabilities = ["update"] }
    path "manus/metadata/credentials/*" { capabilities = ["read", "delete"] }
+   path "manus/destroy/credentials/*"  { capabilities = ["update"] }
    ```
 
    ```

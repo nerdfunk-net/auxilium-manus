@@ -137,3 +137,11 @@ def get_oidc_service():
 
 def get_login_rate_limiter() -> LoginRateLimiter:
     return service_factory.build_login_rate_limiter()
+
+
+def get_login_ip_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_login_ip_rate_limiter()
+
+
+def get_login_user_rate_limiter() -> LoginRateLimiter:
+    return service_factory.build_login_user_rate_limiter()

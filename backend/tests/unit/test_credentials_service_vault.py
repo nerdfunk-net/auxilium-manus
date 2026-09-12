@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -12,7 +15,11 @@ from sqlalchemy.orm import sessionmaker
 
 from core.models.base import Base
 from core.models.credentials import Credential
-from services.credentials.credentials_service import CredentialsService
+from services.credentials.credentials_service import (
+    CredentialsService,
+    discard_ephemeral_ssh_key,
+    ephemeral_ssh_keys_directory,
+)
 from services.credentials.exceptions import (
     CredentialStorageBackendChangeError,
     CredentialVaultNotConfiguredError,
@@ -167,6 +174,16 @@ class CredentialsServiceVaultTests(unittest.TestCase):
                 path = self.service.get_ssh_key_path(row.id)
                 self.assertTrue(Path(path).exists())
                 self.assertIn("abc", Path(path).read_text())
+                # V2: the vault-backed key is ephemeral, under ssh_keys/tmp/, not
+                # the permanent ssh_keys/ export used by local-backend keys.
+                self.assertEqual(Path(path).parent, Path(tmp) / "ssh_keys" / "tmp")
+                self.assertEqual(stat.S_IMODE(Path(path).stat().st_mode), 0o600)
+
+                second_path = self.service.get_ssh_key_path(row.id)
+                self.assertNotEqual(path, second_path)
+
+                discard_ephemeral_ssh_key(path)
+                self.assertFalse(Path(path).exists())
             finally:
                 core.config.settings.data_directory = original
 
@@ -195,12 +212,53 @@ class CredentialsServiceVaultTests(unittest.TestCase):
         )
         row = self._row("v")
         self.writer.read_kv.return_value = {"ssh_key": "KEY"}
+        self.writer.write_kv.return_value = 2
 
         self.service.update_credential(row.id, ssh_passphrase="new-pp")
 
         self.writer.write_kv.assert_called_with(
             row.vault_path, {"ssh_key": "KEY", "ssh_passphrase": "new-pp"}
         )
+        self.assertEqual(self._row("v").vault_secret_fields, "ssh_key,ssh_passphrase")
+        # V3: rotating a version-2 secret destroys the superseded version 1.
+        self.writer.destroy_kv_versions.assert_called_once_with(row.vault_path, [1])
+
+    def test_update_first_version_does_not_destroy(self) -> None:
+        self.service.create_credential(
+            name="v",
+            username="u",
+            cred_type="ssh_key",
+            ssh_private_key="KEY",
+            visibility="global",
+            storage_backend="vault",
+        )
+        row = self._row("v")
+        self.writer.read_kv.return_value = {"ssh_key": "KEY"}
+        self.writer.write_kv.return_value = 1
+
+        self.service.update_credential(row.id, ssh_passphrase="new-pp")
+
+        self.writer.destroy_kv_versions.assert_not_called()
+
+    def test_update_destroy_failure_is_logged_not_raised(self) -> None:
+        from services.vault.exceptions import VaultUnavailableError as _VaultUnavailableError
+
+        self.service.create_credential(
+            name="v",
+            username="u",
+            cred_type="ssh_key",
+            ssh_private_key="KEY",
+            visibility="global",
+            storage_backend="vault",
+        )
+        row = self._row("v")
+        self.writer.read_kv.return_value = {"ssh_key": "KEY"}
+        self.writer.write_kv.return_value = 2
+        self.writer.destroy_kv_versions.side_effect = _VaultUnavailableError("x")
+
+        with self.assertLogs("services.credentials.credentials_service", level="WARNING"):
+            self.service.update_credential(row.id, ssh_passphrase="new-pp")
+
         self.assertEqual(self._row("v").vault_secret_fields, "ssh_key,ssh_passphrase")
 
     # --------------------------------------------------------------------- delete
@@ -218,6 +276,103 @@ class CredentialsServiceVaultTests(unittest.TestCase):
         self.service.delete_credential(row.id)
         self.writer.delete_kv.assert_called_once_with(path)
         self.assertIsNone(self._row("v"))
+
+    # ------------------------------------------------------ V2: ephemeral SSH keys
+    def test_discard_ephemeral_ignores_permanent_local_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            import core.config
+
+            original = core.config.settings.data_directory
+            core.config.settings.data_directory = Path(tmp)
+            try:
+                self.service.create_credential(
+                    name="local-key",
+                    username="git",
+                    cred_type="ssh_key",
+                    ssh_private_key="-----BEGIN KEY-----\nlocal\n-----END KEY-----",
+                    visibility="global",
+                    storage_backend="local",
+                )
+                row = self._row("local-key")
+                path = self.service.get_ssh_key_path(row.id)
+                self.assertTrue(Path(path).exists())
+
+                discard_ephemeral_ssh_key(path)
+
+                self.assertTrue(Path(path).exists())
+            finally:
+                core.config.settings.data_directory = original
+
+    def test_discard_ephemeral_ignores_missing_and_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            import core.config
+
+            original = core.config.settings.data_directory
+            core.config.settings.data_directory = Path(tmp)
+            try:
+                discard_ephemeral_ssh_key(None)
+                discard_ephemeral_ssh_key(str(Path(tmp) / "ssh_keys" / "tmp" / "missing"))
+            finally:
+                core.config.settings.data_directory = original
+
+    def test_stale_ephemeral_keys_are_purged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            import core.config
+
+            original = core.config.settings.data_directory
+            core.config.settings.data_directory = Path(tmp)
+            try:
+                directory = ephemeral_ssh_keys_directory()
+                stale = directory / "stale-key"
+                stale.write_text("old\n")
+                old_time = time.time() - 2 * 60 * 60
+                os.utime(stale, (old_time, old_time))
+
+                self.service.create_credential(
+                    name="lab-key",
+                    username="git",
+                    cred_type="ssh_key",
+                    ssh_private_key="-----BEGIN KEY-----\nabc\n-----END KEY-----",
+                    visibility="global",
+                    storage_backend="vault",
+                )
+                row = self._row("lab-key")
+                self.reader.read_kv.return_value = {
+                    "ssh_key": "-----BEGIN KEY-----\nabc\n-----END KEY-----"
+                }
+                self.service.get_ssh_key_path(row.id)
+
+                self.assertFalse(stale.exists())
+            finally:
+                core.config.settings.data_directory = original
+
+    def test_delete_vault_ssh_credential_removes_legacy_permanent_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            import core.config
+
+            original = core.config.settings.data_directory
+            core.config.settings.data_directory = Path(tmp)
+            try:
+                self.service.create_credential(
+                    name="legacy-key",
+                    username="git",
+                    cred_type="ssh_key",
+                    ssh_private_key="x",
+                    visibility="global",
+                    storage_backend="vault",
+                )
+                row = self._row("legacy-key")
+                # Simulate a permanent file left behind by pre-V2 code.
+                legacy_dir = Path(tmp) / "ssh_keys"
+                legacy_dir.mkdir(parents=True, exist_ok=True)
+                legacy_file = legacy_dir / f"global_{row.name}"
+                legacy_file.write_text("legacy\n")
+
+                self.service.delete_credential(row.id)
+
+                self.assertFalse(legacy_file.exists())
+            finally:
+                core.config.settings.data_directory = original
 
 
 if __name__ == "__main__":

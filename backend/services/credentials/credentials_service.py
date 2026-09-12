@@ -14,7 +14,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+import stat
+import tempfile
+import time
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -34,6 +38,33 @@ from services.credentials.exceptions import (
 from services.vault.exceptions import VaultError, VaultSecretNotFoundError
 
 logger = logging.getLogger(__name__)
+
+EPHEMERAL_SSH_KEY_MAX_AGE_SECONDS = 60 * 60
+
+
+def ephemeral_ssh_keys_directory() -> Path:
+    """``data/ssh_keys/tmp`` — created 0700 on first use."""
+    directory = settings.data_directory / "ssh_keys" / "tmp"
+    directory.mkdir(parents=True, exist_ok=True)
+    directory.chmod(stat.S_IRWXU)
+    return directory
+
+
+def discard_ephemeral_ssh_key(path: str | None) -> None:
+    """Remove a key file returned by ``get_ssh_key_path`` **only** if it lives in
+    the ephemeral directory. A permanent ``local`` export is left untouched, so
+    every git caller can call this unconditionally in a ``finally``."""
+    if not path:
+        return
+    candidate = Path(path)
+    try:
+        if candidate.resolve().parent != ephemeral_ssh_keys_directory().resolve():
+            return
+        candidate.unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        logger.warning("Failed to remove ephemeral SSH key file %s", path, exc_info=True)
 
 
 class CredentialsService:
@@ -369,9 +400,22 @@ class CredentialsService:
             raise CredentialVaultUnavailableError(str(exc)) from exc
         merged = {**existing, **new_fields}
         try:
-            self._vault_writer.write_kv(credential.vault_path, merged)
+            new_version = self._vault_writer.write_kv(credential.vault_path, merged)
         except VaultError as exc:
             raise CredentialVaultUnavailableError(str(exc)) from exc
+        if isinstance(new_version, int) and new_version > 1:
+            # The secret is rotated; make the superseded version unrecoverable (V3).
+            # Best effort: a failed destroy must not undo a successful rotation.
+            try:
+                self._vault_writer.destroy_kv_versions(credential.vault_path, [new_version - 1])
+            except VaultError:
+                logger.warning(
+                    "Rotated credential %s but could not destroy OpenBao version %s at %s",
+                    credential.id,
+                    new_version - 1,
+                    credential.vault_path,
+                    exc_info=True,
+                )
         return set(merged)
 
     # -------------------------------------------------------------------- delete
@@ -391,7 +435,8 @@ class CredentialsService:
                         credential.vault_path,
                         exc_info=True,
                     )
-        elif credential.type == "ssh_key":
+        if credential.type == "ssh_key":
+            # Also removes a permanent file left by pre-V2 vault rows.
             self._delete_ssh_key_file(
                 credential.name, credential.visibility, credential.owner_user_id
             )
@@ -440,6 +485,14 @@ class CredentialsService:
         return self._encryption.decrypt(credential.ssh_passphrase_encrypted)
 
     def get_ssh_key_path(self, cred_id: int, *, acting_user_id: int | None = None) -> str | None:
+        """Return a filesystem path holding the private key.
+
+        ``local`` rows: the permanent export under ``data/ssh_keys/`` (unchanged).
+        ``vault`` rows: an **ephemeral** file under ``data/ssh_keys/tmp/`` that
+        the caller must remove with :func:`discard_ephemeral_ssh_key` once the git
+        operation is done (``GitAuthenticationService.setup_auth_environment``
+        does this in its ``finally``). Nothing vault-backed persists on disk (V2).
+        """
         credential = self._repo.get_by_id_for_user(cred_id, acting_user_id=acting_user_id)
         if credential is None or credential.type != "ssh_key":
             return None
@@ -448,7 +501,7 @@ class CredentialsService:
             key_material = data.get("ssh_key")
             if not key_material:
                 raise CredentialMissingFieldError("Credential has no SSH key")
-            return self._write_ssh_key_file(credential, key_material)
+            return self._write_ephemeral_ssh_key_file(credential, key_material)
         if not credential.ssh_key_encrypted:
             return None
         output_dir = self._ssh_keys_directory()
@@ -488,6 +541,31 @@ class CredentialsService:
         os.chmod(key_filename, 0o600)
         logger.info("Exported SSH key '%s' to %s", credential.name, key_filename)
         return key_filename
+
+    def _write_ephemeral_ssh_key_file(self, credential: Credential, contents: str) -> str:
+        directory = ephemeral_ssh_keys_directory()
+        self._purge_stale_ephemeral_keys(directory)
+        prefix = self._ssh_key_filename_prefix(credential.visibility, credential.owner_user_id)
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", credential.name)
+        fd, key_filename = tempfile.mkstemp(prefix=f"{prefix}{safe_name}-", dir=str(directory))
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(contents)
+            if not contents.endswith("\n"):
+                handle.write("\n")
+        os.chmod(key_filename, 0o600)
+        logger.info("Materialised ephemeral SSH key for '%s'", credential.name)
+        return key_filename
+
+    @staticmethod
+    def _purge_stale_ephemeral_keys(directory: Path) -> None:
+        """Best-effort cleanup of files a crashed process left behind."""
+        cutoff = time.time() - EPHEMERAL_SSH_KEY_MAX_AGE_SECONDS
+        for entry in directory.iterdir():
+            try:
+                if entry.is_file() and entry.stat().st_mtime < cutoff:
+                    entry.unlink()
+            except OSError:
+                logger.debug("Could not purge stale ephemeral key %s", entry, exc_info=True)
 
     def _ssh_keys_directory(self) -> str:
         return str(settings.data_directory / "ssh_keys")

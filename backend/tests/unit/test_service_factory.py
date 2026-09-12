@@ -15,6 +15,8 @@ _SINGLETONS = (
     "_pyats_service",
     "_mattermost_service",
     "_login_rate_limiter",
+    "_login_ip_rate_limiter",
+    "_login_user_rate_limiter",
 )
 
 
@@ -71,6 +73,20 @@ class ServiceFactoryTests(unittest.TestCase):
         with patch("service_factory.LoginRateLimiter") as cls:
             first = service_factory.build_login_rate_limiter()
             second = service_factory.build_login_rate_limiter()
+        self.assertIs(first, second)
+        cls.assert_called_once()
+
+    def test_build_login_ip_rate_limiter_memoised(self) -> None:
+        with patch("service_factory.LoginRateLimiter") as cls:
+            first = service_factory.build_login_ip_rate_limiter()
+            second = service_factory.build_login_ip_rate_limiter()
+        self.assertIs(first, second)
+        cls.assert_called_once()
+
+    def test_build_login_user_rate_limiter_memoised(self) -> None:
+        with patch("service_factory.LoginRateLimiter") as cls:
+            first = service_factory.build_login_user_rate_limiter()
+            second = service_factory.build_login_user_rate_limiter()
         self.assertIs(first, second)
         cls.assert_called_once()
 

@@ -71,4 +71,25 @@ describe("proxyRequest", () => {
 
     expect(result.headers.get("location")).toBeNull();
   });
+
+  it("strips x-real-ip and forwarded but preserves x-forwarded-for (T1)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await proxyRequest({
+      path: ["workflows"],
+      request: new Request("http://next.internal/api/proxy/workflows", {
+        headers: {
+          "x-forwarded-for": "203.0.113.9",
+          "x-real-ip": "203.0.113.9",
+          forwarded: "for=203.0.113.9",
+        },
+      }),
+    });
+
+    const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers;
+    expect(sentHeaders.get("x-forwarded-for")).toBe("203.0.113.9");
+    expect(sentHeaders.get("x-real-ip")).toBeNull();
+    expect(sentHeaders.get("forwarded")).toBeNull();
+  });
 });

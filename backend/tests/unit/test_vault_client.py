@@ -10,7 +10,6 @@ import httpx
 from services.vault.client import OpenBaoService
 from services.vault.config import VaultConfig
 from services.vault.exceptions import (
-    VaultAuthError,
     VaultPermissionError,
     VaultSecretNotFoundError,
     VaultUnavailableError,
@@ -79,10 +78,38 @@ class OpenBaoServiceTests(unittest.TestCase):
         svc.read_kv("credentials/c")
         svc._client.request.return_value = _resp(204)
         svc.delete_kv("credentials/c")
-        self.assertEqual(svc._client.request.call_args[0][0], "DELETE")
+        method, path = svc._client.request.call_args[0][:2]
+        self.assertEqual(method, "DELETE")
+        # V3: delete goes through the metadata endpoint (destroys every version),
+        # not a plain data-path delete (which would only soft-delete the latest).
+        self.assertEqual(path, "/v1/manus/metadata/credentials/c")
         # next read must go back to the network
         svc._client.request.return_value = _resp(200, {"data": {"data": {"token": "y"}}})
         self.assertEqual(svc.read_kv("credentials/c"), {"token": "y"})
+
+    def test_write_kv_returns_version(self) -> None:
+        svc = _service()
+        svc._client.request.return_value = _resp(200, {"data": {"version": 3}})
+        self.assertEqual(svc.write_kv("credentials/c", {"token": "abc"}), 3)
+
+    def test_write_kv_returns_none_without_version(self) -> None:
+        svc = _service()
+        svc._client.request.return_value = _resp(204)
+        self.assertIsNone(svc.write_kv("credentials/c", {"token": "abc"}))
+
+    def test_destroy_kv_versions_posts_versions(self) -> None:
+        svc = _service()
+        svc._client.request.return_value = _resp(204)
+        svc.destroy_kv_versions("credentials/c", [2])
+        method, path = svc._client.request.call_args[0][:2]
+        self.assertEqual(method, "POST")
+        self.assertEqual(path, "/v1/manus/destroy/credentials/c")
+        self.assertEqual(svc._client.request.call_args[1]["json"], {"versions": [2]})
+
+    def test_destroy_kv_versions_noop_for_empty_list(self) -> None:
+        svc = _service()
+        svc.destroy_kv_versions("credentials/c", [])
+        svc._client.request.assert_not_called()
 
     def test_404_maps_to_secret_not_found(self) -> None:
         svc = _service()
@@ -90,14 +117,32 @@ class OpenBaoServiceTests(unittest.TestCase):
         with self.assertRaises(VaultSecretNotFoundError):
             svc.read_kv("credentials/missing")
 
-    def test_403_invalidates_token_and_raises_permission(self) -> None:
+    def test_second_403_raises_permission_and_keeps_fresh_token(self) -> None:
         svc = _service()
         svc._tokens.ensure_token(svc._client)
         svc._client.request.return_value = _resp(403)
         with self.assertRaises(VaultPermissionError):
             svc.read_kv("credentials/denied")
-        with self.assertRaises(VaultAuthError):
-            svc._tokens.current()  # token was dropped
+        # Re-logged-in once (V4) and denied again -> the token is kept, not dropped.
+        self.assertEqual(svc._client.request.call_count, 2)
+        self.assertEqual(svc._tokens.current(), "root-token")
+
+    def test_403_then_200_is_retried_transparently(self) -> None:
+        svc = _service()
+        svc._tokens.ensure_token(svc._client)
+        svc._client.request.side_effect = [
+            _resp(403),
+            _resp(200, {"data": {"data": {"token": "ok"}}}),
+        ]
+        self.assertEqual(svc.read_kv("credentials/c"), {"token": "ok"})
+        self.assertEqual(svc._client.request.call_count, 2)
+
+    def test_unauthed_403_is_not_retried(self) -> None:
+        svc = _service()
+        svc._client.request.return_value = _resp(403)
+        with self.assertRaises(VaultPermissionError):
+            svc.health()
+        self.assertEqual(svc._client.request.call_count, 1)
 
     def test_connect_error_maps_to_unavailable_and_is_not_cached(self) -> None:
         svc = _service()

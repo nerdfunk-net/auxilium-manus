@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from services.credentials.credentials_service import discard_ephemeral_ssh_key
 from services.git.config import set_git_author
 from services.git.env import build_git_env_overrides
 from services.git.repository_service import GitRepositoryService
@@ -111,6 +112,7 @@ def _collect_auth_and_push_diagnostics(
             "token_length": len(token) if token else 0,
             "authentication": "configured" if (username and token) or ssh_key_path else "none",
         }
+        discard_ephemeral_ssh_key(ssh_key_path)
 
         if auth_type == "ssh_key":
             has_credentials = bool(ssh_key_path)
@@ -622,6 +624,7 @@ class GitDebugService:
         auth_type = repository.get("auth_type", "token")
 
         auth_error = _require_push_auth(repository, username, token, ssh_key_path)
+        discard_ephemeral_ssh_key(ssh_key_path)
         if auth_error is not None:
             return auth_error
 

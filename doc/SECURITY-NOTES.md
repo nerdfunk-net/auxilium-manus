@@ -69,3 +69,18 @@ that. The iteration count is `KDF_ITERATIONS` (default and enforced floor 100 00
 request. **Accepted as-is**: rotating the salt would invalidate every stored ciphertext, so a salt
 change must be treated as a deliberate migration that re-encrypts the `credentials` table, not a
 config tweak.
+
+## Local SSH keys are exported permanently
+
+`CredentialsService.get_ssh_key_path` writes a `local`-backend `ssh_key` credential's decrypted
+private key to a permanent file under `data/ssh_keys/` (0600), reused across calls and removed only
+on credential delete/rename. A `vault`-backend `ssh_key` credential does **not** have this exposure
+(V2, 2026-09-12): it is written to an ephemeral file under `data/ssh_keys/tmp/` for the duration of
+one git operation and discarded in a `finally` (see `doc/VAULT_INTEGRATION.md` "SSH keys"). The
+asymmetry is deliberate, not an oversight: a `local` row's plaintext already lives in the same
+Postgres database as the rest of the app on the same host, so a permanent on-disk export does not
+change the storage guarantee the credential was given; a `vault` row's whole purpose is to *keep*
+the plaintext out of this host except when actually in use, so it gets the stronger, ephemeral
+treatment. **Accepted as-is**: making `local` keys ephemeral too is a larger change (every git
+caller would need the same discard-in-`finally` discipline it already has for `vault` keys) and is
+not required to close the OpenBao-specific gap V2 targeted.

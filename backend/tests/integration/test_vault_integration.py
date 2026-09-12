@@ -63,6 +63,9 @@ path "{mount}/delete/credentials/*" {{
 path "{mount}/metadata/credentials/*" {{
   capabilities = ["read", "delete"]
 }}
+path "{mount}/destroy/credentials/*" {{
+  capabilities = ["update"]
+}}
 """
 
 
@@ -229,12 +232,36 @@ def test_read_missing_path_raises_not_found(runtime_vault) -> None:
         runtime_vault.read_kv(_p("missing"))
 
 
-def test_delete_removes_the_secret(runtime_vault, management_vault) -> None:
+def test_delete_removes_the_secret(runtime_vault, management_vault, vault_bootstrap) -> None:
     path = _p("del")
     management_vault.write_kv(path, {"password": "x"})
     management_vault.delete_kv(path)
     with pytest.raises(VaultSecretNotFoundError):
         runtime_vault.read_kv(path)
+    # V3: delete_kv destroys every KV v2 version via the metadata endpoint, not
+    # just a soft-delete of the latest one.
+    metadata_resp = vault_bootstrap.root.get(
+        f"/v1/{vault_bootstrap.mount}/metadata/{path}"
+    )
+    assert metadata_resp.status_code == 404
+
+
+def test_update_destroys_the_superseded_version(
+    runtime_vault, management_vault, vault_bootstrap
+) -> None:
+    path = _p("rotate")
+    management_vault.write_kv(path, {"password": "v1"})
+    try:
+        new_version = management_vault.write_kv(path, {"password": "v2"})
+        assert new_version == 2
+        management_vault.destroy_kv_versions(path, [1])
+
+        data_resp = vault_bootstrap.root.get(
+            f"/v1/{vault_bootstrap.mount}/data/{path}", params={"version": 1}
+        )
+        assert data_resp.json()["data"]["metadata"]["destroyed"] is True
+    finally:
+        management_vault.delete_kv(path)
 
 
 # --------------------------------------------------------------------------- #

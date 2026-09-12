@@ -20,6 +20,8 @@ from services.vault.exceptions import VaultAuthError, VaultUnavailableError
 
 logger = logging.getLogger(__name__)
 
+MIN_RENEW_INTERVAL_SECONDS = 30
+
 
 class VaultTokenManager:
     def __init__(self, cfg: VaultConfig, strategy: VaultAuthStrategy) -> None:
@@ -38,6 +40,44 @@ class VaultTokenManager:
                     f"OpenBao {self._cfg.role_label}: no client token (not logged in)"
                 )
             return self._token.client_token
+
+    def snapshot(self) -> VaultToken | None:
+        with self._lock:
+            return self._token
+
+    def renew_interval_seconds(self) -> int:
+        """Seconds until the next renew, driven by the lease OpenBao actually
+        granted (V4). Falls back to the configured period when no token is held
+        or the token carries no lease (static dev token)."""
+        configured = max(60, self._cfg.token_period_seconds - self._cfg.renew_buffer_seconds)
+        token = self.snapshot()
+        if token is None or token.lease_duration <= 0:
+            return configured
+        lease_based = token.lease_duration - self._cfg.renew_buffer_seconds
+        if lease_based < MIN_RENEW_INTERVAL_SECONDS:
+            lease_based = max(MIN_RENEW_INTERVAL_SECONDS, token.lease_duration // 2)
+        return min(configured, lease_based)
+
+    def warn_if_lease_mismatch(self) -> None:
+        """Log once at startup when the role does not match the configured cadence."""
+        token = self.snapshot()
+        if token is None or self._cfg.auth_method == "token":
+            return
+        if not token.renewable:
+            logger.warning(
+                "OpenBao %s: token is not renewable (lease=%ss); the client will re-login "
+                "before each expiry. Configure the AppRole with token_period for a periodic token",
+                self._cfg.role_label,
+                token.lease_duration,
+            )
+        elif 0 < token.lease_duration < self._cfg.token_period_seconds:
+            logger.warning(
+                "OpenBao %s: granted lease %ss is shorter than VAULT_TOKEN_PERIOD_SECONDS=%s; "
+                "renewing on the granted lease instead",
+                self._cfg.role_label,
+                token.lease_duration,
+                self._cfg.token_period_seconds,
+            )
 
     def ensure_token(self, http: httpx.Client) -> None:
         with self._lock:
@@ -60,7 +100,11 @@ class VaultTokenManager:
                 self._token = self._strategy.login(http)
                 return
             if not self._token.renewable:
-                # Static/dev token — nothing to renew.
+                if self._token.lease_duration > 0:
+                    # Leased but non-renewable (role without token_period): re-login
+                    # proactively instead of letting it expire mid-request.
+                    self._token = self._strategy.login(http)
+                # Static/dev token (lease 0) — nothing to do.
                 return
             try:
                 response = http.post(

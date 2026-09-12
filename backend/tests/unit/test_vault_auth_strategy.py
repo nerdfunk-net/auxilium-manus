@@ -147,6 +147,95 @@ class VaultTokenManagerTests(unittest.TestCase):
         with self.assertRaises(VaultAuthError):
             self.mgr.current()
 
+    def test_renew_interval_defaults_to_configured_without_token(self) -> None:
+        self.assertEqual(self.mgr.renew_interval_seconds(), 3000)
+
+    def test_renew_interval_follows_shorter_lease(self) -> None:
+        http = MagicMock()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=True, lease_duration=900
+        )
+        self.mgr.ensure_token(http)
+        self.assertEqual(self.mgr.renew_interval_seconds(), 300)
+
+    def test_renew_interval_never_below_minimum(self) -> None:
+        http = MagicMock()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=True, lease_duration=100
+        )
+        self.mgr.ensure_token(http)
+        self.assertEqual(self.mgr.renew_interval_seconds(), 50)
+
+        self.mgr.invalidate()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.second", renewable=True, lease_duration=40
+        )
+        self.mgr.ensure_token(http)
+        self.assertEqual(self.mgr.renew_interval_seconds(), 30)
+
+    def test_renew_interval_ignores_zero_lease_static_token(self) -> None:
+        http = MagicMock()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=False, lease_duration=0
+        )
+        self.mgr.ensure_token(http)
+        self.assertEqual(self.mgr.renew_interval_seconds(), 3000)
+
+    def test_renew_relogins_for_non_renewable_leased_token(self) -> None:
+        http = MagicMock()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=False, lease_duration=3600
+        )
+        self.mgr.ensure_token(http)
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.second", renewable=False, lease_duration=3600
+        )
+        self.mgr.renew(http)
+        self.assertEqual(self.strategy.login.call_count, 2)
+        http.post.assert_not_called()
+        self.assertEqual(self.mgr.current(), "s.second")
+
+    def test_renew_skips_static_token(self) -> None:
+        http = MagicMock()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=False, lease_duration=0
+        )
+        self.mgr.ensure_token(http)
+        self.mgr.renew(http)
+        self.assertEqual(self.strategy.login.call_count, 1)
+        http.post.assert_not_called()
+
+    def test_warn_if_lease_mismatch_logs_for_short_lease(self) -> None:
+        http = MagicMock()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=True, lease_duration=900
+        )
+        self.mgr.ensure_token(http)
+        with self.assertLogs("services.vault.token_manager", level="WARNING") as logs:
+            self.mgr.warn_if_lease_mismatch()
+        self.assertTrue(any("shorter than" in message for message in logs.output))
+
+    def test_warn_if_lease_mismatch_logs_for_non_renewable(self) -> None:
+        http = MagicMock()
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=False, lease_duration=3600
+        )
+        self.mgr.ensure_token(http)
+        with self.assertLogs("services.vault.token_manager", level="WARNING") as logs:
+            self.mgr.warn_if_lease_mismatch()
+        self.assertTrue(any("not renewable" in message for message in logs.output))
+
+    def test_warn_if_lease_mismatch_silent_for_token_auth(self) -> None:
+        http = MagicMock()
+        cfg = _cfg(auth_method="token", token="root")
+        mgr = VaultTokenManager(cfg, self.strategy)
+        self.strategy.login.return_value = VaultToken(
+            client_token="s.first", renewable=False, lease_duration=0
+        )
+        mgr.ensure_token(http)
+        with self.assertNoLogs("services.vault.token_manager", level="WARNING"):
+            mgr.warn_if_lease_mismatch()
+
 
 if __name__ == "__main__":
     unittest.main()

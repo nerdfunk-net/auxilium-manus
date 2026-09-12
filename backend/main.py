@@ -78,11 +78,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         admin_user = AuthService(db).ensure_initial_admin()
         seed_rbac(db)
         rbac = RBACService(db)
-        # S10: only (re-)grant the bootstrap admin role when *nobody* holds it.
+        # S10: only (re-)grant the bootstrap admin role when no *active* user
+        # holds it (R2: a deactivated admin does not count).
         # First boot: the freshly created admin has no roles yet → granted.
         # A deliberate demotion of INITIAL_USERNAME survives a restart as long as
-        # another admin remains. If every admin is gone, self-heal by granting it
-        # back to INITIAL_USERNAME.
+        # another active admin remains. If every active admin is gone, self-heal
+        # by granting it back to INITIAL_USERNAME.
         if not rbac.role_has_members("admin"):
             logger.warning(
                 "No user holds the 'admin' role; granting it to initial user '%s'",

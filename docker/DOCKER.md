@@ -85,6 +85,39 @@ Verify PostgreSQL is reachable from the container and `DATABASE_HOST` points to 
 
 Inside the container, the frontend proxy uses `BACKEND_URL=http://127.0.0.1:8000`. Do not change this unless you run backend on a different host inside the container.
 
+## Client IP and login rate limiting
+
+`POST /auth/login` is rate-limited on two independent dimensions of *failed*
+attempts (see `doc/analysis/FABLE_BACKEND_20260912.md` §4.2 T1 and
+`doc/plans/FABLE_20260912.md` §1): 20 failures/60s per client IP, and 100
+failures/15min per username (a successful login clears the username bucket
+only). The client IP comes from `backend/core/client_ip.py::resolve_client_host`:
+it trusts `X-Forwarded-For` only when the direct peer is inside
+`TRUSTED_PROXY_IPS` (IPs or CIDRs), and picks the **rightmost** entry that is
+not itself a trusted proxy.
+
+`TRUSTED_PROXY_IPS` is **required outside development** — `production_guards`
+refuses to start without it, because an empty list makes every request look
+like it comes from the proxy and the per-IP dimension collapses to one shared
+bucket. The all-in-one image runs Next.js and the backend in one container, so
+compose defaults it to `127.0.0.1`.
+
+If you put a reverse proxy (nginx, Traefik, a cloud load balancer) in front of
+the Next.js server, it must **set or append** `X-Forwarded-For` itself — do not
+just pass through what the browser sent:
+
+```nginx
+# nginx
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+Traefik does this by default. Add the ingress's address (or the subnet it
+connects from) to `TRUSTED_PROXY_IPS` alongside the Next.js host/CIDR, so the
+backend walks past both trusted hops and lands on the real client address.
+Without such an ingress, a browser can supply its own `X-Forwarded-For` value
+(Next.js only fills it in when the browser didn't) — the per-IP budget is then
+best-effort, and the per-username budget is the control that cannot be spoofed.
+
 ## Health checks
 
 ```bash

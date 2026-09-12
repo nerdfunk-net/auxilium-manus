@@ -164,14 +164,15 @@ class RBACRepository:
             ),
         )
 
-    def get_users_with_role(self, role_id: int) -> list[User]:
-        return list(
-            self.db.scalars(
-                select(User)
-                .join(UserRole, UserRole.user_id == User.id)
-                .where(UserRole.role_id == role_id),
-            ),
+    def get_users_with_role(self, role_id: int, *, active_only: bool = False) -> list[User]:
+        stmt = (
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .where(UserRole.role_id == role_id)
         )
+        if active_only:
+            stmt = stmt.where(User.is_active.is_(True))
+        return list(self.db.scalars(stmt))
 
     # User <-> Permission overrides
     def assign_permission_to_user(

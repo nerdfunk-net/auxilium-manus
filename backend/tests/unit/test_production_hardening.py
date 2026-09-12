@@ -12,6 +12,7 @@ import re
 import unittest
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from ipaddress import ip_network
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -278,6 +279,28 @@ class TestR2ProductionGuards(unittest.TestCase):
                 redis_password="strong-redis",
                 allow_netmiko_arbitrary_hosts=True,
             )
+
+    def test_production_rejects_unconfigured_trusted_proxy_ips(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "TRUSTED_PROXY_IPS"):
+            validate_non_development_secrets(
+                environment="production",
+                secret_key="x" * 40,
+                initial_password="x" * 12,
+                credential_encryption_key="y" * 40,
+                database_password="strongpw",
+                redis_password="strong-redis",
+                trusted_proxy_ips_configured=False,
+            )
+
+    def test_development_allows_unconfigured_trusted_proxy_ips(self) -> None:
+        validate_non_development_secrets(
+            environment="development",
+            secret_key="change-in-production-use-at-least-32-characters",
+            initial_password="admin",
+            credential_encryption_key="",
+            database_password="postgres",
+            trusted_proxy_ips_configured=False,
+        )
 
     def test_production_rejects_short_secret_key(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "SECRET_KEY"):
@@ -684,10 +707,11 @@ class TestR10Ready(unittest.TestCase):
 class TestM8TrustedProxyIps(unittest.TestCase):
     def test_accepts_valid_ips(self) -> None:
         result = validate_trusted_proxy_ips({"10.0.0.1", "192.168.1.1"})
-        self.assertEqual(result, {"10.0.0.1", "192.168.1.1"})
+        self.assertIn(ip_network("10.0.0.1/32"), result)
+        self.assertIn(ip_network("192.168.1.1/32"), result)
 
     def test_empty_set_is_allowed(self) -> None:
-        self.assertEqual(validate_trusted_proxy_ips(set()), set())
+        self.assertEqual(validate_trusted_proxy_ips(set()), frozenset())
 
     def test_rejects_invalid_ip(self) -> None:
         with self.assertRaises(RuntimeError):
@@ -700,6 +724,14 @@ class TestM8TrustedProxyIps(unittest.TestCase):
     def test_rejects_unspecified_ipv6(self) -> None:
         with self.assertRaises(RuntimeError):
             validate_trusted_proxy_ips({"::"})
+
+    def test_accepts_cidr(self) -> None:
+        result = validate_trusted_proxy_ips({"10.0.0.0/8"})
+        self.assertIn(ip_network("10.0.0.0/8"), result)
+
+    def test_rejects_catchall_network(self) -> None:
+        with self.assertRaises(RuntimeError):
+            validate_trusted_proxy_ips({"0.0.0.0/0"})
 
 
 if __name__ == "__main__":

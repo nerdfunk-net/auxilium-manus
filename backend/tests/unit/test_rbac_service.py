@@ -152,6 +152,15 @@ class RBACServiceRoleHasMembersTests(unittest.TestCase):
         self.service._repo.remove_role_from_user(user.id, role.id)
         self.assertFalse(self.service.role_has_members("admin"))
 
+    def test_false_when_only_member_is_inactive(self) -> None:
+        # R2: a role held only by a deactivated user counts as empty so the
+        # bootstrap admin self-heal fires.
+        user = _make_user(self.db, "root")
+        self.service.assign_role_to_user_by_name(user.id, "admin")
+        user.is_active = False
+        self.db.commit()
+        self.assertFalse(self.service.role_has_members("admin"))
+
 
 if __name__ == "__main__":
     unittest.main()

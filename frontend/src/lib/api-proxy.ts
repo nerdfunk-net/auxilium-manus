@@ -16,7 +16,11 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
-const STRIP_REQUEST_HEADERS = new Set(["authorization", "cookie"]);
+// "x-real-ip" and "forwarded" are stripped so the backend's client-IP resolution
+// (backend/core/client_ip.py) only ever sees "x-forwarded-for". Next.js sets
+// x-forwarded-for from the socket when the browser did not send one; an ingress
+// in front of this server should overwrite or append it (see docker/DOCKER.md).
+const STRIP_REQUEST_HEADERS = new Set(["authorization", "cookie", "x-real-ip", "forwarded"]);
 // "location" is stripped because the server-side fetch to the backend uses
 // redirect: "manual" (so *we* don't follow it), but useApi's browser fetch
 // uses the default redirect: "follow" — forwarding Location would let a

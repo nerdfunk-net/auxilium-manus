@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse, urlunparse
 
+from services.credentials.credentials_service import discard_ephemeral_ssh_key
 from services.credentials.exceptions import (
     CredentialVaultNotConfiguredError,
     CredentialVaultUnavailableError,
@@ -152,7 +153,8 @@ class GitAuthenticationService:
             - username: Resolved username
             - token: Resolved token/password
             - ssh_key_path: Path to SSH key file (for SSH auth), for the caller to
-              hand to ``build_git_env_overrides``
+              hand to ``build_git_env_overrides``. Removed again when the context
+              exits if it is an ephemeral vault-backed file (V2).
 
         Example:
             with auth_service.setup_auth_environment(repo) as (url, user, token, ssh_key):
@@ -160,34 +162,38 @@ class GitAuthenticationService:
                 Repo.clone_from(url, path, env=overrides)
         """
         username, token, ssh_key_path = self.resolve_credentials(repository)
-        if not token:
-            inline_token = repository.get("token")
-            if inline_token:
-                token = str(inline_token)
-                username = username or repository.get("username")
-        auth_type = repository.get("auth_type", "token")
-        original_url = repository.get("url", "")
+        try:
+            if not token:
+                inline_token = repository.get("token")
+                if inline_token:
+                    token = str(inline_token)
+                    username = username or repository.get("username")
+            auth_type = repository.get("auth_type", "token")
+            original_url = repository.get("url", "")
 
-        if auth_type == "ssh_key" and ssh_key_path:
-            logger.info(
-                "Using SSH key authentication for repository '%s'",
-                repository.get("name"),
-            )
-            # For SSH, return original URL; GIT_SSH_COMMAND is built per-call by the caller.
-            yield original_url, username, token, ssh_key_path
-        else:
-            # For token auth, build authenticated URL
-            clone_url = original_url
-            parsed = urlparse(original_url) if original_url else None
-            if parsed and parsed.scheme in ["http", "https"] and token:
-                clone_url = self.build_auth_url(original_url, username, token)
+            if auth_type == "ssh_key" and ssh_key_path:
                 logger.info(
-                    "Using token authentication for repository '%s'",
+                    "Using SSH key authentication for repository '%s'",
                     repository.get("name"),
                 )
+                # For SSH, return original URL; GIT_SSH_COMMAND is built per-call by the caller.
+                yield original_url, username, token, ssh_key_path
             else:
-                logger.info(
-                    "Using no authentication for repository '%s'",
-                    repository.get("name"),
-                )
-            yield clone_url, username, token, ssh_key_path
+                # For token auth, build authenticated URL
+                clone_url = original_url
+                parsed = urlparse(original_url) if original_url else None
+                if parsed and parsed.scheme in ["http", "https"] and token:
+                    clone_url = self.build_auth_url(original_url, username, token)
+                    logger.info(
+                        "Using token authentication for repository '%s'",
+                        repository.get("name"),
+                    )
+                else:
+                    logger.info(
+                        "Using no authentication for repository '%s'",
+                        repository.get("name"),
+                    )
+                yield clone_url, username, token, ssh_key_path
+        finally:
+            # A vault-backed key is an ephemeral file (V2); a local export is left alone.
+            discard_ephemeral_ssh_key(ssh_key_path)

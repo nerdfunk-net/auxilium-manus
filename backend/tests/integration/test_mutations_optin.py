@@ -19,6 +19,7 @@ from git import Repo
 
 import service_factory
 import services.git.paths as git_paths
+from services.credentials.credentials_service import discard_ephemeral_ssh_key
 from services.git.auth import GitAuthenticationService
 
 pytestmark = [pytest.mark.integration, pytest.mark.mutations]
@@ -34,14 +35,17 @@ def git_data_root(tmp_path, monkeypatch):
 
 def _delete_remote_branch(repo_dict: dict, branch: str) -> None:
     auth = GitAuthenticationService()
-    username, token, _ = auth.resolve_credentials(repo_dict)
-    push_url = auth.build_auth_url(repo_dict["url"], username, token)
-    git_service = service_factory.build_git_service()
-    local = Repo(git_service.get_repo_path(repo_dict))
+    username, token, ssh_key_path = auth.resolve_credentials(repo_dict)
     try:
-        local.git.push(push_url, "--delete", branch)
-    except Exception:  # noqa: BLE001 — best-effort teardown
-        pass
+        push_url = auth.build_auth_url(repo_dict["url"], username, token)
+        git_service = service_factory.build_git_service()
+        local = Repo(git_service.get_repo_path(repo_dict))
+        try:
+            local.git.push(push_url, "--delete", branch)
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            pass
+    finally:
+        discard_ephemeral_ssh_key(ssh_key_path)
 
 
 @pytest.mark.usefixtures("require_gitea")
@@ -65,11 +69,14 @@ def test_git_push_to_scratch_branch(git_repository) -> None:
 
         # Verify the commit is on the remote.
         auth = GitAuthenticationService()
-        username, token, _ = auth.resolve_credentials(repo_dict)
-        remote_refs = repo.git.ls_remote(
-            auth.build_auth_url(repo_dict["url"], username, token), scratch
-        )
-        assert scratch in remote_refs
+        username, token, ssh_key_path = auth.resolve_credentials(repo_dict)
+        try:
+            remote_refs = repo.git.ls_remote(
+                auth.build_auth_url(repo_dict["url"], username, token), scratch
+            )
+            assert scratch in remote_refs
+        finally:
+            discard_ephemeral_ssh_key(ssh_key_path)
     finally:
         _delete_remote_branch(repo_dict, scratch)
 

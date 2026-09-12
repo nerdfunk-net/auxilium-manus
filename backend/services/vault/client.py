@@ -35,6 +35,8 @@ from services.vault.token_manager import VaultTokenManager
 
 logger = logging.getLogger(__name__)
 
+RENEW_RETRY_AFTER_FAILURE_SECONDS = 60
+
 
 class OpenBaoService:
     def __init__(self, cfg: VaultConfig) -> None:
@@ -78,6 +80,7 @@ class OpenBaoService:
         try:
             await self._run_blocking(self._tokens.ensure_token, self._client)
             self._healthy = True
+            self._tokens.warn_if_lease_mismatch()
             logger.info(
                 "OpenBaoService %s started (addr=%s mount=%s)",
                 self._cfg.role_label,
@@ -106,16 +109,19 @@ class OpenBaoService:
         logger.info("OpenBaoService %s shut down", self._cfg.role_label)
 
     async def _renew_loop(self) -> None:
-        interval = max(60, self._cfg.token_period_seconds - self._cfg.renew_buffer_seconds)
+        delay = self._tokens.renew_interval_seconds()
         while True:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(delay)
             if self._client is None:
+                delay = RENEW_RETRY_AFTER_FAILURE_SECONDS
                 continue
             try:
                 await self._run_blocking(self._tokens.renew, self._client)
                 self._healthy = True
+                delay = self._tokens.renew_interval_seconds()
             except VaultError:
                 self._healthy = False
+                delay = RENEW_RETRY_AFTER_FAILURE_SECONDS
                 logger.warning(
                     "OpenBaoService %s token renew failed; will re-login on next use",
                     self._cfg.role_label,
@@ -124,7 +130,13 @@ class OpenBaoService:
 
     # ------------------------------------------------------------------- requests
     def _request(
-        self, method: str, path: str, *, json: dict | None = None, authed: bool = True
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        authed: bool = True,
+        _retry_on_403: bool = True,
     ) -> httpx.Response:
         client = self._client
         if client is None:
@@ -150,8 +162,14 @@ class OpenBaoService:
 
         if response.status_code in (200, 201, 204):
             return response
-        if response.status_code == 403:
+        if response.status_code == 403 and authed and _retry_on_403:
+            # An expired or revoked token also answers 403. Re-login once and
+            # retry transparently so a single expiry never fails a caller (V4).
             self._tokens.invalidate()
+            return self._request(method, path, json=json, authed=authed, _retry_on_403=False)
+        if response.status_code == 403:
+            # Second 403 with a fresh token: a genuine policy denial. Keep the
+            # token — invalidating it again would only cause a login storm.
             raise VaultPermissionError(
                 f"OpenBao denied {method} {path} (HTTP 403) for {self._cfg.role_label}"
             )
@@ -176,12 +194,31 @@ class OpenBaoService:
         self._cache.set(path, data)
         return dict(data)
 
-    def write_kv(self, path: str, data: dict) -> None:
-        self._request("POST", f"/v1/{self._cfg.mount}/data/{path}", json={"data": data})
+    def write_kv(self, path: str, data: dict) -> int | None:
+        """Write a new version; return its version number when OpenBao reports it."""
+        response = self._request(
+            "POST", f"/v1/{self._cfg.mount}/data/{path}", json={"data": data}
+        )
         self._cache.set(path, data)
+        try:
+            version = ((response.json() or {}).get("data") or {}).get("version")
+        except ValueError:
+            return None
+        return version if isinstance(version, int) else None
+
+    def destroy_kv_versions(self, path: str, versions: list[int]) -> None:
+        """Permanently destroy specific versions (KV v2 ``destroy`` endpoint)."""
+        if not versions:
+            return
+        self._request(
+            "POST", f"/v1/{self._cfg.mount}/destroy/{path}", json={"versions": versions}
+        )
 
     def delete_kv(self, path: str) -> None:
-        self._request("DELETE", f"/v1/{self._cfg.mount}/data/{path}")
+        """Permanently remove the secret **and every version** (KV v2 ``metadata``
+        endpoint). A plain ``DELETE …/data/<path>`` would only soft-delete the
+        latest version and leave the history readable (V3)."""
+        self._request("DELETE", f"/v1/{self._cfg.mount}/metadata/{path}")
         self._cache.invalidate(path)
 
     def health(self) -> dict:

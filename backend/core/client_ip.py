@@ -1,8 +1,14 @@
-"""Resolve the real client IP for a request, honouring X-Forwarded-For only
-when the direct peer is a configured trusted proxy (``TRUSTED_PROXY_IPS``).
+"""Resolve the real client IP for a request.
 
-Mirrors the logic in ``routers/auth.py`` so webhook rate-limiting keys are
-computed the same way as login rate-limiting keys.
+The backend is only reached through a proxy (the Next.js ``/api/proxy`` route,
+optionally behind an ingress). ``X-Forwarded-For`` is honoured only when the
+direct peer lies inside ``TRUSTED_PROXY_IPS`` (IPs or CIDRs), and the chosen
+entry is the **rightmost address that is not itself a trusted proxy** — i.e. the
+last hop a trusted proxy appended. The leftmost entry is client-controlled and is
+never used. ``X-Real-IP`` is deliberately ignored (Next.js never sets it).
+
+This is the single implementation for login and webhook rate-limit keys
+(``routers/auth.py`` and ``services/change_requests/webhook_service.py``).
 """
 
 from __future__ import annotations
@@ -13,21 +19,33 @@ from fastapi import Request
 
 from core.config import settings
 
+UNKNOWN_CLIENT_HOST = "unknown"
+
+
+def is_trusted_proxy(host: str) -> bool:
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return False
+    return any(address in network for network in settings.trusted_proxy_networks)
+
+
+def _forwarded_chain(request: Request) -> list[str]:
+    raw = request.headers.get("x-forwarded-for") or ""
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
 
 def resolve_client_host(request: Request) -> str:
-    direct = request.client.host if request.client else "unknown"
-    if direct not in settings.trusted_proxy_ips:
+    direct = request.client.host if request.client else UNKNOWN_CLIENT_HOST
+    if not is_trusted_proxy(direct):
         return direct
 
-    forwarded_for = request.headers.get("x-forwarded-for")
-    real_ip = request.headers.get("x-real-ip")
-    candidate = (
-        forwarded_for.split(",", maxsplit=1)[0].strip() if forwarded_for else real_ip
-    )
-    if candidate is None:
-        return direct
-    try:
-        ip_address(candidate)
-    except ValueError:
-        return direct
-    return candidate
+    for candidate in reversed(_forwarded_chain(request)):
+        try:
+            ip_address(candidate)
+        except ValueError:
+            # A malformed chain is not trusted at all; fall back to the proxy.
+            return direct
+        if not is_trusted_proxy(candidate):
+            return candidate
+    return direct

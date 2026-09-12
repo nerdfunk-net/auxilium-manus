@@ -11,7 +11,13 @@ if TYPE_CHECKING:
 
 from core.config import settings
 from repositories.inventory_repository import InventoryRepository
-from services.auth.login_rate_limiter import LoginRateLimiter
+from services.auth.login_rate_limiter import (
+    LOGIN_IP_RATE_LIMIT_ATTEMPTS,
+    LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS,
+    LOGIN_USER_RATE_LIMIT_ATTEMPTS,
+    LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS,
+    LoginRateLimiter,
+)
 from services.cache.redis_cache_service import RedisCacheService
 from services.ise.client import ISEService
 from services.ise.credentials import ISECredentials
@@ -34,6 +40,8 @@ _ise_service: ISEService | None = None
 _pyats_service: PyATSShimService | None = None
 _mattermost_service: MattermostService | None = None
 _login_rate_limiter: LoginRateLimiter | None = None
+_login_ip_rate_limiter: LoginRateLimiter | None = None
+_login_user_rate_limiter: LoginRateLimiter | None = None
 # OpenBao (Vault). Both are None unless VAULT_ENABLED. `_vault_service` is the
 # read-only runtime client (manus-app policy); `_vault_management_service` is the
 # write-capable client (manus-manage policy), injected only into credential-manager
@@ -132,6 +140,34 @@ def build_login_rate_limiter() -> LoginRateLimiter:
             fail_closed=settings.environment != "development",
         )
     return _login_rate_limiter
+
+
+def build_login_ip_rate_limiter() -> LoginRateLimiter:
+    """Per-client-IP *failure* budget for POST /auth/login (T1 / D2)."""
+    global _login_ip_rate_limiter
+    if _login_ip_rate_limiter is None:
+        _login_ip_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-login-ip-rl",
+            fail_closed=settings.environment != "development",
+            attempts=LOGIN_IP_RATE_LIMIT_ATTEMPTS,
+            window_seconds=LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    return _login_ip_rate_limiter
+
+
+def build_login_user_rate_limiter() -> LoginRateLimiter:
+    """Per-username *failure* budget for POST /auth/login (T1 / D2)."""
+    global _login_user_rate_limiter
+    if _login_user_rate_limiter is None:
+        _login_user_rate_limiter = LoginRateLimiter(
+            redis_url=settings.redis_url,
+            key_prefix="manus-login-user-rl",
+            fail_closed=settings.environment != "development",
+            attempts=LOGIN_USER_RATE_LIMIT_ATTEMPTS,
+            window_seconds=LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    return _login_user_rate_limiter
 
 
 def credentials_from_connection(

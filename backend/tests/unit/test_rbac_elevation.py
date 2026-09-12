@@ -171,6 +171,26 @@ class RBACGrantPolicyTests(unittest.TestCase):
                 self.admin_user.id, self.admin_role.id, actor_user_id=None
             )
 
+    def test_inactive_admin_does_not_count_toward_last_admin(self) -> None:
+        # R2: other_admin_user is deactivated, so admin_user is effectively the
+        # last *active* admin and cannot be removed even though the admin role
+        # still technically has two members.
+        self.other_admin_user.is_active = False
+        self.db.commit()
+        with self.assertRaises(AccessDeniedError):
+            self.service.remove_role_from_user(
+                self.admin_user.id, self.admin_role.id, actor_user_id=None
+            )
+
+    def test_removing_an_inactive_admin_is_allowed_when_an_active_one_remains(self) -> None:
+        self.other_admin_user.is_active = False
+        self.db.commit()
+        # Removing the role from the already-inactive admin is fine: an active
+        # admin (admin_user) remains.
+        self.service.remove_role_from_user(
+            self.other_admin_user.id, self.admin_role.id, actor_user_id=None
+        )
+
     def test_non_admin_cannot_add_unheld_permission_to_custom_role(self) -> None:
         custom_role = self.service.create_role("custom")
         with self.assertRaises(AccessDeniedError):
@@ -254,6 +274,122 @@ class UserServiceSelfProtectionTests(unittest.TestCase):
         service = self._user_service()
         with self.assertRaises(AccessDeniedError):
             service.delete_user(self.admin_user.id, actor_user_id=None)
+
+    def test_cannot_deactivate_last_active_admin(self) -> None:
+        # R2: a second admin exists but is already inactive, so admin_user is
+        # the last *active* admin and cannot be deactivated.
+        inactive_admin = _make_user(self.db, "inactive_admin")
+        self.rbac.assign_role_to_user(inactive_admin.id, self.admin_role.id)
+        inactive_admin.is_active = False
+        self.db.commit()
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.set_active(self.admin_user.id, False, actor_user_id=None)
+
+
+class UserServiceTakeoverPolicyTests(unittest.TestCase):
+    """R1/P8: password reset and username change are bounded by the target's
+    effective rights (services/users/user_service.py::update_user,
+    services/auth/rbac_service.py::assert_may_take_over)."""
+
+    def setUp(self) -> None:
+        self.db = _make_session()
+        self.addCleanup(self.db.get_bind().dispose)
+        self.addCleanup(self.db.close)
+        self.rbac = RBACService(self.db)
+        self.admin_role = self.rbac.create_role("admin", is_system=True)
+        self.admin_user = _make_user(self.db, "admin_user")
+        self.rbac.assign_role_to_user(self.admin_user.id, self.admin_role.id)
+
+        self.non_admin = _make_user(self.db, "non_admin_user")
+        self.target = _make_user(self.db, "target_user")
+
+        self.users_write = self.rbac.create_permission("users", "write")
+        self.credentials_reveal = self.rbac.create_permission("credentials", "reveal")
+        self.workflows_read = self.rbac.create_permission("workflows", "read")
+
+        self.rbac.assign_permission_to_user(self.non_admin.id, self.users_write.id)
+        self.rbac.assign_permission_to_user(self.non_admin.id, self.workflows_read.id)
+        self.rbac.assign_permission_to_user(self.target.id, self.credentials_reveal.id)
+        self.rbac.assign_permission_to_user(self.target.id, self.workflows_read.id)
+
+    def _user_service(self):
+        from services.users.user_service import UserService
+
+        return UserService(self.db)
+
+    def test_users_write_holder_cannot_reset_password_of_user_with_unheld_permission(
+        self,
+    ) -> None:
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.target.id,
+                password="a-valid-password-123",
+                actor_user_id=self.non_admin.id,
+            )
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.target.id,
+                username="renamed",
+                actor_user_id=self.non_admin.id,
+            )
+
+    def test_users_write_holder_can_reset_password_when_target_rights_are_subset(
+        self,
+    ) -> None:
+        self.rbac.assign_permission_to_user(self.non_admin.id, self.credentials_reveal.id)
+        service = self._user_service()
+        updated = service.update_user(
+            self.target.id,
+            password="a-valid-password-123",
+            actor_user_id=self.non_admin.id,
+        )
+        self.assertTrue(updated.must_change_password)
+
+    def test_takeover_of_protected_permission_holder_requires_admin(self) -> None:
+        # The target also holds users:write (protected); even an actor who
+        # holds users:write themselves cannot take over a protected holder.
+        self.rbac.assign_permission_to_user(self.target.id, self.users_write.id)
+        service = self._user_service()
+        with self.assertRaises(AccessDeniedError):
+            service.update_user(
+                self.target.id,
+                password="a-valid-password-123",
+                actor_user_id=self.non_admin.id,
+            )
+        # An admin actor succeeds.
+        service.update_user(
+            self.target.id,
+            password="a-valid-password-123",
+            actor_user_id=self.admin_user.id,
+        )
+
+    def test_is_active_only_update_is_not_a_takeover(self) -> None:
+        service = self._user_service()
+        service.update_user(
+            self.target.id,
+            is_active=True,
+            actor_user_id=self.non_admin.id,
+        )
+
+    def test_internal_caller_bypasses_takeover_rule(self) -> None:
+        service = self._user_service()
+        updated = service.update_user(
+            self.target.id,
+            password="a-valid-password-123",
+            actor_user_id=None,
+        )
+        self.assertTrue(updated.must_change_password)
+
+    def test_self_password_change_is_not_blocked_by_takeover_rule(self) -> None:
+        service = self._user_service()
+        updated = service.update_user(
+            self.non_admin.id,
+            password="a-valid-password-123",
+            actor_user_id=self.non_admin.id,
+        )
+        self.assertTrue(updated.must_change_password)
 
 
 if __name__ == "__main__":

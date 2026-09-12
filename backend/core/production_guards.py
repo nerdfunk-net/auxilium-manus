@@ -20,6 +20,7 @@ def validate_non_development_secrets(
     enable_dev_tools: bool = False,
     redis_password: str = "",
     allow_netmiko_arbitrary_hosts: bool = False,
+    trusted_proxy_ips_configured: bool = True,
     vault_enabled: bool = False,
     vault_addr: str = "",
     vault_verify_ssl: bool = True,
@@ -60,6 +61,12 @@ def validate_non_development_secrets(
         raise RuntimeError("MANUS_REDIS_PASSWORD must be configured outside development")
     if allow_netmiko_arbitrary_hosts:
         raise RuntimeError("ALLOW_NETMIKO_ARBITRARY_HOSTS must not be enabled outside development")
+    if not trusted_proxy_ips_configured:
+        raise RuntimeError(
+            "TRUSTED_PROXY_IPS must be set outside development: the backend is only reached "
+            "through the Next.js proxy, so without it every login shares one rate-limit bucket. "
+            "Use 127.0.0.1 for the all-in-one image, or the proxy's IP/CIDR for a split deployment"
+        )
     if vault_enabled:
         if not vault_addr.lower().startswith("https://"):
             raise RuntimeError("VAULT_ADDR must use https outside development")

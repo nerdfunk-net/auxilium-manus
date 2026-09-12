@@ -58,11 +58,40 @@ class RBACService:
                     "because you do not hold it"
                 )  # P2
 
+    def assert_may_take_over(self, actor_user_id: int | None, target_user_id: int) -> None:
+        """R1/P8: setting a user's password (or renaming them) hands the actor
+        every permission the target holds. Allowed only when that set is a
+        subset of the actor's own (P2) and contains no protected permission
+        (P3). Self-changes are not blocked here (that is T2, out of scope);
+        admins and internal callers (actor_user_id=None) bypass, like every
+        other policy helper."""
+        if (
+            actor_user_id is None
+            or actor_user_id == target_user_id
+            or self._is_admin(actor_user_id)
+        ):
+            return
+        for permission, _source in self.get_effective_permissions(target_user_id):
+            if _is_protected(permission) or not self.has_permission(
+                actor_user_id, permission.resource, permission.action
+            ):
+                raise AccessDeniedError(
+                    "Admin role required to reset the password or rename a user who holds "
+                    f"{permission.resource}:{permission.action}"
+                )
+
     def assert_not_last_admin(self, user_id: int) -> None:
+        """P6: the change must leave at least one *active* administrator other
+        than ``user_id``. Deactivated admins do not count (R2)."""
         admin_role = self._repo.get_role_by_name(ADMIN_ROLE_NAME)
         if admin_role is None or not self.has_role(user_id, ADMIN_ROLE_NAME):
             return
-        if len(self._repo.get_users_with_role(admin_role.id)) <= 1:
+        remaining = [
+            user
+            for user in self._repo.get_users_with_role(admin_role.id, active_only=True)
+            if user.id != user_id
+        ]
+        if not remaining:
             raise AccessDeniedError("The last administrator cannot be removed")  # P6
 
     def has_permission(self, user_id: int, resource: str, action: str) -> bool:
@@ -123,11 +152,15 @@ class RBACService:
         self._repo.assign_role_to_user(user_id, role.id)
 
     def role_has_members(self, role_name: str) -> bool:
-        """True if at least one user currently holds the named role."""
+        """True if at least one *active* user currently holds the named role.
+
+        Backs the bootstrap-admin self-heal (main.py lifespan, admin_reseed_rbac,
+        scripts/repair_database.py): a role held only by deactivated users must
+        count as empty so the initial admin is re-granted (R2)."""
         role = self._repo.get_role_by_name(role_name)
         if role is None:
             return False
-        return bool(self._repo.get_users_with_role(role.id))
+        return bool(self._repo.get_users_with_role(role.id, active_only=True))
 
     # Permissions CRUD passthroughs
     def create_permission(
