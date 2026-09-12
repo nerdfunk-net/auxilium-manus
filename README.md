@@ -34,6 +34,15 @@ with a visual, repeatable workflow model:
   shared error-sink step that posts to a Mattermost channel (and/or the in-app
   Notifications dashboard) with the failing device, step, and error message, instead of
   someone having to go check a run's logs to find out it failed.
+- **Stage changes for review before deploy** — end a workflow with an **Open Change
+  Request** step: rendered configs are committed and pushed to a per-change Git branch
+  (`manus/cr-{run.id}`), a unified diff is stored, and a **Change Request** row is
+  recorded in the local database (`status="staged"`). A reviewer approves it in the
+  Change Requests UI (or a signed Git webhook does) and a separate **deploy run**
+  continues the pipeline — loading the reviewed files via **From Change Request** and
+  applying them to devices. The long review lives as a database row, not a suspended
+  workflow, so approval can take arbitrarily long. See
+  [doc/CICD_PIPELINE.md](doc/CICD_PIPELINE.md).
 
 Under the hood, a workflow definition is a backend-owned JSON graph (distinct from the
 React Flow canvas/UI state), validated and compiled into executable steps by the backend.
@@ -61,6 +70,9 @@ trigger specific workflows and settings.
   run's fanned-out devices
 - Optional Git-backed version control for workflow definitions: per-workflow opt-in,
   auto-commit and push on save, commit history with a diff view, and one-click restore
+- Staged change requests (CI/CD gate): Open Change Request pushes configs to a Git
+  branch and records a Change Request in the local DB; Approve & Deploy (or a signed
+  Git webhook) starts a separate deploy run that applies the reviewed change
 - Credential vault (encrypted at rest, with SSH login/SSH key/token credential types) and
   RBAC-protected settings, users, and workflows
 
