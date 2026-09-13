@@ -58,6 +58,7 @@ class ComputeNextRunTests(unittest.TestCase):
         self.assertEqual(_compute_next_run(schedule), run_at)
 
     def test_cron_schedule_computes_next_occurrence_after_now(self) -> None:
+        before_call = datetime.now(UTC)
         schedule = WorkflowSchedule(
             workflow_id=1,
             uuid="u",
@@ -67,20 +68,24 @@ class ComputeNextRunTests(unittest.TestCase):
         )
         next_run = _compute_next_run(schedule)
         assert next_run is not None
-        self.assertGreater(next_run, datetime.now(UTC))
+        # Compare against a timestamp captured before the call (not a fresh
+        # `now()` after it) so this can't race a minute boundary: the value
+        # `_compute_next_run` computed internally is always >= before_call.
+        self.assertGreater(next_run, before_call)
 
     def test_cron_schedule_advances_past_stale_last_triggered_at(self) -> None:
+        before_call = datetime.now(UTC)
         schedule = WorkflowSchedule(
             workflow_id=1,
             uuid="u",
             schedule_type="cron",
             cron_expression="* * * * *",
             enabled=True,
-            last_triggered_at=datetime.now(UTC) - timedelta(days=30),
+            last_triggered_at=before_call - timedelta(days=30),
         )
         next_run = _compute_next_run(schedule)
         assert next_run is not None
-        self.assertGreater(next_run, datetime.now(UTC))
+        self.assertGreater(next_run, before_call)
 
     def test_malformed_cron_expression_returns_none(self) -> None:
         schedule = WorkflowSchedule(
