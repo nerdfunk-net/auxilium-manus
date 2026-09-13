@@ -9,6 +9,7 @@ import {
   GitCompareArrows,
   Info,
   Layers,
+  Radar,
   ScrollText,
   SquareTerminal,
   type LucideIcon,
@@ -26,6 +27,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { DeviceContext } from "@/lib/workflow-context-types";
 
+import {
+  BatfishResultPanel,
+  type BatfishConnectionInfo,
+  type BatfishResultEntry,
+} from "./batfish-result-panel";
 import { CapabilityBadges } from "./capability-badges";
 import { ContentViewer } from "./content-viewer";
 import { DeviceCommandResultsContent } from "./device-command-results-content";
@@ -55,17 +61,22 @@ interface DetailSection {
 }
 
 const EMPTY_ATTRIBUTE_BAGS: Record<string, Record<string, unknown>> = {};
+const EMPTY_BATFISH_RESULTS: BatfishResultEntry[] = [];
 
 export function DeviceDetailDialog({
   device,
   runId,
   open,
   onOpenChange,
+  batfishResults = EMPTY_BATFISH_RESULTS,
+  batfishConnection = null,
 }: {
   device: DeviceContext;
   runId: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  batfishResults?: BatfishResultEntry[];
+  batfishConnection?: BatfishConnectionInfo | null;
 }) {
   const attributeBags = device.attribute_bags ?? EMPTY_ATTRIBUTE_BAGS;
   const attributeBagNames = useMemo(
@@ -147,6 +158,29 @@ export function DeviceDetailDialog({
         ),
       },
     ];
+
+    if (batfishResults.length > 0) {
+      list.push({
+        id: "batfish-result",
+        label: "Batfish result",
+        icon: Radar,
+        count: batfishResults.length,
+        render: () => (
+          <div className="space-y-2">
+            <p className="text-[11px] text-muted-foreground">
+              Workflow-level result from an upstream Batfish step — not specific to this
+              device.
+            </p>
+            <BatfishResultPanel
+              runId={runId}
+              results={batfishResults}
+              connection={batfishConnection}
+              expanded
+            />
+          </div>
+        ),
+      });
+    }
 
     if (dryRunEntries.length > 0) {
       list.push({
@@ -293,6 +327,8 @@ export function DeviceDetailDialog({
   }, [
     attributeBagNames,
     attributeBags,
+    batfishConnection,
+    batfishResults,
     commandResultCount,
     comparisonDiffEntries,
     comparisonResultEntries,

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { DeviceContext } from "@/lib/workflow-context-types";
 
 import { ArtifactRefRow } from "./artifact-ref-row";
+import type { BatfishConnectionInfo, BatfishResultEntry } from "./batfish-result-panel";
 import { CapabilityBadges } from "./capability-badges";
 import { DeviceCommandResultsContent } from "./device-command-results-content";
 import { DeviceComparisonDiffsContent } from "./device-comparison-diff-content";
@@ -29,7 +30,19 @@ import {
   getSnapshotEntries,
 } from "./parsed-guards";
 
-export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: number | null }) {
+const EMPTY_BATFISH_RESULTS: BatfishResultEntry[] = [];
+
+export function DeviceCard({
+  device,
+  runId,
+  batfishResults = EMPTY_BATFISH_RESULTS,
+  batfishConnection = null,
+}: {
+  device: DeviceContext;
+  runId?: number | null;
+  batfishResults?: BatfishResultEntry[];
+  batfishConnection?: BatfishConnectionInfo | null;
+}) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [showAttributeBags, setShowAttributeBags] = useState(false);
   const [showConfigs, setShowConfigs] = useState(false);
@@ -381,6 +394,8 @@ export function DeviceCard({ device, runId }: { device: DeviceContext; runId?: n
         runId={runId ?? null}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        batfishResults={batfishResults}
+        batfishConnection={batfishConnection}
       />
     </div>
   );

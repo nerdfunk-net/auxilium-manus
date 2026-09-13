@@ -1,6 +1,6 @@
 "use client";
 
-import { FlaskConical, MessageSquare, Network, ShieldCheck } from "lucide-react";
+import { FlaskConical, MessageSquare, Network, Radar, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { buildSourceSettingKey } from "../constants/setting-keys";
+import { BatfishSourceDialog } from "../dialogs/batfish-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
 import { MattermostSourceDialog } from "../dialogs/mattermost-source-dialog";
 import { NautobotSourceDialog } from "../dialogs/nautobot-source-dialog";
@@ -163,6 +164,31 @@ export function SourcesSettingsCanvas() {
                 })
               }
             />
+
+            <SourceListSection
+              title="Batfish"
+              description="Offline network config analysis — routing, reachability, ACL checks"
+              icon={Radar}
+              isLoading={sources.isBatfishLoading}
+              emptyLabel="No Batfish sources yet."
+              addLabel="Add Batfish"
+              items={sources.batfish.map((item) => ({
+                sourceId: item.source_id,
+                summary: `${item.host}:${item.port}`,
+              }))}
+              onAdd={() => sources.setDialog({ type: "batfish", mode: "create" })}
+              onEdit={(sourceId) =>
+                sources.setDialog({ type: "batfish", mode: "edit", sourceId })
+              }
+              onDelete={(sourceId) =>
+                sources.setDialog({
+                  type: "delete",
+                  sourceType: "batfish",
+                  sourceId,
+                  key: "",
+                })
+              }
+            />
           </div>
         </div>
       </div>
@@ -210,6 +236,17 @@ export function SourcesSettingsCanvas() {
         onClose={() => sources.setDialog({ type: "closed" })}
         onCreate={sources.saveMattermost}
         onUpdate={sources.updateMattermost}
+      />
+
+      <BatfishSourceDialog
+        open={sources.batfishDialogOpen !== null}
+        mode={sources.batfishDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingBatfishValue}
+        existingSourceIds={sources.existingBatfishIds}
+        isSaving={sources.createBatfishSourceIsPending || sources.updateBatfishSourceIsPending}
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onCreate={sources.saveBatfish}
+        onUpdate={sources.updateBatfish}
       />
 
       <Dialog

@@ -18,6 +18,8 @@ from services.auth.login_rate_limiter import (
     LOGIN_USER_RATE_LIMIT_WINDOW_SECONDS,
     LoginRateLimiter,
 )
+from services.batfish.client import BatfishService
+from services.batfish.source_config_service import BatfishSourceConfigService
 from services.cache.redis_cache_service import RedisCacheService
 from services.ise.client import ISEService
 from services.ise.credentials import ISECredentials
@@ -38,6 +40,7 @@ _cache_service: RedisCacheService | None = None
 _nautobot_service: NautobotService | None = None
 _ise_service: ISEService | None = None
 _pyats_service: PyATSShimService | None = None
+_batfish_service: BatfishService | None = None
 _mattermost_service: MattermostService | None = None
 _login_rate_limiter: LoginRateLimiter | None = None
 _login_ip_rate_limiter: LoginRateLimiter | None = None
@@ -89,6 +92,21 @@ def set_pyats_app_service(service: PyATSShimService) -> None:
 
 def build_pyats_source_config_service(db: Session) -> PyATSSourceConfigService:
     return PyATSSourceConfigService(db)
+
+
+def get_batfish_app_service() -> BatfishService:
+    if _batfish_service is None:
+        raise RuntimeError("BatfishService is not initialized")
+    return _batfish_service
+
+
+def set_batfish_app_service(service: BatfishService) -> None:
+    global _batfish_service
+    _batfish_service = service
+
+
+def build_batfish_source_config_service(db: Session) -> BatfishSourceConfigService:
+    return BatfishSourceConfigService(db)
 
 
 def get_mattermost_app_service() -> MattermostService:

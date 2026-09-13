@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
 import { useISESourcesQuery } from "@/hooks/queries/use-ise-sources-query";
 import { useMattermostSourcesQuery } from "@/hooks/queries/use-mattermost-sources-query";
 import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
@@ -60,6 +61,18 @@ export function useSourcesSettings() {
     [mattermost],
   );
 
+  const { data: batfishData, isLoading: isBatfishLoading } =
+    useBatfishSourcesQuery();
+  const batfish = useMemo(() => batfishData?.sources ?? [], [batfishData]);
+  const batfishById = useMemo(
+    () => new Map(batfish.map((item) => [item.source_id, item])),
+    [batfish],
+  );
+  const existingBatfishIds = useMemo(
+    () => batfish.map((item) => item.source_id),
+    [batfish],
+  );
+
   const { nautobot } = useMemo(
     () => groupSourceSettings(data?.settings ?? []),
     [data?.settings],
@@ -85,6 +98,7 @@ export function useSourcesSettings() {
   const iseDialogOpen = dialog.type === "ise" ? dialog : null;
   const pyatsDialogOpen = dialog.type === "pyats" ? dialog : null;
   const mattermostDialogOpen = dialog.type === "mattermost" ? dialog : null;
+  const batfishDialogOpen = dialog.type === "batfish" ? dialog : null;
   const deleteDialogOpen = dialog.type === "delete" ? dialog : null;
 
   const editingNautobot: NautobotSourceConfig | null =
@@ -139,6 +153,20 @@ export function useSourcesSettings() {
       credentialId: editingMattermost.credential_id,
     };
   }, [mattermostDialogOpen, mattermostById]);
+  const editingBatfishValue = useMemo(() => {
+    if (batfishDialogOpen?.mode !== "edit" || !batfishDialogOpen.sourceId) {
+      return null;
+    }
+    const editingBatfish = batfishById.get(batfishDialogOpen.sourceId) ?? null;
+    if (!editingBatfish) {
+      return null;
+    }
+    return {
+      sourceId: editingBatfish.source_id,
+      host: editingBatfish.host,
+      port: editingBatfish.port,
+    };
+  }, [batfishDialogOpen, batfishById]);
 
   const isDeletePending =
     deleteDialogOpen?.sourceType === "ise"
@@ -147,7 +175,9 @@ export function useSourcesSettings() {
         ? saveHandlers.deletePyatsSourceIsPending
         : deleteDialogOpen?.sourceType === "mattermost"
           ? saveHandlers.deleteMattermostSourceIsPending
-          : saveHandlers.deleteSettingIsPending;
+          : deleteDialogOpen?.sourceType === "batfish"
+            ? saveHandlers.deleteBatfishSourceIsPending
+            : saveHandlers.deleteSettingIsPending;
 
   return useMemo(
     () => ({
@@ -158,13 +188,16 @@ export function useSourcesSettings() {
       ise,
       pyats,
       mattermost,
+      batfish,
       isIseLoading,
       isPyatsLoading,
       isMattermostLoading,
+      isBatfishLoading,
       existingNautobotIds,
       existingIseIds,
       existingPyatsIds,
       existingMattermostIds,
+      existingBatfishIds,
       saveNautobot: saveHandlers.saveNautobot,
       saveIse: saveHandlers.saveIse,
       updateIse: saveHandlers.updateIse,
@@ -172,16 +205,20 @@ export function useSourcesSettings() {
       updatePyats: saveHandlers.updatePyats,
       saveMattermost: saveHandlers.saveMattermost,
       updateMattermost: saveHandlers.updateMattermost,
+      saveBatfish: saveHandlers.saveBatfish,
+      updateBatfish: saveHandlers.updateBatfish,
       confirmDelete: saveHandlers.confirmDelete,
       nautobotDialogOpen,
       iseDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
+      batfishDialogOpen,
       deleteDialogOpen,
       editingNautobot,
       editingIseValue,
       editingPyatsValue,
       editingMattermostValue,
+      editingBatfishValue,
       isDeletePending,
       upsertSettingIsPending: saveHandlers.upsertSettingIsPending,
       createIseSourceIsPending: saveHandlers.createIseSourceIsPending,
@@ -190,6 +227,8 @@ export function useSourcesSettings() {
       updatePyatsSourceIsPending: saveHandlers.updatePyatsSourceIsPending,
       createMattermostSourceIsPending: saveHandlers.createMattermostSourceIsPending,
       updateMattermostSourceIsPending: saveHandlers.updateMattermostSourceIsPending,
+      createBatfishSourceIsPending: saveHandlers.createBatfishSourceIsPending,
+      updateBatfishSourceIsPending: saveHandlers.updateBatfishSourceIsPending,
     }),
     [
       dialog,
@@ -198,23 +237,28 @@ export function useSourcesSettings() {
       ise,
       pyats,
       mattermost,
+      batfish,
       isIseLoading,
       isPyatsLoading,
       isMattermostLoading,
+      isBatfishLoading,
       existingNautobotIds,
       existingIseIds,
       existingPyatsIds,
       existingMattermostIds,
+      existingBatfishIds,
       saveHandlers,
       nautobotDialogOpen,
       iseDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
+      batfishDialogOpen,
       deleteDialogOpen,
       editingNautobot,
       editingIseValue,
       editingPyatsValue,
       editingMattermostValue,
+      editingBatfishValue,
       isDeletePending,
     ],
   );

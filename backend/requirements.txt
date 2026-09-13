@@ -19,3 +19,4 @@ uvicorn[standard]==0.52.1
 gitpython==3.1.59  # 3.1.58/59 fix PYSEC-2026-3783..3788 + 4 GHSAs (pip-audit)
 cisco-config-parser==3.0.0
 croniter==6.2.4
+pybatfish==2026.8.19.3660

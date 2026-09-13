@@ -580,6 +580,207 @@ plugins:
           data_type: string
           required: false
 
+  - id: batfish-init-snapshot
+    name: Init Batfish Snapshot
+    overview: Build a Batfish snapshot from this run's device configs.
+    description: >
+      Assembles the current run's device running-configs into a fresh Batfish
+      snapshot and records its location for downstream Batfish query steps
+      (Routing Table, Path Check, ACL Check). Not fan-out-safe -- like
+      store-artifact/git steps, this must run after a Fan In in a fanned-out
+      workflow, never inside the fanned-out branch (see
+      doc/BATFISH_INTEGRATION.md "Snapshot lifecycle").
+    artifact_type: persistent_artifact
+    palette_category: batfish
+    directory: batfish_init_snapshot
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: batfish_source_id
+          description: Which configured Batfish source (Settings → Sources → Batfish) to use.
+          data_type: string
+          required: true
+        - name: retain_snapshots
+          description: >
+            Keep only the N most recent snapshots for this workflow's Batfish
+            network; older ones are deleted after a successful init.
+          data_type: integer
+          required: false
+          default: 5
+
+  - id: batfish-routing-table
+    name: Batfish Routing Table
+    overview: Look up routing table entries via Batfish's routes question.
+    description: >
+      Queries the routing table of an already-initialized Batfish snapshot
+      (from an upstream Init Batfish Snapshot step). All filters are optional --
+      an empty config returns every route on every node.
+    artifact_type: configuration_retrieval
+    palette_category: batfish
+    directory: batfish_routing_table
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: nodes
+          description: Restrict to nodes matching this specifier (e.g. a hostname).
+          data_type: string
+          required: false
+        - name: network_prefix
+          description: Restrict to routes matching this network prefix (e.g. 192.168.1.0/24).
+          data_type: string
+          required: false
+        - name: prefix_match_type
+          description: "Prefix match mode: EXACT (default) | LONGEST_PREFIX_MATCH | LONGER_PREFIXES | SHORTER_PREFIXES."
+          data_type: string
+          required: false
+          default: EXACT
+        - name: protocols
+          description: Restrict to routes matching this routing-protocol specifier (e.g. static, bgp).
+          data_type: string
+          required: false
+        - name: vrfs
+          description: Restrict to VRFs matching this name or regex.
+          data_type: string
+          required: false
+        - name: rib
+          description: "Which protocol RIB to read from: main (default) | bgp | evpn."
+          data_type: string
+          required: false
+          default: main
+        - name: output_key
+          description: Metadata key this step's result is stored under ({node_id}.<output_key>).
+          data_type: string
+          required: false
+          default: batfish_routes
+
+  - id: batfish-path-check
+    name: Batfish Path Check
+    overview: Check whether a path exists between two devices via Batfish's reachability question.
+    description: >
+      Checks whether traffic matching the given header space can travel from
+      start_node to end_node (or anywhere, if end_node is omitted) against an
+      already-initialized Batfish snapshot. Routes to reachable or
+      not_reachable depending on whether any matching flow was found -- an
+      empty result is the valid negative answer, not an error.
+    artifact_type: control_flow
+    palette_category: batfish
+    directory: batfish_path_check
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: reachable
+      - name: not_reachable
+    metadata:
+      configuration_input:
+        - name: start_node
+          description: Node/nodeSpec to start the path from.
+          data_type: string
+          required: true
+          example: R1
+        - name: end_node
+          description: Node/nodeSpec to end the path at. Omit to search any destination.
+          data_type: string
+          required: false
+        - name: dst_ips
+          description: Destination IP(s)/prefix to match.
+          data_type: string
+          required: false
+        - name: src_ips
+          description: Source IP(s)/prefix to match.
+          data_type: string
+          required: false
+        - name: applications
+          description: Named applications to match (e.g. SSH, TELNET, HTTP).
+          data_type: array
+          required: false
+        - name: ip_protocols
+          description: IP protocol(s) to match.
+          data_type: string
+          required: false
+        - name: max_traces
+          description: Limit the number of traces returned.
+          data_type: integer
+          required: false
+        - name: invert_search
+          description: Search for packet headers outside the specified header space, rather than inside it.
+          data_type: boolean
+          required: false
+          default: false
+        - name: ignore_filters
+          description: Do not apply filters/ACLs during analysis.
+          data_type: boolean
+          required: false
+          default: false
+        - name: output_key
+          description: Metadata key this step's result is stored under ({node_id}.<output_key>).
+          data_type: string
+          required: false
+          default: batfish_path_check
+
+  - id: batfish-acl-check
+    name: Batfish ACL Check
+    overview: Check whether a specific flow is permitted by a named filter/ACL via Batfish's testFilters question.
+    description: >
+      Tests one concrete traffic flow (destination required; source/
+      application/protocol optional) against a named filter on a node, using
+      an already-initialized Batfish snapshot. Routes to permit or deny based
+      on the filter's verdict.
+    artifact_type: control_flow
+    palette_category: batfish
+    directory: batfish_acl_check
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: permit
+      - name: deny
+    metadata:
+      configuration_input:
+        - name: node
+          description: Node/nodeSpec the filter is evaluated on.
+          data_type: string
+          required: true
+          example: R1
+        - name: filter_name
+          description: Name/filterSpec of the ACL or firewall filter to test.
+          data_type: string
+          required: true
+          example: TEST-ACL
+        - name: dst_ips
+          description: Destination IP(s)/prefix of the flow to test.
+          data_type: string
+          required: true
+        - name: src_ips
+          description: Source IP(s)/prefix of the flow to test.
+          data_type: string
+          required: false
+        - name: applications
+          description: Named applications to match (e.g. SSH, TELNET, HTTP).
+          data_type: array
+          required: false
+        - name: ip_protocols
+          description: IP protocol(s) to match.
+          data_type: string
+          required: false
+        - name: start_location
+          description: Location to start tracing the flow from.
+          data_type: string
+          required: false
+        - name: output_key
+          description: Metadata key this step's result is stored under ({node_id}.<output_key>).
+          data_type: string
+          required: false
+          default: batfish_acl_check
+
   - id: configure-replace-config
     name: Configure Replace Config
     overview: Apply a COMPLETE config file via 'configure replace' and confirm the change.

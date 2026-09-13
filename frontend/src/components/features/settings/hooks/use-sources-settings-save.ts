@@ -2,12 +2,15 @@
 
 import { useCallback } from "react";
 
+import { useBatfishSourcesMutations } from "@/hooks/queries/use-batfish-sources-mutations";
 import { useISESourcesMutations } from "@/hooks/queries/use-ise-sources-mutations";
 import { useMattermostSourcesMutations } from "@/hooks/queries/use-mattermost-sources-mutations";
 import { usePyATSSourcesMutations } from "@/hooks/queries/use-pyats-sources-mutations";
 import { useSettingsMutations } from "@/hooks/queries/use-settings-mutations";
 
 import type {
+  BatfishSourceCreatePayload,
+  BatfishSourceUpdatePayload,
   ISESourceCreatePayload,
   ISESourceUpdatePayload,
   MattermostSourceCreatePayload,
@@ -22,9 +25,10 @@ export type SourcesDialogState =
   | { type: "ise"; mode: "create" | "edit"; sourceId?: string }
   | { type: "pyats"; mode: "create" | "edit"; sourceId?: string }
   | { type: "mattermost"; mode: "create" | "edit"; sourceId?: string }
+  | { type: "batfish"; mode: "create" | "edit"; sourceId?: string }
   | {
       type: "delete";
-      sourceType: "nautobot" | "ise" | "pyats" | "mattermost";
+      sourceType: "nautobot" | "ise" | "pyats" | "mattermost" | "batfish";
       sourceId: string;
       key: string;
     };
@@ -59,6 +63,12 @@ export function useSourcesSettingsSave({
     updateSource: updateMattermostSource,
     deleteSource: deleteMattermostSource,
   } = useMattermostSourcesMutations();
+
+  const {
+    createSource: createBatfishSource,
+    updateSource: updateBatfishSource,
+    deleteSource: deleteBatfishSource,
+  } = useBatfishSourcesMutations();
 
   const saveNautobot = useCallback(
     async (values: NautobotSourceValue, settingKey: string) => {
@@ -129,6 +139,22 @@ export function useSourcesSettingsSave({
     [updateMattermostSource, setDialog],
   );
 
+  const saveBatfish = useCallback(
+    async (values: BatfishSourceCreatePayload) => {
+      await createBatfishSource.mutateAsync(values);
+      setDialog({ type: "closed" });
+    },
+    [createBatfishSource, setDialog],
+  );
+
+  const updateBatfish = useCallback(
+    async (sourceId: string, values: BatfishSourceUpdatePayload) => {
+      await updateBatfishSource.mutateAsync({ sourceId, data: values });
+      setDialog({ type: "closed" });
+    },
+    [updateBatfishSource, setDialog],
+  );
+
   const confirmDelete = useCallback(async () => {
     if (dialog.type !== "delete") {
       return;
@@ -139,11 +165,21 @@ export function useSourcesSettingsSave({
       await deletePyatsSource.mutateAsync(dialog.sourceId);
     } else if (dialog.sourceType === "mattermost") {
       await deleteMattermostSource.mutateAsync(dialog.sourceId);
+    } else if (dialog.sourceType === "batfish") {
+      await deleteBatfishSource.mutateAsync(dialog.sourceId);
     } else {
       await deleteSetting.mutateAsync(dialog.key);
     }
     setDialog({ type: "closed" });
-  }, [dialog, deleteSetting, deleteIseSource, deletePyatsSource, deleteMattermostSource, setDialog]);
+  }, [
+    dialog,
+    deleteSetting,
+    deleteIseSource,
+    deletePyatsSource,
+    deleteMattermostSource,
+    deleteBatfishSource,
+    setDialog,
+  ]);
 
   return {
     saveNautobot,
@@ -153,6 +189,8 @@ export function useSourcesSettingsSave({
     updatePyats,
     saveMattermost,
     updateMattermost,
+    saveBatfish,
+    updateBatfish,
     confirmDelete,
     upsertSettingIsPending: upsertSetting.isPending,
     createIseSourceIsPending: createIseSource.isPending,
@@ -161,9 +199,12 @@ export function useSourcesSettingsSave({
     updatePyatsSourceIsPending: updatePyatsSource.isPending,
     createMattermostSourceIsPending: createMattermostSource.isPending,
     updateMattermostSourceIsPending: updateMattermostSource.isPending,
+    createBatfishSourceIsPending: createBatfishSource.isPending,
+    updateBatfishSourceIsPending: updateBatfishSource.isPending,
     deleteIseSourceIsPending: deleteIseSource.isPending,
     deletePyatsSourceIsPending: deletePyatsSource.isPending,
     deleteMattermostSourceIsPending: deleteMattermostSource.isPending,
+    deleteBatfishSourceIsPending: deleteBatfishSource.isPending,
     deleteSettingIsPending: deleteSetting.isPending,
   };
 }

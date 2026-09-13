@@ -22,12 +22,16 @@ import {
   LockOpen,
   LogIn,
   MessageSquare,
+  PackagePlus,
   Replace,
+  Route,
   Router,
   Scale,
   SearchCode,
   Settings2,
+  ShieldAlert,
   ShieldCheck,
+  Signpost,
   Square,
   Table2,
   Tags,
@@ -46,6 +50,7 @@ export const ARTIFACT_TYPE_ORDER = [
   "nautobot",
   "cisco",
   "pyats",
+  "batfish",
   "inventory_selector",
   "routing",
   "attributes",
@@ -62,6 +67,7 @@ export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   nautobot: "Nautobot",
   cisco: "Cisco",
   pyats: "PyATS",
+  batfish: "Batfish",
   configuration_retrieval: "Configuration Management",
   notify: "Notify",
 };
@@ -115,6 +121,13 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "compare-pyats-snapshot": Diff,
   "upload-config": HardDriveUpload,
   "get-from-user": UserRound,
+  // Same reason as the pyats entries above: palette_category: batfish means
+  // the artifact_type icon fallback doesn't apply, so every batfish step
+  // needs its own entry here too.
+  "batfish-init-snapshot": PackagePlus,
+  "batfish-routing-table": Route,
+  "batfish-path-check": Signpost,
+  "batfish-acl-check": ShieldAlert,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {
@@ -151,6 +164,7 @@ export const categoryTileClasses: Record<string, string> = {
   nautobot: "bg-step-surface text-step-muted-foreground",
   cisco: "bg-cyan-100 text-cyan-700",
   pyats: "bg-fuchsia-100 text-fuchsia-700",
+  batfish: "bg-rose-100 text-rose-700",
   persistent_artifact: "bg-violet-100 text-violet-700",
   template_rendering: "bg-orange-100 text-orange-700",
   trigger: "bg-muted text-muted-foreground",
@@ -174,6 +188,7 @@ export const categoryBorderAccentClasses: Record<string, string> = {
   nautobot: "border-l-step-hover",
   cisco: "border-l-cyan-700",
   pyats: "border-l-fuchsia-700",
+  batfish: "border-l-rose-700",
   persistent_artifact: "border-l-violet-700",
   template_rendering: "border-l-orange-700",
   notify: "border-l-blue-700",

@@ -9,6 +9,7 @@ import service_factory
 from core.database import get_db
 from models.sources_nautobot import NautobotSourceRef
 from services.auth.login_rate_limiter import LoginRateLimiter
+from services.batfish.source_config_service import BatfishSourceConfigService
 from services.ise.source_config_service import ISESourceConfigService
 from services.mattermost.source_config_service import MattermostSourceConfigService
 from services.nautobot.credentials import NautobotCredentials
@@ -33,6 +34,12 @@ def get_pyats_source_config_service(
     db: Session = Depends(get_db),
 ) -> PyATSSourceConfigService:
     return service_factory.build_pyats_source_config_service(db)
+
+
+def get_batfish_source_config_service(
+    db: Session = Depends(get_db),
+) -> BatfishSourceConfigService:
+    return service_factory.build_batfish_source_config_service(db)
 
 
 def get_mattermost_source_config_service(

@@ -5,6 +5,11 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { WorkflowContext } from "@/lib/workflow-context-types";
 
+import {
+  BatfishResultPanel,
+  extractBatfishConnection,
+  extractBatfishResults,
+} from "./batfish-result-panel";
 import { DebugLogsPanel, extractDebugLogs } from "./debug-logs-panel";
 import { DevicesSection } from "./devices-section";
 import { LogAttributesPanel, extractLogAttributes } from "./log-attributes-panel";
@@ -21,6 +26,14 @@ export function OutcomeContextView({
 }) {
   const devices = Object.values(context.devices);
   const pendingCommandNodes = Object.keys(context.pending_commands);
+  const batfishResults = useMemo(
+    () => extractBatfishResults(context.metadata),
+    [context.metadata],
+  );
+  const batfishConnection = useMemo(
+    () => extractBatfishConnection(context.metadata),
+    [context.metadata],
+  );
   const debugLogs = useMemo(() => extractDebugLogs(context.metadata), [context.metadata]);
   const logAttributes = useMemo(
     () => extractLogAttributes(context.metadata),
@@ -33,7 +46,27 @@ export function OutcomeContextView({
 
   return (
     <div className={cn("min-w-0 overflow-hidden", compact ? "space-y-2" : "space-y-4")}>
-      <DevicesSection devices={devices} runId={runId} compact={compact} />
+      {batfishResults.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Batfish result
+          </p>
+          <BatfishResultPanel
+            runId={runId ?? null}
+            results={batfishResults}
+            connection={batfishConnection}
+            expanded={!compact}
+          />
+        </div>
+      ) : null}
+
+      <DevicesSection
+        devices={devices}
+        runId={runId}
+        compact={compact}
+        batfishResults={batfishResults}
+        batfishConnection={batfishConnection}
+      />
 
       {debugLogs.length > 0 ? (
         <div>

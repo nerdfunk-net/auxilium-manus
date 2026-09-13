@@ -152,3 +152,40 @@ export interface MattermostTestConnectionResponse {
   success: boolean;
   message: string;
 }
+
+export interface BatfishSourceResponse {
+  source_id: string;
+  host: string;
+  port: number;
+}
+
+export interface BatfishSourceListResponse {
+  sources: BatfishSourceResponse[];
+  total: number;
+}
+
+export interface BatfishSourceCreatePayload {
+  source_id: string;
+  host: string;
+  port: number;
+}
+
+export interface BatfishSourceUpdatePayload {
+  host?: string;
+  port?: number;
+}
+
+export interface BatfishTestConnectionResponse {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * Test either a saved source (`{ source_id }`) or unsaved dialog values
+ * (`{ host, port }`) — never both. Deliberately its own type, not a reuse of
+ * `SourceTestConnectionPayload`: the Batfish coordinator has no
+ * credential/verify_ssl/timeout, so its inline shape doesn't fit that one.
+ */
+export type BatfishTestConnectionPayload =
+  | { source_id: string }
+  | { host: string; port: number };

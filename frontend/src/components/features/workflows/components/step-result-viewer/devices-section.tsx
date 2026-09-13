@@ -6,10 +6,13 @@ import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { DeviceContext } from "@/lib/workflow-context-types";
 
+import type { BatfishConnectionInfo, BatfishResultEntry } from "./batfish-result-panel";
 import { DeviceCard } from "./device-card";
 
 /** Lists with more than this many devices start collapsed. */
 const DEVICES_COLLAPSE_THRESHOLD = 5;
+
+const EMPTY_BATFISH_RESULTS: BatfishResultEntry[] = [];
 
 function summarizeDeviceStatuses(devices: DeviceContext[]) {
   return devices.reduce(
@@ -51,10 +54,14 @@ export function DevicesSection({
   devices,
   runId,
   compact = false,
+  batfishResults = EMPTY_BATFISH_RESULTS,
+  batfishConnection = null,
 }: {
   devices: DeviceContext[];
   runId?: number | null;
   compact?: boolean;
+  batfishResults?: BatfishResultEntry[];
+  batfishConnection?: BatfishConnectionInfo | null;
 }) {
   const [expanded, setExpanded] = useState(
     () => !compact && devices.length <= DEVICES_COLLAPSE_THRESHOLD,
@@ -96,7 +103,13 @@ export function DevicesSection({
           )}
         >
           {devices.map((device) => (
-            <DeviceCard key={device.id} device={device} runId={runId} />
+            <DeviceCard
+              key={device.id}
+              device={device}
+              runId={runId}
+              batfishResults={batfishResults}
+              batfishConnection={batfishConnection}
+            />
           ))}
         </div>
       ) : null}

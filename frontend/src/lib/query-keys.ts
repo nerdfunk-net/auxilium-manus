@@ -111,6 +111,10 @@ export const queryKeys = {
     all: ["sources-mattermost"] as const,
     list: () => [...queryKeys.sourcesMattermost.all, "list"] as const,
   },
+  sourcesBatfish: {
+    all: ["sources-batfish"] as const,
+    list: () => [...queryKeys.sourcesBatfish.all, "list"] as const,
+  },
   credentials: {
     all: ["credentials"] as const,
     list: (includeExpired?: boolean) =>

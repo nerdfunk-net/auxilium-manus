@@ -1,14 +1,16 @@
 "use client";
 
+import { isBatfishMetadataKey } from "./batfish-result-panel";
 import { DEBUG_LOGS_METADATA_SUFFIX } from "./debug-logs-panel";
 import { LOG_ATTRIBUTES_METADATA_SUFFIX } from "./log-attributes-panel";
 
 export function metadataWithoutDebugPanels(metadata: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(metadata).filter(
-      ([key]) =>
+      ([key, value]) =>
         !key.endsWith(DEBUG_LOGS_METADATA_SUFFIX) &&
-        !key.endsWith(LOG_ATTRIBUTES_METADATA_SUFFIX),
+        !key.endsWith(LOG_ATTRIBUTES_METADATA_SUFFIX) &&
+        !isBatfishMetadataKey(key, value),
     ),
   );
 }

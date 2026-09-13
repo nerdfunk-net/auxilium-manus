@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 import service_factory
 from core.database import SessionLocal
 from core.logging_config import WORKER_PROCESS_NAME
+from services.batfish.client import BatfishService
 from services.ise.client import ISEService
 from services.logging.logging_settings_service import LoggingSettingsService
 from services.mattermost.client import MattermostService
@@ -46,6 +47,10 @@ async def start_all(process_name: str = WORKER_PROCESS_NAME) -> AsyncIterator[No
     await pyats_service.startup()
     service_factory.set_pyats_app_service(pyats_service)
 
+    batfish_service = BatfishService()
+    await batfish_service.startup()
+    service_factory.set_batfish_app_service(batfish_service)
+
     mattermost_service = MattermostService()
     await mattermost_service.startup()
     service_factory.set_mattermost_app_service(mattermost_service)
@@ -64,6 +69,7 @@ async def start_all(process_name: str = WORKER_PROCESS_NAME) -> AsyncIterator[No
         await nautobot_service.shutdown()
         await ise_service.shutdown()
         await pyats_service.shutdown()
+        await batfish_service.shutdown()
         await mattermost_service.shutdown()
         await stop_vault_services()
         logger.info("Worker services shut down")
