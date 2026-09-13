@@ -15,7 +15,6 @@ from models.batfish import (
     BatfishRoutesQueryRequest,
     BatfishTestFiltersQueryRequest,
 )
-from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
 from services.batfish.preview_service import BatfishPreviewService
 
@@ -89,8 +88,10 @@ class BatfishPreviewServiceRoutesTests(unittest.IsolatedAsyncioTestCase):
 
 class BatfishPreviewServiceReachabilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_requires_start_node(self) -> None:
+        # require_field (services.batfish.query_helpers) raises ValueError --
+        # the shared check also used by the batfish-path-check executor.
         service, _, _batfish = _make_service()
-        with self.assertRaises(BatfishValidationError):
+        with self.assertRaises(ValueError):
             await service.run_reachability(
                 "lab",
                 BatfishReachabilityQueryRequest(network="net", snapshot="snap", start_node=" "),
@@ -148,25 +149,25 @@ class BatfishPreviewServiceReachabilityTests(unittest.IsolatedAsyncioTestCase):
 class BatfishPreviewServiceTestFiltersTests(unittest.IsolatedAsyncioTestCase):
     async def test_requires_node_filter_and_dst_ips(self) -> None:
         # Pydantic's min_length=1 already rejects "" at the request-model
-        # layer; a whitespace-only string is what exercises the service's
-        # own .strip() validation (mirroring the workflow-step executor's
-        # equivalent checks).
+        # layer; a whitespace-only string is what exercises require_field()
+        # (services.batfish.query_helpers), which raises ValueError -- the
+        # same shared check the batfish-acl-check executor uses.
         service, _, _batfish = _make_service()
-        with self.assertRaises(BatfishValidationError):
+        with self.assertRaises(ValueError):
             await service.run_test_filters(
                 "lab",
                 BatfishTestFiltersQueryRequest(
                     network="net", node=" ", filter_name="ACL", dst_ips="1.1.1.1"
                 ),
             )
-        with self.assertRaises(BatfishValidationError):
+        with self.assertRaises(ValueError):
             await service.run_test_filters(
                 "lab",
                 BatfishTestFiltersQueryRequest(
                     network="net", node="R1", filter_name=" ", dst_ips="1.1.1.1"
                 ),
             )
-        with self.assertRaises(BatfishValidationError):
+        with self.assertRaises(ValueError):
             await service.run_test_filters(
                 "lab",
                 BatfishTestFiltersQueryRequest(
@@ -192,10 +193,14 @@ class BatfishPreviewServiceTestFiltersTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["headers"], {"dstIps": "1.1.1.1"})
 
     async def test_raises_when_no_result(self) -> None:
+        # An empty result set is an execution problem (node/filter_name
+        # didn't match anything), not a verdict -- query_test_filters raises
+        # RuntimeError, matching the batfish-acl-check executor's own
+        # reasoning (see doc/BATFISH_INTEGRATION.md "Batfish ACL Check").
         service, _, batfish = _make_service()
         batfish.test_filters = AsyncMock(return_value=[])
 
-        with self.assertRaises(BatfishValidationError):
+        with self.assertRaises(RuntimeError):
             await service.run_test_filters(
                 "lab",
                 BatfishTestFiltersQueryRequest(

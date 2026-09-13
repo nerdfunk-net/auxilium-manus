@@ -14,8 +14,6 @@ identically to what the real workflow step would produce.
 
 from __future__ import annotations
 
-from typing import Any
-
 from models.batfish import (
     BatfishQueryResponse,
     BatfishReachabilityQueryRequest,
@@ -25,14 +23,14 @@ from models.batfish import (
 from services.batfish.client import BatfishService
 from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
-from services.batfish.query_helpers import build_batfish_headers, resolve_latest_snapshot_name
+from services.batfish.query_helpers import (
+    query_reachability,
+    query_routes,
+    query_test_filters,
+    require_field,
+    resolve_latest_snapshot_name,
+)
 from services.batfish.source_config_service import BatfishSourceConfigService
-
-
-def _or_none(value: Any) -> Any:
-    if isinstance(value, str) and not value.strip():
-        return None
-    return value
 
 
 class BatfishPreviewService:
@@ -62,16 +60,17 @@ class BatfishPreviewService:
         self, source_id: str, request: BatfishRoutesQueryRequest
     ) -> BatfishQueryResponse:
         connection, snapshot = await self._resolve(source_id, request.network, request.snapshot)
-        rows = await self._batfish.routes(
+        rows = await query_routes(
+            self._batfish,
             connection,
             batfish_network=request.network,
             snapshot=snapshot,
-            nodes=_or_none(request.nodes),
-            network=_or_none(request.network_prefix),
-            prefixMatchType=_or_none(request.prefix_match_type),
-            protocols=_or_none(request.protocols),
-            vrfs=_or_none(request.vrfs),
-            rib=_or_none(request.rib),
+            nodes=request.nodes,
+            network_prefix=request.network_prefix,
+            prefix_match_type=request.prefix_match_type,
+            protocols=request.protocols,
+            vrfs=request.vrfs,
+            rib=request.rib,
         )
         return BatfishQueryResponse(
             success=True,
@@ -84,33 +83,23 @@ class BatfishPreviewService:
     async def run_reachability(
         self, source_id: str, request: BatfishReachabilityQueryRequest
     ) -> BatfishQueryResponse:
-        start_node = request.start_node.strip()
-        if not start_node:
-            raise BatfishValidationError("start_node is required")
-
+        start_node = require_field(request.start_node, "start_node")
         connection, snapshot = await self._resolve(source_id, request.network, request.snapshot)
 
-        path_constraints: dict[str, Any] = {"startLocation": start_node}
-        end_node = (request.end_node or "").strip()
-        if end_node:
-            path_constraints["endLocation"] = end_node
-
-        headers = build_batfish_headers(
+        rows, reachable = await query_reachability(
+            self._batfish,
+            connection,
+            batfish_network=request.network,
+            snapshot=snapshot,
+            start_node=start_node,
+            end_node=request.end_node,
             dst_ips=request.dst_ips,
             src_ips=request.src_ips,
             applications=request.applications,
             ip_protocols=request.ip_protocols,
-        )
-
-        rows = await self._batfish.reachability(
-            connection,
-            batfish_network=request.network,
-            snapshot=snapshot,
-            pathConstraints=path_constraints,
-            headers=headers or None,
-            maxTraces=request.max_traces,
-            invertSearch=request.invert_search,
-            ignoreFilters=request.ignore_filters,
+            max_traces=request.max_traces,
+            invert_search=request.invert_search,
+            ignore_filters=request.ignore_filters,
         )
         return BatfishQueryResponse(
             success=True,
@@ -118,46 +107,30 @@ class BatfishPreviewService:
             network=request.network,
             snapshot=snapshot,
             rows=rows,
-            reachable=len(rows) > 0,
+            reachable=reachable,
         )
 
     async def run_test_filters(
         self, source_id: str, request: BatfishTestFiltersQueryRequest
     ) -> BatfishQueryResponse:
-        node = request.node.strip()
-        filter_name = request.filter_name.strip()
-        dst_ips = request.dst_ips.strip()
-        if not node:
-            raise BatfishValidationError("node is required")
-        if not filter_name:
-            raise BatfishValidationError("filter_name is required")
-        if not dst_ips:
-            raise BatfishValidationError("dst_ips is required")
+        node = require_field(request.node, "node")
+        filter_name = require_field(request.filter_name, "filter_name")
+        dst_ips = require_field(request.dst_ips, "dst_ips")
 
         connection, snapshot = await self._resolve(source_id, request.network, request.snapshot)
-        headers = build_batfish_headers(
+        rows, action = await query_test_filters(
+            self._batfish,
+            connection,
+            batfish_network=request.network,
+            snapshot=snapshot,
+            node=node,
+            filter_name=filter_name,
             dst_ips=dst_ips,
             src_ips=request.src_ips,
             applications=request.applications,
             ip_protocols=request.ip_protocols,
+            start_location=request.start_location,
         )
-        start_location = (request.start_location or "").strip() or None
-
-        rows = await self._batfish.test_filters(
-            connection,
-            batfish_network=request.network,
-            snapshot=snapshot,
-            nodes=node,
-            filters=filter_name,
-            headers=headers,
-            startLocation=start_location,
-        )
-        if not rows:
-            raise BatfishValidationError(
-                "No result returned -- check that node/filter_name match the snapshot"
-            )
-
-        action = str(rows[0].get("Action", "")).strip().upper()
         return BatfishQueryResponse(
             success=True,
             question="testFilters",

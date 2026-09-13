@@ -24,7 +24,7 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from services.batfish.query_helpers import build_batfish_headers
+from services.batfish.query_helpers import query_reachability, require_field
 from workflow_steps.batfish_path_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 
@@ -48,26 +48,14 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
-    start_node = str(merged_config.get("start_node") or "").strip()
-    if not start_node:
-        raise ValueError(f"{_STEP_ID}: start_node is required")
+    start_node = require_field(merged_config.get("start_node"), "start_node")
 
     batfish = service_factory.get_batfish_app_service()
     snap = await resolve_batfish_snapshot_ref(
         context=context, config=merged_config, run=run, batfish=batfish
     )
 
-    path_constraints: dict[str, Any] = {"startLocation": start_node}
     end_node = str(merged_config.get("end_node") or "").strip()
-    if end_node:
-        path_constraints["endLocation"] = end_node
-
-    headers = build_batfish_headers(
-        dst_ips=merged_config.get("dst_ips"),
-        src_ips=merged_config.get("src_ips"),
-        applications=merged_config.get("applications"),
-        ip_protocols=merged_config.get("ip_protocols"),
-    )
 
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s start=%s end=%s",
@@ -80,18 +68,22 @@ async def execute(
         end_node or None,
     )
 
-    rows = await batfish.reachability(
+    rows, reachable = await query_reachability(
+        batfish,
         snap.connection,
         batfish_network=snap.network,
         snapshot=snap.snapshot,
-        pathConstraints=path_constraints,
-        headers=headers or None,
-        maxTraces=merged_config.get("max_traces"),
-        invertSearch=bool(merged_config.get("invert_search", False)),
-        ignoreFilters=bool(merged_config.get("ignore_filters", False)),
+        start_node=start_node,
+        end_node=end_node,
+        dst_ips=merged_config.get("dst_ips"),
+        src_ips=merged_config.get("src_ips"),
+        applications=merged_config.get("applications"),
+        ip_protocols=merged_config.get("ip_protocols"),
+        max_traces=merged_config.get("max_traces"),
+        invert_search=bool(merged_config.get("invert_search", False)),
+        ignore_filters=bool(merged_config.get("ignore_filters", False)),
     )
 
-    reachable = len(rows) > 0
     output_key = str(merged_config.get("output_key") or "batfish_path_check").strip() or (
         "batfish_path_check"
     )

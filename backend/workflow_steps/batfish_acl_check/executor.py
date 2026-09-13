@@ -24,7 +24,7 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
-from services.batfish.query_helpers import build_batfish_headers
+from services.batfish.query_helpers import query_test_filters, require_field
 from workflow_steps.batfish_acl_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 
@@ -48,27 +48,14 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
-    node = str(merged_config.get("node") or "").strip()
-    if not node:
-        raise ValueError(f"{_STEP_ID}: node is required")
-    filter_name = str(merged_config.get("filter_name") or "").strip()
-    if not filter_name:
-        raise ValueError(f"{_STEP_ID}: filter_name is required")
-    dst_ips = str(merged_config.get("dst_ips") or "").strip()
-    if not dst_ips:
-        raise ValueError(f"{_STEP_ID}: dst_ips is required")
+    node = require_field(merged_config.get("node"), "node")
+    filter_name = require_field(merged_config.get("filter_name"), "filter_name")
+    dst_ips = require_field(merged_config.get("dst_ips"), "dst_ips")
 
     batfish = service_factory.get_batfish_app_service()
     snap = await resolve_batfish_snapshot_ref(
         context=context, config=merged_config, run=run, batfish=batfish
     )
-    headers = build_batfish_headers(
-        dst_ips=dst_ips,
-        src_ips=merged_config.get("src_ips"),
-        applications=merged_config.get("applications"),
-        ip_protocols=merged_config.get("ip_protocols"),
-    )
-    start_location = str(merged_config.get("start_location") or "").strip() or None
 
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s node=%s filter=%s",
@@ -81,22 +68,20 @@ async def execute(
         filter_name,
     )
 
-    rows = await batfish.test_filters(
+    rows, action = await query_test_filters(
+        batfish,
         snap.connection,
         batfish_network=snap.network,
         snapshot=snap.snapshot,
-        nodes=node,
-        filters=filter_name,
-        headers=headers,
-        startLocation=start_location,
+        node=node,
+        filter_name=filter_name,
+        dst_ips=dst_ips,
+        src_ips=merged_config.get("src_ips"),
+        applications=merged_config.get("applications"),
+        ip_protocols=merged_config.get("ip_protocols"),
+        start_location=merged_config.get("start_location"),
     )
 
-    if not rows:
-        raise RuntimeError(
-            f"{_STEP_ID}: no result returned -- check that node/filter_name match the snapshot"
-        )
-
-    action = str(rows[0].get("Action", "")).strip().upper()
     permitted = action == "PERMIT"
     output_key = str(merged_config.get("output_key") or "batfish_acl_check").strip() or (
         "batfish_acl_check"

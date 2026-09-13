@@ -30,6 +30,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.batfish.query_helpers import query_routes
 from workflow_steps.batfish_routing_table.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 
@@ -39,12 +40,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-routing-table"
-
-
-def _or_none(value: Any) -> Any:
-    if isinstance(value, str) and not value.strip():
-        return None
-    return value
 
 
 async def execute(
@@ -73,16 +68,17 @@ async def execute(
         snap.snapshot,
     )
 
-    rows = await batfish.routes(
+    rows = await query_routes(
+        batfish,
         snap.connection,
         batfish_network=snap.network,
         snapshot=snap.snapshot,
-        nodes=_or_none(merged_config.get("nodes")),
-        network=_or_none(merged_config.get("network_prefix")),
-        prefixMatchType=_or_none(merged_config.get("prefix_match_type")),
-        protocols=_or_none(merged_config.get("protocols")),
-        vrfs=_or_none(merged_config.get("vrfs")),
-        rib=_or_none(merged_config.get("rib")),
+        nodes=merged_config.get("nodes"),
+        network_prefix=merged_config.get("network_prefix"),
+        prefix_match_type=merged_config.get("prefix_match_type"),
+        protocols=merged_config.get("protocols"),
+        vrfs=merged_config.get("vrfs"),
+        rib=merged_config.get("rib"),
     )
 
     output_key = str(merged_config.get("output_key") or "batfish_routes").strip() or (

@@ -30,6 +30,7 @@ gating" below).
   - [Batfish ACL Check](#batfish-acl-check-batfish-acl-check)
 - [Frontend: category gating](#frontend-category-gating)
 - [Viewing results: the run detail UI](#viewing-results-the-run-detail-ui)
+- [Template Editor integration: ad-hoc preview queries](#template-editor-integration-ad-hoc-preview-queries)
 - [Open items / verify during hardening](#open-items--verify-during-hardening)
 
 ## Why no separate shim container
@@ -148,13 +149,41 @@ backend/services/batfish/
 ├── client.py                              # BatfishService -- wraps pybatfish.client.session.Session
 ├── credentials.py                         # BatfishConnection(host, port=9996) -- no secret fields
 ├── common/exceptions.py                   # BatfishError, BatfishValidationError, BatfishAPIError
-└── source_config_service.py               # BatfishSourceConfigService -- settings only, no credential
+├── source_config_service.py               # BatfishSourceConfigService -- settings only, no credential
+├── query_helpers.py                       # resolve_latest_snapshot_name, build_batfish_headers,
+│                                           # require_field, query_routes/query_reachability/
+│                                           # query_test_filters -- the ONE place each question's
+│                                           # pybatfish call is built and made; shared by the
+│                                           # workflow-step executors AND BatfishPreviewService
+└── preview_service.py                     # BatfishPreviewService -- ad-hoc routes/reachability/testFilters,
+                                            # no WorkflowRun; the Template Editor's Options-modal preview path
 
-backend/models/batfish.py                  # Pydantic request/response models (source CRUD, test-connection)
+backend/models/batfish.py                  # Pydantic request/response models: source CRUD, test-connection,
+                                            # + BatfishQueryQuestion/BatfishRoutesQueryRequest/
+                                            # BatfishReachabilityQueryRequest/BatfishTestFiltersQueryRequest/
+                                            # BatfishQueryResponse (ad-hoc query models)
 backend/routers/sources/batfish/
 ├── __init__.py
 ├── crud.py                                # /sources/batfish -- source configuration CRUD
-└── ops.py                                 # /sources/batfish/{source_id}/test-connection
+├── ops.py                                 # /sources/batfish/{source_id}/test-connection
+└── query.py                               # /sources/batfish/{source_id}/query/{routes,reachability,
+                                            # test-filters} -- ad-hoc preview queries, see "Template Editor
+                                            # integration" below
+backend/dependencies.py                    # get_batfish_preview_service (FastAPI dependency)
+backend/service_factory.py                 # build_batfish_preview_service
+
+backend/core/models/templates.py           # Template.batfish_config: str | None -- JSON-as-text column,
+                                            # same convention as nautobot_attributes/pre_run_commands; stores
+                                            # only the query DEFINITION (source/network/snapshot/question/
+                                            # params), never the fetched answer
+backend/models/templates.py                # BatfishQueryConfig model; TemplateCreate/TemplateUpdate/
+                                            # TemplateResponse gained a batfish_config field
+backend/services/templates/templates_service.py   # create/update/_to_dict thread batfish_config through
+                                                    # (json.dumps/json.loads, mirroring nautobot_attributes)
+backend/routers/templates.py               # create_template/update_template pass payload.batfish_config through
+
+backend/tests/unit/test_batfish_preview_service.py       # BatfishPreviewService, mocked BatfishService
+backend/tests/unit/test_batfish_query_router_auth.py     # auth/permission + error-mapping for the query router
 
 backend/service_factory.py                 # get/set_batfish_app_service, build_batfish_source_config_service
 backend/dependencies.py                    # get_batfish_source_config_service (FastAPI dependency)
@@ -203,6 +232,19 @@ frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBat
 
 frontend/src/components/features/workflows/components/step-result-viewer/batfish-result-panel.tsx  # see "Viewing results" below
 frontend/src/components/features/workflows/components/step-result-viewer/{metadata-panel,outcome-context-view,devices-section,device-card,device-detail-dialog}.tsx  # wiring for the above (edits, not new)
+
+frontend/src/components/features/templates/types.ts                       # BatfishQueryQuestion, BatfishQueryConfig,
+                                                                            # BatfishQueryResult; Template/TemplateCreatePayload
+                                                                            # gained batfish_config
+frontend/src/components/features/templates/constants.ts                   # BATFISH_VARIABLE
+frontend/src/components/features/templates/hooks/use-template-variables.ts     # toggleBatfishVariable, setBatfishResult (edits)
+frontend/src/components/features/templates/hooks/use-template-editor-batfish.ts  # target/question/params state + the query mutation
+frontend/src/components/features/templates/hooks/use-template-editor.ts        # wires the above in, loads/saves batfish_config (edits)
+frontend/src/components/features/templates/hooks/use-template-editor-save.ts   # threads batfish_config into the save payload (edits)
+frontend/src/components/features/templates/components/options-dialog.tsx       # renamed from netmiko-options-dialog.tsx --
+                                                                            # now a tabbed "Netmiko" / "Batfish" dialog
+frontend/src/components/features/templates/components/batfish-options-tab.tsx  # source/network/snapshot + question picker +
+                                                                            # per-question params + Run Query + JSON preview
 ```
 
 No new `backend/core/models/{domain}.py` SQLAlchemy table — like pyATS and
@@ -853,6 +895,131 @@ answer does have a `Node` column that could support this). The result is
 shown identically regardless of which device's dialog is open. Worth
 revisiting if users find the unfiltered table noisy for large topologies.
 
+## Template Editor integration: ad-hoc preview queries
+
+The three query steps above only ever run inside a real `WorkflowRun` -- there
+was no way to get a Batfish answer into the **Template Editor** as a Jinja
+variable, the way "Get Configs"/"Execute Commands" already let it preview a
+test device's config/command output. This section adds that: a `batfish`
+tab in the Options modal (`options-dialog.tsx`, renamed from
+`netmiko-options-dialog.tsx` once it stopped being Netmiko-only) that runs
+one of the three questions **ad hoc, with no `WorkflowRun`/`WorkflowContext`
+involved at all**, and drops the answer into a `batfish` template variable.
+
+**Same shape as the existing Netmiko preview path.** `NetmikoPreviewService`
+(`services/network/netmiko/preview_service.py`) already established the
+precedent: a small service that calls the underlying automation library
+directly (`NetmikoService`), bypassing the entire workflow-run/step-registry
+machinery, keyed only by the values a user picks in the editor (host +
+credential). `BatfishPreviewService` (`services/batfish/preview_service.py`)
+follows the same shape for Batfish: it resolves a `BatfishConnection` via
+`BatfishSourceConfigService.resolve_connection(source_id)` (the same call
+`resolve_batfish_snapshot_ref`'s "direct network targeting" branch already
+made), picks the latest snapshot when the user leaves `snapshot` blank, and
+calls `BatfishService.routes()`/`.reachability()`/`.test_filters()` directly
+-- no `run`, no `context`, no `artifact_service`, no `node_id`.
+
+**Shared query-building logic, not a parallel implementation.** Every piece
+of "turn inputs into the exact `pybatfish` call for this question" now lives
+exactly once, in `services/batfish/query_helpers.py`, used by both the
+workflow-step executors and `BatfishPreviewService`:
+
+- `resolve_latest_snapshot_name` — the "pick the most recent snapshot by
+  `creationTimestamp`" sort, previously inlined in
+  `resolve_batfish_snapshot_ref`.
+- `build_batfish_headers` — the `headers` dict construction, previously two
+  near-identical private `_build_headers` copies in the
+  `batfish-path-check`/`batfish-acl-check` executors.
+- `require_field` — the "strip and raise if blank" pattern every required
+  field (`start_node`, `node`, `filter_name`, `dst_ips`) used to spell out
+  inline, with inconsistent wording between the step-config-dict callers and
+  the typed-Pydantic-request caller.
+- `query_routes`/`query_reachability`/`query_test_filters` — the actual
+  parameter assembly (`pathConstraints`, `_or_none` normalization, etc.) and
+  the `batfish.routes()`/`.reachability()`/`.test_filters()` call itself, one
+  function per question. Each executor and the corresponding
+  `BatfishPreviewService.run_*` method now differ only in how they validate
+  required fields and resolve a snapshot beforehand (workflow-step config
+  dict + `resolve_batfish_snapshot_ref`'s run-metadata fallback vs. a typed
+  request + `BatfishPreviewService._resolve`'s always-explicit network) —
+  neither duplicates the question logic itself anymore.
+
+One behavior this consolidation *fixed*: `run_test_filters` previously raised
+`BatfishValidationError` (a 400) when the coordinator returned zero rows,
+inconsistent with the executor's own reasoning (an empty result means
+`node`/`filter_name` didn't match anything in the snapshot — an execution
+problem, not a bad request). `query_test_filters` now raises `RuntimeError`
+for both callers alike, which the router maps to a sanitized 500 like any
+other unexpected failure.
+
+`require_field`/`query_*` are deliberately *not* responsible for resolving
+the connection/snapshot themselves, and don't validate required fields
+before being called — each caller does that first (via `require_field`) so a
+blank required field fails immediately, before paying for a Batfish
+snapshot-listing round-trip in `resolve_latest_snapshot_name`.
+
+**New endpoints, one per question, under the existing source prefix**
+(`routers/sources/batfish/query.py`, same `require_permission("sources.batfish",
+"read")` as the rest of that router -- this is a read-only analysis call
+against an already-built snapshot, no device contact, so no new permission
+was added):
+
+```
+POST /api/sources/batfish/{source_id}/query/routes
+POST /api/sources/batfish/{source_id}/query/reachability
+POST /api/sources/batfish/{source_id}/query/test-filters
+```
+
+Request bodies mirror each question's step-config fields 1:1 (see each
+step's section above) plus `network`/`snapshot` (`BatfishRoutesQueryRequest`/
+`BatfishReachabilityQueryRequest`/`BatfishTestFiltersQueryRequest` in
+`models/batfish.py`); there is no `output_key` field since that's a
+workflow-run-metadata concept that doesn't apply here. The response
+(`BatfishQueryResponse`) carries `success`, `question`, `network`, `snapshot`,
+`rows`, and `reachable`/`action` when applicable -- the same fields
+`BatfishResultPanel` already surfaces from a real run's metadata, so the two
+surfaces (ad-hoc preview vs. run-detail viewer) present an answer
+consistently.
+
+**No networks/snapshots discovery endpoint was added.** The Options modal's
+Batfish tab uses a plain `Select` (populated from the existing
+`GET /sources/batfish` list) for the source, and free-text `network`/
+`snapshot` inputs -- matching the exact convention the three workflow-step
+config panels already established via `BatfishDirectTargetFields`'s "blank
+snapshot = latest" behavior. (`BatfishDirectTargetFields`/
+`BatfishSourceSelectDialog` themselves were not reused verbatim in the
+modal -- their built-in copy assumes a workflow-run context, e.g. "Leave
+blank to use the snapshot from an upstream Init Batfish Snapshot step in this
+run," which is inaccurate for an ad-hoc call with no run at all. The Options
+modal's Batfish tab (`batfish-options-tab.tsx`) builds its own small
+source/network/snapshot block with copy accurate to that context, reusing
+only `useBatfishSourcesQuery` for the source list.)
+
+**Persisted: the query definition, never the fetched answer.** Like
+`credential_id`/`pre_run_commands`/`nautobot_attributes`/the "Get Configs"
+checkbox today, the Batfish tab's configuration round-trips with a saved
+template so reopening it restores the same setup -- but the answer itself is
+always re-fetched on demand via "Run Query," exactly like `parsed_config`/
+command results aren't persisted either. One new nullable JSON-as-text column,
+`Template.batfish_config` (`core/models/templates.py`), stores `{enabled,
+source_id, network, snapshot, question, params}` -- the same
+serialize-with-`json.dumps`/deserialize-with-`json.loads`-and-fallback-to-None
+convention `nautobot_attributes` already uses, not a native Postgres JSON
+column (this codebase's `templates` table stores every JSON-shaped field as
+`Text`, not `JSON`/`JSONB`).
+
+**Variable shape.** Enabling the "Enable Batfish Result" checkbox adds a
+`batfish` auto-variable (`BATFISH_VARIABLE` in `constants.ts`, mirroring
+`PARSED_CONFIG_VARIABLE`'s pattern exactly) whose value is the full
+`BatfishQueryResponse` JSON-stringified -- so a template can reference
+`batfish.rows`, `batfish.reachable`, `batfish.action`, `batfish.question`,
+`batfish.network`, `batfish.snapshot` directly.
+
+**Still not built (see "Open items" below):** exporting an ad-hoc preview
+result via `store-artifact`, and any UI to browse a source's actual Batfish
+networks/snapshots (both editor and canvas config panels still take
+`network`/`snapshot` as free text).
+
 ## Open items / verify during hardening
 
 - **RESOLVED during implementation**: no `validate_outbound_http_url` call
@@ -865,10 +1032,19 @@ revisiting if users find the unfiltered table noisy for large topologies.
   no URL-shaped value for that guard to reject in the first place.
 - **Deferred: no `store-artifact`/`content_resolver.py` integration for
   Batfish query results.** Narrowed in scope since "Viewing results" above
-  shipped: *visibility* (seeing the answer in the run detail UI) is solved;
-  what's still deferred is *export* — piping a result to git/filesystem via
-  `store-artifact` the way device configs can be. Revisit only if a real
-  request for that surfaces; the in-run viewer may be sufficient on its own.
+  shipped: *visibility* (seeing the answer in the run detail UI, and now also
+  in the Template Editor's ad-hoc preview — see "Template Editor integration"
+  above) is solved; what's still deferred is *export* — piping a result to
+  git/filesystem via `store-artifact` the way device configs can be. Revisit
+  only if a real request for that surfaces; the in-run viewer and the editor
+  preview may be sufficient on their own.
+- **Not built: a networks/snapshots discovery endpoint or picker.** Both the
+  workflow-step config panels (`BatfishDirectTargetFields`) and the Template
+  Editor's Options-modal Batfish tab take `network`/`snapshot` as free-text
+  input rather than a fetched dropdown, even though `BatfishService` already
+  exposes everything needed (`check_health` doubles as "list networks";
+  `list_snapshots_with_metadata` lists snapshots with timestamps) to build
+  one. Revisit if free-text entry proves error-prone in practice.
 - **Not built: a loud signal when a snapshot init parses zero usable
   nodes.** Observed in real usage: a `batfish-routing-table` run returned
   `row_count: 0` with no other indication anything was wrong, and the
