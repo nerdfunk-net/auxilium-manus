@@ -42,6 +42,7 @@ export function useTemplateEditor() {
   const [variablesHelpOpen, setVariablesHelpOpen] = useState(false);
   const [commandsDialogOpen, setCommandsDialogOpen] = useState(false);
   const [attributesDialogOpen, setAttributesDialogOpen] = useState(false);
+  const [optionsDialogOpen, setOptionsDialogOpen] = useState(false);
   const [getDeviceConfigs, setGetDeviceConfigs] = useState(false);
   // Reference workflow whose static attributes are previewed as the
   // `run_input` variable — a per-session discovery aid, never persisted with
@@ -318,6 +319,8 @@ export function useTemplateEditor() {
       setUseTextfsm,
       handleExecuteCommands,
       attributesDialogOpen,
+      optionsDialogOpen,
+      setOptionsDialogOpen,
       attributes,
       setAttributes,
       linkWorkflowDialogOpen,
@@ -366,6 +369,7 @@ export function useTemplateEditor() {
       executeHint,
       handleExecuteCommands,
       attributesDialogOpen,
+      optionsDialogOpen,
       attributes,
       linkWorkflowDialogOpen,
       workflowsQuery.data?.workflows,

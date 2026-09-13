@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,7 +22,9 @@ import type { DeviceSummary } from "../types";
 
 const EMPTY_DEVICES: DeviceSummary[] = [];
 
-interface NetmikoOptionsPanelProps {
+interface NetmikoOptionsDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   sources: { sourceId: string }[];
   sourceId: string;
   sourceReady: boolean;
@@ -43,7 +45,9 @@ interface NetmikoOptionsPanelProps {
 
 const NO_SOURCE = "__none__";
 
-export function NetmikoOptionsPanel({
+export function NetmikoOptionsDialog({
+  open,
+  onOpenChange,
   sources,
   sourceId,
   sourceReady,
@@ -60,7 +64,7 @@ export function NetmikoOptionsPanel({
   onCredentialChange,
   onGetConfigsChange,
   onFetchConfigs,
-}: NetmikoOptionsPanelProps) {
+}: NetmikoOptionsDialogProps) {
   const { data: credentialsData } = useCredentialsQuery();
   const sshCredentials = (credentialsData?.credentials ?? []).filter(
     (credential) => credential.type === "ssh",
@@ -110,16 +114,17 @@ export function NetmikoOptionsPanel({
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Terminal className="size-4" />
-          Netmiko Options
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-          <div className="space-y-1.5 md:col-span-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Terminal className="size-4" />
+            Options
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
             <Label>Nautobot Source</Label>
             <Select
               value={sourceId || NO_SOURCE}
@@ -146,7 +151,7 @@ export function NetmikoOptionsPanel({
             </Select>
           </div>
 
-          <div className="relative space-y-1.5 md:col-span-2">
+          <div className="relative space-y-1.5">
             <Label htmlFor="test-device">Test Device (Optional)</Label>
             <div className="relative" ref={dropdownRef}>
               <Input
@@ -195,7 +200,7 @@ export function NetmikoOptionsPanel({
             </div>
           </div>
 
-          <div className="space-y-1.5 md:col-span-2">
+          <div className="space-y-1.5">
             <Label>Commands (Optional)</Label>
             <Button
               type="button"
@@ -213,7 +218,7 @@ export function NetmikoOptionsPanel({
             </Button>
           </div>
 
-          <div className="space-y-1.5 md:col-span-2">
+          <div className="space-y-1.5">
             <Label>Attributes (Optional)</Label>
             <Button
               type="button"
@@ -231,7 +236,7 @@ export function NetmikoOptionsPanel({
             </Button>
           </div>
 
-          <div className="space-y-1.5 md:col-span-2">
+          <div className="space-y-1.5">
             <Label>Credentials</Label>
             <Select value={credentialId} onValueChange={onCredentialChange}>
               <SelectTrigger>
@@ -248,7 +253,7 @@ export function NetmikoOptionsPanel({
             </Select>
           </div>
 
-          <div className="space-y-1.5 md:col-span-2">
+          <div className="space-y-1.5">
             <Label htmlFor="get-configs">Get Configs</Label>
             <div className="flex items-center gap-2">
               <label
@@ -279,7 +284,7 @@ export function NetmikoOptionsPanel({
             </div>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </DialogContent>
+    </Dialog>
   );
 }

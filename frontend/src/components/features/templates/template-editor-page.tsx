@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowLeft, BookOpen, Download, FileCode, Play, RefreshCw, Save } from "lucide-react";
+import {
+  ArrowLeft,
+  BookOpen,
+  Download,
+  FileCode,
+  Play,
+  RefreshCw,
+  Save,
+  Settings2,
+} from "lucide-react";
 import { Suspense } from "react";
 
 import { CanvasErrorBoundary } from "@/components/features/workflows/components/canvas-error-boundary";
@@ -16,7 +25,7 @@ import { GeneralPanel } from "./components/general-panel";
 import { JinjaHelpDialog } from "./components/jinja-help-dialog";
 import { LinkWorkflowDialog } from "./components/link-workflow-dialog";
 import { LoadVariablesDialog } from "./dialogs/load-variables-dialog";
-import { NetmikoOptionsPanel } from "./components/netmiko-options-panel";
+import { NetmikoOptionsDialog } from "./components/netmiko-options-dialog";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
 import { ResizableSplit } from "./components/resizable-split";
 import { VariablesPanel } from "./components/variables-panel";
@@ -64,25 +73,6 @@ function TemplateEditorContent() {
           onNameChange={editor.setName}
           onDescriptionChange={editor.setDescription}
           onTemplateTypeChange={editor.setTemplateType}
-        />
-
-        <NetmikoOptionsPanel
-          sources={editor.sources}
-          sourceId={editor.effectiveSourceId}
-          sourceReady={editor.sourceReady}
-          commandCount={editor.cleanedCommandCount}
-          attributeCount={editor.attributeCount}
-          credentialId={editor.credentialId}
-          getConfigs={editor.getDeviceConfigs}
-          isFetchingConfigs={editor.isFetchingConfigs}
-          canFetchConfigs={editor.canFetchConfigs}
-          onFetchConfigs={editor.handleFetchConfigs}
-          onSourceChange={editor.setSourceId}
-          onSelectDevice={editor.setSelectedDevice}
-          onConfigureCommands={() => editor.setCommandsDialogOpen(true)}
-          onConfigureAttributes={() => editor.setAttributesDialogOpen(true)}
-          onCredentialChange={editor.setCredentialId}
-          onGetConfigsChange={editor.setGetDeviceConfigs}
         />
 
         <ResizableSplit
@@ -143,6 +133,14 @@ function TemplateEditorContent() {
             </Button>
             <Button
               type="button"
+              variant="outline"
+              onClick={() => editor.setOptionsDialogOpen(true)}
+            >
+              <Settings2 className="size-4" />
+              Options
+            </Button>
+            <Button
+              type="button"
               variant={editor.wikiOpen ? "default" : "outline"}
               onClick={() => editor.setWikiOpen((open) => !open)}
             >
@@ -177,6 +175,27 @@ function TemplateEditorContent() {
         open={editor.renderer.showDialog}
         result={editor.renderer.result}
         onOpenChange={editor.renderer.setShowDialog}
+      />
+
+      <NetmikoOptionsDialog
+        open={editor.optionsDialogOpen}
+        onOpenChange={editor.setOptionsDialogOpen}
+        sources={editor.sources}
+        sourceId={editor.effectiveSourceId}
+        sourceReady={editor.sourceReady}
+        commandCount={editor.cleanedCommandCount}
+        attributeCount={editor.attributeCount}
+        credentialId={editor.credentialId}
+        getConfigs={editor.getDeviceConfigs}
+        isFetchingConfigs={editor.isFetchingConfigs}
+        canFetchConfigs={editor.canFetchConfigs}
+        onFetchConfigs={editor.handleFetchConfigs}
+        onSourceChange={editor.setSourceId}
+        onSelectDevice={editor.setSelectedDevice}
+        onConfigureCommands={() => editor.setCommandsDialogOpen(true)}
+        onConfigureAttributes={() => editor.setAttributesDialogOpen(true)}
+        onCredentialChange={editor.setCredentialId}
+        onGetConfigsChange={editor.setGetDeviceConfigs}
       />
 
       <AddVariableDialog
