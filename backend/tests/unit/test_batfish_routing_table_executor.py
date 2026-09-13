@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from models.workflow_context import WorkflowContext
+from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_routing_table.executor import execute
@@ -44,11 +44,96 @@ class BatfishRoutingTableExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(len(outcomes), 2)
         self.assertEqual(outcomes[0].name, "success")
         result = outcomes[0].context.metadata["node-1.batfish_routes"]
         self.assertEqual(result["row_count"], 1)
         self.assertEqual(result["question"], "routes")
+
+        self.assertEqual(outcomes[1].name, "devices")
+        devices = outcomes[1].context.devices
+        self.assertEqual(set(devices), {"r1"})
+        device = devices["r1"]
+        self.assertEqual(device.id, "r1")
+        self.assertEqual(device.name, "r1")
+        self.assertEqual(device.hostname, "r1")
+        self.assertEqual(device.source, "batfish")
+        self.assertEqual(device.capabilities, {Capability.IDENTITY})
+        self.assertEqual(device.status, DeviceStatus.OK)
+
+    async def test_devices_outcome_dedupes_by_node(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.routes = AsyncMock(
+                return_value=[
+                    {"Node": "r1", "Network": "10.0.0.0/24"},
+                    {"Node": "r1", "Network": "10.0.1.0/24"},
+                    {"Node": "r2", "Network": "10.0.0.0/24"},
+                ]
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={},
+                context=_context_with_snapshot(),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        devices_outcome = next(outcome for outcome in outcomes if outcome.name == "devices")
+        self.assertEqual(set(devices_outcome.context.devices), {"r1", "r2"})
+        self.assertEqual(devices_outcome.summary, "2 device(s)")
+
+    async def test_devices_outcome_emitted_when_no_rows_match(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.routes = AsyncMock(return_value=[])
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={},
+                context=_context_with_snapshot(),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(len(outcomes), 2)
+        devices_outcome = next(outcome for outcome in outcomes if outcome.name == "devices")
+        self.assertEqual(devices_outcome.context.devices, {})
+        self.assertEqual(devices_outcome.summary, "0 device(s)")
+
+    async def test_success_outcome_devices_pass_through_unchanged(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        existing_device = DeviceContext(id="dev-1", name="dev-1", hostname="dev-1")
+        context = _context_with_snapshot().model_copy(
+            update={"devices": {"dev-1": existing_device}}
+        )
+
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.routes = AsyncMock(return_value=[{"Node": "r1", "Network": "10.0.0.0/24"}])
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={},
+                context=context,
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        success_outcome = next(outcome for outcome in outcomes if outcome.name == "success")
+        self.assertEqual(success_outcome.context.devices, {"dev-1": existing_device})
 
     async def test_missing_snapshot_metadata_raises_value_error(self) -> None:
         run = MagicMock()

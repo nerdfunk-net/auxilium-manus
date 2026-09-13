@@ -61,6 +61,40 @@ export function BatfishRoutingTableHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="Devices outcome">
+        <p>
+          Alongside <HelpCode>success</HelpCode>, this step always emits a
+          second outcome, <HelpCode>devices</HelpCode>, carrying one device
+          per distinct <HelpCode>Node</HelpCode> value in the routes answer
+          (deduplicated) — a Batfish-sourced identity, not the original
+          inventory device. Wire it to a{" "}
+          <span className="font-medium text-foreground">
+            Get Nautobot Attributes
+          </span>{" "}
+          step to resolve each node against Nautobot: matched devices come
+          back enriched with real attributes on its{" "}
+          <HelpCode>success</HelpCode> outcome, and any node Nautobot doesn&apos;t
+          recognize is dropped there instead — it lands on{" "}
+          <span className="font-medium text-foreground">
+            Get Nautobot Attributes
+          </span>
+          &apos;s <HelpCode>failure</HelpCode> outcome rather than continuing
+          downstream.
+        </p>
+        <HelpWarning title="Name matching is case-sensitive">
+          <p>
+            Batfish always lowercases parsed node hostnames. A Nautobot
+            device named with any uppercase letters (e.g. <HelpCode>R1</HelpCode>)
+            won&apos;t resolve by name purely due to casing, even though it
+            exists — it will show up as unmatched on{" "}
+            <span className="font-medium text-foreground">
+              Get Nautobot Attributes
+            </span>
+            &apos;s <HelpCode>failure</HelpCode> outcome.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Querying a network directly">
         <p>
           Leave <HelpCode>batfish_source_id</HelpCode>/<HelpCode>network</HelpCode> blank

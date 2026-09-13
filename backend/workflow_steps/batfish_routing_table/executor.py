@@ -22,7 +22,13 @@ from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.workflow_context import StepOutcome, WorkflowContext
+from models.workflow_context import (
+    Capability,
+    DeviceContext,
+    DeviceStatus,
+    StepOutcome,
+    WorkflowContext,
+)
 from services.artifacts import ArtifactService
 from workflow_steps.batfish_routing_table.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
@@ -102,10 +108,29 @@ async def execute(
 
     logger.info("%s finished run_id=%s rows=%d", _STEP_ID, run.id, len(rows))
 
+    device_nodes: dict[str, DeviceContext] = {}
+    for row in rows:
+        node = row.get("Node")
+        if not node or node in device_nodes:
+            continue
+        device_nodes[node] = DeviceContext(
+            id=node,
+            name=node,
+            hostname=node,
+            source="batfish",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+        )
+
     return [
         StepOutcome(
             name="success",
             context=context.model_copy(update={"metadata": metadata}),
             summary=f"{len(rows)} route(s)",
-        )
+        ),
+        StepOutcome(
+            name="devices",
+            context=context.model_copy(update={"metadata": metadata, "devices": device_nodes}),
+            summary=f"{len(device_nodes)} device(s)",
+        ),
     ]

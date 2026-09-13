@@ -686,6 +686,7 @@ plugins:
     produces: []
     outcomes:
       - name: success
+      - name: devices
     metadata:
       configuration_input:
         - name: nodes

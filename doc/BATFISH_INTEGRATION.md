@@ -597,6 +597,47 @@ contract as a side effect of this integration.
 `context.metadata["batfish"]` and query any network directly — see
 "Bypassing metadata: querying a network directly" above.
 
+**`devices` outcome: turning routed nodes into a device list.** Alongside
+`success` (unchanged — it still just passes the incoming `context.devices`
+through untouched), this step always returns a second outcome, `devices`,
+built by deduplicating the answer's `Node` column and constructing one
+minimal `DeviceContext` per unique node (`id=name=hostname=node`,
+`source="batfish"`, `capabilities={IDENTITY}`, `status=OK`). Emitted
+unconditionally, even when `rows` is empty (an empty `devices` dict) — the
+same "0 is a valid, non-error answer" reasoning `success`'s row count
+already follows, so the branch fires predictably rather than being silently
+skipped on a 0-match run. `outcomes: [success, devices]` in `registry.yaml`;
+no `produces` change was needed to make `devices` canvas-wireable into a
+step requiring `identity` — `batfish-routing-table`'s own `requires:
+[identity]` already guarantees `IDENTITY` is present on input, and the
+canvas's capability-provides computation
+(`frontend/.../utils/capability-graph.ts::applyStep`) is `input capabilities
+∪ node.produces`, so both outcomes already advertise `IDENTITY` regardless.
+
+This is deliberately a *new*, Batfish-sourced identity, not a rehydration of
+whatever device fed the snapshot — in live-mode snapshot building, configs
+are uploaded under an opaque UUID filename (see "Building the snapshot
+directory" above), so a `Node` string has no reliable link back to a real
+Nautobot device UUID. The intended composition is to chain into the
+already-existing `get-nautobot-attributes` step (no changes needed there):
+wire `devices` → `Get Nautobot Attributes`, whose own `success` outcome
+carries only the nodes it could resolve by name (real Nautobot attributes
+attached via `attribute_bags["nautobot"]`), while anything it couldn't
+resolve lands on its `failure` outcome instead of continuing downstream with
+fake identity — this is the "drop devices Nautobot doesn't recognize"
+behavior, reused as-is rather than reimplemented here.
+
+**Known limitation: name matching is case-sensitive.**
+`resolve_nautobot_device_id` (`workflow_steps/common/nautobot_resolve.py`)
+matches `DeviceContext.name` against Nautobot by exact string equality, and
+Batfish always lowercases parsed node hostnames (see "Node-name case
+sensitivity" under "Open items" below). A Nautobot device named with any
+uppercase letters (e.g. `R1`) will fail to resolve by name purely due to
+casing and land on `Get Nautobot Attributes`'s `failure` outcome even though
+it genuinely exists in Nautobot. A case-insensitive fallback in
+`resolve_nautobot_device_id` is a plausible follow-up; not built as part of
+this change.
+
 ### Batfish Path Check (`batfish-path-check`)
 
 `requires: [identity]`, `produces: []`. Wraps `bf.q.reachability(...)` —
