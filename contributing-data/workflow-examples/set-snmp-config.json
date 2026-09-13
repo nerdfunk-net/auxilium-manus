@@ -187,7 +187,7 @@
         "title": "Get Configs",
         "overview": "Get device configuration in the chosen format.",
         "description": "Get device configuration in the specified format.",
-        "artifactType": "configuration_retrieval",
+        "artifactType": "configuration_management",
         "requires": [
           "identity"
         ],
@@ -232,7 +232,7 @@
         "title": "Parse Cisco Config",
         "overview": "Parse a Cisco running/startup config into structured data.",
         "description": "Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.) using cisco-config-parser, for use by Jinja templates and Log Attributes.\n",
-        "artifactType": "configuration_retrieval",
+        "artifactType": "configuration_management",
         "requires": [
           "identity"
         ],

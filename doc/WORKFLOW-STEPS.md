@@ -119,7 +119,7 @@ plugins:
 | Value                   | Meaning                                      |
 |-------------------------|----------------------------------------------|
 | `inventory_selector`    | Selects or resolves target devices           |
-| `configuration_retrieval` | Reads device state or configuration        |
+| `configuration_management` | Reads device state or configuration        |
 | `command_execution`     | Runs CLI commands on devices                 |
 | `control_flow`          | Branches or gates the execution path         |
 | `persistent_artifact`   | Stores durable output (backups, reports)     |

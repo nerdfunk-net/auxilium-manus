@@ -146,7 +146,7 @@
         "title": "Get Configs",
         "overview": "Get device configuration in the chosen format.",
         "description": "Get device configuration in the specified format.",
-        "artifactType": "configuration_retrieval",
+        "artifactType": "configuration_management",
         "requires": [
           "identity"
         ],

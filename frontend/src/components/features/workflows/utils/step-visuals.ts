@@ -53,7 +53,7 @@ export const ARTIFACT_TYPE_ORDER = [
   "routing",
   "attributes",
   "command_execution",
-  "configuration_retrieval",
+  "configuration_management",
   "template_rendering",
   "persistent_artifact",
   "content_tools",
@@ -69,7 +69,7 @@ export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   cisco: "Cisco",
   pyats: "PyATS",
   batfish: "Batfish",
-  configuration_retrieval: "Configuration Management",
+  configuration_management: "Configuration Management",
   notify: "Notify",
 };
 
@@ -134,7 +134,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
 
 const nodeIconsByType: Record<string, LucideIcon> = {
   command_execution: TerminalSquare,
-  configuration_retrieval: HardDriveDownload,
+  configuration_management: HardDriveDownload,
   control_flow: GitBranch,
   routing: GitBranch,
   attributes: Tags,
@@ -155,7 +155,7 @@ export function resolveStepIcon(kind: string, artifactType: string): LucideIcon 
 /** Icon tile background/text — canvas node icon, catalog tiles, properties header. */
 export const categoryTileClasses: Record<string, string> = {
   command_execution: "bg-emerald-100 text-emerald-700",
-  configuration_retrieval: "bg-indigo-100 text-indigo-700",
+  configuration_management: "bg-indigo-100 text-indigo-700",
   control_flow: "bg-amber-100 text-amber-700",
   routing: "bg-amber-100 text-amber-700",
   attributes: "bg-pink-100 text-pink-700",
@@ -179,7 +179,7 @@ export const CATEGORY_TILE_FALLBACK = "bg-muted text-muted-foreground";
 /** Canvas node left accent border, colour-matched to the category's darker shade. */
 export const categoryBorderAccentClasses: Record<string, string> = {
   command_execution: "border-l-emerald-700",
-  configuration_retrieval: "border-l-indigo-700",
+  configuration_management: "border-l-indigo-700",
   control_flow: "border-l-amber-700",
   routing: "border-l-amber-700",
   attributes: "border-l-pink-700",

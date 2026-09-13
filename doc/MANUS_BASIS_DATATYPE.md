@@ -771,7 +771,7 @@ plugins:
     name: Get Configs
     overview: Get device configuration in the chosen format.
     description: Get device configuration in the specified format.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     directory: get_device_configs
     enabled: true
     requires: [identity]
@@ -784,7 +784,7 @@ plugins:
   - id: parse-cisco-config
     name: Parse Cisco Config
     overview: Parse a Cisco running/startup config into structured data.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     palette_category: cisco
     directory: parse_cisco_config
     enabled: true

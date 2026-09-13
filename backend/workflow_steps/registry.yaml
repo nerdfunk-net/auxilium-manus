@@ -171,7 +171,7 @@ plugins:
     description: >
       Resolve each device's TACACS+ key from Cisco ISE using a configurable priority
       of name, location-group, and IP-based lookups.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     palette_category: cisco
     directory: get_ise_tacacs_key
     enabled: true
@@ -344,7 +344,7 @@ plugins:
       Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into
       structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.)
       using cisco-config-parser, for use by Jinja templates and Log Attributes.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     palette_category: cisco
     directory: parse_cisco_config
     enabled: true
@@ -382,7 +382,7 @@ plugins:
       producing a reusable testbed bundle that downstream pyATS-backed steps
       (e.g. Get & Parse Config) consume without needing their own
       credential/source configuration.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     palette_category: pyats
     directory: add_pyats_testbed
     enabled: true
@@ -433,7 +433,7 @@ plugins:
     description: >
       Fetch running configuration via the pyATS shim and parse it with Genie
       into structured data. Requires an upstream Add Testbed step.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     palette_category: pyats
     directory: get_pyats_config
     enabled: true
@@ -461,7 +461,7 @@ plugins:
       Learn one or more Genie features (BGP, OSPF, interfaces, platform, ...)
       or "all" via pyATS and store the structured snapshot. Requires an
       upstream Add Testbed step.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     palette_category: pyats
     directory: get_pyats_snapshot
     enabled: true
@@ -678,7 +678,7 @@ plugins:
       Queries the routing table of an already-initialized Batfish snapshot
       (from an upstream Init Batfish Snapshot step). All filters are optional --
       an empty config returns every route on every node.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     palette_category: batfish
     directory: batfish_routing_table
     enabled: true
@@ -1480,7 +1480,7 @@ plugins:
     name: Get Configs
     overview: Get device configuration in the chosen format.
     description: Get device configuration in the specified format.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     directory: get_device_configs
     enabled: true
     requires: [identity]
@@ -1528,7 +1528,7 @@ plugins:
       Read a configuration file from disk or a Git source, located by a per-device filename
       template, and set it as the device's running configuration — for restoring a known-good
       backup onto a device that has no reachable config of its own.
-    artifact_type: configuration_retrieval
+    artifact_type: configuration_management
     directory: read_config
     enabled: true
     requires: [identity]
@@ -2983,7 +2983,7 @@ plugins:
       Upload content produced by an earlier step (e.g. Update Content) to a device's
       filesystem using Netmiko's secure-copy or inline file transfer.
     artifact_type: command_execution
-    palette_category: configuration_retrieval
+    palette_category: configuration_management
     directory: upload_config
     enabled: true
     requires: [identity]
