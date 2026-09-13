@@ -26,6 +26,15 @@ query DevicesByName($names: [String]) {
 }
 """
 
+_DEVICES_BY_NAME_IE_QUERY = """
+query DevicesByNameCaseInsensitive($names: [String]) {
+  devices(name__ie: $names) {
+    id
+    name
+  }
+}
+"""
+
 _DEVICES_BY_IP_QUERY = """
 query DevicesByPrimaryIp($addresses: [String]) {
   devices(primary_ip4: $addresses) {
@@ -55,6 +64,7 @@ async def resolve_nautobot_device_id(
     nautobot_service: NautobotService,
     credentials: NautobotCredentials,
     device: DeviceContext,
+    case_insensitive: bool = False,
 ) -> str | None:
     """Map a workflow device to a Nautobot UUID.
 
@@ -63,19 +73,27 @@ async def resolve_nautobot_device_id(
     ones whose own id happens to be UUID-shaped, like ISE's device GUIDs —
     falls through to resolution by name, then by primary IPv4 address, since
     a foreign UUID has no meaning in Nautobot's id space.
+
+    `case_insensitive` switches the name lookup to Nautobot's `name__ie`
+    filter (case-insensitive exact match) — needed for sources such as
+    Batfish that normalize device names to lowercase.
     """
     if device.source == "nautobot" and _is_nautobot_uuid(device.id):
         return device.id
 
     if device.name:
+        query = _DEVICES_BY_NAME_IE_QUERY if case_insensitive else _DEVICES_BY_NAME_QUERY
         response = await nautobot_service.graphql_query(
-            _DEVICES_BY_NAME_QUERY,
+            query,
             {"names": [device.name]},
             credentials,
         )
         devices = (response.get("data") or {}).get("devices") or []
-        exact = next((item for item in devices if item.get("name") == device.name), None)
-        resolved = exact or (devices[0] if devices else None)
+        if case_insensitive:
+            resolved = devices[0] if devices else None
+        else:
+            exact = next((item for item in devices if item.get("name") == device.name), None)
+            resolved = exact or (devices[0] if devices else None)
         if resolved and resolved.get("id"):
             logger.info(
                 "Resolved Nautobot device by name name=%s id=%s",

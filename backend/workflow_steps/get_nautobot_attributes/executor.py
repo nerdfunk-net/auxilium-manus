@@ -42,6 +42,7 @@ _STEP_ID = "get-nautobot-attributes"
 class _ParsedConfig:
     source_id: str
     list_of_attributes: list[str]
+    case_insensitive_lookup: bool
 
 
 async def _fetch_device(
@@ -69,7 +70,12 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if not source_id:
         raise ValueError("get-nautobot-attributes: nautobot_source_id is not configured")
     list_of_attributes: list[str] = config.get("list_of_attributes") or []
-    return _ParsedConfig(source_id=source_id, list_of_attributes=list_of_attributes)
+    case_insensitive_lookup = bool(config.get("case_insensitive_lookup", False))
+    return _ParsedConfig(
+        source_id=source_id,
+        list_of_attributes=list_of_attributes,
+        case_insensitive_lookup=case_insensitive_lookup,
+    )
 
 
 def _bind_nautobot(
@@ -117,12 +123,14 @@ async def _enrich_device(
     nautobot_service: NautobotService,
     credentials: NautobotCredentials,
     variables: dict[str, Any],
+    case_insensitive_lookup: bool,
 ) -> tuple[str, DeviceContext, bool]:
     try:
         nautobot_device_id = await resolve_nautobot_device_id(
             nautobot_service=nautobot_service,
             credentials=credentials,
             device=device,
+            case_insensitive=case_insensitive_lookup,
         )
         if nautobot_device_id is None:
             return _fail_device(
@@ -241,6 +249,7 @@ async def execute(
                 nautobot_service=nautobot_service,
                 credentials=credentials,
                 variables=variables,
+                case_insensitive_lookup=parsed.case_insensitive_lookup,
             )
             for device_id, device in context.devices.items()
         ]

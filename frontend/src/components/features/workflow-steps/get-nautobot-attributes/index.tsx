@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -20,6 +21,8 @@ import { AttributesDialog } from "./attributes-dialog";
 import { ATTRIBUTE_GROUPS, type AttributeGroupKey } from "./types";
 import { GetNautobotAttributesHelpPanel } from "./help-panel";
 
+const CASE_INSENSITIVE_KEY = "case_insensitive_lookup";
+
 function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
   const raw = config.list_of_attributes;
   if (!Array.isArray(raw)) return [];
@@ -29,12 +32,17 @@ function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
   );
 }
 
+function boolFromConfig(config: Record<string, unknown>, key: string): boolean {
+  return config[key] === true;
+}
+
 function GetNautobotAttributesConfigPanel({
   config,
   onChange,
 }: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const selected = useMemo(() => parseAttributes(config), [config]);
+  const caseInsensitiveLookup = boolFromConfig(config, CASE_INSENSITIVE_KEY);
   const credentials = useNautobotSourceCredentials({ sourceId });
 
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -52,6 +60,13 @@ function GetNautobotAttributesConfigPanel({
   const handleChange = useCallback(
     (newSelected: AttributeGroupKey[]) => {
       onChange({ ...config, list_of_attributes: newSelected });
+    },
+    [config, onChange],
+  );
+
+  const handleCaseInsensitiveChange = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, [CASE_INSENSITIVE_KEY]: checked });
     },
     [config, onChange],
   );
@@ -125,6 +140,22 @@ function GetNautobotAttributesConfigPanel({
         >
           Edit Attributes
         </Button>
+      </div>
+
+      <div className="space-y-1.5 border-t pt-3">
+        <label className="flex items-center gap-1.5 text-xs font-medium">
+          <Checkbox
+            checked={caseInsensitiveLookup}
+            onCheckedChange={(checked) => handleCaseInsensitiveChange(checked === true)}
+          />
+          Use case-insensitive lookup
+        </label>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          When resolving a device by name (no Nautobot ID yet), match regardless
+          of case — e.g. a device named <span className="font-mono">lab</span>{" "}
+          (as produced by some sources, like Batfish) still matches a Nautobot
+          device named <span className="font-mono">LAB</span>.
+        </p>
       </div>
 
       <NautobotSourceSelectDialog

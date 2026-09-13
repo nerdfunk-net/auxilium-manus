@@ -39,6 +39,13 @@ class ParseConfigTests(unittest.TestCase):
         cfg = _parse_config({"nautobot_source_id": " src-1 ", "list_of_attributes": ["tags"]})
         self.assertEqual(cfg.source_id, "src-1")
         self.assertEqual(cfg.list_of_attributes, ["tags"])
+        self.assertFalse(cfg.case_insensitive_lookup)
+
+    def test_parses_case_insensitive_lookup(self) -> None:
+        cfg = _parse_config(
+            {"nautobot_source_id": "src-1", "case_insensitive_lookup": True}
+        )
+        self.assertTrue(cfg.case_insensitive_lookup)
 
 
 class HelperTests(unittest.TestCase):
@@ -130,18 +137,21 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             }}}
         )
         ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})
+        resolver = AsyncMock(return_value="nb-1")
         with (
             patch.object(mod, "_bind_nautobot", return_value=(MagicMock(), svc)),
-            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "resolve_nautobot_device_id", resolver),
         ):
             outcomes = await execute(
-                config={"nautobot_source_id": "s"}, context=ctx, run=_run(),
+                config={"nautobot_source_id": "s", "case_insensitive_lookup": True},
+                context=ctx, run=_run(),
                 artifact_service=MagicMock(), node_id="n", device_sessions=MagicMock(),
             )
         enriched = next(o for o in outcomes if o.name == "success").context.devices["d1"]
         self.assertEqual(enriched.attribute_bags["nautobot"]["custom_fields"], {"site": "NYC"})
         self.assertEqual(enriched.platform, "ios")
         self.assertIn(Capability.ATTRIBUTES, enriched.capabilities)
+        self.assertTrue(resolver.call_args.kwargs["case_insensitive"])
 
     async def test_unresolved_device_routes_to_failure(self) -> None:
         ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})

@@ -124,6 +124,46 @@ class ResolveNautobotDeviceIdTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
 
+    async def test_case_insensitive_lookup_uses_name_ie_filter(self) -> None:
+        """A device name of a different case (e.g. Batfish's lowercased names)
+        must still resolve when case_insensitive=True, via Nautobot's
+        `name__ie` filter."""
+        nautobot_service = MagicMock()
+        nautobot_service.graphql_query = AsyncMock(
+            return_value={"data": {"devices": [{"id": _NAUTOBOT_UUID, "name": "LAB"}]}}
+        )
+        device = _device(id="bf-lab", name="lab", source="batfish")
+
+        result = await resolve_nautobot_device_id(
+            nautobot_service=nautobot_service,
+            credentials=MagicMock(),
+            device=device,
+            case_insensitive=True,
+        )
+
+        self.assertEqual(result, _NAUTOBOT_UUID)
+        nautobot_service.graphql_query.assert_called_once()
+        query, variables, _ = nautobot_service.graphql_query.call_args.args
+        self.assertIn("name__ie", query)
+        self.assertEqual(variables, {"names": ["lab"]})
+
+    async def test_case_sensitive_lookup_does_not_use_name_ie_filter(self) -> None:
+        nautobot_service = MagicMock()
+        nautobot_service.graphql_query = AsyncMock(
+            return_value={"data": {"devices": [{"id": _NAUTOBOT_UUID, "name": "lab"}]}}
+        )
+        device = _device(id="bf-lab", name="lab", source="batfish")
+
+        await resolve_nautobot_device_id(
+            nautobot_service=nautobot_service,
+            credentials=MagicMock(),
+            device=device,
+            case_insensitive=False,
+        )
+
+        query = nautobot_service.graphql_query.call_args.args[0]
+        self.assertNotIn("name__ie", query)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -116,6 +116,34 @@ export function GetNautobotAttributesHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
+      <HelpSection title="Case-insensitive lookup">
+        <p>
+          When a device has no Nautobot ID yet, this step resolves one by
+          name using an exact, case-sensitive match. Enable{" "}
+          <span className="font-medium text-foreground">
+            Use case-insensitive lookup
+          </span>{" "}
+          (<HelpCode>case_insensitive_lookup</HelpCode>) to match regardless of
+          case instead.
+        </p>
+        <HelpExample>
+          Nautobot device name: LAB
+          <br />
+          Workflow device name: lab
+          <br />
+          <span className="text-muted-foreground">
+            → resolves only with case-insensitive lookup enabled
+          </span>
+        </HelpExample>
+        <HelpWarning title="When to use this">
+          <p>
+            Some sources normalize device names — for example Batfish reports
+            device names in lowercase. Enable this option when devices come
+            from such a source and Nautobot holds a differently-cased name.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>
