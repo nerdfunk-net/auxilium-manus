@@ -151,6 +151,9 @@ def create_template(
             pre_run_use_textfsm=payload.pre_run_use_textfsm,
             nautobot_attributes=payload.nautobot_attributes,
             credential_id=payload.credential_id,
+            batfish_config=payload.batfish_config.model_dump()
+            if payload.batfish_config is not None
+            else None,
             created_by=current_user.username,
             acting_user_id=current_user.id,
         )
@@ -193,6 +196,9 @@ def update_template(
             pre_run_use_textfsm=payload.pre_run_use_textfsm,
             nautobot_attributes=payload.nautobot_attributes,
             credential_id=payload.credential_id,
+            batfish_config=payload.batfish_config.model_dump()
+            if payload.batfish_config is not None
+            else None,
             acting_user_id=current_user.id,
         )
         return TemplateResponse.model_validate(result)

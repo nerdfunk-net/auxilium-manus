@@ -24,6 +24,7 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.batfish.query_helpers import build_batfish_headers
 from workflow_steps.batfish_acl_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 
@@ -33,20 +34,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-acl-check"
-
-
-def _build_headers(config: dict[str, Any], dst_ips: str) -> dict[str, Any]:
-    headers: dict[str, Any] = {"dstIps": dst_ips}
-    src_ips = str(config.get("src_ips") or "").strip()
-    if src_ips:
-        headers["srcIps"] = src_ips
-    applications = config.get("applications")
-    if applications:
-        headers["applications"] = applications
-    ip_protocols = str(config.get("ip_protocols") or "").strip()
-    if ip_protocols:
-        headers["ipProtocols"] = ip_protocols
-    return headers
 
 
 async def execute(
@@ -75,7 +62,12 @@ async def execute(
     snap = await resolve_batfish_snapshot_ref(
         context=context, config=merged_config, run=run, batfish=batfish
     )
-    headers = _build_headers(merged_config, dst_ips)
+    headers = build_batfish_headers(
+        dst_ips=dst_ips,
+        src_ips=merged_config.get("src_ips"),
+        applications=merged_config.get("applications"),
+        ip_protocols=merged_config.get("ip_protocols"),
+    )
     start_location = str(merged_config.get("start_location") or "").strip() or None
 
     logger.info(

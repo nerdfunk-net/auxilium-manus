@@ -21,6 +21,36 @@ export interface TemplateListResponse {
   total: number;
 }
 
+/** Which Batfish question a query targets (matches pybatfish's own answer-type names). */
+export type BatfishQueryQuestion = "routes" | "reachability" | "testFilters";
+
+/**
+ * Persisted Batfish query definition for the template editor's preview
+ * `batfish` variable. Only the query definition round-trips with the
+ * template — never the fetched answer itself, mirroring how parsed_config/
+ * command results also aren't saved with the template.
+ */
+export interface BatfishQueryConfig {
+  enabled: boolean;
+  source_id: string | null;
+  network: string | null;
+  snapshot: string | null;
+  question: BatfishQueryQuestion | null;
+  params: Record<string, unknown>;
+}
+
+/** Response from an ad-hoc POST sources/batfish/{source_id}/query/* call. */
+export interface BatfishQueryResult {
+  success: boolean;
+  question: BatfishQueryQuestion;
+  network: string;
+  snapshot: string;
+  rows: unknown[];
+  reachable?: boolean | null;
+  action?: string | null;
+  error?: string | null;
+}
+
 export interface Template {
   id: number;
   name: string;
@@ -36,6 +66,7 @@ export interface Template {
   pre_run_use_textfsm: boolean;
   nautobot_attributes: string[];
   credential_id: number | null;
+  batfish_config: BatfishQueryConfig | null;
   created_by: string | null;
   is_active: boolean;
   created_at: string | null;
@@ -54,6 +85,7 @@ export interface TemplateCreatePayload {
   pre_run_use_textfsm: boolean;
   nautobot_attributes: string[];
   credential_id?: number | null;
+  batfish_config?: BatfishQueryConfig | null;
 }
 
 export type TemplateUpdatePayload = Partial<TemplateCreatePayload>;

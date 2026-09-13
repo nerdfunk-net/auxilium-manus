@@ -19,6 +19,7 @@ from services.auth.login_rate_limiter import (
     LoginRateLimiter,
 )
 from services.batfish.client import BatfishService
+from services.batfish.preview_service import BatfishPreviewService
 from services.batfish.source_config_service import BatfishSourceConfigService
 from services.cache.redis_cache_service import RedisCacheService
 from services.ise.client import ISEService
@@ -107,6 +108,13 @@ def set_batfish_app_service(service: BatfishService) -> None:
 
 def build_batfish_source_config_service(db: Session) -> BatfishSourceConfigService:
     return BatfishSourceConfigService(db)
+
+
+def build_batfish_preview_service(db: Session) -> BatfishPreviewService:
+    return BatfishPreviewService(
+        source_config_service=BatfishSourceConfigService(db),
+        batfish_service=get_batfish_app_service(),
+    )
 
 
 def get_mattermost_app_service() -> MattermostService:

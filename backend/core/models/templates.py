@@ -44,6 +44,10 @@ class Template(Base):
     # variable (mirrors the get-nautobot-attributes step's list_of_attributes).
     nautobot_attributes: Mapped[str | None] = mapped_column(Text, nullable=True)
     credential_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # JSON object: the preview `batfish` variable's query definition (source,
+    # network, snapshot, question, params) -- never the fetched answer itself,
+    # mirroring parsed_config/command results, which also aren't persisted.
+    batfish_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(

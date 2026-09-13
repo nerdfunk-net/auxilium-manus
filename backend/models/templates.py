@@ -26,6 +26,21 @@ class TemplateVariable(BaseModel):
     type: str = "custom"
 
 
+class BatfishQueryConfig(BaseModel):
+    """Persisted Batfish query definition for the template editor's preview
+    `batfish` variable. Only the query definition is persisted -- never the
+    fetched answer itself, mirroring how parsed_config/command results also
+    aren't saved with the template.
+    """
+
+    enabled: bool = False
+    source_id: str | None = None
+    network: str | None = None
+    snapshot: str | None = None
+    question: Literal["routes", "reachability", "testFilters"] | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class TemplateCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
@@ -38,6 +53,7 @@ class TemplateCreate(BaseModel):
     pre_run_use_textfsm: bool = False
     nautobot_attributes: list[str] = Field(default_factory=list)
     credential_id: int | None = None
+    batfish_config: BatfishQueryConfig | None = None
 
 
 class TemplateUpdate(BaseModel):
@@ -52,6 +68,7 @@ class TemplateUpdate(BaseModel):
     pre_run_use_textfsm: bool | None = None
     nautobot_attributes: list[str] | None = None
     credential_id: int | None = None
+    batfish_config: BatfishQueryConfig | None = None
 
 
 class TemplateResponse(BaseModel):
@@ -70,6 +87,7 @@ class TemplateResponse(BaseModel):
     pre_run_use_textfsm: bool = False
     nautobot_attributes: list[str] = Field(default_factory=list)
     credential_id: int | None
+    batfish_config: BatfishQueryConfig | None = None
     created_by: str | None
     is_active: bool
     created_at: str | None

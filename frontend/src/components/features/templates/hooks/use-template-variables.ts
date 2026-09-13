@@ -3,11 +3,17 @@
 import { useCallback, useMemo, useState } from "react";
 
 import {
+  BATFISH_VARIABLE,
   COMMAND_VARIABLES,
   NETMIKO_AUTO_VARIABLES,
   PARSED_CONFIG_VARIABLE,
 } from "../constants";
-import type { CommandEntry, EditorVariable, TemplateVariableRecord } from "../types";
+import type {
+  BatfishQueryResult,
+  CommandEntry,
+  EditorVariable,
+  TemplateVariableRecord,
+} from "../types";
 import type { ParsedVariableEntry } from "../utils/parse-variables";
 import type { StaticAttributeDef } from "@/components/features/workflows/types/workflow-persistence";
 
@@ -18,6 +24,7 @@ let customVariableCounter = 0;
 
 const COMMAND_VARIABLE_IDS = COMMAND_VARIABLES.map((variable) => `auto:${variable.name}`);
 const PARSED_CONFIG_VARIABLE_ID = `auto:${PARSED_CONFIG_VARIABLE.name}`;
+const BATFISH_VARIABLE_ID = `auto:${BATFISH_VARIABLE.name}`;
 const RUN_INPUT_VARIABLE_ID = "auto:run_input";
 
 /** Reference workflow whose static_attributes are previewed in the "run_input"
@@ -69,6 +76,23 @@ function createParsedConfigVariable(): EditorVariable[] {
 
 function isParsedConfigVariable(variable: EditorVariable): boolean {
   return variable.id === PARSED_CONFIG_VARIABLE_ID;
+}
+
+function createBatfishVariable(): EditorVariable[] {
+  return [
+    {
+      id: BATFISH_VARIABLE_ID,
+      name: BATFISH_VARIABLE.name,
+      value: "",
+      type: "auto",
+      isAutoFilled: true,
+      description: BATFISH_VARIABLE.description,
+    },
+  ];
+}
+
+function isBatfishVariable(variable: EditorVariable): boolean {
+  return variable.id === BATFISH_VARIABLE_ID;
 }
 
 export function useTemplateVariables() {
@@ -185,6 +209,29 @@ export function useTemplateVariables() {
     );
   }, []);
 
+  const toggleBatfishVariable = useCallback((enabled: boolean) => {
+    setVariables((current) => {
+      const hasBatfishVar = current.some(isBatfishVariable);
+      if (enabled && !hasBatfishVar) {
+        return [...current, ...createBatfishVariable()];
+      }
+      if (!enabled && hasBatfishVar) {
+        return current.filter((variable) => !isBatfishVariable(variable));
+      }
+      return current;
+    });
+  }, []);
+
+  const setBatfishResult = useCallback((result: BatfishQueryResult | null) => {
+    setVariables((current) =>
+      current.map((variable) =>
+        variable.id === BATFISH_VARIABLE_ID
+          ? { ...variable, value: result ? JSON.stringify(result, null, 2) : "" }
+          : variable,
+      ),
+    );
+  }, []);
+
   const setRunInputSource = useCallback((source: RunInputSource | null) => {
     setVariables((current) => {
       const withoutRunInput = current.filter((variable) => variable.id !== RUN_INPUT_VARIABLE_ID);
@@ -278,6 +325,8 @@ export function useTemplateVariables() {
       setCommandResults,
       toggleParsedConfigVariable,
       setParsedConfig,
+      toggleBatfishVariable,
+      setBatfishResult,
       setRunInputSource,
       mergeCustomVariables,
       loadCustomVariables,
@@ -293,6 +342,8 @@ export function useTemplateVariables() {
       setCommandResults,
       toggleParsedConfigVariable,
       setParsedConfig,
+      toggleBatfishVariable,
+      setBatfishResult,
       setRunInputSource,
       mergeCustomVariables,
       loadCustomVariables,

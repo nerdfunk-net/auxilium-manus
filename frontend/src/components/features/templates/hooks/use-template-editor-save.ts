@@ -6,7 +6,7 @@ import { useCallback, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 import { TEMPLATE_CATEGORY } from "../constants";
-import type { TemplateType, TemplateVariableRecord } from "../types";
+import type { BatfishQueryConfig, TemplateType, TemplateVariableRecord } from "../types";
 import {
   buildTemplateExportFile,
   downloadTemplateExportFile,
@@ -26,6 +26,7 @@ interface UseTemplateEditorSaveOptions {
   useTextfsm: boolean;
   attributes: string[];
   credentialId: string;
+  batfishConfig: BatfishQueryConfig;
   variableManager: TemplateVariablesManager;
   isEditMode: boolean;
   templateId: number | null;
@@ -56,6 +57,7 @@ export function useTemplateEditorSave({
   useTextfsm,
   attributes,
   credentialId,
+  batfishConfig,
   variableManager,
   isEditMode,
   templateId,
@@ -126,6 +128,7 @@ export function useTemplateEditorSave({
       pre_run_use_textfsm: useTextfsm,
       nautobot_attributes: attributes,
       credential_id: credentialId !== "none" ? Number(credentialId) : null,
+      batfish_config: batfishConfig,
     };
 
     try {
@@ -148,6 +151,7 @@ export function useTemplateEditorSave({
     useTextfsm,
     attributes,
     credentialId,
+    batfishConfig,
     variableManager.variables,
     isEditMode,
     templateId,

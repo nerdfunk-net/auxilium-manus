@@ -9,6 +9,7 @@ import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 
 import { useNautobotSources } from "./use-nautobot-sources";
+import { useTemplateEditorBatfish } from "./use-template-editor-batfish";
 import { useTemplateEditorDevice } from "./use-template-editor-device";
 import { useTemplateEditorSave } from "./use-template-editor-save";
 import { useTemplateQuery } from "./use-template-query";
@@ -51,6 +52,7 @@ export function useTemplateEditor() {
   const [linkWorkflowDialogOpen, setLinkWorkflowDialogOpen] = useState(false);
 
   const variableManager = useTemplateVariables();
+  const batfish = useTemplateEditorBatfish({ setBatfishResult: variableManager.setBatfishResult });
   const renderer = useTemplateRender();
   const { sources } = useNautobotSources();
   const workflowsQuery = useWorkflowsQuery();
@@ -84,10 +86,12 @@ export function useTemplateEditor() {
     setCommandResults,
     toggleParsedConfigVariable,
     setParsedConfig,
+    toggleBatfishVariable,
     setRunInputSource,
     loadCustomVariables,
     mergeCustomVariables,
   } = variableManager;
+  const { loadFromConfig: loadBatfishFromConfig, toConfig: batfishToConfig } = batfish;
 
   const cleanedCommands = useMemo(
     () => commands.map((command) => command.trim()).filter(Boolean),
@@ -113,7 +117,8 @@ export function useTemplateEditor() {
       template.credential_id != null ? String(template.credential_id) : "none",
     );
     loadCustomVariables(template.variables ?? {});
-  }, [isEditMode, templateQuery.data, loadCustomVariables]);
+    loadBatfishFromConfig(template.batfish_config ?? null);
+  }, [isEditMode, templateQuery.data, loadCustomVariables, loadBatfishFromConfig]);
 
   // Show/hide the command variables based on whether any command is configured.
   useEffect(() => {
@@ -124,6 +129,11 @@ export function useTemplateEditor() {
   useEffect(() => {
     toggleParsedConfigVariable(getDeviceConfigs);
   }, [getDeviceConfigs, toggleParsedConfigVariable]);
+
+  // Show/hide the batfish variable based on the "Enable Batfish Result" checkbox.
+  useEffect(() => {
+    toggleBatfishVariable(batfish.enabled);
+  }, [batfish.enabled, toggleBatfishVariable]);
 
   // Build the `device` variable from the selected test device (matches the
   // workflow step's device.* namespace).
@@ -250,6 +260,7 @@ export function useTemplateEditor() {
     useTextfsm,
     attributes,
     credentialId,
+    batfishConfig: batfishToConfig(),
     variableManager,
     isEditMode,
     templateId,
@@ -327,6 +338,18 @@ export function useTemplateEditor() {
       workflows: workflowsQuery.data?.workflows ?? [],
       referenceWorkflowId,
       setReferenceWorkflowId,
+      batfishTargetConfig: batfish.targetConfig,
+      setBatfishTargetConfig: batfish.setTargetConfig,
+      batfishQuestion: batfish.question,
+      setBatfishQuestion: batfish.setQuestion,
+      batfishParams: batfish.params,
+      setBatfishParams: batfish.setParams,
+      batfishEnabled: batfish.enabled,
+      setBatfishEnabled: batfish.setEnabled,
+      handleRunBatfishQuery: batfish.handleRunQuery,
+      isRunningBatfishQuery: batfish.isRunningQuery,
+      canRunBatfishQuery: batfish.canRunQuery,
+      batfishResult: batfish.result,
     }),
     [
       router,
@@ -374,6 +397,7 @@ export function useTemplateEditor() {
       linkWorkflowDialogOpen,
       workflowsQuery.data?.workflows,
       referenceWorkflowId,
+      batfish,
     ],
   );
 }

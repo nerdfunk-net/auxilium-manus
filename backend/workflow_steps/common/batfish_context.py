@@ -22,6 +22,7 @@ from sqlalchemy.orm import object_session
 
 from models.workflow_context import WorkflowContext
 from services.batfish.credentials import BatfishConnection
+from services.batfish.query_helpers import resolve_latest_snapshot_name
 from services.batfish.source_config_service import BatfishSourceConfigService
 
 if TYPE_CHECKING:
@@ -82,16 +83,7 @@ async def resolve_batfish_snapshot_ref(
 
     snapshot = str(config.get("snapshot") or "").strip()
     if not snapshot:
-        entries = await batfish.list_snapshots_with_metadata(connection, batfish_network=network)
-        if not entries:
-            raise ValueError(
-                f"No Batfish snapshots found in network {network!r} -- run Init Batfish "
-                "Snapshot against this network first, or set 'snapshot' explicitly."
-            )
-        entries_sorted = sorted(
-            entries, key=lambda e: e.get("metadata", {}).get("creationTimestamp", "")
-        )
-        snapshot = str(entries_sorted[-1]["name"])
+        snapshot = await resolve_latest_snapshot_name(batfish, connection, network)
 
     return BatfishSnapshotRef(connection=connection, network=network, snapshot=snapshot)
 

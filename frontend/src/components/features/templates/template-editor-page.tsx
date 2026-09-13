@@ -25,7 +25,7 @@ import { GeneralPanel } from "./components/general-panel";
 import { JinjaHelpDialog } from "./components/jinja-help-dialog";
 import { LinkWorkflowDialog } from "./components/link-workflow-dialog";
 import { LoadVariablesDialog } from "./dialogs/load-variables-dialog";
-import { NetmikoOptionsDialog } from "./components/netmiko-options-dialog";
+import { OptionsDialog } from "./components/options-dialog";
 import { RenderedOutputDialog } from "./components/rendered-output-dialog";
 import { ResizableSplit } from "./components/resizable-split";
 import { VariablesPanel } from "./components/variables-panel";
@@ -177,7 +177,7 @@ function TemplateEditorContent() {
         onOpenChange={editor.renderer.setShowDialog}
       />
 
-      <NetmikoOptionsDialog
+      <OptionsDialog
         open={editor.optionsDialogOpen}
         onOpenChange={editor.setOptionsDialogOpen}
         sources={editor.sources}
@@ -196,6 +196,18 @@ function TemplateEditorContent() {
         onConfigureAttributes={() => editor.setAttributesDialogOpen(true)}
         onCredentialChange={editor.setCredentialId}
         onGetConfigsChange={editor.setGetDeviceConfigs}
+        batfishTargetConfig={editor.batfishTargetConfig}
+        onBatfishTargetConfigChange={editor.setBatfishTargetConfig}
+        batfishQuestion={editor.batfishQuestion}
+        onBatfishQuestionChange={editor.setBatfishQuestion}
+        batfishParams={editor.batfishParams}
+        onBatfishParamsChange={editor.setBatfishParams}
+        batfishEnabled={editor.batfishEnabled}
+        onBatfishEnabledChange={editor.setBatfishEnabled}
+        onRunBatfishQuery={editor.handleRunBatfishQuery}
+        isRunningBatfishQuery={editor.isRunningBatfishQuery}
+        canRunBatfishQuery={editor.canRunBatfishQuery}
+        batfishResult={editor.batfishResult}
       />
 
       <AddVariableDialog

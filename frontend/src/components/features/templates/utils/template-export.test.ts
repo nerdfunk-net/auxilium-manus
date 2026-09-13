@@ -21,6 +21,7 @@ const BASE_TEMPLATE: Template = {
   pre_run_use_textfsm: false,
   nautobot_attributes: [],
   credential_id: null,
+  batfish_config: null,
   created_by: "admin",
   is_active: true,
   created_at: null,

@@ -67,3 +67,14 @@ export const PARSED_CONFIG_VARIABLE: { name: string; description: string } = {
   description:
     'Parsed config keyed by output_key ("cisco_config"), always nested under .running / .startup — e.g. parsed.cisco_config.running.hostname, .running.vlans, .running.access_lists, .running.aaa_servers. Matches the Parse Cisco Config step.',
 };
+
+/**
+ * Ad-hoc Batfish query result variable, populated by the Options modal's
+ * Batfish tab. Matches the batfish-routing-table / batfish-path-check /
+ * batfish-acl-check workflow steps' answer shape.
+ */
+export const BATFISH_VARIABLE: { name: string; description: string } = {
+  name: "batfish",
+  description:
+    "Result of an ad-hoc Batfish query (Routing Table / Path Check / ACL Check) run against a configured Batfish source and network+snapshot — batfish.rows, batfish.reachable, batfish.action, batfish.question.",
+};

@@ -93,6 +93,7 @@ class TemplatesService:
         pre_run_use_textfsm: bool,
         nautobot_attributes: list[str] | None,
         credential_id: int | None,
+        batfish_config: dict[str, Any] | None = None,
         created_by: str | None,
         acting_user_id: int,
     ) -> dict[str, Any]:
@@ -115,6 +116,7 @@ class TemplatesService:
             pre_run_use_textfsm=pre_run_use_textfsm,
             nautobot_attributes=json.dumps(_clean_attributes(nautobot_attributes)),
             credential_id=credential_id,
+            batfish_config=json.dumps(batfish_config) if batfish_config else None,
             created_by=created_by,
             is_active=True,
         )
@@ -136,6 +138,7 @@ class TemplatesService:
         pre_run_use_textfsm: bool | None = None,
         nautobot_attributes: list[str] | None = None,
         credential_id: int | None = None,
+        batfish_config: dict[str, Any] | None = None,
         acting_user_id: int,
     ) -> dict[str, Any]:
         self._assert_credential_visible(credential_id, acting_user_id=acting_user_id)
@@ -173,6 +176,8 @@ class TemplatesService:
             updates["nautobot_attributes"] = json.dumps(_clean_attributes(nautobot_attributes))
         if credential_id is not None:
             updates["credential_id"] = credential_id
+        if batfish_config is not None:
+            updates["batfish_config"] = json.dumps(batfish_config)
 
         updated = self._repo.update(template, **updates)
         logger.info("Template %s updated", template_id)
@@ -244,6 +249,7 @@ class TemplatesService:
             "pre_run_use_textfsm": bool(template.pre_run_use_textfsm),
             "nautobot_attributes": _load_attributes(template),
             "credential_id": template.credential_id,
+            "batfish_config": _load_batfish_config(template),
             "created_by": template.created_by,
             "is_active": template.is_active,
             "created_at": template.created_at.isoformat() if template.created_at else None,
@@ -277,6 +283,18 @@ def _load_attributes(template: Template) -> list[str]:
     if isinstance(parsed, list):
         return _clean_attributes([str(item) for item in parsed])
     return []
+
+
+def _load_batfish_config(template: Template) -> dict[str, Any] | None:
+    """Resolve the stored Batfish query definition, if any."""
+    raw = template.batfish_config
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _load_commands(template: Template) -> list[str]:
