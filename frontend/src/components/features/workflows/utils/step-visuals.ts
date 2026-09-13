@@ -49,19 +49,19 @@ import {
 
 export const ARTIFACT_TYPE_ORDER = [
   "nautobot",
-  "cisco",
-  "pyats",
-  "batfish",
   "inventory_selector",
   "routing",
   "attributes",
+  "command_execution",
+  "configuration_retrieval",
+  "template_rendering",
+  "persistent_artifact",
   "content_tools",
   "debug",
   "notify",
-  "template_rendering",
-  "command_execution",
-  "configuration_retrieval",
-  "persistent_artifact",
+  "cisco",
+  "pyats",
+  "batfish",
 ];
 
 export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
