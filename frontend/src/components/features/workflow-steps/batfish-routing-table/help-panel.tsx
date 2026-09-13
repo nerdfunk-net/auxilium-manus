@@ -81,16 +81,19 @@ export function BatfishRoutingTableHelpPanel() {
           &apos;s <HelpCode>failure</HelpCode> outcome rather than continuing
           downstream.
         </p>
-        <HelpWarning title="Name matching is case-sensitive">
+        <HelpWarning title="Enable case-insensitive lookup on Get Nautobot Attributes">
           <p>
             Batfish always lowercases parsed node hostnames. A Nautobot
             device named with any uppercase letters (e.g. <HelpCode>R1</HelpCode>)
-            won&apos;t resolve by name purely due to casing, even though it
-            exists — it will show up as unmatched on{" "}
+            won&apos;t match by name purely due to casing unless{" "}
             <span className="font-medium text-foreground">
               Get Nautobot Attributes
             </span>
-            &apos;s <HelpCode>failure</HelpCode> outcome.
+            &apos;s <HelpCode>case_insensitive_lookup</HelpCode> option is turned
+            on. Turn it on whenever you chain from this step&apos;s{" "}
+            <HelpCode>devices</HelpCode> outcome — otherwise correctly-existing
+            devices will be dropped onto the <HelpCode>failure</HelpCode>{" "}
+            outcome for no reason other than casing.
           </p>
         </HelpWarning>
       </HelpSection>

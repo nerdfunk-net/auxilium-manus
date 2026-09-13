@@ -627,16 +627,18 @@ resolve lands on its `failure` outcome instead of continuing downstream with
 fake identity — this is the "drop devices Nautobot doesn't recognize"
 behavior, reused as-is rather than reimplemented here.
 
-**Known limitation: name matching is case-sensitive.**
+**RESOLVED: name matching case-sensitivity, opt-in.**
 `resolve_nautobot_device_id` (`workflow_steps/common/nautobot_resolve.py`)
-matches `DeviceContext.name` against Nautobot by exact string equality, and
+now accepts `case_insensitive: bool`, switching the name lookup to Nautobot's
+`name__ie` GraphQL filter. `Get Nautobot Attributes` exposes this as a step
+config field, `case_insensitive_lookup` (default `False` —
+`workflow_steps/get_nautobot_attributes/config.py`/`executor.py`). Since
 Batfish always lowercases parsed node hostnames (see "Node-name case
-sensitivity" under "Open items" below). A Nautobot device named with any
-uppercase letters (e.g. `R1`) will fail to resolve by name purely due to
-casing and land on `Get Nautobot Attributes`'s `failure` outcome even though
-it genuinely exists in Nautobot. A case-insensitive fallback in
-`resolve_nautobot_device_id` is a plausible follow-up; not built as part of
-this change.
+sensitivity" under "Open items" below), **this option must be turned on** on
+any `Get Nautobot Attributes` step downstream of Batfish Routing Table's
+`devices` outcome — left at its `False` default, a Nautobot device named with
+any uppercase letters (e.g. `R1`) still fails to resolve by name purely due to
+casing and lands on the `failure` outcome even though it genuinely exists.
 
 ### Batfish Path Check (`batfish-path-check`)
 
