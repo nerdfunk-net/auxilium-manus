@@ -8,4 +8,7 @@ def get_config() -> dict:
         "ip_protocols": "",
         "start_location": "",
         "output_key": "batfish_acl_check",
+        "batfish_source_id": "",
+        "network": "",
+        "snapshot": "",
     }

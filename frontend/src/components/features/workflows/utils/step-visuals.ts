@@ -23,6 +23,7 @@ import {
   LogIn,
   MessageSquare,
   PackagePlus,
+  PlayCircle,
   Replace,
   Route,
   Router,
@@ -124,6 +125,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   // Same reason as the pyats entries above: palette_category: batfish means
   // the artifact_type icon fallback doesn't apply, so every batfish step
   // needs its own entry here too.
+  "batfish-start-run": PlayCircle,
   "batfish-init-snapshot": PackagePlus,
   "batfish-routing-table": Route,
   "batfish-path-check": Signpost,

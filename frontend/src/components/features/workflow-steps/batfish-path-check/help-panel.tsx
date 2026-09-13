@@ -61,6 +61,20 @@ export function BatfishPathCheckHelpPanel() {
           analysis, checking pure routing reachability.
         </p>
       </HelpSection>
+
+      <HelpSection title="Querying a network directly">
+        <p>
+          Leave <HelpCode>batfish_source_id</HelpCode>/<HelpCode>network</HelpCode> blank
+          to use the snapshot from an upstream Init Batfish Snapshot step in this run
+          (default). Set both to query any network directly — e.g. a production network
+          refreshed nightly by a Schedule — with no Init step needed in this workflow.
+          This always overrides the run&apos;s own snapshot when set.
+        </p>
+        <p>
+          Leave <HelpCode>snapshot</HelpCode> blank to use the most recently created
+          snapshot in that network.
+        </p>
+      </HelpSection>
     </div>
   );
 }

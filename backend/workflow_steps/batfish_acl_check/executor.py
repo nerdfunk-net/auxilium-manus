@@ -25,7 +25,7 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.batfish_acl_check.config import get_config
-from workflow_steps.common.batfish_context import resolve_batfish_snapshot
+from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -71,8 +71,10 @@ async def execute(
     if not dst_ips:
         raise ValueError(f"{_STEP_ID}: dst_ips is required")
 
-    snap = resolve_batfish_snapshot(context)
     batfish = service_factory.get_batfish_app_service()
+    snap = await resolve_batfish_snapshot_ref(
+        context=context, config=merged_config, run=run, batfish=batfish
+    )
     headers = _build_headers(merged_config, dst_ips)
     start_location = str(merged_config.get("start_location") or "").strip() or None
 

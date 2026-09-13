@@ -16,6 +16,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
+import { BatfishDirectTargetFields } from "../shared/batfish-direct-target-fields";
 import { BatfishRoutingTableHelpPanel } from "./help-panel";
 
 const PREFIX_MATCH_TYPE_KEY = "prefix_match_type";
@@ -178,6 +179,8 @@ function BatfishRoutingTableConfigPanel({ config, onChange }: PluginConfigPanelP
           this key in the run&apos;s metadata (not per-device).
         </p>
       </div>
+
+      <BatfishDirectTargetFields config={config} onChange={onChange} />
     </div>
   );
 }

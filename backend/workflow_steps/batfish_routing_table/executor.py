@@ -25,7 +25,7 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.batfish_routing_table.config import get_config
-from workflow_steps.common.batfish_context import resolve_batfish_snapshot
+from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -53,8 +53,10 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
-    snap = resolve_batfish_snapshot(context)
     batfish = service_factory.get_batfish_app_service()
+    snap = await resolve_batfish_snapshot_ref(
+        context=context, config=merged_config, run=run, batfish=batfish
+    )
 
     logger.info(
         "%s started run_id=%s node_id=%s network=%s snapshot=%s",

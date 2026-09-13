@@ -580,6 +580,26 @@ plugins:
           data_type: string
           required: false
 
+  - id: batfish-start-run
+    name: Start Batfish Run
+    overview: Seed an empty device context to start a git-backed Batfish workflow.
+    description: >
+      Produces an empty device context so a git-mode Init Batfish Snapshot
+      step -- which reads configs from a Git repository and needs no live
+      devices at all -- can still be wired in on the canvas. Use this instead
+      of a real device-selection step when a Batfish workflow selects no
+      devices of its own (see doc/BATFISH_INTEGRATION.md "Config source:
+      live vs. git"). Not needed for live-mode Batfish workflows, which keep
+      using a normal device-selection step.
+    artifact_type: inventory_selector
+    palette_category: batfish
+    directory: batfish_start_run
+    enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+
   - id: batfish-init-snapshot
     name: Init Batfish Snapshot
     overview: Build a Batfish snapshot from this run's device configs.
@@ -611,6 +631,45 @@ plugins:
           data_type: integer
           required: false
           default: 5
+        - name: network_name
+          description: >
+            Override the Batfish network name to use verbatim instead of the
+            default "manus-workflow-<workflow_id>" -- gives a network a
+            stable identity independent of workflow_id, e.g. for a
+            production network refreshed nightly by a Schedule.
+          data_type: string
+          required: false
+        - name: config_source
+          description: >
+            Where to source device configs from: "live" (default) uses this
+            run's devices and must run after a Fan In if fanned out. "git"
+            reads already-collected configs from a Git repository instead
+            and does not require any devices in context at all -- pair with
+            an upstream Start Batfish Run step when no real device-selection
+            step is needed.
+          data_type: string
+          required: false
+          default: live
+        - name: git_repository_id
+          description: >
+            Git repository (Settings → Git Repositories) to read configs
+            from. Required when config_source is "git".
+          data_type: integer
+          required: false
+        - name: base_path
+          description: >
+            Directory inside the repository to search from (blank = repo
+            root). Only used when config_source is "git".
+          data_type: string
+          required: false
+        - name: glob_pattern
+          description: >
+            Glob pattern (supports ** recursive segments) matched against
+            files under base_path, e.g. "**/*.running.cfg" (filename-suffix
+            convention) or "configs/running/**/*.cfg" (directory
+            convention). Required when config_source is "git".
+          data_type: string
+          required: false
 
   - id: batfish-routing-table
     name: Batfish Routing Table
@@ -660,6 +719,26 @@ plugins:
           data_type: string
           required: false
           default: batfish_routes
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
 
   - id: batfish-path-check
     name: Batfish Path Check
@@ -725,6 +804,26 @@ plugins:
           data_type: string
           required: false
           default: batfish_path_check
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
 
   - id: batfish-acl-check
     name: Batfish ACL Check
@@ -780,6 +879,26 @@ plugins:
           data_type: string
           required: false
           default: batfish_acl_check
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
 
   - id: configure-replace-config
     name: Configure Replace Config

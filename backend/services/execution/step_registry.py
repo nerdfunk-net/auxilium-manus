@@ -29,6 +29,7 @@ from workflow_steps.batfish_acl_check.executor import execute as batfish_acl_che
 from workflow_steps.batfish_init_snapshot.executor import execute as batfish_init_snapshot
 from workflow_steps.batfish_path_check.executor import execute as batfish_path_check
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
+from workflow_steps.batfish_start_run.executor import execute as batfish_start_run
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
@@ -103,6 +104,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "add-pyats-testbed": add_pyats_testbed,
     "get-pyats-config": get_pyats_config,
     "get-pyats-snapshot": get_pyats_snapshot,
+    "batfish-start-run": batfish_start_run,
     "batfish-init-snapshot": batfish_init_snapshot,
     "batfish-routing-table": batfish_routing_table,
     "batfish-path-check": batfish_path_check,

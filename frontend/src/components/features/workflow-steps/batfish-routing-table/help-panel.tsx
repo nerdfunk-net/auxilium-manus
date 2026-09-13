@@ -16,10 +16,12 @@ export function BatfishRoutingTableHelpPanel() {
           created — one row per node/VRF/network route. Every filter below is
           optional; an empty config returns every route on every node.
         </p>
-        <HelpWarning title="Requires an upstream Init Batfish Snapshot step">
+        <HelpWarning title="Snapshot source: upstream Init step, or a network set directly">
           <p>
-            This step reads the snapshot location from this run&apos;s metadata — it
-            has no source configuration of its own.
+            By default this step reads the snapshot location from an upstream{" "}
+            <HelpCode>Init Batfish Snapshot</HelpCode> step&apos;s run metadata. See
+            &quot;Querying a network directly&quot; below to target any network
+            instead, with no Init step required in this workflow.
           </p>
         </HelpWarning>
       </HelpSection>
@@ -56,6 +58,20 @@ export function BatfishRoutingTableHelpPanel() {
           plus a row count. Unlike per-device steps, this is workflow-level
           data, not <HelpCode>parsed.{"{output_key}"}</HelpCode> on each
           device.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="Querying a network directly">
+        <p>
+          Leave <HelpCode>batfish_source_id</HelpCode>/<HelpCode>network</HelpCode> blank
+          to use the snapshot from an upstream Init Batfish Snapshot step in this run
+          (default). Set both to query any network directly — e.g. a production network
+          refreshed nightly by a Schedule — with no Init step needed in this workflow.
+          This always overrides the run&apos;s own snapshot when set.
+        </p>
+        <p>
+          Leave <HelpCode>snapshot</HelpCode> blank to use the most recently created
+          snapshot in that network.
         </p>
       </HelpSection>
     </div>

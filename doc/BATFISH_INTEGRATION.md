@@ -23,6 +23,7 @@ gating" below).
 - [Configuring a source](#configuring-a-source)
 - [Security notes](#security-notes)
 - [Workflow steps](#workflow-steps)
+  - [Start Batfish Run](#start-batfish-run-batfish-start-run)
   - [Init Batfish Snapshot](#init-batfish-snapshot-batfish-init-snapshot)
   - [Batfish Routing Table](#batfish-routing-table-batfish-routing-table)
   - [Batfish Path Check](#batfish-path-check-batfish-path-check)
@@ -162,15 +163,21 @@ backend/hatchet/worker_services.py         # BatfishService lifespan startup/shu
 backend/services/auth/rbac_seed.py         # sources.batfish read/write/delete permissions
 backend/services/settings/source_keys.py   # "batfish" added to SourceType + BATFISH_KEY_PREFIX
 
-backend/workflow_steps/common/batfish_context.py   # resolve_batfish_snapshot/store_batfish_snapshot -- shared metadata lookup
+backend/workflow_steps/common/batfish_context.py   # resolve_batfish_snapshot/store_batfish_snapshot (metadata lookup)
+                                                     # + resolve_batfish_snapshot_ref (explicit source/network bypass)
+backend/workflow_steps/batfish_start_run/{__init__.py,executor.py,config.py}       # seeds an empty device context
 backend/workflow_steps/batfish_init_snapshot/{__init__.py,executor.py,config.py}
+backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: git -- glob-based file collection
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
-backend/services/execution/step_registry.py   # 4 imports + dict entries
-backend/workflow_steps/registry.yaml          # 4 entries, palette_category: batfish
+backend/services/execution/step_registry.py   # 5 imports + dict entries
+backend/workflow_steps/registry.yaml          # 5 entries, palette_category: batfish
 
 backend/tests/unit/test_batfish_{client,source_config_service,router_auth,context_helper}.py
+backend/tests/unit/test_batfish_context_ref_resolver.py
+backend/tests/unit/test_batfish_git_source.py
+backend/tests/unit/test_batfish_start_run_executor.py
 backend/tests/unit/test_batfish_{init_snapshot,routing_table,path_check,acl_check}_executor.py
 
 frontend/src/components/features/settings/types/settings-api.ts   # BatfishSource*/BatfishTestConnection* types
@@ -184,11 +191,13 @@ frontend/src/components/features/settings/components/sources-settings-canvas.tsx
 
 frontend/src/components/features/workflow-steps/shared/batfish-source-config.ts        # BATFISH_SOURCE_ID_KEY etc.
 frontend/src/components/features/workflow-steps/shared/batfish-source-select-dialog.tsx
-frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx,help-panel.tsx}
+frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (3 query steps)
+frontend/src/components/features/workflow-steps/batfish-start-run/{index.tsx,help-panel.tsx}
+frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx,help-panel.tsx}  # config_source toggle, git fields, network_name
 frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-acl-check/{index.tsx,help-panel.tsx}
-frontend/src/lib/plugin-ui-registry.ts        # 4 PLUGIN_UI_REGISTRY entries
+frontend/src/lib/plugin-ui-registry.ts        # 5 PLUGIN_UI_REGISTRY entries
 frontend/src/components/features/workflows/utils/step-visuals.ts   # "batfish" category label/colors/icons
 frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBatfishSource gate
 
@@ -224,14 +233,29 @@ Batfish's own model is two-level: a **network** (a long-lived namespace)
 contains many **snapshots** (one point-in-time set of configs each). This
 maps naturally onto Manus's own model:
 
-- **Network name = `f"manus-workflow-{workflow_id}"`.** One Batfish network
-  per Manus workflow, not one global network — keeps different workflows'
-  device sets from colliding on node/filter names, and makes
+- **Network name = `f"manus-workflow-{workflow_id}"`, or an explicit override.**
+  One Batfish network per Manus workflow by default — keeps different
+  workflows' device sets from colliding on node/filter names, and makes
   `bf.list_snapshots()` a meaningful "history for this workflow" view later.
+  An optional `network_name` config field on `batfish-init-snapshot`
+  overrides this verbatim, giving a network a stable identity independent of
+  `workflow_id` — the mechanism a production network (refreshed on its own
+  schedule, queried by other workflows that don't share its `workflow_id`)
+  uses. See "Config source: live vs. git" below.
 - **Snapshot name = `f"run-{run_id}"`.** One snapshot per `batfish-init-snapshot`
   execution, named after the `WorkflowRun` that produced it — traceable back
   to a specific run, and naturally unique (no timestamp collision handling
-  needed).
+  needed). Unaffected by `network_name` — even a stable, shared network still
+  gets one new, uniquely-named snapshot per init run.
+
+**A Batfish network is never deleted by this integration — only individual
+snapshots are pruned.** Worth stating plainly since it's easy to assume
+otherwise: `batfish-init-snapshot` never calls `bf.delete_network(...)`
+itself. A network (and every snapshot in it beyond what retention below
+prunes) persists in the Batfish coordinator indefinitely across runs, unless
+removed out-of-band. This is what makes the git-mode/named-network pattern
+below workable at all — a nightly refresh reuses the same standing network
+rather than starting from nothing each time.
 
 **Retention is enforced by the step itself, not left as an unbounded
 liability.** After a successful `init_snapshot(...)`, the executor calls
@@ -257,7 +281,8 @@ field, not by name, before deciding what to delete. `bf.delete_snapshot(name)`
 and `bf.delete_network(name)` both exist on `pybatfish`'s `Session` for the
 actual deletion.
 
-**Building the snapshot directory.** `pybatfish` has no "upload N files as
+**Building the snapshot directory (`config_source: live`, the default).**
+`pybatfish` has no "upload N files as
 one multi-device snapshot from in-memory text" call —
 `init_snapshot_from_text()` exists but is explicitly single-file/single-node
 (confirmed from its docstring: one `text` blob, one optional `filename`). For
@@ -290,16 +315,77 @@ our multi-device case, `batfish-init-snapshot`'s executor must:
 6. Delete the temp directory (`TemporaryDirectory` context manager handles
    this even on error).
 
-**Fan-out rule: not fan-out-safe, same class as `store-artifact`/git steps.**
-This step needs every device's config together in one upload, so it must run
-**after a Fan In** in a fanned-out workflow — never inside the fanned-out
-branch, for the same reason `git-pull`/`store-artifact` must (see
+**Fan-out rule: not fan-out-safe in live mode, same class as
+`store-artifact`/git steps.** In `live` mode this step needs every device's
+config together in one upload, so it must run **after a Fan In** in a
+fanned-out workflow — never inside the fanned-out branch, for the same
+reason `git-pull`/`store-artifact` must (see
 `doc/HOWTO_BUILD_WORKFLOWS.md` → "Every Git step sits after the Fan In").
 `requires: [identity]`, `produces: []` in `registry.yaml` (mirrors
 `store-artifact`'s own declaration — the per-device `running_config`
 precondition is checked at runtime, not declared as a canvas-level
 capability requirement, exactly like `store-artifact` already does for its
-own `content_source` choices).
+own `content_source` choices). `git` mode reads nothing from
+`context.devices` at all, so this specific race doesn't apply to it — but
+`requires: [identity]` is not made conditional on `config_source` in
+`registry.yaml` (see below), so an upstream node is still needed in both
+modes for canvas-wiring reasons.
+
+## Config source: live vs. git
+
+Production networks with hundreds or thousands of devices can't feasibly
+have every workflow that wants to ask Batfish a question also live-SSH the
+entire fleet in the same run just to build a snapshot — and Batfish has no
+partial/incremental snapshot update anyway, so every refresh is a full
+re-upload regardless of where the configs come from. `config_source` on
+`batfish-init-snapshot` offers two ways to build that re-upload:
+
+- **`live`** (default, unchanged from the original design): reads
+  `context.devices`' running-configs, pulled live during this run. The
+  right choice for ad-hoc/lab debugging against a handful of devices
+  selected on this same canvas.
+- **`git`**: reads already-collected configs from a `GitRepository` (e.g.
+  the repository a separate, existing nightly config-backup workflow
+  already writes into) — no live device contact at all. Config fields:
+  `git_repository_id` (the repository to read from), `base_path` (directory
+  inside the repository to search from, blank = repo root), and
+  `glob_pattern` (a glob — supporting `**` recursive segments — matched
+  against files under `base_path`).
+
+  `backend/workflow_steps/batfish_init_snapshot/git_source.py`'s
+  `collect_git_source_files` resolves `base_path` with the same
+  escape-guard pattern as `read_config/executor.py::_resolve_target_path`,
+  then walks matches via `pathlib.Path.glob(glob_pattern)` — which natively
+  understands `**` as a recursive segment, so the *pattern itself* (not any
+  special-cased logic) decides whether devices are told apart by filename
+  suffix (`**/*.running.cfg`, e.g. running vs. startup configs saved as
+  `{device}.running.cfg` / `{device}.startup.cfg`) or by directory
+  (`configs/running/**/*.cfg`). Matches are capped at
+  `MAX_GIT_SOURCE_FILES` (20,000 — sized for a full production fleet, not
+  borrowed from the much smaller cap `services/git/content_search_service.py`
+  uses for its own, unrelated interactive-search feature) and skip anything
+  under `.git/`, oversized files, and symlinks that resolve outside the
+  repository. **Zero matches, or more matches than the cap, is a hard
+  failure (`ValueError`), not a silent truncation or empty upload** — a
+  silently incomplete production snapshot is a worse failure mode than a
+  loud one. Matched files are copied into the snapshot's `configs/`
+  directory with an index-prefixed name (`00001-<basename>`, etc.) —
+  filenames stay cosmetic to Batfish, so flattening away the original
+  directory structure is safe (see "Building the snapshot directory" above).
+
+  This mode never reads `context.devices` — not even to check it's
+  empty — so pair it with an upstream `batfish-start-run` step (see
+  "Start Batfish Run" below) rather than a real device-selection step when
+  the workflow selects no devices of its own.
+
+**The intended production pattern**: a workflow scheduled nightly (via
+`/schedules`) runs `batfish-start-run` → `batfish-init-snapshot`
+(`config_source: git`, `network_name` set to a stable name such as
+`manus-production`) against the git-mirrored config backups — no live
+device contact, decoupled from any interactive/ad-hoc workflow. Separate,
+unrelated query workflows then target that same standing network directly
+(see "Why `WorkflowContext.metadata`, not a new `Capability`" below) without
+needing their own Init step or sharing the refresh workflow's `workflow_id`.
 
 **Why `WorkflowContext.metadata`, not a new `Capability`.** `Capability`
 (`models/workflow_context.py`) is a closed enum describing properties of a
@@ -316,8 +402,9 @@ themselves at runtime via a small shared helper
 role as shared logic for a family of steps), raising a `ValueError` ("no
 Batfish snapshot found — add an Init Batfish Snapshot step upstream") if
 it's missing. Because that one metadata entry carries the connection too,
-none of the three query steps need their own `batfish_source_id` config —
-only `batfish-init-snapshot` does. One
+none of the three query steps need their own `batfish_source_id` config to
+use this default path — they only need one when opting into the direct
+network-targeting bypass described below. One
 consequence worth calling out explicitly for whoever builds this: because
 `metadata` merges **first-child-wins** under fan-out
 (`ARCHITECTURAL_OVERVIEW.md` again), `batfish-init-snapshot` must never run
@@ -327,6 +414,20 @@ whichever child fan-out picked as "first" once results are merged back.
 Running it post-Fan-In (single writer, single segment) avoids this
 entirely — one more reason to enforce that placement rather than merely
 document it.
+
+**Bypassing metadata: querying a network directly.** The three query steps
+also accept optional `batfish_source_id`/`network`(/`snapshot`) config
+fields. When both `batfish_source_id` and `network` are set, the step
+resolves that connection/network directly via
+`workflow_steps.common.batfish_context.resolve_batfish_snapshot_ref` and
+**ignores this run's metadata entirely, even if present** — explicit step
+config always wins. `snapshot` defaults to the most recent snapshot in that
+network (sorted by `metadata.creationTimestamp`, same sort used by the
+retention sweep) when left blank, and raises `ValueError` if the network has
+no snapshots at all. This is what lets a query workflow with no Init step
+of its own target a standing, independently-refreshed network — the actual
+mechanism behind the production pattern described in "Config source: live
+vs. git" above.
 
 ## Configuring a source
 
@@ -391,21 +492,41 @@ own process startup.
 
 ## Workflow steps
 
-All four steps live under `palette_category: batfish` (a new palette
+All five steps live under `palette_category: batfish` (a new palette
 category — see "Frontend: category gating" below for why it's hidden by
 default).
 
+### Start Batfish Run (`batfish-start-run`)
+
+`requires: []`, `produces: [identity]`, no config. Sets
+`context.devices = {}` and returns `success` — that's the entire executor.
+Exists solely so a `git`-mode `batfish-init-snapshot` step (which needs no
+real devices at all) can still be wired in on the canvas:
+`batfish-init-snapshot` keeps `requires: [identity]` unchanged in both
+modes (see "Config source: live vs. git" above for why that's not made
+conditional), and the canvas's own connection-validity rule
+(`workflow-canvas.tsx::isValidConnection`) requires some upstream node that
+`produces: [identity]` before it will accept an edge into a
+`requires: [identity]` step, regardless of what that upstream step's device
+output actually contains. Use this instead of a real device-selection step
+only when a Batfish workflow selects no devices of its own; live-mode
+Batfish workflows keep using a normal device-selection step as before.
+
 ### Init Batfish Snapshot (`batfish-init-snapshot`)
 
-`requires: [identity]`, `produces: []`. Builds a fresh Batfish snapshot from
-the current run's device configs and stores its location (and connection)
-in `WorkflowContext.metadata["batfish"]` — see "Snapshot lifecycle" above
-for the full mechanics (directory assembly, naming, retention, the fan-out
-placement rule). Config: `batfish_source_id: str` (required — which
-configured Batfish source to use) and `retain_snapshots: int` (default `5`).
-Snapshot naming uses `run.id` (the `WorkflowRun` ORM object's autoincrement
-int, passed into every executor already) — not `context.run_id`, which is
-`run.uuid` and not needed here.
+`requires: [identity]`, `produces: []`. Builds a fresh Batfish snapshot and
+stores its location (and connection) in
+`WorkflowContext.metadata["batfish"]` — see "Snapshot lifecycle" and
+"Config source: live vs. git" above for the full mechanics (directory
+assembly, naming, retention, the fan-out placement rule, live vs. git).
+Config: `batfish_source_id: str` (required — which configured Batfish
+source to use), `retain_snapshots: int` (default `5`), `network_name: str`
+(optional override, default derives from `workflow_id`), `config_source:
+"live" | "git"` (default `"live"`), and, when `config_source` is `"git"`:
+`git_repository_id: int` (required), `base_path: str` (optional),
+`glob_pattern: str` (required). Snapshot naming uses `run.id` (the
+`WorkflowRun` ORM object's autoincrement int, passed into every executor
+already) — not `context.run_id`, which is `run.uuid` and not needed here.
 
 This is the one step in this integration with any real I/O cost/risk (it
 touches the shared Batfish network for the whole workflow) — the three
@@ -471,6 +592,11 @@ Exporting a Batfish result via `store-artifact` is deferred — see "Open
 items" below — rather than casually extending a shared, heavily-used
 contract as a side effect of this integration.
 
+**Direct network targeting.** Optional `batfish_source_id: str`,
+`network: str`, `snapshot: str` config fields let this step bypass
+`context.metadata["batfish"]` and query any network directly — see
+"Bypassing metadata: querying a network directly" above.
+
 ### Batfish Path Check (`batfish-path-check`)
 
 `requires: [identity]`, `produces: []`. Wraps `bf.q.reachability(...)` —
@@ -523,6 +649,10 @@ run, the same way a plain `success`/`failure` step only ever returns one of
 the two. Result storage follows the same workflow-level-artifact-plus-
 metadata-summary approach as Routing Table above.
 
+**Direct network targeting.** Same optional `batfish_source_id`/`network`/
+`snapshot` config fields as Routing Table — see "Bypassing metadata:
+querying a network directly" above.
+
 ### Batfish ACL Check (`batfish-acl-check`)
 
 `requires: [identity]`, `produces: []`. Wraps `bf.q.testFilters(...)` —
@@ -570,6 +700,10 @@ questions, so a v2 "does any SSH traffic reach this host at all" variant of
 this step could reuse most of the same config shape with `searchFilters()`
 if that broader question turns out to be wanted later.
 
+**Direct network targeting.** Same optional `batfish_source_id`/`network`/
+`snapshot` config fields as Routing Table — see "Bypassing metadata:
+querying a network directly" above.
+
 ## Frontend: category gating
 
 Exactly mirrors pyATS's existing mechanism in
@@ -587,7 +721,7 @@ const visibleGroups = useMemo(() => {
 }, [plugins, hasPyatsSource, hasBatfishSource]);
 ```
 
-Frontend-only filter, no backend change — the four steps are always
+Frontend-only filter, no backend change — the five steps are always
 registered in `registry.yaml`/`step_registry.py` (a workflow built before a
 source existed and later shared would still execute correctly; only the
 *palette* — where you'd drag a new instance from — is gated). `palette_category:
@@ -727,14 +861,31 @@ revisiting if users find the unfiltered table noisy for large topologies.
   multiple VRFs, or very large device counts (Batfish's own parse/model time
   scales with snapshot size) are not covered by anything checked while
   writing this doc.
-- **No git-backed snapshot source in v1.** `batfish-init-snapshot` only reads
-  live, in-run device configs from `WorkflowContext` (see "Snapshot
-  lifecycle" above) — it does not read from a `GitRepository`-backed config
-  history. A "build a snapshot from a specific git commit" variant (useful
-  for "what did routing look like last Tuesday") is a reasonable future
-  step, deliberately deferred: it needs the user to describe how their repo's
-  path template maps to device identity, which is a separate design
-  conversation from anything resolved here.
+- **RESOLVED: git-backed snapshot source.** `batfish-init-snapshot` now
+  supports `config_source: git`, reading configs from a `GitRepository`
+  instead of live, in-run device configs — see "Config source: live vs.
+  git" above. Still not built: a "build a snapshot from a specific historical
+  git commit" variant (useful for "what did routing look like last
+  Tuesday") — the current git mode always reads the repository's current
+  checked-out state (via `clone_or_pull`), not a pinned commit/ref.
+- **UNVERIFIED: the "hundreds/thousands of devices" production-scale
+  claim.** Git mode removes the live-SSH bottleneck for building a
+  full-fleet snapshot, but nothing in this change has been measured against
+  a real coordinator with a snapshot that large — upload time,
+  `init_snapshot` parse time, and `list_snapshots_with_metadata` behavior
+  with a long history are all unverified at that scale. Every claim in this
+  doc about git mode was checked with small (single- or double-digit) file
+  counts. A smoke test against a realistically-sized synthetic config set is
+  recommended before relying on this for a real production fleet; not done
+  as part of this change.
+- **Cap-exceeded / zero-match behavior in git mode is a hard failure, not a
+  silent truncation.** `collect_git_source_files` raises `ValueError` past
+  `MAX_GIT_SOURCE_FILES` and on zero matches, rather than silently uploading
+  a partial or empty snapshot — a deliberate "loud failure over silent
+  partial data" choice, mirroring the existing "Not built: a loud signal
+  when a snapshot init parses zero usable nodes" bullet above (this is an
+  earlier-stage version of the same philosophy: catch the empty-snapshot
+  case at file-match time, not only later via `row_count: 0`).
 - **`docker build`/`up` for `docker/batfish` was verified working in this
   environment** (unlike pyATS's own doc, which flagged this as unverified at
   the time it was written) — the container reaches `healthy`, runs only the

@@ -14,6 +14,7 @@ import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/par
 import { AddPyatsTestbedPlugin } from "@/components/features/workflow-steps/add-pyats-testbed";
 import { GetPyatsConfigPlugin } from "@/components/features/workflow-steps/get-pyats-config";
 import { GetPyatsSnapshotPlugin } from "@/components/features/workflow-steps/get-pyats-snapshot";
+import { BatfishStartRunPlugin } from "@/components/features/workflow-steps/batfish-start-run";
 import { BatfishInitSnapshotPlugin } from "@/components/features/workflow-steps/batfish-init-snapshot";
 import { BatfishRoutingTablePlugin } from "@/components/features/workflow-steps/batfish-routing-table";
 import { BatfishPathCheckPlugin } from "@/components/features/workflow-steps/batfish-path-check";
@@ -79,6 +80,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "add-pyats-testbed": AddPyatsTestbedPlugin,
   "get-pyats-config": GetPyatsConfigPlugin,
   "get-pyats-snapshot": GetPyatsSnapshotPlugin,
+  "batfish-start-run": BatfishStartRunPlugin,
   "batfish-init-snapshot": BatfishInitSnapshotPlugin,
   "batfish-routing-table": BatfishRoutingTablePlugin,
   "batfish-path-check": BatfishPathCheckPlugin,

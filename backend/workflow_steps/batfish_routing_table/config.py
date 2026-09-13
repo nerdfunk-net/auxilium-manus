@@ -7,4 +7,7 @@ def get_config() -> dict:
         "vrfs": "",
         "rib": "",
         "output_key": "batfish_routes",
+        "batfish_source_id": "",
+        "network": "",
+        "snapshot": "",
     }

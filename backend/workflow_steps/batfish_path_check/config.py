@@ -10,4 +10,7 @@ def get_config() -> dict:
         "invert_search": False,
         "ignore_filters": False,
         "output_key": "batfish_path_check",
+        "batfish_source_id": "",
+        "network": "",
+        "snapshot": "",
     }
