@@ -57,6 +57,11 @@ export function Combobox({
     return options.filter((option) => option.label.toLowerCase().includes(query));
   }, [options, searchTerm]);
 
+  const closeCombobox = () => {
+    setOpen(false);
+    setSearchTerm("");
+  };
+
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -64,7 +69,7 @@ export function Combobox({
 
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
+        closeCombobox();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -74,19 +79,25 @@ export function Combobox({
   useEffect(() => {
     if (open) {
       searchInputRef.current?.focus();
-    } else {
-      setSearchTerm("");
     }
   }, [open]);
 
+  const handleToggle = () => {
+    if (open) {
+      closeCombobox();
+    } else {
+      setOpen(true);
+    }
+  };
+
   const handleSelect = (option: ComboboxOption) => {
     onValueChange(option.value);
-    setOpen(false);
+    closeCombobox();
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
-      setOpen(false);
+      closeCombobox();
     }
   };
 
@@ -99,7 +110,7 @@ export function Combobox({
           className,
         )}
         disabled={disabled}
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={handleToggle}
         onKeyDown={handleKeyDown}
         type="button"
         variant="outline"
