@@ -31,6 +31,11 @@ def _make_service(*, resolved_connection: BatfishConnection | None = None) -> tu
         resolved_connection or _connection()
     )
     batfish_service = MagicMock()
+    # Every network name used across this file's requests must be "known"
+    # to the assert_batfish_network_exists() guard _resolve() now calls
+    # first -- otherwise it raises before the test's actual mock (routes/
+    # reachability/test_filters) is ever reached.
+    batfish_service.list_networks = AsyncMock(return_value=["net", "manus-production"])
     service = BatfishPreviewService(source_config_service, batfish_service)
     return service, source_config_service, batfish_service
 
@@ -71,6 +76,25 @@ class BatfishPreviewServiceRoutesTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.snapshot, "run-10")
+
+    async def test_nonexistent_network_raises_value_error_without_listing_snapshots(
+        self,
+    ) -> None:
+        """The critical regression test: an unconfirmed network must never
+        reach list_snapshots_with_metadata (-> _get_session -> set_network()),
+        which would silently CREATE it on the coordinator."""
+        service, _, batfish = _make_service()
+        batfish.list_networks = AsyncMock(return_value=["some-other-network"])
+        batfish.list_snapshots_with_metadata = AsyncMock()
+        batfish.routes = AsyncMock()
+
+        with self.assertRaises(ValueError):
+            await service.run_routes(
+                "lab", BatfishRoutesQueryRequest(network="manus-production")
+            )
+
+        batfish.list_snapshots_with_metadata.assert_not_called()
+        batfish.routes.assert_not_called()
 
     async def test_blank_string_params_are_omitted(self) -> None:
         service, _, batfish = _make_service()

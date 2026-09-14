@@ -24,6 +24,7 @@ from services.batfish.client import BatfishService
 from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
 from services.batfish.query_helpers import (
+    assert_batfish_network_exists,
     query_reachability,
     query_routes,
     query_test_filters,
@@ -49,6 +50,10 @@ class BatfishPreviewService:
         if not clean_network:
             raise BatfishValidationError("network is required")
         connection = self._source_config_service.resolve_connection(source_id)
+        # Must happen before anything below touches
+        # BatfishService._get_session() for this network -- see
+        # assert_batfish_network_exists' docstring for why.
+        await assert_batfish_network_exists(self._batfish, connection, clean_network)
         resolved_snapshot = (snapshot or "").strip()
         if not resolved_snapshot:
             resolved_snapshot = await resolve_latest_snapshot_name(

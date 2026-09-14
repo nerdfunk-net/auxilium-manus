@@ -1217,21 +1217,29 @@ networks/snapshots (both editor and canvas config panels still take
   unconfirmed name. Regression-tested
   (`test_list_snapshots_unknown_network_returns_empty_without_touching_metadata_call`).
 
-  **Not yet audited: the same risk in the three query steps' "direct
-  network targeting" fields and `resolve_latest_snapshot_name`.**
+  **RESOLVED: the same risk in the query/fact steps' "direct network
+  targeting" fields and the ad-hoc preview service.** Both
   `workflow_steps.common.batfish_context.resolve_batfish_snapshot_ref`
-  calls `resolve_latest_snapshot_name` when a query step's `network` config
-  is set but `snapshot` is blank, which calls the same
-  `list_snapshots_with_metadata` → `_get_session` → `set_network` path —
-  so a typo'd or not-yet-created `network` value in a saved step's direct
-  -target config would *also* silently create a junk network on the
-  coordinator before `resolve_latest_snapshot_name` raises its "no
-  snapshots found" `ValueError`. Lower practical exposure than the picker
-  case (a typo here creates at most one junk network per misconfigured
-  step, set once at design time, not once per keystroke), but the same
-  underlying class of bug and pre-existing (not introduced by the picker
-  work). Left unfixed pending a decision on whether to harden it the same
-  way.
+  (used by all five query/fact steps' direct-network-targeting config) and
+  `BatfishPreviewService._resolve` (the Template Editor's ad-hoc preview
+  queries) resolved a caller-supplied `network` straight into a
+  `list_snapshots_with_metadata`/actual-question call — the identical
+  `_get_session` → `set_network` → creates-if-absent path as the picker bug
+  above, just triggered by a saved step's config or a preview request
+  instead of a keystroke. A typo'd or not-yet-created `network` value would
+  silently create a junk network before failing. Fixed with one shared
+  guard, `services.batfish.query_helpers.assert_batfish_network_exists`
+  (calls `list_networks` and raises `ValueError` if the name isn't in it),
+  called at the top of both resolution points — before
+  `resolve_latest_snapshot_name` *and* before the explicit-snapshot path
+  that used to skip it entirely (an explicit `network`+`snapshot` pair
+  still reaches the question call itself, which hits the same
+  `_get_session` path). Regression-tested in both callers
+  (`test_nonexistent_network_raises_value_error_without_listing_snapshots`
+  in `test_batfish_context_ref_resolver.py` and
+  `test_batfish_preview_service.py`), asserting
+  `list_snapshots_with_metadata`/the question call is never reached for an
+  unconfirmed network.
 - **Not built: a loud signal when a snapshot init parses zero usable
   nodes.** Observed in real usage: a `batfish-routing-table` run returned
   `row_count: 0` with no other indication anything was wrong, and the
@@ -1248,10 +1256,30 @@ networks/snapshots (both editor and canvas config panels still take
 - **Snapshot retention default (`retain_snapshots: int`, proposed default
   `5`).** Chosen for symmetry with pyATS's per-chunk defaults being
   reasonable-guess numbers rather than measured ones — revisit once real
-  snapshot sizes/frequency are known. `bf.delete_network()` also exists if a
-  "delete this workflow's whole Batfish history" admin action is ever wanted
-  (e.g. when a Manus workflow itself is deleted) — not building that in v1,
-  noting it exists.
+  snapshot sizes/frequency are known.
+- **TODO: network/snapshot deletion management (endpoints + UI).** There is
+  currently no in-app way to delete a Batfish network or snapshot — a real
+  gap surfaced directly by the `set_network`-creates-if-absent incident
+  above: cleaning up the junk networks it left behind required going
+  around the app entirely (direct coordinator access). Needed:
+  - `BatfishService.delete_network(connection, batfish_network)` — a new
+    thin wrapper (mirrors `delete_snapshot`'s shape); `Session.delete_network`
+    already exists on `pybatfish`, unused so far.
+  - `BatfishService.delete_snapshot` **already exists** (used internally by
+    `batfish-init-snapshot`'s retention sweep) — only a management endpoint
+    is missing, not the primitive.
+  - New endpoints in `routers/sources/batfish/discovery.py` (or a sibling
+    file): `DELETE /sources/batfish/{source_id}/networks/{network}` and
+    `DELETE /sources/batfish/{source_id}/networks/{network}/snapshots/{snapshot}`.
+    Destructive, so gate on `require_permission("sources.batfish", "write")`
+    (matching `test-connection`'s write-gated mutation), not the `read`
+    dependency the rest of this router uses.
+  - Frontend: a delete action next to each entry in
+    `useBatfishNetworksQuery`/`useBatfishSnapshotsQuery`'s consumers, or a
+    small dedicated management view under Settings → Sources → Batfish —
+    not yet designed.
+  - Confirm before deleting either — irreversible, and a network can hold
+    snapshots other workflows still depend on.
 - **Node-name case sensitivity, verified as a non-issue but stated
   explicitly.** Batfish canonicalizes hostnames to lowercase internally (a
   device configured with `hostname R1` appears as node `r1` in every answer

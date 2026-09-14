@@ -21,6 +21,34 @@ from services.batfish.client import BatfishService
 from services.batfish.credentials import BatfishConnection
 
 
+async def assert_batfish_network_exists(
+    batfish: BatfishService, connection: BatfishConnection, network: str
+) -> None:
+    """Raise ``ValueError`` if ``network`` doesn't already exist on the coordinator.
+
+    Every caller that resolves a ``(connection, network)`` pair from
+    caller-supplied config -- direct network targeting on a query/fact step
+    (``resolve_batfish_snapshot_ref``), or an ad-hoc preview query
+    (``BatfishPreviewService._resolve``) -- MUST call this before touching
+    anything that reaches ``BatfishService._get_session(connection,
+    network)``. pybatfish's own ``Session.set_network()`` silently *creates*
+    the network if it doesn't already exist (confirmed by reading the
+    installed pybatfish source: it 404s a lookup, then unconditionally calls
+    ``restv2helper.init_network``) -- without this guard, a typo'd or
+    not-yet-created network name doesn't fail loudly, it leaves a permanent
+    junk network on the coordinator instead. This is exactly the bug that
+    hit the networks/snapshots discovery picker before it gained the same
+    guard -- see doc/BATFISH_INTEGRATION.md "Open items".
+    """
+    existing_networks = await batfish.list_networks(connection)
+    if network not in existing_networks:
+        raise ValueError(
+            f"Batfish network {network!r} does not exist on this source -- check for "
+            "a typo, or initialize it first (e.g. an upstream Init Batfish Snapshot "
+            "step for a workflow-scoped network)."
+        )
+
+
 async def resolve_latest_snapshot_name(
     batfish: BatfishService, connection: BatfishConnection, network: str
 ) -> str:

@@ -37,6 +37,7 @@ class ResolveBatfishSnapshotRefTests(unittest.IsolatedAsyncioTestCase):
         context = _context_with_metadata()
         run = _run_mock()
         batfish = MagicMock()
+        batfish.list_networks = AsyncMock(return_value=["manus-production"])
         batfish.list_snapshots_with_metadata = AsyncMock(
             return_value=[
                 {"name": "run-99", "metadata": {"creationTimestamp": "2026-09-12T10:00:00Z"}}
@@ -104,6 +105,7 @@ class ResolveBatfishSnapshotRefTests(unittest.IsolatedAsyncioTestCase):
         context = WorkflowContext(run_id="run-uuid-1", workflow_id="7")
         run = _run_mock()
         batfish = MagicMock()
+        batfish.list_networks = AsyncMock(return_value=["manus-production"])
         batfish.list_snapshots_with_metadata = AsyncMock(return_value=[])
 
         with (
@@ -125,6 +127,7 @@ class ResolveBatfishSnapshotRefTests(unittest.IsolatedAsyncioTestCase):
         context = WorkflowContext(run_id="run-uuid-1", workflow_id="7")
         run = _run_mock()
         batfish = MagicMock()
+        batfish.list_networks = AsyncMock(return_value=["manus-production"])
         batfish.list_snapshots_with_metadata = AsyncMock()
 
         with (
@@ -157,6 +160,7 @@ class ResolveBatfishSnapshotRefTests(unittest.IsolatedAsyncioTestCase):
             {"name": "run-10", "metadata": {"creationTimestamp": "2026-09-12T10:00:00.000Z"}},
             {"name": "run-9", "metadata": {"creationTimestamp": "2026-09-12T12:00:00.000Z"}},
         ]
+        batfish.list_networks = AsyncMock(return_value=["manus-production"])
         batfish.list_snapshots_with_metadata = AsyncMock(return_value=entries)
 
         with (
@@ -174,6 +178,35 @@ class ResolveBatfishSnapshotRefTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(ref.snapshot, "run-9")
+
+    async def test_nonexistent_network_raises_value_error_without_listing_snapshots(
+        self,
+    ) -> None:
+        """The critical regression test: an unconfirmed network must never
+        reach list_snapshots_with_metadata (-> _get_session -> set_network()),
+        which would silently CREATE it on the coordinator."""
+        context = WorkflowContext(run_id="run-uuid-1", workflow_id="7")
+        run = _run_mock()
+        batfish = MagicMock()
+        batfish.list_networks = AsyncMock(return_value=["some-other-network"])
+        batfish.list_snapshots_with_metadata = AsyncMock()
+
+        with (
+            patch(_OBJECT_SESSION_TARGET, return_value=MagicMock()),
+            patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
+        ):
+            config_service_cls.return_value.resolve_connection.return_value = BatfishConnection(
+                host="prod-host", port=9996
+            )
+            with self.assertRaises(ValueError):
+                await resolve_batfish_snapshot_ref(
+                    context=context,
+                    config={"batfish_source_id": "prod-batfish", "network": "manus-production"},
+                    run=run,
+                    batfish=batfish,
+                )
+
+        batfish.list_snapshots_with_metadata.assert_not_called()
 
     async def test_no_active_db_session_raises_runtime_error(self) -> None:
         context = WorkflowContext(run_id="run-uuid-1", workflow_id="7")

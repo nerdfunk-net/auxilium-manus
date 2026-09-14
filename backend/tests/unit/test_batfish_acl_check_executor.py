@@ -136,6 +136,7 @@ class BatfishAclCheckExecutorTests(unittest.IsolatedAsyncioTestCase):
                 host="prod-host", port=9996
             )
             batfish = MagicMock()
+            batfish.list_networks = AsyncMock(return_value=["manus-production"])
             batfish.test_filters = AsyncMock(return_value=[{"Action": "PERMIT"}])
             batfish.list_snapshots_with_metadata = AsyncMock(
                 return_value=[

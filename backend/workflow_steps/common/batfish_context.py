@@ -22,7 +22,10 @@ from sqlalchemy.orm import object_session
 
 from models.workflow_context import WorkflowContext
 from services.batfish.credentials import BatfishConnection
-from services.batfish.query_helpers import resolve_latest_snapshot_name
+from services.batfish.query_helpers import (
+    assert_batfish_network_exists,
+    resolve_latest_snapshot_name,
+)
 from services.batfish.source_config_service import BatfishSourceConfigService
 
 if TYPE_CHECKING:
@@ -80,6 +83,12 @@ async def resolve_batfish_snapshot_ref(
     if db is None:
         raise RuntimeError("resolve_batfish_snapshot_ref: WorkflowRun has no active DB session")
     connection = BatfishSourceConfigService(db).resolve_connection(source_id)
+
+    # Must happen before anything below touches BatfishService._get_session()
+    # for this network (both the resolve_latest_snapshot_name call below and
+    # the query the caller runs afterward do) -- see
+    # assert_batfish_network_exists' docstring for why.
+    await assert_batfish_network_exists(batfish, connection, network)
 
     snapshot = str(config.get("snapshot") or "").strip()
     if not snapshot:

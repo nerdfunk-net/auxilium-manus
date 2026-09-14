@@ -105,6 +105,7 @@ class BatfishPathCheckExecutorTests(unittest.IsolatedAsyncioTestCase):
                 host="prod-host", port=9996
             )
             batfish = MagicMock()
+            batfish.list_networks = AsyncMock(return_value=["manus-production"])
             batfish.reachability = AsyncMock(return_value=[{"Flow": "x"}])
             batfish.list_snapshots_with_metadata = AsyncMock(
                 return_value=[

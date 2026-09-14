@@ -4,6 +4,7 @@ import { Plus, RotateCcw, Settings } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -167,18 +168,15 @@ export function AddConditionBar({
               </SelectContent>
             </Select>
           ) : fieldValues.length > 0 ? (
-            <Select onValueChange={setCurrentValue} value={currentValue}>
-              <SelectTrigger className="border-2 border-input bg-card shadow-sm focus:border-ring focus:ring-2 focus:ring-ring/30">
-                <SelectValue placeholder="Choose value..." />
-              </SelectTrigger>
-              <SelectContent>
-                {fieldValues.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Combobox
+              className="border-2 border-input bg-card shadow-sm focus:border-ring focus:ring-2 focus:ring-ring/30"
+              disabled={isLoadingFieldValues}
+              onValueChange={setCurrentValue}
+              options={fieldValues}
+              placeholder="Choose value..."
+              searchPlaceholder={`Search ${currentField}...`}
+              value={currentValue}
+            />
           ) : (
             <Input
               className="border-2 border-input bg-card shadow-sm focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:border-border disabled:bg-muted"
