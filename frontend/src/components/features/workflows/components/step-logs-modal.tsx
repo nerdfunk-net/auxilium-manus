@@ -23,7 +23,7 @@ export function StepLogsModal({
 }) {
   return (
     <Dialog open={!!step} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
+      <DialogContent className="flex h-[85vh] max-w-3xl flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <DialogTitle>{step?.step_name ?? "Step result"}</DialogTitle>
           <DialogDescription className="space-y-1">
