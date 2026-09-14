@@ -19,6 +19,8 @@ import { BatfishInitSnapshotPlugin } from "@/components/features/workflow-steps/
 import { BatfishRoutingTablePlugin } from "@/components/features/workflow-steps/batfish-routing-table";
 import { BatfishPathCheckPlugin } from "@/components/features/workflow-steps/batfish-path-check";
 import { BatfishAclCheckPlugin } from "@/components/features/workflow-steps/batfish-acl-check";
+import { BatfishValidateFactsPlugin } from "@/components/features/workflow-steps/batfish-validate-facts";
+import { BatfishExtractFactsPlugin } from "@/components/features/workflow-steps/batfish-extract-facts";
 import { ConfigureReplaceConfigPlugin } from "@/components/features/workflow-steps/configure-replace-config";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetFromUserPlugin } from "@/components/features/workflow-steps/get-from-user";
@@ -85,6 +87,8 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "batfish-routing-table": BatfishRoutingTablePlugin,
   "batfish-path-check": BatfishPathCheckPlugin,
   "batfish-acl-check": BatfishAclCheckPlugin,
+  "batfish-validate-facts": BatfishValidateFactsPlugin,
+  "batfish-extract-facts": BatfishExtractFactsPlugin,
   "run-command": RunCommandPlugin,
   "deploy-rendered-template": DeployRenderedTemplatePlugin,
   "route-on-attribute": RouteOnAttributePlugin,

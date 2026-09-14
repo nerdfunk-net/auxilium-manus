@@ -236,5 +236,57 @@ class BatfishServiceQuestionTests(unittest.IsolatedAsyncioTestCase):
             )
 
 
+class BatfishServiceFactsTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.service = BatfishService()
+        self.session_patcher = patch("services.batfish.client.Session")
+        self.mock_session_cls = self.session_patcher.start()
+        self.addCleanup(self.session_patcher.stop)
+        self.instance = MagicMock()
+        self.mock_session_cls.return_value = self.instance
+
+    async def test_validate_facts_delegates_to_session(self) -> None:
+        self.instance.validate_facts.return_value = {"r1": {"Hostname": {"expected": "r1"}}}
+
+        result = await self.service.validate_facts(
+            _connection(),
+            batfish_network="net",
+            expected_facts_dir="/tmp/expected",
+            snapshot="run-1",
+        )
+
+        self.assertEqual(result, {"r1": {"Hostname": {"expected": "r1"}}})
+        self.instance.validate_facts.assert_called_once_with("/tmp/expected", snapshot="run-1")
+
+    async def test_validate_facts_wraps_batfish_exception(self) -> None:
+        self.instance.validate_facts.side_effect = BatfishException("bad facts")
+        with self.assertRaises(BatfishAPIError):
+            await self.service.validate_facts(
+                _connection(), batfish_network="net", expected_facts_dir="/tmp/expected"
+            )
+
+    async def test_extract_facts_delegates_to_session_with_default_nodes(self) -> None:
+        self.instance.extract_facts.return_value = {"version": "batfish_v0", "nodes": {}}
+
+        result = await self.service.extract_facts(_connection(), batfish_network="net")
+
+        self.assertEqual(result, {"version": "batfish_v0", "nodes": {}})
+        self.instance.extract_facts.assert_called_once_with(nodes="/.*/", snapshot=None)
+
+    async def test_extract_facts_passes_nodes_and_snapshot(self) -> None:
+        self.instance.extract_facts.return_value = {}
+
+        await self.service.extract_facts(
+            _connection(), batfish_network="net", nodes="r1|r2", snapshot="run-1"
+        )
+
+        self.instance.extract_facts.assert_called_once_with(nodes="r1|r2", snapshot="run-1")
+
+    async def test_extract_facts_wraps_batfish_exception(self) -> None:
+        self.instance.extract_facts.side_effect = BatfishException("bad extract")
+        with self.assertRaises(BatfishAPIError):
+            await self.service.extract_facts(_connection(), batfish_network="net")
+
+
 if __name__ == "__main__":
     unittest.main()

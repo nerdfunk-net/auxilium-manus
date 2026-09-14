@@ -901,6 +901,155 @@ plugins:
           data_type: string
           required: false
 
+  - id: batfish-validate-facts
+    name: Validate Facts
+    overview: Check parsed device facts against expected values via Batfish's validate_facts question.
+    description: >
+      Compares expected configuration facts (hostname, NTP/TACACS/DNS
+      servers, interfaces, BGP/OSPF settings, etc.) against what Batfish
+      actually parsed from each device's config in an already-initialized
+      snapshot. Expected facts come either from an upstream Render Jinja
+      Template step's rendered YAML (facts_source: rendered_yaml) or from a
+      single fact_key/fact_value pair built inline (facts_source: field).
+      Routes each device to match or mismatch; a device whose expected facts
+      couldn't be resolved routes to failure instead.
+    artifact_type: control_flow
+    palette_category: batfish
+    directory: batfish_validate_facts
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: match
+      - name: mismatch
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: facts_source
+          description: >
+            Where each device's expected-facts YAML fragment comes from:
+            "rendered_yaml" (default) reads an upstream Render Jinja
+            Template step's output; "field" builds a single {fact_key:
+            fact_value} fact inline, per device.
+          data_type: string
+          required: false
+          default: rendered_yaml
+        - name: source_step_node_id
+          description: >
+            Canvas node id of the upstream Render Jinja Template step
+            producing the expected-facts YAML. Required when facts_source is
+            "rendered_yaml". The rendered YAML must have a top-level "nodes"
+            mapping keyed by this device's own name (case-insensitive).
+          data_type: string
+          required: false
+        - name: parsed_output_key
+          description: >
+            Optional output_key from Render Jinja Template, to disambiguate
+            multiple rendered outputs on the same device.
+          data_type: string
+          required: false
+        - name: fact_key
+          description: >
+            One supported Batfish fact key (e.g. TACACS_Servers, NTP_Servers,
+            Hostname, Domain_Name -- see the Help tab for the full list).
+            Required when facts_source is "field".
+          data_type: string
+          required: false
+          example: TACACS_Servers
+        - name: fact_value
+          description: >
+            Expected value for fact_key, as a Jinja template string rendered
+            per device (e.g. "{{ nautobot.custom_fields.tacacs_servers }}").
+            May resolve to a scalar or a YAML/JSON list, e.g. "10.0.0.1" or
+            "[10.0.0.1, 10.0.0.2]". Required when facts_source is "field".
+          data_type: string
+          required: false
+        - name: output_key
+          description: >
+            Metadata key this step's aggregate result is stored under
+            ({node_id}.<output_key>); also the device.parsed key each
+            device's own mismatch detail (if any) is written under.
+          data_type: string
+          required: false
+          default: batfish_validate_facts
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
+
+  - id: batfish-extract-facts
+    name: Extract Facts
+    overview: Pull parsed device facts out of a Batfish snapshot via Batfish's extract_facts question.
+    description: >
+      Retrieves the configuration facts Batfish parsed (hostname, NTP/
+      TACACS/DNS servers, interfaces, BGP/OSPF settings, etc.) for a set of
+      nodes in an already-initialized snapshot -- no expected values, just
+      what Batfish actually sees. Writes each device's own facts into
+      device.parsed[output_key] for downstream steps to read, in addition to
+      one workflow-level artifact covering every extracted node.
+    artifact_type: configuration_management
+    palette_category: batfish
+    directory: batfish_extract_facts
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: nodes_filter
+          description: >
+            NodeSpecifier restricting which nodes to extract facts for (e.g.
+            a regex like "/^r/" or "node1|node2" alternation). Leave blank
+            to default to exactly this run's devices (by name, lowercased) --
+            set to "/.*/" explicitly to extract every node in the snapshot.
+          data_type: string
+          required: false
+        - name: output_key
+          description: >
+            device.parsed key each device's own extracted facts are written
+            under, and the metadata key this step's aggregate result is
+            stored under ({node_id}.<output_key>).
+          data_type: string
+          required: false
+          default: batfish_extract_facts
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
+
   - id: configure-replace-config
     name: Configure Replace Config
     overview: Apply a COMPLETE config file via 'configure replace' and confirm the change.

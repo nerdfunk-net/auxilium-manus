@@ -154,6 +154,53 @@ class BatfishService:
     ) -> list[dict[str, Any]]:
         return await self._answer(connection, batfish_network, snapshot, "testFilters", params)
 
+    async def validate_facts(
+        self,
+        connection: BatfishConnection,
+        *,
+        batfish_network: str,
+        expected_facts_dir: str,
+        snapshot: str | None = None,
+    ) -> dict[str, Any]:
+        # NOTE: expected_facts_dir is a DIRECTORY path -- pybatfish's own
+        # validate_facts() reads every file in it and merges their "nodes"
+        # maps (see pybatfish.client._facts.load_facts). It always fetches
+        # actual facts for every node in the snapshot and only reports nodes
+        # that also appear in the expected-facts dict.
+        session = await self._get_session(connection, batfish_network)
+
+        def _validate() -> dict[str, Any]:
+            return session.validate_facts(expected_facts_dir, snapshot=snapshot)
+
+        try:
+            return await asyncio.to_thread(_validate)
+        except BatfishException as exc:
+            raise BatfishAPIError(f"Batfish fact validation failed: {exc}") from exc
+        except Exception as exc:
+            logger.error("Batfish fact validation failed: %s", exc)
+            raise BatfishAPIError("Batfish fact validation failed") from exc
+
+    async def extract_facts(
+        self,
+        connection: BatfishConnection,
+        *,
+        batfish_network: str,
+        nodes: str = "/.*/",
+        snapshot: str | None = None,
+    ) -> dict[str, Any]:
+        session = await self._get_session(connection, batfish_network)
+
+        def _extract() -> dict[str, Any]:
+            return session.extract_facts(nodes=nodes, snapshot=snapshot)
+
+        try:
+            return await asyncio.to_thread(_extract)
+        except BatfishException as exc:
+            raise BatfishAPIError(f"Batfish fact extraction failed: {exc}") from exc
+        except Exception as exc:
+            logger.error("Batfish fact extraction failed: %s", exc)
+            raise BatfishAPIError("Batfish fact extraction failed") from exc
+
     async def _answer(
         self,
         connection: BatfishConnection,

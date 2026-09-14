@@ -83,6 +83,8 @@ const QUESTION_LABELS: Record<string, string> = {
   routes: "Routing table",
   reachability: "Path check",
   testFilters: "ACL check",
+  validateFacts: "Validate facts",
+  extractFacts: "Extract facts",
 };
 
 function BatfishResultSummary({ entry }: { entry: BatfishResultEntry }) {

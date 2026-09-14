@@ -26,10 +26,12 @@ from workflow_steps.add_pyats_testbed.executor import execute as add_pyats_testb
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
 from workflow_steps.batfish_acl_check.executor import execute as batfish_acl_check
+from workflow_steps.batfish_extract_facts.executor import execute as batfish_extract_facts
 from workflow_steps.batfish_init_snapshot.executor import execute as batfish_init_snapshot
 from workflow_steps.batfish_path_check.executor import execute as batfish_path_check
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
 from workflow_steps.batfish_start_run.executor import execute as batfish_start_run
+from workflow_steps.batfish_validate_facts.executor import execute as batfish_validate_facts
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
@@ -109,6 +111,8 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "batfish-routing-table": batfish_routing_table,
     "batfish-path-check": batfish_path_check,
     "batfish-acl-check": batfish_acl_check,
+    "batfish-validate-facts": batfish_validate_facts,
+    "batfish-extract-facts": batfish_extract_facts,
     "render-jinja-template": render_jinja_template,
     "run-command": run_command,
     "deploy-rendered-template": deploy_rendered_template,

@@ -1,5 +1,7 @@
 "use client";
 
+import { useCallback, useState } from "react";
+
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,9 +50,18 @@ export function NodeConfigGeneralTab({
   onNodeIncomeHandleSideChange,
   onNodeOutcomeHandleSideChange,
 }: NodeConfigGeneralTabProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyNodeId = useCallback(() => {
+    void navigator.clipboard.writeText(activeNode.id).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [activeNode.id]);
+
   return (
     <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="general">
-      <div className="max-w-sm space-y-1.5">
+      <div className="max-w-xl space-y-1.5">
         <Label className="text-xs font-medium" htmlFor="modal-step-name">
           Step name
         </Label>
@@ -76,7 +87,7 @@ export function NodeConfigGeneralTab({
       </div>
 
       {HANDLE_SIDE_CONFIGURABLE_NODE_TYPES.has(activeNode.type ?? "") ? (
-        <div className="mt-4 flex max-w-sm gap-3">
+        <div className="mt-4 flex max-w-xl gap-3">
           <div className="flex-1 space-y-1.5">
             <Label className="text-xs font-medium" htmlFor="modal-step-income-side">
               Income position
@@ -128,14 +139,14 @@ export function NodeConfigGeneralTab({
         </div>
       ) : null}
       {HANDLE_SIDE_CONFIGURABLE_NODE_TYPES.has(activeNode.type ?? "") ? (
-        <p className="mt-1.5 max-w-sm text-[11px] leading-4 text-muted-foreground">
+        <p className="mt-1.5 max-w-xl text-[11px] leading-4 text-muted-foreground">
           Which sides this step&apos;s input and outcome handles attach to. Income takes priority
           — outcome cannot use the same side.
         </p>
       ) : null}
 
       {onNodeDisabledChange && isDisableableStepKind(activeNode.data.kind) ? (
-        <div className="mt-6 max-w-sm rounded-md border p-3">
+        <div className="mt-6 max-w-xl rounded-md border p-3">
           <div className="flex items-center justify-between gap-3">
             <Label className="text-xs font-medium" htmlFor="modal-step-disabled">
               Disable step
@@ -155,6 +166,26 @@ export function NodeConfigGeneralTab({
           </p>
         </div>
       ) : null}
+
+      <div className="mt-8 max-w-xl space-y-1.5 border-t pt-4">
+        <Label className="text-xs font-medium">Node ID</Label>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 truncate rounded-md border bg-muted/40 px-2 py-1.5 font-mono text-xs">
+            {activeNode.id}
+          </code>
+          <button
+            type="button"
+            onClick={handleCopyNodeId}
+            className="shrink-0 text-[11px] text-muted-foreground underline hover:text-foreground"
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Stable canvas id for this step. Reference it from another step&apos;s config (e.g.
+          source_step_node_id) or when reading run metadata keys.
+        </p>
+      </div>
     </TabsContent>
   );
 }

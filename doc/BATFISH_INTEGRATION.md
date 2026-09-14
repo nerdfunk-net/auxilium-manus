@@ -28,6 +28,8 @@ gating" below).
   - [Batfish Routing Table](#batfish-routing-table-batfish-routing-table)
   - [Batfish Path Check](#batfish-path-check-batfish-path-check)
   - [Batfish ACL Check](#batfish-acl-check-batfish-acl-check)
+  - [Validate Facts](#validate-facts-batfish-validate-facts)
+  - [Extract Facts](#extract-facts-batfish-extract-facts)
 - [Frontend: category gating](#frontend-category-gating)
 - [Viewing results: the run detail UI](#viewing-results-the-run-detail-ui)
 - [Template Editor integration: ad-hoc preview queries](#template-editor-integration-ad-hoc-preview-queries)
@@ -200,14 +202,19 @@ backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: gi
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
-backend/services/execution/step_registry.py   # 5 imports + dict entries
-backend/workflow_steps/registry.yaml          # 5 entries, palette_category: batfish
+backend/workflow_steps/batfish_validate_facts/{__init__.py,executor.py,config.py}
+backend/workflow_steps/batfish_extract_facts/{__init__.py,executor.py,config.py}
+backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts
+backend/services/execution/step_registry.py   # 7 imports + dict entries
+backend/workflow_steps/registry.yaml          # 7 entries, palette_category: batfish
 
 backend/tests/unit/test_batfish_{client,source_config_service,router_auth,context_helper}.py
 backend/tests/unit/test_batfish_context_ref_resolver.py
 backend/tests/unit/test_batfish_git_source.py
 backend/tests/unit/test_batfish_start_run_executor.py
 backend/tests/unit/test_batfish_{init_snapshot,routing_table,path_check,acl_check}_executor.py
+backend/tests/unit/test_batfish_validate_facts_executor.py
+backend/tests/unit/test_batfish_extract_facts_executor.py
 
 frontend/src/components/features/settings/types/settings-api.ts   # BatfishSource*/BatfishTestConnection* types
 frontend/src/lib/query-keys.ts                                     # queryKeys.sourcesBatfish
@@ -220,13 +227,16 @@ frontend/src/components/features/settings/components/sources-settings-canvas.tsx
 
 frontend/src/components/features/workflow-steps/shared/batfish-source-config.ts        # BATFISH_SOURCE_ID_KEY etc.
 frontend/src/components/features/workflow-steps/shared/batfish-source-select-dialog.tsx
-frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (3 query steps)
+frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (5 query/fact steps)
+frontend/src/components/features/workflow-steps/shared/batfish-fact-keys.ts  # BATFISH_FACT_KEYS -- shared by Validate/Extract Facts panels+help
 frontend/src/components/features/workflow-steps/batfish-start-run/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx,help-panel.tsx}  # config_source toggle, git fields, network_name
 frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-acl-check/{index.tsx,help-panel.tsx}
-frontend/src/lib/plugin-ui-registry.ts        # 5 PLUGIN_UI_REGISTRY entries
+frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.tsx,help-panel.tsx}  # facts_source toggle (rendered_yaml/field)
+frontend/src/components/features/workflow-steps/batfish-extract-facts/{index.tsx,help-panel.tsx}
+frontend/src/lib/plugin-ui-registry.ts        # 7 PLUGIN_UI_REGISTRY entries
 frontend/src/components/features/workflows/utils/step-visuals.ts   # "batfish" category label/colors/icons
 frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBatfishSource gate
 
@@ -534,7 +544,7 @@ own process startup.
 
 ## Workflow steps
 
-All five steps live under `palette_category: batfish` (a new palette
+All seven steps live under `palette_category: batfish` (a new palette
 category — see "Frontend: category gating" below for why it's hidden by
 default).
 
@@ -789,6 +799,126 @@ if that broader question turns out to be wanted later.
 `snapshot` config fields as Routing Table — see "Bypassing metadata:
 querying a network directly" above.
 
+### Validate Facts (`batfish-validate-facts`)
+
+`requires: [identity]`, `produces: [parsed]`, `outcomes: [match, mismatch,
+failure]`. Wraps `Session.validate_facts(expected_facts, snapshot=None)` —
+verified directly against the installed `pybatfish` source (not assumed from
+its docstring alone), which surfaced three implementation-critical facts:
+
+1. **`expected_facts` is a directory path, not YAML text or a single
+   file.** `Session.validate_facts` calls `pybatfish.client._facts.load_facts`,
+   which `os.listdir()`s every file in that directory and merges their
+   `nodes:` maps. This step builds that directory itself in a
+   `tempfile.TemporaryDirectory()` — one YAML file per contributing device —
+   the exact same pattern `batfish-init-snapshot` already uses for its config
+   upload.
+2. **Node-name lookup in the diff is a plain dict key** (`actual_facts.get(node,
+   {})`), not a case-insensitive nodeSpec match like `routes`/`reachability`/
+   `testFilters` use. Batfish canonicalizes hostnames to lowercase, so this
+   step always lowercases the node key it writes — a rendered YAML fragment
+   whose node key doesn't match the device's own name (case-insensitively)
+   fails that device with `node_key_mismatch` rather than silently never
+   checking it.
+3. **The version gotcha.** `Session.validate_facts` internally fetches actual
+   facts via `get_facts()`, which always stamps
+   `version: "batfish_v0"` (`pybatfish.client._facts.BATFISH_FACT_VERSION`).
+   Its diff logic short-circuits entirely on a version mismatch: `if
+   expected_version != actual_version: return {n: {"Version": {...}} for n in
+   expected_facts}` — so if the expected-facts file carried any other literal
+   version string (e.g. the `version: '1.0'` convention from Batfish's own
+   public docs/notebooks — exactly what an operator would naturally write),
+   *every* node would report as mismatched purely on the version field,
+   masking real results entirely. This step always drops any `version` key
+   from the merged file before writing it, letting `load_facts()`'s own
+   "assume latest version if none is specified" default apply correctly.
+
+**Two ways to supply expected facts per device** (`facts_source` config,
+default `rendered_yaml`):
+
+- **`rendered_yaml`** — reads an upstream Render Jinja Template step's output
+  via `workflow_steps.common.content_resolver.list_exportable_content(...,
+  content_source="rendered_template", source_step_node_id=...)`, the same
+  mechanism `store-artifact` and `batfish-init-snapshot` already use to pull
+  an upstream step's rendered content. The rendered YAML must have a
+  top-level `nodes` mapping keyed by the device's own name. Intended
+  workflow: Get from Nautobot → Get Nautobot Attributes → Render Jinja
+  Template (renders the expected-facts YAML per device from Nautobot
+  config-context/custom-field data) → Validate Facts.
+- **`field`** — builds a single `{fact_key: fact_value}` fact inline, per
+  device, with no upstream render step needed (`fact_key` one of the
+  supported Batfish fact keys — `Hostname`, `TACACS_Servers`, `NTP_Servers`,
+  etc., see the Help tab for the full ~40-key list; `fact_value` a Jinja
+  template rendered per device via `workflow_steps.common.jinja_render`).
+  `fact_value`'s rendered text is `yaml.safe_load`-ed so one text field can
+  represent either a scalar (`10.0.0.1`) or a YAML/JSON list
+  (`[10.0.0.1, 10.0.0.2]`) — useful for a quick single-value check like "does
+  this device have the right TACACS server" without any rendering step at
+  all.
+
+**Not fan-out sensitive, unlike `batfish-init-snapshot`.** Both
+`validate_facts` and `extract_facts` are pure reads against an
+already-built snapshot — nothing here mutates shared Batfish state — so
+unlike the snapshot-build step, this one has no Fan-In placement
+requirement.
+
+**One Batfish call per batch, not per device.** `validate_facts()`
+internally re-fetches actual facts for *every* node in the snapshot on each
+call (not just the ones being checked), so calling it once per device would
+be wasteful. Every device's one-node fragment is merged into a single
+temp-directory upload and validated in one call; the returned per-node
+mismatch map is then used to partition devices.
+
+**Per-device result.** A contributing device whose node name appears in the
+returned mismatch map routes to `mismatch` (with the mismatched fields
+written to `device.parsed["{node_id}.<output_key>"]["parsed"]`); one with no
+entry routes to `match` (empty dict at the same path). A device whose
+expected facts couldn't be resolved (missing rendered content, a Jinja
+render error, or a node-key mismatch) routes to `failure` with a
+`DeviceError` recorded — mirroring `compare-pyats-snapshot`'s
+`match`/`mismatch`/`failure` bucket model, the closest existing precedent
+for "same check, once per device, three-way branch." If *zero* devices
+contribute a valid fragment, the Batfish call is skipped entirely and every
+device lands on `failure`. The full per-batch mismatch map is also stored as
+one workflow-level artifact plus a `context.metadata[f"{node_id}.
+{output_key}"]` summary (`kind: "batfish_result"`, `question:
+"validateFacts"`), the same convention the three query steps above use.
+
+**Direct network targeting.** Same optional `batfish_source_id`/`network`/
+`snapshot` config fields as the three query steps above.
+
+### Extract Facts (`batfish-extract-facts`)
+
+`requires: [identity]`, `produces: [parsed]`, `outcomes: [success]`. Wraps
+`Session.extract_facts(nodes="/.*/", output_directory=None, snapshot=None)`
+— retrieves the facts Batfish parsed for a set of nodes, with no expected
+values to compare against (see Validate Facts above for that). Unlike that
+step, `nodes` here is a plain `NodeSpecifier` string (a regex or
+`name1|name2` alternation) and the call returns the facts dict directly — no
+temp directory needed.
+
+**`nodes_filter` defaults to this run's own devices, not Batfish's own
+`"/.*/"` default.** Left blank, the step builds a `|`-joined, lowercased
+alternation from `context.devices` so an unconfigured step scopes to the
+workflow's own selected devices rather than every node in the network; set
+it to `/.*/` explicitly to extract everything.
+
+**Enriches every device directly, unlike the three query steps above.**
+`device.parsed[output_key] = {"parsed": <node's facts>, "error": None}` for
+a node Batfish returned, or `{"parsed": None, "error": "no facts found for
+node '<name>' in this Batfish snapshot"}` otherwise — the exact non-fatal
+`{"parsed", "error"}` shape `run-command`'s TextFSM/Genie parsers use (see
+"Normalized command-output parsing" in `doc/WORKFLOW-STEPS.md`), one level
+shallower since extraction isn't command-scoped. This is what lets a
+downstream Render Jinja Template step read
+`{{ parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers }}` per
+device, in addition to the one workflow-level artifact (`kind:
+"batfish_result"`, `question: "extractFacts"`) covering every extracted
+node.
+
+**Direct network targeting.** Same optional `batfish_source_id`/`network`/
+`snapshot` config fields as the three query steps above.
+
 ## Frontend: category gating
 
 Exactly mirrors pyATS's existing mechanism in
@@ -806,7 +936,7 @@ const visibleGroups = useMemo(() => {
 }, [plugins, hasPyatsSource, hasBatfishSource]);
 ```
 
-Frontend-only filter, no backend change — the five steps are always
+Frontend-only filter, no backend change — the seven steps are always
 registered in `registry.yaml`/`step_registry.py` (a workflow built before a
 source existed and later shared would still execute correctly; only the
 *palette* — where you'd drag a new instance from — is gated). `palette_category:
@@ -859,8 +989,9 @@ row component, is the more visible/superficially similar file.)
 `"kind": "batfish_result"` (`extractBatfishResults`), plus the connection
 info under the `"batfish"` key (`extractBatfishConnection`), and renders
 each as a small card: a human label (`routes` → "Routing table",
-`reachability` → "Path check", `testFilters` → "ACL check"), a
-reachable/not-reachable or permit/deny badge when present, the row count,
+`reachability` → "Path check", `testFilters` → "ACL check", `validateFacts`
+→ "Validate facts", `extractFacts` → "Extract facts"), a reachable/
+not-reachable or permit/deny badge when present, the row count,
 an explicit warning line when `row_count === 0` (a real, common answer —
 config didn't parse into Batfish's model, or the filters excluded
 everything — not necessarily a bug), and a `ConfigArtifactPanel` that
