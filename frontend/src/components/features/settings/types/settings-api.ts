@@ -189,3 +189,17 @@ export interface BatfishTestConnectionResponse {
 export type BatfishTestConnectionPayload =
   | { source_id: string }
   | { host: string; port: number };
+
+export interface BatfishNetworksResponse {
+  networks: string[];
+}
+
+export interface BatfishSnapshotInfo {
+  name: string;
+  created_at: string | null;
+}
+
+/** Sorted most-recent-first by created_at -- the first entry is the latest snapshot. */
+export interface BatfishSnapshotsResponse {
+  snapshots: BatfishSnapshotInfo[];
+}

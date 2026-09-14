@@ -36,6 +36,7 @@ from routers.rbac import router as rbac_router
 from routers.settings import router as settings_router
 from routers.sources.batfish import (
     batfish_source_crud_router,
+    batfish_source_discovery_router,
     batfish_source_ops_router,
     batfish_source_query_router,
 )
@@ -167,6 +168,7 @@ app.include_router(pyats_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_crud_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_query_router, prefix=settings.api_prefix)
+app.include_router(batfish_source_discovery_router, prefix=settings.api_prefix)
 app.include_router(mattermost_source_crud_router, prefix=settings.api_prefix)
 app.include_router(mattermost_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_custom_fields_router, prefix=settings.api_prefix)

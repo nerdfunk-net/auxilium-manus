@@ -100,6 +100,25 @@ class BatfishTestFiltersQueryRequest(BaseModel):
     start_location: str | None = None
 
 
+class BatfishNetworksResponse(BaseModel):
+    """Networks discovery -- lets a config panel populate a "network" dropdown
+    instead of free text. See doc/BATFISH_INTEGRATION.md "Open items"."""
+
+    networks: list[str]
+
+
+class BatfishSnapshotInfo(BaseModel):
+    name: str
+    created_at: str | None = None
+
+
+class BatfishSnapshotsResponse(BaseModel):
+    """Sorted most-recent-first by created_at (mirrors resolve_latest_snapshot_name's
+    own sort key), so a picker's default/top entry is the latest snapshot."""
+
+    snapshots: list[BatfishSnapshotInfo]
+
+
 class BatfishQueryResponse(BaseModel):
     success: bool
     question: BatfishQueryQuestion

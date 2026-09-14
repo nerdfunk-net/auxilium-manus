@@ -1,7 +1,7 @@
 "use client";
 
 import { Play, RefreshCw } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useBatfishNetworksQuery } from "@/hooks/queries/use-batfish-networks-query";
+import { useBatfishSnapshotsQuery } from "@/hooks/queries/use-batfish-snapshots-query";
 import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
 
 import type { BatfishQueryQuestion, BatfishQueryResult } from "../types";
@@ -92,15 +94,51 @@ export function BatfishOptionsTab({
   const network = typeof targetConfig.network === "string" ? targetConfig.network : "";
   const snapshot = typeof targetConfig.snapshot === "string" ? targetConfig.snapshot : "";
 
+  const { data: networksData } = useBatfishNetworksQuery(sourceId);
+  const networks = networksData?.networks ?? [];
+  const { data: snapshotsData } = useBatfishSnapshotsQuery(sourceId, network);
+  const snapshots = snapshotsData?.snapshots ?? [];
+
+  const [networkManual, setNetworkManual] = useState(false);
+  const [snapshotManual, setSnapshotManual] = useState(false);
+  const networkPickerAvailable = Boolean(sourceId) && networks.length > 0;
+  const snapshotPickerAvailable = Boolean(sourceId) && Boolean(network) && snapshots.length > 0;
+  const showNetworkPicker = networkPickerAvailable && !networkManual;
+  const showSnapshotPicker = snapshotPickerAvailable && !snapshotManual;
+
   const handleSourceChange = useCallback(
     (value: string) => onTargetConfigChange({ ...targetConfig, batfish_source_id: value }),
     [targetConfig, onTargetConfigChange],
   );
 
-  const handleTargetFieldChange = useCallback(
-    (key: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
-      onTargetConfigChange({ ...targetConfig, [key]: event.target.value });
+  // Locks into manual mode on the first keystroke -- otherwise, if the
+  // networks/snapshots list finishes loading mid-typing, the picker swaps
+  // back in under the user's cursor (losing focus and, in some browsers,
+  // triggering an autofill-suggestions dropdown of every partial value
+  // typed so far).
+  const handleNetworkInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setNetworkManual(true);
+      onTargetConfigChange({ ...targetConfig, network: event.target.value });
     },
+    [targetConfig, onTargetConfigChange],
+  );
+
+  const handleSnapshotInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setSnapshotManual(true);
+      onTargetConfigChange({ ...targetConfig, snapshot: event.target.value });
+    },
+    [targetConfig, onTargetConfigChange],
+  );
+
+  const handleNetworkSelect = useCallback(
+    (value: string) => onTargetConfigChange({ ...targetConfig, network: value, snapshot: "" }),
+    [targetConfig, onTargetConfigChange],
+  );
+
+  const handleSnapshotSelect = useCallback(
+    (value: string) => onTargetConfigChange({ ...targetConfig, snapshot: value }),
     [targetConfig, onTargetConfigChange],
   );
 
@@ -187,22 +225,74 @@ export function BatfishOptionsTab({
 
         <div className="space-y-1.5">
           <Label htmlFor="batfish-network">Network</Label>
-          <Input
-            id="batfish-network"
-            value={network}
-            onChange={handleTargetFieldChange("network")}
-            placeholder="e.g. manus-production"
-          />
+          {showNetworkPicker ? (
+            <Select value={network || ""} onValueChange={handleNetworkSelect}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a network…" />
+              </SelectTrigger>
+              <SelectContent>
+                {networks.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id="batfish-network"
+              value={network}
+              onChange={handleNetworkInputChange}
+              placeholder="e.g. manus-production"
+              autoComplete="off"
+            />
+          )}
+          {networkPickerAvailable ? (
+            <button
+              type="button"
+              onClick={() => setNetworkManual((current) => !current)}
+              className="text-[11px] text-muted-foreground underline hover:text-foreground"
+            >
+              {networkManual ? "Choose from list" : "Enter manually"}
+            </button>
+          ) : null}
         </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="batfish-snapshot">Snapshot (Optional)</Label>
-          <Input
-            id="batfish-snapshot"
-            value={snapshot}
-            onChange={handleTargetFieldChange("snapshot")}
-            placeholder="(most recent)"
-          />
+          {showSnapshotPicker ? (
+            <Select value={snapshot || ""} onValueChange={handleSnapshotSelect}>
+              <SelectTrigger>
+                <SelectValue placeholder="(most recent)" />
+              </SelectTrigger>
+              <SelectContent>
+                {snapshots.map((snap) => (
+                  <SelectItem key={snap.name} value={snap.name}>
+                    {snap.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id="batfish-snapshot"
+              value={snapshot}
+              onChange={handleSnapshotInputChange}
+              placeholder="(most recent)"
+              autoComplete="off"
+            />
+          )}
+          {snapshotPickerAvailable ? (
+            <button
+              type="button"
+              onClick={() => setSnapshotManual((current) => !current)}
+              className="text-[11px] text-muted-foreground underline hover:text-foreground"
+            >
+              {snapshotManual ? "Choose from list" : "Enter manually"}
+            </button>
+          ) : sourceId && !network ? (
+            <p className="text-[11px] text-muted-foreground">Pick or enter a network first.</p>
+          ) : null}
         </div>
       </div>
 

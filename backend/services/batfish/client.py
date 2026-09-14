@@ -46,6 +46,27 @@ class BatfishService:
         self._sessions.clear()
         logger.info("BatfishService shut down")
 
+    async def list_networks(self, connection: BatfishConnection) -> list[str]:
+        """List every network on the coordinator. Not cached -- like
+        check_health, a throwaway Session's list_networks() doesn't depend on
+        .network being set to anything in particular. Kept as its own method
+        (not delegated to by check_health, or vice versa) so each keeps its
+        own error-message wording for its own purpose -- connectivity check
+        vs. a discovery listing a caller will show to a user.
+        """
+
+        def _list() -> list[str]:
+            session = Session(host=connection.host, port=connection.port)
+            return session.list_networks()
+
+        try:
+            return await asyncio.to_thread(_list)
+        except BatfishException as exc:
+            raise BatfishAPIError(f"Failed to list Batfish networks: {exc}") from exc
+        except Exception as exc:
+            logger.error("Failed to list Batfish networks: %s", exc)
+            raise BatfishAPIError("Failed to list Batfish networks") from exc
+
     async def check_health(self, connection: BatfishConnection) -> list[str]:
         """Liveness/functional check for test-connection. Not cached -- a
         throwaway Session's list_networks() doesn't depend on .network being

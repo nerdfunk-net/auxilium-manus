@@ -107,6 +107,25 @@ class BatfishServiceHealthCheckTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(BatfishAPIError):
             await self.service.check_health(_connection())
 
+    async def test_list_networks_returns_networks_not_cached(self) -> None:
+        instance = MagicMock()
+        instance.list_networks.return_value = ["manus-workflow-1", "manus-workflow-2"]
+        self.mock_session_cls.return_value = instance
+
+        result = await self.service.list_networks(_connection())
+
+        self.assertEqual(result, ["manus-workflow-1", "manus-workflow-2"])
+        instance.set_network.assert_not_called()
+        self.assertEqual(self.service._sessions, {})
+
+    async def test_list_networks_wraps_batfish_exception(self) -> None:
+        instance = MagicMock()
+        instance.list_networks.side_effect = BatfishException("coordinator down")
+        self.mock_session_cls.return_value = instance
+
+        with self.assertRaises(BatfishAPIError):
+            await self.service.list_networks(_connection())
+
 
 class BatfishServiceSnapshotTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

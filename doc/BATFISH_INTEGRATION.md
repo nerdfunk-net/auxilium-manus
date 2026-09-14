@@ -168,9 +168,11 @@ backend/routers/sources/batfish/
 ├── __init__.py
 ├── crud.py                                # /sources/batfish -- source configuration CRUD
 ├── ops.py                                 # /sources/batfish/{source_id}/test-connection
-└── query.py                               # /sources/batfish/{source_id}/query/{routes,reachability,
-                                            # test-filters} -- ad-hoc preview queries, see "Template Editor
-                                            # integration" below
+├── query.py                               # /sources/batfish/{source_id}/query/{routes,reachability,
+│                                           # test-filters} -- ad-hoc preview queries, see "Template Editor
+│                                           # integration" below
+└── discovery.py                           # /sources/batfish/{source_id}/networks,
+                                            # /sources/batfish/{source_id}/networks/{network}/snapshots
 backend/dependencies.py                    # get_batfish_preview_service (FastAPI dependency)
 backend/service_factory.py                 # build_batfish_preview_service
 
@@ -215,11 +217,15 @@ backend/tests/unit/test_batfish_start_run_executor.py
 backend/tests/unit/test_batfish_{init_snapshot,routing_table,path_check,acl_check}_executor.py
 backend/tests/unit/test_batfish_validate_facts_executor.py
 backend/tests/unit/test_batfish_extract_facts_executor.py
+backend/tests/unit/test_batfish_discovery_router.py
 
-frontend/src/components/features/settings/types/settings-api.ts   # BatfishSource*/BatfishTestConnection* types
-frontend/src/lib/query-keys.ts                                     # queryKeys.sourcesBatfish
+frontend/src/components/features/settings/types/settings-api.ts   # BatfishSource*/BatfishTestConnection*/
+                                                                    # BatfishNetworksResponse/BatfishSnapshot* types
+frontend/src/lib/query-keys.ts                                     # queryKeys.sourcesBatfish (list/networks/snapshots)
 frontend/src/hooks/queries/use-batfish-sources-query.ts             # mirrors use-pyats-sources-query.ts
 frontend/src/hooks/queries/use-batfish-sources-mutations.ts
+frontend/src/hooks/queries/use-batfish-networks-query.ts            # GET .../networks
+frontend/src/hooks/queries/use-batfish-snapshots-query.ts           # GET .../networks/{network}/snapshots
 frontend/src/components/features/settings/dialogs/batfish-source-dialog.tsx   # host+port only, no credential field
 frontend/src/components/features/settings/hooks/use-sources-settings.ts       # "batfish" slice
 frontend/src/components/features/settings/hooks/use-sources-settings-save.ts  # "batfish" dialog/save/delete branch
@@ -1169,13 +1175,63 @@ networks/snapshots (both editor and canvas config panels still take
   git/filesystem via `store-artifact` the way device configs can be. Revisit
   only if a real request for that surfaces; the in-run viewer and the editor
   preview may be sufficient on their own.
-- **Not built: a networks/snapshots discovery endpoint or picker.** Both the
-  workflow-step config panels (`BatfishDirectTargetFields`) and the Template
-  Editor's Options-modal Batfish tab take `network`/`snapshot` as free-text
-  input rather than a fetched dropdown, even though `BatfishService` already
-  exposes everything needed (`check_health` doubles as "list networks";
-  `list_snapshots_with_metadata` lists snapshots with timestamps) to build
-  one. Revisit if free-text entry proves error-prone in practice.
+- **RESOLVED: networks/snapshots discovery endpoint and picker.**
+  `BatfishService.list_networks(connection)` (a standalone method, not folded
+  into `check_health` — kept separate so each keeps its own error-message
+  wording for its own purpose) and the already-existing
+  `list_snapshots_with_metadata` are now exposed via
+  `GET /api/sources/batfish/{source_id}/networks` and
+  `GET /api/sources/batfish/{source_id}/networks/{network}/snapshots`
+  (`routers/sources/batfish/discovery.py`, same
+  `require_permission("sources.batfish", "read")` as the rest of that
+  router; snapshots sorted most-recent-first by `created_at`, same sort key
+  `resolve_latest_snapshot_name` uses). `BatfishDirectTargetFields` (shared
+  by all five query/fact steps) and the Template Editor's Options-modal
+  Batfish tab both fetch these via `useBatfishNetworksQuery`/
+  `useBatfishSnapshotsQuery` and render a `<Select>` when the coordinator has
+  entries, falling back to the original free-text `<Input>` underneath —
+  picking a network clears the current `snapshot` field, since a snapshot
+  name from a different network wouldn't be valid. Typing into the fallback
+  field locks that field into manual mode on the first keystroke and stays
+  there until the operator explicitly switches back — otherwise, if the
+  picker's data finished loading mid-keystroke, the `<Select>` would swap
+  back in under the cursor and (in some browsers) trigger an
+  autofill-suggestions popup listing every partial value typed so far.
+
+  **Bug found and fixed during hardening: a picker querying an
+  unconfirmed network name silently CREATED it.** `list_batfish_snapshots`
+  originally called `list_snapshots_with_metadata` directly, which goes
+  through `BatfishService._get_session()` → pybatfish's own
+  `Session.set_network(name)` — confirmed by reading the installed
+  pybatfish source that this call 404s via `restv2helper.get_network` and
+  then unconditionally calls `restv2helper.init_network`, i.e. it **creates
+  the network if it doesn't already exist**. Before the "lock into manual
+  mode" fix above existed, every keystroke into the network field fired
+  this endpoint with the current partial string, silently creating a real,
+  empty network on the coordinator per keystroke (confirmed in practice: a
+  user typing "manus-live" left behind eleven junk networks — `m`, `ma`,
+  `man`, ..., `manus-live` — permanently polluting the picker for everyone).
+  Fixed by having `list_batfish_snapshots` call `list_networks` first and
+  return an empty snapshot list for any network not already in that result,
+  never reaching `list_snapshots_with_metadata`/`set_network` for an
+  unconfirmed name. Regression-tested
+  (`test_list_snapshots_unknown_network_returns_empty_without_touching_metadata_call`).
+
+  **Not yet audited: the same risk in the three query steps' "direct
+  network targeting" fields and `resolve_latest_snapshot_name`.**
+  `workflow_steps.common.batfish_context.resolve_batfish_snapshot_ref`
+  calls `resolve_latest_snapshot_name` when a query step's `network` config
+  is set but `snapshot` is blank, which calls the same
+  `list_snapshots_with_metadata` → `_get_session` → `set_network` path —
+  so a typo'd or not-yet-created `network` value in a saved step's direct
+  -target config would *also* silently create a junk network on the
+  coordinator before `resolve_latest_snapshot_name` raises its "no
+  snapshots found" `ValueError`. Lower practical exposure than the picker
+  case (a typo here creates at most one junk network per misconfigured
+  step, set once at design time, not once per keystroke), but the same
+  underlying class of bug and pre-existing (not introduced by the picker
+  work). Left unfixed pending a decision on whether to harden it the same
+  way.
 - **Not built: a loud signal when a snapshot init parses zero usable
   nodes.** Observed in real usage: a `batfish-routing-table` run returned
   `row_count: 0` with no other indication anything was wrong, and the

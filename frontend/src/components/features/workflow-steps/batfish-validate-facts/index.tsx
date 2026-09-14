@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +53,9 @@ function BatfishValidateFactsConfigPanel({
     () => sourceSteps.find((step) => step.nodeId === sourceStepNodeId) ?? null,
     [sourceSteps, sourceStepNodeId],
   );
+  const [sourceStepManual, setSourceStepManual] = useState(false);
+  const sourceStepPickerAvailable = sourceSteps.length > 0;
+  const showSourceStepPicker = sourceStepPickerAvailable && !sourceStepManual;
 
   const handleFactsSourceChange = useCallback(
     (value: string) => onChange({ ...config, [FACTS_SOURCE_KEY]: value }),
@@ -62,6 +65,18 @@ function BatfishValidateFactsConfigPanel({
   const handleFieldChange = useCallback(
     (key: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
       onChange({ ...config, [key]: event.target.value });
+    },
+    [config, onChange],
+  );
+
+  // Locks into manual mode on the first keystroke -- otherwise, if the
+  // upstream-step list changes mid-typing, the picker swaps back in under
+  // the user's cursor (losing focus and, in some browsers, triggering an
+  // autofill-suggestions dropdown of every partial value typed so far).
+  const handleSourceStepInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setSourceStepManual(true);
+      onChange({ ...config, source_step_node_id: event.target.value });
     },
     [config, onChange],
   );
@@ -128,7 +143,7 @@ function BatfishValidateFactsConfigPanel({
                 step
               </Badge>
             </div>
-            {sourceSteps.length > 0 ? (
+            {showSourceStepPicker ? (
               <Select value={sourceStepNodeId || ""} onValueChange={handleSourceStepSelect}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue placeholder="Choose Render Jinja Template step…" />
@@ -142,6 +157,23 @@ function BatfishValidateFactsConfigPanel({
                 </SelectContent>
               </Select>
             ) : (
+              <Input
+                value={sourceStepNodeId}
+                onChange={handleSourceStepInputChange}
+                placeholder="e.g. render-facts-1"
+                className="h-8 font-mono text-xs"
+                autoComplete="off"
+              />
+            )}
+            {sourceStepPickerAvailable ? (
+              <button
+                type="button"
+                onClick={() => setSourceStepManual((current) => !current)}
+                className="text-[11px] text-muted-foreground underline hover:text-foreground"
+              >
+                {sourceStepManual ? "Choose from list" : "Enter manually"}
+              </button>
+            ) : (
               <p className="text-[11px] text-warning-foreground">
                 Add a Render Jinja Template step to this workflow first.
               </p>
@@ -154,12 +186,6 @@ function BatfishValidateFactsConfigPanel({
                   : ""}
               </p>
             ) : null}
-            <Input
-              value={sourceStepNodeId}
-              onChange={handleFieldChange("source_step_node_id")}
-              placeholder="e.g. render-facts-1"
-              className="h-8 font-mono text-xs"
-            />
             {sourceStepNodeId ? null : (
               <p className="text-[11px] text-warning-foreground">Required</p>
             )}

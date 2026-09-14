@@ -114,6 +114,10 @@ export const queryKeys = {
   sourcesBatfish: {
     all: ["sources-batfish"] as const,
     list: () => [...queryKeys.sourcesBatfish.all, "list"] as const,
+    networks: (sourceId: string) =>
+      [...queryKeys.sourcesBatfish.all, "networks", sourceId] as const,
+    snapshots: (sourceId: string, network: string) =>
+      [...queryKeys.sourcesBatfish.all, "snapshots", sourceId, network] as const,
   },
   credentials: {
     all: ["credentials"] as const,
