@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import type { WorkflowContext } from "@/lib/workflow-context-types";
@@ -43,6 +44,8 @@ export function OutcomeContextView({
     () => metadataWithoutDebugPanels(context.metadata),
     [context.metadata],
   );
+  const metadataCount = Object.keys(remainingMetadata).length;
+  const [metadataExpanded, setMetadataExpanded] = useState(false);
 
   return (
     <div className={cn("min-w-0 overflow-hidden", compact ? "space-y-2" : "space-y-4")}>
@@ -88,11 +91,22 @@ export function OutcomeContextView({
 
       {!compact ? (
         <>
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Metadata
-            </p>
-            <MetadataPanel metadata={remainingMetadata} />
+          <div className="min-w-0">
+            <button
+              type="button"
+              className="mb-2 flex w-full min-w-0 items-center gap-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+              onClick={() => setMetadataExpanded((value) => !value)}
+              aria-expanded={metadataExpanded}
+            >
+              {metadataExpanded ? (
+                <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+              ) : (
+                <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+              )}
+              <span>Metadata ({metadataCount})</span>
+            </button>
+
+            {metadataExpanded ? <MetadataPanel metadata={remainingMetadata} /> : null}
           </div>
 
           {pendingCommandNodes.length > 0 ? (
