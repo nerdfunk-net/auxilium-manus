@@ -10,6 +10,7 @@ const CATEGORY_SHORT_LABELS: Record<string, string> = {
   workflows: "Version control",
   device_configs: "Device configs",
   cicd_pipeline: "CI/CD Pipeline",
+  batfish: "Batfish",
 };
 
 export function GitRepositoryCategoryBadge({

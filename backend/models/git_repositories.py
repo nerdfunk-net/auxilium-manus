@@ -17,6 +17,7 @@ class GitCategory(StrEnum):
     WORKFLOWS = "workflows"
     WORKFLOW_STEPS = "workflow_steps"
     CICD_PIPELINE = "cicd_pipeline"
+    BATFISH = "batfish"
 
 
 class GitAuthType(StrEnum):

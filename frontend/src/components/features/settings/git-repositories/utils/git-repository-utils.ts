@@ -8,6 +8,7 @@ export const GIT_CATEGORIES = [
   { value: "workflows", label: "Workflow Version Control" },
   { value: "device_configs", label: "Device configs" },
   { value: "cicd_pipeline", label: "CI/CD Pipeline" },
+  { value: "batfish", label: "Batfish" },
 ] as const;
 
 export function gitCategoryLabel(category: string): string {
