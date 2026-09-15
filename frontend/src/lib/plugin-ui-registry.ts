@@ -17,6 +17,7 @@ import { GetPyatsSnapshotPlugin } from "@/components/features/workflow-steps/get
 import { BatfishStartRunPlugin } from "@/components/features/workflow-steps/batfish-start-run";
 import { BatfishInitSnapshotPlugin } from "@/components/features/workflow-steps/batfish-init-snapshot";
 import { BatfishRoutingTablePlugin } from "@/components/features/workflow-steps/batfish-routing-table";
+import { BatfishNodePropertiesPlugin } from "@/components/features/workflow-steps/batfish-node-properties";
 import { BatfishPathCheckPlugin } from "@/components/features/workflow-steps/batfish-path-check";
 import { BatfishAclCheckPlugin } from "@/components/features/workflow-steps/batfish-acl-check";
 import { BatfishValidateFactsPlugin } from "@/components/features/workflow-steps/batfish-validate-facts";
@@ -85,6 +86,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "batfish-start-run": BatfishStartRunPlugin,
   "batfish-init-snapshot": BatfishInitSnapshotPlugin,
   "batfish-routing-table": BatfishRoutingTablePlugin,
+  "batfish-node-properties": BatfishNodePropertiesPlugin,
   "batfish-path-check": BatfishPathCheckPlugin,
   "batfish-acl-check": BatfishAclCheckPlugin,
   "batfish-validate-facts": BatfishValidateFactsPlugin,

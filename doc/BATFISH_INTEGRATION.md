@@ -25,11 +25,12 @@ gating" below).
 - [Workflow steps](#workflow-steps)
   - [Get from Batfish](#get-from-batfish-batfish-start-run)
   - [Init Batfish Snapshot](#init-batfish-snapshot-batfish-init-snapshot)
-  - [Batfish Routing Table](#batfish-routing-table-batfish-routing-table)
-  - [Batfish Path Check](#batfish-path-check-batfish-path-check)
-  - [Batfish ACL Check](#batfish-acl-check-batfish-acl-check)
-  - [Validate Facts](#validate-facts-batfish-validate-facts)
   - [Extract Facts](#extract-facts-batfish-extract-facts)
+  - [Validate Facts](#validate-facts-batfish-validate-facts)
+  - [Batfish Routing Table](#batfish-routing-table-batfish-routing-table)
+  - [Batfish Node Properties](#batfish-node-properties-batfish-node-properties)
+  - [Batfish ACL Check](#batfish-acl-check-batfish-acl-check)
+  - [Batfish Path Check](#batfish-path-check-batfish-path-check)
 - [Frontend: category gating](#frontend-category-gating)
 - [Viewing results: the run detail UI](#viewing-results-the-run-detail-ui)
 - [Template Editor integration: ad-hoc preview queries](#template-editor-integration-ad-hoc-preview-queries)
@@ -203,19 +204,21 @@ backend/workflow_steps/batfish_start_run/{__init__.py,executor.py,config.py}    
 backend/workflow_steps/batfish_init_snapshot/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: git -- glob-based file collection
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
+backend/workflow_steps/batfish_node_properties/{__init__.py,executor.py,config.py}   # exposes nodeProperties' `properties` filter directly (Get from Batfish never sets it)
 backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_validate_facts/{__init__.py,executor.py,config.py}       # facts_source: git reuses batfish_init_snapshot/git_source.py::collect_git_source_files
 backend/workflow_steps/batfish_extract_facts/{__init__.py,executor.py,config.py}
 backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts/node_properties
-backend/services/execution/step_registry.py   # 7 imports + dict entries
-backend/workflow_steps/registry.yaml          # 7 entries, palette_category: batfish
+backend/services/execution/step_registry.py   # 8 imports + dict entries
+backend/workflow_steps/registry.yaml          # 8 entries, palette_category: batfish
 
 backend/tests/unit/test_batfish_{client,source_config_service,router_auth,context_helper}.py
 backend/tests/unit/test_batfish_context_ref_resolver.py
 backend/tests/unit/test_batfish_git_source.py
 backend/tests/unit/test_batfish_start_run_executor.py
 backend/tests/unit/test_batfish_{init_snapshot,routing_table,path_check,acl_check}_executor.py
+backend/tests/unit/test_batfish_node_properties_executor.py
 backend/tests/unit/test_batfish_validate_facts_executor.py
 backend/tests/unit/test_batfish_extract_facts_executor.py
 backend/tests/unit/test_batfish_discovery_router.py
@@ -239,11 +242,12 @@ frontend/src/components/features/workflow-steps/shared/batfish-fact-keys.ts  # B
 frontend/src/components/features/workflow-steps/batfish-start-run/{index.tsx,help-panel.tsx}  # "Get from Batfish" -- nodes_filter + BatfishDirectTargetFields
 frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx,help-panel.tsx}  # config_source toggle, git fields, network_name
 frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx,help-panel.tsx}
+frontend/src/components/features/workflow-steps/batfish-node-properties/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-acl-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.tsx,help-panel.tsx}  # facts_source toggle (rendered_yaml/field/git)
 frontend/src/components/features/workflow-steps/batfish-extract-facts/{index.tsx,help-panel.tsx}
-frontend/src/lib/plugin-ui-registry.ts        # 7 PLUGIN_UI_REGISTRY entries
+frontend/src/lib/plugin-ui-registry.ts        # 8 PLUGIN_UI_REGISTRY entries
 frontend/src/components/features/workflows/utils/step-visuals.ts   # "batfish" category label/colors/icons
 frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBatfishSource gate
 
@@ -557,7 +561,7 @@ own process startup.
 
 ## Workflow steps
 
-All seven steps live under `palette_category: batfish` (a new palette
+All eight steps live under `palette_category: batfish` (a new palette
 category — see "Frontend: category gating" below for why it's hidden by
 default).
 
@@ -655,223 +659,40 @@ source to use), `retain_snapshots: int` (default `5`), `network_name: str`
 already) — not `context.run_id`, which is `run.uuid` and not needed here.
 
 This is the one step in this integration with any real I/O cost/risk (it
-touches the shared Batfish network for the whole workflow) — the three
-query steps below are pure reads against an already-initialized snapshot.
+touches the shared Batfish network for the whole workflow) — the steps below
+are pure reads against an already-initialized snapshot.
 
-### Batfish Routing Table (`batfish-routing-table`)
+### Extract Facts (`batfish-extract-facts`)
 
-`requires: [identity]`, `produces: []`. Wraps `bf.q.routes(...)` — confirmed
-against a real two-router snapshot, no required parameters, returns one row
-per `(node, VRF, network)` route with columns including `Next_Hop`,
-`Protocol`, `Metric`, `Admin_Distance`, `Tag`. Config maps directly onto
-`routes()`'s own parameters (all optional — an empty config returns every
-route on every node):
+`requires: [identity]`, `produces: [parsed]`, `outcomes: [success]`. Wraps
+`Session.extract_facts(nodes="/.*/", output_directory=None, snapshot=None)`
+— retrieves the facts Batfish parsed for a set of nodes, with no expected
+values to compare against (see Validate Facts below for that). Unlike that
+step, `nodes` here is a plain `NodeSpecifier` string (a regex or
+`name1|name2` alternation) and the call returns the facts dict directly — no
+temp directory needed.
 
-```python
-bf.q.routes(
-    nodes=config.get("nodes"),              # nodeSpec, e.g. "R1" (case-insensitive)
-    network=config.get("network_prefix"),   # prefix, e.g. "192.168.1.0/24"
-    prefixMatchType=config.get("prefix_match_type"),  # EXACT (default) | LONGEST_PREFIX_MATCH | LONGER_PREFIXES | SHORTER_PREFIXES
-    protocols=config.get("protocols"),      # routingProtocolSpec, e.g. "static", "bgp"
-    vrfs=config.get("vrfs"),
-    rib=config.get("rib"),                  # main (default) | bgp | evpn
-).answer().frame()
-```
+**`nodes_filter` defaults to this run's own devices, not Batfish's own
+`"/.*/"` default.** Left blank, the step builds a `|`-joined, lowercased
+alternation from `context.devices` so an unconfigured step scopes to the
+workflow's own selected devices rather than every node in the network; set
+it to `/.*/` explicitly to extract everything.
 
-**Naming collision, found and fixed during implementation:** pybatfish's own
-`routes()` question has a parameter literally named `network` (the
-route-prefix filter above). `BatfishService.routes()` — the async wrapper
-every step actually calls, not the raw `bf.q.routes()` shown above — takes
-the *Batfish* network name as `batfish_network` specifically to avoid
-colliding with that when the step's `network_prefix` config value gets
-forwarded through `**params`. The step's own config field is named
-`network_prefix` for exactly the same reason — `network` alone would be
-ambiguous between "which Batfish network" and "which route prefix."
-
-**Result storage: workflow-level, not per-device — deliberately NOT wired
-into `store-artifact`/`content_resolver.py` in v1.** Every existing
-`artifact_service.store()` call site in this codebase is per-device (one
-artifact per device, keyed by that device's `device_id`) — there is no
-established convention for a single workflow-scoped artifact, and
-`content_resolver.py`'s contract takes one `device: DeviceContext` at a time
-by design. A Batfish routing-table result is inherently one table covering
-every queried node, not naturally splittable per device. Rather than force
-one of two awkward shapes (fan the same artifact out redundantly to every
-device's `parsed`, or extend `content_resolver.py`'s per-device contract to
-also handle workflow-level content — a real change to a shared file every
-existing step depends on), this step stores the result as one artifact via
-`artifact_service.store(device_id=f"batfish-{node_id}", ...)` (a sentinel,
-not a real device — confirmed safe: `device_id` is stored as descriptive
-metadata alongside the artifact, e.g. for filesystem backends, not used to
-build the storage path) and puts the `ArtifactRef` plus a small inline
-summary (row count) directly in
-`WorkflowContext.metadata[f"{node_id}.{output_key}"]` (`output_key` is a
-step config field, default `batfish_routes`/`batfish_path_check`/
-`batfish_acl_check` per step). One more `run_id` distinction worth stating
-explicitly since it's easy to get backwards: `artifact_service.store()`'s
-`run_id` parameter is typed `str` and takes `context.run_id` (confirmed
-against `get_pyats_snapshot/executor.py`'s real precedent) — this is
-*unrelated* to the `run.id` (int) used for Batfish snapshot naming above;
-mixing the two up is a real `pyright` error (`reportArgumentType`), not just
-a style nit, since `run.id` is an `int`.
-Exporting a Batfish result via `store-artifact` is deferred — see "Open
-items" below — rather than casually extending a shared, heavily-used
-contract as a side effect of this integration.
-
-**Direct network targeting.** Optional `batfish_source_id: str`,
-`network: str`, `snapshot: str` config fields let this step bypass
-`context.metadata["batfish"]` and query any network directly — see
-"Bypassing metadata: querying a network directly" above.
-
-**`devices` outcome: turning routed nodes into a device list.** Alongside
-`success` (unchanged — it still just passes the incoming `context.devices`
-through untouched), this step always returns a second outcome, `devices`,
-built by deduplicating the answer's `Node` column and constructing one
-minimal `DeviceContext` per unique node (`id=name=hostname=node`,
-`source="batfish"`, `capabilities={IDENTITY}`, `status=OK`). Emitted
-unconditionally, even when `rows` is empty (an empty `devices` dict) — the
-same "0 is a valid, non-error answer" reasoning `success`'s row count
-already follows, so the branch fires predictably rather than being silently
-skipped on a 0-match run. `outcomes: [success, devices]` in `registry.yaml`;
-no `produces` change was needed to make `devices` canvas-wireable into a
-step requiring `identity` — `batfish-routing-table`'s own `requires:
-[identity]` already guarantees `IDENTITY` is present on input, and the
-canvas's capability-provides computation
-(`frontend/.../utils/capability-graph.ts::applyStep`) is `input capabilities
-∪ node.produces`, so both outcomes already advertise `IDENTITY` regardless.
-
-This is deliberately a *new*, Batfish-sourced identity, not a rehydration of
-whatever device fed the snapshot — in live-mode snapshot building, configs
-are uploaded under an opaque UUID filename (see "Building the snapshot
-directory" above), so a `Node` string has no reliable link back to a real
-Nautobot device UUID. The intended composition is to chain into the
-already-existing `get-nautobot-attributes` step (no changes needed there):
-wire `devices` → `Get Nautobot Attributes`, whose own `success` outcome
-carries only the nodes it could resolve by name (real Nautobot attributes
-attached via `attribute_bags["nautobot"]`), while anything it couldn't
-resolve lands on its `failure` outcome instead of continuing downstream with
-fake identity — this is the "drop devices Nautobot doesn't recognize"
-behavior, reused as-is rather than reimplemented here.
-
-**RESOLVED: name matching case-sensitivity, opt-in.**
-`resolve_nautobot_device_id` (`workflow_steps/common/nautobot_resolve.py`)
-now accepts `case_insensitive: bool`, switching the name lookup to Nautobot's
-`name__ie` GraphQL filter. `Get Nautobot Attributes` exposes this as a step
-config field, `case_insensitive_lookup` (default `False` —
-`workflow_steps/get_nautobot_attributes/config.py`/`executor.py`). Since
-Batfish always lowercases parsed node hostnames (see "Node-name case
-sensitivity" under "Open items" below), **this option must be turned on** on
-any `Get Nautobot Attributes` step downstream of Batfish Routing Table's
-`devices` outcome — left at its `False` default, a Nautobot device named with
-any uppercase letters (e.g. `R1`) still fails to resolve by name purely due to
-casing and lands on the `failure` outcome even though it genuinely exists.
-
-### Batfish Path Check (`batfish-path-check`)
-
-`requires: [identity]`, `produces: []`. Wraps `bf.q.reachability(...)` —
-this is the actual "is there a path between device A and device B" question,
-confirmed working end-to-end against the two-router snapshot:
-
-```python
-bf.q.reachability(
-    pathConstraints={
-        "startLocation": config["start_node"],   # e.g. "R1" -- a device hostname/nodeSpec
-        "endLocation": config.get("end_node"),   # optional -- omit to search any destination
-    },
-    headers=config.get("headers", {}),           # optional headerConstraint, e.g. {"dstIps": "..."}
-    actions=config.get("actions", ["success"]),  # dispositionSpec, default ["success"]
-    maxTraces=config.get("max_traces"),
-    invertSearch=config.get("invert_search", False),
-    ignoreFilters=config.get("ignore_filters", False),
-).answer().frame()
-```
-
-**Important param-shape gotcha, verified the hard way**: `headers` is a
-**sibling** top-level parameter of `pathConstraints`, not nested inside it —
-`reachability(pathConstraints={"startLocation": ..., "headers": {...}})`
-fails with a 400 from the coordinator (`Unrecognized field "headers"`,
-`PathConstraintsInput` only recognizes `startLocation`/`endLocation`/
-`transitLocations`/`forbiddenLocations`). The step's config schema should
-mirror the correct (flat) shape directly rather than a nested one that looks
-more "intuitive" but doesn't match the real API.
-
-Empty `answer().frame()` means no matching flow was found for the given
-constraints, which for a "does a path exist between A and B" question *is*
-the negative-case answer, not an error. Unlike Routing Table's plain
-success/failure, this step gives that answer a first-class canvas outcome —
-`outcomes: [reachable, not_reachable]` (as implemented — **no `failure`
-outcome**: a config/input problem raises `ValueError`, a Batfish-side
-failure raises via `BatfishAPIError`, neither is modeled as a third outcome
-branch) — so a workflow can branch on it directly (e.g. alert only when a
-critical path breaks).
-
-**Not a per-device partition, unlike `compare-pyats-snapshot`'s
-`match`/`mismatch`/`failure`.** That step's branching splits
-`context.devices` itself into buckets, because it evaluates the same
-condition independently *per device*. Path Check evaluates ONE flow
-definition from `config` (`start_node`/`end_node`/`headers` — not derived
-from `context.devices` at all), so the step returns a single-element
-`list[StepOutcome]` — whichever one of `reachable`/`not_reachable`
-applies — carrying the **full, unmodified** `context.devices` through that
-one outcome. The other declared outcome name simply doesn't fire for that
-run, the same way a plain `success`/`failure` step only ever returns one of
-the two. Result storage follows the same workflow-level-artifact-plus-
-metadata-summary approach as Routing Table above.
+**Enriches every device directly, unlike the three query steps below.**
+`device.parsed[output_key] = {"parsed": <node's facts>, "error": None}` for
+a node Batfish returned, or `{"parsed": None, "error": "no facts found for
+node '<name>' in this Batfish snapshot"}` otherwise — the exact non-fatal
+`{"parsed", "error"}` shape `run-command`'s TextFSM/Genie parsers use (see
+"Normalized command-output parsing" in `doc/WORKFLOW-STEPS.md`), one level
+shallower since extraction isn't command-scoped. This is what lets a
+downstream Render Jinja Template step read
+`{{ parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers }}` per
+device, in addition to the one workflow-level artifact (`kind:
+"batfish_result"`, `question: "extractFacts"`) covering every extracted
+node.
 
 **Direct network targeting.** Same optional `batfish_source_id`/`network`/
-`snapshot` config fields as Routing Table — see "Bypassing metadata:
-querying a network directly" above.
-
-### Batfish ACL Check (`batfish-acl-check`)
-
-`requires: [identity]`, `produces: []`. Wraps `bf.q.testFilters(...)` —
-confirmed against a real ACL (`permit tcp any host 192.168.1.1 eq 22; deny
-ip any any`): a concrete 5-tuple flow through a named filter, returning
-`Action` (`PERMIT`/`DENY`) and the matched `Line_Content`:
-
-```python
-bf.q.testFilters(
-    nodes=config["node"],           # nodeSpec, e.g. "R1"
-    filters=config["filter_name"],  # filterSpec, e.g. "TEST-ACL"
-    headers={                       # required
-        "srcIps": config.get("src_ips"),
-        "dstIps": config["dst_ips"],
-        "applications": config.get("applications"),   # e.g. ["SSH"], ["TELNET"]
-        "ipProtocols": config.get("ip_protocols"),
-    },
-    startLocation=config.get("start_location"),
-).answer().frame()
-```
-
-`headers` is documented by pybatfish itself as *Required* for this question
-(unlike `reachability`'s optional `headers`) — the config panel should mark
-at least `dst_ips` as required, matching this. Like Path Check, this step
-uses branchable outcomes — `outcomes: [permit, deny]` (as implemented, same
-no-`failure`-outcome reasoning as Path Check) — read from the answer's
-`Action` column; also a single-`StepOutcome`, whole-context-passthrough
-step, not a per-device partition, for the same reason (one concrete flow
-from `config`, not one check per device). An empty result set here is
-treated as an execution problem, not a verdict — `raise RuntimeError`
-rather than defaulting to `deny`, since "no result" means the
-`node`/`filter_name` didn't match anything in the snapshot, not that the
-filter denied the traffic. Stores its result the same workflow-level-artifact
-way Routing Table does.
-
-**`searchFilters` was considered and rejected as the primary mapping for
-"ACL permits this traffic".** `searchFilters()` answers a broader question —
-"does *any* flow matching this header space get permitted/denied" — useful
-for an existence check across a whole space of traffic, but the user's
-framing ("ACL permits this traffic") reads as "check this specific traffic
-description," which is exactly `testFilters()`'s contract: one concrete flow
-in, one concrete verdict out, no example-searching involved.
-`filters`/`nodes` narrow which filter(s) are tested the same way in both
-questions, so a v2 "does any SSH traffic reach this host at all" variant of
-this step could reuse most of the same config shape with `searchFilters()`
-if that broader question turns out to be wanted later.
-
-**Direct network targeting.** Same optional `batfish_source_id`/`network`/
-`snapshot` config fields as Routing Table — see "Bypassing metadata:
-querying a network directly" above.
+`snapshot` config fields as the three query steps below.
 
 ### Validate Facts (`batfish-validate-facts`)
 
@@ -984,42 +805,314 @@ contribute a valid fragment, the Batfish call is skipped entirely and every
 device lands on `failure`. The full per-batch mismatch map is also stored as
 one workflow-level artifact plus a `context.metadata[f"{node_id}.
 {output_key}"]` summary (`kind: "batfish_result"`, `question:
-"validateFacts"`), the same convention the three query steps above use.
+"validateFacts"`), the same convention the three query steps below use.
 
 **Direct network targeting.** Same optional `batfish_source_id`/`network`/
-`snapshot` config fields as the three query steps above.
+`snapshot` config fields as the three query steps below.
 
-### Extract Facts (`batfish-extract-facts`)
+### Batfish Routing Table (`batfish-routing-table`)
 
-`requires: [identity]`, `produces: [parsed]`, `outcomes: [success]`. Wraps
-`Session.extract_facts(nodes="/.*/", output_directory=None, snapshot=None)`
-— retrieves the facts Batfish parsed for a set of nodes, with no expected
-values to compare against (see Validate Facts above for that). Unlike that
-step, `nodes` here is a plain `NodeSpecifier` string (a regex or
-`name1|name2` alternation) and the call returns the facts dict directly — no
-temp directory needed.
+`requires: [identity]`, `produces: []`. Wraps `bf.q.routes(...)` — confirmed
+against a real two-router snapshot, no required parameters, returns one row
+per `(node, VRF, network)` route with columns including `Next_Hop`,
+`Protocol`, `Metric`, `Admin_Distance`, `Tag`. Config maps directly onto
+`routes()`'s own parameters (all optional — an empty config returns every
+route on every node):
 
-**`nodes_filter` defaults to this run's own devices, not Batfish's own
-`"/.*/"` default.** Left blank, the step builds a `|`-joined, lowercased
-alternation from `context.devices` so an unconfigured step scopes to the
-workflow's own selected devices rather than every node in the network; set
-it to `/.*/` explicitly to extract everything.
+```python
+bf.q.routes(
+    nodes=config.get("nodes"),              # nodeSpec, e.g. "R1" (case-insensitive)
+    network=config.get("network_prefix"),   # prefix, e.g. "192.168.1.0/24"
+    prefixMatchType=config.get("prefix_match_type"),  # EXACT (default) | LONGEST_PREFIX_MATCH | LONGER_PREFIXES | SHORTER_PREFIXES
+    protocols=config.get("protocols"),      # routingProtocolSpec, e.g. "static", "bgp"
+    vrfs=config.get("vrfs"),
+    rib=config.get("rib"),                  # main (default) | bgp | evpn
+).answer().frame()
+```
 
-**Enriches every device directly, unlike the three query steps above.**
-`device.parsed[output_key] = {"parsed": <node's facts>, "error": None}` for
-a node Batfish returned, or `{"parsed": None, "error": "no facts found for
-node '<name>' in this Batfish snapshot"}` otherwise — the exact non-fatal
-`{"parsed", "error"}` shape `run-command`'s TextFSM/Genie parsers use (see
-"Normalized command-output parsing" in `doc/WORKFLOW-STEPS.md`), one level
-shallower since extraction isn't command-scoped. This is what lets a
-downstream Render Jinja Template step read
-`{{ parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers }}` per
-device, in addition to the one workflow-level artifact (`kind:
-"batfish_result"`, `question: "extractFacts"`) covering every extracted
-node.
+**Naming collision, found and fixed during implementation:** pybatfish's own
+`routes()` question has a parameter literally named `network` (the
+route-prefix filter above). `BatfishService.routes()` — the async wrapper
+every step actually calls, not the raw `bf.q.routes()` shown above — takes
+the *Batfish* network name as `batfish_network` specifically to avoid
+colliding with that when the step's `network_prefix` config value gets
+forwarded through `**params`. The step's own config field is named
+`network_prefix` for exactly the same reason — `network` alone would be
+ambiguous between "which Batfish network" and "which route prefix."
+
+**Result storage: workflow-level, not per-device — deliberately NOT wired
+into `store-artifact`/`content_resolver.py` in v1.** Every existing
+`artifact_service.store()` call site in this codebase is per-device (one
+artifact per device, keyed by that device's `device_id`) — there is no
+established convention for a single workflow-scoped artifact, and
+`content_resolver.py`'s contract takes one `device: DeviceContext` at a time
+by design. A Batfish routing-table result is inherently one table covering
+every queried node, not naturally splittable per device. Rather than force
+one of two awkward shapes (fan the same artifact out redundantly to every
+device's `parsed`, or extend `content_resolver.py`'s per-device contract to
+also handle workflow-level content — a real change to a shared file every
+existing step depends on), this step stores the result as one artifact via
+`artifact_service.store(device_id=f"batfish-{node_id}", ...)` (a sentinel,
+not a real device — confirmed safe: `device_id` is stored as descriptive
+metadata alongside the artifact, e.g. for filesystem backends, not used to
+build the storage path) and puts the `ArtifactRef` plus a small inline
+summary (row count) directly in
+`WorkflowContext.metadata[f"{node_id}.{output_key}"]` (`output_key` is a
+step config field, default `batfish_routes`/`batfish_path_check`/
+`batfish_acl_check` per step). One more `run_id` distinction worth stating
+explicitly since it's easy to get backwards: `artifact_service.store()`'s
+`run_id` parameter is typed `str` and takes `context.run_id` (confirmed
+against `get_pyats_snapshot/executor.py`'s real precedent) — this is
+*unrelated* to the `run.id` (int) used for Batfish snapshot naming above;
+mixing the two up is a real `pyright` error (`reportArgumentType`), not just
+a style nit, since `run.id` is an `int`.
+Exporting a Batfish result via `store-artifact` is deferred — see "Open
+items" below — rather than casually extending a shared, heavily-used
+contract as a side effect of this integration.
+
+**Direct network targeting.** Optional `batfish_source_id: str`,
+`network: str`, `snapshot: str` config fields let this step bypass
+`context.metadata["batfish"]` and query any network directly — see
+"Bypassing metadata: querying a network directly" above.
+
+**`devices` outcome: turning routed nodes into a device list.** Alongside
+`success` (unchanged — it still just passes the incoming `context.devices`
+through untouched), this step always returns a second outcome, `devices`,
+built by deduplicating the answer's `Node` column and constructing one
+minimal `DeviceContext` per unique node (`id=name=hostname=node`,
+`source="batfish"`, `capabilities={IDENTITY}`, `status=OK`). Emitted
+unconditionally, even when `rows` is empty (an empty `devices` dict) — the
+same "0 is a valid, non-error answer" reasoning `success`'s row count
+already follows, so the branch fires predictably rather than being silently
+skipped on a 0-match run. `outcomes: [success, devices]` in `registry.yaml`;
+no `produces` change was needed to make `devices` canvas-wireable into a
+step requiring `identity` — `batfish-routing-table`'s own `requires:
+[identity]` already guarantees `IDENTITY` is present on input, and the
+canvas's capability-provides computation
+(`frontend/.../utils/capability-graph.ts::applyStep`) is `input capabilities
+∪ node.produces`, so both outcomes already advertise `IDENTITY` regardless.
+
+This is deliberately a *new*, Batfish-sourced identity, not a rehydration of
+whatever device fed the snapshot — in live-mode snapshot building, configs
+are uploaded under an opaque UUID filename (see "Building the snapshot
+directory" above), so a `Node` string has no reliable link back to a real
+Nautobot device UUID. The intended composition is to chain into the
+already-existing `get-nautobot-attributes` step (no changes needed there):
+wire `devices` → `Get Nautobot Attributes`, whose own `success` outcome
+carries only the nodes it could resolve by name (real Nautobot attributes
+attached via `attribute_bags["nautobot"]`), while anything it couldn't
+resolve lands on its `failure` outcome instead of continuing downstream with
+fake identity — this is the "drop devices Nautobot doesn't recognize"
+behavior, reused as-is rather than reimplemented here.
+
+**RESOLVED: name matching case-sensitivity, opt-in.**
+`resolve_nautobot_device_id` (`workflow_steps/common/nautobot_resolve.py`)
+now accepts `case_insensitive: bool`, switching the name lookup to Nautobot's
+`name__ie` GraphQL filter. `Get Nautobot Attributes` exposes this as a step
+config field, `case_insensitive_lookup` (default `False` —
+`workflow_steps/get_nautobot_attributes/config.py`/`executor.py`). Since
+Batfish always lowercases parsed node hostnames (see "Node-name case
+sensitivity" under "Open items" below), **this option must be turned on** on
+any `Get Nautobot Attributes` step downstream of Batfish Routing Table's
+`devices` outcome — left at its `False` default, a Nautobot device named with
+any uppercase letters (e.g. `R1`) still fails to resolve by name purely due to
+casing and lands on the `failure` outcome even though it genuinely exists.
+
+### Batfish Node Properties (`batfish-node-properties`)
+
+`requires: [identity]`, `produces: []`, `outcomes: [success, devices]`. Wraps
+`bf.q.nodeProperties(...)` — the same question `Get from Batfish` already
+uses internally to synthesize a device list, but exposed directly here with
+its `properties` filter, which `Get from Batfish` deliberately never passes
+(it only needs node identity for dedup, not fact contents):
+
+```python
+bf.q.nodeProperties(
+    nodes=config.get("nodes"),            # nodeSpec, e.g. "R1"
+    properties=config.get("properties"),  # NodePropertySpec, e.g. "TACACS_Servers"
+).answer().frame()
+```
+
+Both filters are optional — an empty config returns Batfish's own default
+column set for every node. `properties` is a comma-separated
+NodePropertySpec; valid names are the same ~40 keys `Validate Facts`'s
+`field` mode and `Extract Facts` recognize (`frontend/.../shared/
+batfish-fact-keys.ts::BATFISH_FACT_KEYS`) — confirmed directly against the
+installed `pybatfish` source: `pybatfish.client._facts.get_facts()` calls
+`session.q.nodeProperties()` with no `properties` filter and reorganizes a
+subset of its default columns via `NODE_PROPERTIES_REORG` (e.g.
+`TACACS_Servers`/`TACACS_Source_Interface` → a `TACACS` fact group); the
+columns that dict doesn't rename (`Hostname`, `Interfaces`, `VRFs`,
+`IP_Access_Lists`, etc.) pass through unchanged. So `BATFISH_FACT_KEYS` is,
+in practice, the full column set this question can return — safe to reuse
+as click-to-add suggestions in the config panel rather than inventing a
+second list.
+
+**Use case: does a device have a specific TACACS server configured?** Set
+`nodes: R1`, `properties: TACACS_Servers`, run the step, and read the one
+resulting row from the stored artifact (or chain into a downstream step —
+e.g. Render Jinja Template or Compare Data — to test the value
+programmatically). This step reports the *actual* parsed value; it does not
+compare against an expected one itself. For an outright
+match/mismatch assertion per device instead (e.g. "every device's
+`TACACS_Servers` must equal exactly this list"), use `batfish-validate-facts`
+with `facts_source: field` — that step already builds exactly this
+`{fact_key: fact_value}` shape per device and buckets devices into
+`match`/`mismatch`/`failure`. Node Properties is the right tool for
+open-ended inspection/export across a fleet (e.g. auditing which TACACS
+servers are actually configured everywhere); Validate Facts is the right
+tool for asserting one expected answer.
+
+**Result storage and `devices` outcome: same shape as Batfish Routing
+Table.** One workflow-level JSON artifact (`kind: "batfish_result"`,
+`question: "nodeProperties"`) plus a `context.metadata[f"{node_id}.
+{output_key}"]` summary (`output_key` default `batfish_node_properties`) —
+not per-device, for the same reason documented under Batfish Routing Table's
+"Result storage" above. Also mirrors that step's `devices` outcome shape
+(one Batfish-sourced `DeviceContext` per distinct `Node` value, always
+emitted even when empty) — built via the shared
+`workflow_steps.common.batfish_context.devices_from_nodes` helper rather
+than a second inline copy, since this is a brand-new step with no prior
+behavior to preserve (unlike Routing Table's own deliberately-unrefactored
+copy — see "Get from Batfish" above). *Which* nodes land in `devices`
+depends on `route_empty_to_devices`, below.
+
+**`route_empty_to_devices` (config field, default `false`) — an empty
+result is not a missing row.** A node with no TACACS server configured
+doesn't get *omitted* from the `nodeProperties` answer — it comes back as
+`{"Node": "lab-2", "TACACS_Servers": []}`, a normal row with an empty value.
+Left disabled, `devices` carries every matched node regardless of value
+(today's behavior, unchanged). Enabled, `devices` is filtered down to only
+the nodes whose `properties` values are empty (`_is_empty_value`: `None`, a
+blank/whitespace-only string, or an empty list/dict/tuple/set) — turning
+this step from a plain lookup into an audit ("which devices are missing a
+TACACS server"). **Requires `properties` to be set explicitly** — raises
+`ValueError` otherwise, since with no filter Batfish returns dozens of
+unrelated default columns and "empty" has no single well-defined meaning
+across all of them. This check runs entirely in the executor, after the one
+Batfish call — no extra round-trip.
+
+**`empty_match_mode` (`"any"` default | `"all"`) — only load-bearing with
+more than one `properties` entry.** A node can have some requested
+properties empty and others not. `"any"` flags it if *at least one*
+requested property is empty (the stricter read: a device must have *every*
+requested property present to be excluded — the natural mode when
+`properties` lists several fields that must all be configured, e.g. both
+`TACACS_Servers` and `TACACS_Source_Interface`). `"all"` flags it only if
+*every* requested property is empty (looser — a device with at least one of
+several alternative properties set is considered fine). With a single
+`properties` entry the two modes are equivalent, so the frontend config
+panel only shows this control once more than one property is listed.
 
 **Direct network targeting.** Same optional `batfish_source_id`/`network`/
-`snapshot` config fields as the three query steps above.
+`snapshot` config fields as the other query/fact steps.
+
+### Batfish ACL Check (`batfish-acl-check`)
+
+`requires: [identity]`, `produces: []`. Wraps `bf.q.testFilters(...)` —
+confirmed against a real ACL (`permit tcp any host 192.168.1.1 eq 22; deny
+ip any any`): a concrete 5-tuple flow through a named filter, returning
+`Action` (`PERMIT`/`DENY`) and the matched `Line_Content`:
+
+```python
+bf.q.testFilters(
+    nodes=config["node"],           # nodeSpec, e.g. "R1"
+    filters=config["filter_name"],  # filterSpec, e.g. "TEST-ACL"
+    headers={                       # required
+        "srcIps": config.get("src_ips"),
+        "dstIps": config["dst_ips"],
+        "applications": config.get("applications"),   # e.g. ["SSH"], ["TELNET"]
+        "ipProtocols": config.get("ip_protocols"),
+    },
+    startLocation=config.get("start_location"),
+).answer().frame()
+```
+
+`headers` is documented by pybatfish itself as *Required* for this question
+(unlike `reachability`'s optional `headers`) — the config panel should mark
+at least `dst_ips` as required, matching this. Like Path Check, this step
+uses branchable outcomes — `outcomes: [permit, deny]` (as implemented, same
+no-`failure`-outcome reasoning as Path Check) — read from the answer's
+`Action` column; also a single-`StepOutcome`, whole-context-passthrough
+step, not a per-device partition, for the same reason (one concrete flow
+from `config`, not one check per device). An empty result set here is
+treated as an execution problem, not a verdict — `raise RuntimeError`
+rather than defaulting to `deny`, since "no result" means the
+`node`/`filter_name` didn't match anything in the snapshot, not that the
+filter denied the traffic. Stores its result the same workflow-level-artifact
+way Routing Table does.
+
+**`searchFilters` was considered and rejected as the primary mapping for
+"ACL permits this traffic".** `searchFilters()` answers a broader question —
+"does *any* flow matching this header space get permitted/denied" — useful
+for an existence check across a whole space of traffic, but the user's
+framing ("ACL permits this traffic") reads as "check this specific traffic
+description," which is exactly `testFilters()`'s contract: one concrete flow
+in, one concrete verdict out, no example-searching involved.
+`filters`/`nodes` narrow which filter(s) are tested the same way in both
+questions, so a v2 "does any SSH traffic reach this host at all" variant of
+this step could reuse most of the same config shape with `searchFilters()`
+if that broader question turns out to be wanted later.
+
+**Direct network targeting.** Same optional `batfish_source_id`/`network`/
+`snapshot` config fields as Routing Table — see "Bypassing metadata:
+querying a network directly" above.
+
+### Batfish Path Check (`batfish-path-check`)
+
+`requires: [identity]`, `produces: []`. Wraps `bf.q.reachability(...)` —
+this is the actual "is there a path between device A and device B" question,
+confirmed working end-to-end against the two-router snapshot:
+
+```python
+bf.q.reachability(
+    pathConstraints={
+        "startLocation": config["start_node"],   # e.g. "R1" -- a device hostname/nodeSpec
+        "endLocation": config.get("end_node"),   # optional -- omit to search any destination
+    },
+    headers=config.get("headers", {}),           # optional headerConstraint, e.g. {"dstIps": "..."}
+    actions=config.get("actions", ["success"]),  # dispositionSpec, default ["success"]
+    maxTraces=config.get("max_traces"),
+    invertSearch=config.get("invert_search", False),
+    ignoreFilters=config.get("ignore_filters", False),
+).answer().frame()
+```
+
+**Important param-shape gotcha, verified the hard way**: `headers` is a
+**sibling** top-level parameter of `pathConstraints`, not nested inside it —
+`reachability(pathConstraints={"startLocation": ..., "headers": {...}})`
+fails with a 400 from the coordinator (`Unrecognized field "headers"`,
+`PathConstraintsInput` only recognizes `startLocation`/`endLocation`/
+`transitLocations`/`forbiddenLocations`). The step's config schema should
+mirror the correct (flat) shape directly rather than a nested one that looks
+more "intuitive" but doesn't match the real API.
+
+Empty `answer().frame()` means no matching flow was found for the given
+constraints, which for a "does a path exist between A and B" question *is*
+the negative-case answer, not an error. Unlike Routing Table's plain
+success/failure, this step gives that answer a first-class canvas outcome —
+`outcomes: [reachable, not_reachable]` (as implemented — **no `failure`
+outcome**: a config/input problem raises `ValueError`, a Batfish-side
+failure raises via `BatfishAPIError`, neither is modeled as a third outcome
+branch) — so a workflow can branch on it directly (e.g. alert only when a
+critical path breaks).
+
+**Not a per-device partition, unlike `compare-pyats-snapshot`'s
+`match`/`mismatch`/`failure`.** That step's branching splits
+`context.devices` itself into buckets, because it evaluates the same
+condition independently *per device*. Path Check evaluates ONE flow
+definition from `config` (`start_node`/`end_node`/`headers` — not derived
+from `context.devices` at all), so the step returns a single-element
+`list[StepOutcome]` — whichever one of `reachable`/`not_reachable`
+applies — carrying the **full, unmodified** `context.devices` through that
+one outcome. The other declared outcome name simply doesn't fire for that
+run, the same way a plain `success`/`failure` step only ever returns one of
+the two. Result storage follows the same workflow-level-artifact-plus-
+metadata-summary approach as Routing Table above.
+
+**Direct network targeting.** Same optional `batfish_source_id`/`network`/
+`snapshot` config fields as Routing Table — see "Bypassing metadata:
+querying a network directly" above.
 
 ## Frontend: category gating
 
@@ -1038,7 +1131,7 @@ const visibleGroups = useMemo(() => {
 }, [plugins, hasPyatsSource, hasBatfishSource]);
 ```
 
-Frontend-only filter, no backend change — the seven steps are always
+Frontend-only filter, no backend change — the eight steps are always
 registered in `registry.yaml`/`step_registry.py` (a workflow built before a
 source existed and later shared would still execute correctly; only the
 *palette* — where you'd drag a new instance from — is gated). `palette_category:

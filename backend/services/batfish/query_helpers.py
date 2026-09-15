@@ -256,23 +256,30 @@ async def query_node_properties(
     batfish_network: str,
     snapshot: str,
     nodes: Any = None,
+    properties: Any = None,
 ) -> list[dict[str, Any]]:
     """Run the ``nodeProperties`` question. Shared by batfish-start-run's
-    executor (as "Get from Batfish").
+    executor (as "Get from Batfish") and batfish-node-properties.
 
     Always includes a ``Node`` column (same convention
     ``routes``/``reachability``/``testFilters`` use) -- confirmed against
     ``pybatfish.client._facts.get_facts()``'s own use of this question, which
-    is the same one Batfish's built-in fact extraction relies on. No
-    ``properties`` filter is passed -- Batfish returns its own default
-    column set, and callers here only need node identity for dedup, not
-    fact contents (see batfish-extract-facts for pulling actual fact
-    contents). ``nodes`` defaults to every node in the snapshot when blank
-    (pybatfish's own default is ``"/.*/"``).
+    is the same one Batfish's built-in fact extraction relies on. ``nodes``
+    defaults to every node in the snapshot when blank (pybatfish's own
+    default is ``"/.*/"``).
+
+    ``properties`` is a NodePropertySpec (comma-separated property names,
+    e.g. ``"TACACS_Servers, TACACS_Source_Interface"``) restricting which
+    columns come back, on top of ``Node``. Left blank, Batfish returns its
+    own default column set. batfish-start-run always leaves this unset --
+    it only needs node identity for dedup, not fact contents -- so this
+    parameter defaulting to ``None`` (omitted, not an empty string) preserves
+    that call's existing behavior unchanged.
     """
     return await batfish.node_properties(
         connection,
         batfish_network=batfish_network,
         snapshot=snapshot,
         nodes=_or_none(nodes),
+        properties=_or_none(properties),
     )
