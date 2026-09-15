@@ -88,6 +88,12 @@ const QUESTION_LABELS: Record<string, string> = {
   testFilters: "ACL check",
   validateFacts: "Validate facts",
   extractFacts: "Extract facts",
+  nodeProperties: "Node properties",
+  interfaceProperties: "Interface properties",
+  ospfProcessConfiguration: "OSPF process config",
+  ospfAreaConfiguration: "OSPF area config",
+  ospfInterfaceConfiguration: "OSPF interface config",
+  ospfEdges: "OSPF adjacencies",
 };
 
 function BatfishResultSummary({ entry }: { entry: BatfishResultEntry }) {

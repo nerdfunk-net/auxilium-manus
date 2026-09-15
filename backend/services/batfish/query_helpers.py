@@ -358,6 +358,80 @@ async def query_interface_properties(
     )
 
 
+async def query_ospf_process_configuration(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``ospfProcessConfiguration`` question. Shared by
+    batfish-ospf-facts. One row per (Node, VRF, Process_ID) -- confirmed live
+    that a node running OSPF in more than one VRF gets more than one row, see
+    doc/BATFISH_INTEGRATION.md "Batfish OSPF Facts".
+    """
+    return await batfish.ospf_process_configuration(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
+async def query_ospf_area_configuration(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``ospfAreaConfiguration`` question. Shared by
+    batfish-ospf-facts. One row per (Node, VRF, Process_ID, Area) -- an ABR
+    spanning multiple areas gets one row per area, confirmed live against a
+    synthetic multi-area snapshot, see doc/BATFISH_INTEGRATION.md "Batfish
+    OSPF Facts".
+    """
+    return await batfish.ospf_area_configuration(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
+async def query_ospf_interface_configuration(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``ospfInterfaceConfiguration`` question. Shared by
+    batfish-ospf-facts. One row per (node, interface), same nested
+    ``Interface`` identity shape as ``interfaceProperties``.
+    """
+    return await batfish.ospf_interface_configuration(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
+async def query_ospf_edges(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``ospfEdges`` question. Shared by batfish-ospf-facts. One row
+    per OSPF adjacency, with a local ``Interface`` and a ``Remote_Interface``
+    (same nested shape). ``nodes`` filters by the local node -- confirmed live
+    against a synthetic snapshot; a separate ``remoteNodes`` param also exists
+    on this question but is not exposed here (see
+    doc/BATFISH_INTEGRATION.md "Batfish OSPF Facts").
+    """
+    return await batfish.ospf_edges(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
 async def query_generic(
     batfish: BatfishService,
     connection: BatfishConnection,

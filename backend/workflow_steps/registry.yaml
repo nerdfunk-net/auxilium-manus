@@ -941,6 +941,93 @@ plugins:
           data_type: string
           required: false
 
+  - id: batfish-ospf-facts
+    name: Get OSPF Facts
+    overview: Combine OSPF process, area, interface, and adjacency configuration into one per-device picture.
+    description: >
+      Queries up to four Batfish OSPF questions (process, area, interface
+      configuration, and adjacencies) of an already-initialized Batfish
+      snapshot and merges them into one combined OSPF payload per device.
+      Each question is individually toggleable; at least one must stay
+      enabled.
+    artifact_type: configuration_management
+    palette_category: batfish
+    directory: batfish_ospf_facts
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: devices
+    metadata:
+      configuration_input:
+        - name: nodes
+          description: Restrict to nodes matching this specifier (e.g. a hostname). Applied to every enabled question.
+          data_type: string
+          required: false
+        - name: include_process
+          description: >
+            Include ospfProcessConfiguration (one row per node per VRF/
+            process -- a node running OSPF in more than one VRF gets more
+            than one row, merged into a list). Nested in the devices outcome
+            under parsed.Process.
+          data_type: boolean
+          required: false
+          default: true
+        - name: include_areas
+          description: >
+            Include ospfAreaConfiguration (one row per node per VRF/process/
+            area -- an ABR spanning more than one area gets more than one
+            row, merged into a list). Nested under parsed.Areas.
+          data_type: boolean
+          required: false
+          default: true
+        - name: include_interfaces
+          description: >
+            Include ospfInterfaceConfiguration (one row per node per
+            interface). Nested under parsed.Interfaces, keyed by interface
+            name.
+          data_type: boolean
+          required: false
+          default: true
+        - name: include_edges
+          description: >
+            Include ospfEdges (one row per OSPF adjacency, each carrying its
+            own local and remote interface). Nested under parsed.Adjacencies
+            as a list.
+          data_type: boolean
+          required: false
+          default: true
+        - name: output_key
+          description: >
+            Metadata key this step's results are stored under. Each enabled
+            question gets its own artifact at {node_id}.<output_key>.<key>
+            (key one of process/areas/interfaces/edges); the devices outcome
+            merges all enabled questions under {node_id}.<output_key>.
+          data_type: string
+          required: false
+          default: batfish_ospf_facts
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
+
   - id: batfish-path-check
     name: Batfish Path Check
     overview: Check whether a path exists between two devices via Batfish's reachability question.

@@ -192,6 +192,50 @@ class BatfishService:
             connection, batfish_network, snapshot, "interfaceProperties", params
         )
 
+    async def ospf_process_configuration(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same identity shape as nodeProperties (plain "Node" string column) --
+        # confirmed against a live coordinator, see doc/BATFISH_INTEGRATION.md
+        # "Batfish OSPF Facts". A node can have more than one row (one per
+        # VRF/Process_ID) -- multi-VRF OSPF is a legitimate, confirmed case.
+        return await self._answer(
+            connection, batfish_network, snapshot, "ospfProcessConfiguration", params
+        )
+
+    async def ospf_area_configuration(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same identity shape as nodeProperties (plain "Node" string column) --
+        # confirmed against a live coordinator. One row per (Node, VRF,
+        # Process_ID, Area) -- an ABR spanning multiple areas gets one row per
+        # area it participates in, see doc/BATFISH_INTEGRATION.md "Batfish
+        # OSPF Facts".
+        return await self._answer(
+            connection, batfish_network, snapshot, "ospfAreaConfiguration", params
+        )
+
+    async def ospf_interface_configuration(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same nested Interface identity shape as interfaceProperties -- one
+        # row per (node, interface).
+        return await self._answer(
+            connection, batfish_network, snapshot, "ospfInterfaceConfiguration", params
+        )
+
+    async def ospf_edges(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # One row per OSPF adjacency: a local "Interface" (same nested shape
+        # as interfaceProperties) plus a "Remote_Interface" of the same
+        # shape. "nodes" filters by the LOCAL node; a separate "remoteNodes"
+        # param filters by the remote node -- both confirmed against a live
+        # coordinator (see doc/BATFISH_INTEGRATION.md "Batfish OSPF Facts"),
+        # but only "nodes" is exposed by the workflow step, for consistency
+        # with the other three OSPF questions.
+        return await self._answer(connection, batfish_network, snapshot, "ospfEdges", params)
+
     async def generic_question(
         self,
         connection: BatfishConnection,

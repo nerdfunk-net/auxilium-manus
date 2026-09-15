@@ -104,9 +104,14 @@ class PropertyQuestionSpec:
     row_noun: str
 
 
-def _group_rows_by_node(
+def group_rows_by_node(
     rows: list[dict[str, Any]], *, node_key: Callable[[dict[str, Any]], str | None]
 ) -> dict[str, list[dict[str, Any]]]:
+    """Group a Batfish answer's rows by node identity, dropping rows with no
+    resolvable node. Shared beyond this module by
+    ``workflow_steps.common.batfish_ospf_facts``, which groups four
+    questions' rows the same way but merges them per node instead of
+    building one ``PropertyQuestionSpec``-shaped result."""
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         node = node_key(row)
@@ -120,7 +125,7 @@ def _enrich_devices(
     rows: list[dict[str, Any]], *, node_id: str, output_key: str, spec: PropertyQuestionSpec
 ) -> dict[str, DeviceContext]:
     parsed_key = f"{node_id}.{output_key}"
-    rows_by_node = _group_rows_by_node(rows, node_key=spec.node_key)
+    rows_by_node = group_rows_by_node(rows, node_key=spec.node_key)
 
     enriched: dict[str, DeviceContext] = {}
     for node, node_rows in rows_by_node.items():

@@ -32,6 +32,7 @@ from workflow_steps.batfish_interface_properties.executor import (
     execute as batfish_interface_properties,
 )
 from workflow_steps.batfish_node_properties.executor import execute as batfish_node_properties
+from workflow_steps.batfish_ospf_facts.executor import execute as batfish_ospf_facts
 from workflow_steps.batfish_path_check.executor import execute as batfish_path_check
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
 from workflow_steps.batfish_start_run.executor import execute as batfish_start_run
@@ -115,6 +116,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "batfish-routing-table": batfish_routing_table,
     "batfish-node-properties": batfish_node_properties,
     "batfish-interface-properties": batfish_interface_properties,
+    "batfish-ospf-facts": batfish_ospf_facts,
     "batfish-path-check": batfish_path_check,
     "batfish-acl-check": batfish_acl_check,
     "batfish-validate-facts": batfish_validate_facts,
