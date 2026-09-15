@@ -145,21 +145,21 @@ export function OptionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
             <Terminal className="size-4" />
             Options
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="netmiko">
-          <TabsList>
+        <Tabs defaultValue="netmiko" className="flex min-h-0 flex-1 flex-col gap-0">
+          <TabsList className="mx-6 mt-4 w-fit">
             <TabsTrigger value="netmiko">Netmiko</TabsTrigger>
             <TabsTrigger value="batfish">Batfish</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="netmiko">
+          <TabsContent value="netmiko" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Nautobot Source</Label>
@@ -325,7 +325,7 @@ export function OptionsDialog({
             </div>
           </TabsContent>
 
-          <TabsContent value="batfish">
+          <TabsContent value="batfish" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
             <BatfishOptionsTab
               targetConfig={batfishTargetConfig}
               onTargetConfigChange={onBatfishTargetConfigChange}

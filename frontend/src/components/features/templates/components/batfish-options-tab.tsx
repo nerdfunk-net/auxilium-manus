@@ -667,7 +667,7 @@ export function BatfishOptionsTab({
       </div>
 
       {result ? (
-        <div className="space-y-2 rounded-md border p-3">
+        <div className="min-w-0 space-y-2 rounded-md border p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{result.question}</Badge>
             {typeof result.reachable === "boolean" ? (
@@ -685,7 +685,7 @@ export function BatfishOptionsTab({
               {result.snapshot}
             </span>
           </div>
-          <pre className="max-h-48 overflow-auto rounded bg-muted p-2 text-xs">
+          <pre className="max-h-48 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
             {JSON.stringify(result.rows, null, 2)}
           </pre>
         </div>
