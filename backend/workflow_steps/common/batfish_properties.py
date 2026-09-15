@@ -109,9 +109,10 @@ def group_rows_by_node(
 ) -> dict[str, list[dict[str, Any]]]:
     """Group a Batfish answer's rows by node identity, dropping rows with no
     resolvable node. Shared beyond this module by
-    ``workflow_steps.common.batfish_ospf_facts``, which groups four
-    questions' rows the same way but merges them per node instead of
-    building one ``PropertyQuestionSpec``-shaped result."""
+    ``workflow_steps.common.batfish_combined_facts`` (the engine behind
+    Get OSPF Facts and Get BGP Facts), which groups each enabled question's
+    rows the same way but merges them per node instead of building one
+    ``PropertyQuestionSpec``-shaped result."""
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         node = node_key(row)

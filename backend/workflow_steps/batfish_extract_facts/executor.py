@@ -40,14 +40,23 @@ _STEP_ID = "batfish-extract-facts"
 
 
 def _default_nodes_filter(context: WorkflowContext) -> str:
-    """Default to just this run's devices (lowercased, |-joined nodeSpec
-    alternation) rather than Batfish's own "/.*/" default -- so an
-    unconfigured step scopes to the workflow's own selected devices instead
-    of every node in the network."""
+    """Default to just this run's devices (lowercased, comma-joined nodeSpec
+    union) rather than Batfish's own "/.*/" default -- so an unconfigured
+    step scopes to the workflow's own selected devices instead of every node
+    in the network.
+
+    Must be comma-joined, not "|"-joined: confirmed against a live Batfish
+    coordinator that a bare (non-"/regex/"-delimited) nodeSpec containing "|"
+    is parsed as one literal node name, not an alternation -- "lab|lab-2"
+    matches nothing even when both "lab" and "lab-2" exist, while
+    "lab,lab-2" (the documented union operator for a bare name list) matches
+    both. A previous "|".join here silently produced zero-node filters for
+    every multi-device run.
+    """
     names = sorted(
         {device.name.strip().lower() for device in context.devices.values() if device.name.strip()}
     )
-    return "|".join(names) if names else "/.*/"
+    return ",".join(names) if names else "/.*/"
 
 
 async def execute(

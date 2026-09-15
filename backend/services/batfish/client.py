@@ -236,6 +236,47 @@ class BatfishService:
         # with the other three OSPF questions.
         return await self._answer(connection, batfish_network, snapshot, "ospfEdges", params)
 
+    async def bgp_process_configuration(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same identity shape as nodeProperties (plain "Node" string column) --
+        # confirmed against a live coordinator, see doc/BATFISH_INTEGRATION.md
+        # "Batfish BGP Facts". A node can have more than one row (one per
+        # VRF) -- multi-VRF BGP is a legitimate case, same as OSPF.
+        return await self._answer(
+            connection, batfish_network, snapshot, "bgpProcessConfiguration", params
+        )
+
+    async def bgp_peer_configuration(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same identity shape as nodeProperties. One row per configured peer
+        # -- a node with more than one peer gets more than one row (confirmed
+        # live: a node with two eBGP neighbors returned two rows).
+        return await self._answer(
+            connection, batfish_network, snapshot, "bgpPeerConfiguration", params
+        )
+
+    async def bgp_session_status(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same identity shape as nodeProperties, unlike ospfEdges/
+        # interfaceProperties -- confirmed live: this question's "Remote_Node"
+        # is a plain string, not a nested Interface dict. One row per BGP
+        # session.
+        return await self._answer(connection, batfish_network, snapshot, "bgpSessionStatus", params)
+
+    async def bgp_edges(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same identity shape as nodeProperties -- unlike ospfEdges, bgpEdges'
+        # "Node"/"Remote_Node" are plain strings, not nested Interface dicts
+        # (confirmed live). One row per BGP adjacency direction. "nodes"
+        # filters by the LOCAL node; a separate "remoteNodes" param also
+        # exists (confirmed live) but is not exposed by the workflow step,
+        # for consistency with the other three BGP questions.
+        return await self._answer(connection, batfish_network, snapshot, "bgpEdges", params)
+
     async def generic_question(
         self,
         connection: BatfishConnection,

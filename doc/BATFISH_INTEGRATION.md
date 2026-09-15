@@ -31,6 +31,7 @@ gating" below).
   - [Batfish Node Properties](#batfish-node-properties-batfish-node-properties)
   - [Batfish Interface Properties](#batfish-interface-properties-batfish-interface-properties)
   - [Batfish OSPF Facts](#batfish-ospf-facts-batfish-ospf-facts-get-ospf-facts)
+  - [Batfish BGP Facts](#batfish-bgp-facts-batfish-bgp-facts-get-bgp-facts)
   - [Batfish ACL Check](#batfish-acl-check-batfish-acl-check)
   - [Batfish Path Check](#batfish-path-check-batfish-path-check)
 - [Frontend: category gating](#frontend-category-gating)
@@ -225,18 +226,26 @@ backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: gi
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_node_properties/{__init__.py,executor.py,config.py}   # exposes nodeProperties' `properties` filter directly (Get from Batfish never sets it)
 backend/workflow_steps/batfish_interface_properties/{__init__.py,executor.py,config.py}   # interfaceProperties -- one row per (node, interface), a different question/shape from nodeProperties
-backend/workflow_steps/common/batfish_ospf_facts.py   # "Get OSPF Facts" merge engine -- 4-question grouping + per-device merge, NOT a PropertyQuestionSpec (see step section)
-backend/workflow_steps/batfish_ospf_facts/{__init__.py,executor.py,config.py}   # "Get OSPF Facts" -- process/areas/interfaces/edges, each independently toggleable
+backend/workflow_steps/common/batfish_combined_facts.py   # shared "combined facts" engine -- CombinedQuestionSpec/
+                                               # build_combined_facts_outcomes; N-question grouping + per-device merge,
+                                               # NOT a PropertyQuestionSpec (see Batfish OSPF Facts section)
+backend/workflow_steps/common/batfish_ospf_facts.py   # "Get OSPF Facts" question specs (process/areas/interfaces/edges)
+backend/workflow_steps/batfish_ospf_facts/{__init__.py,executor.py,config.py}   # "Get OSPF Facts" -- each question independently toggleable
+backend/workflow_steps/common/batfish_bgp_facts.py    # "Get BGP Facts" question specs (process/peers/sessions/edges)
+backend/workflow_steps/batfish_bgp_facts/{__init__.py,executor.py,config.py}    # "Get BGP Facts" -- each question independently toggleable
 backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_validate_facts/{__init__.py,executor.py,config.py}       # facts_source: git reuses batfish_init_snapshot/git_source.py::collect_git_source_files
 backend/workflow_steps/batfish_extract_facts/{__init__.py,executor.py,config.py}
 backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts/node_properties/interface_properties/
-                                               # ospf_process_configuration/ospf_area_configuration/ospf_interface_configuration/ospf_edges
+                                               # ospf_process_configuration/ospf_area_configuration/ospf_interface_configuration/ospf_edges/
+                                               # bgp_process_configuration/bgp_peer_configuration/bgp_session_status/bgp_edges
 backend/services/batfish/query_helpers.py     # gained query_ospf_process_configuration/query_ospf_area_configuration/
-                                               # query_ospf_interface_configuration/query_ospf_edges
-backend/services/execution/step_registry.py   # 10 imports + dict entries
-backend/workflow_steps/registry.yaml          # 10 entries, palette_category: batfish
+                                               # query_ospf_interface_configuration/query_ospf_edges/
+                                               # query_bgp_process_configuration/query_bgp_peer_configuration/
+                                               # query_bgp_session_status/query_bgp_edges
+backend/services/execution/step_registry.py   # 11 imports + dict entries
+backend/workflow_steps/registry.yaml          # 11 entries, palette_category: batfish
 
 backend/tests/unit/test_batfish_{client,source_config_service,router_auth,context_helper}.py
 backend/tests/unit/test_batfish_context_ref_resolver.py
@@ -247,6 +256,8 @@ backend/tests/unit/test_batfish_node_properties_executor.py
 backend/tests/unit/test_batfish_interface_properties_executor.py
 backend/tests/unit/test_batfish_ospf_facts_common.py
 backend/tests/unit/test_batfish_ospf_facts_executor.py
+backend/tests/unit/test_batfish_bgp_facts_common.py
+backend/tests/unit/test_batfish_bgp_facts_executor.py
 backend/tests/unit/test_batfish_validate_facts_executor.py
 backend/tests/unit/test_batfish_extract_facts_executor.py
 backend/tests/unit/test_batfish_discovery_router.py
@@ -276,11 +287,12 @@ frontend/src/components/features/workflow-steps/shared/batfish-interface-propert
 frontend/src/components/features/workflow-steps/shared/batfish-properties-fields.tsx  # shared ConfigPanel fields for the two "property lookup" steps -- see step section
 frontend/src/components/features/workflow-steps/shared/batfish-generic-question-names.ts  # suggestion list mirroring GENERIC_QUESTION_ALLOWLIST, not enforcement
 frontend/src/components/features/workflow-steps/batfish-ospf-facts/{index.tsx,help-panel.tsx}  # nodes + 4 question checkboxes + BatfishDirectTargetFields (no properties/route_empty_to_devices -- doesn't apply)
+frontend/src/components/features/workflow-steps/batfish-bgp-facts/{index.tsx,help-panel.tsx}  # same pattern as batfish-ospf-facts above
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-acl-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.tsx,help-panel.tsx}  # facts_source toggle (rendered_yaml/field/git)
 frontend/src/components/features/workflow-steps/batfish-extract-facts/{index.tsx,help-panel.tsx}
-frontend/src/lib/plugin-ui-registry.ts        # 10 PLUGIN_UI_REGISTRY entries
+frontend/src/lib/plugin-ui-registry.ts        # 11 PLUGIN_UI_REGISTRY entries
 frontend/src/components/features/workflows/utils/step-visuals.ts   # "batfish" category label/colors/icons
 frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBatfishSource gate
 
@@ -599,7 +611,7 @@ own process startup.
 
 ## Workflow steps
 
-All ten steps live under `palette_category: batfish` (a new palette
+All eleven steps live under `palette_category: batfish` (a new palette
 category — see "Frontend: category gating" below for why it's hidden by
 default).
 
@@ -706,15 +718,22 @@ are pure reads against an already-initialized snapshot.
 `Session.extract_facts(nodes="/.*/", output_directory=None, snapshot=None)`
 — retrieves the facts Batfish parsed for a set of nodes, with no expected
 values to compare against (see Validate Facts below for that). Unlike that
-step, `nodes` here is a plain `NodeSpecifier` string (a regex or
-`name1|name2` alternation) and the call returns the facts dict directly — no
-temp directory needed.
+step, `nodes` here is a plain `NodeSpecifier` string (a bare comma-joined
+name union, or a `/regex/`-delimited alternation) and the call returns the
+facts dict directly — no temp directory needed.
 
 **`nodes_filter` defaults to this run's own devices, not Batfish's own
-`"/.*/"` default.** Left blank, the step builds a `|`-joined, lowercased
-alternation from `context.devices` so an unconfigured step scopes to the
+`"/.*/"` default.** Left blank, the step builds a comma-joined, lowercased
+union from `context.devices` so an unconfigured step scopes to the
 workflow's own selected devices rather than every node in the network; set
-it to `/.*/` explicitly to extract everything.
+it to `/.*/` explicitly to extract everything. **Must be comma-joined, not
+`|`-joined** — confirmed against a live coordinator that a bare
+(non-`/regex/`-delimited) nodeSpec containing `|` is parsed as one literal
+node name rather than an alternation, so `"lab|lab-2"` matches nothing even
+when both nodes exist, while `"lab,lab-2"` matches both. A prior `|`-joined
+default silently produced a zero-node filter — and therefore zero extracted
+facts and a `post_step_guard` failure (`produces={parsed}` unmet) — for
+every multi-device run.
 
 **Enriches every device directly, unlike the three query steps below.**
 `device.parsed[output_key] = {"parsed": <node's facts>, "error": None}` for
@@ -1212,10 +1231,16 @@ Because `ospfProcessConfiguration`/`ospfAreaConfiguration` reuse the
 reuse the `interfaceProperties` one, no new identity-extraction code was
 needed — `workflow_steps.common.batfish_properties.group_rows_by_node` (made
 public for this reuse) groups all four. What *is* new: the four-question
-merge itself, implemented in `workflow_steps/common/batfish_ospf_facts.py`
-rather than as another `PropertyQuestionSpec` entry (that engine assumes
-exactly one Batfish call in, one shape out — real merge logic across four
-heterogeneous row shapes is genuinely new).
+merge itself, implemented as a generic engine in
+`workflow_steps/common/batfish_combined_facts.py`
+(`CombinedQuestionSpec`/`build_combined_facts_outcomes`) rather than as
+another `PropertyQuestionSpec` entry (that engine assumes exactly one
+Batfish call in, one shape out — real merge logic across several
+heterogeneous row shapes is genuinely new). `workflow_steps/common/
+batfish_ospf_facts.py` supplies only the OSPF-specific `CombinedQuestionSpec`
+table on top of that shared engine — originally written as a self-contained
+module, then factored apart once **Batfish BGP Facts** (below) needed the
+identical fetch-store-merge mechanics with a different question set.
 
 **Config: `nodes`** (optional NodeSpecifier, applied to every enabled
 question) **plus four independent toggles** — `include_process` /
@@ -1286,6 +1311,87 @@ adjacencies"), the equivalent of Node/Interface Properties'
 value on a *requested property* vs. "one question has rows, another doesn't"
 for the *same node*) that it needs its own design rather than reusing
 `route_empty_to_devices` as-is — raised, not designed, here.
+
+### Batfish BGP Facts (`batfish-bgp-facts`, "Get BGP Facts")
+
+Combines up to four Batfish BGP questions into one merged per-device BGP
+picture — structurally identical to Batfish OSPF Facts above (same
+`workflow_steps/common/batfish_combined_facts.py` engine, same `requires:
+[identity]`, `produces: []`, `outcomes: [success, devices]`), but simpler:
+every one of its four questions shares one identity shape, so there is no
+OSPF-style split between plain-`Node` and nested-`Interface` questions.
+
+**Row shapes — confirmed live, not assumed**, against a synthetic 3-router
+eBGP snapshot (r1 AS100 — r2 AS200 — r3 AS300, r2 peering with both):
+
+- **`bgpProcessConfiguration`** — one row per (Node, VRF). Plain `Node`
+  string column, same identity shape as `nodeProperties`.
+- **`bgpPeerConfiguration`** — one row per configured peer. Same plain-`Node`
+  identity; r2 (two peers) returned two rows.
+- **`bgpSessionStatus`** — one row per BGP session, including
+  `Established_Status`. Same plain-`Node` identity — confirmed **not** to use
+  `ospfEdges`' nested `Interface` shape: its `Remote_Node` field is a plain
+  string.
+- **`bgpEdges`** — one row per BGP adjacency direction (each side reports its
+  own row, e.g. r1→r2 and r2→r1 are two separate rows). Same plain-`Node`
+  identity as the other three — confirmed **not** to use `ospfEdges`' nested
+  `Interface`/`Remote_Interface` shape, despite being BGP's direct analogue
+  of that question. `nodes` filters by the local node; a separate
+  `remoteNodes` param also exists (confirmed live) but is not exposed by
+  this step, for consistency with `ospfEdges`' own choice.
+
+Because all four questions share the `nodeProperties` identity shape, this
+step needed no `_interface_node_key`/dict-by-name grouping at all — every
+merged field is a plain list, via the same `_node_key` extractor and a
+shared "strip the redundant `Node` field, return the list" builder
+(`workflow_steps/common/batfish_bgp_facts.py`). Genuinely less code than
+Batfish OSPF Facts for this reason, not a simplification taken at the cost
+of correctness.
+
+**Config: `nodes`** (optional NodeSpecifier, applied to every enabled
+question) **plus four independent toggles** — `include_process` /
+`include_peers` / `include_sessions` / `include_edges`, all default `true`.
+At least one must stay enabled; the executor raises `ValueError` otherwise
+(same frontend defense-in-depth as Batfish OSPF Facts). Same `output_key`
+(default `batfish_bgp_facts`) and `batfish_source_id`/`network`/`snapshot`
+direct-target fields as every other query/fact step.
+
+**Result storage and `devices` outcome: identical convention to Batfish OSPF
+Facts** (see that section for the full reasoning) — one `kind:
+"batfish_result"` artifact per enabled question (`key` one of
+`process`/`peers`/`sessions`/`edges`), and one device per distinct node seen
+in *any* enabled question's rows, enriched with only the keys for questions
+that matched:
+
+```python
+{
+    "Process": [...],       # list -- multi-VRF nodes get more than one entry
+    "Peers": [...],         # list -- every configured peer
+    "Sessions": [...],      # list -- every BGP session
+    "Adjacencies": [...],   # list -- every adjacency direction
+}
+```
+
+Every field here is **always a list**, including with a single matching row
+— same multi-row-is-normal reasoning as OSPF's `Process`/`Areas`, just
+applying to all four questions here instead of two. Unlike OSPF's
+`Adjacencies` (which keeps the row's local `Interface` for context), this
+step's row-building step drops the now-redundant `Node` field from every
+question's rows before storing them under `parsed` — plain-string `Node`
+carries no information beyond the grouping key it already used, unlike
+OSPF's `Interface` dict (which also names the local interface).
+
+**Node identity union, and why a node's `Remote_Node` doesn't get its own
+device.** Same rule as OSPF's `Remote_Interface`: `bgpSessionStatus`/
+`bgpEdges` rows contribute identity via their own `Node` field only —
+`Remote_Node` is additional data on the local node's row, not a second
+identity to resolve. A node that appears only as some other node's
+`Remote_Node`, and in no other enabled question's rows, does not get its own
+`devices` entry.
+
+**Not fan-out sensitive. Direct network targeting.** Same as Batfish OSPF
+Facts — pure read against an already-built snapshot, same optional
+`batfish_source_id`/`network`/`snapshot` config fields.
 
 ### Batfish ACL Check (`batfish-acl-check`)
 
@@ -1411,7 +1517,7 @@ const visibleGroups = useMemo(() => {
 }, [plugins, hasPyatsSource, hasBatfishSource]);
 ```
 
-Frontend-only filter, no backend change — the ten steps are always
+Frontend-only filter, no backend change — the eleven steps are always
 registered in `registry.yaml`/`step_registry.py` (a workflow built before a
 source existed and later shared would still execute correctly; only the
 *palette* — where you'd drag a new instance from — is gated). `palette_category:

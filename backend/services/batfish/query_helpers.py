@@ -432,6 +432,78 @@ async def query_ospf_edges(
     )
 
 
+async def query_bgp_process_configuration(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``bgpProcessConfiguration`` question. Shared by
+    batfish-bgp-facts. One row per (Node, VRF) -- confirmed live that a node
+    running BGP in more than one VRF gets more than one row.
+    """
+    return await batfish.bgp_process_configuration(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
+async def query_bgp_peer_configuration(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``bgpPeerConfiguration`` question. Shared by
+    batfish-bgp-facts. One row per configured peer, plain ``Node`` identity
+    (confirmed live) -- a node with more than one peer gets more than one
+    row.
+    """
+    return await batfish.bgp_peer_configuration(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
+async def query_bgp_session_status(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``bgpSessionStatus`` question. Shared by batfish-bgp-facts.
+    One row per BGP session, plain ``Node``/``Remote_Node`` identity
+    (confirmed live -- unlike ``ospfEdges``, this question has no nested
+    ``Interface`` shape).
+    """
+    return await batfish.bgp_session_status(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
+async def query_bgp_edges(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``bgpEdges`` question. Shared by batfish-bgp-facts. One row
+    per BGP adjacency direction, plain ``Node``/``Remote_Node`` identity
+    (confirmed live). ``nodes`` filters by the local node; a separate
+    ``remoteNodes`` param also exists on this question but is not exposed
+    here (see doc/BATFISH_INTEGRATION.md "Batfish BGP Facts").
+    """
+    return await batfish.bgp_edges(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
 async def query_generic(
     batfish: BatfishService,
     connection: BatfishConnection,

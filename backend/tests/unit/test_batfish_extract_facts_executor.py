@@ -84,7 +84,10 @@ class BatfishExtractFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         }
         _, batfish = await self._run(facts={"nodes": {}}, devices=devices)
         _, kwargs = batfish.extract_facts.call_args
-        self.assertEqual(kwargs["nodes"], "r1|r2")
+        # Comma-joined, not "|"-joined -- a bare (non-"/regex/") nodeSpec
+        # containing "|" is parsed by Batfish as one literal node name, not
+        # an alternation, and matches nothing.
+        self.assertEqual(kwargs["nodes"], "r1,r2")
 
     async def test_explicit_nodes_filter_passed_through(self) -> None:
         devices = {"device-1": _device("device-1", "R1")}

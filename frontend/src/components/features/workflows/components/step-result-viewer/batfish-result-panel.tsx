@@ -94,6 +94,10 @@ const QUESTION_LABELS: Record<string, string> = {
   ospfAreaConfiguration: "OSPF area config",
   ospfInterfaceConfiguration: "OSPF interface config",
   ospfEdges: "OSPF adjacencies",
+  bgpProcessConfiguration: "BGP process config",
+  bgpPeerConfiguration: "BGP peer config",
+  bgpSessionStatus: "BGP session status",
+  bgpEdges: "BGP adjacencies",
 };
 
 function BatfishResultSummary({ entry }: { entry: BatfishResultEntry }) {
