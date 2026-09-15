@@ -968,19 +968,40 @@ open-ended inspection/export across a fleet (e.g. auditing which TACACS
 servers are actually configured everywhere); Validate Facts is the right
 tool for asserting one expected answer.
 
-**Result storage and `devices` outcome: same shape as Batfish Routing
-Table.** One workflow-level JSON artifact (`kind: "batfish_result"`,
-`question: "nodeProperties"`) plus a `context.metadata[f"{node_id}.
-{output_key}"]` summary (`output_key` default `batfish_node_properties`) —
-not per-device, for the same reason documented under Batfish Routing Table's
-"Result storage" above. Also mirrors that step's `devices` outcome shape
-(one Batfish-sourced `DeviceContext` per distinct `Node` value, always
-emitted even when empty) — built via the shared
-`workflow_steps.common.batfish_context.devices_from_nodes` helper rather
-than a second inline copy, since this is a brand-new step with no prior
-behavior to preserve (unlike Routing Table's own deliberately-unrefactored
-copy — see "Get from Batfish" above). *Which* nodes land in `devices`
-depends on `route_empty_to_devices`, below.
+**Result storage: same artifact shape as Batfish Routing Table, but
+`success` and `devices` diverge in what they carry.** One workflow-level
+JSON artifact (`kind: "batfish_result"`, `question: "nodeProperties"`) plus
+a `context.metadata[f"{node_id}.{output_key}"]` summary (`output_key`
+default `batfish_node_properties`) — not per-device, same as Routing Table's
+"Result storage" above. `success` passes `context` straight through
+unchanged (`devices` included, if any were already present upstream) plus
+this shared metadata — a workflow that just wants the full-batch artifact
+for export/audit uses this outcome and ignores `devices` entirely.
+
+**`devices` outcome: per-device enrichment, not identity-only.** Each
+`DeviceContext` in `devices` is built by `_enrich_devices` (layered on top
+of the shared `workflow_steps.common.batfish_context.devices_from_nodes`
+helper via `device.model_copy`, the same `device.parsed[...] =
+{"parsed": ..., "error": None}` idiom `batfish-extract-facts`/
+`batfish-validate-facts` already use) and carries **only that node's own
+row** at `device.parsed[f"{node_id}.{output_key}"]`. This was not the
+original behavior — `devices` originally carried identity only (no
+`parsed` at all), with the actual property values living solely in the one
+shared, un-partitioned artifact above. That meant a per-device consumer
+downstream of `devices` (Log Attributes, a device-detail dialog, a Render
+Jinja Template keyed by `parsed`) had nothing device-specific to read: the
+only place the data lived showed the *same* full, all-nodes answer
+regardless of which device you were looking at — e.g. opening device
+`lab-2`'s detail dialog after `Get from Batfish → Batfish Node Properties →
+devices` showed `lab`'s TACACS data too, since the "Batfish result" panel
+there (`device-detail-dialog.tsx`) just renders whatever's in
+`context.metadata`, not anything scoped to `lab-2`. Fixed by enriching
+`devices` per device while deliberately leaving `success` as a pure
+passthrough — a workflow chaining into per-device tooling should use
+`devices`; one that only wants the full-batch artifact keeps using
+`success`, unaffected by this change. *Which* nodes land in `devices` (and,
+now, which row each one is enriched with) depends on
+`route_empty_to_devices`, below.
 
 **`route_empty_to_devices` (config field, default `false`) — an empty
 result is not a missing row.** A node with no TACACS server configured
@@ -1078,11 +1099,30 @@ no interface-level identity), a node is routed to `devices` if *any* of its
 matching interfaces meets the empty condition, not only when every interface
 on that node does.
 
-**Result storage: same shape as Node Properties/Routing Table.** One
-workflow-level JSON artifact (`kind: "batfish_result"`, `question:
-"interfaceProperties"`) plus a `context.metadata[f"{node_id}.
-{output_key}"]` summary (`output_key` default
-`batfish_interface_properties`).
+**Result storage: same artifact shape as Node Properties/Routing Table, but
+`success` and `devices` diverge in what they carry — see Node Properties
+above for the full reasoning.** One workflow-level JSON artifact (`kind:
+"batfish_result"`, `question: "interfaceProperties"`) plus a
+`context.metadata[f"{node_id}.{output_key}"]` summary (`output_key` default
+`batfish_interface_properties`) — read by `success`, which passes `context`
+straight through unchanged otherwise.
+
+**`devices` outcome: per-device enrichment, not identity-only.** Each
+`DeviceContext` in `devices` is built by `_enrich_devices` (layered on top
+of `devices_from_interface_rows` via `device.model_copy`) and carries **only
+that node's own matching interfaces**, grouped under
+`device.parsed[f"{node_id}.{output_key}"]["parsed"]["Interfaces"][<interface
+name>]` — the same `"Interfaces"` nesting `pybatfish.client._facts.
+get_facts()` itself uses for this question. Same motivation and same fix as
+Node Properties: `devices` originally carried identity only, so a per-device
+consumer downstream (Log Attributes, a device-detail dialog) had nothing
+device-specific to read — the interface data only ever lived in the one
+shared artifact above, identical regardless of which device you inspected.
+`route_empty_to_devices` composes with this naturally, with no extra logic:
+`_enrich_devices` only ever sees whatever `rows` it's given, and when
+filtering is on, that's already just the flagged (empty) rows — so a
+flagged device's `Interfaces` entry directly names *which* interface(s)
+triggered the flag, not its full interface set.
 
 **Direct network targeting.** Same optional `batfish_source_id`/`network`/
 `snapshot` config fields as the other query/fact steps.

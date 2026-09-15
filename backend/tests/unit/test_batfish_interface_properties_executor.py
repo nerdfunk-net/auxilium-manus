@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from models.workflow_context import Capability, DeviceStatus, WorkflowContext
+from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_interface_properties.executor import execute
@@ -63,8 +63,111 @@ class BatfishInterfacePropertiesExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = devices["lab"]
         self.assertEqual(device.id, "lab")
         self.assertEqual(device.source, "batfish")
-        self.assertEqual(device.capabilities, {Capability.IDENTITY})
+        self.assertEqual(device.capabilities, {Capability.IDENTITY, Capability.PARSED})
         self.assertEqual(device.status, DeviceStatus.OK)
+        self.assertEqual(
+            device.parsed["node-1.batfish_interface_properties"],
+            {
+                "parsed": {"Interfaces": {"GigabitEthernet0/1": {"Description": "uplink"}}},
+                "error": None,
+            },
+        )
+
+    async def test_devices_outcome_enriches_each_device_with_its_own_interfaces_only(
+        self,
+    ) -> None:
+        run = MagicMock()
+        run.id = 42
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.interface_properties = AsyncMock(
+                return_value=[
+                    {"Interface": {"hostname": "lab", "interface": "Gi0/1"}, "Description": "wan"},
+                    {"Interface": {"hostname": "lab-2", "interface": "Gi0/1"}, "Description": ""},
+                ]
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={"properties": "Description"},
+                context=_context_with_snapshot(),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        devices = next(outcome for outcome in outcomes if outcome.name == "devices").context.devices
+        self.assertEqual(
+            devices["lab"].parsed["node-1.batfish_interface_properties"]["parsed"]["Interfaces"],
+            {"Gi0/1": {"Description": "wan"}},
+        )
+        self.assertEqual(
+            devices["lab-2"].parsed["node-1.batfish_interface_properties"]["parsed"]["Interfaces"],
+            {"Gi0/1": {"Description": ""}},
+        )
+        # lab's interface data must never leak into lab-2's parsed entry or vice versa.
+        self.assertNotIn("wan", str(devices["lab-2"].parsed))
+
+    async def test_route_empty_to_devices_enrichment_shows_only_flagged_interface(
+        self,
+    ) -> None:
+        run = MagicMock()
+        run.id = 42
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.interface_properties = AsyncMock(
+                return_value=[
+                    {"Interface": {"hostname": "lab", "interface": "Gi0/1"}, "Description": "wan"},
+                    {"Interface": {"hostname": "lab", "interface": "Gi0/2"}, "Description": ""},
+                ]
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={"properties": "Description", "route_empty_to_devices": True},
+                context=_context_with_snapshot(),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        devices = next(outcome for outcome in outcomes if outcome.name == "devices").context.devices
+        self.assertEqual(set(devices), {"lab"})
+        # Only the flagged (empty) interface is attached -- not lab's full interface set.
+        self.assertEqual(
+            devices["lab"].parsed["node-1.batfish_interface_properties"]["parsed"]["Interfaces"],
+            {"Gi0/2": {"Description": ""}},
+        )
+
+    async def test_success_outcome_devices_unaffected_by_enrichment(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        existing_device = DeviceContext(id="dev-1", name="dev-1", hostname="dev-1")
+        context = _context_with_snapshot().model_copy(
+            update={"devices": {"dev-1": existing_device}}
+        )
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.interface_properties = AsyncMock(
+                return_value=[
+                    {"Interface": {"hostname": "lab", "interface": "Gi0/1"}, "Description": "wan"}
+                ]
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={"properties": "Description"},
+                context=context,
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        success_outcome = next(outcome for outcome in outcomes if outcome.name == "success")
+        self.assertEqual(success_outcome.context.devices, {"dev-1": existing_device})
 
     async def test_config_fields_map_to_interface_properties_kwargs(self) -> None:
         run = MagicMock()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from models.workflow_context import Capability, DeviceStatus, WorkflowContext
+from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_node_properties.executor import execute
@@ -58,8 +58,72 @@ class BatfishNodePropertiesExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = devices["r1"]
         self.assertEqual(device.id, "r1")
         self.assertEqual(device.source, "batfish")
-        self.assertEqual(device.capabilities, {Capability.IDENTITY})
+        self.assertEqual(device.capabilities, {Capability.IDENTITY, Capability.PARSED})
         self.assertEqual(device.status, DeviceStatus.OK)
+        self.assertEqual(
+            device.parsed["node-1.batfish_node_properties"],
+            {"parsed": {"TACACS_Servers": ["10.0.0.5"]}, "error": None},
+        )
+
+    async def test_devices_outcome_enriches_each_device_with_its_own_row_only(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.node_properties = AsyncMock(
+                return_value=[
+                    {"Node": "lab", "TACACS_Servers": ["ISE_SERVER_1"]},
+                    {"Node": "lab-2", "TACACS_Servers": []},
+                ]
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={"properties": "TACACS_Servers"},
+                context=_context_with_snapshot(),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        devices = next(outcome for outcome in outcomes if outcome.name == "devices").context.devices
+        self.assertEqual(
+            devices["lab"].parsed["node-1.batfish_node_properties"],
+            {"parsed": {"TACACS_Servers": ["ISE_SERVER_1"]}, "error": None},
+        )
+        self.assertEqual(
+            devices["lab-2"].parsed["node-1.batfish_node_properties"],
+            {"parsed": {"TACACS_Servers": []}, "error": None},
+        )
+        # lab-2's row must never leak into lab's parsed data or vice versa.
+        self.assertNotIn("ISE_SERVER_1", str(devices["lab-2"].parsed))
+
+    async def test_success_outcome_devices_unaffected_by_enrichment(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        existing_device = DeviceContext(id="dev-1", name="dev-1", hostname="dev-1")
+        context = _context_with_snapshot().model_copy(
+            update={"devices": {"dev-1": existing_device}}
+        )
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.node_properties = AsyncMock(
+                return_value=[{"Node": "r1", "TACACS_Servers": ["10.0.0.5"]}]
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            outcomes = await execute(
+                config={"properties": "TACACS_Servers"},
+                context=context,
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        success_outcome = next(outcome for outcome in outcomes if outcome.name == "success")
+        self.assertEqual(success_outcome.context.devices, {"dev-1": existing_device})
 
     async def test_config_fields_map_to_node_properties_kwargs(self) -> None:
         run = MagicMock()

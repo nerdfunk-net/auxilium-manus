@@ -13,11 +13,23 @@ unfiltered, since it only needs node identity for dedup), this step exposes
 the `properties` NodePropertySpec filter directly -- letting a workflow ask,
 e.g., "does R1 have a TACACS server configured" without needing an upstream
 Render Jinja Template step or per-device expected values the way
-batfish-validate-facts's `field` mode does. See
-workflow_steps.batfish_start_run.executor's module docstring for the
-"why isn't this refactored onto routing-table's inline devices-dedup"
-non-issue -- this step builds its own `devices` outcome via the shared
-`devices_from_nodes` helper since it has no prior behavior to preserve.
+batfish-validate-facts's `field` mode does.
+
+**`success` vs. `devices`: different enrichment, by design.** `success`
+passes `context` straight through unchanged (plus the shared metadata/
+artifact) -- exactly like batfish-routing-table's own `success` outcome. But
+`devices` is meant to be consumed per-device downstream (Log Attributes,
+Render Jinja Template, a device-detail dialog), so each device there is
+enriched with its own row's fields at `device.parsed[f"{node_id}.
+{output_key}"]` (same `{"parsed": ..., "error": None}` shape
+batfish-extract-facts/batfish-validate-facts use) -- built by `_enrich_devices`,
+layered on top of the shared `devices_from_nodes` helper via
+`device.model_copy`, the same idiom those two steps already use. Before this,
+`devices` carried identity only, and the *only* place the actual property
+values lived was the one shared, un-partitioned artifact covering every
+queried node -- which a per-device UI/step showed identically regardless of
+which device you were looking at (see doc/BATFISH_INTEGRATION.md "Batfish
+Node Properties" -> "devices outcome: per-device enrichment").
 
 **`route_empty_to_devices` (default off).** Batfish always returns one row
 per matched node, even when the requested property is unset -- an
@@ -47,7 +59,7 @@ from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.workflow_context import StepOutcome, WorkflowContext
+from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_node_properties
 from workflow_steps.batfish_node_properties.config import get_config
@@ -86,6 +98,29 @@ def _row_matches_empty(
     if match_mode == "all":
         return all(empty_flags)
     return any(empty_flags)
+
+
+def _enrich_devices(
+    rows: list[dict[str, Any]], *, node_id: str, output_key: str
+) -> dict[str, DeviceContext]:
+    """Build the `devices` outcome's devices, each carrying its own row's
+    fields -- unlike `devices_from_nodes` alone (identity only), used
+    as-is by batfish-start-run/batfish-routing-table, which have no
+    per-device data to attach."""
+    parsed_key = f"{node_id}.{output_key}"
+    fields_by_node = {
+        row["Node"]: {key: value for key, value in row.items() if key != "Node"}
+        for row in rows
+        if row.get("Node")
+    }
+    enriched: dict[str, DeviceContext] = {}
+    for node, device in devices_from_nodes(rows).items():
+        parsed = dict(device.parsed)
+        parsed[parsed_key] = {"parsed": fields_by_node.get(node, {}), "error": None}
+        enriched[node] = device.model_copy(
+            update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
+        )
+    return enriched
 
 
 async def execute(
@@ -166,7 +201,7 @@ async def execute(
         ]
     else:
         devices_rows = rows
-    device_nodes = devices_from_nodes(devices_rows)
+    device_nodes = _enrich_devices(devices_rows, node_id=node_id, output_key=output_key)
 
     logger.info(
         "%s finished run_id=%s rows=%d devices=%d route_empty_to_devices=%s",

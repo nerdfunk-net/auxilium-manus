@@ -108,25 +108,37 @@ export function BatfishInterfacePropertiesHelpPanel() {
 
       <HelpSection title="Output key">
         <p>
-          <HelpCode>output_key</HelpCode> names the slot in this run&apos;s
-          metadata where the result is stored — a JSON artifact reference
-          plus a row count. Unlike per-device steps, this is workflow-level
-          data, not <HelpCode>parsed.{"{output_key}"}</HelpCode> on each
-          device.
+          <HelpCode>output_key</HelpCode> names the slot both outcomes use.
+          On <HelpCode>success</HelpCode>, it&apos;s workflow-level: a JSON
+          artifact reference plus a row count, stored in this run&apos;s
+          metadata (covering every matched interface on every node in one
+          shared entry). On <HelpCode>devices</HelpCode>, it&apos;s
+          per-device instead — see below.
         </p>
       </HelpSection>
 
       <HelpSection title="Devices outcome">
         <p>
-          Alongside <HelpCode>success</HelpCode>, this step always emits a
+          Alongside <HelpCode>success</HelpCode> (a plain passthrough of
+          whatever devices came in, unchanged), this step always emits a
           second outcome, <HelpCode>devices</HelpCode>, carrying one device
           per distinct node with a matching interface (deduplicated) — a
-          Batfish-sourced identity, not the original inventory device. Wire
-          it to a{" "}
+          Batfish-sourced identity, not the original inventory device.
+        </p>
+        <p>
+          Each device in <HelpCode>devices</HelpCode> is enriched with{" "}
+          <span className="font-medium text-foreground">only its own
+          matching interfaces</span> at{" "}
+          <HelpCode>parsed.{"{node_id}.{output_key}"}.parsed.Interfaces</HelpCode>{" "}
+          — e.g. a downstream{" "}
+          <span className="font-medium text-foreground">Log Attributes</span>{" "}
+          step or a device-detail view shows each device&apos;s own
+          interfaces, not the combined answer for every queried node. Wire{" "}
+          <HelpCode>devices</HelpCode> to a{" "}
           <span className="font-medium text-foreground">
             Get Nautobot Attributes
           </span>{" "}
-          step to resolve each node against Nautobot.
+          step to also resolve each node against Nautobot.
         </p>
         <HelpWarning title="Enable case-insensitive lookup on Get Nautobot Attributes">
           <p>

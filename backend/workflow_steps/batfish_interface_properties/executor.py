@@ -24,6 +24,19 @@ IP address configured", still surfaced through the same node-level `devices`
 outcome (an interface finding with no matching node-level device is not
 representable in this codebase's device model, so a device is flagged if
 *any* of its matching interfaces meets the empty condition).
+
+**`success` vs. `devices`: different enrichment, by design.** Same split as
+batfish-node-properties (see that step's docstring for the full reasoning).
+`success` passes `context` through unchanged; `devices` is enriched by
+`_enrich_devices`, layered atop `devices_from_interface_rows` via
+`device.model_copy`, writing every matching interface's own fields to
+`device.parsed[f"{node_id}.{output_key}"]["parsed"]["Interfaces"][<interface
+name>]` -- the same "Interfaces" nesting `pybatfish.client._facts.get_facts()`
+itself uses for this question (confirmed by reading that module). When
+`route_empty_to_devices` is enabled, `_enrich_devices` only ever sees the
+already-filtered (empty) rows, so a flagged device's `Interfaces` entry
+directly names *which* interface(s) triggered the flag -- not the device's
+full interface set -- composing naturally with no extra logic needed.
 """
 
 from __future__ import annotations
@@ -34,7 +47,7 @@ from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.workflow_context import StepOutcome, WorkflowContext
+from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_interface_properties
 from workflow_steps.batfish_interface_properties.config import get_config
@@ -75,6 +88,36 @@ def _row_matches_empty(
     if match_mode == "all":
         return all(empty_flags)
     return any(empty_flags)
+
+
+def _enrich_devices(
+    rows: list[dict[str, Any]], *, node_id: str, output_key: str
+) -> dict[str, DeviceContext]:
+    """Build the `devices` outcome's devices, each carrying its own matching
+    interfaces' fields -- unlike `devices_from_interface_rows` alone
+    (identity only)."""
+    parsed_key = f"{node_id}.{output_key}"
+    interfaces_by_node: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        interface = row.get("Interface")
+        node = interface.get("hostname") if isinstance(interface, dict) else None
+        interface_name = interface.get("interface") if isinstance(interface, dict) else None
+        if not node or not interface_name:
+            continue
+        fields = {key: value for key, value in row.items() if key != "Interface"}
+        interfaces_by_node.setdefault(node, {})[str(interface_name)] = fields
+
+    enriched: dict[str, DeviceContext] = {}
+    for node, device in devices_from_interface_rows(rows).items():
+        parsed = dict(device.parsed)
+        parsed[parsed_key] = {
+            "parsed": {"Interfaces": interfaces_by_node.get(node, {})},
+            "error": None,
+        }
+        enriched[node] = device.model_copy(
+            update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
+        )
+    return enriched
 
 
 async def execute(
@@ -156,7 +199,7 @@ async def execute(
         ]
     else:
         devices_rows = rows
-    device_nodes = devices_from_interface_rows(devices_rows)
+    device_nodes = _enrich_devices(devices_rows, node_id=node_id, output_key=output_key)
 
     logger.info(
         "%s finished run_id=%s rows=%d devices=%d route_empty_to_devices=%s",
