@@ -62,6 +62,52 @@ export function RouteOnAttributeHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Batfish">
+        <p>
+          A Batfish step (e.g. Extract Facts) writes its per-device result to{" "}
+          <HelpCode>device.parsed[output_key]</HelpCode>, so it&apos;s reachable the
+          same way as any other parsed output —{" "}
+          <HelpCode>parsed.&lt;output_key&gt;.parsed.&lt;Fact&gt;</HelpCode>. For
+          Extract Facts, <HelpCode>output_key</HelpCode> defaults to{" "}
+          <HelpCode>batfish_extract_facts</HelpCode> and{" "}
+          <HelpCode>.parsed</HelpCode> holds that device&apos;s node facts —
+          the same shape Batfish&apos;s own <HelpCode>extractFacts</HelpCode>{" "}
+          question returns per node, e.g.:
+        </p>
+        <HelpExample>
+          {"{"}
+          <br />
+          {"  "}&quot;TACACS&quot;: {"{"}
+          <br />
+          {"    "}&quot;TACACS_Servers&quot;: [&quot;ISE_SERVER_1&quot;],
+          <br />
+          {"    "}&quot;TACACS_Source_Interface&quot;: null
+          <br />
+          {"  "}{"}"}
+          <br />
+          {"}"}
+        </HelpExample>
+        <p>
+          Route on whether a device has a TACACS+ server configured by pointing
+          at <HelpCode>TACACS_Servers</HelpCode> and matching on{" "}
+          <HelpCode>{"{exists}"}</HelpCode> / <HelpCode>{"{empty}"}</HelpCode> —
+          it&apos;s a list, so literal values won&apos;t match (see "Special
+          match tokens" below):
+        </p>
+        <HelpExample>
+          attribute_path:
+          parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers
+          <br />
+          routes:
+          <br />
+          {"  "}- outcome: has_tacacs
+          <br />
+          {`    values: {exists}`}
+          <br />
+          default_outcome: no_tacacs
+        </HelpExample>
+      </HelpSection>
+
       <HelpSection title="Routes">
         <p>
           <HelpCode>routes</HelpCode> is an ordered list of rules. Each rule has:
@@ -82,17 +128,29 @@ export function RouteOnAttributeHelpPanel() {
           <br />
           {"  "}- outcome: ios
           <br />
-          {"    "}values: [cisco_ios, ios]
+          {"    "}values: cisco_ios, ios
           <br />
           {"  "}- outcome: nxos
           <br />
-          {"    "}values: [cisco_nxos, nxos]
+          {"    "}values: cisco_nxos, nxos
         </HelpExample>
         <p>
           Use <span className="font-medium text-foreground">Add route</span> for more
           rules. At least one route is required. Put more specific rules above broader
           ones — first match wins.
         </p>
+        <HelpWarning title="Match values is a plain comma-separated field">
+          <p>
+            The <span className="font-medium text-foreground">Match values</span>{" "}
+            box takes values separated by commas — no brackets or quotes, exactly
+            as shown in the examples in this tab (e.g.{" "}
+            <HelpCode>{"{exists}"}</HelpCode>, or{" "}
+            <HelpCode>cisco_ios, ios</HelpCode> for more than one). Typing brackets
+            or quotes (e.g. <HelpCode>[&quot;{"{exists}"}&quot;]</HelpCode>) is
+            treated as one literal value equal to that whole bracketed string,
+            which will never match.
+          </p>
+        </HelpWarning>
       </HelpSection>
 
       <HelpSection title="Special match tokens">
@@ -122,11 +180,11 @@ export function RouteOnAttributeHelpPanel() {
           <br />
           {"  "}- outcome: has_key
           <br />
-          {`    values: ["{exists}"]`}
+          {`    values: {exists}`}
           <br />
           {"  "}- outcome: missing_key
           <br />
-          {`    values: ["{absent}", "{empty}"]`}
+          {`    values: {absent}, {empty}`}
         </HelpExample>
         <HelpWarning title="Lists and objects only support existence tokens">
           <p>
@@ -175,7 +233,7 @@ export function RouteOnAttributeHelpPanel() {
           <br />
           {"  "}- outcome: ios
           <br />
-          {"    "}values: [cisco_ios]
+          {"    "}values: cisco_ios
         </HelpExample>
       </HelpSection>
 
