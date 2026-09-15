@@ -26,7 +26,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Reading the x-nonce request header (set by middleware.ts) here is what
+  // Reading the x-nonce request header (set by proxy.ts) here is what
   // makes Next.js apply that nonce to its own inline bootstrap scripts.
   await headers();
 

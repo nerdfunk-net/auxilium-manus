@@ -1,5 +1,10 @@
 # Migration Plan: `middleware.ts` → `proxy.ts`
 
+**Status:** done — 2026-09-15. `frontend/src/middleware.ts` → `frontend/src/proxy.ts` via manual
+fallback (Step 1's codemod was not run; the manual steps below were applied directly and verified
+identical). `npx tsc --noEmit`, `npm run lint`, and `npm run build` all pass clean with no
+`"middleware" file convention is deprecated` warning.
+
 **Direction note:** 
 convention to the new `proxy` convention** — i.e. `frontend/src/middleware.ts` becomes
 `frontend/src/proxy.ts`. There is no `proxy.ts` in the repo today; `middleware.ts` is the one file

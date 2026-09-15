@@ -26,7 +26,7 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-// Content-Security-Policy is set in middleware.ts instead — it needs a
+// Content-Security-Policy is set in proxy.ts instead — it needs a
 // per-request nonce, and next.config.ts headers are static.
 const nextConfig: NextConfig = {
   async headers() {

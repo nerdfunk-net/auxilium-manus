@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
 
   // React's dev-mode bundle calls eval() for debugging features (e.g.
