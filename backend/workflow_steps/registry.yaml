@@ -856,6 +856,91 @@ plugins:
           data_type: string
           required: false
 
+  - id: batfish-interface-properties
+    name: Batfish Interface Properties
+    overview: Look up per-interface configuration properties via Batfish's interfaceProperties question.
+    description: >
+      Queries interface-level configuration facts (e.g. description, MTU,
+      IP addresses, VRF, applied ACLs) of an already-initialized Batfish
+      snapshot (from an upstream Init Batfish Snapshot step) -- one row per
+      (node, interface) pair, unlike Batfish Node Properties' one row per
+      node. All filters are optional -- an empty config returns every
+      default property column for every interface on every node.
+    artifact_type: configuration_management
+    palette_category: batfish
+    directory: batfish_interface_properties
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: devices
+    metadata:
+      configuration_input:
+        - name: nodes
+          description: Restrict to nodes matching this specifier (e.g. a hostname).
+          data_type: string
+          required: false
+        - name: interfaces
+          description: >
+            InterfacesSpecifier restricting which interfaces come back on
+            the matched nodes (e.g. a name or regex).
+          data_type: string
+          required: false
+        - name: properties
+          description: >
+            InterfacePropertySpec restricting which property columns come
+            back (comma-separated, e.g. "Description, Primary_Address").
+            Leave blank to return Batfish's own default column set. Required
+            when route_empty_to_devices is enabled.
+          data_type: string
+          required: false
+        - name: route_empty_to_devices
+          description: >
+            When enabled, the "devices" outcome is filtered to only the
+            nodes with at least one matching interface whose requested
+            properties are empty (e.g. no description set). Disabled
+            (default), "devices" carries every node with a matching
+            interface regardless of value. Requires "properties" to be set
+            explicitly.
+          data_type: boolean
+          required: false
+          default: false
+        - name: empty_match_mode
+          description: >
+            Only load-bearing with more than one "properties" entry: "any"
+            (default) flags an interface if at least one requested property
+            is empty; "all" flags it only if every requested property is
+            empty.
+          data_type: string
+          required: false
+          default: any
+        - name: output_key
+          description: Metadata key this step's result is stored under ({node_id}.<output_key>).
+          data_type: string
+          required: false
+          default: batfish_interface_properties
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
+
   - id: batfish-path-check
     name: Batfish Path Check
     overview: Check whether a path exists between two devices via Batfish's reachability question.

@@ -29,6 +29,7 @@ gating" below).
   - [Validate Facts](#validate-facts-batfish-validate-facts)
   - [Batfish Routing Table](#batfish-routing-table-batfish-routing-table)
   - [Batfish Node Properties](#batfish-node-properties-batfish-node-properties)
+  - [Batfish Interface Properties](#batfish-interface-properties-batfish-interface-properties)
   - [Batfish ACL Check](#batfish-acl-check-batfish-acl-check)
   - [Batfish Path Check](#batfish-path-check-batfish-path-check)
 - [Frontend: category gating](#frontend-category-gating)
@@ -205,13 +206,14 @@ backend/workflow_steps/batfish_init_snapshot/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: git -- glob-based file collection
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_node_properties/{__init__.py,executor.py,config.py}   # exposes nodeProperties' `properties` filter directly (Get from Batfish never sets it)
+backend/workflow_steps/batfish_interface_properties/{__init__.py,executor.py,config.py}   # interfaceProperties -- one row per (node, interface), a different question/shape from nodeProperties
 backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_validate_facts/{__init__.py,executor.py,config.py}       # facts_source: git reuses batfish_init_snapshot/git_source.py::collect_git_source_files
 backend/workflow_steps/batfish_extract_facts/{__init__.py,executor.py,config.py}
-backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts/node_properties
-backend/services/execution/step_registry.py   # 8 imports + dict entries
-backend/workflow_steps/registry.yaml          # 8 entries, palette_category: batfish
+backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts/node_properties/interface_properties
+backend/services/execution/step_registry.py   # 9 imports + dict entries
+backend/workflow_steps/registry.yaml          # 9 entries, palette_category: batfish
 
 backend/tests/unit/test_batfish_{client,source_config_service,router_auth,context_helper}.py
 backend/tests/unit/test_batfish_context_ref_resolver.py
@@ -219,6 +221,7 @@ backend/tests/unit/test_batfish_git_source.py
 backend/tests/unit/test_batfish_start_run_executor.py
 backend/tests/unit/test_batfish_{init_snapshot,routing_table,path_check,acl_check}_executor.py
 backend/tests/unit/test_batfish_node_properties_executor.py
+backend/tests/unit/test_batfish_interface_properties_executor.py
 backend/tests/unit/test_batfish_validate_facts_executor.py
 backend/tests/unit/test_batfish_extract_facts_executor.py
 backend/tests/unit/test_batfish_discovery_router.py
@@ -237,17 +240,19 @@ frontend/src/components/features/settings/components/sources-settings-canvas.tsx
 
 frontend/src/components/features/workflow-steps/shared/batfish-source-config.ts        # BATFISH_SOURCE_ID_KEY etc.
 frontend/src/components/features/workflow-steps/shared/batfish-source-select-dialog.tsx
-frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (6 steps: 5 query/fact steps + Get from Batfish)
+frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (8 steps: 7 query/fact steps + Get from Batfish)
 frontend/src/components/features/workflow-steps/shared/batfish-fact-keys.ts  # BATFISH_FACT_KEYS -- shared by Validate/Extract Facts panels+help
 frontend/src/components/features/workflow-steps/batfish-start-run/{index.tsx,help-panel.tsx}  # "Get from Batfish" -- nodes_filter + BatfishDirectTargetFields
 frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx,help-panel.tsx}  # config_source toggle, git fields, network_name
 frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-node-properties/{index.tsx,help-panel.tsx}
+frontend/src/components/features/workflow-steps/batfish-interface-properties/{index.tsx,help-panel.tsx}
+frontend/src/components/features/workflow-steps/shared/batfish-interface-property-keys.ts  # curated, non-exhaustive suggestion list -- see step section for why
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-acl-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.tsx,help-panel.tsx}  # facts_source toggle (rendered_yaml/field/git)
 frontend/src/components/features/workflow-steps/batfish-extract-facts/{index.tsx,help-panel.tsx}
-frontend/src/lib/plugin-ui-registry.ts        # 8 PLUGIN_UI_REGISTRY entries
+frontend/src/lib/plugin-ui-registry.ts        # 9 PLUGIN_UI_REGISTRY entries
 frontend/src/components/features/workflows/utils/step-visuals.ts   # "batfish" category label/colors/icons
 frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBatfishSource gate
 
@@ -561,7 +566,7 @@ own process startup.
 
 ## Workflow steps
 
-All eight steps live under `palette_category: batfish` (a new palette
+All nine steps live under `palette_category: batfish` (a new palette
 category — see "Frontend: category gating" below for why it's hidden by
 default).
 
@@ -1007,6 +1012,81 @@ panel only shows this control once more than one property is listed.
 **Direct network targeting.** Same optional `batfish_source_id`/`network`/
 `snapshot` config fields as the other query/fact steps.
 
+### Batfish Interface Properties (`batfish-interface-properties`)
+
+`requires: [identity]`, `produces: []`, `outcomes: [success, devices]`. Wraps
+`bf.q.interfaceProperties(...)` — a genuinely different question from
+`nodeProperties`, not a variant of it:
+
+```python
+bf.q.interfaceProperties(
+    nodes=config.get("nodes"),            # nodeSpec, e.g. "R1"
+    interfaces=config.get("interfaces"),  # InterfacesSpecifier, e.g. "GigabitEthernet0/1"
+    properties=config.get("properties"),  # InterfacePropertySpec, e.g. "Description"
+).answer().frame()
+```
+
+**Different result shape from Node Properties — one row per (node,
+interface), not one row per node.** Node Properties' rows carry a plain
+`Node` string column; `interfaceProperties`' rows carry an `Interface`
+column instead, whose value is pybatfish's own `Interface` datamodel object
+(`hostname` + `interface`). Confirmed **empirically** (not merely assumed
+from the datamodel's `attr.s` definition) by round-tripping a real
+`Interface` instance through the exact `pandas.DataFrame.to_json(orient=
+"records")` call `BatfishService._answer` already uses for every question:
+it serializes to a nested `{"hostname": ..., "interface": ...}` dict, not a
+string — so a row looks like `{"Interface": {"hostname": "lab", "interface":
+"GigabitEthernet0/1"}, "Description": "uplink", ...}`. This means
+`workflow_steps.common.batfish_context.devices_from_nodes` (which reads a
+plain `row["Node"]`) does not work for this question's rows; this step uses
+a dedicated `devices_from_interface_rows` helper (same file) that reads
+`row["Interface"]["hostname"]` instead, with the same dedup-into-one-
+`DeviceContext`-per-node behavior.
+
+**`nodes` confirmed; `interfaces` documented-but-unverified in this
+codebase.** `pybatfish.client._facts.get_facts()` passes the same `nodes`
+kwarg uniformly to every property question it calls (nodeProperties,
+interfaceProperties, bgpProcessConfiguration, ...), which is how `nodes` was
+confirmed for this question too. `interfaces` is a real, documented part of
+Batfish's public `interfaceProperties` question, but — unlike every other
+parameter this integration wraps — could not be independently exercised
+against a live coordinator from this repo (the question schema itself is
+fetched dynamically at runtime, not embedded in the `pybatfish` package). An
+incorrect param name would surface immediately as pybatfish's own
+rejected-kwarg error, not silently, but flagging it here per this doc's own
+confirmed-vs-assumed convention — see "Open items" below.
+
+**Property name suggestions: curated, not exhaustive.** Unlike
+`BATFISH_FACT_KEYS` (node-level facts, confirmed by reading pybatfish's own
+`NODE_PROPERTIES_REORG` mapping), there's no equivalent small curated list
+embedded in the pybatfish client for interface properties —
+`_facts.py::_add_interface` keeps every column the `interfaceProperties`
+answer returns, whatever the live coordinator's schema defines, rather than
+renaming a fixed subset. `frontend/.../shared/
+batfish-interface-property-keys.ts::BATFISH_INTERFACE_PROPERTY_KEYS` is
+therefore a curated starting-point list per Batfish's public question
+documentation, explicitly labeled non-exhaustive in its own doc comment —
+the `properties` field always accepts free text regardless.
+
+**`route_empty_to_devices`/`empty_match_mode`: same audit feature as Node
+Properties, adapted to the per-interface shape.** Identical semantics and
+config fields (see Node Properties above for the full reasoning) — e.g.
+`properties: Description`, `route_empty_to_devices: true` flags every node
+with at least one interface that has no description set. Because the
+`devices` outcome is still node-scoped (this codebase's `DeviceContext` has
+no interface-level identity), a node is routed to `devices` if *any* of its
+matching interfaces meets the empty condition, not only when every interface
+on that node does.
+
+**Result storage: same shape as Node Properties/Routing Table.** One
+workflow-level JSON artifact (`kind: "batfish_result"`, `question:
+"interfaceProperties"`) plus a `context.metadata[f"{node_id}.
+{output_key}"]` summary (`output_key` default
+`batfish_interface_properties`).
+
+**Direct network targeting.** Same optional `batfish_source_id`/`network`/
+`snapshot` config fields as the other query/fact steps.
+
 ### Batfish ACL Check (`batfish-acl-check`)
 
 `requires: [identity]`, `produces: []`. Wraps `bf.q.testFilters(...)` —
@@ -1131,7 +1211,7 @@ const visibleGroups = useMemo(() => {
 }, [plugins, hasPyatsSource, hasBatfishSource]);
 ```
 
-Frontend-only filter, no backend change — the eight steps are always
+Frontend-only filter, no backend change — the nine steps are always
 registered in `registry.yaml`/`step_registry.py` (a workflow built before a
 source existed and later shared would still execute correctly; only the
 *palette* — where you'd drag a new instance from — is gated). `palette_category:
@@ -1348,6 +1428,18 @@ networks/snapshots (both editor and canvas config panels still take
 
 ## Open items / verify during hardening
 
+- **Verify `batfish-interface-properties`' `interfaces` config field against
+  a live coordinator.** Unlike every other question parameter this
+  integration wraps, `interfaces` (an InterfacesSpecifier passed to
+  `bf.q.interfaceProperties(...)`) was not exercised against a real Batfish
+  coordinator while implementing this step — `nodes`/`properties` were
+  confirmed via `pybatfish.client._facts.get_facts()`'s own usage and
+  `nodeProperties`'s confirmed behavior respectively, but `interfaceProperties`'
+  own full parameter set is fetched dynamically from the coordinator at
+  runtime and isn't available statically in this repo. A wrong param name
+  would fail loudly (a pybatfish rejected-kwarg error), not silently, but
+  confirm the field actually filters as expected before relying on it for a
+  production audit.
 - **RESOLVED during implementation**: no `validate_outbound_http_url` call
   was needed. `BatfishSourceConfigService` does plain non-empty/length
   validation on `host` (`_validate_host`) rather than routing it through the
@@ -1375,7 +1467,7 @@ networks/snapshots (both editor and canvas config panels still take
   `require_permission("sources.batfish", "read")` as the rest of that
   router; snapshots sorted most-recent-first by `created_at`, same sort key
   `resolve_latest_snapshot_name` uses). `BatfishDirectTargetFields` (shared
-  by all five query/fact steps) and the Template Editor's Options-modal
+  by all seven query/fact steps) and the Template Editor's Options-modal
   Batfish tab both fetch these via `useBatfishNetworksQuery`/
   `useBatfishSnapshotsQuery` and render a `<Select>` when the coordinator has
   entries, falling back to the original free-text `<Input>` underneath —
@@ -1409,7 +1501,7 @@ networks/snapshots (both editor and canvas config panels still take
   **RESOLVED: the same risk in the query/fact steps' "direct network
   targeting" fields and the ad-hoc preview service.** Both
   `workflow_steps.common.batfish_context.resolve_batfish_snapshot_ref`
-  (used by all five query/fact steps' direct-network-targeting config) and
+  (used by all seven query/fact steps' direct-network-targeting config) and
   `BatfishPreviewService._resolve` (the Template Editor's ad-hoc preview
   queries) resolved a caller-supplied `network` straight into a
   `list_snapshots_with_metadata`/actual-question call — the identical

@@ -7,6 +7,7 @@ import unittest
 from models.workflow_context import Capability, DeviceStatus, WorkflowContext
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.common.batfish_context import (
+    devices_from_interface_rows,
     devices_from_nodes,
     resolve_batfish_snapshot,
     store_batfish_snapshot,
@@ -67,6 +68,40 @@ class DevicesFromNodesTests(unittest.TestCase):
 
     def test_skips_rows_with_no_node(self) -> None:
         devices = devices_from_nodes([{"Node": None}, {"Node": ""}, {"Node": "r1"}])
+        self.assertEqual(set(devices), {"r1"})
+
+
+class DevicesFromInterfaceRowsTests(unittest.TestCase):
+    def test_dedupes_by_interface_hostname(self) -> None:
+        devices = devices_from_interface_rows(
+            [
+                {"Interface": {"hostname": "r1", "interface": "Gi0/1"}},
+                {"Interface": {"hostname": "r1", "interface": "Gi0/2"}},
+                {"Interface": {"hostname": "r2", "interface": "Gi0/1"}},
+            ],
+        )
+
+        self.assertEqual(set(devices), {"r1", "r2"})
+        device = devices["r1"]
+        self.assertEqual(device.id, "r1")
+        self.assertEqual(device.name, "r1")
+        self.assertEqual(device.hostname, "r1")
+        self.assertEqual(device.source, "batfish")
+        self.assertEqual(device.capabilities, {Capability.IDENTITY})
+        self.assertEqual(device.status, DeviceStatus.OK)
+
+    def test_empty_rows_returns_empty_dict(self) -> None:
+        self.assertEqual(devices_from_interface_rows([]), {})
+
+    def test_skips_rows_with_malformed_or_missing_interface(self) -> None:
+        devices = devices_from_interface_rows(
+            [
+                {"Interface": None},
+                {},
+                {"Interface": {"hostname": "", "interface": "Gi0/1"}},
+                {"Interface": {"hostname": "r1", "interface": "Gi0/1"}},
+            ]
+        )
         self.assertEqual(set(devices), {"r1"})
 
 

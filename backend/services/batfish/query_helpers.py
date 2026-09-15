@@ -283,3 +283,39 @@ async def query_node_properties(
         nodes=_or_none(nodes),
         properties=_or_none(properties),
     )
+
+
+async def query_interface_properties(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+    interfaces: Any = None,
+    properties: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``interfaceProperties`` question. Shared by
+    batfish-interface-properties.
+
+    A different, interface-scoped question from ``nodeProperties`` -- one row
+    per (node, interface) pair, not one row per node. ``nodes`` (a
+    NodeSpecifier) restricts by node -- confirmed accepted by this question
+    via ``pybatfish.client._facts.get_facts()``, which passes the same
+    ``nodes`` kwarg to every property question it calls, this one included.
+    ``interfaces`` (an InterfacesSpecifier, e.g. ``"GigabitEthernet0/1"`` or a
+    regex) further restricts to matching interfaces on those nodes --
+    documented Batfish convention for this question family, NOT independently
+    exercised against a live coordinator in this codebase (unlike ``nodes``);
+    an incorrect param name would surface immediately as a rejected-kwarg
+    error from pybatfish, not silently. ``properties`` restricts which
+    columns come back, same convention as ``query_node_properties``.
+    """
+    return await batfish.interface_properties(
+        connection,
+        batfish_network=batfish_network,
+        snapshot=snapshot,
+        nodes=_or_none(nodes),
+        interfaces=_or_none(interfaces),
+        properties=_or_none(properties),
+    )

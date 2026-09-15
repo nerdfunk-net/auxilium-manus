@@ -28,6 +28,9 @@ from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
 from workflow_steps.batfish_acl_check.executor import execute as batfish_acl_check
 from workflow_steps.batfish_extract_facts.executor import execute as batfish_extract_facts
 from workflow_steps.batfish_init_snapshot.executor import execute as batfish_init_snapshot
+from workflow_steps.batfish_interface_properties.executor import (
+    execute as batfish_interface_properties,
+)
 from workflow_steps.batfish_node_properties.executor import execute as batfish_node_properties
 from workflow_steps.batfish_path_check.executor import execute as batfish_path_check
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
@@ -111,6 +114,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "batfish-init-snapshot": batfish_init_snapshot,
     "batfish-routing-table": batfish_routing_table,
     "batfish-node-properties": batfish_node_properties,
+    "batfish-interface-properties": batfish_interface_properties,
     "batfish-path-check": batfish_path_check,
     "batfish-acl-check": batfish_acl_check,
     "batfish-validate-facts": batfish_validate_facts,

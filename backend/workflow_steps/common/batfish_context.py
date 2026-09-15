@@ -122,6 +122,33 @@ def devices_from_nodes(rows: list[dict[str, Any]]) -> dict[str, DeviceContext]:
     return device_nodes
 
 
+def devices_from_interface_rows(rows: list[dict[str, Any]]) -> dict[str, DeviceContext]:
+    """Dedupe an ``interfaceProperties`` answer into one DeviceContext per
+    distinct node. Unlike ``devices_from_nodes``, this question has no plain
+    ``Node`` column -- each row's node identity lives at
+    ``row["Interface"]["hostname"]`` (a nested dict after the
+    ``frame.to_json()`` round-trip in ``BatfishService._answer``; empirically
+    confirmed against pybatfish's own ``Interface`` attrs class serializing
+    through pandas -- see doc/BATFISH_INTEGRATION.md "Batfish Interface
+    Properties"). Used by batfish-interface-properties' executor.
+    """
+    device_nodes: dict[str, DeviceContext] = {}
+    for row in rows:
+        interface = row.get("Interface")
+        node = interface.get("hostname") if isinstance(interface, dict) else None
+        if not node or node in device_nodes:
+            continue
+        device_nodes[node] = DeviceContext(
+            id=node,
+            name=node,
+            hostname=node,
+            source="batfish",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+        )
+    return device_nodes
+
+
 def store_batfish_snapshot(
     context: WorkflowContext,
     *,

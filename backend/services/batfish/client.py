@@ -180,6 +180,18 @@ class BatfishService:
     ) -> list[dict[str, Any]]:
         return await self._answer(connection, batfish_network, snapshot, "nodeProperties", params)
 
+    async def interface_properties(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # NOTE: unlike every other question wrapped here, interfaceProperties'
+        # rows have no plain "Node" string column -- node identity lives
+        # nested at row["Interface"]["hostname"] once the pandas Interface
+        # object round-trips through frame.to_json() (empirically confirmed;
+        # see doc/BATFISH_INTEGRATION.md "Batfish Interface Properties").
+        return await self._answer(
+            connection, batfish_network, snapshot, "interfaceProperties", params
+        )
+
     async def validate_facts(
         self,
         connection: BatfishConnection,

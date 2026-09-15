@@ -256,6 +256,18 @@ class BatfishServiceQuestionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [{"Node": "r1"}, {"Node": "r2"}])
         self.instance.q.nodeProperties.assert_called_once_with(nodes="/.*/")
 
+    async def test_interface_properties_returns_parsed_rows(self) -> None:
+        self.instance.q.interfaceProperties = self._stub_question(
+            '[{"Interface": {"hostname": "r1", "interface": "Gi0/1"}}]'
+        )
+
+        result = await self.service.interface_properties(
+            _connection(), batfish_network="net", snapshot="snap", nodes="R1", properties="MTU"
+        )
+
+        self.assertEqual(result, [{"Interface": {"hostname": "r1", "interface": "Gi0/1"}}])
+        self.instance.q.interfaceProperties.assert_called_once_with(nodes="R1", properties="MTU")
+
     async def test_test_filters_wraps_batfish_exception(self) -> None:
         self.instance.q.testFilters = MagicMock(side_effect=BatfishException("bad question"))
 
