@@ -31,17 +31,41 @@ export function BatfishValidateFactsHelpPanel() {
           YAML has no matching key routes to <HelpCode>failure</HelpCode>.
         </p>
         <HelpExample>
+          {"version: 1.0"}
+          <br />
           {"nodes:"}
           <br />
-          {"  as1border1:"}
+          {"  lab:"}
           <br />
-          {"    Hostname: as1border1"}
+          {"    Hostname: lab"}
           <br />
-          {"    TACACS_Servers:"}
+          {"    Domain_Name: local.zz"}
           <br />
-          {"    - 10.0.0.1"}
+          {"    NTP:"}
           <br />
-          {"    - 10.0.0.2"}
+          {"      NTP_Servers:"}
+          <br />
+          {"        - 10.0.0.1"}
+          <br />
+          {"        - 10.0.0.2"}
+          <br />
+          {"    Syslog:"}
+          <br />
+          {"      Logging_Servers:"}
+          <br />
+          {"        - 192.168.178.254"}
+          <br />
+          {"      Logging_Source_Interface: Loopback0"}
+          <br />
+          {"    Interfaces:"}
+          <br />
+          {"      Ethernet0/0:"}
+          <br />
+          {"        Active: true"}
+          <br />
+          {"      Loopback0:"}
+          <br />
+          {"        Active: true"}
         </HelpExample>
         <p>
           The typical workflow: Get from Nautobot → Get Nautobot Attributes → Render Jinja
@@ -53,15 +77,32 @@ export function BatfishValidateFactsHelpPanel() {
         <p>
           Builds a single <HelpCode>{"{fact_key: fact_value}"}</HelpCode> fact per device,
           with no upstream render step needed — useful for a quick single-value check (e.g.
-          &quot;does this device have the right TACACS server&quot;).{" "}
+          &quot;does this device have the right domain name&quot;).{" "}
           <HelpCode>fact_value</HelpCode> is a Jinja template rendered per device and may
           resolve to a scalar or a YAML/JSON list.
         </p>
         <HelpExample>
-          fact_key: TACACS_Servers
+          fact_key: Domain_Name
           <br />
-          fact_value: {"{{ nautobot.custom_fields.tacacs_servers }}"}
+          fact_value: {"{{ nautobot.custom_fields.domain_name }}"}
         </HelpExample>
+        <HelpWarning title="Some fact keys don't work in field mode">
+          <p>
+            This mode always writes <HelpCode>fact_key</HelpCode> as a flat, top-level field.
+            That only matches Batfish&apos;s actual facts for keys that stay top-level
+            (<HelpCode>Hostname</HelpCode>, <HelpCode>Domain_Name</HelpCode>,{" "}
+            <HelpCode>Configuration_Format</HelpCode>, <HelpCode>VRFs</HelpCode>,{" "}
+            <HelpCode>Zones</HelpCode>, the access-list/routing-policy list keys, etc.). Keys
+            Batfish nests under a category — <HelpCode>NTP_Servers</HelpCode>,{" "}
+            <HelpCode>NTP_Source_Interface</HelpCode>, <HelpCode>Logging_Servers</HelpCode>,{" "}
+            <HelpCode>Logging_Source_Interface</HelpCode>, <HelpCode>TACACS_Servers</HelpCode>,{" "}
+            <HelpCode>TACACS_Source_Interface</HelpCode>, <HelpCode>SNMP_Trap_Servers</HelpCode>,{" "}
+            <HelpCode>SNMP_Source_Interface</HelpCode>, <HelpCode>DNS_Servers</HelpCode>,{" "}
+            <HelpCode>DNS_Source_Interface</HelpCode>, and the IKE/IPsec keys — will never match
+            here. Use <HelpCode>rendered_yaml</HelpCode> or <HelpCode>git</HelpCode> for those,
+            with the nested shape shown above.
+          </p>
+        </HelpWarning>
       </HelpSection>
 
       <HelpSection title="facts_source: git">
@@ -115,6 +156,30 @@ export function BatfishValidateFactsHelpPanel() {
             drops it before validating — Batfish&apos;s own actual-facts output always uses
             an internal version tag unrelated to any convention you might write in your own
             YAML, and passing one through would make every device appear mismatched.
+          </p>
+        </HelpWarning>
+        <HelpWarning title="Some keys must be nested under a category, not written flat">
+          <p>
+            This is Batfish&apos;s own convention, not something this step adds: its actual
+            facts group <HelpCode>NTP_Servers</HelpCode>/<HelpCode>NTP_Source_Interface</HelpCode>{" "}
+            under <HelpCode>NTP</HelpCode>; <HelpCode>Logging_Servers</HelpCode>/
+            <HelpCode>Logging_Source_Interface</HelpCode> under <HelpCode>Syslog</HelpCode>;{" "}
+            <HelpCode>TACACS_Servers</HelpCode>/<HelpCode>TACACS_Source_Interface</HelpCode> under{" "}
+            <HelpCode>TACACS</HelpCode>; <HelpCode>SNMP_Trap_Servers</HelpCode>/
+            <HelpCode>SNMP_Source_Interface</HelpCode> under <HelpCode>SNMP</HelpCode>;{" "}
+            <HelpCode>DNS_Servers</HelpCode>/<HelpCode>DNS_Source_Interface</HelpCode> under{" "}
+            <HelpCode>DNS</HelpCode>; and the IKE/IPsec keys under <HelpCode>IPsec</HelpCode>.
+            Expected-facts YAML is never reorganized to match — write these keys nested exactly
+            as Batfish does (see the example above), or they&apos;ll always report{" "}
+            <HelpCode>key_present: false</HelpCode> even when the device is actually correct.
+            Plain keys like <HelpCode>Hostname</HelpCode>, <HelpCode>Domain_Name</HelpCode>, and{" "}
+            <HelpCode>Interfaces</HelpCode> stay flat/top-level and are unaffected.
+          </p>
+          <p>
+            Not sure of the exact nested shape for a given fact? Run an{" "}
+            <span className="font-medium text-foreground">Extract Facts</span> step against a
+            real device first — its output shows precisely how Batfish structures every fact
+            for that node. Copy that structure straight into your expected-facts YAML.
           </p>
         </HelpWarning>
       </HelpSection>

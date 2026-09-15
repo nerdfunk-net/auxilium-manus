@@ -32,9 +32,9 @@ export function HelpSection({
 /** Preformatted example block (commands, sample values, hierarchies). */
 export function HelpExample({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-md border bg-muted/40 p-2 font-mono text-[11px] leading-5">
+    <pre className="m-0 overflow-x-auto whitespace-pre rounded-md border bg-muted/40 p-2 font-mono text-[11px] leading-5">
       {children}
-    </div>
+    </pre>
   );
 }
 
