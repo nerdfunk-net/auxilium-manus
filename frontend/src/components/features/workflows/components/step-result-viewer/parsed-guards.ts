@@ -175,3 +175,41 @@ export function getParsedCommandOutputEntries(
     .filter(([, value]) => isParsedCommandOutputEntry(value))
     .map(([key, entry]) => ({ key, entry: entry as ParsedCommandOutputEntry }));
 }
+
+/**
+ * A bare `{parsed, error}` entry directly under `device.parsed[key]` — the
+ * shape batfish-extract-facts, batfish-validate-facts, and the `devices`
+ * outcome of batfish-node-properties/batfish-interface-properties all write
+ * (`device.parsed[f"{node_id}.{output_key}"] = {"parsed": ..., "error": ...}`).
+ * Distinct from `ParsedCommandOutputEntry`, which is a *map* of these
+ * entries keyed by command name — this is the entry itself, one level up.
+ * Checked last, after every more specific guard, since those shapes could
+ * otherwise also satisfy `"parsed" in value && "error" in value` structurally
+ * (e.g. a single-key command-output map is not this, but is excluded
+ * explicitly below since object identity alone can't tell them apart).
+ */
+export function isFactsEntry(value: unknown): value is ParsedCommandEntry {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  if (
+    isParsedTemplateEntry(value) ||
+    isComparisonResultEntry(value) ||
+    isComparisonDiffEntry(value) ||
+    isComparisonDiffFeatureMap(value) ||
+    isGenieParsedConfigEntry(value) ||
+    isSnapshotEntry(value) ||
+    isParsedCommandOutputEntry(value)
+  ) {
+    return false;
+  }
+  return isParsedCommandEntry(value);
+}
+
+export function getFactsEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: ParsedCommandEntry }> {
+  return Object.entries(parsed)
+    .filter(([, value]) => isFactsEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as ParsedCommandEntry }));
+}

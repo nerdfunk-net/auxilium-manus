@@ -1,5 +1,8 @@
 "use client";
 
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import type { ArtifactRef } from "@/lib/workflow-context-types";
 
@@ -126,8 +129,14 @@ export function BatfishResultPanel({
   runId: number | null;
   results: BatfishResultEntry[];
   connection: BatfishConnectionInfo | null;
+  /** Whether each entry's content starts expanded — the user can still
+   * collapse/expand any entry individually afterward. */
   expanded?: boolean;
 }) {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
+    () => new Set(expanded ? results.map((entry) => entry.key) : []),
+  );
+
   if (results.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -135,6 +144,18 @@ export function BatfishResultPanel({
       </p>
     );
   }
+
+  const toggleEntry = (key: string) => {
+    setExpandedKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -145,31 +166,48 @@ export function BatfishResultPanel({
         </p>
       ) : null}
 
-      {results.map((entry) => (
-        <div key={entry.key} className="space-y-1.5 rounded-lg border bg-card p-3">
-          <p className="font-mono text-[10px] text-muted-foreground">{entry.key}</p>
-          <BatfishResultSummary entry={entry} />
-          {entry.rowCount === 0 ? (
-            <p className="text-[11px] text-warning-foreground">
-              No rows returned — check the step&apos;s filters, or confirm the snapshot&apos;s
-              devices actually parsed in Batfish (an unsupported platform or malformed config
-              parses to zero routes/nodes).
-            </p>
-          ) : null}
-          {runId == null ? (
-            <p className="text-xs text-muted-foreground">
-              Result content is available from a workflow run detail view.
-            </p>
-          ) : (
-            <ConfigArtifactPanel
-              runId={runId}
-              label="Result"
-              artifactRef={entry.artifactRef}
-              expanded={expanded}
-            />
-          )}
-        </div>
-      ))}
+      {results.map((entry) => {
+        const isExpanded = expandedKeys.has(entry.key);
+        return (
+          <div key={entry.key} className="space-y-1.5 rounded-lg border bg-card p-3">
+            <button
+              type="button"
+              className="flex w-full min-w-0 items-center gap-1.5 text-left"
+              onClick={() => toggleEntry(entry.key)}
+              aria-expanded={isExpanded}
+            >
+              {isExpanded ? (
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              ) : (
+                <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              )}
+              <BatfishResultSummary entry={entry} />
+            </button>
+            <p className="font-mono text-[10px] text-muted-foreground">{entry.key}</p>
+            {entry.rowCount === 0 ? (
+              <p className="text-[11px] text-warning-foreground">
+                No rows returned — check the step&apos;s filters, or confirm the snapshot&apos;s
+                devices actually parsed in Batfish (an unsupported platform or malformed config
+                parses to zero routes/nodes).
+              </p>
+            ) : null}
+            {isExpanded ? (
+              runId == null ? (
+                <p className="text-xs text-muted-foreground">
+                  Result content is available from a workflow run detail view.
+                </p>
+              ) : (
+                <ConfigArtifactPanel
+                  runId={runId}
+                  label="Result"
+                  artifactRef={entry.artifactRef}
+                  expanded
+                />
+              )
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import {
   Boxes,
   Braces,
+  Database,
   FileCode2,
   FileText,
   FlaskConical,
@@ -39,6 +40,7 @@ import { DeviceComparisonDiffsContent } from "./device-comparison-diff-content";
 import { DeviceConfigSection } from "./device-config-section";
 import { DeviceDryRunContent, getDryRunEntries } from "./device-dry-run-content";
 import { DeviceErrorList } from "./device-error-list";
+import { DeviceFactsContent } from "./device-facts-content";
 import { DeviceParsedCommandOutputContent } from "./device-parsed-command-output-content";
 import { DeviceParsedTemplatesContent } from "./device-parsed-templates-content";
 import { DeviceSnapshotContent } from "./device-snapshot-content";
@@ -46,6 +48,7 @@ import { DeviceStatusIcon } from "./devices-section";
 import {
   getComparisonDiffEntries,
   getComparisonResultEntries,
+  getFactsEntries,
   getGenieParsedConfigEntries,
   getParsedCommandOutputEntries,
   getParsedTemplateEntries,
@@ -114,6 +117,7 @@ export function DeviceDetailDialog({
     () => getParsedCommandOutputEntries(device.parsed ?? {}),
     [device.parsed],
   );
+  const factsEntries = useMemo(() => getFactsEntries(device.parsed ?? {}), [device.parsed]);
   const commandResultCount = useMemo(
     () =>
       Object.values(device.command_results).reduce(
@@ -280,6 +284,16 @@ export function DeviceDetailDialog({
       });
     }
 
+    if (factsEntries.length > 0) {
+      list.push({
+        id: "facts",
+        label: "Parsed facts",
+        icon: Database,
+        count: factsEntries.length,
+        render: () => <DeviceFactsContent entries={factsEntries} expanded />,
+      });
+    }
+
     if (comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0) {
       list.push({
         id: "comparisons",
@@ -334,6 +348,7 @@ export function DeviceDetailDialog({
     comparisonResultEntries,
     device,
     dryRunEntries,
+    factsEntries,
     genieConfigEntries,
     parsedCommandOutputEntries,
     parsedTemplateEntries,

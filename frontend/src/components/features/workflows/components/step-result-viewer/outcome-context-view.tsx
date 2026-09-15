@@ -46,20 +46,34 @@ export function OutcomeContextView({
   );
   const metadataCount = Object.keys(remainingMetadata).length;
   const [metadataExpanded, setMetadataExpanded] = useState(false);
+  const [batfishResultExpanded, setBatfishResultExpanded] = useState(true);
 
   return (
     <div className={cn("min-w-0 overflow-hidden", compact ? "space-y-2" : "space-y-4")}>
       {batfishResults.length > 0 ? (
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Batfish result
-          </p>
-          <BatfishResultPanel
-            runId={runId ?? null}
-            results={batfishResults}
-            connection={batfishConnection}
-            expanded={!compact}
-          />
+        <div className="min-w-0">
+          <button
+            type="button"
+            className="mb-2 flex w-full min-w-0 items-center gap-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+            onClick={() => setBatfishResultExpanded((value) => !value)}
+            aria-expanded={batfishResultExpanded}
+          >
+            {batfishResultExpanded ? (
+              <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+            ) : (
+              <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+            )}
+            <span>Batfish result ({batfishResults.length})</span>
+          </button>
+
+          {batfishResultExpanded ? (
+            <BatfishResultPanel
+              runId={runId ?? null}
+              results={batfishResults}
+              connection={batfishConnection}
+              expanded={!compact}
+            />
+          ) : null}
         </div>
       ) : null}
 
