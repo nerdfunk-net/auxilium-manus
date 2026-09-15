@@ -61,6 +61,73 @@ private-then-global SSH read in
 
 ---
 
+## Wire Batfish Routing Table/Path Check/ACL Check results into per-device templates
+
+**Added:** 2026-09-15 · **Area:** `backend/workflow_steps/batfish_routing_table`,
+`batfish_path_check`, `batfish_acl_check`, `backend/services/workflow_context`
+
+### What we have
+
+Extract Facts, Get OSPF Facts, Get BGP Facts, and Batfish Node/Interface
+Properties all write into `DeviceContext.parsed[output_key]`, so their
+output is reachable from `route-on-attribute` and `render-jinja-template` via
+the shared `parsed.<output_key>` namespace (see
+`doc/BATFISH_INTEGRATION.md` "Extract Facts" / "Batfish OSPF Facts" and
+`jinja-help-dialog.tsx`'s "Batfish (per-device steps only)" section).
+
+`batfish-routing-table`, `batfish-path-check`, and `batfish-acl-check` do
+**not** — each stores its result only as one workflow-level artifact plus a
+`WorkflowContext.metadata[f"{node_id}.{output_key}"]` pointer (see
+`doc/BATFISH_INTEGRATION.md` "Batfish Routing Table" → "Result storage" for
+why: every existing `artifact_service.store()` call site is per-device, and
+a routing table/reachability/ACL answer is one table covering every queried
+node, not naturally splittable per device). Confirmed by reading all three
+executors: none of them ever call `device.model_copy(update={"parsed": ...})`.
+This was flagged while fixing the Template Editor's `batfish` preview
+variable, which had been (incorrectly) modeling these three steps' output as
+if it were already usable in a template — see that doc section's "Bug found
+and fixed" writeup and the "Open items" entry right below it.
+
+### Original goal
+
+Let a template (`route-on-attribute` or `render-jinja-template`) reference
+Routing Table/Path Check/ACL Check results per device, the same way it can
+already reference Extract Facts/OSPF/BGP Facts results.
+
+### Why it's deferred
+
+It's a real design question, not a mechanical fix: these steps run one
+Batfish call for potentially many nodes' worth of rows (a routing table) or
+a single flow-level answer with no device dimension at all (path/ACL check
+against one start/end node pair) — there's no existing precedent in this
+codebase for splitting one workflow-level answer back onto N devices'
+`.parsed`, unlike the "one call already grouped by node" shape the
+combined-facts/property engines rely on (`group_rows_by_node`). Doing this
+properly likely means either (a) grouping routing-table rows by `Node` and
+writing `parsed[output_key]` per matching device — mirroring
+`batfish_properties.py`'s `_enrich_devices`, with the same "devices outcome
+replaces the device list" tradeoff already accepted for the other Batfish
+steps — or (b) leaving path/ACL check's single flow-level answer as
+workflow-metadata-only (there's no per-device dimension to attach it to) and
+scoping this to Routing Table alone. Needs a decision on which, and whether
+it's worth the design cost, before writing code — explicitly out of scope
+for the Template Editor bug fix that surfaced this gap.
+
+### When we revisit
+
+Only if a real workflow needs to branch or render per-device on a routing
+table / reachability / ACL result — the run-detail viewer
+(`batfish-result-panel.tsx`) and the Template Editor's ad-hoc preview (now
+clearly marked preview-only) may be sufficient on their own otherwise. If
+picked up: start with Routing Table only (it has a real per-node `Node`
+column to group by, unlike Path/ACL Check), reusing
+`workflow_steps.common.batfish_properties.group_rows_by_node` and the same
+`devices`-outcome-replaces-the-list contract already established for
+OSPF/BGP Facts and Node/Interface Properties, so behavior stays consistent
+across all Batfish steps rather than introducing a fourth pattern.
+
+---
+
 ## Clear the pyright backlog (`types` CI job)
 
 **Added:** 2026-09-12 · **Area:** `backend/` (repo-wide typing)

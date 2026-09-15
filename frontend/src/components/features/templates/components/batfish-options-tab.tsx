@@ -1,8 +1,9 @@
 "use client";
 
-import { Play, RefreshCw } from "lucide-react";
+import { Play, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -235,6 +236,23 @@ export function BatfishOptionsTab({
 
   return (
     <div className="space-y-4">
+      <Alert variant="warning">
+        <TriangleAlert />
+        <AlertDescription>
+          <strong>Preview-only.</strong> This runs an ad-hoc query for
+          exploration while you write the template — no workflow step ever
+          populates a <code>batfish</code> variable. Routing Table, Path
+          Check, and ACL Check store their results only as a workflow-level
+          artifact, never on a device, so a template referencing{" "}
+          <code>batfish.*</code> will render here but fail every device with
+          &quot;Undefined template variable: &apos;batfish&apos; is undefined&quot; when
+          the workflow actually runs. For real per-device Batfish data in a
+          template, use <code>parsed.&lt;output_key&gt;</code> from Extract
+          Facts, Get OSPF Facts, Get BGP Facts, or Batfish Node/Interface
+          Properties instead (see the Jinja help dialog).
+        </AlertDescription>
+      </Alert>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>Batfish Source</Label>

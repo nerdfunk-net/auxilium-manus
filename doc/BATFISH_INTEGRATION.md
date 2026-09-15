@@ -1727,6 +1727,47 @@ column (this codebase's `templates` table stores every JSON-shaped field as
 `batfish.rows`, `batfish.reachable`, `batfish.action`, `batfish.question`,
 `batfish.network`, `batfish.snapshot` directly.
 
+**Bug found and fixed: this `batfish` variable is preview-only and must
+never be referenced in a template body.** Every other auto-variable this
+editor offers mirrors a real workflow step's runtime output exactly
+(`nautobot` ↔ Get Nautobot Attributes, `parsed`/`command`/`commands` ↔
+Parse Cisco Config/Run Command, etc.) -- `PARSED_CONFIG_VARIABLE`'s own
+comment states this explicitly. `batfish` broke that invariant: it mirrors
+`batfish-routing-table`/`batfish-path-check`/`batfish-acl-check`'s answer
+shape, but per "Batfish Routing Table" → "Result storage" above, none of
+those three steps ever write their result onto a `DeviceContext` --
+they're stored only as a workflow-level artifact + `WorkflowContext.metadata`
+pointer. `build_jinja_context`
+(`workflow_steps/common/jinja_render.py`) never injects a `batfish` key at
+real render time, so a template that used `{{ batfish.rows }}` -- which
+renders correctly in this editor, since the preview genuinely populates that
+variable -- would fail **every device** at actual workflow runtime with
+`Undefined template variable: 'batfish' is undefined` (Jinja2's default
+`Undefined.__str__` raises, it doesn't render blank; see "Undefined
+variables" in the Jinja help dialog). Fixed by:
+- `constants.ts`: `BATFISH_VARIABLE.description` now states plainly that the
+  variable is preview-only and lists the real per-device alternative
+  (`parsed.<output_key>` from Extract Facts / Get OSPF Facts / Get BGP Facts
+  / Batfish Node or Interface Properties -- see "Extract Facts" and "Batfish
+  OSPF Facts" above).
+- `batfish-options-tab.tsx`: a persistent warning `Alert` at the top of the
+  Batfish tab itself, so the trap is visible at the point of use, not only in
+  a variable's description text.
+- `jinja-help-dialog.tsx`: a new "Batfish (per-device steps only)"
+  subsection under "The parsed namespace" spelling out exactly which Batfish
+  steps populate `parsed` (Extract Facts always; Get OSPF Facts/Get BGP
+  Facts/Batfish Node/Interface Properties only via their `devices` outcome)
+  and which never do (Routing Table/Path Check/ACL Check), with a pointer
+  back to the Batfish tab's warning.
+
+No backend change was made or is planned for this — wiring
+Routing Table/Path Check/ACL Check results into `device.parsed` (so they
+*could* legitimately appear in a per-device template) is a separate,
+deferred backend design question, tracked as an open action item in
+`doc/OPEN_TODOS.md` → "Wire Batfish Routing Table/Path Check/ACL Check
+results into per-device templates". This session's fix only makes the
+editor stop lying about what already exists today.
+
 **Still not built (see "Open items" below):** exporting an ad-hoc preview
 result via `store-artifact`, and any UI to browse a source's actual Batfish
 networks/snapshots (both editor and canvas config panels still take
@@ -2003,3 +2044,24 @@ and every question already covered by a typed step/endpoint.
   `reachability`, `testFilters`, `list_snapshots`/`delete_snapshot`) was
   exercised against a real running instance, not assumed from pybatfish's
   documentation alone.
+- **RESOLVED: Template Editor's `batfish` preview variable could be used to
+  write templates that always fail at real workflow runtime.** See "Template
+  Editor integration" → "Bug found and fixed" above for the full writeup —
+  short version: `batfish.*` is populated only by the editor's own ad-hoc
+  query, never by any real workflow step, so a template referencing it
+  previewed successfully but failed every device once actually run. Fixed
+  with an explicit preview-only warning in `constants.ts`'s
+  `BATFISH_VARIABLE` description, a persistent `Alert` in
+  `batfish-options-tab.tsx`, and a new "Batfish (per-device steps only)"
+  subsection in `jinja-help-dialog.tsx` documenting the real mechanism
+  (`parsed.<output_key>` from Extract Facts / Get OSPF Facts / Get BGP Facts
+  / Batfish Node/Interface Properties).
+- **Deferred by explicit decision, not oversight: wiring Routing
+  Table/Path Check/ACL Check results into `device.parsed`.** This would let
+  those three steps' results be genuinely usable in `route-on-attribute`/
+  Render Jinja Template, closing the gap the bug above was fixed around —
+  but it's backend design work (how does a single workflow-level answer
+  table map onto N devices for a per-device template render?), not a
+  one-line fix, and was explicitly scoped out when the editor bug above was
+  fixed. Tracked as an action item in `doc/OPEN_TODOS.md` → "Wire Batfish
+  Routing Table/Path Check/ACL Check results into per-device templates".

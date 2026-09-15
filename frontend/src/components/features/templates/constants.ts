@@ -70,11 +70,25 @@ export const PARSED_CONFIG_VARIABLE: { name: string; description: string } = {
 
 /**
  * Ad-hoc Batfish query result variable, populated by the Options modal's
- * Batfish tab. Matches the batfish-routing-table / batfish-path-check /
+ * Batfish tab, matching the batfish-routing-table / batfish-path-check /
  * batfish-acl-check workflow steps' answer shape.
+ *
+ * PREVIEW-ONLY -- unlike every other auto-filled variable above, this one is
+ * NOT populated by any real workflow step. batfish-routing-table/-path-check/
+ * -acl-check store their result only as a workflow-level artifact +
+ * WorkflowContext.metadata pointer (see doc/BATFISH_INTEGRATION.md "Result
+ * storage") -- they never write into a DeviceContext, so a real Render Jinja
+ * Template step never receives a `batfish` variable. A template that
+ * references `batfish.*` will render fine here and then fail every device
+ * with "Undefined template variable: 'batfish' is undefined" at actual
+ * workflow runtime. Use this tab only to explore/verify a Batfish query
+ * while authoring -- never reference `batfish.*` in the template body itself.
+ * If you need per-device Batfish data in a real template, use the `parsed`
+ * namespace populated by Extract Facts / Get OSPF Facts / Get BGP Facts /
+ * Batfish Node or Interface Properties instead (see the Jinja help dialog).
  */
 export const BATFISH_VARIABLE: { name: string; description: string } = {
   name: "batfish",
   description:
-    "Result of an ad-hoc Batfish query (Routing Table / Path Check / ACL Check) run against a configured Batfish source and network+snapshot — batfish.rows, batfish.reachable, batfish.action, batfish.question.",
+    "PREVIEW-ONLY. Result of an ad-hoc Batfish query (Routing Table / Path Check / ACL Check) run here for exploration — never populated by an actual workflow run. Do not reference batfish.* in the template body; use it only to inspect the shape while authoring. For real per-device Batfish data, use parsed.<output_key> from Extract Facts / Get OSPF Facts / Get BGP Facts / Batfish Node or Interface Properties instead.",
 };

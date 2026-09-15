@@ -83,9 +83,12 @@ command,          — "Run Command" — see "Accessing command output" below
 commands,
 commands_by_name
 parsed.*          — "Parse Cisco Config", "Run Command" (parser =
-                    textfsm/genie), the pyATS steps, and the
-                    content/compare steps. One shared namespace, keyed by
-                    each step's output_key — see "The parsed namespace".
+                    textfsm/genie), the pyATS steps, the content/compare
+                    steps, and the per-device Batfish steps (Extract Facts;
+                    Get OSPF Facts / Get BGP Facts / Batfish Node/Interface
+                    Properties via their "devices" outcome only). One shared
+                    namespace, keyed by each step's output_key — see "The
+                    parsed namespace".
 data.*            — "Read from File" (its default destination). "Read from
                     File", "Update Attribute" and "Set Default Attributes"
                     each write to a namespace you name in their
@@ -301,6 +304,43 @@ parsed.parsed['show ip interface brief'].error    null, or why parsing
 {% for row in rows %}
 ! {{ row.intf }} {{ row.ipaddr }} {{ row.status }}
 {% endfor %}`}</CodeBlock>
+
+            <p className="font-medium text-foreground">Batfish (per-device steps only)</p>
+            <p>
+              <strong>Extract Facts</strong> always enriches every device in
+              place, so its output is available under{" "}
+              <code>parsed.&lt;output_key&gt;</code> (default{" "}
+              <code>batfish_extract_facts</code>) exactly like any other step
+              here:
+            </p>
+            <CodeBlock>{`parsed.batfish_extract_facts.parsed.Hostname
+parsed.batfish_extract_facts.parsed.NTP_Servers
+parsed.batfish_extract_facts.parsed.TACACS_Servers
+parsed.batfish_extract_facts.error   null, or why this node had no facts
+                                      in the snapshot`}</CodeBlock>
+            <p>
+              <strong>Get OSPF Facts</strong>, <strong>Get BGP Facts</strong>,
+              and <strong>Batfish Node/Interface Properties</strong> only
+              write into <code>parsed.&lt;output_key&gt;</code> on their{" "}
+              <code>devices</code> outcome — wiring their <code>success</code>{" "}
+              outcome downstream instead never populates this namespace
+              (that outcome only stores the result as a workflow-level
+              artifact). Following <code>devices</code> also{" "}
+              <strong>replaces</strong> the device list with one
+              Batfish-node-identity device per node, losing any Nautobot
+              attributes or other <code>parsed.*</code> entries collected
+              earlier in the run.
+            </p>
+            <p>
+              <strong>Batfish Routing Table</strong>,{" "}
+              <strong>Batfish Path Check</strong>, and{" "}
+              <strong>Batfish ACL Check</strong> never populate{" "}
+              <code>parsed</code> at all — their results are stored only as
+              a workflow-level artifact (view them in the run detail page),
+              never on a device. See the Options dialog&apos;s{" "}
+              <strong>Batfish</strong> tab for why its <code>batfish</code>{" "}
+              preview variable must not be referenced in a template body.
+            </p>
           </Section>
 
           <Section title="Accessing command output (one command)">
