@@ -36,6 +36,7 @@ gating" below).
 - [Viewing results: the run detail UI](#viewing-results-the-run-detail-ui)
 - [Template Editor integration: ad-hoc preview queries](#template-editor-integration-ad-hoc-preview-queries)
   - [Generic ad-hoc questions: the long tail beyond routes/reachability/testFilters](#generic-ad-hoc-questions-the-long-tail-beyond-routesreachabilitytestfilters)
+- [PLANNED (not yet implemented): a combined OSPF step](#planned-not-yet-implemented-a-combined-ospf-step)
 - [Open items / verify during hardening](#open-items--verify-during-hardening)
 
 ## Why no separate shim container
@@ -1573,6 +1574,152 @@ don't exist under those names in the installed pybatfish/coordinator version
 anything needing a second/reference snapshot (`differentialReachability`,
 `compareFilters`, ...) -- out of scope for this single-snapshot surface --
 and every question already covered by a typed step/endpoint.
+
+## PLANNED (not yet implemented): a combined OSPF step
+
+**Status as of this writing: design-only, nothing below is implemented.**
+Written up in this much detail specifically so a fresh session (no prior
+conversation context) can pick this up and implement it without re-deriving
+the row-shape verification work below -- that verification is done; only the
+step itself remains to be built. All three OSPF questions this section
+covers are already usable today, right now, via the generic ad-hoc surface
+(Template Editor -> Options -> Batfish tab -> "Custom Question..." ->
+`ospfProcessConfiguration` / `ospfInterfaceConfiguration` / `ospfEdges`) --
+this section is about giving them a dedicated canvas step with real
+per-device enrichment, the way Batfish Node/Interface Properties do for
+their questions.
+
+### Row shapes: confirmed live, not assumed
+
+Verified against a live coordinator (synthetic 2-router snapshot: loopbacks,
+one `GigabitEthernet` link, OSPF area 0 with `network` statements on both
+routers, eBGP, a VRF, an ACL -- the same snapshot shape used throughout this
+doc's other "confirmed against a live coordinator" claims):
+
+- **`ospfProcessConfiguration`** -- one row per **node**, plain `Node` string
+  column (`{"Node": "r1", "VRF": "default", "Process_ID": "1", "Areas":
+  ["0"], "Reference_Bandwidth": 100000000.0, "Router_ID": "1.1.1.1",
+  "Export_Policy_Sources": [], "Area_Border_Router": false}`). **Identical
+  identity shape to `nodeProperties`.**
+- **`ospfInterfaceConfiguration`** -- one row per (node, interface), nested
+  `Interface` dict column, same shape as `interfaceProperties`'
+  (`{"Interface": {"hostname": "r1", "interface": "GigabitEthernet0/1"},
+  "VRF": "default", "Process_ID": "1", "OSPF_Area_Name": 0, "OSPF_Enabled":
+  true, "OSPF_Passive": false, "OSPF_Cost": 1, "OSPF_Network_Type":
+  "BROADCAST", "OSPF_Hello_Interval": 10, "OSPF_Dead_Interval": 40}`).
+  **Identical identity shape to `interfaceProperties`.**
+- **`ospfEdges`** -- one row per OSPF adjacency, with BOTH a local and a
+  remote `Interface`, each the same nested-dict shape as above:
+  `{"Interface": {"hostname": "r1", "interface": "GigabitEthernet0/1"},
+  "Remote_Interface": {"hostname": "r2", "interface":
+  "GigabitEthernet0/1"}}`. **The local `Interface` column has the same
+  identity shape as `interfaceProperties` too** -- grouping/dedup by
+  `row["Interface"]["hostname"]` works unchanged; `Remote_Interface` is just
+  one more field carried into that node's parsed payload, not a second
+  identity to resolve.
+
+**The upshot: zero new identity-extraction code is needed.** Both of
+`workflow_steps/common/batfish_properties.py`'s existing `node_key` shapes
+(`row.get("Node")` for node-properties, `row["Interface"]["hostname"]` for
+interface-properties) already cover all three OSPF questions --
+`ospfProcessConfiguration` reuses the "node" shape verbatim,
+`ospfInterfaceConfiguration`/`ospfEdges` both reuse the "interface" shape
+verbatim. This is a stronger starting position than Node/Interface
+Properties had (those two shapes had to be individually discovered and
+confirmed; here they're just being matched against already-known shapes).
+
+### Open design decision: one step or three, merged or picker-based
+
+Two genuinely different ways to build "a step that combines all OSPF
+questions" -- **pick one with the user before writing code**, this was not
+decided yet:
+
+- **Option A -- one step, one Batfish call *per question*, results merged
+  per device.** A new `batfish-ospf-summary` step (or similar name) that
+  calls all three questions in one execution and writes a single merged
+  payload per device, e.g.:
+  ```python
+  device.parsed[f"{node_id}.{output_key}"] = {
+      "parsed": {
+          "Process": {...ospfProcessConfiguration fields for this node...},
+          "Interfaces": {"<if_name>": {...ospfInterfaceConfiguration fields...}},
+          "Adjacencies": [{...ospfEdges fields, incl. Remote_Interface...}],
+      },
+      "error": None,
+  }
+  ```
+  This is the literal reading of "combines all OSPF questions" -- one canvas
+  node gives the full OSPF picture (process config + per-interface config +
+  adjacencies) for every device in one step. Needs a **new executor**, not a
+  new `PropertyQuestionSpec` entry -- `workflow_steps/common/batfish_properties.py`'s
+  `build_property_outcomes` assumes exactly one Batfish call's `rows` in, one
+  shape out; three-call merging is new logic, likely its own small helper
+  (e.g. `build_merged_property_outcomes`) rather than forcing it through the
+  existing single-question engine. Three `query_helpers.py` calls needed
+  (`query_generic` with each of the three question names, or three new typed
+  `query_ospf_process_configuration`/`query_ospf_interface_configuration`/
+  `query_ospf_edges` wrappers mirroring `query_node_properties`'s shape --
+  the latter is more consistent with this doc's existing "typed wrapper per
+  question" convention and gives each a real `Response` model if ever needed
+  for the ad-hoc surface's typed endpoints too, though the generic endpoint
+  already covers them ad hoc).
+- **Option B -- three separate `PropertyQuestionSpec` entries, exposed via
+  a `question` picker on one step (or as three thin step packages sharing
+  the engine, like Node/Interface Properties do today).** Mechanically
+  trivial given the shape-reuse finding above -- each is a ~10-line
+  `PropertyQuestionSpec` (a `question_label`, the already-existing
+  `node_key` shape, a `build_parsed_for_node` closure, a `row_noun`) plus a
+  thin executor calling the right `query_helpers` function. Matches the
+  existing Node/Interface Properties pattern exactly, but a single
+  execution only ever answers *one* of the three questions -- not really
+  "combined" in the sense of one call producing the full OSPF picture, more
+  "OSPF's three questions get the same treatment BGP's already-separate
+  Node/Interface Properties questions do."
+
+Option A is very likely the better match for the user's actual request ("a
+step that **combines**"), but confirm before implementing -- it's more work
+(new merge logic, new executor shape) than Option B's mechanical reuse.
+
+### Implementation pointers (once the design above is confirmed)
+
+Follow CLAUDE.md's "Adding a New Workflow Step" recipe, using
+`backend/workflow_steps/batfish_node_properties/` (Option B) or
+`backend/workflow_steps/batfish_routing_table/` (Option A -- closer in shape
+to a step that makes its own calls and builds its own result, since Routing
+Table also isn't `PropertyQuestionSpec`-driven) as the closest existing
+template:
+
+- `backend/workflow_steps/batfish_ospf_.../{__init__.py,executor.py,config.py}`
+  -- new step package(s), `requires: [identity]`, `produces: []`,
+  `outcomes: [success, devices]` (matching Node/Interface Properties'
+  shape -- `devices` for per-device chaining, `success` for the full-batch
+  artifact).
+- `backend/services/execution/step_registry.py` -- one import + one dict
+  entry per new step id.
+- `backend/workflow_steps/registry.yaml` -- one entry per new step,
+  `palette_category: batfish`, config fields mirroring Node/Interface
+  Properties' (`nodes`, `output_key`, `batfish_source_id`/`network`/
+  `snapshot` direct-target fields via the same `resolve_batfish_snapshot_ref`
+  path every other query/fact step already uses).
+- Frontend: `frontend/src/components/features/workflow-steps/batfish-ospf-.../{index.tsx,help-panel.tsx}`,
+  reusing `BatfishPropertiesFields`/`BatfishDirectTargetFields` from
+  `workflow-steps/shared/` the same way Node/Interface Properties already
+  do (Option B fits this directly; Option A would need its own, simpler
+  config panel since it has no `properties`/`route_empty_to_devices` filter
+  concept -- it always returns everything OSPF-related per device).
+  `frontend/src/lib/plugin-ui-registry.ts` -- new entr(y/ies).
+- Tests: mirror `test_batfish_node_properties_executor.py`'s structure
+  (mock `service_factory.get_batfish_app_service()`, build a
+  snapshot-bearing `WorkflowContext` via `store_batfish_snapshot`).
+- **`route_empty_to_devices`-equivalent audit feature**: worth considering
+  for Option A too (e.g. "flag nodes with an OSPF process but zero
+  adjacencies" -- a real, useful OSPF health check), but not designed here --
+  raise it when the option above is decided.
+- Doc: once built, add a "Batfish OSPF" section to "Workflow steps" above
+  (after Batfish Interface Properties, before Batfish ACL Check, to keep the
+  properties-family steps grouped), and remove this whole "PLANNED" section
+  (fold anything still relevant into "Open items" instead, per this doc's
+  own convention of retiring resolved planning notes).
 
 ## Open items / verify during hardening
 
