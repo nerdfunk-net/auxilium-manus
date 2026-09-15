@@ -23,7 +23,7 @@ gating" below).
 - [Configuring a source](#configuring-a-source)
 - [Security notes](#security-notes)
 - [Workflow steps](#workflow-steps)
-  - [Start Batfish Run](#start-batfish-run-batfish-start-run)
+  - [Get from Batfish](#get-from-batfish-batfish-start-run)
   - [Init Batfish Snapshot](#init-batfish-snapshot-batfish-init-snapshot)
   - [Batfish Routing Table](#batfish-routing-table-batfish-routing-table)
   - [Batfish Path Check](#batfish-path-check-batfish-path-check)
@@ -198,7 +198,8 @@ backend/services/settings/source_keys.py   # "batfish" added to SourceType + BAT
 
 backend/workflow_steps/common/batfish_context.py   # resolve_batfish_snapshot/store_batfish_snapshot (metadata lookup)
                                                      # + resolve_batfish_snapshot_ref (explicit source/network bypass)
-backend/workflow_steps/batfish_start_run/{__init__.py,executor.py,config.py}       # seeds an empty device context
+                                                     # + devices_from_nodes (Node column -> DeviceContext dedup, shared by Get from Batfish)
+backend/workflow_steps/batfish_start_run/{__init__.py,executor.py,config.py}       # "Get from Batfish" -- three-way: placeholder / metadata-driven / direct-target device listing
 backend/workflow_steps/batfish_init_snapshot/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: git -- glob-based file collection
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
@@ -206,7 +207,7 @@ backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_validate_facts/{__init__.py,executor.py,config.py}       # facts_source: git reuses batfish_init_snapshot/git_source.py::collect_git_source_files
 backend/workflow_steps/batfish_extract_facts/{__init__.py,executor.py,config.py}
-backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts
+backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts/node_properties
 backend/services/execution/step_registry.py   # 7 imports + dict entries
 backend/workflow_steps/registry.yaml          # 7 entries, palette_category: batfish
 
@@ -233,9 +234,9 @@ frontend/src/components/features/settings/components/sources-settings-canvas.tsx
 
 frontend/src/components/features/workflow-steps/shared/batfish-source-config.ts        # BATFISH_SOURCE_ID_KEY etc.
 frontend/src/components/features/workflow-steps/shared/batfish-source-select-dialog.tsx
-frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (5 query/fact steps)
+frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (6 steps: 5 query/fact steps + Get from Batfish)
 frontend/src/components/features/workflow-steps/shared/batfish-fact-keys.ts  # BATFISH_FACT_KEYS -- shared by Validate/Extract Facts panels+help
-frontend/src/components/features/workflow-steps/batfish-start-run/{index.tsx,help-panel.tsx}
+frontend/src/components/features/workflow-steps/batfish-start-run/{index.tsx,help-panel.tsx}  # "Get from Batfish" -- nodes_filter + BatfishDirectTargetFields
 frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx,help-panel.tsx}  # config_source toggle, git fields, network_name
 frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
@@ -433,8 +434,11 @@ re-upload regardless of where the configs come from. `config_source` on
 
   This mode never reads `context.devices` — not even to check it's
   empty — so pair it with an upstream `batfish-start-run` step (see
-  "Start Batfish Run" below) rather than a real device-selection step when
-  the workflow selects no devices of its own.
+  "Get from Batfish" below) rather than a real device-selection step when
+  the workflow selects no devices of its own. Left unconfigured with no
+  prior snapshot metadata on the run, that step is a pure no-op placeholder
+  (see "Get from Batfish" for its full three-way behavior) — it does not
+  contact Batfish itself.
 
 **The intended production pattern**: a workflow scheduled nightly (via
 `/schedules`) runs `batfish-start-run` → `batfish-init-snapshot`
@@ -443,7 +447,10 @@ re-upload regardless of where the configs come from. `config_source` on
 device contact, decoupled from any interactive/ad-hoc workflow. Separate,
 unrelated query workflows then target that same standing network directly
 (see "Why `WorkflowContext.metadata`, not a new `Capability`" below) without
-needing their own Init step or sharing the refresh workflow's `workflow_id`.
+needing their own Init step or sharing the refresh workflow's `workflow_id`
+— including via a `Get from Batfish` step targeting that network directly
+with `batfish_source_id`/`network` set, to populate real devices for a
+Validate Facts/Extract Facts run with no Init step of its own.
 
 **Why `WorkflowContext.metadata`, not a new `Capability`.** `Capability`
 (`models/workflow_context.py`) is a closed enum describing properties of a
@@ -554,21 +561,82 @@ All seven steps live under `palette_category: batfish` (a new palette
 category — see "Frontend: category gating" below for why it's hidden by
 default).
 
-### Start Batfish Run (`batfish-start-run`)
+### Get from Batfish (`batfish-start-run`)
 
-`requires: []`, `produces: [identity]`, no config. Sets
-`context.devices = {}` and returns `success` — that's the entire executor.
-Exists solely so a `git`-mode `batfish-init-snapshot` step (which needs no
-real devices at all) can still be wired in on the canvas:
-`batfish-init-snapshot` keeps `requires: [identity]` unchanged in both
-modes (see "Config source: live vs. git" above for why that's not made
-conditional), and the canvas's own connection-validity rule
-(`workflow-canvas.tsx::isValidConnection`) requires some upstream node that
-`produces: [identity]` before it will accept an edge into a
-`requires: [identity]` step, regardless of what that upstream step's device
-output actually contains. Use this instead of a real device-selection step
-only when a Batfish workflow selects no devices of its own; live-mode
-Batfish workflows keep using a normal device-selection step as before.
+`requires: []`, `produces: [identity]`, single `success` outcome. Started life
+as a pure placeholder (hence the `id`, kept unchanged for backward
+compatibility with saved workflows) and grew into a real device-listing step —
+it now has **three auto-detected behaviors**, chosen by what's resolvable at
+run time, with no mode/toggle config field:
+
+1. **Nothing configured, and no run metadata resolvable**
+   (`context.metadata["batfish"]` absent, and neither `batfish_source_id` nor
+   `network` set) — the original, unchanged placeholder behavior:
+   `context.devices` is cleared to `{}` and `success` fires, with **zero
+   Batfish calls**. This is what lets a `git`-mode `batfish-init-snapshot`
+   step (which needs no real devices at all) still be wired in on the canvas:
+   `batfish-init-snapshot` keeps `requires: [identity]` unchanged in both
+   config-source modes (see "Config source: live vs. git" above), and the
+   canvas's own connection-validity rule
+   (`workflow-canvas.tsx::isValidConnection`) requires some upstream node
+   that `produces: [identity]` before it will accept an edge into a
+   `requires: [identity]` step, regardless of what that upstream step's
+   device output actually contains.
+2. **This run's own `Init Batfish Snapshot` already ran**
+   (`context.metadata["batfish"]` present) — resolves that snapshot, queries
+   Batfish's `nodeProperties` question for every matching node, and
+   **replaces** `context.devices` with one device per distinct node
+   (deduplicated) — the same "always replace, never merge" contract other
+   `Get from X` device-selection steps use.
+3. **`batfish_source_id` + `network` both configured** — same device
+   population, but targeting a standing network directly (the "intended
+   production pattern" above), bypassing this run's metadata entirely. Same
+   `resolve_batfish_snapshot_ref` direct-targeting bypass the three query
+   steps and Validate/Extract Facts already use, including its "explicit
+   config always wins" precedence.
+
+**Device identity, and why `batfish-routing-table` isn't touched.** The
+synthesized `DeviceContext`s use the exact same shape as
+`batfish-routing-table`'s own `devices` outcome (`id=name=hostname=<node>`,
+`source="batfish"`, `capabilities={IDENTITY}`, `status=OK`) — a
+Batfish-sourced identity, not a rehydration of real inventory data, with the
+same lowercased-hostname caveat (see "Batfish Routing Table" below) if you
+chain into `Get Nautobot Attributes` afterward. This dedup logic lives once,
+as `workflow_steps.common.batfish_context.devices_from_nodes`, used only by
+this step — `batfish-routing-table`'s own inline copy is deliberately left
+as-is, not refactored onto the shared helper, so this rework carries zero
+behavior risk for that step.
+
+**A workflow may legitimately contain two instances of this step**: one
+before `Init Batfish Snapshot` (case 1, placeholder role — satisfies the
+canvas wiring rule) and one after it (case 2, real device population from the
+snapshot that step just built), e.g.:
+```
+Get from Batfish → Init Batfish Snapshot (config_source: git) → Get from Batfish → Validate Facts
+```
+This is what makes `facts_source: git` on Validate Facts usable without a
+live device-selection step anywhere in the workflow — the second `Get from
+Batfish` instance supplies real, Batfish-sourced devices for Validate Facts
+to check, resolving the original gap that motivated this step's rework (an
+empty device list previously meant Validate Facts always returned empty
+match/mismatch results, even though `git`-mode Init Snapshot and Extract
+Facts both worked fine against the same snapshot).
+
+**Implementation note on why the precondition is checked explicitly, not via
+`except ValueError`.** `resolve_batfish_snapshot_ref` (and the
+`resolve_batfish_snapshot` it falls back to) always raises `ValueError` when
+nothing is resolvable — it never returns a falsy sentinel. The executor
+replicates that same "is anything configured at all" precondition itself
+*before* calling it, so a case-1 no-op is distinguishable from a genuine
+misconfiguration (malformed metadata, a nonexistent network, a network with
+no snapshots) — the latter must still propagate as a real step failure, not
+be silently swallowed into "no devices."
+
+Config: `nodes_filter: str` (optional NodeSpecifier restricting which nodes
+are listed; blank lists every node — unlike Extract Facts, this step has no
+`context.devices` of its own to default to, since it *is* the device
+source), plus the same `batfish_source_id`/`network`/`snapshot` direct-target
+fields as the query/fact steps below.
 
 ### Init Batfish Snapshot (`batfish-init-snapshot`)
 

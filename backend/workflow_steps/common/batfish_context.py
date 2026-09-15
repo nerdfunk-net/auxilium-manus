@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
 
-from models.workflow_context import WorkflowContext
+from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.batfish.credentials import BatfishConnection
 from services.batfish.query_helpers import (
     assert_batfish_network_exists,
@@ -95,6 +95,31 @@ async def resolve_batfish_snapshot_ref(
         snapshot = await resolve_latest_snapshot_name(batfish, connection, network)
 
     return BatfishSnapshotRef(connection=connection, network=network, snapshot=snapshot)
+
+
+def devices_from_nodes(rows: list[dict[str, Any]]) -> dict[str, DeviceContext]:
+    """Dedupe a Batfish answer's ``Node`` column into one DeviceContext per
+    distinct node -- the same Batfish-sourced identity shape
+    batfish-routing-table's own ``devices`` outcome already builds (kept as
+    an independent inline copy there, not refactored onto this helper, so
+    this addition carries zero behavior risk for that step). Used by
+    batfish-start-run's executor ("Get from Batfish") to populate real
+    devices from a snapshot's node list.
+    """
+    device_nodes: dict[str, DeviceContext] = {}
+    for row in rows:
+        node = row.get("Node")
+        if not node or node in device_nodes:
+            continue
+        device_nodes[node] = DeviceContext(
+            id=node,
+            name=node,
+            hostname=node,
+            source="batfish",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+        )
+    return device_nodes
 
 
 def store_batfish_snapshot(

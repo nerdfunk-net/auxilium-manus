@@ -246,6 +246,16 @@ class BatfishServiceQuestionTests(unittest.IsolatedAsyncioTestCase):
         call_answer = self.instance.q.reachability.return_value.answer
         call_answer.assert_called_once_with(snapshot="run-42")
 
+    async def test_node_properties_returns_parsed_rows(self) -> None:
+        self.instance.q.nodeProperties = self._stub_question('[{"Node": "r1"}, {"Node": "r2"}]')
+
+        result = await self.service.node_properties(
+            _connection(), batfish_network="net", snapshot="snap", nodes="/.*/"
+        )
+
+        self.assertEqual(result, [{"Node": "r1"}, {"Node": "r2"}])
+        self.instance.q.nodeProperties.assert_called_once_with(nodes="/.*/")
+
     async def test_test_filters_wraps_batfish_exception(self) -> None:
         self.instance.q.testFilters = MagicMock(side_effect=BatfishException("bad question"))
 

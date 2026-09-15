@@ -175,6 +175,11 @@ class BatfishService:
     ) -> list[dict[str, Any]]:
         return await self._answer(connection, batfish_network, snapshot, "testFilters", params)
 
+    async def node_properties(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        return await self._answer(connection, batfish_network, snapshot, "nodeProperties", params)
+
     async def validate_facts(
         self,
         connection: BatfishConnection,

@@ -1,11 +1,12 @@
 """Shared, workflow-agnostic helpers for building and running Batfish queries.
 
-Used by the batfish-routing-table/batfish-path-check/batfish-acl-check
-workflow-step executors (via workflow_steps.common.batfish_context) AND the
-ad-hoc BatfishPreviewService, so a Template Editor preview query behaves
-*identically* to what the corresponding workflow step would produce -- not
-just similarly. `query_routes`/`query_reachability`/`query_test_filters` are
-the one place each question's pybatfish call is actually built and made;
+Used by the batfish-routing-table/batfish-path-check/batfish-acl-check/
+batfish-start-run workflow-step executors (via
+workflow_steps.common.batfish_context) AND the ad-hoc BatfishPreviewService,
+so a Template Editor preview query behaves *identically* to what the
+corresponding workflow step would produce -- not just similarly.
+`query_routes`/`query_reachability`/`query_test_filters`/`query_node_properties`
+are the one place each question's pybatfish call is actually built and made;
 callers are responsible only for resolving the connection/snapshot first
 (each has a different way to do that -- run metadata vs. an explicit
 network) and validating their own required fields *before* calling these
@@ -246,3 +247,32 @@ async def query_test_filters(
         )
     action = str(rows[0].get("Action", "")).strip().upper()
     return rows, action
+
+
+async def query_node_properties(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``nodeProperties`` question. Shared by batfish-start-run's
+    executor (as "Get from Batfish").
+
+    Always includes a ``Node`` column (same convention
+    ``routes``/``reachability``/``testFilters`` use) -- confirmed against
+    ``pybatfish.client._facts.get_facts()``'s own use of this question, which
+    is the same one Batfish's built-in fact extraction relies on. No
+    ``properties`` filter is passed -- Batfish returns its own default
+    column set, and callers here only need node identity for dedup, not
+    fact contents (see batfish-extract-facts for pulling actual fact
+    contents). ``nodes`` defaults to every node in the snapshot when blank
+    (pybatfish's own default is ``"/.*/"``).
+    """
+    return await batfish.node_properties(
+        connection,
+        batfish_network=batfish_network,
+        snapshot=snapshot,
+        nodes=_or_none(nodes),
+    )

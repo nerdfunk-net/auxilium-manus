@@ -23,7 +23,6 @@ import {
   LogIn,
   MessageSquare,
   PackagePlus,
-  PlayCircle,
   Replace,
   Route,
   Router,
@@ -63,6 +62,23 @@ export const ARTIFACT_TYPE_ORDER = [
   "pyats",
   "batfish",
 ];
+
+// Explicit intra-category step order, for categories where the default
+// alphabetical-by-title order (see groupPaletteItems) doesn't reflect the
+// natural build sequence of a workflow. Any step id not listed here falls
+// back to alphabetical, so adding a new step to this category is safe by
+// default even if this list isn't updated immediately.
+export const CATEGORY_STEP_ORDER: Record<string, string[]> = {
+  batfish: [
+    "batfish-start-run",
+    "batfish-init-snapshot",
+    "batfish-extract-facts",
+    "batfish-validate-facts",
+    "batfish-routing-table",
+    "batfish-acl-check",
+    "batfish-path-check",
+  ],
+};
 
 export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   nautobot: "Nautobot",
@@ -125,7 +141,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   // Same reason as the pyats entries above: palette_category: batfish means
   // the artifact_type icon fallback doesn't apply, so every batfish step
   // needs its own entry here too.
-  "batfish-start-run": PlayCircle,
+  "batfish-start-run": Router,
   "batfish-init-snapshot": PackagePlus,
   "batfish-routing-table": Route,
   "batfish-path-check": Signpost,

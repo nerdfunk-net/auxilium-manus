@@ -6,6 +6,7 @@ import type { PluginDefinition } from "../types/plugin-registry";
 import type { StepPayload, WorkflowOutcomeField } from "../types/workflow-canvas";
 import {
   ARTIFACT_TYPE_ORDER,
+  CATEGORY_STEP_ORDER,
   formatPaletteCategory,
   resolveStepIcon,
 } from "./step-visuals";
@@ -50,6 +51,24 @@ function toPaletteItem(plugin: PluginDefinition): PaletteItem {
   };
 }
 
+/** Sorts a category's palette items by CATEGORY_STEP_ORDER when the category
+ * has an explicit order, falling back to alphabetical-by-title (the default
+ * for every other category, and for any item not listed in an explicit
+ * order). */
+function sortPaletteItems(categoryKey: string, items: PaletteItem[]): PaletteItem[] {
+  const explicitOrder = CATEGORY_STEP_ORDER[categoryKey];
+  if (!explicitOrder) {
+    return [...items].sort((left, right) => left.title.localeCompare(right.title));
+  }
+  return [...items].sort((left, right) => {
+    const leftIndex = explicitOrder.indexOf(left.kind);
+    const rightIndex = explicitOrder.indexOf(right.kind);
+    const leftOrder = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const rightOrder = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    return leftOrder - rightOrder || left.title.localeCompare(right.title);
+  });
+}
+
 export function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
   const groups = new Map<string, PaletteItem[]>();
 
@@ -71,7 +90,7 @@ export function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
     .map(([categoryKey, items]) => ({
       categoryKey,
       label: formatPaletteCategory(categoryKey),
-      items: items.sort((left, right) => left.title.localeCompare(right.title)),
+      items: sortPaletteItems(categoryKey, items),
     }));
 }
 

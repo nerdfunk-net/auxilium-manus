@@ -581,16 +581,23 @@ plugins:
           required: false
 
   - id: batfish-start-run
-    name: Start Batfish Run
-    overview: Seed an empty device context to start a git-backed Batfish workflow.
+    name: Get from Batfish
+    overview: List Batfish snapshot nodes as devices, or seed an empty placeholder context.
     description: >
-      Produces an empty device context so a git-mode Init Batfish Snapshot
-      step -- which reads configs from a Git repository and needs no live
-      devices at all -- can still be wired in on the canvas. Use this instead
-      of a real device-selection step when a Batfish workflow selects no
-      devices of its own (see doc/BATFISH_INTEGRATION.md "Config source:
-      live vs. git"). Not needed for live-mode Batfish workflows, which keep
-      using a normal device-selection step.
+      Three-way auto-detected behavior (see doc/BATFISH_INTEGRATION.md "Get
+      from Batfish" for the full explanation): with no config and no
+      upstream Init Batfish Snapshot metadata on this run, this step is a
+      no-op placeholder -- it clears context.devices and does not contact
+      Batfish at all, purely to satisfy the canvas's requires: [identity]
+      connection rule for a git-mode Init Batfish Snapshot step that needs
+      no live devices. Once this run's own Init Batfish Snapshot has
+      recorded a snapshot, or when batfish_source_id + network target a
+      standing network directly, this step instead queries that snapshot's
+      nodeProperties and REPLACES context.devices with one device per node
+      (deduplicated) -- the same "replace, don't merge" contract as other
+      Get-from-X device-selection steps. A workflow may use two instances of
+      this step: one before Init Batfish Snapshot (placeholder role), one
+      after it (real device population).
     artifact_type: inventory_selector
     palette_category: batfish
     directory: batfish_start_run
@@ -599,6 +606,37 @@ plugins:
     produces: [identity]
     outcomes:
       - name: success
+    metadata:
+      configuration_input:
+        - name: nodes_filter
+          description: >
+            NodeSpecifier restricting which nodes are listed as devices
+            (e.g. a regex like "/^r/" or a "node1|node2" alternation). Leave
+            blank to list every node in the snapshot ("/.*/") -- unlike
+            Extract Facts, this step has no context.devices of its own to
+            default to, since it IS the device source.
+          data_type: string
+          required: false
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
 
   - id: batfish-init-snapshot
     name: Init Batfish Snapshot
