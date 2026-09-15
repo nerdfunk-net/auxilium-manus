@@ -20,12 +20,32 @@ import type {
 
 import { BatfishDirectTargetFields } from "../shared/batfish-direct-target-fields";
 import { BATFISH_FACT_KEYS } from "../shared/batfish-fact-keys";
+import { GitSourceConfigPanel } from "../shared/git-source-config-panel";
 import { listUpstreamSourceSteps } from "../shared/upstream-source-steps";
 import { BatfishValidateFactsHelpPanel } from "./help-panel";
 
 const FACTS_SOURCE_KEY = "facts_source";
 const DEFAULT_FACTS_SOURCE = "rendered_yaml";
-const FACTS_SOURCES = ["rendered_yaml", "field"] as const;
+const BASE_PATH_KEY = "base_path";
+const GLOB_PATTERN_KEY = "glob_pattern";
+
+const FACTS_SOURCE_OPTIONS = [
+  {
+    value: "rendered_yaml",
+    label: "Rendered YAML (upstream step)",
+    hint: "Reads an upstream Render Jinja Template step's output.",
+  },
+  {
+    value: "field",
+    label: "Single field (inline)",
+    hint: "Builds one {fact_key: fact_value} fact inline, per device -- no upstream step needed.",
+  },
+  {
+    value: "git",
+    label: "Git repository",
+    hint: "Reads expected-facts YAML files from a Git repository, scoped to this run's devices.",
+  },
+] as const;
 
 function stringFromConfig(config: Record<string, unknown>, key: string): string {
   const raw = config[key];
@@ -36,6 +56,7 @@ function BatfishValidateFactsConfigPanel({
   config,
   onChange,
   nodeId,
+  onPreview,
   workflowNodes = EMPTY_WORKFLOW_NODES,
 }: PluginConfigPanelProps) {
   const factsSource = stringFromConfig(config, FACTS_SOURCE_KEY) || DEFAULT_FACTS_SOURCE;
@@ -43,6 +64,8 @@ function BatfishValidateFactsConfigPanel({
   const parsedOutputKey = stringFromConfig(config, "parsed_output_key");
   const factKey = stringFromConfig(config, "fact_key");
   const factValue = stringFromConfig(config, "fact_value");
+  const basePath = stringFromConfig(config, BASE_PATH_KEY);
+  const globPattern = stringFromConfig(config, GLOB_PATTERN_KEY);
   const outputKey = stringFromConfig(config, "output_key");
 
   const sourceSteps = useMemo(
@@ -112,6 +135,8 @@ function BatfishValidateFactsConfigPanel({
     [config, onChange],
   );
 
+  const factsSourceHint = FACTS_SOURCE_OPTIONS.find((option) => option.value === factsSource)?.hint;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="space-y-1.5">
@@ -121,17 +146,16 @@ function BatfishValidateFactsConfigPanel({
             <SelectValue placeholder={DEFAULT_FACTS_SOURCE} />
           </SelectTrigger>
           <SelectContent>
-            {FACTS_SOURCES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {value}
+            {FACTS_SOURCE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          rendered_yaml reads an upstream Render Jinja Template step&apos;s output; field builds
-          one fact inline, per device.
-        </p>
+        {factsSourceHint ? (
+          <p className="text-[11px] leading-4 text-muted-foreground">{factsSourceHint}</p>
+        ) : null}
       </div>
 
       {factsSource === "rendered_yaml" ? (
@@ -210,7 +234,7 @@ function BatfishValidateFactsConfigPanel({
             />
           </div>
         </>
-      ) : (
+      ) : factsSource === "field" ? (
         <>
           <div className="space-y-1.5">
             <span className="font-mono text-xs font-medium">fact_key</span>
@@ -246,6 +270,54 @@ function BatfishValidateFactsConfigPanel({
             <p className="text-[11px] leading-4 text-muted-foreground">
               Rendered per device. May resolve to a scalar (10.0.0.1) or a YAML/JSON list
               ([10.0.0.1, 10.0.0.2]).
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          <GitSourceConfigPanel
+            config={config}
+            onChange={onChange}
+            nodeId={nodeId}
+            onPreview={onPreview}
+            description="Git repository to read expected-facts YAML from."
+          />
+
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">{BASE_PATH_KEY}</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                string
+              </Badge>
+            </div>
+            <Input
+              value={basePath}
+              onChange={handleFieldChange(BASE_PATH_KEY)}
+              placeholder="facts"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Directory inside the repository to search from. Blank searches the repo root.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">{GLOB_PATTERN_KEY}</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                string
+              </Badge>
+            </div>
+            <Input
+              value={globPattern}
+              onChange={handleFieldChange(GLOB_PATTERN_KEY)}
+              placeholder="**/*.yaml"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Glob matched under base_path -- supports ** for recursive directories. Every
+              matched file must have a top-level &quot;nodes&quot; mapping, keyed by hostname
+              (case-insensitive); later files (sorted by path) win on a node-key collision.
             </p>
           </div>
         </>

@@ -30,10 +30,23 @@ one Batfish call for the whole device batch (calling validate_facts once per
 device would be wasteful -- it internally re-fetches facts for every node in
 the snapshot on every call, not just the ones being checked), then
 partitions devices by the returned per-node result.
+
+``facts_source: "git"`` reads expected-facts YAML files from a
+``GitRepository`` (``git_repository_id``/``base_path``/``glob_pattern``,
+reusing ``batfish_init_snapshot.git_source.collect_git_source_files`` as-is)
+instead of an upstream render step or an inline field. Unlike that step's
+git mode, which copies raw config files into a snapshot upload, this one
+*parses* every matched file as YAML (same top-level ``nodes:`` mapping shape
+as ``rendered_yaml``) and merges them once, up front, into one
+node-name-to-fields corpus before the per-device loop -- later files (in
+``collect_git_source_files``'s own sorted-path order) win on a node-key
+collision. A file that fails to parse, or lacks a top-level ``nodes:``
+mapping, is a hard step failure, not a skip -- see ``_build_git_facts_corpus``.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import tempfile
@@ -53,9 +66,12 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.git.sync import clone_or_pull
+from workflow_steps.batfish_init_snapshot.git_source import collect_git_source_files
 from workflow_steps.batfish_validate_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.content_resolver import list_exportable_content
+from workflow_steps.common.git_repository_loader import load_git_repository
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
@@ -69,7 +85,22 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-validate-facts"
 _OUTCOME_NAMES = ("match", "mismatch", "failure")
-_FACTS_SOURCES = frozenset({"rendered_yaml", "field"})
+_FACTS_SOURCES = frozenset({"rendered_yaml", "field", "git"})
+
+
+def _parse_nodes_yaml(text: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Returns (nodes_fragment, error_message) -- exactly one is non-None.
+
+    Shared by the rendered_yaml (one artifact) and git (one-or-more files)
+    facts sources -- both expect the same top-level ``nodes:`` mapping shape.
+    """
+    try:
+        parsed_yaml = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        return None, f"not valid YAML: {exc}"
+    if not isinstance(parsed_yaml, dict) or not isinstance(parsed_yaml.get("nodes"), dict):
+        return None, "must have a top-level 'nodes' mapping"
+    return parsed_yaml["nodes"], None
 
 
 async def _resolve_rendered_yaml_fragment(
@@ -92,13 +123,50 @@ async def _resolve_rendered_yaml_fragment(
             "Render Jinja Template step producing the expected-facts content."
         )
     text = await artifact_service.resolve(items[0].artifact_ref)
-    try:
-        parsed_yaml = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
-        return None, f"Rendered content is not valid YAML: {exc}"
-    if not isinstance(parsed_yaml, dict) or not isinstance(parsed_yaml.get("nodes"), dict):
-        return None, "Rendered YAML must have a top-level 'nodes' mapping"
-    return parsed_yaml["nodes"], None
+    nodes, error = _parse_nodes_yaml(text)
+    if error is not None:
+        return None, f"Rendered content {error}"
+    return nodes, None
+
+
+async def _build_git_facts_corpus(*, merged_config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Resolve git_repository_id/base_path/glob_pattern into a node-name(lower)
+    -> fields corpus, merging every matched file's own 'nodes:' map.
+
+    Called once per step execution (not per device), mirroring the step's
+    existing "one Batfish call per batch" philosophy. Later files, in
+    collect_git_source_files's own sorted-path order, win on a node-key
+    collision -- no extra sort needed, it falls out of the merge loop below.
+
+    Raises ValueError if git_repository_id/glob_pattern are missing, or if
+    any matched file isn't valid expected-facts YAML -- a hard, whole-step
+    failure rather than skipping the bad file, matching the "loud failure
+    over silent partial data" posture collect_git_source_files already
+    established for its own zero-match/cap-exceeded cases (see
+    doc/BATFISH_INTEGRATION.md "Validate Facts" / "Open items").
+    """
+    git_repository_id = int(merged_config["git_repository_id"])
+    base_path = str(merged_config.get("base_path") or "")
+    glob_pattern = str(merged_config.get("glob_pattern") or "").strip()
+
+    repository = await asyncio.to_thread(load_git_repository, git_repository_id)
+    repo_dir = await asyncio.to_thread(clone_or_pull, repository)
+    matched_files = await asyncio.to_thread(
+        collect_git_source_files,
+        repo_root=repo_dir,
+        base_path=base_path,
+        glob_pattern=glob_pattern,
+    )
+
+    corpus: dict[str, dict[str, Any]] = {}
+    for path in matched_files:
+        text = await asyncio.to_thread(path.read_text, "utf-8")
+        nodes, error = _parse_nodes_yaml(text)
+        if error is not None or nodes is None:
+            raise ValueError(f"{_STEP_ID}: {path} -- {error}")
+        for key, value in nodes.items():
+            corpus[str(key).strip().lower()] = value
+    return corpus
 
 
 def _resolve_field_fragment(rendered_value: str, fact_key: str) -> dict[str, Any]:
@@ -121,6 +189,7 @@ async def _prepare_contribution(
     merged_config: dict[str, Any],
     context: WorkflowContext,
     artifact_service: ArtifactService,
+    git_facts_corpus: dict[str, dict[str, Any]] | None,
 ) -> tuple[str, dict[str, Any]] | DeviceError:
     """Resolve this device's one-node expected-facts fragment.
 
@@ -152,6 +221,25 @@ async def _prepare_contribution(
                 node_id=node_id, step_id=_STEP_ID, code="render_error", message=str(exc)
             )
         return node_name, _resolve_field_fragment(rendered_value, fact_key)
+
+    if facts_source == "git":
+        if git_facts_corpus is None:
+            raise RuntimeError(
+                f"{_STEP_ID}: git_facts_corpus was not built before _prepare_contribution "
+                "-- execute() must build it when facts_source is 'git'"
+            )
+        if node_name not in git_facts_corpus:
+            return DeviceError(
+                node_id=node_id,
+                step_id=_STEP_ID,
+                code="node_key_mismatch",
+                message=(
+                    f"Git-sourced expected-facts corpus has no node key matching this "
+                    f"device's name ({device.name!r}, case-insensitive); found: "
+                    f"{sorted(git_facts_corpus)}"
+                ),
+            )
+        return node_name, git_facts_corpus[node_name]
 
     # facts_source == "rendered_yaml"
     source_step_node_id = str(merged_config.get("source_step_node_id") or "").strip()
@@ -203,8 +291,16 @@ async def execute(
             raise ValueError(
                 f"{_STEP_ID}: source_step_node_id is required when facts_source is 'rendered_yaml'"
             )
-    elif not str(merged_config.get("fact_key") or "").strip():
-        raise ValueError(f"{_STEP_ID}: fact_key is required when facts_source is 'field'")
+    elif facts_source == "field":
+        if not str(merged_config.get("fact_key") or "").strip():
+            raise ValueError(f"{_STEP_ID}: fact_key is required when facts_source is 'field'")
+    else:  # facts_source == "git"
+        if merged_config.get("git_repository_id") in (None, ""):
+            raise ValueError(
+                f"{_STEP_ID}: git_repository_id is required when facts_source is 'git'"
+            )
+        if not str(merged_config.get("glob_pattern") or "").strip():
+            raise ValueError(f"{_STEP_ID}: glob_pattern is required when facts_source is 'git'")
 
     output_key = str(merged_config.get("output_key") or "batfish_validate_facts").strip() or (
         "batfish_validate_facts"
@@ -229,6 +325,10 @@ async def execute(
         snap.snapshot,
     )
 
+    git_facts_corpus: dict[str, dict[str, Any]] | None = None
+    if facts_source == "git":
+        git_facts_corpus = await _build_git_facts_corpus(merged_config=merged_config)
+
     buckets: dict[str, dict[str, DeviceContext]] = {"match": {}, "mismatch": {}, "failure": {}}
     contributions: dict[str, str] = {}  # device_id -> node_name
     node_fragments: dict[str, dict[str, Any]] = {}  # node_name -> fact fields
@@ -241,6 +341,7 @@ async def execute(
             merged_config=merged_config,
             context=context,
             artifact_service=artifact_service,
+            git_facts_corpus=git_facts_corpus,
         )
         if isinstance(result, DeviceError):
             failed = device.model_copy(

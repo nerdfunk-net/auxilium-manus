@@ -64,6 +64,30 @@ export function BatfishValidateFactsHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="facts_source: git">
+        <p>
+          Reads expected-facts YAML files from a Git repository (
+          <HelpCode>git_repository_id</HelpCode>, <HelpCode>base_path</HelpCode>,{" "}
+          <HelpCode>glob_pattern</HelpCode>) instead of an upstream step or an inline field —
+          useful when expected facts are authored as data files in the same repository a
+          config-backup or intended-state job already writes into. Every matched file must have
+          the same top-level <HelpCode>nodes</HelpCode> mapping shape as{" "}
+          <HelpCode>rendered_yaml</HelpCode>; all matched files&apos; node maps are merged into
+          one corpus before any device is checked — later files (sorted by path) win on a
+          node-key collision.
+        </p>
+        <HelpWarning title="A malformed matched file fails the whole step, not just one device">
+          <p>
+            Unlike <HelpCode>rendered_yaml</HelpCode> (where a bad artifact only fails the one
+            device that owns it), a file that fails to parse, or lacks a top-level{" "}
+            <HelpCode>nodes</HelpCode> mapping, fails the entire step before any device is
+            checked. A device whose name simply isn&apos;t present in the resolved corpus still
+            fails individually with <HelpCode>node_key_mismatch</HelpCode>, same as{" "}
+            <HelpCode>rendered_yaml</HelpCode>.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Supported fact keys">
         <p className="leading-5">{BATFISH_FACT_KEYS.join(", ")}</p>
       </HelpSection>

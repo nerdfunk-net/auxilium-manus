@@ -908,11 +908,12 @@ plugins:
       Compares expected configuration facts (hostname, NTP/TACACS/DNS
       servers, interfaces, BGP/OSPF settings, etc.) against what Batfish
       actually parsed from each device's config in an already-initialized
-      snapshot. Expected facts come either from an upstream Render Jinja
-      Template step's rendered YAML (facts_source: rendered_yaml) or from a
-      single fact_key/fact_value pair built inline (facts_source: field).
-      Routes each device to match or mismatch; a device whose expected facts
-      couldn't be resolved routes to failure instead.
+      snapshot. Expected facts come from an upstream Render Jinja Template
+      step's rendered YAML (facts_source: rendered_yaml), a single
+      fact_key/fact_value pair built inline (facts_source: field), or YAML
+      files read from a Git repository (facts_source: git). Routes each
+      device to match or mismatch; a device whose expected facts couldn't be
+      resolved routes to failure instead.
     artifact_type: control_flow
     palette_category: batfish
     directory: batfish_validate_facts
@@ -930,7 +931,8 @@ plugins:
             Where each device's expected-facts YAML fragment comes from:
             "rendered_yaml" (default) reads an upstream Render Jinja
             Template step's output; "field" builds a single {fact_key:
-            fact_value} fact inline, per device.
+            fact_value} fact inline, per device; "git" reads expected-facts
+            YAML files from a Git repository, scoped to this run's devices.
           data_type: string
           required: false
           default: rendered_yaml
@@ -962,6 +964,29 @@ plugins:
             per device (e.g. "{{ nautobot.custom_fields.tacacs_servers }}").
             May resolve to a scalar or a YAML/JSON list, e.g. "10.0.0.1" or
             "[10.0.0.1, 10.0.0.2]". Required when facts_source is "field".
+          data_type: string
+          required: false
+        - name: git_repository_id
+          description: >
+            Git repository (Settings → Git Repositories) to read
+            expected-facts YAML from. Required when facts_source is "git".
+          data_type: integer
+          required: false
+        - name: base_path
+          description: >
+            Directory inside the repository to search from (blank = repo
+            root). Only used when facts_source is "git".
+          data_type: string
+          required: false
+        - name: glob_pattern
+          description: >
+            Glob pattern (supports ** recursive segments) matched against
+            expected-facts YAML files under base_path, e.g.
+            "facts/**/*.yaml". Every matched file must have a top-level
+            "nodes" mapping, keyed by hostname (case-insensitive), same
+            shape as facts_source: rendered_yaml. Later files (sorted by
+            path) win on a node-key collision. Required when facts_source is
+            "git".
           data_type: string
           required: false
         - name: output_key

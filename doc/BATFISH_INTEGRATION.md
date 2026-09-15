@@ -204,7 +204,7 @@ backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: gi
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_path_check/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_acl_check/{__init__.py,executor.py,config.py}
-backend/workflow_steps/batfish_validate_facts/{__init__.py,executor.py,config.py}
+backend/workflow_steps/batfish_validate_facts/{__init__.py,executor.py,config.py}       # facts_source: git reuses batfish_init_snapshot/git_source.py::collect_git_source_files
 backend/workflow_steps/batfish_extract_facts/{__init__.py,executor.py,config.py}
 backend/services/batfish/client.py            # gained BatfishService.validate_facts/extract_facts
 backend/services/execution/step_registry.py   # 7 imports + dict entries
@@ -240,7 +240,7 @@ frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx
 frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-acl-check/{index.tsx,help-panel.tsx}
-frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.tsx,help-panel.tsx}  # facts_source toggle (rendered_yaml/field)
+frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.tsx,help-panel.tsx}  # facts_source toggle (rendered_yaml/field/git)
 frontend/src/components/features/workflow-steps/batfish-extract-facts/{index.tsx,help-panel.tsx}
 frontend/src/lib/plugin-ui-registry.ts        # 7 PLUGIN_UI_REGISTRY entries
 frontend/src/components/features/workflows/utils/step-visuals.ts   # "batfish" category label/colors/icons
@@ -839,7 +839,7 @@ its docstring alone), which surfaced three implementation-critical facts:
    from the merged file before writing it, letting `load_facts()`'s own
    "assume latest version if none is specified" default apply correctly.
 
-**Two ways to supply expected facts per device** (`facts_source` config,
+**Three ways to supply expected facts per device** (`facts_source` config,
 default `rendered_yaml`):
 
 - **`rendered_yaml`** — reads an upstream Render Jinja Template step's output
@@ -861,6 +861,34 @@ default `rendered_yaml`):
   (`[10.0.0.1, 10.0.0.2]`) — useful for a quick single-value check like "does
   this device have the right TACACS server" without any rendering step at
   all.
+- **`git`** — reads expected-facts YAML files from a `GitRepository`
+  (`git_repository_id`, `base_path`, `glob_pattern` — identical field names
+  and resolution to `batfish-init-snapshot`'s own `config_source: git`,
+  reusing `workflow_steps.batfish_init_snapshot.git_source
+  .collect_git_source_files` as-is). Unlike that step's git mode, which
+  *copies* raw config files into a Batfish snapshot upload, this one
+  *parses* every matched file as YAML — each must have the same top-level
+  `nodes` mapping shape as `rendered_yaml` — and merges all of them, once,
+  up front (before any device is checked), into one
+  node-name(lowercased)-to-fields corpus; later files, in
+  `collect_git_source_files`'s own sorted-path order, win on a node-key
+  collision. A file that fails to parse, or lacks a top-level `nodes`
+  mapping, is a hard step failure (`ValueError` naming the file), not a
+  skip — same "loud failure over silent partial data" posture
+  `collect_git_source_files` already established for its own zero-match/
+  cap-exceeded cases (see "Open items" below). Useful when expected facts
+  are authored/maintained as data files in the same repository a
+  config-backup or intended-state job already writes into, instead of being
+  rendered per-device from Nautobot at run time.
+
+**Failure granularity differs by source.** A `git`-source config error
+(missing `git_repository_id`/`glob_pattern`) or a malformed matched file
+fails the *whole step* before any device is evaluated — there is no partial
+corpus. A device simply missing from the resolved corpus (or, for
+`rendered_yaml`, a device with no resolvable artifact) still fails only
+*that device*, with `node_key_mismatch`/`missing_content` on its own
+`DeviceError`, exactly as today — other devices in the same run are
+unaffected.
 
 **Not fan-out sensitive, unlike `batfish-init-snapshot`.** Both
 `validate_facts` and `extract_facts` are pure reads against an
@@ -1320,6 +1348,16 @@ networks/snapshots (both editor and canvas config panels still take
   when a snapshot init parses zero usable nodes" bullet above (this is an
   earlier-stage version of the same philosophy: catch the empty-snapshot
   case at file-match time, not only later via `row_count: 0`).
+- **`batfish-validate-facts`'s `facts_source: git` applies the same
+  hard-fail philosophy one layer up, for a different failure class.** Where
+  `collect_git_source_files`'s own zero-match/cap-exceeded guard is about
+  *which files got matched*, this step's `_build_git_facts_corpus` guards
+  *whether a matched file is valid expected-facts YAML* — a file that fails
+  to parse, or lacks a top-level `nodes` mapping, raises `ValueError` naming
+  the file rather than being silently skipped (which would otherwise leave
+  some devices failing with a confusing `node_key_mismatch` purely because
+  one sibling file in the repo was malformed). Same posture, one layer
+  closer to the data than the file-collection step below it.
 - **`docker build`/`up` for `docker/batfish` was verified working in this
   environment** (unlike pyATS's own doc, which flagged this as unverified at
   the time it was written) — the container reaches `healthy`, runs only the
