@@ -11,6 +11,11 @@ from core.auth import get_current_user, require_permission
 from core.database import get_db
 from core.models.users import User
 from models.artifacts import ArtifactContentResponse
+from models.attribute_path import (
+    AttributePathResolveRequest,
+    AttributePathResolveResponse,
+    AttributePathTreeResponse,
+)
 from models.runs import WorkflowRunCreate, WorkflowRunListResponse, WorkflowRunResponse
 from services.execution.run_service import RunService
 
@@ -103,6 +108,49 @@ def get_run_artifact(
         run_id=run_id,
         artifact_id=str(artifact_id),
         user_id=current_user.id,
+    )
+
+
+@router.get(
+    "/runs/{run_id}/attribute-tree",
+    response_model=AttributePathTreeResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def get_attribute_path_tree(
+    run_id: int,
+    ancestor_node_id: list[str] = Query(
+        default=[],
+        description=(
+            "Node ids in the current canvas graph that are ancestors of the step "
+            "being configured. Only step results for these nodes are considered."
+        ),
+    ),
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> AttributePathTreeResponse:
+    return service.get_attribute_path_tree(
+        run_id=run_id,
+        user_id=current_user.id,
+        ancestor_node_ids=ancestor_node_id,
+    )
+
+
+@router.post(
+    "/runs/{run_id}/resolve-attribute-path",
+    response_model=AttributePathResolveResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def resolve_attribute_path(
+    run_id: int,
+    body: AttributePathResolveRequest,
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> AttributePathResolveResponse:
+    return service.resolve_attribute_path(
+        run_id=run_id,
+        user_id=current_user.id,
+        path=body.path,
+        ancestor_node_ids=body.ancestor_node_ids,
     )
 
 

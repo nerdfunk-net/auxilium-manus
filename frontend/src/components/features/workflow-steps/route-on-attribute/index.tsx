@@ -1,13 +1,15 @@
 "use client";
 
 import { Minus, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
+import { AttributePathPreview } from "@/components/features/workflow-steps/shared/attribute-path-preview";
 
 import { RouteOnAttributeHelpPanel } from "./help-panel";
 import {
@@ -26,8 +28,11 @@ function RouteOnAttributeConfigPanel({
   config,
   onChange,
   nodeId,
+  workflowNodes,
+  workflowEdges,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const parsed = useMemo(() => parseRouteOnAttributeConfig(config), [config]);
 
   useEffect(() => {
@@ -130,18 +135,43 @@ function RouteOnAttributeConfigPanel({
             string
           </Badge>
         </div>
-        <Input
-          value={parsed.attribute_path}
-          onChange={(event) => handleAttributePathChange(event.target.value)}
-          placeholder="device.network_driver"
-          className="h-8 font-mono text-xs"
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={parsed.attribute_path}
+            onChange={(event) => handleAttributePathChange(event.target.value)}
+            placeholder="device.network_driver"
+            className="h-8 font-mono text-xs"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 text-xs"
+            onClick={() => setPickerOpen(true)}
+          >
+            Browse attributes
+          </Button>
+        </div>
         <p className="text-[11px] leading-4 text-muted-foreground">
           Use <span className="font-mono">device.network_driver</span> for core device
           fields, <span className="font-mono">nautobot.role.name</span> for Nautobot
           attributes, or <span className="font-mono">custom.field</span> for user-defined
           attribute bags.
         </p>
+        <AttributePathPreview
+          path={parsed.attribute_path}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes ?? []}
+          workflowEdges={workflowEdges ?? []}
+        />
+        <AttributePathPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onSelect={handleAttributePathChange}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes ?? []}
+          workflowEdges={workflowEdges ?? []}
+        />
       </div>
 
       <div className="space-y-2">

@@ -18,6 +18,11 @@ from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.workflows import Workflow
 from core.safe_http_errors import raise_internal_server_error
 from models.artifacts import ArtifactContentResponse
+from models.attribute_path import (
+    AttributePathResolveResponse,
+    AttributePathResolveResult,
+    AttributePathTreeResponse,
+)
 from models.runs import (
     RUN_LIST_STATUS_FILTERS,
     TERMINAL_RUN_STATUSES,
@@ -27,10 +32,16 @@ from models.runs import (
     WorkflowRunSummary,
     WorkflowStepResultResponse,
 )
+from models.workflow_context import DeviceContext
 from repositories.run_repository import RunRepository
 from repositories.workflow_repository import WorkflowRepository
 from services.artifacts import ArtifactNotFoundError, FilesystemArtifactService
 from services.execution.run_input_validation import RunInputValidationError, resolve_run_inputs
+from services.workflow_context.attribute_path import resolve_device_attribute_state
+from services.workflow_context.attribute_path_discovery import (
+    build_attribute_path_tree,
+    merge_ancestor_devices,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +280,64 @@ class RunService:
             size_bytes=ref.size_bytes,
             content=content,
         )
+
+    def _merged_ancestor_devices(
+        self, run_id: int, user_id: int, ancestor_node_ids: list[str]
+    ) -> tuple[int, dict[str, DeviceContext], list[str]]:
+        result = self.run_repo.get_run_by_id(run_id)
+        if result is None:
+            raise NotFoundError("Run not found")
+        run, _username = result
+        self._assert_workflow_access(run.workflow_id, user_id)
+        step_results = self.run_repo.get_step_results_for_run(run_id)
+        devices, matched_node_ids = merge_ancestor_devices(step_results, set(ancestor_node_ids))
+        return run.id, devices, matched_node_ids
+
+    def get_attribute_path_tree(
+        self, run_id: int, user_id: int, ancestor_node_ids: list[str]
+    ) -> AttributePathTreeResponse:
+        """Enumerate attribute paths discoverable from this run's ancestor steps.
+
+        ``ancestor_node_ids`` is computed client-side from the current canvas
+        graph and trusted as-is — it's a UX correctness filter (don't suggest
+        paths a downstream step hasn't produced), not a confidentiality
+        boundary: a caller with access to this run can already see every
+        step's output via ``get_run``.
+        """
+        resolved_run_id, devices, matched_node_ids = self._merged_ancestor_devices(
+            run_id, user_id, ancestor_node_ids
+        )
+        return AttributePathTreeResponse(
+            run_id=resolved_run_id,
+            ancestor_node_ids=matched_node_ids,
+            device_count=len(devices),
+            nodes=build_attribute_path_tree(devices),
+        )
+
+    def resolve_attribute_path(
+        self, run_id: int, user_id: int, path: str, ancestor_node_ids: list[str]
+    ) -> AttributePathResolveResponse:
+        """Resolve one path against this run's merged ancestor devices.
+
+        Reuses ``resolve_device_attribute_state`` verbatim — the same
+        function ``route-on-attribute`` calls at execution time — so path
+        semantics are never reimplemented for this preview.
+        """
+        resolved_run_id, devices, _matched_node_ids = self._merged_ancestor_devices(
+            run_id, user_id, ancestor_node_ids
+        )
+        results = []
+        for device in devices.values():
+            state, value = resolve_device_attribute_state(device, path)
+            results.append(
+                AttributePathResolveResult(
+                    device_id=device.id,
+                    device_name=device.name,
+                    state=state.value,
+                    value=value,
+                )
+            )
+        return AttributePathResolveResponse(run_id=resolved_run_id, results=results)
 
     def cancel_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         result = self.run_repo.get_run_by_id(run_id)

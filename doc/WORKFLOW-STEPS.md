@@ -706,6 +706,51 @@ value baked into the canvas at design time. This is **not** a canvas step:
 
 ---
 
+## Attribute path syntax: list filter segments
+
+Every dotted attribute path (`route-on-attribute`'s `attribute_path`, Jinja
+`{bag.field}` expressions, `update-attribute`, etc.) is resolved by
+`services/workflow_context/attribute_path.py`. Paths are plain `.`-separated
+segments (`nautobot.role.name`), with one piece of extra syntax for reaching
+into a **list of dicts**: a segment of the form
+
+```
+<key>[<field>=<value>]
+```
+
+navigates to the list at `<key>`, then continues traversal from the **first**
+item whose `<field>` stringifies to `<value>` — e.g.
+`parsed.batfish_extract_facts.parsed.TACACS.TACACS_Servers[address=10.0.0.5]`
+picks the one TACACS+ server dict whose `address` field is `"10.0.0.5"` out of
+a list. Rules:
+
+- `<field>` is itself resolved via the normal dotted-path traversal *inside
+  each item*, so it may be a nested sub-path (e.g. `endpoint.ip=10.0.0.5`) —
+  but it must resolve to a scalar; a `<field>` that resolves to a nested
+  dict/list on an item is never considered a match.
+- Only **one** `key=value` filter per segment — there is no `AND` of multiple
+  conditions, and no numeric `[0]`-style indexing. To reach a specific list
+  item you must filter on a field value.
+- Only the **first** matching item is returned. If more than one item shares
+  the same `<field>` value, the filter is not a safe way to distinguish them.
+- `<value>` is compared via plain string equality (`str(candidate) == value`),
+  so a numeric or boolean field must be matched against its stringified form
+  (e.g. `port=49`, not `port=49.0`).
+
+The **attribute path picker** (the "Browse attributes" button on
+`route-on-attribute`'s config panel, in
+`frontend/src/components/features/workflow-steps/shared/attribute-path-picker.tsx`)
+discovers real paths from a workflow's most recent run and generates this
+filter-segment syntax automatically: for a list of dicts it infers a
+discriminating field (a scalar field present on, and uniquely identifying,
+every item — preferring conventional names like `name`/`id`/`address`) via
+`services/workflow_context/attribute_path_discovery.py::infer_discriminator_key`,
+and emits one ready-to-use path per item. When no field can uniquely identify
+every item, the picker still offers a best-effort filter path but flags it
+with a warning rather than silently picking an ambiguous one.
+
+---
+
 ## Secret-valued attributes
 
 Some attribute bag leaves — currently `tacacs.shared_secret` and the nested

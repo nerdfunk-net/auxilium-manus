@@ -188,4 +188,11 @@ export const queryKeys = {
     debug: () => [...queryKeys.oidc.all, "debug"] as const,
     providers: () => [...queryKeys.oidc.all, "providers"] as const,
   },
+  attributePath: {
+    all: ["attribute-path"] as const,
+    tree: (runId: number, ancestorIdsKey: string) =>
+      [...queryKeys.attributePath.all, "tree", runId, ancestorIdsKey] as const,
+    resolve: (runId: number, ancestorIdsKey: string, path: string) =>
+      [...queryKeys.attributePath.all, "resolve", runId, ancestorIdsKey, path] as const,
+  },
 };

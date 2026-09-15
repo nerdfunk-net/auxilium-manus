@@ -91,8 +91,8 @@ export function RouteOnAttributeHelpPanel() {
           Route on whether a device has a TACACS+ server configured by pointing
           at <HelpCode>TACACS_Servers</HelpCode> and matching on{" "}
           <HelpCode>{"{exists}"}</HelpCode> / <HelpCode>{"{empty}"}</HelpCode> —
-          it&apos;s a list, so literal values won&apos;t match (see "Special
-          match tokens" below):
+          it&apos;s a list, so literal values won&apos;t match (see &ldquo;Special
+          match tokens&rdquo; below):
         </p>
         <HelpExample>
           attribute_path:
