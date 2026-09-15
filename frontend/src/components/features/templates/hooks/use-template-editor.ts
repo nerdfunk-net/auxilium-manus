@@ -9,7 +9,7 @@ import { useWorkflowQuery } from "@/hooks/queries/use-workflow-query";
 import { useWorkflowsQuery } from "@/hooks/queries/use-workflows-query";
 
 import { useNautobotSources } from "./use-nautobot-sources";
-import { useTemplateEditorBatfish } from "./use-template-editor-batfish";
+import { isFactsQuestion, useTemplateEditorBatfish } from "./use-template-editor-batfish";
 import { useTemplateEditorDevice } from "./use-template-editor-device";
 import { useTemplateEditorSave } from "./use-template-editor-save";
 import { useTemplateQuery } from "./use-template-query";
@@ -52,7 +52,11 @@ export function useTemplateEditor() {
   const [linkWorkflowDialogOpen, setLinkWorkflowDialogOpen] = useState(false);
 
   const variableManager = useTemplateVariables();
-  const batfish = useTemplateEditorBatfish({ setBatfishResult: variableManager.setBatfishResult });
+  const batfish = useTemplateEditorBatfish({
+    setBatfishResult: variableManager.setBatfishResult,
+    setParsedNamespaceEntry: variableManager.setParsedNamespaceEntry,
+    clearParsedNamespaceEntry: variableManager.clearParsedNamespaceEntry,
+  });
   const renderer = useTemplateRender();
   const { sources } = useNautobotSources();
   const workflowsQuery = useWorkflowsQuery();
@@ -125,15 +129,22 @@ export function useTemplateEditor() {
     toggleCommandVariables(cleanedCommands.length > 0);
   }, [cleanedCommands.length, toggleCommandVariables]);
 
-  // Show/hide the parsed-config variable based on the "Get Configs" checkbox.
+  // Show/hide the shared `parsed` variable based on the "Get Configs"
+  // checkbox OR the Batfish tab being enabled with a facts question selected
+  // (Extract Facts/OSPF/BGP Facts/Node/Interface Properties -- these write
+  // into `parsed.<output_key>`, not the flat `batfish` variable).
   useEffect(() => {
-    toggleParsedConfigVariable(getDeviceConfigs);
-  }, [getDeviceConfigs, toggleParsedConfigVariable]);
+    toggleParsedConfigVariable(
+      getDeviceConfigs || (batfish.enabled && isFactsQuestion(batfish.question)),
+    );
+  }, [getDeviceConfigs, batfish.enabled, batfish.question, toggleParsedConfigVariable]);
 
-  // Show/hide the batfish variable based on the "Enable Batfish Result" checkbox.
+  // Show/hide the flat `batfish` variable -- only for the 4 preview-only
+  // question types (routes/reachability/testFilters/generic); the 5 facts
+  // questions write into `parsed` instead (see effect above).
   useEffect(() => {
-    toggleBatfishVariable(batfish.enabled);
-  }, [batfish.enabled, toggleBatfishVariable]);
+    toggleBatfishVariable(batfish.enabled && !isFactsQuestion(batfish.question));
+  }, [batfish.enabled, batfish.question, toggleBatfishVariable]);
 
   // Build the `device` variable from the selected test device (matches the
   // workflow step's device.* namespace).

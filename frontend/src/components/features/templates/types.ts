@@ -25,13 +25,29 @@ export interface TemplateListResponse {
 export type BatfishQueryQuestion = "routes" | "reachability" | "testFilters";
 
 /**
- * Editor-local question selector: the 3 typed questions above, plus
- * "generic" -- a sentinel for the "Custom Question..." picker entry, which
- * lets the ad-hoc query target any question in the backend's
- * GENERIC_QUESTION_ALLOWLIST (services/batfish/query_helpers.py) via
- * `generic_question_name` below rather than a fixed union member.
+ * The 5 "facts" questions -- unlike the 3 above, these mirror a real
+ * per-device workflow step (Extract Facts / Get OSPF Facts / Get BGP Facts /
+ * Batfish Node Properties / Batfish Interface Properties) and populate the
+ * real `parsed.<output_key>` namespace instead of the flat, preview-only
+ * `batfish` variable. See `isFactsQuestion` in
+ * `hooks/use-template-editor-batfish.ts` and the "Batfish (per-device steps
+ * only)" section of the Jinja help dialog.
  */
-export type BatfishEditorQuestion = BatfishQueryQuestion | "generic";
+export type BatfishFactsQuestion =
+  | "extractFacts"
+  | "ospfFacts"
+  | "bgpFacts"
+  | "nodeProperties"
+  | "interfaceProperties";
+
+/**
+ * Editor-local question selector: the 3 typed questions above, the 5 facts
+ * questions, plus "generic" -- a sentinel for the "Custom Question..."
+ * picker entry, which lets the ad-hoc query target any question in the
+ * backend's GENERIC_QUESTION_ALLOWLIST (services/batfish/query_helpers.py)
+ * via `generic_question_name` below rather than a fixed union member.
+ */
+export type BatfishEditorQuestion = BatfishQueryQuestion | BatfishFactsQuestion | "generic";
 
 /**
  * Persisted Batfish query definition for the template editor's preview
@@ -63,6 +79,14 @@ export interface BatfishQueryResult {
   reachable?: boolean | null;
   action?: string | null;
   error?: string | null;
+  /**
+   * Populated only by the 5 `BatfishFactsQuestion` types:
+   * `{node_name: <that node's parsed payload>}` -- the exact shape
+   * `device.parsed[output_key]["parsed"]` holds for one device at real
+   * workflow runtime. `rows` stays empty for these; see
+   * `BatfishFactsQuestion`.
+   */
+  facts_by_node?: Record<string, unknown> | null;
 }
 
 export interface Template {

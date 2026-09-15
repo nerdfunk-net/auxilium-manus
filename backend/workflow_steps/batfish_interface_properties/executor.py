@@ -31,11 +31,11 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.batfish.interface_properties_spec import INTERFACE_PROPERTIES_SPEC
 from services.batfish.query_helpers import query_interface_properties
 from workflow_steps.batfish_interface_properties.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_properties import (
-    PropertyQuestionSpec,
     build_property_outcomes,
     parse_properties_list,
     validate_empty_config,
@@ -48,31 +48,7 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-interface-properties"
 
-
-def _interface_node_key(row: dict[str, Any]) -> str | None:
-    interface = row.get("Interface")
-    return interface.get("hostname") if isinstance(interface, dict) else None
-
-
-def _build_interfaces_parsed(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Every matching interface's own fields for one node, nested the same
-    way `pybatfish.client._facts.get_facts()` nests this question's results."""
-    interfaces: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        interface = row.get("Interface")
-        name = interface.get("interface") if isinstance(interface, dict) else None
-        if not name:
-            continue
-        interfaces[str(name)] = {key: value for key, value in row.items() if key != "Interface"}
-    return {"Interfaces": interfaces}
-
-
-_SPEC = PropertyQuestionSpec(
-    question_label="interfaceProperties",
-    node_key=_interface_node_key,
-    build_parsed_for_node=_build_interfaces_parsed,
-    row_noun="interface(s)",
-)
+_SPEC = INTERFACE_PROPERTIES_SPEC
 
 
 async def execute(

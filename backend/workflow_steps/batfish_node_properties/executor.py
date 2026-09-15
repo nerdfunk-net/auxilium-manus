@@ -32,11 +32,11 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.batfish.node_properties_spec import NODE_PROPERTIES_SPEC
 from services.batfish.query_helpers import query_node_properties
 from workflow_steps.batfish_node_properties.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
 from workflow_steps.common.batfish_properties import (
-    PropertyQuestionSpec,
     build_property_outcomes,
     parse_properties_list,
     validate_empty_config,
@@ -49,14 +49,7 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-node-properties"
 
-_SPEC = PropertyQuestionSpec(
-    question_label="nodeProperties",
-    node_key=lambda row: row.get("Node"),
-    build_parsed_for_node=lambda rows: (
-        {key: value for key, value in rows[-1].items() if key != "Node"} if rows else {}
-    ),
-    row_noun="node(s)",
-)
+_SPEC = NODE_PROPERTIES_SPEC
 
 
 async def execute(

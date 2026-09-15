@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { Info, Play, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -23,12 +23,18 @@ import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-quer
 
 import { BATFISH_GENERIC_QUESTION_NAMES } from "@/components/features/workflow-steps/shared/batfish-generic-question-names";
 
+import { DEFAULT_OUTPUT_KEY, isFactsQuestion } from "../hooks/use-template-editor-batfish";
 import type { BatfishEditorQuestion, BatfishQueryResult } from "../types";
 
 const QUESTION_OPTIONS: { value: BatfishEditorQuestion; label: string }[] = [
   { value: "routes", label: "Routing Table" },
   { value: "reachability", label: "Path Check" },
   { value: "testFilters", label: "ACL Check" },
+  { value: "extractFacts", label: "Extract Facts" },
+  { value: "ospfFacts", label: "Get OSPF Facts" },
+  { value: "bgpFacts", label: "Get BGP Facts" },
+  { value: "nodeProperties", label: "Batfish Node Properties" },
+  { value: "interfaceProperties", label: "Batfish Interface Properties" },
   { value: "generic", label: "Custom Question…" },
 ];
 
@@ -60,6 +66,34 @@ function applicationsField(params: Record<string, unknown>): string {
   return Array.isArray(raw)
     ? raw.filter((item): item is string => typeof item === "string").join(", ")
     : "";
+}
+
+/** Shared "Output Key" field for the 5 facts questions -- the `parsed.*`
+ * key their preview result gets written under, defaulting to the matching
+ * canvas step's own `output_key` default. */
+function OutputKeyField({
+  placeholder,
+  value,
+  onChange,
+}: {
+  placeholder: string;
+  value: string;
+  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="batfish-output-key">Output Key (Optional)</Label>
+      <Input
+        id="batfish-output-key"
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+      />
+      <p className="text-[11px] text-muted-foreground">
+        Written to <code>parsed.{value || placeholder}</code>.
+      </p>
+    </div>
+  );
 }
 
 interface BatfishOptionsTabProps {
@@ -234,24 +268,41 @@ export function BatfishOptionsTab({
     [onParamsChange],
   );
 
+  const factsQuestion = isFactsQuestion(question);
+
   return (
     <div className="space-y-4">
-      <Alert variant="warning">
-        <TriangleAlert />
-        <AlertDescription>
-          <strong>Preview-only.</strong> This runs an ad-hoc query for
-          exploration while you write the template — no workflow step ever
-          populates a <code>batfish</code> variable. Routing Table, Path
-          Check, and ACL Check store their results only as a workflow-level
-          artifact, never on a device, so a template referencing{" "}
-          <code>batfish.*</code> will render here but fail every device with
-          &quot;Undefined template variable: &apos;batfish&apos; is undefined&quot; when
-          the workflow actually runs. For real per-device Batfish data in a
-          template, use <code>parsed.&lt;output_key&gt;</code> from Extract
-          Facts, Get OSPF Facts, Get BGP Facts, or Batfish Node/Interface
-          Properties instead (see the Jinja help dialog).
-        </AlertDescription>
-      </Alert>
+      {factsQuestion ? (
+        <Alert variant="info">
+          <Info />
+          <AlertDescription>
+            This preview writes into <code>parsed.{stringField(params, "output_key") || DEFAULT_OUTPUT_KEY[question]}</code>,
+            matching what a real workflow run of this step produces (see the
+            Jinja help dialog). When the query matches more than one node,
+            the full <code>{"{node: payload}"}</code> map is written instead
+            of one node&apos;s flat shape — narrow <strong>Nodes</strong>{" "}
+            to a single device to preview the exact per-device shape a real
+            run always sees.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert variant="warning">
+          <TriangleAlert />
+          <AlertDescription>
+            <strong>Preview-only.</strong> This runs an ad-hoc query for
+            exploration while you write the template — no workflow step ever
+            populates a <code>batfish</code> variable. Routing Table, Path
+            Check, and ACL Check store their results only as a workflow-level
+            artifact, never on a device, so a template referencing{" "}
+            <code>batfish.*</code> will render here but fail every device with
+            &quot;Undefined template variable: &apos;batfish&apos; is undefined&quot; when
+            the workflow actually runs. For real per-device Batfish data in a
+            template, use <code>parsed.&lt;output_key&gt;</code> from Extract
+            Facts, Get OSPF Facts, Get BGP Facts, or Batfish Node/Interface
+            Properties instead (see the Jinja help dialog).
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -610,6 +661,120 @@ export function BatfishOptionsTab({
         </div>
       ) : null}
 
+      {question === "extractFacts" ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="batfish-nodes-filter">Nodes Filter (Optional)</Label>
+            <Input
+              id="batfish-nodes-filter"
+              value={stringField(params, "nodes_filter")}
+              onChange={handleFieldChange("nodes_filter")}
+              placeholder="e.g. lab (blank = every node)"
+            />
+          </div>
+          <OutputKeyField
+            placeholder={DEFAULT_OUTPUT_KEY.extractFacts}
+            value={stringField(params, "output_key")}
+            onChange={handleFieldChange("output_key")}
+          />
+        </div>
+      ) : null}
+
+      {question === "ospfFacts" || question === "bgpFacts" ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="batfish-ospf-bgp-nodes">Nodes (Optional)</Label>
+            <Input
+              id="batfish-ospf-bgp-nodes"
+              value={stringField(params, "nodes")}
+              onChange={handleFieldChange("nodes")}
+              placeholder="e.g. R1"
+            />
+          </div>
+          <OutputKeyField
+            placeholder={DEFAULT_OUTPUT_KEY[question]}
+            value={stringField(params, "output_key")}
+            onChange={handleFieldChange("output_key")}
+          />
+          <div className="col-span-full grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(question === "ospfFacts"
+              ? ([
+                  ["include_process", "Process"],
+                  ["include_areas", "Areas"],
+                  ["include_interfaces", "Interfaces"],
+                  ["include_edges", "Adjacencies"],
+                ] as const)
+              : ([
+                  ["include_process", "Process"],
+                  ["include_peers", "Peers"],
+                  ["include_sessions", "Sessions"],
+                  ["include_edges", "Adjacencies"],
+                ] as const)
+            ).map(([key, label]) => (
+              <label
+                key={key}
+                htmlFor={`batfish-${key}`}
+                className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs"
+              >
+                {label}
+                <Switch
+                  id={`batfish-${key}`}
+                  checked={params[key] !== false}
+                  onCheckedChange={handleSwitchFieldChange(key)}
+                />
+              </label>
+            ))}
+          </div>
+          {(question === "ospfFacts"
+            ? ["include_process", "include_areas", "include_interfaces", "include_edges"]
+            : ["include_process", "include_peers", "include_sessions", "include_edges"]
+          ).some((key) => params[key] !== false) ? null : (
+            <p className="col-span-full text-xs text-destructive">
+              At least one question must be enabled
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {question === "nodeProperties" || question === "interfaceProperties" ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="batfish-props-nodes">Nodes (Optional)</Label>
+            <Input
+              id="batfish-props-nodes"
+              value={stringField(params, "nodes")}
+              onChange={handleFieldChange("nodes")}
+              placeholder="e.g. R1"
+            />
+          </div>
+          {question === "interfaceProperties" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="batfish-interfaces">Interfaces (Optional)</Label>
+              <Input
+                id="batfish-interfaces"
+                value={stringField(params, "interfaces")}
+                onChange={handleFieldChange("interfaces")}
+                placeholder="e.g. GigabitEthernet0/1"
+              />
+            </div>
+          ) : null}
+          <div className="space-y-1.5">
+            <Label htmlFor="batfish-properties">Properties (Optional)</Label>
+            <Input
+              id="batfish-properties"
+              value={stringField(params, "properties")}
+              onChange={handleFieldChange("properties")}
+              placeholder="e.g. NTP_Servers, TACACS_Servers"
+            />
+          </div>
+          <OutputKeyField
+            placeholder={DEFAULT_OUTPUT_KEY[question]}
+            value={stringField(params, "output_key")}
+            onChange={handleFieldChange("output_key")}
+          />
+        </div>
+      ) : null}
+
       {question === "generic" ? (
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -698,13 +863,27 @@ export function BatfishOptionsTab({
                 {result.action}
               </Badge>
             ) : null}
-            <span className="text-xs text-muted-foreground">
-              {result.rows.length} row(s) · network {result.network} · snapshot{" "}
-              {result.snapshot}
-            </span>
+            {result.facts_by_node ? (
+              <span className="text-xs text-muted-foreground">
+                {Object.keys(result.facts_by_node).length} node(s) · network {result.network} ·
+                snapshot {result.snapshot}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {result.rows.length} row(s) · network {result.network} · snapshot{" "}
+                {result.snapshot}
+              </span>
+            )}
           </div>
+          {result.facts_by_node && Object.keys(result.facts_by_node).length > 1 ? (
+            <p className="text-[11px] text-muted-foreground">
+              More than one node matched — a real workflow run always sees exactly
+              one node&apos;s shape per device. Narrow <strong>Nodes</strong> to preview that
+              exact shape.
+            </p>
+          ) : null}
           <pre className="max-h-48 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
-            {JSON.stringify(result.rows, null, 2)}
+            {JSON.stringify(result.facts_by_node ?? result.rows, null, 2)}
           </pre>
         </div>
       ) : null}

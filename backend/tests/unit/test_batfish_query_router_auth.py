@@ -207,3 +207,125 @@ def test_query_generic_non_allowlisted_question_maps_to_400(
         )
 
     assert response.status_code == 400
+
+
+def test_query_extract_facts_success(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    _authenticate(app)
+
+    mock_service = MagicMock()
+    mock_service.run_extract_facts = AsyncMock(
+        return_value=BatfishQueryResponse(
+            success=True,
+            question="extractFacts",
+            network="net",
+            snapshot="run-1",
+            rows=[],
+            facts_by_node={"lab": {"Hostname": "lab"}},
+        )
+    )
+    app.dependency_overrides[get_batfish_preview_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/lab/query/extract-facts", json={"network": "net"}
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["question"] == "extractFacts"
+    assert body["facts_by_node"] == {"lab": {"Hostname": "lab"}}
+
+
+def test_query_ospf_facts_no_question_enabled_maps_to_400(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    _authenticate(app)
+
+    mock_service = MagicMock()
+    mock_service.run_ospf_facts = AsyncMock(
+        side_effect=ValueError("ospfFacts: at least one question must be enabled (include_*)")
+    )
+    app.dependency_overrides[get_batfish_preview_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/lab/query/ospf-facts",
+            json={
+                "network": "net",
+                "include_process": False,
+                "include_areas": False,
+                "include_interfaces": False,
+                "include_edges": False,
+            },
+        )
+
+    assert response.status_code == 400
+
+
+def test_query_bgp_facts_success(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    _authenticate(app)
+
+    mock_service = MagicMock()
+    mock_service.run_bgp_facts = AsyncMock(
+        return_value=BatfishQueryResponse(
+            success=True,
+            question="bgpFacts",
+            network="net",
+            snapshot="run-1",
+            rows=[],
+            facts_by_node={"r1": {"Peers": []}},
+        )
+    )
+    app.dependency_overrides[get_batfish_preview_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/lab/query/bgp-facts", json={"network": "net"}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["question"] == "bgpFacts"
+
+
+def test_query_node_properties_source_not_found_maps_to_404(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    _authenticate(app)
+
+    mock_service = MagicMock()
+    mock_service.run_node_properties = AsyncMock(side_effect=BatfishSourceNotFoundError("lab"))
+    app.dependency_overrides[get_batfish_preview_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/lab/query/node-properties", json={"network": "net"}
+        )
+
+    assert response.status_code == 404
+
+
+def test_query_interface_properties_api_error_maps_to_sanitized_502(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    _authenticate(app)
+
+    mock_service = MagicMock()
+    mock_service.run_interface_properties = AsyncMock(
+        side_effect=BatfishAPIError("Batfish question 'interfaceProperties' failed: boom")
+    )
+    app.dependency_overrides[get_batfish_preview_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/lab/query/interface-properties", json={"network": "net"}
+        )
+
+    assert response.status_code == 502
+    body = response.json()["detail"]
+    assert "boom" not in body["message"]
+    assert "error_id" in body

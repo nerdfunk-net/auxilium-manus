@@ -11,7 +11,12 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 from models.batfish import (
+    BatfishBgpFactsQueryRequest,
+    BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
+    BatfishInterfacePropertiesQueryRequest,
+    BatfishNodePropertiesQueryRequest,
+    BatfishOspfFactsQueryRequest,
     BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
     BatfishTestFiltersQueryRequest,
@@ -271,6 +276,222 @@ class BatfishPreviewServiceGenericTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.question, "edges")
         self.assertEqual(result.rows, [{"Node": "r1"}])
+
+
+class BatfishPreviewServiceExtractFactsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_facts_by_node_from_raw_nodes_dict(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.extract_facts = AsyncMock(
+            return_value={"nodes": {"lab": {"Hostname": "lab"}}, "version": "batfish_v0"}
+        )
+
+        result = await service.run_extract_facts(
+            "lab", BatfishExtractFactsQueryRequest(network="net", snapshot="snap")
+        )
+
+        self.assertEqual(result.question, "extractFacts")
+        self.assertEqual(result.rows, [])
+        self.assertEqual(result.facts_by_node, {"lab": {"Hostname": "lab"}})
+        _, kwargs = batfish.extract_facts.await_args
+        self.assertEqual(kwargs["nodes"], "/.*/")
+
+    async def test_blank_nodes_filter_defaults_to_every_node(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.extract_facts = AsyncMock(return_value={"nodes": {}})
+
+        await service.run_extract_facts(
+            "lab",
+            BatfishExtractFactsQueryRequest(network="net", snapshot="snap", nodes_filter="  "),
+        )
+
+        _, kwargs = batfish.extract_facts.await_args
+        self.assertEqual(kwargs["nodes"], "/.*/")
+
+    async def test_explicit_nodes_filter_passed_through(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.extract_facts = AsyncMock(return_value={"nodes": {}})
+
+        await service.run_extract_facts(
+            "lab",
+            BatfishExtractFactsQueryRequest(
+                network="net", snapshot="snap", nodes_filter="lab,lab-2"
+            ),
+        )
+
+        _, kwargs = batfish.extract_facts.await_args
+        self.assertEqual(kwargs["nodes"], "lab,lab-2")
+
+    async def test_malformed_facts_dict_returns_empty_facts_by_node(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.extract_facts = AsyncMock(return_value={})
+
+        result = await service.run_extract_facts(
+            "lab", BatfishExtractFactsQueryRequest(network="net", snapshot="snap")
+        )
+
+        self.assertEqual(result.facts_by_node, {})
+
+
+class BatfishPreviewServiceOspfFactsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_requires_at_least_one_question_enabled(self) -> None:
+        service, _, _batfish = _make_service()
+        with self.assertRaises(ValueError):
+            await service.run_ospf_facts(
+                "lab",
+                BatfishOspfFactsQueryRequest(
+                    network="net",
+                    include_process=False,
+                    include_areas=False,
+                    include_interfaces=False,
+                    include_edges=False,
+                ),
+            )
+
+    async def test_merges_enabled_questions_per_node(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.ospf_process_configuration = AsyncMock(
+            return_value=[{"Node": "r1", "VRF": "default"}]
+        )
+        batfish.ospf_area_configuration = AsyncMock(return_value=[{"Node": "r1", "Area": "0"}])
+
+        result = await service.run_ospf_facts(
+            "lab",
+            BatfishOspfFactsQueryRequest(
+                network="net",
+                snapshot="snap",
+                include_process=True,
+                include_areas=True,
+                include_interfaces=False,
+                include_edges=False,
+            ),
+        )
+
+        self.assertEqual(result.question, "ospfFacts")
+        self.assertEqual(result.rows, [])
+        self.assertEqual(
+            result.facts_by_node,
+            {"r1": {"Process": [{"VRF": "default"}], "Areas": [{"Area": "0"}]}},
+        )
+        batfish.ospf_interface_configuration.assert_not_called()
+        batfish.ospf_edges.assert_not_called()
+
+    async def test_zero_matching_nodes_returns_empty_facts_by_node(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.ospf_process_configuration = AsyncMock(return_value=[])
+        batfish.ospf_area_configuration = AsyncMock(return_value=[])
+        batfish.ospf_interface_configuration = AsyncMock(return_value=[])
+        batfish.ospf_edges = AsyncMock(return_value=[])
+
+        result = await service.run_ospf_facts(
+            "lab", BatfishOspfFactsQueryRequest(network="net", snapshot="snap")
+        )
+
+        self.assertEqual(result.facts_by_node, {})
+
+
+class BatfishPreviewServiceBgpFactsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_requires_at_least_one_question_enabled(self) -> None:
+        service, _, _batfish = _make_service()
+        with self.assertRaises(ValueError):
+            await service.run_bgp_facts(
+                "lab",
+                BatfishBgpFactsQueryRequest(
+                    network="net",
+                    include_process=False,
+                    include_peers=False,
+                    include_sessions=False,
+                    include_edges=False,
+                ),
+            )
+
+    async def test_merges_enabled_questions_per_node(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.bgp_peer_configuration = AsyncMock(
+            return_value=[{"Node": "r1", "Remote_AS": "200"}]
+        )
+
+        result = await service.run_bgp_facts(
+            "lab",
+            BatfishBgpFactsQueryRequest(
+                network="net",
+                snapshot="snap",
+                include_process=False,
+                include_peers=True,
+                include_sessions=False,
+                include_edges=False,
+            ),
+        )
+
+        self.assertEqual(result.question, "bgpFacts")
+        self.assertEqual(result.facts_by_node, {"r1": {"Peers": [{"Remote_AS": "200"}]}})
+        batfish.bgp_process_configuration.assert_not_called()
+
+
+class BatfishPreviewServiceNodePropertiesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_facts_by_node_grouped(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.node_properties = AsyncMock(
+            return_value=[{"Node": "r1", "NTP_Servers": ["10.0.0.1"]}]
+        )
+
+        result = await service.run_node_properties(
+            "lab", BatfishNodePropertiesQueryRequest(network="net", snapshot="snap")
+        )
+
+        self.assertEqual(result.question, "nodeProperties")
+        self.assertEqual(result.facts_by_node, {"r1": {"NTP_Servers": ["10.0.0.1"]}})
+
+    async def test_passes_nodes_and_properties_through(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.node_properties = AsyncMock(return_value=[])
+
+        await service.run_node_properties(
+            "lab",
+            BatfishNodePropertiesQueryRequest(
+                network="net", snapshot="snap", nodes="r1", properties="NTP_Servers"
+            ),
+        )
+
+        _, kwargs = batfish.node_properties.await_args
+        self.assertEqual(kwargs["nodes"], "r1")
+        self.assertEqual(kwargs["properties"], "NTP_Servers")
+
+
+class BatfishPreviewServiceInterfacePropertiesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_facts_by_node_nested_under_interfaces(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.interface_properties = AsyncMock(
+            return_value=[
+                {
+                    "Interface": {"hostname": "r1", "interface": "GigabitEthernet0/1"},
+                    "Access_VLAN": 10,
+                }
+            ]
+        )
+
+        result = await service.run_interface_properties(
+            "lab", BatfishInterfacePropertiesQueryRequest(network="net", snapshot="snap")
+        )
+
+        self.assertEqual(result.question, "interfaceProperties")
+        self.assertEqual(
+            result.facts_by_node,
+            {"r1": {"Interfaces": {"GigabitEthernet0/1": {"Access_VLAN": 10}}}},
+        )
+
+    async def test_passes_interfaces_filter_through(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.interface_properties = AsyncMock(return_value=[])
+
+        await service.run_interface_properties(
+            "lab",
+            BatfishInterfacePropertiesQueryRequest(
+                network="net", snapshot="snap", interfaces="GigabitEthernet0/1"
+            ),
+        )
+
+        _, kwargs = batfish.interface_properties.await_args
+        self.assertEqual(kwargs["interfaces"], "GigabitEthernet0/1")
 
 
 if __name__ == "__main__":

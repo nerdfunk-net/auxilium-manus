@@ -4,6 +4,12 @@ enabled question (same `kind: "batfish_result"` convention every other
 Batfish step uses), and merge all enabled questions' rows into one payload
 per device.
 
+`CombinedQuestionSpec` and the per-node merge logic itself now live in
+`services.batfish.facts_specs` (re-exported here for backward-compatible
+imports) -- moved there so `services.batfish.preview_service` can build the
+ad-hoc "Get OSPF/BGP Facts" preview from the exact same merge logic, without
+a service importing from `workflow_steps` (see that module's docstring).
+
 Extracted from workflow_steps.common.batfish_ospf_facts once a second
 consumer (Get BGP Facts) needed the identical merge/storage mechanics with a
 different question set and different per-question grouping/shaping rules --
@@ -23,8 +29,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 from models.workflow_context import (
@@ -35,37 +39,11 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from workflow_steps.common.batfish_properties import group_rows_by_node
+from services.batfish.facts_specs import CombinedQuestionSpec, merge_facts_by_node
+
+__all__ = ["CombinedQuestionSpec", "build_combined_facts_outcomes"]
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class CombinedQuestionSpec:
-    """One Batfish question a "combined facts" step knows how to fetch,
-    group, and merge.
-
-    - `key`: the question's slot in step config/rows_by_question (e.g.
-      "process") -- also used to namespace its artifact's metadata key.
-    - `question_label`: the real Batfish question name, stored verbatim in
-      the artifact's `question` field (e.g. "ospfProcessConfiguration").
-    - `parsed_field`: the key this question's merged value is nested under
-      in a device's combined payload (e.g. "Process").
-    - `node_key`: identity extractor for this question's rows.
-    - `build_group_value`: given every row belonging to one node, returns
-      that node's own value for `parsed_field` -- typically a list (more
-      than one row per node is the normal case for most of these questions),
-      but a dict keyed by a secondary identity (e.g. interface name) where
-      the question naturally supports one.
-    - `row_noun`: cosmetic only, used in the `success` outcome's summary.
-    """
-
-    key: str
-    question_label: str
-    parsed_field: str
-    node_key: Callable[[dict[str, Any]], str | None]
-    build_group_value: Callable[[list[dict[str, Any]]], Any]
-    row_noun: str
 
 
 async def build_combined_facts_outcomes(
@@ -79,7 +57,6 @@ async def build_combined_facts_outcomes(
     rows_by_question: dict[str, list[dict[str, Any]]],
 ) -> list[StepOutcome]:
     metadata = dict(context.metadata)
-    grouped_by_question: dict[str, dict[str, list[dict[str, Any]]]] = {}
     summary_parts: list[str] = []
 
     for key, rows in rows_by_question.items():
@@ -98,24 +75,12 @@ async def build_combined_facts_outcomes(
             "artifact_ref": artifact_ref.model_dump(mode="json"),
             "row_count": len(rows),
         }
-        grouped_by_question[key] = group_rows_by_node(rows, node_key=spec.node_key)
         summary_parts.append(f"{len(rows)} {spec.row_noun}")
 
-    all_nodes: set[str] = set()
-    for grouped in grouped_by_question.values():
-        all_nodes.update(grouped.keys())
-
     parsed_key = f"{node_id}.{output_key}"
+    payloads_by_node = merge_facts_by_node(specs, rows_by_question)
     device_nodes: dict[str, DeviceContext] = {}
-    for node in all_nodes:
-        parsed_payload: dict[str, Any] = {}
-        for key, grouped in grouped_by_question.items():
-            node_rows = grouped.get(node)
-            if not node_rows:
-                continue
-            spec = specs[key]
-            parsed_payload[spec.parsed_field] = spec.build_group_value(node_rows)
-
+    for node, parsed_payload in payloads_by_node.items():
         device = DeviceContext(
             id=node,
             name=node,

@@ -6,9 +6,15 @@ those two steps -- only how a row's node identity is extracted and how a
 node's own fields get nested into `parsed` differs (a plain `{field: value}`
 dict for nodeProperties vs. an `{"Interfaces": {...}}` wrapper for
 interfaceProperties, see doc/BATFISH_INTEGRATION.md "Batfish Interface
-Properties"). Captured here as `PropertyQuestionSpec` so both executors stay
-thin wrappers around one engine instead of ~170 lines of duplicated logic
-each.
+Properties"). Captured as `PropertyQuestionSpec` so both executors stay thin
+wrappers around one engine instead of ~170 lines of duplicated logic each.
+
+`PropertyQuestionSpec` and `group_rows_by_node` themselves now live in
+`services.batfish.facts_specs` (re-exported here for backward-compatible
+imports) -- moved there so `services.batfish.preview_service` can build the
+ad-hoc "Batfish Node/Interface Properties" preview from the exact same
+grouping logic, without a service importing from `workflow_steps` (see that
+module's docstring).
 
 **Extension point.** A new property-family question (e.g. a verified
 bgpPeerConfiguration/ospfProcessConfiguration step) is a matter of adding one
@@ -24,8 +30,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 from models.workflow_context import (
@@ -36,6 +40,22 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.batfish.facts_specs import (
+    PropertyQuestionSpec,
+    facts_by_node_for_property,
+    group_rows_by_node,
+)
+
+__all__ = [
+    "EMPTY_MATCH_MODES",
+    "PropertyQuestionSpec",
+    "build_property_outcomes",
+    "group_rows_by_node",
+    "is_empty_value",
+    "parse_properties_list",
+    "row_matches_empty",
+    "validate_empty_config",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -79,57 +99,14 @@ def validate_empty_config(
         raise ValueError(f"{step_id}: empty_match_mode must be one of {sorted(EMPTY_MATCH_MODES)}")
 
 
-@dataclass(frozen=True)
-class PropertyQuestionSpec:
-    """One property-family question this shared engine knows how to build
-    outcomes for.
-
-    - `question_label`: stored verbatim in the result metadata's `question`
-      field (e.g. "nodeProperties").
-    - `node_key`: given one row, returns the node name it belongs to (or
-      None to skip it) -- the ONE identity-extraction function for this
-      question; both row grouping and the identity-only DeviceContext dict
-      below are derived from it, so there is nothing else that could
-      disagree with it about which node a row belongs to.
-    - `build_parsed_for_node`: given every row belonging to one node, returns
-      that node's own `parsed[...]["parsed"]` payload -- the one place the
-      node-shaped vs. interface-shaped nesting differs.
-    - `row_noun`: cosmetic only, used in the `success` outcome's summary text
-      (e.g. "node(s)" / "interface(s)").
-    """
-
-    question_label: str
-    node_key: Callable[[dict[str, Any]], str | None]
-    build_parsed_for_node: Callable[[list[dict[str, Any]]], dict[str, Any]]
-    row_noun: str
-
-
-def group_rows_by_node(
-    rows: list[dict[str, Any]], *, node_key: Callable[[dict[str, Any]], str | None]
-) -> dict[str, list[dict[str, Any]]]:
-    """Group a Batfish answer's rows by node identity, dropping rows with no
-    resolvable node. Shared beyond this module by
-    ``workflow_steps.common.batfish_combined_facts`` (the engine behind
-    Get OSPF Facts and Get BGP Facts), which groups each enabled question's
-    rows the same way but merges them per node instead of building one
-    ``PropertyQuestionSpec``-shaped result."""
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        node = node_key(row)
-        if not node:
-            continue
-        grouped.setdefault(node, []).append(row)
-    return grouped
-
-
 def _enrich_devices(
     rows: list[dict[str, Any]], *, node_id: str, output_key: str, spec: PropertyQuestionSpec
 ) -> dict[str, DeviceContext]:
     parsed_key = f"{node_id}.{output_key}"
-    rows_by_node = group_rows_by_node(rows, node_key=spec.node_key)
+    payloads_by_node = facts_by_node_for_property(spec, rows)
 
     enriched: dict[str, DeviceContext] = {}
-    for node, node_rows in rows_by_node.items():
+    for node, payload in payloads_by_node.items():
         device = DeviceContext(
             id=node,
             name=node,
@@ -139,10 +116,7 @@ def _enrich_devices(
             status=DeviceStatus.OK,
         )
         parsed = dict(device.parsed)
-        parsed[parsed_key] = {
-            "parsed": spec.build_parsed_for_node(node_rows),
-            "error": None,
-        }
+        parsed[parsed_key] = {"parsed": payload, "error": None}
         enriched[node] = device.model_copy(
             update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
         )

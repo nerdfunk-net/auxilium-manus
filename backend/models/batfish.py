@@ -100,6 +100,57 @@ class BatfishTestFiltersQueryRequest(BaseModel):
     start_location: str | None = None
 
 
+class BatfishExtractFactsQueryRequest(BaseModel):
+    """Ad-hoc counterpart of the batfish-extract-facts step's config fields."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    nodes_filter: str | None = None
+
+
+class BatfishOspfFactsQueryRequest(BaseModel):
+    """Ad-hoc counterpart of the batfish-ospf-facts step's config fields."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    nodes: str | None = None
+    include_process: bool = True
+    include_areas: bool = True
+    include_interfaces: bool = True
+    include_edges: bool = True
+
+
+class BatfishBgpFactsQueryRequest(BaseModel):
+    """Ad-hoc counterpart of the batfish-bgp-facts step's config fields."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    nodes: str | None = None
+    include_process: bool = True
+    include_peers: bool = True
+    include_sessions: bool = True
+    include_edges: bool = True
+
+
+class BatfishNodePropertiesQueryRequest(BaseModel):
+    """Ad-hoc counterpart of the batfish-node-properties step's config fields."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    nodes: str | None = None
+    properties: str | None = None
+
+
+class BatfishInterfacePropertiesQueryRequest(BaseModel):
+    """Ad-hoc counterpart of the batfish-interface-properties step's config fields."""
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    nodes: str | None = None
+    interfaces: str | None = None
+    properties: str | None = None
+
+
 class BatfishGenericQueryRequest(BaseModel):
     """Ad-hoc "custom question" counterpart -- any question in
     services.batfish.query_helpers.GENERIC_QUESTION_ALLOWLIST, with
@@ -148,3 +199,12 @@ class BatfishQueryResponse(BaseModel):
     reachable: bool | None = None
     action: str | None = None
     error: str | None = None
+    # Populated only by extract-facts/ospf-facts/bgp-facts/node-properties/
+    # interface-properties: {node_name: <that node's parsed payload>}. This
+    # is the SAME shape device.parsed[output_key]["parsed"] holds for one
+    # device at real workflow runtime -- unlike `rows` (a flat answer table,
+    # used by routes/reachability/testFilters/generic, which never populate
+    # any device's `parsed` -- see doc/BATFISH_INTEGRATION.md "Template
+    # Editor integration" for why these two response shapes exist side by
+    # side rather than one being reused for the other).
+    facts_by_node: dict[str, Any] | None = None

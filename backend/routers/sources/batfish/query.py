@@ -1,9 +1,14 @@
 """Ad-hoc Batfish query endpoints for the Template Editor's Options modal.
 
-Runs a routes/reachability/testFilters question directly against a
-configured source + network(+snapshot), with no WorkflowRun involved -- the
-ad-hoc counterpart to the batfish-routing-table/batfish-path-check/
-batfish-acl-check workflow steps. See services.batfish.preview_service.
+Runs a Batfish question directly against a configured source +
+network(+snapshot), with no WorkflowRun involved. Two groups, matching
+BatfishPreviewService's own split: routes/reachability/testFilters/generic
+are the ad-hoc counterpart to the batfish-routing-table/batfish-path-check/
+batfish-acl-check workflow steps (flat `rows`); extract-facts/ospf-facts/
+bgp-facts/node-properties/interface-properties are the ad-hoc counterpart to
+the per-device "facts" steps (`facts_by_node`, matching real runtime
+`device.parsed[output_key]["parsed"]` shape). See
+services.batfish.preview_service.
 """
 
 from __future__ import annotations
@@ -17,7 +22,12 @@ from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_batfish_preview_service
 from models.batfish import (
+    BatfishBgpFactsQueryRequest,
+    BatfishExtractFactsQueryRequest,
     BatfishGenericQueryRequest,
+    BatfishInterfacePropertiesQueryRequest,
+    BatfishNodePropertiesQueryRequest,
+    BatfishOspfFactsQueryRequest,
     BatfishQueryResponse,
     BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
@@ -146,3 +156,133 @@ async def query_batfish_generic(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Batfish generic query failed: ", exc)
+
+
+@router.post("/{source_id}/query/extract-facts", response_model=BatfishQueryResponse)
+async def query_batfish_extract_facts(
+    source_id: str,
+    request: BatfishExtractFactsQueryRequest,
+    _: User = Depends(get_current_user),
+    service: BatfishPreviewService = Depends(get_batfish_preview_service),
+) -> BatfishQueryResponse:
+    try:
+        return await service.run_extract_facts(source_id, request)
+    except BatfishSourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (BatfishValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except BatfishAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "Batfish extract facts query failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Batfish extract facts query failed: ", exc)
+
+
+@router.post("/{source_id}/query/ospf-facts", response_model=BatfishQueryResponse)
+async def query_batfish_ospf_facts(
+    source_id: str,
+    request: BatfishOspfFactsQueryRequest,
+    _: User = Depends(get_current_user),
+    service: BatfishPreviewService = Depends(get_batfish_preview_service),
+) -> BatfishQueryResponse:
+    try:
+        return await service.run_ospf_facts(source_id, request)
+    except BatfishSourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (BatfishValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except BatfishAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "Batfish OSPF facts query failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Batfish OSPF facts query failed: ", exc)
+
+
+@router.post("/{source_id}/query/bgp-facts", response_model=BatfishQueryResponse)
+async def query_batfish_bgp_facts(
+    source_id: str,
+    request: BatfishBgpFactsQueryRequest,
+    _: User = Depends(get_current_user),
+    service: BatfishPreviewService = Depends(get_batfish_preview_service),
+) -> BatfishQueryResponse:
+    try:
+        return await service.run_bgp_facts(source_id, request)
+    except BatfishSourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (BatfishValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except BatfishAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "Batfish BGP facts query failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Batfish BGP facts query failed: ", exc)
+
+
+@router.post("/{source_id}/query/node-properties", response_model=BatfishQueryResponse)
+async def query_batfish_node_properties(
+    source_id: str,
+    request: BatfishNodePropertiesQueryRequest,
+    _: User = Depends(get_current_user),
+    service: BatfishPreviewService = Depends(get_batfish_preview_service),
+) -> BatfishQueryResponse:
+    try:
+        return await service.run_node_properties(source_id, request)
+    except BatfishSourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (BatfishValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except BatfishAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "Batfish node properties query failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Batfish node properties query failed: ", exc)
+
+
+@router.post("/{source_id}/query/interface-properties", response_model=BatfishQueryResponse)
+async def query_batfish_interface_properties(
+    source_id: str,
+    request: BatfishInterfacePropertiesQueryRequest,
+    _: User = Depends(get_current_user),
+    service: BatfishPreviewService = Depends(get_batfish_preview_service),
+) -> BatfishQueryResponse:
+    try:
+        return await service.run_interface_properties(source_id, request)
+    except BatfishSourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (BatfishValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except BatfishAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "Batfish interface properties query failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Batfish interface properties query failed: ", exc)

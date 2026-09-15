@@ -59,6 +59,31 @@ export function JinjaHelpDialog({ open, onClose }: JinjaHelpDialogProps) {
             </p>
           </Section>
 
+          <Section title="The Options dialog">
+            <p>
+              Click <strong>Options</strong> above the editor to populate
+              variables for preview without running a real workflow. It has
+              two tabs:
+            </p>
+            <CodeBlock>{`Netmiko  — pick a Nautobot source and a test device, then optionally
+           fetch its config or execute commands over SSH. Populates
+           device, nautobot, parsed.cisco_config, command, commands,
+           commands_by_name — see "Nautobot attributes" and "Accessing
+           command output" below.
+
+Batfish  — run an ad-hoc question against a configured Batfish source.
+           Nine question types, in two groups:
+             Extract Facts, Get OSPF Facts, Get BGP Facts, Batfish Node
+             Properties, Batfish Interface Properties — write into the
+             SAME parsed.<output_key> namespace a real workflow run of
+             that step produces. See "The parsed namespace" →
+             "Batfish (per-device steps only)" below.
+             Routing Table, Path Check, ACL Check, Custom Question —
+             preview-only: populate a flat "batfish" variable that no
+             real workflow step ever writes. Never reference batfish.*
+             in a template body — see the tab's own warning.`}</CodeBlock>
+          </Section>
+
           <Section title="Device and workflow variables">
             <p>Always available, regardless of which steps ran upstream:</p>
             <CodeBlock>{`device.name              device.hostname
@@ -332,14 +357,33 @@ parsed.batfish_extract_facts.error   null, or why this node had no facts
               earlier in the run.
             </p>
             <p>
+              The Options dialog&apos;s <strong>Batfish</strong> tab can preview
+              all five of these directly — pick <strong>Extract Facts</strong>
+              , <strong>Get OSPF Facts</strong>, <strong>Get BGP Facts</strong>,{" "}
+              <strong>Batfish Node Properties</strong>, or{" "}
+              <strong>Batfish Interface Properties</strong> as the question,
+              run it, and the result is written into this same{" "}
+              <code>parsed.&lt;output_key&gt;</code> namespace — so a
+              template previewed here behaves the same once it runs after the
+              real step. When the query matches more than one node, the
+              preview writes the full <code>{"{node: payload}"}</code> map
+              instead of one node&apos;s flat shape, since a real run always
+              sees exactly one node per device — narrow the tab&apos;s{" "}
+              <strong>Nodes</strong> field to a single device to preview that
+              exact shape.
+            </p>
+            <p>
               <strong>Batfish Routing Table</strong>,{" "}
               <strong>Batfish Path Check</strong>, and{" "}
               <strong>Batfish ACL Check</strong> never populate{" "}
               <code>parsed</code> at all — their results are stored only as
               a workflow-level artifact (view them in the run detail page),
-              never on a device. See the Options dialog&apos;s{" "}
-              <strong>Batfish</strong> tab for why its <code>batfish</code>{" "}
-              preview variable must not be referenced in a template body.
+              never on a device. These 3 are still available in the Options
+              dialog&apos;s <strong>Batfish</strong> tab as ad-hoc,
+              preview-only questions (populating the flat <code>batfish</code>{" "}
+              variable) — see that tab&apos;s warning for why{" "}
+              <code>batfish.*</code> must not be referenced in a template
+              body.
             </p>
           </Section>
 

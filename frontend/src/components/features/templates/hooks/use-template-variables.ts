@@ -193,21 +193,48 @@ export function useTemplateVariables() {
     });
   }, []);
 
-  const setParsedConfig = useCallback((entry: unknown) => {
+  /** Merge one named entry into the shared `parsed` auto-variable's JSON
+   * object -- `{...current, [key]: entry}` -- rather than replacing the
+   * whole value, so multiple sources (Get Configs's "cisco_config", a
+   * Batfish facts preview's output_key) can populate `parsed` without
+   * clobbering each other. `entry === null`/`undefined` removes that key
+   * instead of setting it to null, so a cleared source doesn't leave
+   * clutter behind. */
+  const setParsedNamespaceEntry = useCallback((key: string, entry: unknown) => {
     setVariables((current) =>
-      current.map((variable) =>
-        variable.id === PARSED_CONFIG_VARIABLE_ID
-          ? {
-              ...variable,
-              value:
-                entry !== null && entry !== undefined
-                  ? JSON.stringify({ cisco_config: entry }, null, 2)
-                  : "",
+      current.map((variable) => {
+        if (variable.id !== PARSED_CONFIG_VARIABLE_ID) return variable;
+        let parsedValue: Record<string, unknown> = {};
+        if (variable.value) {
+          try {
+            const existing: unknown = JSON.parse(variable.value);
+            if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+              parsedValue = existing as Record<string, unknown>;
             }
-          : variable,
-      ),
+          } catch {
+            parsedValue = {};
+          }
+        }
+        if (entry === null || entry === undefined) {
+          delete parsedValue[key];
+        } else {
+          parsedValue = { ...parsedValue, [key]: entry };
+        }
+        const hasEntries = Object.keys(parsedValue).length > 0;
+        return { ...variable, value: hasEntries ? JSON.stringify(parsedValue, null, 2) : "" };
+      }),
     );
   }, []);
+
+  const clearParsedNamespaceEntry = useCallback(
+    (key: string) => setParsedNamespaceEntry(key, null),
+    [setParsedNamespaceEntry],
+  );
+
+  const setParsedConfig = useCallback(
+    (entry: unknown) => setParsedNamespaceEntry("cisco_config", entry),
+    [setParsedNamespaceEntry],
+  );
 
   const toggleBatfishVariable = useCallback((enabled: boolean) => {
     setVariables((current) => {
@@ -325,6 +352,8 @@ export function useTemplateVariables() {
       setCommandResults,
       toggleParsedConfigVariable,
       setParsedConfig,
+      setParsedNamespaceEntry,
+      clearParsedNamespaceEntry,
       toggleBatfishVariable,
       setBatfishResult,
       setRunInputSource,
@@ -342,6 +371,8 @@ export function useTemplateVariables() {
       setCommandResults,
       toggleParsedConfigVariable,
       setParsedConfig,
+      setParsedNamespaceEntry,
+      clearParsedNamespaceEntry,
       toggleBatfishVariable,
       setBatfishResult,
       setRunInputSource,

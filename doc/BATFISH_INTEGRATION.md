@@ -166,30 +166,52 @@ backend/services/batfish/
 │                                           # Also GENERIC_QUESTION_ALLOWLIST + query_generic -- the
 │                                           # ad-hoc "any allow-listed question" surface, see
 │                                           # "Template Editor integration" below
-└── preview_service.py                     # BatfishPreviewService -- ad-hoc routes/reachability/
-                                            # testFilters/generic, no WorkflowRun; the Template
-                                            # Editor's Options-modal preview path
+├── preview_service.py                     # BatfishPreviewService -- ad-hoc routes/reachability/
+│                                           # testFilters/generic (flat rows) PLUS extract-facts/
+│                                           # ospf-facts/bgp-facts/node-properties/interface-properties
+│                                           # (facts_by_node), no WorkflowRun; the Template Editor's
+│                                           # Options-modal preview path
+├── facts_specs.py                         # CombinedQuestionSpec, PropertyQuestionSpec,
+│                                           # group_rows_by_node, merge_facts_by_node,
+│                                           # facts_by_node_for_property -- the shared per-node
+│                                           # merge/group engine, used by BOTH the workflow steps
+│                                           # (via workflow_steps/common/*, which re-export from here)
+│                                           # AND BatfishPreviewService -- see "Template Editor
+│                                           # integration" -> "Facts questions" below for why this
+│                                           # lives here rather than in workflow_steps/common/
+├── ospf_facts.py                          # OSPF_QUESTION_SPECS/OSPF_QUESTION_KEYS
+├── bgp_facts.py                           # BGP_QUESTION_SPECS/BGP_QUESTION_KEYS
+├── node_properties_spec.py                # NODE_PROPERTIES_SPEC
+└── interface_properties_spec.py           # INTERFACE_PROPERTIES_SPEC
 
 backend/workflow_steps/common/batfish_properties.py   # Shared engine for the "property lookup" steps
                                             # (artifact/metadata storage, route_empty_to_devices/
                                             # empty_match_mode, per-device enrichment) -- both
                                             # batfish-node-properties and batfish-interface-properties
-                                            # are thin PropertyQuestionSpec-driven callers of this now
+                                            # are thin PropertyQuestionSpec-driven callers of this now.
+                                            # PropertyQuestionSpec/group_rows_by_node themselves are
+                                            # re-exported from services.batfish.facts_specs (see above)
 
 backend/models/batfish.py                  # Pydantic request/response models: source CRUD, test-connection,
                                             # + BatfishQueryQuestion/BatfishRoutesQueryRequest/
                                             # BatfishReachabilityQueryRequest/BatfishTestFiltersQueryRequest/
-                                            # BatfishGenericQueryRequest/BatfishQueryResponse (ad-hoc
-                                            # query models -- `question` on the response is a plain
-                                            # str, not the closed BatfishQueryQuestion Literal, since a
-                                            # generic query's question name isn't one of the 3 typed ones)
+                                            # BatfishGenericQueryRequest/BatfishExtractFactsQueryRequest/
+                                            # BatfishOspfFactsQueryRequest/BatfishBgpFactsQueryRequest/
+                                            # BatfishNodePropertiesQueryRequest/
+                                            # BatfishInterfacePropertiesQueryRequest/BatfishQueryResponse
+                                            # (ad-hoc query models -- `question` on the response is a
+                                            # plain str, not the closed BatfishQueryQuestion Literal,
+                                            # since a generic/facts query's question name isn't one of
+                                            # the 3 typed ones; `facts_by_node` is the facts-questions-
+                                            # only response field)
 backend/routers/sources/batfish/
 ├── __init__.py
 ├── crud.py                                # /sources/batfish -- source configuration CRUD
 ├── ops.py                                 # /sources/batfish/{source_id}/test-connection
 ├── query.py                               # /sources/batfish/{source_id}/query/{routes,reachability,
-│                                           # test-filters,generic} -- ad-hoc preview queries, see
-│                                           # "Template Editor integration" below
+│                                           # test-filters,generic,extract-facts,ospf-facts,bgp-facts,
+│                                           # node-properties,interface-properties} -- ad-hoc preview
+│                                           # queries, see "Template Editor integration" below
 └── discovery.py                           # /sources/batfish/{source_id}/networks,
                                             # /sources/batfish/{source_id}/networks/{network}/snapshots
 backend/dependencies.py                    # get_batfish_preview_service (FastAPI dependency)
@@ -205,8 +227,9 @@ backend/services/templates/templates_service.py   # create/update/_to_dict threa
                                                     # (json.dumps/json.loads, mirroring nautobot_attributes)
 backend/routers/templates.py               # create_template/update_template pass payload.batfish_config through
 
-backend/tests/unit/test_batfish_preview_service.py       # BatfishPreviewService (incl. run_generic), mocked BatfishService
-backend/tests/unit/test_batfish_query_router_auth.py     # auth/permission + error-mapping for the query router (incl. /query/generic)
+backend/tests/unit/test_batfish_preview_service.py       # BatfishPreviewService, all 9 typed questions + generic, mocked BatfishService
+backend/tests/unit/test_batfish_query_router_auth.py     # auth/permission + error-mapping for the query router, all 9 endpoints + generic
+backend/tests/unit/test_batfish_facts_specs.py           # merge_facts_by_node/facts_by_node_for_property direct coverage
 backend/tests/unit/test_batfish_query_helpers.py         # query_generic allow-list gate, mocked BatfishService
 backend/tests/unit/test_batfish_properties_common.py     # workflow_steps.common.batfish_properties pure-logic pieces
 
@@ -299,21 +322,37 @@ frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBat
 frontend/src/components/features/workflows/components/step-result-viewer/batfish-result-panel.tsx  # see "Viewing results" below
 frontend/src/components/features/workflows/components/step-result-viewer/{metadata-panel,outcome-context-view,devices-section,device-card,device-detail-dialog}.tsx  # wiring for the above (edits, not new)
 
-frontend/src/components/features/templates/types.ts                       # BatfishQueryQuestion, BatfishEditorQuestion
-                                                                            # (adds a "generic" sentinel), BatfishQueryConfig,
-                                                                            # BatfishQueryResult; Template/TemplateCreatePayload
-                                                                            # gained batfish_config
-frontend/src/components/features/templates/constants.ts                   # BATFISH_VARIABLE
-frontend/src/components/features/templates/hooks/use-template-variables.ts     # toggleBatfishVariable, setBatfishResult (edits)
+frontend/src/components/features/templates/types.ts                       # BatfishQueryQuestion, BatfishFactsQuestion
+                                                                            # (extractFacts/ospfFacts/bgpFacts/nodeProperties/
+                                                                            # interfaceProperties), BatfishEditorQuestion (adds
+                                                                            # a "generic" sentinel), BatfishQueryConfig,
+                                                                            # BatfishQueryResult (gained facts_by_node);
+                                                                            # Template/TemplateCreatePayload gained batfish_config
+frontend/src/components/features/templates/constants.ts                   # BATFISH_VARIABLE -- explicitly documented
+                                                                            # preview-only after the bug fix above; the 5 facts
+                                                                            # questions don't use this variable at all
+frontend/src/components/features/templates/hooks/use-template-variables.ts     # toggleBatfishVariable/setBatfishResult (4
+                                                                                 # preview-only questions, unchanged); generalized
+                                                                                 # setParsedConfig -> setParsedNamespaceEntry/
+                                                                                 # clearParsedNamespaceEntry (multi-key merge into
+                                                                                 # the shared `parsed` variable, used by the 5
+                                                                                 # facts questions AND Get Configs)
 frontend/src/components/features/templates/hooks/use-template-editor-batfish.ts  # target/question/genericQuestionName/params
-                                                                                    # state + the query mutation
+                                                                                    # state + the query mutation; isFactsQuestion,
+                                                                                    # pickFactsPayload (unwrap-if-single-node),
+                                                                                    # DEFAULT_OUTPUT_KEY
 frontend/src/components/features/templates/hooks/use-template-editor.ts        # wires the above in, loads/saves batfish_config (edits)
 frontend/src/components/features/templates/hooks/use-template-editor-save.ts   # threads batfish_config into the save payload (edits)
 frontend/src/components/features/templates/components/options-dialog.tsx       # renamed from netmiko-options-dialog.tsx --
                                                                             # now a tabbed "Netmiko" / "Batfish" dialog
-frontend/src/components/features/templates/components/batfish-options-tab.tsx  # source/network/snapshot + question picker +
-                                                                            # per-question params + Run Query + JSON preview;
-                                                                            # a 4th "Custom Question..." block posts to
+frontend/src/components/features/templates/components/batfish-options-tab.tsx  # source/network/snapshot + question picker (9
+                                                                            # questions: routes/reachability/testFilters/
+                                                                            # extractFacts/ospfFacts/bgpFacts/nodeProperties/
+                                                                            # interfaceProperties/generic) + per-question params +
+                                                                            # Run Query + result preview (rows or facts_by_node);
+                                                                            # conditional warning/info Alert (preview-only for the
+                                                                            # first 4, real-runtime-match for the 5 facts
+                                                                            # questions); "Custom Question..." posts to
                                                                             # /query/generic with a free-text question name
                                                                             # (datalist-suggested) + a JSON params textarea
 ```
@@ -1772,6 +1811,92 @@ editor stop lying about what already exists today.
 result via `store-artifact`, and any UI to browse a source's actual Batfish
 networks/snapshots (both editor and canvas config panels still take
 `network`/`snapshot` as free text).
+
+### Facts questions: Extract Facts / OSPF / BGP Facts / Node / Interface Properties
+
+Beyond the 4 questions above (flat `rows`, `batfish` variable,
+preview-only), the Options modal's Batfish tab also offers the 5 questions
+that mirror a real per-device workflow step: **Extract Facts**, **Get OSPF
+Facts**, **Get BGP Facts**, **Batfish Node Properties**, **Batfish Interface
+Properties**. Unlike the 4 above, these steps genuinely populate
+`device.parsed[output_key]["parsed"]` at real workflow runtime (Extract
+Facts always; the other four on their `devices` outcome — see each step's
+own section above) — so their ad-hoc preview writes into the editor's real
+`parsed.<output_key>` namespace instead of the flat `batfish` variable,
+closing the exact "preview populates data that can never exist at runtime"
+gap the `batfish` variable's own preview-only warning exists to flag.
+
+**New response shape: `facts_by_node`, not `rows`.** `BatfishQueryResponse`
+gained `facts_by_node: dict[str, Any] | None` — a `{node_name: <that node's
+parsed payload>}` dict, byte-for-byte the same shape
+`device.parsed[output_key]["parsed"]` holds for one device at real runtime.
+`rows` stays `[]` for these 5 endpoints. Frontend
+(`use-template-editor-batfish.ts::pickFactsPayload`): when exactly one node
+matches, unwrap it and write `parsed.<output_key> = {parsed: <that node's
+payload>, error: null}` — the exact runtime shape; when more than one node
+matches, write the full `{node: payload}` dict instead (still inspectable,
+but not the real per-device shape — the UI says so); zero matches writes
+`{parsed: null, error: "no facts found..."}`, mirroring the workflow steps'
+own non-fatal per-item error convention.
+
+**New endpoints, reusing the exact same merge/group logic the real steps
+use, not a second implementation:**
+
+```
+POST /api/sources/batfish/{source_id}/query/extract-facts
+POST /api/sources/batfish/{source_id}/query/ospf-facts
+POST /api/sources/batfish/{source_id}/query/bgp-facts
+POST /api/sources/batfish/{source_id}/query/node-properties
+POST /api/sources/batfish/{source_id}/query/interface-properties
+```
+
+`BatfishPreviewService.run_extract_facts` calls `BatfishService.extract_facts`
+directly, same as the `batfish-extract-facts` executor. `run_ospf_facts`/
+`run_bgp_facts` call the same `query_helpers.query_ospf_*`/`query_bgp_*`
+functions the real steps use, then merge per-node via
+`services.batfish.facts_specs.merge_facts_by_node` — the exact function
+`build_combined_facts_outcomes` (the real steps' `devices`-outcome engine)
+now also calls, extracted from what used to be its own inline merge loop.
+`run_node_properties`/`run_interface_properties` call
+`query_helpers.query_node_properties`/`query_interface_properties`, then
+group per-node via `services.batfish.facts_specs.facts_by_node_for_property`
+— same function `workflow_steps.common.batfish_properties._enrich_devices`
+now calls too.
+
+**Why this needed a small relocation, not just new endpoints.** The per-node
+merge/group logic (`CombinedQuestionSpec`, `PropertyQuestionSpec`,
+`group_rows_by_node`, and the OSPF/BGP spec tables) used to live in
+`workflow_steps/common/`, which `BatfishPreviewService` (a `services/`
+module) cannot import from — this codebase's only `services/` →
+`workflow_steps/` import is `step_registry.py` dispatching `executor.execute`
+(CLAUDE.md: "External code must never import `workflow_steps` packages
+directly"). So this logic moved down into `services/batfish/` —
+`facts_specs.py` (the generic engine: `CombinedQuestionSpec`,
+`PropertyQuestionSpec`, `group_rows_by_node`, `merge_facts_by_node`,
+`facts_by_node_for_property`), `ospf_facts.py`/`bgp_facts.py`
+(`OSPF_QUESTION_SPECS`/`BGP_QUESTION_SPECS`), and
+`node_properties_spec.py`/`interface_properties_spec.py`
+(`NODE_PROPERTIES_SPEC`/`INTERFACE_PROPERTIES_SPEC`, previously built inline
+in each property step's executor). `workflow_steps/common/batfish_ospf_facts.py`/
+`batfish_bgp_facts.py`/`batfish_combined_facts.py`/`batfish_properties.py`
+now re-export the same names from their new home — a pure move, verified
+behavior-identical by the full existing Batfish test suite passing unchanged
+(no test file needed an import-path update). Mirrors the precedent
+`query_helpers.py` already set for the 4 simpler questions ("shared by
+workflow-step executors AND BatfishPreviewService"), extended to the two
+remaining pieces of Batfish domain logic that didn't need a second consumer
+until now.
+
+**UI (`batfish-options-tab.tsx`):** each facts question gets its own field
+block mirroring the matching canvas step's config panel (`nodes`/
+`nodes_filter`, an `output_key` field defaulting to that step's own default,
+and for OSPF/BGP the 4 `include_*` toggles). The result panel renders
+`facts_by_node` (with a node-count badge and a "narrow Nodes to preview the
+exact per-device shape" note when more than one node matched) instead of
+`rows`. The tab's warning banner is conditional: the 4 preview-only
+questions keep the red "never referenced in a template body" warning; the 5
+facts questions get a blue info note confirming the preview matches real
+runtime output.
 
 ### Generic ad-hoc questions: the long tail beyond routes/reachability/testFilters
 
