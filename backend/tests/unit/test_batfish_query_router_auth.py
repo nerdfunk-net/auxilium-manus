@@ -160,3 +160,50 @@ def test_query_test_filters_api_error_maps_to_sanitized_502(
     # 5xx errors must never leak raw exception text (core/safe_http_errors.py).
     assert "boom" not in body["message"]
     assert "error_id" in body
+
+
+def test_query_generic_success(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    _authenticate(app)
+
+    mock_service = MagicMock()
+    mock_service.run_generic = AsyncMock(
+        return_value=BatfishQueryResponse(
+            success=True,
+            question="edges",
+            network="net",
+            snapshot="run-1",
+            rows=[],
+        )
+    )
+    app.dependency_overrides[get_batfish_preview_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/lab/query/generic",
+            json={"network": "net", "question": "edges"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["question"] == "edges"
+
+
+def test_query_generic_non_allowlisted_question_maps_to_400(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+    _authenticate(app)
+
+    mock_service = MagicMock()
+    mock_service.run_generic = AsyncMock(
+        side_effect=ValueError("Batfish question 'dropTables' is not allow-listed")
+    )
+    app.dependency_overrides[get_batfish_preview_service] = lambda: mock_service
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/lab/query/generic",
+            json={"network": "net", "question": "dropTables"},
+        )
+
+    assert response.status_code == 400

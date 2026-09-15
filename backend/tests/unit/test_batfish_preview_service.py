@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 from models.batfish import (
+    BatfishGenericQueryRequest,
     BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
     BatfishTestFiltersQueryRequest,
@@ -235,6 +236,41 @@ class BatfishPreviewServiceTestFiltersTests(unittest.IsolatedAsyncioTestCase):
                     dst_ips="1.1.1.1",
                 ),
             )
+
+
+class BatfishPreviewServiceGenericTests(unittest.IsolatedAsyncioTestCase):
+    async def test_requires_question(self) -> None:
+        service, _, _batfish = _make_service()
+        with self.assertRaises(ValueError):
+            await service.run_generic(
+                "lab", BatfishGenericQueryRequest(network="net", question=" ")
+            )
+
+    async def test_rejects_non_allowlisted_question(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.generic_question = AsyncMock()
+
+        with self.assertRaises(ValueError):
+            await service.run_generic(
+                "lab",
+                BatfishGenericQueryRequest(network="net", snapshot="snap", question="dropTables"),
+            )
+        batfish.generic_question.assert_not_awaited()
+
+    async def test_allowlisted_question_returns_rows(self) -> None:
+        service, _, batfish = _make_service()
+        batfish.generic_question = AsyncMock(return_value=[{"Node": "r1"}])
+
+        result = await service.run_generic(
+            "lab",
+            BatfishGenericQueryRequest(
+                network="net", snapshot="snap", question="edges", params={}
+            ),
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.question, "edges")
+        self.assertEqual(result.rows, [{"Node": "r1"}])
 
 
 if __name__ == "__main__":

@@ -25,6 +25,15 @@ export interface TemplateListResponse {
 export type BatfishQueryQuestion = "routes" | "reachability" | "testFilters";
 
 /**
+ * Editor-local question selector: the 3 typed questions above, plus
+ * "generic" -- a sentinel for the "Custom Question..." picker entry, which
+ * lets the ad-hoc query target any question in the backend's
+ * GENERIC_QUESTION_ALLOWLIST (services/batfish/query_helpers.py) via
+ * `generic_question_name` below rather than a fixed union member.
+ */
+export type BatfishEditorQuestion = BatfishQueryQuestion | "generic";
+
+/**
  * Persisted Batfish query definition for the template editor's preview
  * `batfish` variable. Only the query definition round-trips with the
  * template — never the fetched answer itself, mirroring how parsed_config/
@@ -35,14 +44,19 @@ export interface BatfishQueryConfig {
   source_id: string | null;
   network: string | null;
   snapshot: string | null;
-  question: BatfishQueryQuestion | null;
+  question: BatfishEditorQuestion | null;
+  /** The actual Batfish question name when `question === "generic"`. */
+  generic_question_name: string | null;
   params: Record<string, unknown>;
 }
 
 /** Response from an ad-hoc POST sources/batfish/{source_id}/query/* call. */
 export interface BatfishQueryResult {
   success: boolean;
-  question: BatfishQueryQuestion;
+  // A plain string, not BatfishQueryQuestion -- a generic query's response
+  // carries whatever question name was actually run, not one of the 3 typed
+  // ones (matches the backend's BatfishQueryResponse.question widening).
+  question: string;
   network: string;
   snapshot: string;
   rows: unknown[];

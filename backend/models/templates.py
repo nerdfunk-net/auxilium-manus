@@ -37,7 +37,12 @@ class BatfishQueryConfig(BaseModel):
     source_id: str | None = None
     network: str | None = None
     snapshot: str | None = None
-    question: Literal["routes", "reachability", "testFilters"] | None = None
+    # "generic" is the Options modal's "Custom Question..." sentinel -- the
+    # actual question name for that case is generic_question_name below, not
+    # this field (mirrors frontend/.../templates/types.ts::BatfishEditorQuestion,
+    # which is not the closed BatfishQueryQuestion Literal for the same reason).
+    question: Literal["routes", "reachability", "testFilters", "generic"] | None = None
+    generic_question_name: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
 
 

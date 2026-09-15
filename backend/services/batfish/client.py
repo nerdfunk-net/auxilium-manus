@@ -192,6 +192,25 @@ class BatfishService:
             connection, batfish_network, snapshot, "interfaceProperties", params
         )
 
+    async def generic_question(
+        self,
+        connection: BatfishConnection,
+        *,
+        batfish_network: str,
+        snapshot: str,
+        question_name: str,
+        **params: Any,
+    ) -> list[dict[str, Any]]:
+        # NOTE: this forwards question_name straight to _answer's own
+        # getattr(session.q, question_name) dispatch -- _answer performs NO
+        # allow-listing of its own. Every caller of this method MUST have
+        # already checked question_name against a hardcoded allow-list (see
+        # services/batfish/query_helpers.py::GENERIC_QUESTION_ALLOWLIST)
+        # before reaching here; this method exists to let an allow-listed
+        # caller reach an arbitrary Batfish question, not to expose that
+        # dispatch to raw request input on its own.
+        return await self._answer(connection, batfish_network, snapshot, question_name, params)
+
     async def validate_facts(
         self,
         connection: BatfishConnection,

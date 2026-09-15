@@ -276,6 +276,28 @@ class BatfishServiceQuestionTests(unittest.IsolatedAsyncioTestCase):
                 _connection(), batfish_network="net", snapshot="snap", nodes="R1", filters="ACL"
             )
 
+    async def test_generic_question_forwards_name_and_params_to_answer(self) -> None:
+        self.instance.q.bgpPeerConfiguration = self._stub_question('[{"Node": "r1"}]')
+
+        result = await self.service.generic_question(
+            _connection(),
+            batfish_network="net",
+            snapshot="snap",
+            question_name="bgpPeerConfiguration",
+            nodes="R1",
+        )
+
+        self.assertEqual(result, [{"Node": "r1"}])
+        self.instance.q.bgpPeerConfiguration.assert_called_once_with(nodes="R1")
+
+    async def test_generic_question_wraps_batfish_exception(self) -> None:
+        self.instance.q.edges = MagicMock(side_effect=BatfishException("bad question"))
+
+        with self.assertRaises(BatfishAPIError):
+            await self.service.generic_question(
+                _connection(), batfish_network="net", snapshot="snap", question_name="edges"
+            )
+
 
 class BatfishServiceFactsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

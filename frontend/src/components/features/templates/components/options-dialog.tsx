@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNetmikoDeviceSearchQuery } from "@/hooks/queries/use-netmiko-device-search-query";
 
 import { BatfishOptionsTab } from "./batfish-options-tab";
-import type { BatfishQueryQuestion, BatfishQueryResult, DeviceSummary } from "../types";
+import type { BatfishEditorQuestion, BatfishQueryResult, DeviceSummary } from "../types";
 
 const EMPTY_DEVICES: DeviceSummary[] = [];
 
@@ -45,8 +45,10 @@ interface OptionsDialogProps {
   onFetchConfigs: () => void;
   batfishTargetConfig: Record<string, unknown>;
   onBatfishTargetConfigChange: (config: Record<string, unknown>) => void;
-  batfishQuestion: BatfishQueryQuestion;
-  onBatfishQuestionChange: (question: BatfishQueryQuestion) => void;
+  batfishQuestion: BatfishEditorQuestion;
+  onBatfishQuestionChange: (question: BatfishEditorQuestion) => void;
+  batfishGenericQuestionName: string;
+  onBatfishGenericQuestionNameChange: (name: string) => void;
   batfishParams: Record<string, unknown>;
   onBatfishParamsChange: (params: Record<string, unknown>) => void;
   batfishEnabled: boolean;
@@ -82,6 +84,8 @@ export function OptionsDialog({
   onBatfishTargetConfigChange,
   batfishQuestion,
   onBatfishQuestionChange,
+  batfishGenericQuestionName,
+  onBatfishGenericQuestionNameChange,
   batfishParams,
   onBatfishParamsChange,
   batfishEnabled,
@@ -327,6 +331,8 @@ export function OptionsDialog({
               onTargetConfigChange={onBatfishTargetConfigChange}
               question={batfishQuestion}
               onQuestionChange={onBatfishQuestionChange}
+              genericQuestionName={batfishGenericQuestionName}
+              onGenericQuestionNameChange={onBatfishGenericQuestionNameChange}
               params={batfishParams}
               onParamsChange={onBatfishParamsChange}
               enabled={batfishEnabled}

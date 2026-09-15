@@ -21,6 +21,43 @@ from typing import Any
 from services.batfish.client import BatfishService
 from services.batfish.credentials import BatfishConnection
 
+# The generic ad-hoc question surface (Template Editor "Custom Question..."
+# + POST /sources/batfish/{id}/query/generic) accepts a question NAME from
+# request input, which BatfishService._answer/generic_question dispatch onto
+# `session.q.<name>` with no validation of their own -- so every name here
+# MUST be checked before BatfishService.generic_question is ever called (see
+# query_generic below), never trusted directly. Each entry was empirically
+# confirmed to answer against a live coordinator (a synthetic two-router
+# snapshot with BGP/OSPF/VRF/ACL configured) rather than assumed from
+# Batfish's public docs -- see doc/BATFISH_INTEGRATION.md "Template Editor
+# integration" for the verification method and why three documented-sounding
+# names (vrfProperties/aclReachability/subnetMultipleAccess) were dropped:
+# they don't exist under those names in the installed pybatfish/coordinator
+# version. Excluded on purpose: anything needing a second/reference snapshot
+# (differentialReachability, compareFilters, ...) -- out of scope for this
+# single-snapshot ad-hoc surface -- and every question already covered by a
+# typed step/endpoint (routes/reachability/testFilters/nodeProperties/
+# interfaceProperties).
+GENERIC_QUESTION_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "bgpPeerConfiguration",
+        "bgpProcessConfiguration",
+        "bgpEdges",
+        "bgpSessionCompatibility",
+        "bgpSessionStatus",
+        "ospfProcessConfiguration",
+        "ospfInterfaceConfiguration",
+        "ospfEdges",
+        "namedStructures",
+        "ipOwners",
+        "edges",
+        "undefinedReferences",
+        "unusedStructures",
+        "filterLineReachability",
+        "switchedVlanProperties",
+    }
+)
+
 
 async def assert_batfish_network_exists(
     batfish: BatfishService, connection: BatfishConnection, network: str
@@ -318,4 +355,45 @@ async def query_interface_properties(
         nodes=_or_none(nodes),
         interfaces=_or_none(interfaces),
         properties=_or_none(properties),
+    )
+
+
+async def query_generic(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    question_name: str,
+    params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Run any question in ``GENERIC_QUESTION_ALLOWLIST``, with arbitrary
+    caller-supplied ``params`` forwarded as kwargs. Shared by the ad-hoc
+    ``/sources/batfish/{id}/query/generic`` endpoint and
+    ``BatfishPreviewService.run_generic`` -- the ad-hoc-only counterpart to
+    the typed ``query_routes``/``query_reachability``/``query_test_filters``/
+    ``query_node_properties``/``query_interface_properties`` above.
+
+    Raises ``ValueError`` for a non-allow-listed ``question_name`` -- this is
+    the actual security boundary; ``BatfishService.generic_question``/
+    ``_answer`` perform no allow-listing of their own (see that method's
+    docstring). Unlike the typed ``query_*`` functions, per-param validation
+    is left to pybatfish itself: an unsupported param name for the chosen
+    question surfaces as a rejected-kwarg error, not silently -- there is no
+    static schema for each allow-listed question's accepted params in this
+    codebase to validate against ahead of time.
+    """
+    if question_name not in GENERIC_QUESTION_ALLOWLIST:
+        raise ValueError(
+            f"Batfish question {question_name!r} is not allow-listed for ad-hoc queries -- "
+            f"allowed: {', '.join(sorted(GENERIC_QUESTION_ALLOWLIST))}"
+        )
+    clean_params = {k: _or_none(v) for k, v in (params or {}).items()}
+    clean_params = {k: v for k, v in clean_params.items() if v is not None}
+    return await batfish.generic_question(
+        connection,
+        batfish_network=batfish_network,
+        snapshot=snapshot,
+        question_name=question_name,
+        **clean_params,
     )

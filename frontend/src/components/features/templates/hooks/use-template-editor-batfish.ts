@@ -6,15 +6,20 @@ import { useCallback, useMemo, useState } from "react";
 import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 
-import type { BatfishQueryConfig, BatfishQueryQuestion, BatfishQueryResult } from "../types";
+import type {
+  BatfishEditorQuestion,
+  BatfishQueryConfig,
+  BatfishQueryResult,
+} from "../types";
 import type { useTemplateVariables } from "./use-template-variables";
 
 type TemplateVariablesManager = ReturnType<typeof useTemplateVariables>;
 
-const QUESTION_ENDPOINT: Record<BatfishQueryQuestion, string> = {
+const QUESTION_ENDPOINT: Record<BatfishEditorQuestion, string> = {
   routes: "routes",
   reachability: "reachability",
   testFilters: "test-filters",
+  generic: "generic",
 };
 
 function stringField(params: Record<string, unknown>, key: string): string {
@@ -23,14 +28,23 @@ function stringField(params: Record<string, unknown>, key: string): string {
 }
 
 function buildRequestBody(
-  question: BatfishQueryQuestion,
+  question: BatfishEditorQuestion,
   network: string,
   snapshot: string,
   params: Record<string, unknown>,
+  genericQuestionName: string,
 ): Record<string, unknown> {
   const base: Record<string, unknown> = { network };
   if (snapshot.trim()) {
     base.snapshot = snapshot.trim();
+  }
+
+  if (question === "generic") {
+    return {
+      ...base,
+      question: genericQuestionName.trim(),
+      params,
+    };
   }
 
   if (question === "routes") {
@@ -72,7 +86,14 @@ function buildRequestBody(
   };
 }
 
-function isQuestionReady(question: BatfishQueryQuestion, params: Record<string, unknown>): boolean {
+function isQuestionReady(
+  question: BatfishEditorQuestion,
+  params: Record<string, unknown>,
+  genericQuestionName: string,
+): boolean {
+  if (question === "generic") {
+    return Boolean(genericQuestionName.trim());
+  }
   if (question === "reachability") {
     return Boolean(stringField(params, "start_node").trim());
   }
@@ -96,7 +117,8 @@ export function useTemplateEditorBatfish({ setBatfishResult }: UseTemplateEditor
 
   const [enabled, setEnabled] = useState(false);
   const [targetConfig, setTargetConfig] = useState<Record<string, unknown>>({});
-  const [question, setQuestion] = useState<BatfishQueryQuestion>("routes");
+  const [question, setQuestion] = useState<BatfishEditorQuestion>("routes");
+  const [genericQuestionName, setGenericQuestionName] = useState("");
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [result, setResult] = useState<BatfishQueryResult | null>(null);
 
@@ -111,7 +133,7 @@ export function useTemplateEditorBatfish({ setBatfishResult }: UseTemplateEditor
         throw new Error("Select a Batfish source and network first");
       }
       const endpoint = QUESTION_ENDPOINT[question];
-      const body = buildRequestBody(question, network.trim(), snapshot, params);
+      const body = buildRequestBody(question, network.trim(), snapshot, params, genericQuestionName);
       return apiCall<BatfishQueryResult>(`sources/batfish/${sourceId}/query/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,13 +160,16 @@ export function useTemplateEditorBatfish({ setBatfishResult }: UseTemplateEditor
   }, [runQueryMutation]);
 
   const canRunQuery =
-    Boolean(sourceId) && Boolean(network.trim()) && isQuestionReady(question, params);
+    Boolean(sourceId) &&
+    Boolean(network.trim()) &&
+    isQuestionReady(question, params, genericQuestionName);
 
   const loadFromConfig = useCallback((config: BatfishQueryConfig | null) => {
     if (!config) {
       setEnabled(false);
       setTargetConfig({});
       setQuestion("routes");
+      setGenericQuestionName("");
       setParams({});
       setResult(null);
       return;
@@ -156,6 +181,7 @@ export function useTemplateEditorBatfish({ setBatfishResult }: UseTemplateEditor
       snapshot: config.snapshot ?? "",
     });
     setQuestion(config.question ?? "routes");
+    setGenericQuestionName(config.generic_question_name ?? "");
     setParams(config.params ?? {});
     setResult(null);
   }, []);
@@ -167,9 +193,10 @@ export function useTemplateEditorBatfish({ setBatfishResult }: UseTemplateEditor
       network: network.trim() || null,
       snapshot: snapshot.trim() || null,
       question,
+      generic_question_name: genericQuestionName.trim() || null,
       params,
     };
-  }, [enabled, sourceId, network, snapshot, question, params]);
+  }, [enabled, sourceId, network, snapshot, question, genericQuestionName, params]);
 
   return useMemo(
     () => ({
@@ -179,6 +206,8 @@ export function useTemplateEditorBatfish({ setBatfishResult }: UseTemplateEditor
       setTargetConfig,
       question,
       setQuestion,
+      genericQuestionName,
+      setGenericQuestionName,
       params,
       setParams,
       result,
@@ -192,6 +221,7 @@ export function useTemplateEditorBatfish({ setBatfishResult }: UseTemplateEditor
       enabled,
       targetConfig,
       question,
+      genericQuestionName,
       params,
       result,
       runQueryMutation.isPending,

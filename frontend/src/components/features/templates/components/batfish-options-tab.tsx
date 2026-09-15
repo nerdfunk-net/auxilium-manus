@@ -15,16 +15,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { useBatfishNetworksQuery } from "@/hooks/queries/use-batfish-networks-query";
 import { useBatfishSnapshotsQuery } from "@/hooks/queries/use-batfish-snapshots-query";
 import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
 
-import type { BatfishQueryQuestion, BatfishQueryResult } from "../types";
+import { BATFISH_GENERIC_QUESTION_NAMES } from "@/components/features/workflow-steps/shared/batfish-generic-question-names";
 
-const QUESTION_OPTIONS: { value: BatfishQueryQuestion; label: string }[] = [
+import type { BatfishEditorQuestion, BatfishQueryResult } from "../types";
+
+const QUESTION_OPTIONS: { value: BatfishEditorQuestion; label: string }[] = [
   { value: "routes", label: "Routing Table" },
   { value: "reachability", label: "Path Check" },
   { value: "testFilters", label: "ACL Check" },
+  { value: "generic", label: "Custom Question…" },
 ];
 
 const PREFIX_MATCH_TYPES = [
@@ -60,8 +64,10 @@ function applicationsField(params: Record<string, unknown>): string {
 interface BatfishOptionsTabProps {
   targetConfig: Record<string, unknown>;
   onTargetConfigChange: (config: Record<string, unknown>) => void;
-  question: BatfishQueryQuestion;
-  onQuestionChange: (question: BatfishQueryQuestion) => void;
+  question: BatfishEditorQuestion;
+  onQuestionChange: (question: BatfishEditorQuestion) => void;
+  genericQuestionName: string;
+  onGenericQuestionNameChange: (name: string) => void;
   params: Record<string, unknown>;
   onParamsChange: (params: Record<string, unknown>) => void;
   enabled: boolean;
@@ -77,6 +83,8 @@ export function BatfishOptionsTab({
   onTargetConfigChange,
   question,
   onQuestionChange,
+  genericQuestionName,
+  onGenericQuestionNameChange,
   params,
   onParamsChange,
   enabled,
@@ -179,6 +187,52 @@ export function BatfishOptionsTab({
     [params, onParamsChange],
   );
 
+  const handleGenericQuestionNameChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => onGenericQuestionNameChange(event.target.value),
+    [onGenericQuestionNameChange],
+  );
+
+  // Buffered locally so invalid-mid-typing JSON doesn't get discarded --
+  // only re-synced from `params` when the question just switched *into*
+  // "generic" (loadFromConfig already resets `params` at the same time it
+  // sets `question`, so this still picks up a freshly loaded template).
+  // Adjusted during render (React's documented pattern for resetting state
+  // on a prop change) rather than in a useEffect, which would set state one
+  // render late and trigger an extra cascading render.
+  const [genericParamsText, setGenericParamsText] = useState(() => JSON.stringify(params, null, 2));
+  const [genericParamsError, setGenericParamsError] = useState<string | null>(null);
+  const [prevQuestion, setPrevQuestion] = useState(question);
+  if (question !== prevQuestion) {
+    setPrevQuestion(question);
+    if (question === "generic") {
+      setGenericParamsText(JSON.stringify(params, null, 2));
+      setGenericParamsError(null);
+    }
+  }
+
+  const handleGenericParamsChange = useCallback(
+    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const text = event.target.value;
+      setGenericParamsText(text);
+      if (!text.trim()) {
+        setGenericParamsError(null);
+        onParamsChange({});
+        return;
+      }
+      try {
+        const parsed: unknown = JSON.parse(text);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          throw new Error("Params must be a JSON object");
+        }
+        setGenericParamsError(null);
+        onParamsChange(parsed as Record<string, unknown>);
+      } catch (error) {
+        setGenericParamsError(error instanceof Error ? error.message : "Invalid JSON");
+      }
+    },
+    [onParamsChange],
+  );
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -208,7 +262,7 @@ export function BatfishOptionsTab({
           <Label>Question</Label>
           <Select
             value={question}
-            onValueChange={(value) => onQuestionChange(value as BatfishQueryQuestion)}
+            onValueChange={(value) => onQuestionChange(value as BatfishEditorQuestion)}
           >
             <SelectTrigger>
               <SelectValue />
@@ -534,6 +588,48 @@ export function BatfishOptionsTab({
               onChange={handleFieldChange("start_location")}
               placeholder="optional"
             />
+          </div>
+        </div>
+      ) : null}
+
+      {question === "generic" ? (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="batfish-generic-question">Question Name</Label>
+            <Input
+              id="batfish-generic-question"
+              value={genericQuestionName}
+              onChange={handleGenericQuestionNameChange}
+              placeholder="e.g. bgpPeerConfiguration"
+              list="batfish-generic-question-names"
+              autoComplete="off"
+            />
+            <datalist id="batfish-generic-question-names">
+              {BATFISH_GENERIC_QUESTION_NAMES.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              A suggestion list, not the full set of allowed questions --
+              the backend rejects anything not on its own allow-list with a
+              plain 400.
+            </p>
+            {genericQuestionName.trim() ? null : (
+              <p className="text-xs text-destructive">Required</p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="batfish-generic-params">Params (JSON, Optional)</Label>
+            <Textarea
+              id="batfish-generic-params"
+              value={genericParamsText}
+              onChange={handleGenericParamsChange}
+              placeholder={'{\n  "nodes": "R1"\n}'}
+              className="min-h-24 font-mono text-xs"
+            />
+            {genericParamsError ? (
+              <p className="text-xs text-destructive">{genericParamsError}</p>
+            ) : null}
           </div>
         </div>
       ) : null}

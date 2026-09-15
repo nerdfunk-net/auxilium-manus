@@ -13,47 +13,32 @@ returns one row per (node, interface) pair, keyed by an `Interface` column
 that -- confirmed empirically, see doc/BATFISH_INTEGRATION.md "Batfish
 Interface Properties" -- serializes to a nested `{"hostname": ...,
 "interface": ...}` dict, not a plain string. This step's `devices` outcome
-therefore dedupes via `devices_from_interface_rows`, not `devices_from_nodes`.
-
-`route_empty_to_devices`/`empty_match_mode` mirror batfish-node-properties'
-own audit feature exactly (same `_is_empty_value` semantics, same "any"/"all"
-combination across multiple `properties`) -- see that step's module
-docstring for the full reasoning. Here it answers per-interface questions
-like "which interfaces have no description set" or "which interfaces have no
-IP address configured", still surfaced through the same node-level `devices`
-outcome (an interface finding with no matching node-level device is not
-representable in this codebase's device model, so a device is flagged if
-*any* of its matching interfaces meets the empty condition).
-
-**`success` vs. `devices`: different enrichment, by design.** Same split as
-batfish-node-properties (see that step's docstring for the full reasoning).
-`success` passes `context` through unchanged; `devices` is enriched by
-`_enrich_devices`, layered atop `devices_from_interface_rows` via
-`device.model_copy`, writing every matching interface's own fields to
-`device.parsed[f"{node_id}.{output_key}"]["parsed"]["Interfaces"][<interface
-name>]` -- the same "Interfaces" nesting `pybatfish.client._facts.get_facts()`
-itself uses for this question (confirmed by reading that module). When
-`route_empty_to_devices` is enabled, `_enrich_devices` only ever sees the
-already-filtered (empty) rows, so a flagged device's `Interfaces` entry
-directly names *which* interface(s) triggered the flag -- not the device's
-full interface set -- composing naturally with no extra logic needed.
+therefore dedupes via `devices_from_interface_rows`, not `devices_from_nodes`,
+and nests each device's own fields under `parsed[...]["parsed"]["Interfaces"]`
+rather than flat -- the one real difference from batfish-node-properties,
+captured as this step's own `PropertyQuestionSpec` passed into the shared
+`workflow_steps.common.batfish_properties` engine (route_empty_to_devices/
+empty_match_mode, artifact/metadata storage, and per-device enrichment are
+otherwise identical between the two steps -- see that module's docstring).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
+from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_interface_properties
 from workflow_steps.batfish_interface_properties.config import get_config
-from workflow_steps.common.batfish_context import (
-    devices_from_interface_rows,
-    resolve_batfish_snapshot_ref,
+from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
+from workflow_steps.common.batfish_properties import (
+    PropertyQuestionSpec,
+    build_property_outcomes,
+    parse_properties_list,
+    validate_empty_config,
 )
 
 if TYPE_CHECKING:
@@ -62,62 +47,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "batfish-interface-properties"
-_EMPTY_MATCH_MODES = frozenset({"any", "all"})
 
 
-def _is_empty_value(value: Any) -> bool:
-    """A property value counts as empty if it's unset, blank, or an empty
-    collection -- e.g. an interface with no description set."""
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return not value.strip()
-    if isinstance(value, (list, dict, tuple, set)):
-        return len(value) == 0
-    return False
+def _interface_node_key(row: dict[str, Any]) -> str | None:
+    interface = row.get("Interface")
+    return interface.get("hostname") if isinstance(interface, dict) else None
 
 
-def _parse_properties_list(properties: str) -> list[str]:
-    return [item.strip() for item in properties.split(",") if item.strip()]
-
-
-def _row_matches_empty(
-    row: dict[str, Any], *, properties_list: list[str], match_mode: str
-) -> bool:
-    empty_flags = [_is_empty_value(row.get(prop)) for prop in properties_list]
-    if match_mode == "all":
-        return all(empty_flags)
-    return any(empty_flags)
-
-
-def _enrich_devices(
-    rows: list[dict[str, Any]], *, node_id: str, output_key: str
-) -> dict[str, DeviceContext]:
-    """Build the `devices` outcome's devices, each carrying its own matching
-    interfaces' fields -- unlike `devices_from_interface_rows` alone
-    (identity only)."""
-    parsed_key = f"{node_id}.{output_key}"
-    interfaces_by_node: dict[str, dict[str, dict[str, Any]]] = {}
+def _build_interfaces_parsed(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Every matching interface's own fields for one node, nested the same
+    way `pybatfish.client._facts.get_facts()` nests this question's results."""
+    interfaces: dict[str, dict[str, Any]] = {}
     for row in rows:
         interface = row.get("Interface")
-        node = interface.get("hostname") if isinstance(interface, dict) else None
-        interface_name = interface.get("interface") if isinstance(interface, dict) else None
-        if not node or not interface_name:
+        name = interface.get("interface") if isinstance(interface, dict) else None
+        if not name:
             continue
-        fields = {key: value for key, value in row.items() if key != "Interface"}
-        interfaces_by_node.setdefault(node, {})[str(interface_name)] = fields
+        interfaces[str(name)] = {key: value for key, value in row.items() if key != "Interface"}
+    return {"Interfaces": interfaces}
 
-    enriched: dict[str, DeviceContext] = {}
-    for node, device in devices_from_interface_rows(rows).items():
-        parsed = dict(device.parsed)
-        parsed[parsed_key] = {
-            "parsed": {"Interfaces": interfaces_by_node.get(node, {})},
-            "error": None,
-        }
-        enriched[node] = device.model_copy(
-            update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
-        )
-    return enriched
+
+_SPEC = PropertyQuestionSpec(
+    question_label="interfaceProperties",
+    node_key=_interface_node_key,
+    build_parsed_for_node=_build_interfaces_parsed,
+    row_noun="interface(s)",
+)
 
 
 async def execute(
@@ -132,19 +87,15 @@ async def execute(
     del device_sessions  # unused: Batfish is reached via pybatfish, not Netmiko
 
     merged_config = {**get_config(), **config}
-    properties_list = _parse_properties_list(str(merged_config.get("properties") or ""))
+    properties_list = parse_properties_list(str(merged_config.get("properties") or ""))
     route_empty_to_devices = bool(merged_config.get("route_empty_to_devices"))
     match_mode = str(merged_config.get("empty_match_mode") or "any").strip().lower()
-    if route_empty_to_devices and not properties_list:
-        raise ValueError(
-            f"{_STEP_ID}: 'properties' is required when route_empty_to_devices is enabled -- "
-            "Batfish's default (unfiltered) column set has no single well-defined notion of "
-            "'empty' to check against."
-        )
-    if match_mode not in _EMPTY_MATCH_MODES:
-        raise ValueError(
-            f"{_STEP_ID}: empty_match_mode must be one of {sorted(_EMPTY_MATCH_MODES)}"
-        )
+    validate_empty_config(
+        step_id=_STEP_ID,
+        route_empty_to_devices=route_empty_to_devices,
+        properties_list=properties_list,
+        match_mode=match_mode,
+    )
 
     batfish = service_factory.get_batfish_app_service()
     snap = await resolve_batfish_snapshot_ref(
@@ -174,51 +125,14 @@ async def execute(
         merged_config.get("output_key") or "batfish_interface_properties"
     ).strip() or "batfish_interface_properties"
 
-    content = json.dumps(rows, indent=2, default=str)
-    artifact_ref = await artifact_service.store(
-        content=content,
-        kind="batfish_result",
-        device_id=f"batfish-{node_id}",
-        run_id=context.run_id,
-        media_type="application/json",
+    return await build_property_outcomes(
+        spec=_SPEC,
+        rows=rows,
+        context=context,
+        artifact_service=artifact_service,
+        node_id=node_id,
+        output_key=output_key,
+        route_empty_to_devices=route_empty_to_devices,
+        properties_list=properties_list,
+        match_mode=match_mode,
     )
-
-    metadata = dict(context.metadata)
-    metadata[f"{node_id}.{output_key}"] = {
-        "kind": "batfish_result",
-        "question": "interfaceProperties",
-        "artifact_ref": artifact_ref.model_dump(mode="json"),
-        "row_count": len(rows),
-    }
-
-    if route_empty_to_devices:
-        devices_rows = [
-            row
-            for row in rows
-            if _row_matches_empty(row, properties_list=properties_list, match_mode=match_mode)
-        ]
-    else:
-        devices_rows = rows
-    device_nodes = _enrich_devices(devices_rows, node_id=node_id, output_key=output_key)
-
-    logger.info(
-        "%s finished run_id=%s rows=%d devices=%d route_empty_to_devices=%s",
-        _STEP_ID,
-        run.id,
-        len(rows),
-        len(device_nodes),
-        route_empty_to_devices,
-    )
-
-    return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"metadata": metadata}),
-            summary=f"{len(rows)} interface(s)",
-        ),
-        StepOutcome(
-            name="devices",
-            context=context.model_copy(update={"metadata": metadata, "devices": device_nodes}),
-            summary=f"{len(device_nodes)} device(s)",
-        ),
-    ]

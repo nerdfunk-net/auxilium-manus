@@ -342,6 +342,8 @@ export function useTemplateEditor() {
       setBatfishTargetConfig: batfish.setTargetConfig,
       batfishQuestion: batfish.question,
       setBatfishQuestion: batfish.setQuestion,
+      batfishGenericQuestionName: batfish.genericQuestionName,
+      setBatfishGenericQuestionName: batfish.setGenericQuestionName,
       batfishParams: batfish.params,
       setBatfishParams: batfish.setParams,
       batfishEnabled: batfish.enabled,

@@ -100,6 +100,21 @@ class BatfishTestFiltersQueryRequest(BaseModel):
     start_location: str | None = None
 
 
+class BatfishGenericQueryRequest(BaseModel):
+    """Ad-hoc "custom question" counterpart -- any question in
+    services.batfish.query_helpers.GENERIC_QUESTION_ALLOWLIST, with
+    arbitrary params forwarded as pybatfish kwargs. `question` is a plain
+    `str`, not the closed `BatfishQueryQuestion` Literal above -- the
+    allow-list (checked service-side, in `query_generic`) is the actual
+    validation, not the request schema.
+    """
+
+    network: str = Field(..., min_length=1)
+    snapshot: str | None = None
+    question: str = Field(..., min_length=1)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class BatfishNetworksResponse(BaseModel):
     """Networks discovery -- lets a config panel populate a "network" dropdown
     instead of free text. See doc/BATFISH_INTEGRATION.md "Open items"."""
@@ -121,7 +136,12 @@ class BatfishSnapshotsResponse(BaseModel):
 
 class BatfishQueryResponse(BaseModel):
     success: bool
-    question: BatfishQueryQuestion
+    # str, not BatfishQueryQuestion -- this field is output-only/descriptive
+    # (the 3 typed request models above keep their own Literal-constrained
+    # `question`-equivalent unchanged); a generic ad-hoc query's question name
+    # is validated against GENERIC_QUESTION_ALLOWLIST server-side instead, not
+    # by this response field's type.
+    question: str
     network: str
     snapshot: str
     rows: list[dict[str, Any]]

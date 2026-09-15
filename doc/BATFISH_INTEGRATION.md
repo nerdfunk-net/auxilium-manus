@@ -35,6 +35,7 @@ gating" below).
 - [Frontend: category gating](#frontend-category-gating)
 - [Viewing results: the run detail UI](#viewing-results-the-run-detail-ui)
 - [Template Editor integration: ad-hoc preview queries](#template-editor-integration-ad-hoc-preview-queries)
+  - [Generic ad-hoc questions: the long tail beyond routes/reachability/testFilters](#generic-ad-hoc-questions-the-long-tail-beyond-routesreachabilitytestfilters)
 - [Open items / verify during hardening](#open-items--verify-during-hardening)
 
 ## Why no separate shim container
@@ -156,23 +157,37 @@ backend/services/batfish/
 ├── source_config_service.py               # BatfishSourceConfigService -- settings only, no credential
 ├── query_helpers.py                       # resolve_latest_snapshot_name, build_batfish_headers,
 │                                           # require_field, query_routes/query_reachability/
-│                                           # query_test_filters -- the ONE place each question's
-│                                           # pybatfish call is built and made; shared by the
-│                                           # workflow-step executors AND BatfishPreviewService
-└── preview_service.py                     # BatfishPreviewService -- ad-hoc routes/reachability/testFilters,
-                                            # no WorkflowRun; the Template Editor's Options-modal preview path
+│                                           # query_test_filters/query_node_properties/
+│                                           # query_interface_properties -- the ONE place each typed
+│                                           # question's pybatfish call is built and made; shared by
+│                                           # the workflow-step executors AND BatfishPreviewService.
+│                                           # Also GENERIC_QUESTION_ALLOWLIST + query_generic -- the
+│                                           # ad-hoc "any allow-listed question" surface, see
+│                                           # "Template Editor integration" below
+└── preview_service.py                     # BatfishPreviewService -- ad-hoc routes/reachability/
+                                            # testFilters/generic, no WorkflowRun; the Template
+                                            # Editor's Options-modal preview path
+
+backend/workflow_steps/common/batfish_properties.py   # Shared engine for the "property lookup" steps
+                                            # (artifact/metadata storage, route_empty_to_devices/
+                                            # empty_match_mode, per-device enrichment) -- both
+                                            # batfish-node-properties and batfish-interface-properties
+                                            # are thin PropertyQuestionSpec-driven callers of this now
 
 backend/models/batfish.py                  # Pydantic request/response models: source CRUD, test-connection,
                                             # + BatfishQueryQuestion/BatfishRoutesQueryRequest/
                                             # BatfishReachabilityQueryRequest/BatfishTestFiltersQueryRequest/
-                                            # BatfishQueryResponse (ad-hoc query models)
+                                            # BatfishGenericQueryRequest/BatfishQueryResponse (ad-hoc
+                                            # query models -- `question` on the response is a plain
+                                            # str, not the closed BatfishQueryQuestion Literal, since a
+                                            # generic query's question name isn't one of the 3 typed ones)
 backend/routers/sources/batfish/
 ├── __init__.py
 ├── crud.py                                # /sources/batfish -- source configuration CRUD
 ├── ops.py                                 # /sources/batfish/{source_id}/test-connection
 ├── query.py                               # /sources/batfish/{source_id}/query/{routes,reachability,
-│                                           # test-filters} -- ad-hoc preview queries, see "Template Editor
-│                                           # integration" below
+│                                           # test-filters,generic} -- ad-hoc preview queries, see
+│                                           # "Template Editor integration" below
 └── discovery.py                           # /sources/batfish/{source_id}/networks,
                                             # /sources/batfish/{source_id}/networks/{network}/snapshots
 backend/dependencies.py                    # get_batfish_preview_service (FastAPI dependency)
@@ -188,8 +203,10 @@ backend/services/templates/templates_service.py   # create/update/_to_dict threa
                                                     # (json.dumps/json.loads, mirroring nautobot_attributes)
 backend/routers/templates.py               # create_template/update_template pass payload.batfish_config through
 
-backend/tests/unit/test_batfish_preview_service.py       # BatfishPreviewService, mocked BatfishService
-backend/tests/unit/test_batfish_query_router_auth.py     # auth/permission + error-mapping for the query router
+backend/tests/unit/test_batfish_preview_service.py       # BatfishPreviewService (incl. run_generic), mocked BatfishService
+backend/tests/unit/test_batfish_query_router_auth.py     # auth/permission + error-mapping for the query router (incl. /query/generic)
+backend/tests/unit/test_batfish_query_helpers.py         # query_generic allow-list gate, mocked BatfishService
+backend/tests/unit/test_batfish_properties_common.py     # workflow_steps.common.batfish_properties pure-logic pieces
 
 backend/service_factory.py                 # get/set_batfish_app_service, build_batfish_source_config_service
 backend/dependencies.py                    # get_batfish_source_config_service (FastAPI dependency)
@@ -248,6 +265,8 @@ frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx
 frontend/src/components/features/workflow-steps/batfish-node-properties/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-interface-properties/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/shared/batfish-interface-property-keys.ts  # curated, non-exhaustive suggestion list -- see step section for why
+frontend/src/components/features/workflow-steps/shared/batfish-properties-fields.tsx  # shared ConfigPanel fields for the two "property lookup" steps -- see step section
+frontend/src/components/features/workflow-steps/shared/batfish-generic-question-names.ts  # suggestion list mirroring GENERIC_QUESTION_ALLOWLIST, not enforcement
 frontend/src/components/features/workflow-steps/batfish-path-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-acl-check/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.tsx,help-panel.tsx}  # facts_source toggle (rendered_yaml/field/git)
@@ -259,18 +278,23 @@ frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBat
 frontend/src/components/features/workflows/components/step-result-viewer/batfish-result-panel.tsx  # see "Viewing results" below
 frontend/src/components/features/workflows/components/step-result-viewer/{metadata-panel,outcome-context-view,devices-section,device-card,device-detail-dialog}.tsx  # wiring for the above (edits, not new)
 
-frontend/src/components/features/templates/types.ts                       # BatfishQueryQuestion, BatfishQueryConfig,
+frontend/src/components/features/templates/types.ts                       # BatfishQueryQuestion, BatfishEditorQuestion
+                                                                            # (adds a "generic" sentinel), BatfishQueryConfig,
                                                                             # BatfishQueryResult; Template/TemplateCreatePayload
                                                                             # gained batfish_config
 frontend/src/components/features/templates/constants.ts                   # BATFISH_VARIABLE
 frontend/src/components/features/templates/hooks/use-template-variables.ts     # toggleBatfishVariable, setBatfishResult (edits)
-frontend/src/components/features/templates/hooks/use-template-editor-batfish.ts  # target/question/params state + the query mutation
+frontend/src/components/features/templates/hooks/use-template-editor-batfish.ts  # target/question/genericQuestionName/params
+                                                                                    # state + the query mutation
 frontend/src/components/features/templates/hooks/use-template-editor.ts        # wires the above in, loads/saves batfish_config (edits)
 frontend/src/components/features/templates/hooks/use-template-editor-save.ts   # threads batfish_config into the save payload (edits)
 frontend/src/components/features/templates/components/options-dialog.tsx       # renamed from netmiko-options-dialog.tsx --
                                                                             # now a tabbed "Netmiko" / "Batfish" dialog
 frontend/src/components/features/templates/components/batfish-options-tab.tsx  # source/network/snapshot + question picker +
-                                                                            # per-question params + Run Query + JSON preview
+                                                                            # per-question params + Run Query + JSON preview;
+                                                                            # a 4th "Custom Question..." block posts to
+                                                                            # /query/generic with a free-text question name
+                                                                            # (datalist-suggested) + a JSON params textarea
 ```
 
 No new `backend/core/models/{domain}.py` SQLAlchemy table — like pyATS and
@@ -925,6 +949,20 @@ casing and lands on the `failure` outcome even though it genuinely exists.
 
 ### Batfish Node Properties (`batfish-node-properties`)
 
+**Shares its result-storage/audit/enrichment engine with Batfish Interface
+Properties.** Everything past "fetch this question's rows" (the artifact +
+`context.metadata` write, `route_empty_to_devices`/`empty_match_mode`, and
+per-device enrichment on the `devices` outcome) lives once in
+`workflow_steps/common/batfish_properties.py`
+(`PropertyQuestionSpec`/`build_property_outcomes`), not duplicated per step —
+this step's executor is a thin caller that only builds its own
+`query_node_properties(...)` call and passes the result in. This is also the
+extension point for a future property-family question (e.g. a verified
+`bgpProcessConfiguration` step): a new `PropertyQuestionSpec`, but only once
+its row-identity shape is confirmed against a live coordinator the same way
+`interfaceProperties`' nested shape was (see that step's section below) — see
+"Open items" for the current state of that.
+
 `requires: [identity]`, `produces: []`, `outcomes: [success, devices]`. Wraps
 `bf.q.nodeProperties(...)` — the same question `Get from Batfish` already
 uses internally to synthesize a device list, but exposed directly here with
@@ -1034,6 +1072,13 @@ panel only shows this control once more than one property is listed.
 `snapshot` config fields as the other query/fact steps.
 
 ### Batfish Interface Properties (`batfish-interface-properties`)
+
+Shares the same `workflow_steps/common/batfish_properties.py` engine as
+Batfish Node Properties above (result storage, `route_empty_to_devices`/
+`empty_match_mode`, per-device enrichment) — see that step's section for the
+full reasoning. This step's own `PropertyQuestionSpec` is the one place its
+`Interface`-nested row shape (vs. `nodeProperties`' plain `Node` string) is
+handled.
 
 `requires: [identity]`, `produces: []`, `outcomes: [success, devices]`. Wraps
 `bf.q.interfaceProperties(...)` — a genuinely different question from
@@ -1448,7 +1493,7 @@ template so reopening it restores the same setup -- but the answer itself is
 always re-fetched on demand via "Run Query," exactly like `parsed_config`/
 command results aren't persisted either. One new nullable JSON-as-text column,
 `Template.batfish_config` (`core/models/templates.py`), stores `{enabled,
-source_id, network, snapshot, question, params}` -- the same
+source_id, network, snapshot, question, generic_question_name, params}` -- the same
 serialize-with-`json.dumps`/deserialize-with-`json.loads`-and-fallback-to-None
 convention `nautobot_attributes` already uses, not a native Postgres JSON
 column (this codebase's `templates` table stores every JSON-shaped field as
@@ -1466,8 +1511,85 @@ result via `store-artifact`, and any UI to browse a source's actual Batfish
 networks/snapshots (both editor and canvas config panels still take
 `network`/`snapshot` as free text).
 
+### Generic ad-hoc questions: the long tail beyond routes/reachability/testFilters
+
+The three typed questions above cover what's worth automating as canvas
+steps, but Batfish's own question catalog is much larger (see, e.g., the
+[configProperties
+notebook](https://batfish.readthedocs.io/en/latest/notebooks/configProperties.html)) --
+most of the rest are one-off/exploratory questions that don't justify a
+bespoke step package each. `POST /sources/batfish/{source_id}/query/generic`
+(`BatfishGenericQueryRequest` -> `BatfishPreviewService.run_generic` ->
+`query_helpers.query_generic`) covers that long tail with one endpoint
+instead: any question in `GENERIC_QUESTION_ALLOWLIST`
+(`services/batfish/query_helpers.py`), plus a free-form `params` dict
+forwarded as pybatfish kwargs. Surfaced in the Options modal's Batfish tab as
+a 4th "Custom Question..." entry: a free-text question-name field (datalist-
+suggested from `BATFISH_GENERIC_QUESTION_NAMES`, the same non-enforcing-
+suggestion-list convention as `BATFISH_FACT_KEYS`) plus a JSON textarea for
+`params`.
+
+**Security: a hardcoded allow-list, not a raw `getattr` on user input.**
+`BatfishService._answer` already dispatches any question name via
+`getattr(session.q, question_name)` with zero validation of its own (it's
+how the 5 typed questions above are implemented internally) -- so
+`BatfishService.generic_question` (a thin public wrapper around `_answer`)
+must never be reached with an unvalidated caller-supplied name.
+`query_generic` is the actual security boundary: it checks
+`question_name in GENERIC_QUESTION_ALLOWLIST` and raises `ValueError`
+(-> 400) before ever calling `BatfishService.generic_question`. The
+allow-list is a `frozenset[str]` literal in `query_helpers.py`, not
+data-driven from any request -- extending it means editing that file, not
+something a workflow/template author can do themselves.
+
+**No canvas step, no device enrichment, no `store-artifact` integration** --
+same reasoning already given for the 3 typed ad-hoc questions above. A
+generic question's answer has no known row-identity shape (unlike
+`nodeProperties`/`interfaceProperties`, whose shapes are confirmed and
+handled by `workflow_steps/common/batfish_properties.py`), so there is no
+`devices` outcome to build even in principle without per-question
+verification first -- exactly the same reason Part A's canvas-step allow-list
+(node/interface properties) stays smaller than this one; see "Open items".
+
+**Allow-list contents, confirmed live, not assumed from docs.** Every entry
+was verified by initializing a synthetic two-router snapshot (loopbacks,
+one `GigabitEthernet` link, OSPF area 0, eBGP peering, VRF, and an ACL on
+each router) against a real `batfish` coordinator and calling each candidate
+question with empty/default params, matching this doc's "confirmed, not
+assumed" practice everywhere else:
+
+```
+bgpPeerConfiguration, bgpProcessConfiguration, bgpEdges,
+bgpSessionCompatibility, bgpSessionStatus, ospfProcessConfiguration,
+ospfInterfaceConfiguration, ospfEdges, namedStructures, ipOwners, edges,
+undefinedReferences, unusedStructures, filterLineReachability,
+switchedVlanProperties
+```
+
+Three documented-sounding candidates were tried and dropped because they
+don't exist under those names in the installed pybatfish/coordinator version
+(`'Questions' object has no attribute ...`): `vrfProperties`,
+`aclReachability`, `subnetMultipleAccess`. Also deliberately excluded:
+anything needing a second/reference snapshot (`differentialReachability`,
+`compareFilters`, ...) -- out of scope for this single-snapshot surface --
+and every question already covered by a typed step/endpoint.
+
 ## Open items / verify during hardening
 
+- **The generic ad-hoc allow-list is intentionally not a template for the
+  canvas-step (Part A) allow-list.** `GENERIC_QUESTION_ALLOWLIST` covers 15
+  questions because an ad-hoc query has no `devices` outcome to build --
+  there's nothing about a question's row-identity shape it needs to know.
+  `workflow_steps/common/batfish_properties.py`'s `PropertyQuestionSpec`
+  registry, by contrast, stays at exactly `nodeProperties`/
+  `interfaceProperties` (the only two Batfish-Node identity shapes confirmed
+  in this codebase) until a *new* question's row-identity shape is verified
+  live the same way `interfaceProperties`' was -- adding a name to the
+  generic allow-list is not sufficient justification to also add a canvas
+  step for it. This was a deliberate scope decision (not an oversight) when
+  this generalization work was done -- see this doc's own "Template Editor
+  integration" -> "Generic ad-hoc questions" section for the verification
+  method to reuse when that day comes.
 - **Verify `batfish-interface-properties`' `interfaces` config field against
   a live coordinator.** Unlike every other question parameter this
   integration wraps, `interfaces` (an InterfacesSpecifier passed to

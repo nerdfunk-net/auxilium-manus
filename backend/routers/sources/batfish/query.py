@@ -17,6 +17,7 @@ from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from dependencies import get_batfish_preview_service
 from models.batfish import (
+    BatfishGenericQueryRequest,
     BatfishQueryResponse,
     BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
@@ -111,3 +112,37 @@ async def query_batfish_test_filters(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Batfish ACL check query failed: ", exc)
+
+
+@router.post("/{source_id}/query/generic", response_model=BatfishQueryResponse)
+async def query_batfish_generic(
+    source_id: str,
+    request: BatfishGenericQueryRequest,
+    _: User = Depends(get_current_user),
+    service: BatfishPreviewService = Depends(get_batfish_preview_service),
+) -> BatfishQueryResponse:
+    """Ad-hoc counterpart to the "Custom Question..." Options-modal tab --
+    any question in GENERIC_QUESTION_ALLOWLIST, not just the 3 typed ones
+    above. A non-allow-listed question name is a ValueError from
+    query_generic, mapped to 400 below like every other validation error --
+    the allow-list rejection is deliberately not distinguished from a
+    "missing required field" 400, so it carries no more information to a
+    caller than "this request is invalid."
+    """
+    try:
+        return await service.run_generic(source_id, request)
+    except BatfishSourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (BatfishValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except BatfishAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "Batfish generic query failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Batfish generic query failed: ", exc)

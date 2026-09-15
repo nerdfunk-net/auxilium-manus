@@ -200,6 +200,8 @@ function TemplateEditorContent() {
         onBatfishTargetConfigChange={editor.setBatfishTargetConfig}
         batfishQuestion={editor.batfishQuestion}
         onBatfishQuestionChange={editor.setBatfishQuestion}
+        batfishGenericQuestionName={editor.batfishGenericQuestionName}
+        onBatfishGenericQuestionNameChange={editor.setBatfishGenericQuestionName}
         batfishParams={editor.batfishParams}
         onBatfishParamsChange={editor.setBatfishParams}
         batfishEnabled={editor.batfishEnabled}

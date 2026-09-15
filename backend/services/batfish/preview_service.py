@@ -15,6 +15,7 @@ identically to what the real workflow step would produce.
 from __future__ import annotations
 
 from models.batfish import (
+    BatfishGenericQueryRequest,
     BatfishQueryResponse,
     BatfishReachabilityQueryRequest,
     BatfishRoutesQueryRequest,
@@ -25,6 +26,7 @@ from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
 from services.batfish.query_helpers import (
     assert_batfish_network_exists,
+    query_generic,
     query_reachability,
     query_routes,
     query_test_filters,
@@ -143,4 +145,25 @@ class BatfishPreviewService:
             snapshot=snapshot,
             rows=rows,
             action=action,
+        )
+
+    async def run_generic(
+        self, source_id: str, request: BatfishGenericQueryRequest
+    ) -> BatfishQueryResponse:
+        question = require_field(request.question, "question")
+        connection, snapshot = await self._resolve(source_id, request.network, request.snapshot)
+        rows = await query_generic(
+            self._batfish,
+            connection,
+            batfish_network=request.network,
+            snapshot=snapshot,
+            question_name=question,
+            params=request.params,
+        )
+        return BatfishQueryResponse(
+            success=True,
+            question=question,
+            network=request.network,
+            snapshot=snapshot,
+            rows=rows,
         )
