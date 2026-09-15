@@ -1898,6 +1898,16 @@ questions keep the red "never referenced in a template body" warning; the 5
 facts questions get a blue info note confirming the preview matches real
 runtime output.
 
+**Discoverability: the help dialog (`jinja-help-dialog.tsx`, titled "Writing
+a Jinja2 template") got a new top-level "The Options dialog" section**, right
+after its opening "How rendering works" section — before this, Batfish was
+only mentioned inside "The parsed namespace" → "Batfish (per-device steps
+only)", three levels deep, so a reader skimming section titles could easily
+miss that the Options dialog has a Batfish tab at all. The new section
+introduces both tabs (Netmiko and Batfish) up front and summarizes the same
+9-questions/2-groups split (5 write real `parsed.<output_key>` data, 4 are
+preview-only) before linking down to the existing deep-dive sections.
+
 ### Generic ad-hoc questions: the long tail beyond routes/reachability/testFilters
 
 The three typed questions above cover what's worth automating as canvas
