@@ -199,6 +199,54 @@ shared `WorkflowNode` renderer.
 
 ---
 
+## Node config modal tabs
+
+Reference implementation: `secret-generate/index.tsx` (Configuration + Help panels) plus
+the shared `node-config-general-tab.tsx` / `node-config-description-tab.tsx`. Opening a
+step from the canvas shows a modal (`node-config-modal.tsx`) with up to four tabs:
+**General**, **Configuration**, (optional plugin-defined tabs), **Description**, **Help**.
+Each tab has one job — do not let step-specific "what does this do" text leak into
+Configuration.
+
+### General tab — shared, never forked per step
+
+`node-config-general-tab.tsx` renders identically for every step. At the top, above the
+Step name field, it shows the step's registry description in **default black/foreground
+text, no colored banner**:
+
+- Bold headline: registry `overview` → `<p className="text-sm font-medium text-foreground">`
+- Body paragraph: registry `description` → `<p className="text-xs leading-5 text-foreground">`
+
+This is automatic from `activeNode.data.overview` / `activeNode.data.description` — step
+authors never add this themselves and never fork this component per step.
+
+### Configuration tab — configuration fields only
+
+The step's `ConfigPanel` renders here. It must contain **only configuration controls**
+(connection pickers, path templates, selects, switches, etc.) — never a "what this step
+does" banner. That explanation already lives on the General tab (above) and the
+Description tab (below); duplicating it as a `bg-step-surface` info banner at the top of
+`ConfigPanel` is a legacy pattern and should be removed when found (see the **Config
+panel** section below for what a step's `ConfigPanel` content should look like instead).
+
+### Description tab — shared, never forked per step
+
+`node-config-description-tab.tsx` renders identically for every step, built entirely from
+registry metadata: title + description, a **Capabilities** block (Produces / Consumes), a
+**Schema** block (Configuration inputs / Requires / Outcomes), and — at the bottom — an
+**Artifact Type** section:
+
+- `<SectionHeader icon={Tags} label="Artifact Type" />`
+- `<Badge variant="secondary">{formatArtifactType(activeNode.data.artifactType)}</Badge>`
+
+Step authors do not touch this component; it needs no per-step work.
+
+### Help tab
+
+Per-step `HelpPanel` — see the **Checklist** below.
+
+---
+
 ## Config panel (node side-panel)
 
 The `ConfigPanel` component renders inside the React Flow node property panel — it is narrow (~220 px) and must stay compact.
@@ -209,6 +257,8 @@ The `ConfigPanel` component renders inside the React Flow node property panel �
 - Status hint (configured): `text-[11px] text-muted-foreground truncate`
 - Status hint (unconfigured): `text-[11px] text-warning-foreground`
 - Action button: `<Button variant="outline" size="sm" className="h-7 w-full text-xs">`
+- No step description banner at the top — see **Node config modal tabs** above; the
+  General tab already shows the registry `overview`/`description` in default black text
 
 ---
 
@@ -340,6 +390,9 @@ All text/number inputs follow the same pattern:
 
 ### Config panel, dialogs, and forms
 
+- [ ] ConfigPanel (Configuration tab) has no `bg-step-surface` (or similar colored) "what
+      this step does" banner — that content belongs on the General tab, driven
+      automatically by registry `overview`/`description` (see **Node config modal tabs**)
 - [ ] Header uses `step-header`
 - [ ] No `sky-` / `blue-` / raw `teal-*` colors anywhere in the step **config UI** (canvas outcome
       colours are defined centrally in `step-visuals.ts`)

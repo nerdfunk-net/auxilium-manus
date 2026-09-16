@@ -6,6 +6,7 @@ import {
   GitBranch,
   MoveRight,
   Settings2,
+  Tags,
   type LucideIcon,
 } from "lucide-react";
 
@@ -131,11 +132,6 @@ export function NodeConfigDescriptionTab({ activeNode, plugin }: NodeConfigDescr
     <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="description">
       <div className="space-y-4">
         <div>
-          {activeNode.data.artifactType ? (
-            <Badge className="mb-2" variant="secondary">
-              {formatArtifactType(activeNode.data.artifactType)}
-            </Badge>
-          ) : null}
           <h2 className="text-base font-semibold">{activeNode.data.title}</h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {activeNode.data.description}
@@ -207,6 +203,13 @@ export function NodeConfigDescriptionTab({ activeNode, plugin }: NodeConfigDescr
         ) : (
           <p className="text-xs text-muted-foreground">Plugin metadata not available.</p>
         )}
+
+        {activeNode.data.artifactType ? (
+          <div className="space-y-1.5">
+            <SectionHeader icon={Tags} label="Artifact Type" />
+            <Badge variant="secondary">{formatArtifactType(activeNode.data.artifactType)}</Badge>
+          </div>
+        ) : null}
       </div>
     </TabsContent>
   );

@@ -61,6 +61,17 @@ export function NodeConfigGeneralTab({
 
   return (
     <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="general">
+      {activeNode.data.overview || activeNode.data.description ? (
+        <div className="mb-6 max-w-xl space-y-1 border-b pb-6">
+          {activeNode.data.overview ? (
+            <p className="text-sm font-medium text-foreground">{activeNode.data.overview}</p>
+          ) : null}
+          {activeNode.data.description ? (
+            <p className="text-xs leading-5 text-foreground">{activeNode.data.description}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="max-w-xl space-y-1.5">
         <Label className="text-xs font-medium" htmlFor="modal-step-name">
           Step name

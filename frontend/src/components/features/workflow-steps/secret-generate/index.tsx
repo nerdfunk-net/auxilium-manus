@@ -42,15 +42,6 @@ function SecretGenerateConfigPanel({ config, onChange }: PluginConfigPanelProps)
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Generate and store a random secret per device</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          The TACACS+/SNMP rotation primitive. The generated value is never shown in the run UI,
-          never logged, and is sealed into the device&apos;s attribute bag for a later step (e.g.
-          a push-config step) in the same run.
-        </p>
-      </div>
-
       <SecretManagerConnectionField config={config} onChange={onChange} />
 
       <div className="space-y-1.5">
