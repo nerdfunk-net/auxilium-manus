@@ -4102,6 +4102,57 @@ plugins:
           required: false
           default: true
 
+  - id: generate-password
+    name: Generate Password
+    overview: Generate a strong random password per device.
+    description: >
+      Generate a cryptographically random password per device — no external
+      Secret Manager connection required — and seal it into the device's
+      attribute bag for a later step in the same run (e.g. a push-config
+      step). The password composition (digit/uppercase/lowercase/special
+      minimums) is fully configurable. The generated value is never shown in
+      the run UI, never logged, and never persisted in plaintext.
+    artifact_type: configuration_management
+    palette_category: secrets
+    directory: generate_password
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: length
+          description: Total password length.
+          data_type: integer
+          required: false
+          default: 16
+        - name: min_digits
+          description: Minimum count of digits (0-9). 0 excludes digits entirely.
+          data_type: integer
+          required: false
+          default: 2
+        - name: min_uppercase
+          description: Minimum count of uppercase letters. 0 excludes uppercase entirely.
+          data_type: integer
+          required: false
+          default: 2
+        - name: min_lowercase
+          description: Minimum count of lowercase letters. 0 excludes lowercase entirely.
+          data_type: integer
+          required: false
+          default: 2
+        - name: min_special
+          description: Minimum count of special characters. 0 excludes special characters entirely.
+          data_type: integer
+          required: false
+          default: 2
+        - name: destination_path
+          description: Attribute bag path the sealed password is written to.
+          data_type: string
+          required: true
+          default: generated_password.value
+
   - id: secret-generate
     name: Secret Generate
     overview: Generate and store a random secret per device.

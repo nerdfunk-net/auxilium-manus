@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Combine,
   Database,
+  Dices,
   Diff,
   Eye,
   FileArchive,
@@ -156,6 +157,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "secret-get": KeyRound,
   "secret-set": KeySquare,
   "secret-generate": RefreshCw,
+  "generate-password": Dices,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

@@ -365,6 +365,14 @@ passphrases). Length is bounded 4–256.
 — like `get-device-configs` — they're fan-out-safe by construction. No fan-in
 node required around them.
 
+**Not part of this subsystem: `generate-password`.** `generate-password`
+(`workflow_steps/generate_password/`) is a superficially similar step — it
+also generates a per-device value and seals it into the device's attribute
+bag — but it has no `connection_id`, makes no call into
+`SecretManagerService`, and needs no Secret Manager connection at all. It is
+pure local generation (`workflow_steps/generate_password/password_policy.py`,
+deliberately not under `services/secret_manager/`). See `doc/WORKFLOW-STEPS.md`.
+
 ## Secret handling in the run engine
 
 Reuses the **existing** mechanism in `doc/WORKFLOW-STEPS.md` → "Secret-valued

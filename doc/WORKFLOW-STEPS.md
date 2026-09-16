@@ -1010,7 +1010,7 @@ the **same external resources**. A step is fan-out-safe when it:
 
 | Step kind | Fan-out safe? | Why |
 |-----------|---------------|-----|
-| `get-device-configs`, `run-command`, `merge-config`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute` | ✅ | Per-device compute, no shared mutable sink. |
+| `get-device-configs`, `run-command`, `merge-config`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent children overwrite/race. |
 | `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` / `open-change-request` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. `open-change-request` additionally creates a branch — place it after a Fan In node. |
 

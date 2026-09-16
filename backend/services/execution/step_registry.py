@@ -48,6 +48,7 @@ from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribu
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.from_change_request.executor import execute as from_change_request
+from workflow_steps.generate_password.executor import execute as generate_password
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_from_config.executor import execute as get_from_config
 from workflow_steps.get_from_list.executor import execute as get_from_list
@@ -162,4 +163,5 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "secret-get": secret_get,
     "secret-set": secret_set,
     "secret-generate": secret_generate,
+    "generate-password": generate_password,
 }

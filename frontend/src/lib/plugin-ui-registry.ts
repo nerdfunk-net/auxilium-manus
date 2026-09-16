@@ -69,6 +69,7 @@ import { UploadConfigPlugin } from "@/components/features/workflow-steps/upload-
 import { SecretGetPlugin } from "@/components/features/workflow-steps/secret-get";
 import { SecretSetPlugin } from "@/components/features/workflow-steps/secret-set";
 import { SecretGeneratePlugin } from "@/components/features/workflow-steps/secret-generate";
+import { GeneratePasswordPlugin } from "@/components/features/workflow-steps/generate-password";
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
@@ -138,6 +139,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "secret-get": SecretGetPlugin,
   "secret-set": SecretSetPlugin,
   "secret-generate": SecretGeneratePlugin,
+  "generate-password": GeneratePasswordPlugin,
   label: LabelPlugin,
   background: BackgroundPlugin,
   funnel: FunnelPlugin,
