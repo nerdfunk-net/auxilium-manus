@@ -248,8 +248,9 @@ export function SecretManagerConnectionDialog({
                     <SelectContent>
                       {genericCredentials.length === 0 ? (
                         <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                          No generic credentials found. Add one in Settings → Credentials, with
-                          username = role_id/client_id and password = secret_id/client_secret.
+                          No matching credentials found. Add one in Settings → Credentials with
+                          type &quot;Basic Auth (Username + Password)&quot;, using username =
+                          role_id/client_id and password = secret_id/client_secret.
                         </div>
                       ) : (
                         genericCredentials.map((cred) => (
@@ -268,10 +269,10 @@ export function SecretManagerConnectionDialog({
                 )}
               />
               <p className="text-xs text-muted-foreground">
-                A <strong>generic</strong> credential holding this connection&apos;s own auth
-                material: username = OpenBao AppRole role_id / Infisical client_id, password =
-                secret_id / client_secret. Must be <strong>global</strong> — this connection is
-                used by background workflow runs, not as the signed-in user.
+                A <strong>Basic Auth (Username + Password)</strong> credential holding this
+                connection&apos;s own auth material: username = OpenBao AppRole role_id / Infisical
+                client_id, password = secret_id / client_secret. Must be <strong>global</strong> —
+                this connection is used by background workflow runs, not as the signed-in user.
                 {hasPrivateOnly
                   ? " Edit the credential in Settings → Credentials and turn on “Make this credential global”."
                   : ""}

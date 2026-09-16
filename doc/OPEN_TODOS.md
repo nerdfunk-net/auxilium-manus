@@ -173,3 +173,66 @@ runtime bug, so there's no urgency.
    real code before changing anything — several are likely SQLAlchemy `Mapped[]`
    migration work, which is a bigger, separate lift).
 4. Once `pyright` is green, remove `continue-on-error: true` from the `types` job.
+
+---
+
+## Support more OpenBao authentication methods for Secret Manager connections
+
+**Added:** 2026-09-16 · **Area:** `backend/services/secret_manager`, `frontend/.../settings/dialogs/secret-manager-connection-dialog.tsx`
+
+### What we have
+
+`OpenBaoSecretManagerClient._build_vault_config` (`services/secret_manager/openbao_client.py`)
+hardcodes `auth_method="approle"` — every Secret Manager connection to
+OpenBao authenticates via AppRole (Role ID + Secret ID, stored as the
+connection credential's username/password), with no way to choose
+`cert` (mTLS) or a dev-only static `token`. This came up when a user asked
+which OpenBao auth method the feature needs and how to configure it — see
+`doc/SECRET_MANAGER_INTEGRATION.md`'s "OpenBao client" section and the
+OpenBao tab of the connection page's Help dialog
+(`secret-manager-help-dialog.tsx`), both of which currently document AppRole
+only because it's the only one wired up.
+
+The groundwork already exists to add the others cheaply: `OpenBaoSecretManagerClient`
+already wraps `services/vault/client.OpenBaoService`/`VaultConfig`, and
+`services/vault/auth.py::build_auth_strategy` already implements `AppRoleAuth`,
+`CertAuth`, and `TokenAuth` behind one `VaultAuthStrategy` protocol for the
+app's own credential vault (`doc/VAULT_INTEGRATION.md`). None of that needs
+to be rewritten — it needs to be *reached* from a Secret Manager connection's
+config instead of a hardcoded `"approle"`.
+
+### Original goal
+
+Let a Secret Manager OpenBao connection pick an auth method the same way the
+app's own vault does: `auth_method` in `backend_config` (`approle` default,
+`cert` for mTLS, `token` for dev-only), with the matching extra fields
+(`client_cert`/`client_key`/`ca_cert` for cert auth) — surfaced conditionally
+in `secret-manager-connection-dialog.tsx` the same way the backend field
+already switches between OpenBao/Infisical layouts.
+
+### Why it's deferred
+
+No concrete need yet — AppRole covers the primary machine-to-machine case
+and matches `VAULT_INTEGRATION.md`'s own "AppRole is primary, cert is a
+first-class swappable alternative" status. Adding the other methods now
+would mean new config fields, new connection-service validation, cert file
+handling, and new frontend UI without a driving use case.
+
+### When we revisit
+
+If/when someone needs mTLS-based (or dev-only static-token) access for a
+Secret Manager OpenBao connection specifically:
+
+1. Add `auth_method` (+ `client_cert`/`client_key`/`ca_cert` for `cert`) to
+   the OpenBao `backend_config` shape (`models/secret_manager.py`'s
+   `OpenBaoConnectionConfig`, and `connection_service.py`'s
+   `_REQUIRED_BACKEND_CONFIG_KEYS`/`_validate_backend_config`).
+2. In `_build_vault_config`, read `auth_method` from `backend_config` instead
+   of hardcoding `"approle"`, and pass through the cert fields when present —
+   `VaultConfig`/`build_auth_strategy` already accept them, no new auth code.
+3. Add the conditional fields to `secret-manager-connection-dialog.tsx`
+   (mirrors the existing `backend === "openbao"` vs `"infisical"` branch,
+   one level deeper: `authMethod === "cert"` within the OpenBao branch).
+4. Update the OpenBao tab of `secret-manager-help-dialog.tsx` and
+   `doc/SECRET_MANAGER_INTEGRATION.md` to document the new method(s) —
+   don't let those two drift from the code again.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, ShieldCheck } from "lucide-react";
+import { HelpCircle, Plus, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
 } from "@/hooks/queries/use-secret-manager-connections-query";
 
 import { SecretManagerConnectionDialog } from "../dialogs/secret-manager-connection-dialog";
+import { SecretManagerHelpDialog } from "../dialogs/secret-manager-help-dialog";
 
 const BACKEND_LABELS: Record<string, string> = {
   openbao: "OpenBao",
@@ -35,6 +36,7 @@ export function SecretManagerSettingsCanvas() {
     undefined,
   );
   const [deleteTarget, setDeleteTarget] = useState<SecretManagerConnectionRecord | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const connections = data?.connections ?? [];
 
@@ -57,10 +59,16 @@ export function SecretManagerSettingsCanvas() {
               </p>
             </div>
           </div>
-          <Button type="button" onClick={() => setEditing(null)}>
-            <Plus className="size-4" />
-            Add connection
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            <Button type="button" variant="outline" onClick={() => setHelpOpen(true)}>
+              <HelpCircle className="size-4" />
+              Help
+            </Button>
+            <Button type="button" onClick={() => setEditing(null)}>
+              <Plus className="size-4" />
+              Add connection
+            </Button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -137,6 +145,8 @@ export function SecretManagerSettingsCanvas() {
         connection={editing ?? null}
         onClose={() => setEditing(undefined)}
       />
+
+      <SecretManagerHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent className="sm:max-w-sm">

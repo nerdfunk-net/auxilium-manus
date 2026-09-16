@@ -1,71 +1,79 @@
-# Secret Manager Integration (planning)
+# Secret Manager Integration
 
-**Status: design proposal, nothing implemented yet.** This document lays out the
-architecture for a new "Secret Manager" domain before any backend/frontend code is
-written, per the project's research-and-plan-first workflow.
-
-Operational network secrets — device TACACS+ keys, SNMP community strings/SNMPv3
-credentials, and similar per-device or per-team secrets — generated, rotated, and
-read back **by workflows at run time**, stored in an external secret manager
-(OpenBao or Infisical) chosen per connection.
+**Status: implemented.** Operational network secrets — device TACACS+ keys,
+SNMP community strings/SNMPv3 credentials, and similar per-device or
+per-team secrets — generated, rotated, and read back **by workflows at run
+time**, stored in an external secret manager (OpenBao or Infisical) chosen
+per connection.
 
 ## Contents
 
 - [Why this is a separate domain from VAULT_INTEGRATION.md](#why-this-is-a-separate-domain-from-vault_integrationmd)
-- [Decisions already made](#decisions-already-made)
+- [Design decisions](#design-decisions)
 - [Architecture](#architecture)
-- [File map (proposed)](#file-map-proposed)
+- [File map](#file-map)
 - [Data model](#data-model)
 - [Client abstraction](#client-abstraction)
 - [OpenBao client](#openbao-client)
 - [Infisical client](#infisical-client)
-- [Path / key convention](#path--key-convention)
+- [Path / field convention](#path--field-convention)
 - [Workflow steps](#workflow-steps)
 - [Secret handling in the run engine](#secret-handling-in-the-run-engine)
 - [RBAC](#rbac)
 - [Fail-closed semantics](#fail-closed-semantics)
-- [Open design question: per-field storage shape](#open-design-question-per-field-storage-shape)
 - [Configuration](#configuration)
-- [Tests (planned)](#tests-planned)
+- [Local development](#local-development)
+- [Tests](#tests)
 - [Deferred / follow-ups](#deferred--follow-ups)
 
 ## Why this is a separate domain from VAULT_INTEGRATION.md
 
-`doc/VAULT_INTEGRATION.md` stores **the app's own credentials** (Nautobot tokens,
-git creds, SSH keys) in OpenBao instead of Fernet-encrypted PostgreSQL columns, and
-is deliberately **read-only from workflow/runtime code** — the doc states this
-explicitly: `vault_writer` (the management OpenBao client) is injected *only* by
-`routers/credentials.py`, so "runtime / step code is *structurally* read-only, not
-merely policy-restricted." That boundary exists on purpose: a workflow step can
-never write to the app-credential vault, only a human can, via the Settings UI.
+`doc/VAULT_INTEGRATION.md` stores **the app's own credentials** (Nautobot
+tokens, git creds, SSH keys) in OpenBao instead of Fernet-encrypted
+PostgreSQL columns, and is deliberately **read-only from workflow/runtime
+code** — `vault_writer` (the management OpenBao client) is injected *only*
+by `routers/credentials.py`, so runtime/step code is *structurally*
+read-only, not merely policy-restricted. That boundary exists on purpose: a
+workflow step can never write to the app-credential vault, only a human can,
+via the Settings UI.
 
-This feature needs the opposite: a workflow step must **generate and write** a new
-secret at run time (rotate a TACACS+ key, then push it to the device). That is a
-different, new trust boundary, so it gets its own domain — its own DB table, its own
-client/service layer, its own RBAC permissions — rather than extending
-`CredentialsService`/`Credential`. The two systems intentionally share nothing except
-the underlying OpenBao KV v2 wire protocol code (generalized, not duplicated — see
-[OpenBao client](#openbao-client)) and the credential-encryption key used by
-`seal_secret`/`unwrap_secret` for in-run handling (see
-[Secret handling in the run engine](#secret-handling-in-the-run-engine)).
+This feature needs the opposite: a workflow step must **generate and write**
+a new secret at run time (rotate a TACACS+ key, then push it to the device).
+That is a different, new trust boundary, so it has its own domain — its own
+DB table, its own client/service layer, its own RBAC permissions — rather
+than extending `CredentialsService`/`Credential`. The two systems share only
+the underlying OpenBao KV v2 wire-protocol code (generalized, reused
+directly — not duplicated, see [OpenBao client](#openbao-client)) and the
+credential-encryption key used by `seal_secret`/`unwrap_secret` for in-run
+handling (see [Secret handling in the run engine](#secret-handling-in-the-run-engine)).
 
-## Decisions already made
+## Design decisions
 
-Resolved in discussion before this doc was written — do not re-litigate without a
-reason:
-
-- **Both OpenBao and Infisical**, built behind one abstraction, in parallel — not
-  one now and one later.
-- **Multiple named connections** (DB-backed, `secret_manager_connections` table),
-  not a single env-configured backend like `VAULT_*`. Mirrors the `GitRepository`
-  consolidation: one config system, admin-managed in Settings, not env/KV.
-- **No browse/reveal UI in Manus.** The network team looks at secrets directly in
-  Infisical's (or OpenBao's) own UI. Manus only manages connections and exposes
-  workflow steps.
-- **Generated secrets are pipe-only.** A `secret-generate` step's output value flows
-  only to later steps in the same run (e.g. a push-config step); it is never shown
-  in the run UI, never persisted in plaintext to `workflow_step_results`, never
-  logged.
+- **Both OpenBao and Infisical**, behind one `SecretManagerClient` protocol.
+- **Multiple named connections** (DB-backed, `secret_manager_connections`
+  table), not a single env-configured backend like `VAULT_*`. Mirrors the
+  `GitRepository` consolidation: one config system, admin-managed in
+  Settings, not env/KV.
+- **No browse/reveal UI in Manus.** The network team looks at secrets
+  directly in Infisical's (or OpenBao's) own UI. Manus only manages
+  connections and exposes workflow steps.
+- **Generated secrets are pipe-only.** A `secret-generate` step's output
+  value flows only to later steps in the same run (e.g. a push-config step);
+  it is never shown in the run UI, never persisted in plaintext to
+  `workflow_step_results`, never logged. Achieved for free by reusing the
+  existing sealed-secret mechanism — see
+  [Secret handling in the run engine](#secret-handling-in-the-run-engine).
+- **Resolved during implementation — per-field storage shape.** The design
+  pass flagged a tradeoff between one Infisical secret per path holding a
+  JSON blob (symmetric with OpenBao's dict-at-path, but opaque in Infisical's
+  UI) versus flat per-field secrets (readable, but asymmetric). The actual
+  resolution needed neither compromise: Infisical's own `secretPath` /
+  `secretKey` primitives map 1:1 onto our `path` / `field`, so a path with
+  several fields becomes several individual Infisical secrets sharing one
+  `secretPath` — natural for Infisical's API *and* fully readable in its UI,
+  with no string concatenation or JSON encoding involved. OpenBao keeps its
+  native multi-field dict-at-path. See
+  [Path / field convention](#path--field-convention).
 
 ## Architecture
 
@@ -83,56 +91,91 @@ workflow step (secret-get/set/generate) ──resolve(conn_id)──▶ SecretMa
                                                      │                        │
                                                      ▼                        ▼
                                      OpenBaoSecretManagerClient   InfisicalSecretManagerClient
-                                     (generalized KV v2 client)   (Universal Auth + secrets API)
+                                     (wraps OpenBaoService)       (Universal Auth + secrets API)
 ```
 
-Each configured connection gets its **own live client instance** with its own auth
-session and (for OpenBao) token-renewal loop — this is new infrastructure, not a
-reuse of the existing two-singleton `core/vault.py` pattern, because that pattern is
-hardcoded to exactly one OpenBao connection read from env vars.
-`SecretManagerClientRegistry` is a small `dict[int, SecretManagerClient]` keyed by
-`secret_manager_connections.id`, built lazily on first use per connection (mirroring
-`CredentialsService`'s lazy `vault_reader` resolution), with an `invalidate(id)` call
-from the connection-update/delete router so an edited connection doesn't keep serving
+Each configured connection gets its **own live client instance** — new
+infrastructure, not a reuse of the existing two-singleton `core/vault.py`
+pattern, because that pattern is hardcoded to exactly one OpenBao connection
+read from env vars. `SecretManagerClientRegistry` is a `dict[int,
+SecretManagerClient]` keyed by `secret_manager_connections.id`, built lazily
+on first use per connection, with an `invalidate(id)` call from the
+connection update/delete router so an edited connection doesn't keep serving
 a stale client.
 
-## File map (proposed)
+## File map
 
 ```
 backend/services/secret_manager/
-  config.py            SecretManagerConnectionConfig (frozen dataclass) — resolved from a DB row
-  client.py            SecretManagerClient Protocol (get/set/generate/history/delete)
-  openbao_client.py    OpenBaoSecretManagerClient — generalizes services/vault/client.py's
-                        KV v2 code, parametrized by mount + path (not hardcoded to
-                        "manus" / "credentials/*")
-  infisical_client.py  InfisicalSecretManagerClient — Universal Auth + secrets API
-  auth.py              Shared VaultTokenManager reused for OpenBao connections;
-                        a small InfisicalTokenManager for Universal Auth access tokens
-  registry.py          SecretManagerClientRegistry — lazy per-connection client cache
-  service.py           SecretManagerService — facade workflow steps call
-  policy.py            SecretGenerationPolicy (charset preset + length) + generate()
-  exceptions.py        SecretManagerError -> Unavailable / AuthError / NotFound / ConfigError
+  exceptions.py        SecretManagerError -> Config/Auth/Unavailable/Permission
+  policy.py             SecretCharset + SecretGenerationPolicy + generate_secret()
+  client.py             SecretManagerClient Protocol (field-granular) + SecretVersionInfo
+  config.py             SecretManagerConnectionConfig (frozen dataclass) + load_connection_config()
+  openbao_client.py     OpenBaoSecretManagerClient — thin adapter wrapping services/vault/client.OpenBaoService
+  infisical_client.py   InfisicalSecretManagerClient — Universal Auth + secrets API
+                         (also holds the private _InfisicalTokenManager — no separate auth.py;
+                         the wire formats differ too much from OpenBao's VaultTokenManager to share code)
+  registry.py            SecretManagerClientRegistry — lazy per-connection client cache
+  connection_service.py  SecretManagerConnectionService — CRUD for secret_manager_connections
+  service.py             SecretManagerService — facade workflow steps call
 
 backend/core/models/secret_manager.py     SecretManagerConnection SQLAlchemy model
 backend/models/secret_manager.py          Pydantic request/response models
-backend/repositories/secret_manager_repository.py
-backend/services/secret_manager/connection_service.py   CRUD for secret_manager_connections
-backend/routers/secret_manager.py         connection CRUD + test-connection
+backend/repositories/secret_manager/secret_manager_connection_repository.py
+backend/routers/secret_manager.py         connection CRUD + POST /{id}/test
+backend/service_factory.py                get_secret_manager_registry() / stop_secret_manager_services()
+backend/main.py, backend/hatchet/worker_services.py   shutdown hook (mirrors stop_vault_services)
+backend/services/vault/client.py          generalized: read_kv(path, version=), metadata_kv(path) added
 
-backend/workflow_steps/common/secret_manager_connection_loader.py   resolve connection_id -> config
 backend/workflow_steps/secret_get/       executor.py, config.py
 backend/workflow_steps/secret_set/       executor.py, config.py
 backend/workflow_steps/secret_generate/  executor.py, config.py
+backend/services/execution/step_registry.py   +3 entries
+backend/workflow_steps/registry.yaml          +3 entries (palette_category: secrets)
+backend/services/auth/rbac_seed.py            +3 permissions (secret_manager.connections)
 
-frontend/src/lib/query-keys.ts            + queryKeys.secretManager.*
-frontend/src/components/features/settings/secret-manager/
-  components/secret-manager-connections-canvas.tsx
-  dialogs/secret-manager-connection-form-dialog.tsx
-frontend/src/components/features/workflow-steps/{secret-get,secret-set,secret-generate}/
+frontend/src/lib/query-keys.ts                       + queryKeys.secretManagerConnections
+frontend/src/hooks/queries/
+  use-secret-manager-connections-query.ts
+  use-secret-manager-connections-mutations.ts
+frontend/src/components/features/settings/
+  components/secret-manager-settings-canvas.tsx      connections table (flat under components/,
+  dialogs/secret-manager-connection-dialog.tsx        like git-repositories — no nested subdirectory)
+  dialogs/secret-manager-help-dialog.tsx              "Help" button on the canvas — tabbed
+                                                       OpenBao/Infisical setup walkthroughs
+  types/settings-section.ts, utils/settings-section-params.ts,
+  constants/settings-sections.ts, components/settings-section-canvas.tsx
+                                                       + "secret-manager" section wiring
+frontend/src/components/features/workflow-steps/
+  shared/secret-manager-connection-field.tsx          connection_id picker shared by all 3 steps
+  secret-get/index.tsx, secret-set/index.tsx, secret-generate/index.tsx
+frontend/src/lib/plugin-ui-registry.ts                +3 entries
+frontend/src/components/features/workflows/utils/step-visuals.ts
+                                                       "secrets" palette category (icons, colors,
+                                                       order — positioned right below "notify")
 
-backend/tests/unit/test_secret_manager_*.py
-backend/tests/integration/test_secret_manager_integration.py   opt-in, against live OpenBao + Infisical
+backend/tests/unit/
+  test_secret_manager_policy.py
+  test_secret_manager_connection_service.py
+  test_secret_get_executor.py
+  test_secret_set_executor.py
+  test_secret_generate_executor.py
+
+docker/infisical/   local dev stack (Postgres + Redis + Infisical), mirrors docker/openbao —
+                    see "Local development" below
 ```
+
+**No `workflow_steps/common/secret_manager_connection_loader.py` exists** —
+unlike git (where ~10 steps share `git_repository_loader.py`), only three
+steps use a connection, and they each instantiate `SecretManagerService(db)`
+directly; a shared loader would be a needless indirection for three callers.
+
+**Category reorg (post-initial-implementation):** `encrypt-attribute` and
+`decrypt-attribute` were moved from `palette_category: attributes` to
+`palette_category: secrets` — they operate on secret-shaped values too, so
+they now sit in the same canvas palette group as `secret-get`/`secret-set`/
+`secret-generate`. The `secrets` category itself was positioned directly
+below `notify` in `ARTIFACT_TYPE_ORDER` (`step-visuals.ts`).
 
 ## Data model
 
@@ -146,319 +189,309 @@ class SecretManagerConnection(Base):
     credential_name = Column(String(255))                  # this connection's OWN auth material
     verify_ssl = Column(Boolean, nullable=False, default=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    # Backend-specific fields, not flat columns (see rationale below):
-    #   openbao:   {"addr": "...", "mount": "manus-network", "namespace": "..."}
-    #   infisical: {"site_url": "...", "project_id": "...", "environment": "prod"}
     backend_config = Column(JSON, nullable=False, default=dict)
     description = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    __table_args__ = (
-        Index("idx_secret_manager_conn_active", "is_active"),
-    )
+    __table_args__ = (Index("idx_secret_manager_conn_active", "is_active"),)
 ```
 
-**Why `backend_config` is JSON, not flat columns like `GitAuthType`.** `GitAuthType`
-variance is narrow (token vs ssh_key vs generic — mostly which credential field to
-read). OpenBao needs `addr` + `mount` + optional `namespace`; Infisical needs a site
-URL + `project_id` + `environment`. Forcing both into one flat column set means most
-columns are `NULL` for one backend or the other, same problem the git-config KV
-system had before consolidation. A `backend_config: JSON` validated per-backend at
-the Pydantic layer (`OpenBaoConnectionConfig` / `InfisicalConnectionConfig` discriminated
-by the `backend` field) avoids that without reintroducing a KV-style config system —
-this is still one table, one CRUD path, just like `GitRepository`.
+`backend_config` shapes (validated in `SecretManagerConnectionService`, not
+at the Pydantic-request layer — matching how `GitRepositoryService`
+validates business rules):
+
+```
+openbao:   {"addr": "...", "mount": "manus-network", "namespace": "..."}   # namespace optional
+infisical: {"site_url": "...", "project_id": "...", "environment": "prod"}
+```
+
+**Why JSON, not flat columns like `GitAuthType`.** `GitAuthType` variance is
+narrow. OpenBao needs `addr` + `mount` (+ optional `namespace`); Infisical
+needs a site URL + `project_id` + `environment`. Forcing both into one flat
+column set means most columns are `NULL` for one backend or the other — the
+same problem the pre-consolidation git-config KV system had.
 
 **`credential_name`** resolves this *connection's own* auth material via the
-existing `CredentialManager` facade (`CredentialManager.generic(name)` — a
-`generic`-type credential holding the OpenBao AppRole `secret_id` or the Infisical
-Universal Auth `client_secret` as its password field, username unused or holding the
-`role_id`/`client_id`). This reuses the existing credential-resolution seam instead
-of inventing a third way to store "a secret needed to reach a secret store."
+existing `CredentialManager` facade — `CredentialManager(db).generic(name)`,
+a `generic`-type credential holding the OpenBao AppRole `secret_id` /
+Infisical `client_secret` as its password field, and `role_id`/`client_id`
+as its username. Reuses the existing credential-resolution seam (global-only,
+background/system-scoped — no `acting_user_id`) instead of inventing a third
+way to store "a secret needed to reach a secret store."
 
 ## Client abstraction
 
 ```python
 class SecretManagerClient(Protocol):
-    def get_secret(self, path: str, *, version: int | None = None) -> dict[str, Any]: ...
-    def set_secret(self, path: str, data: dict[str, Any]) -> int | None: ...          # returns new version if known
-    def generate_and_store(self, path: str, field: str, policy: SecretGenerationPolicy) -> tuple[int | None, str]: ...
-    def get_secret_history(self, path: str) -> list[SecretVersionInfo]: ...            # best-effort; see Infisical caveat
-    def delete_secret(self, path: str) -> None: ...
+    async def ensure_started(self) -> None: ...   # OpenBao's token-renew loop; no-op for Infisical
+    def get_field(self, path: str, field: str, *, version: int | None = None) -> str | None: ...
+    def set_field(self, path: str, field: str, value: str) -> int | None: ...
+    def delete_field(self, path: str, field: str) -> None: ...
+    def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]: ...
+    async def shutdown(self) -> None: ...
 ```
 
-`SecretManagerService` (the facade, `services/secret_manager/service.py`) is what
-workflow steps actually call:
+**Field-granular, not whole-dict-per-path** — a deliberate simplification
+over the original design sketch. The three consumers (`secret-get`/
+`secret-set`/`secret-generate` executors) always operate on one field at one
+path at a time, so a field-granular protocol maps directly onto what callers
+need; each backend maps that onto its own native storage shape internally
+(OpenBao: read-modify-write the whole dict at `path`; Infisical: one secret
+per field, sharing `path` as `secretPath`).
 
-```python
-class SecretManagerService:
-    def __init__(self, db: Session) -> None:
-        self._connections = SecretManagerConnectionService(db)
-
-    def get_secret(self, connection_id: int, path: str, *, version: int | None = None) -> dict[str, Any]: ...
-    def set_secret(self, connection_id: int, path: str, data: dict[str, Any]) -> int | None: ...
-    def generate_secret(self, connection_id: int, path: str, field: str, policy: SecretGenerationPolicy) -> tuple[int | None, str]: ...
-```
-
-It resolves the connection row via `secret_manager_connection_loader.py` (the
-`git_repository_loader.py` analog — raises `ValueError` for missing/inactive
-connections, surfaced as a step failure), gets the live client from
-`SecretManagerClientRegistry`, and dispatches. No `storage_backend`-style branching
-inside this facade — the branching lives entirely inside the registry (which client
-class to instantiate) and each client's own implementation.
+`SecretManagerService` (`services/secret_manager/service.py`) is what
+workflow steps actually call — `get_field`, `set_field`, `generate_field`
+(generates via `services.secret_manager.policy.generate_secret`, then calls
+`set_field`, returning `(version, value)`), and `get_field_history`. All
+four are `async def`: resolving a connection's live client
+(`SecretManagerClientRegistry.get_or_create`) may need OpenBao's async
+`startup()`; once resolved, the field read/write calls themselves are
+synchronous HTTP, matching `CredentialsService`'s own "deliberately
+synchronous" OpenBao calls. No `storage_backend`-style branching lives in
+the facade — which client class to use is decided entirely inside the
+registry.
 
 ## OpenBao client
 
-`OpenBaoSecretManagerClient` reuses the existing `services/vault/client.py` KV v2
-request/retry/cache/auth machinery (`_request` status mapping, `VaultTokenManager`,
-`InProcessTTLCache`) almost unchanged — that code is already fully general KV v2,
-just currently instantiated with `mount="manus"` and paths always prefixed
-`credentials/`. The only change needed is to stop hardcoding those and instead take
-`mount` + a path prefix from the connection's `backend_config`. `get_secret_history`
-for OpenBao lists versions via `GET /v1/<mount>/metadata/<path>` (KV v2's metadata
-endpoint returns a `versions` map with `created_time`/`destroyed`/`deletion_time` per
-version) and `get_secret(path, version=N)` adds `?version=N` to the existing
-`read_kv` GET. This is genuinely full version history — same guarantee
-`VAULT_INTEGRATION.md` already relies on for credential rotation.
+`OpenBaoSecretManagerClient` **wraps `services/vault/client.OpenBaoService`
+directly** rather than reimplementing KV v2 — that client already takes
+`mount`/`addr` per instance via `VaultConfig`, so no wire-protocol
+generalization was actually needed beyond two small additions to the shared
+client itself (used by this domain, harmless to the existing credential-vault
+callers):
 
-**AppRole role/policy**, new and separate from `manus-app`/`manus-manage`:
+- `read_kv(path, *, version=None)` — a pinned version bypasses the
+  in-process TTL cache entirely (the cache only ever holds "latest").
+- `metadata_kv(path)` — `GET /v1/<mount>/metadata/<path>`, returning the KV
+  v2 `versions` map (`created_time`/`destroyed` per version), consumed by
+  `get_field_history`.
+
+`get_field`/`set_field`/`delete_field` read-modify-write the whole dict at
+`path` (get, mutate one key, `write_kv`) since OpenBao KV v2 has no
+per-field write. `get_field_history` ignores its `field` argument — OpenBao
+versions the whole dict at a path, not individual fields.
+
+**AppRole role/policy**, new and separate from `manus-app`/`manus-manage`
+(one role can cover read+write per connection, since workflow steps
+legitimately need to write at runtime, unlike the read-only `manus-app`
+policy):
 
 ```hcl
-# manus-network-secrets.hcl — one role covering read+write, since
-# workflow steps legitimately need to write (rotate a key) at runtime,
-# unlike the read-only manus-app policy.
 path "manus-network/data/*"     { capabilities = ["create", "read", "update"] }
 path "manus-network/metadata/*" { capabilities = ["read"] }
 ```
 
-One role per connection (or one shared role if all connections use the same
-OpenBao cluster with different mounts) — an ops decision left to the runbook, not
-this doc.
-
 ## Infisical client
 
-`InfisicalSecretManagerClient` is new. Verified against Infisical's current docs
-(2026-09):
+`InfisicalSecretManagerClient` (`services/secret_manager/infisical_client.py`)
+is new, including a private `_InfisicalTokenManager` in the same file (no
+separate `auth.py` — the wire formats differ too much from OpenBao's
+`VaultTokenManager` to share code, only the login/re-login *shape* is
+common).
 
-- **Auth**: Universal Auth machine identity. `POST /api/v1/auth/universal-auth/login`
-  (form-encoded `clientId` + `clientSecret`) → `{accessToken, expiresIn,
-  accessTokenMaxTTL, tokenType}`. Renew via `POST
-  /api/v1/auth/universal-auth/renew` with the token as a Bearer header. Structurally
-  the same shape as OpenBao AppRole, so a small `InfisicalTokenManager` mirroring
-  `VaultTokenManager`'s login/renew/invalidate state machine is the right amount of
-  reuse (same pattern, separate class — the wire formats differ too much to share
-  code, only the state machine shape is common).
-- **Secret CRUD**: `POST /api/v4/secrets/{secretName}` (create; body: `projectId`,
-  `environment`, `secretValue`, optional `secretPath` default `/`), `GET
-  /api/v4/secrets` (list; query: `projectId`, `environment`, `secretPath`). Update
-  and delete endpoints exist at parallel paths
-  (`PATCH`/`DELETE /api/v4/secrets/{secretName}`) per the same resource shape —
-  confirm exact verbs against `https://infisical.com/docs/api-reference` when
-  implementing, this doc's research pass did not exhaustively fetch every verb.
-- **Version history — verify before relying on it.** Infisical does expose
-  `GET /api/v1/secret-versions?secretId=<id>` (full history with `createdAt`) and a
-  `version` query param on secret reads. **However, Infisical/infisical#3263 (open
-  upstream issue) reports that requesting a specific version via the `version` param
-  sometimes returns the latest version instead** — i.e. version-pinned reads may not
-  reliably work depending on the deployed Infisical version. Given the "retrieve the
-  previous TACACS key" use case depends on this, **do not implement
-  `get_secret_history`/`get_secret(version=N)` for the Infisical client without
-  first testing it end-to-end against the actual Infisical instance/version this
-  deployment will run** (self-hosted or Infisical Cloud). If it doesn't work
-  reliably, the honest options are: (a) document that "retrieve previous secret" is
-  OpenBao-only for now, or (b) have `secret-set`/`secret-generate` also write a
-  parallel timestamped path (`network/{device}/tacacs/history/{iso8601}`) as a
-  belt-and-braces history mechanism independent of the backend's native versioning.
-  This is a real open item, not a nit — resolve it during implementation, not
-  by assumption.
+- **Auth**: Universal Auth machine identity. `POST
+  /api/v1/auth/universal-auth/login` (form-encoded `clientId` +
+  `clientSecret`) → `{accessToken, expiresIn, ...}`. **No background renew
+  loop** — a deliberate v1 simplification, since Infisical's default
+  access-token TTL (7200s) is generous; `_InfisicalTokenManager.current()`
+  just re-logs-in lazily once the tracked deadline passes. On a `401`/`403`
+  the client invalidates the token and retries the same request once
+  (mirrors `OpenBaoService`'s 403-retry-once pattern).
+- **Secret CRUD**: `GET`/`POST`/`PATCH`/`DELETE /api/v4/secrets/{secretKey}`
+  with `projectId`, `environment`, `secretPath` — `set_field` does a `GET`
+  first to decide create vs. update (simpler and more robust than parsing
+  error codes from a failed create-on-conflict).
+- **Path/field mapping**: our `path` is Infisical's `secretPath` (a folder);
+  our `field` is Infisical's `secretKey` (an individual secret name) — see
+  [Design decisions](#design-decisions) for why this needed no blob/flatten
+  compromise.
+- **Version history — unverified, logs a warning.** `get_field_history`
+  returns an empty list and logs a warning rather than guessing at an
+  implementation: Infisical/infisical#3263 (open upstream issue) reports
+  that version-pinned reads sometimes silently return the latest version
+  instead. `get_field(..., version=N)` still forwards the `version` query
+  param (so the plumbing exists end-to-end) but also logs a warning when
+  used. **Do not build a "retrieve the previous TACACS key" workflow on
+  Infisical without testing this against the real deployed instance first**
+  — `docker/infisical/` (see [Local development](#local-development)) makes
+  that test possible locally.
+- **Verify before relying on it in production**: the exact `PATCH`/`DELETE`
+  verb shapes were not exhaustively cross-checked against every Infisical
+  API version during implementation — confirm against
+  `https://infisical.com/docs/api-reference` for the specific
+  self-hosted/cloud version in use.
 
-## Path / key convention
+## Path / field convention
 
-Device secrets use a stable, device-scoped path independent of DB names, so it
-survives credential/inventory renames:
+Device secrets use a stable, device-scoped path independent of DB names, so
+they survive credential/inventory renames. All three steps default to:
 
 ```
-network/{device_key}/tacacs
-network/{device_key}/snmp
+network/{device.name}/tacacs      (field: key)
 ```
 
-`{device_key}` is templated from device-targeting context available to the step
-(e.g. `{device.name}` or a stable inventory identifier — same templating mechanism
-`filename_template` already uses in `store-artifact`, reused rather than
-reinvented). `path` in a step's config is therefore usually a template string, not
-a literal.
+`path_template` is rendered per device via
+`services.workflow_context.device_template.render_device_template` — the
+same placeholder engine `store-artifact`'s `filename_template` already uses
+(`{device.*}`, `{nautobot.*}`, `{git.*}`), including its `strict_templates`
+toggle (also exposed on all three steps' config).
 
 ## Workflow steps
 
-Three new steps, following `doc/WORKFLOW-STEPS.md`'s package structure
-(`backend/workflow_steps/{step_id}/executor.py` + `config.py`, one `step_registry.py`
-dispatch entry, one `registry.yaml` entry, a frontend `ConfigPanel`):
+Three steps, `palette_category: secrets`, `artifact_type:
+configuration_management`, `requires: [identity]`, `produces: [attributes]`,
+`outcomes: [success, failure]`:
 
-| Step | Config | Behaviour |
+| Step | Config (`workflow_steps/{step}/config.py` defaults) | Behaviour |
 |---|---|---|
-| `secret-get` | `connection_id`, `path` (templated), `field`, optional `version` | Reads and seals the value into the device's attribute bag (see below). Config-error (missing connection/path) → `ValueError`; secret not found is a per-device failure outcome, not a hard raise, matching other per-device steps. |
-| `secret-set` | `connection_id`, `path` (templated), `field`, `value_source` (a literal or an attribute-path expression) | Writes an explicit value, e.g. one typed into a static-attribute run input or piped from an upstream step. |
-| `secret-generate` | `connection_id`, `path` (templated), `field`, `policy: {charset, length}` | Generates a random value per `SecretGenerationPolicy`, writes it, and seals it into the device's attribute bag for downstream steps (e.g. a push-config step in the same run) — this is the TACACS-rotation primitive. |
+| `secret-get` | `connection_id`, `path_template`, `field`, `destination_path`, `version` (optional) | Reads and seals the value into the device's attribute bag. A missing value routes that device to `failure` (proceed-with-survivors); a connection-wide error (unreachable/auth-denied) fails the whole step. |
+| `secret-set` | `connection_id`, `path_template`, `field`, `mode` (`fixed`\|`attribute`), `fixed_value`, `source_path`, `destination_path` | Writes an explicit value — a literal, or one read from another attribute path (`attribute` mode is a trusted, `reveal_secrets=True` consumer, same as `update-ise-tacacs-key`). Also seals the written value into `destination_path`. |
+| `secret-generate` | `connection_id`, `path_template`, `field`, `destination_path`, `charset` (`hex`\|`alnum`\|`alnum_symbols`), `length` | Generates via `secrets.token_hex`/`secrets.choice` (stdlib `secrets`, never `random`), stores it, seals it into `destination_path`. No per-device `failure` outcome exists here — generation can't fail per-device, only the whole-step connection-error path uses `failure`. |
 
-`artifact_type: configuration_management` for all three (same category as
-`get-device-configs`). `requires: [identity]`, `produces: [secret_manager]` (or per-step
-capability names — TBD when the capability graph is designed in detail), `outcomes:
-[success, failure]`.
+All three default `destination_path` to `tacacs.shared_secret` — the same
+bag path `get-ise-tacacs-key`/`update-ise-tacacs-key` already use, so a
+downstream Jinja template or ISE-update step written before this feature
+existed needs zero changes to consume a secret-manager-sourced value.
 
-**`SecretGenerationPolicy`** (`services/secret_manager/policy.py`) — a small set of
-named presets rather than free-form regex, so the config panel can offer a dropdown:
+**`SecretGenerationPolicy`** (`services/secret_manager/policy.py`) — named
+presets, not free-form regex, so the config panel offers a fixed dropdown:
+`hex` (TACACS+ keys, generic tokens), `alnum` (SNMP community strings —
+avoids symbols some NMS choke on), `alnum_symbols` (SNMPv3 auth/priv
+passphrases). Length is bounded 4–256.
 
-```python
-class SecretCharset(StrEnum):
-    HEX = "hex"                 # TACACS+ shared secrets, generic tokens
-    ALNUM = "alnum"             # SNMP community strings (avoid symbols some NMS choke on)
-    ALNUM_SYMBOLS = "alnum_symbols"   # SNMPv3 auth/priv passphrases (needs length >= 8 per RFC 3414)
-```
-
-`generate(policy) -> str` uses `secrets.choice`/`secrets.token_hex` (stdlib
-`secrets`, not `random`) — same requirement as any credential-generation code per
-the project's security rules.
-
-**Fan-out safety.** `secret-set`/`secret-generate` write to a **per-device-unique**
-path (`{device_key}` in the path), so — like `get-device-configs` — they're
-fan-out-safe by construction, unlike the shared-working-tree git steps. No fan-in
+**Fan-out safety.** `secret-set`/`secret-generate` write to a
+**per-device-unique** path (`{device.name}` in the template by default), so
+— like `get-device-configs` — they're fan-out-safe by construction. No fan-in
 node required around them.
 
 ## Secret handling in the run engine
 
-This reuses the **existing** mechanism in `doc/WORKFLOW-STEPS.md` → "Secret-valued
-attributes" (`backend/services/workflow_context/secret_fields.py`) rather than
-inventing a new one — that code already solves "a secret must ride in
-`DeviceContext.attribute_bags` between steps but never appear as cleartext in
-persisted run output":
+Reuses the **existing** mechanism in `doc/WORKFLOW-STEPS.md` → "Secret-valued
+attributes" (`backend/services/workflow_context/secret_fields.py`) rather
+than inventing a new one:
 
-- `secret-get`/`secret-generate` call `seal_secret(value)` before writing into the
-  device's attribute bag (e.g. `secret_manager.tacacs` or a step-configurable bag
-  path) — never `set_device_attribute` a raw string.
-- The new bag paths get added to `SECRET_BAG_PATHS` in `secret_fields.py` (e.g.
-  `("secret_manager", "tacacs")`, or reuse the existing `("tacacs", "shared_secret")`
-  path directly if `secret-get`/`secret-generate` write there so downstream steps
-  that already read `tacacs.shared_secret` — push-config templates, ISE update
-  steps — need no changes at all).
-- `redact_secrets_in_data` already fires at every persistence/display boundary
-  (`StepRunner._serialize_outcomes`, the fan-out merge path, `log-attributes`), so
-  `***REDACTED***` is what lands in `workflow_step_results` — this satisfies the
-  "pipe-only, never persisted in plaintext" decision **for free**, with no new
-  outcome-level flag needed on `StepOutcome`.
-- A downstream step that needs cleartext (a Jinja template building a `tacacs
-  key ...` config line) is a **trusted consumer** per the existing contract and
-  calls `resolve_device_attribute(..., reveal_secrets=True)` — no new consumer
-  category needed if it writes into `tacacs.shared_secret`.
-- Per the existing "Known limitation" in `secret_fields.py`: whichever step consumes
-  the cleartext must keep it in-memory for that one call only, never copy it into a
-  differently-shaped output (a log line, a diff entry). This applies unchanged to
-  `secret-generate`'s consumers.
-
-This is the single most important simplification this design makes over a naive
-"new mechanism per feature" approach: **no changes to `StepOutcome`, `StepRunner`,
-or the persistence layer are needed at all.** The existing seal/redact contract
-already covers this use case; only new `SECRET_BAG_PATHS` entries (or reuse of the
-existing TACACS one) and three new steps that call `seal_secret`/`unwrap_secret`
-correctly are required.
+- `secret-get`/`secret-set`/`secret-generate` call `seal_secret(value)`
+  before writing into the device's attribute bag via
+  `workflow_steps.common.attribute_write.set_device_attribute` — never a raw
+  string.
+- **No new `SECRET_BAG_PATHS` entries were added.** `destination_path` is a
+  free-form config field (any `bag.field` path an operator chooses), not a
+  fixed set of known paths — so this relies entirely on
+  `redact_secrets_in_data`'s *second* mechanism ("any sealed envelope found
+  anywhere in the structure is redacted, not just at `SECRET_BAG_PATHS`
+  leaves"), which is path-agnostic by design. `SECRET_BAG_PATHS` itself
+  exists only to catch *legacy unsealed* cleartext at known paths — since
+  these three steps always seal, they don't need an entry there.
+- `redact_secrets_in_data` already fires at every persistence/display
+  boundary (`StepRunner._serialize_outcomes`, the fan-out merge path,
+  `log-attributes`), so `***REDACTED***` is what lands in
+  `workflow_step_results` — satisfying "pipe-only, never persisted in
+  plaintext" for free, with no changes to `StepOutcome`, `StepRunner`, or
+  the persistence layer.
+- A downstream step that needs cleartext (a Jinja template building a
+  `tacacs key ...` config line) is a trusted consumer per the existing
+  contract (`reveal_secrets=True`) — no new consumer category was added.
 
 ## RBAC
 
-New permission resource `secrets`:
+Permission resource `secret_manager.connections` (matching the codebase's
+`resource.subresource` convention, e.g. `sources.nautobot`):
 
 | Permission | Gates |
 |---|---|
-| `secrets:read` | Including a `secret-get` step in a workflow save; viewing connection config (non-secret fields) in Settings |
-| `secrets:write` | Creating/editing/deleting a `secret_manager_connections` row; including `secret-set`/`secret-generate` in a workflow save |
+| `secret_manager.connections:read` | Viewing connections in Settings → Secret Manager |
+| `secret_manager.connections:write` | Creating/editing a connection; `POST /{id}/test` |
+| `secret_manager.connections:delete` | Deleting a connection |
 
-Enforced the same way as every other domain: `Depends(require_permission("secrets",
-"write"))` on the connection router; whether a *workflow save* containing a
-write-capable step should also be gated by the saving user's `secrets:write`
-permission (so a low-privilege user can't design a workflow that rotates secrets
-even if someone else runs it) is an open question to resolve during implementation —
-note it here so it isn't silently skipped.
+**Still deferred, not implemented**: gating *which workflows* may include a
+write-capable step (`secret-set`/`secret-generate`) by the saving user's own
+permissions. No other step in the codebase is gated this way today (workflow
+save/run permissions are `workflows:write`/`workflows:execute`, undifferentiated
+by step content), so this would be new machinery — noted here so it isn't
+silently forgotten, not because it's scheduled.
 
 ## Fail-closed semantics
 
-Same shape as `VAULT_INTEGRATION.md`'s table, per connection:
-
 | Situation | Behaviour |
 |---|---|
-| Connection inactive or missing | `secret_manager_connection_loader` raises `ValueError` → step config error |
-| Backend unreachable at connection startup | Soft-fail, logged at ERROR; first real call raises `SecretManagerUnavailableError` → step failure for the devices on that step |
-| Backend goes down mid-run | Same — fails loudly for that step/device, other steps unaffected |
-| Auth denied | Same 403-retry-once-then-fail pattern as `OpenBaoService` for the OpenBao client; Infisical client mirrors it (retry once after `renew`/re-login, then raise) |
-
-## Open design question: per-field storage shape
-
-OpenBao KV v2 natively stores a **dict of fields at one path** (e.g.
-`network/router1/tacacs = {"key": "...", "rotated_at": "...", "rotated_by": "..."}`
-in one KV entry). Infisical's model is **one secret = one key + one value**, grouped
-by `secretPath`, not a dict-at-path.
-
-Two ways to reconcile, with a real UX trade-off for the network team's Infisical
-browsing (the whole reason Infisical was picked):
-
-1. **JSON-blob normalization** — `secret-set`/`secret-generate` always write one
-   Infisical secret per path, whose value is the JSON-encoded field dict. Symmetric
-   with OpenBao, simplest client code, but a network engineer browsing Infisical's
-   UI sees one opaque JSON blob per device instead of readable `tacacs_key = ...`
-   rows — worse for exactly the audience Infisical was chosen for.
-2. **Flat-field normalization** — each field becomes its own Infisical secret at
-   `{path}/{field}` (e.g. `network/router1/tacacs/key`,
-   `network/router1/tacacs/rotated_at`), human-readable in the UI, but breaks
-   path/field symmetry with OpenBao (multi-field writes become N Infisical API
-   calls instead of one, versioning is per-field not per-path) and the client
-   abstraction's `set_secret(path, data: dict)` needs backend-specific fan-out
-   logic instead of a 1:1 mapping.
-
-**Recommendation:** option 2 (flat fields) for the Infisical client specifically,
-since UI readability was the actual reason to add Infisical support in the first
-place — a JSON blob in Infisical's UI defeats that purpose. OpenBao keeps its native
-multi-field dict-at-path. Accept the asymmetry; it's internal to each client
-implementation and invisible to `SecretManagerService` callers, which always pass
-`data: dict[str, Any]` regardless of backend. Flag this for explicit sign-off before
-implementation, since it's the one place backend choice changes step *behaviour*
-(number of API calls, partial-write failure modes) and not just wire format.
+| Connection inactive or missing | `load_connection_config` raises `ValueError` → step config error |
+| Backend unreachable / auth denied | `SecretManagerUnavailableError`/`SecretManagerAuthError`/`SecretManagerPermissionError` → the whole step's `failure` outcome (all devices), not per-device — matches `get-ise-tacacs-key`'s "lost connection" handling |
+| Field not found | `get_field` returns `None`, not an exception — a per-device `failure`, proceed-with-survivors |
 
 ## Configuration
 
-Unlike `VAULT_*`, there is **no top-level env config** for the Secret Manager
-feature itself — connections are entirely DB-managed, like `GitRepository`. The only
-env-level input is whatever `credential_name` each connection points at (an
-ordinary `generic`-type row in the existing `credentials` table, itself optionally
-`vault`-backed per `VAULT_INTEGRATION.md` — these two systems compose: the app's own
-OpenBao vault can hold the Secret Manager connections' own auth material).
+No top-level env config for this feature — connections are entirely
+DB-managed, like `GitRepository`. The only env-level input is whatever
+`credential_name` each connection points at (an ordinary `generic`-type row
+in the existing `credentials` table, itself optionally `vault`-backed per
+`VAULT_INTEGRATION.md` — the two systems compose).
 
-## Tests (planned)
+## Local development
 
-**Unit** (mocked, no live backend needed): `SecretManagerClientRegistry` lazy-build +
-invalidate; `OpenBaoSecretManagerClient` KV v2 shaping (reusing the existing
-`test_vault_client.py` patterns against a parametrized mount); `InfisicalSecretManagerClient`
-login/CRUD wire shaping; `secret-get`/`secret-set`/`secret-generate` executors against
-a fake `SecretManagerService`, asserting `seal_secret` is called and no plaintext
-reaches the returned `StepOutcome`; `SecretGenerationPolicy.generate()` charset/length
-coverage.
+`docker/infisical/` — a local Infisical stack (Postgres + Redis + the
+Infisical app image), mirroring `docker/openbao`'s existing pattern:
 
-**Integration** (opt-in, against live OpenBao **and** live Infisical — the latter is
-new, no existing fixture): end-to-end generate → device push → get-previous-version,
-against both backends, is the test that actually proves or disproves the Infisical
-version-history caveat above. Write this test **first**, before building on the
-assumption either way.
+```bash
+cd docker/infisical
+cp .env.example .env
+# fill ENCRYPTION_KEY (openssl rand -hex 16), AUTH_SECRET (openssl rand -base64 32),
+# POSTGRES_PASSWORD
+docker compose up -d
+```
+
+Published on `127.0.0.1:8081` (Nautobot's dev stack already uses 8080).
+First run: open `http://localhost:8081`, create the instance admin account,
+create a project + a Universal Auth machine identity, put its client
+id/secret into a `generic` Manus credential, then add a Secret Manager
+connection (`backend: infisical`) pointing at it. See the compose file's
+header comments for the full reachability/backup notes (container DNS vs.
+host-native backend, `ALLOW_LOOPBACK_SOURCE_URLS`, `ENCRYPTION_KEY` backup
+requirements).
+
+This stack is what makes it possible to actually test the Infisical
+version-history caveat above, rather than continuing to guess at it.
+
+## Tests
+
+**Unit** (`backend/tests/unit/`, mocked, always run):
+
+| File | Covers |
+|---|---|
+| `test_secret_manager_policy.py` | `SecretGenerationPolicy` length bounds, charset output shape/length, non-determinism |
+| `test_secret_manager_connection_service.py` | CRUD against in-memory SQLite, `backend_config` validation per backend, duplicate-name rejection |
+| `test_secret_get_executor.py` | config errors, sealed-value-on-found, per-device failure on miss, whole-step failure on `SecretManagerError` |
+| `test_secret_set_executor.py` | fixed vs. attribute mode, sealed-source read, unresolved-source per-device failure, connection-error whole-step failure |
+| `test_secret_generate_executor.py` | charset/length config errors, generated value sealed + **never appears in metadata** (asserted via `json.dumps` scan), connection-error whole-step failure |
+
+**Known gap, not yet covered**: `openbao_client.py`'s field-merge logic,
+`infisical_client.py`'s wire shaping (create-vs-update, token login/retry),
+`registry.py`, `service.py`, and `routers/secret_manager.py` have no direct
+unit tests yet — the design doc's own guidance was "write the Infisical
+integration test first, don't assume," and that remains true; a mocked unit
+test of `infisical_client.py`'s HTTP shaping would still be worth adding
+before the opt-in integration test against `docker/infisical/`.
+
+**Integration** (opt-in, against live OpenBao *and* live Infisical): not yet
+written. `docker/infisical/` now exists to support this — see [Local
+development](#local-development).
 
 ## Deferred / follow-ups
 
-- **No browse/reveal UI in Manus** — by decision (see above); revisit only if the
+- **No browse/reveal UI in Manus** — by decision; revisit only if the
   network team finds Infisical's/OpenBao's own UI insufficient in practice.
-- **Cert-auth / mTLS for OpenBao secret-manager connections** — token/AppRole only
-  for v1, matching `VAULT_INTEGRATION.md`'s own "Cert class + selection wired,
-  login body thin" status.
-- **Infisical dynamic secrets / secret rotation leasing features**, if any exist,
-  are out of scope — this design only uses static KV-style secrets.
-- **Per-workflow-save RBAC gating** for write-capable steps (see RBAC section) —
-  needs a decision before implementation, not deferred silently.
-- **Redis-backed shared client/token cache** across API + worker processes — v1
-  keeps the existing in-process pattern (each process logs in and renews
-  independently), same acceptable-for-now status as `VAULT_INTEGRATION.md`'s own
-  deferred Redis cache.
-- **The flat-field vs JSON-blob Infisical storage shape** — see above, needs
-  explicit sign-off, not a silent pick, before implementation starts.
+- **Cert-auth / mTLS for OpenBao secret-manager connections** — AppRole
+  only, matching `VAULT_INTEGRATION.md`'s own status for that method.
+- **Infisical dynamic secrets / rotation-leasing features**, if any exist,
+  are out of scope — this integration only uses static KV-style secrets.
+- **Per-workflow-save RBAC gating** for write-capable steps — see
+  [RBAC](#rbac); needs a real decision, not silent deferral.
+- **Unit tests for the OpenBao/Infisical adapter wire logic and the
+  connections router** — see [Tests](#tests).
+- **The Infisical version-history caveat** — verify `get_field_history`/
+  version-pinned `get_field` against a real Infisical instance
+  (`docker/infisical/` makes this possible now) before any workflow relies
+  on "retrieve the previous secret" for Infisical-backed connections.
+- **Redis-backed shared client/token cache** across API + worker processes
+  — v1 keeps the existing in-process pattern, same acceptable-for-now status
+  as `VAULT_INTEGRATION.md`'s own deferred Redis cache.

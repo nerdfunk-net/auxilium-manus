@@ -70,6 +70,20 @@ class SecretSetExecutorTests(unittest.IsolatedAsyncioTestCase):
                 set_field=AsyncMock(),
             )
 
+    async def test_missing_optional_keys_fall_back_to_config_py_defaults(self) -> None:
+        # Regression: a canvas node whose config was never actually edited (only
+        # displayed with an illustrative default in the UI) sends a config dict
+        # with path_template/field/destination_path genuinely absent, not just
+        # empty. Must behave identically to explicitly-set defaults, not raise.
+        minimal_config = {"connection_id": 1, "mode": "fixed", "fixed_value": "new-key"}
+        context = _context({"d1": _device("d1")})
+        outcomes = await _run(minimal_config, context, set_field=AsyncMock(return_value=1))
+
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        device = outcomes[0].context.devices["d1"]
+        sealed = device.attribute_bags["tacacs"]["shared_secret"]
+        self.assertEqual(unwrap_secret(sealed), "new-key")
+
     async def test_fixed_mode_writes_and_seals_value(self) -> None:
         context = _context({"d1": _device("d1")})
         outcomes = await _run(BASE_CONFIG, context, set_field=AsyncMock(return_value=2))

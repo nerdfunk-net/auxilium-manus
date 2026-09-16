@@ -18,6 +18,8 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { SecretManagerConnectionField } from "@/components/features/workflow-steps/shared/secret-manager-connection-field";
 
+import { SecretGenerateHelpPanel } from "./help-panel";
+
 function stringField(config: Record<string, unknown>, key: string, fallback = ""): string {
   const value = config[key];
   return typeof value === "string" ? value : fallback;
@@ -59,9 +61,14 @@ function SecretGenerateConfigPanel({ config, onChange }: PluginConfigPanelProps)
           id="secret-generate-path"
           className="h-8 font-mono text-xs"
           placeholder="network/{device.name}/tacacs"
-          value={stringField(config, "path_template", "network/{device.name}/tacacs")}
+          value={stringField(config, "path_template")}
           onChange={(event) => setField("path_template", event.target.value)}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Path in the connection, rendered per device — supports {"{device.*}"} /{" "}
+          {"{nautobot.*}"} / {"{git.*}"} placeholders, same as store-artifact&apos;s
+          filename_template. Blank uses the default shown above.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -72,9 +79,13 @@ function SecretGenerateConfigPanel({ config, onChange }: PluginConfigPanelProps)
           id="secret-generate-field"
           className="h-8 font-mono text-xs"
           placeholder="key"
-          value={stringField(config, "field", "key")}
+          value={stringField(config, "field")}
           onChange={(event) => setField("field", event.target.value)}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Field name to store the generated value under, within the secret at
+          path_template. Blank uses the default shown above.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -85,9 +96,13 @@ function SecretGenerateConfigPanel({ config, onChange }: PluginConfigPanelProps)
           id="secret-generate-destination"
           className="h-8 font-mono text-xs"
           placeholder="tacacs.shared_secret"
-          value={stringField(config, "destination_path", "tacacs.shared_secret")}
+          value={stringField(config, "destination_path")}
           onChange={(event) => setField("destination_path", event.target.value)}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Attribute bag path the sealed value is written to (bag.field form), for a
+          later step in the same run to use. Blank uses the default shown above.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -107,6 +122,10 @@ function SecretGenerateConfigPanel({ config, onChange }: PluginConfigPanelProps)
             ))}
           </SelectContent>
         </Select>
+        <p className="text-[11px] text-muted-foreground">
+          Character set used to generate the value — pick the preset matching what
+          the target device/system expects.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -122,6 +141,9 @@ function SecretGenerateConfigPanel({ config, onChange }: PluginConfigPanelProps)
           value={length}
           onChange={(event) => setField("length", Number(event.target.value) || 32)}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Length of the generated value, in characters (4–256).
+        </p>
       </div>
 
       <div className="flex items-center justify-between rounded-lg border px-3 py-2">
@@ -142,4 +164,5 @@ function SecretGenerateConfigPanel({ config, onChange }: PluginConfigPanelProps)
 
 export const SecretGeneratePlugin: PluginUIComponent = {
   ConfigPanel: SecretGenerateConfigPanel,
+  HelpPanel: SecretGenerateHelpPanel,
 };

@@ -77,11 +77,11 @@ export function SecretManagerConnectionField({
           </SelectContent>
         </Select>
       )}
-      {selected ? (
-        <p className="text-[11px] text-muted-foreground">
-          {BACKEND_LABELS[selected.backend] ?? selected.backend} connection
-        </p>
-      ) : null}
+      <p className="text-[11px] text-muted-foreground">
+        {selected
+          ? `${BACKEND_LABELS[selected.backend] ?? selected.backend} connection, configured in Settings → Secret Manager.`
+          : "Which configured Secret Manager connection to use. Configure connections in Settings → Secret Manager."}
+      </p>
     </div>
   );
 }

@@ -18,6 +18,8 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { SecretManagerConnectionField } from "@/components/features/workflow-steps/shared/secret-manager-connection-field";
 
+import { SecretSetHelpPanel } from "./help-panel";
+
 function stringField(config: Record<string, unknown>, key: string, fallback = ""): string {
   const value = config[key];
   return typeof value === "string" ? value : fallback;
@@ -52,9 +54,14 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           id="secret-set-path"
           className="h-8 font-mono text-xs"
           placeholder="network/{device.name}/tacacs"
-          value={stringField(config, "path_template", "network/{device.name}/tacacs")}
+          value={stringField(config, "path_template")}
           onChange={(event) => setField("path_template", event.target.value)}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Path in the connection, rendered per device — supports {"{device.*}"} /{" "}
+          {"{nautobot.*}"} / {"{git.*}"} placeholders, same as store-artifact&apos;s
+          filename_template. Blank uses the default shown above.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -65,9 +72,13 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           id="secret-set-field"
           className="h-8 font-mono text-xs"
           placeholder="key"
-          value={stringField(config, "field", "key")}
+          value={stringField(config, "field")}
           onChange={(event) => setField("field", event.target.value)}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Field name to write within the secret stored at path_template. Blank uses
+          the default shown above.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -81,6 +92,10 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
             <SelectItem value="attribute">attribute — read from another attribute path</SelectItem>
           </SelectContent>
         </Select>
+        <p className="text-[11px] text-muted-foreground">
+          fixed writes the literal value typed below; attribute reads the value from
+          another attribute path instead (e.g. a run input supplied at trigger time).
+        </p>
       </div>
 
       {mode === "fixed" ? (
@@ -96,6 +111,10 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
             value={stringField(config, "fixed_value")}
             onChange={(event) => setField("fixed_value", event.target.value)}
           />
+          <p className="text-[11px] text-muted-foreground">
+            The literal value to write. Required in fixed mode; masked like any other
+            credential input.
+          </p>
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -109,6 +128,10 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
             value={stringField(config, "source_path")}
             onChange={(event) => setField("source_path", event.target.value)}
           />
+          <p className="text-[11px] text-muted-foreground">
+            Attribute path to read the value from. Required in attribute mode; a
+            sealed value here is read as trusted cleartext for this write only.
+          </p>
         </div>
       )}
 
@@ -120,11 +143,12 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           id="secret-set-destination"
           className="h-8 font-mono text-xs"
           placeholder="tacacs.shared_secret"
-          value={stringField(config, "destination_path", "tacacs.shared_secret")}
+          value={stringField(config, "destination_path")}
           onChange={(event) => setField("destination_path", event.target.value)}
         />
         <p className="text-[11px] text-muted-foreground">
           Attribute bag path the written value is also sealed into (bag.field form).
+          Blank uses the default shown above.
         </p>
       </div>
 
@@ -146,4 +170,5 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
 export const SecretSetPlugin: PluginUIComponent = {
   ConfigPanel: SecretSetConfigPanel,
+  HelpPanel: SecretSetHelpPanel,
 };

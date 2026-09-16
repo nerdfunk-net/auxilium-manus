@@ -53,15 +53,19 @@ def _parse_config(config: dict[str, Any]) -> tuple[int, str, str, str, int | Non
     if not isinstance(connection_id, int):
         raise ValueError(f"{_STEP_ID}: connection_id is required")
 
-    path_template = str(config.get("path_template") or "").strip()
+    # Same defaults config.py declares for a freshly-dropped canvas node — a
+    # node whose config was never actually edited (only displayed with an
+    # illustrative default in the UI) must behave identically to one where
+    # the user explicitly accepted that same value.
+    path_template = str(config.get("path_template") or "network/{device.name}/tacacs").strip()
     if not path_template:
         raise ValueError(f"{_STEP_ID}: path_template is required")
 
-    field = str(config.get("field") or "").strip()
+    field = str(config.get("field") or "key").strip()
     if not field:
         raise ValueError(f"{_STEP_ID}: field is required")
 
-    destination_path = str(config.get("destination_path") or "").strip()
+    destination_path = str(config.get("destination_path") or "tacacs.shared_secret").strip()
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
 
