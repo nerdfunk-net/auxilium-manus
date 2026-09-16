@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 from pybatfish.exception import BatfishException
 
 from services.batfish.client import BatfishService
-from services.batfish.common.exceptions import BatfishAPIError
+from services.batfish.common.exceptions import BatfishAnswerFailedError, BatfishAPIError
 from services.batfish.credentials import BatfishConnection
 
 
@@ -297,6 +297,29 @@ class BatfishServiceQuestionTests(unittest.IsolatedAsyncioTestCase):
             await self.service.generic_question(
                 _connection(), batfish_network="net", snapshot="snap", question_name="edges"
             )
+
+    async def test_reachability_raises_answer_failed_error_when_no_result_table(self) -> None:
+        # A real (non-mock) Answer is a plain dict subclass with no .frame() --
+        # this is what pybatfish returns instead of raising when e.g. a
+        # pathConstraints.startLocation/endLocation node doesn't exist in the
+        # snapshot. Unlike a MagicMock (which auto-creates any attribute
+        # accessed on it, masking the bug), a plain dict reproduces the real
+        # AttributeError this guards against.
+        non_table_answer = {"status": "FAILURE"}
+        mock_question_call = MagicMock()
+        mock_question_call.answer.return_value = non_table_answer
+        self.instance.q.reachability = MagicMock(return_value=mock_question_call)
+
+        with self.assertRaises(BatfishAnswerFailedError) as ctx:
+            await self.service.reachability(
+                _connection(),
+                batfish_network="net",
+                snapshot="snap",
+                pathConstraints={"startLocation": "unknown-node"},
+            )
+
+        self.assertEqual(ctx.exception.question_name, "reachability")
+        self.assertEqual(ctx.exception.answer, {"status": "FAILURE"})
 
 
 class BatfishServiceFactsTests(unittest.IsolatedAsyncioTestCase):

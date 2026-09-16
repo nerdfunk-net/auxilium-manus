@@ -1522,6 +1522,30 @@ failure raises via `BatfishAPIError`, neither is modeled as a third outcome
 branch) — so a workflow can branch on it directly (e.g. alert only when a
 critical path breaks).
 
+**Unknown `start_node`/`end_node` (non-table Batfish answers).** An empty
+result set (0 rows) is the negative case above, but a `start_node`/`end_node`
+that doesn't resolve to anything *in the snapshot* is a different failure
+shape: `pybatfish`'s `Question.answer()` doesn't raise for this — it returns
+a plain `pybatfish.datamodel.answer.base.Answer` (no `.frame()`) instead of
+a `TableAnswer`, because the coordinator ran the job but never produced a
+result table. Calling `.frame()` unconditionally previously crashed with an
+opaque `AttributeError: 'Answer' object has no attribute 'frame'` deep
+inside the `asyncio.to_thread` worker, which `step_runner`'s
+`classify_step_exception` (see `services/execution/step_runner/signals.py`)
+has no choice but to bucket as `category="internal"` — the generic
+"Unexpected error" the frontend shows for anything that isn't a `ValueError`/
+`RuntimeError`, hiding the actual (config-level, user-fixable) cause.
+`BatfishService._answer` (`services/batfish/client.py`) now detects the
+missing `.frame()` itself and raises `BatfishAnswerFailedError` (a
+`BatfishAPIError` subclass, `services/batfish/common/exceptions.py`) instead
+of calling it. Both `batfish-path-check` and `batfish-acl-check` (the two
+steps whose config directly names a node/device — `start_node`/`end_node`
+and `node` respectively — as opposed to Routing Table's/the OSPF/BGP facts
+steps' optional multi-node *filter*) catch `BatfishAnswerFailedError` around
+their query call and re-raise as `ValueError` naming the offending
+device(s), so the frontend shows a precise, actionable message
+(`category="configuration"`) instead of the opaque internal-error screen.
+
 **Not a per-device partition, unlike `compare-pyats-snapshot`'s
 `match`/`mismatch`/`failure`.** That step's branching splits
 `context.devices` itself into buckets, because it evaluates the same

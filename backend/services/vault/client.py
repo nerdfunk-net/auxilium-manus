@@ -182,16 +182,24 @@ class OpenBaoService:
         raise VaultError(f"OpenBao {method} {path} returned HTTP {response.status_code}")
 
     # --------------------------------------------------------------------- KV v2
-    def read_kv(self, path: str) -> dict:
-        cached = self._cache.get(path)
-        if cached is not None:
-            return cached
-        response = self._request("GET", f"/v1/{self._cfg.mount}/data/{path}")
+    def read_kv(self, path: str, *, version: int | None = None) -> dict:
+        """Read the KV v2 secret at *path*. A pinned ``version`` bypasses the
+        cache entirely (the cache only ever holds "latest")."""
+        if version is None:
+            cached = self._cache.get(path)
+            if cached is not None:
+                return cached
+
+        request_path = f"/v1/{self._cfg.mount}/data/{path}"
+        if version is not None:
+            request_path += f"?version={version}"
+        response = self._request("GET", request_path)
         body = response.json()
         data = ((body or {}).get("data") or {}).get("data")
         if data is None:
             raise VaultSecretNotFoundError(f"OpenBao path holds no secret data: {path}")
-        self._cache.set(path, data)
+        if version is None:
+            self._cache.set(path, data)
         return dict(data)
 
     def write_kv(self, path: str, data: dict) -> int | None:
@@ -220,6 +228,19 @@ class OpenBaoService:
         latest version and leave the history readable (V3)."""
         self._request("DELETE", f"/v1/{self._cfg.mount}/metadata/{path}")
         self._cache.invalidate(path)
+
+    def metadata_kv(self, path: str) -> dict:
+        """Return the KV v2 metadata envelope for *path*, including its
+        ``versions`` map (``{"<n>": {"created_time": ..., "destroyed": ...}}``).
+        Used by callers that need version history (e.g. the Secret Manager
+        integration's ``get_field_history``) rather than just the latest value.
+        """
+        response = self._request("GET", f"/v1/{self._cfg.mount}/metadata/{path}")
+        body = response.json()
+        data = (body or {}).get("data")
+        if data is None:
+            raise VaultSecretNotFoundError(f"OpenBao path holds no metadata: {path}")
+        return dict(data)
 
     def health(self) -> dict:
         return self._request("GET", "/v1/sys/health", authed=False).json()

@@ -24,6 +24,7 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.batfish.common.exceptions import BatfishAnswerFailedError
 from services.batfish.query_helpers import query_reachability, require_field
 from workflow_steps.batfish_path_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
@@ -68,21 +69,32 @@ async def execute(
         end_node or None,
     )
 
-    rows, reachable = await query_reachability(
-        batfish,
-        snap.connection,
-        batfish_network=snap.network,
-        snapshot=snap.snapshot,
-        start_node=start_node,
-        end_node=end_node,
-        dst_ips=merged_config.get("dst_ips"),
-        src_ips=merged_config.get("src_ips"),
-        applications=merged_config.get("applications"),
-        ip_protocols=merged_config.get("ip_protocols"),
-        max_traces=merged_config.get("max_traces"),
-        invert_search=bool(merged_config.get("invert_search", False)),
-        ignore_filters=bool(merged_config.get("ignore_filters", False)),
-    )
+    try:
+        rows, reachable = await query_reachability(
+            batfish,
+            snap.connection,
+            batfish_network=snap.network,
+            snapshot=snap.snapshot,
+            start_node=start_node,
+            end_node=end_node,
+            dst_ips=merged_config.get("dst_ips"),
+            src_ips=merged_config.get("src_ips"),
+            applications=merged_config.get("applications"),
+            ip_protocols=merged_config.get("ip_protocols"),
+            max_traces=merged_config.get("max_traces"),
+            invert_search=bool(merged_config.get("invert_search", False)),
+            ignore_filters=bool(merged_config.get("ignore_filters", False)),
+        )
+    except BatfishAnswerFailedError as exc:
+        devices_desc = f"start_node={start_node!r}" + (
+            f", end_node={end_node!r}" if end_node else ""
+        )
+        raise ValueError(
+            f"Batfish could not evaluate reachability for {devices_desc} -- this "
+            "usually means one or both devices are not known to this Batfish "
+            "snapshot (check for a typo, or that the device has been collected "
+            "into the snapshot)."
+        ) from exc
 
     output_key = str(merged_config.get("output_key") or "batfish_path_check").strip() or (
         "batfish_path_check"

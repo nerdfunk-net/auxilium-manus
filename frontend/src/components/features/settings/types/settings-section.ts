@@ -6,4 +6,5 @@ export type SettingsSection =
   | "hatchet"
   | "redis"
   | "logging"
-  | "git-repositories";
+  | "git-repositories"
+  | "secret-manager";

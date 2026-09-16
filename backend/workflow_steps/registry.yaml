@@ -2839,7 +2839,7 @@ plugins:
       credential vault and write the portable ciphertext token to a
       destination attribute path (for later persistence to disk or git).
     artifact_type: control_flow
-    palette_category: attributes
+    palette_category: secrets
     directory: encrypt_attribute
     enabled: true
     requires: [identity]
@@ -2884,7 +2884,7 @@ plugins:
       credential vault and store the cleartext as a sealed secret for
       downstream steps (render a template, deploy to a device).
     artifact_type: control_flow
-    palette_category: attributes
+    palette_category: secrets
     directory: decrypt_attribute
     enabled: true
     requires: [identity]
@@ -3983,6 +3983,178 @@ plugins:
           description: >
             Load each device's committed config file (from the change request's
             device snapshot) as running_config.
+          data_type: boolean
+          required: false
+          default: true
+
+  - id: secret-get
+    name: Secret Get
+    overview: Read a secret from a configured Secret Manager connection.
+    description: >
+      Read one field from an external Secret Manager connection (OpenBao or
+      Infisical) per device and seal it into the device's attribute bag — the
+      TACACS+/SNMP "retrieve the current or a previous value" primitive. A
+      device with no value at the configured path/field is routed to the
+      failure outcome; the step itself still succeeds (proceed with
+      survivors). See doc/SECRET_MANAGER_INTEGRATION.md.
+    artifact_type: configuration_management
+    palette_category: secrets
+    directory: secret_get
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: connection_id
+          description: Secret Manager connection (Settings → Secret Manager).
+          data_type: integer
+          required: true
+          example: 1
+        - name: path_template
+          description: >
+            Device-templated path, e.g. network/{device.name}/tacacs. Supports
+            the same {device.*} / {nautobot.*} / {git.*} placeholders as
+            store-artifact's filename_template.
+          data_type: string
+          required: true
+          default: network/{device.name}/tacacs
+        - name: field
+          description: Field name within the secret at path_template.
+          data_type: string
+          required: true
+          default: key
+        - name: destination_path
+          description: Attribute bag path the sealed value is written to.
+          data_type: string
+          required: true
+          default: tacacs.shared_secret
+        - name: version
+          description: Optional specific version to read; blank reads the latest.
+          data_type: integer
+          required: false
+        - name: strict_templates
+          description: Fail when a namespaced placeholder in path_template resolves empty.
+          data_type: boolean
+          required: false
+          default: true
+
+  - id: secret-set
+    name: Secret Set
+    overview: Write an explicit value to a Secret Manager connection.
+    description: >
+      Write a literal value, or one read from another attribute path (e.g. a
+      static run-input the operator supplied at trigger time), to one field
+      of an external Secret Manager connection per device. Also seals the
+      written value into the device's attribute bag so a later step in the
+      same run can use it. See doc/SECRET_MANAGER_INTEGRATION.md.
+    artifact_type: configuration_management
+    palette_category: secrets
+    directory: secret_set
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: connection_id
+          description: Secret Manager connection (Settings → Secret Manager).
+          data_type: integer
+          required: true
+          example: 1
+        - name: path_template
+          description: Device-templated path, e.g. network/{device.name}/tacacs.
+          data_type: string
+          required: true
+          default: network/{device.name}/tacacs
+        - name: field
+          description: Field name within the secret at path_template.
+          data_type: string
+          required: true
+          default: key
+        - name: mode
+          description: fixed (use fixed_value) or attribute (read from source_path).
+          data_type: string
+          required: true
+          default: fixed
+        - name: fixed_value
+          description: Literal value to write. Required in fixed mode.
+          data_type: string
+          required: false
+        - name: source_path
+          description: >
+            Attribute path to read the value from (e.g.
+            run_input.new_tacacs_key). Required in attribute mode.
+          data_type: string
+          required: false
+        - name: destination_path
+          description: Attribute bag path the sealed value is also written to.
+          data_type: string
+          required: true
+          default: tacacs.shared_secret
+        - name: strict_templates
+          description: Fail when a namespaced placeholder in path_template resolves empty.
+          data_type: boolean
+          required: false
+          default: true
+
+  - id: secret-generate
+    name: Secret Generate
+    overview: Generate and store a random secret per device.
+    description: >
+      Generate a cryptographically random value per device, store it at one
+      field of an external Secret Manager connection, and seal it into the
+      device's attribute bag for a later step in the same run (e.g. a
+      push-config step) — the TACACS+/SNMP rotation primitive. The generated
+      value is never shown in the run UI, never logged, and never persisted
+      in plaintext. See doc/SECRET_MANAGER_INTEGRATION.md.
+    artifact_type: configuration_management
+    palette_category: secrets
+    directory: secret_generate
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: connection_id
+          description: Secret Manager connection (Settings → Secret Manager).
+          data_type: integer
+          required: true
+          example: 1
+        - name: path_template
+          description: Device-templated path, e.g. network/{device.name}/tacacs.
+          data_type: string
+          required: true
+          default: network/{device.name}/tacacs
+        - name: field
+          description: Field name within the secret at path_template.
+          data_type: string
+          required: true
+          default: key
+        - name: destination_path
+          description: Attribute bag path the sealed value is written to.
+          data_type: string
+          required: true
+          default: tacacs.shared_secret
+        - name: charset
+          description: hex (TACACS+/tokens), alnum (SNMP community strings), or alnum_symbols (SNMPv3 passphrases).
+          data_type: string
+          required: false
+          default: hex
+        - name: length
+          description: Generated value length (4-256 characters).
+          data_type: integer
+          required: false
+          default: 32
+        - name: strict_templates
+          description: Fail when a namespaced placeholder in path_template resolves empty.
           data_type: boolean
           required: false
           default: true

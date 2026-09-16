@@ -34,6 +34,13 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("sources.mattermost", "read", "View Mattermost sources"),
     ("sources.mattermost", "write", "Create or update Mattermost sources"),
     ("sources.mattermost", "delete", "Delete Mattermost sources"),
+    ("secret_manager.connections", "read", "View secret manager connection configurations"),
+    (
+        "secret_manager.connections",
+        "write",
+        "Create or update secret manager connection configurations",
+    ),
+    ("secret_manager.connections", "delete", "Delete secret manager connection configurations"),
     ("nautobot.custom_fields", "read", "View Nautobot custom field definitions"),
     ("workflow_steps", "read", "View available workflow step plugins and configs"),
     ("workflows", "read", "View workflow definitions"),

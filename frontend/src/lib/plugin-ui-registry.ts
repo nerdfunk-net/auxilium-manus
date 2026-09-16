@@ -66,6 +66,9 @@ import { DecryptAttributePlugin } from "@/components/features/workflow-steps/dec
 import { UpdateContentPlugin } from "@/components/features/workflow-steps/update-content";
 import { UpdateIseTacacsKeyPlugin } from "@/components/features/workflow-steps/update-ise-tacacs-key";
 import { UploadConfigPlugin } from "@/components/features/workflow-steps/upload-config";
+import { SecretGetPlugin } from "@/components/features/workflow-steps/secret-get";
+import { SecretSetPlugin } from "@/components/features/workflow-steps/secret-set";
+import { SecretGeneratePlugin } from "@/components/features/workflow-steps/secret-generate";
 
 const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-nautobot-devices": GetNautobotDevicesPlugin,
@@ -132,6 +135,9 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   notify: NotifyPlugin,
   "notify-mattermost": NotifyMattermostPlugin,
   "notify-on-error": NotifyOnErrorPlugin,
+  "secret-get": SecretGetPlugin,
+  "secret-set": SecretSetPlugin,
+  "secret-generate": SecretGeneratePlugin,
   label: LabelPlugin,
   background: BackgroundPlugin,
   funnel: FunnelPlugin,

@@ -28,7 +28,7 @@ from typing import Any, cast
 from pybatfish.client.session import Session
 from pybatfish.exception import BatfishException
 
-from services.batfish.common.exceptions import BatfishAPIError
+from services.batfish.common.exceptions import BatfishAnswerFailedError, BatfishAPIError
 from services.batfish.credentials import BatfishConnection
 
 logger = logging.getLogger(__name__)
@@ -358,13 +358,22 @@ class BatfishService:
 
         def _run() -> list[dict[str, Any]]:
             question = getattr(session.q, question_name)
-            frame = question(**clean_params).answer(snapshot=snapshot).frame()
+            answer = question(**clean_params).answer(snapshot=snapshot)
+            # A question the coordinator ran but couldn't turn into a result
+            # table (typically an unresolved node/location specifier) comes
+            # back as a plain Answer, not a TableAnswer -- it has no .frame().
+            # See BatfishAnswerFailedError's docstring.
+            if not hasattr(answer, "frame"):
+                raise BatfishAnswerFailedError(question_name, dict(answer))
+            frame = answer.frame()
             # numpy scalar types in DataFrame cells (e.g. numpy.int64) can
             # fail plain json.dumps; pandas' own to_json round-trip is safe.
             return json.loads(frame.to_json(orient="records"))
 
         try:
             return await asyncio.to_thread(_run)
+        except BatfishAnswerFailedError:
+            raise
         except BatfishException as exc:
             raise BatfishAPIError(f"Batfish question {question_name!r} failed: {exc}") from exc
         except Exception as exc:

@@ -9,11 +9,24 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { Fragment, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+import { findMatches, wrapMatchIndex } from "./content-find";
 
 interface ContentViewerProps {
   content: string;
@@ -25,45 +38,143 @@ interface ContentViewerProps {
   height?: "sm" | "full";
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function isFindShortcut(event: KeyboardEvent | ReactKeyboardEvent): boolean {
+  return (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f";
 }
 
-interface Segment {
-  text: string;
-  /** Zero-based ordinal among all matches, or null for non-matching text. */
-  matchIndex: number | null;
+function isFindNextShortcut(event: KeyboardEvent | ReactKeyboardEvent): boolean {
+  return (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "g";
 }
 
-function splitOnQuery(content: string, query: string): Segment[] {
-  if (!query) {
-    return [{ text: content, matchIndex: null }];
-  }
+interface FindBarProps {
+  label: string;
+  matchCount: number;
+  currentMatch: number;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onQueryChange: (query: string) => void;
+  onStep: (delta: number) => void;
+  onClose: () => void;
+}
 
-  const segments: Segment[] = [];
-  const regex = new RegExp(escapeRegExp(query), "gi");
-  let lastIndex = 0;
-  let matchOrdinal = 0;
-  let result: RegExpExecArray | null;
+/**
+ * Uncontrolled search field so typing is handled by the browser, not by
+ * re-rendering a huge result document (Extract Facts, configs, …) on every
+ * keystroke. The parent learns the query through a transition.
+ */
+const FindBar = memo(function FindBar({
+  label,
+  matchCount,
+  currentMatch,
+  inputRef,
+  onQueryChange,
+  onStep,
+  onClose,
+}: FindBarProps) {
+  const handleChange = (value: string) => {
+    startTransition(() => {
+      onQueryChange(value);
+    });
+  };
 
-  while ((result = regex.exec(content)) !== null) {
-    if (result.index > lastIndex) {
-      segments.push({ text: content.slice(lastIndex, result.index), matchIndex: null });
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onStep(event.shiftKey ? -1 : 1);
     }
-    segments.push({ text: result[0], matchIndex: matchOrdinal });
-    matchOrdinal += 1;
-    lastIndex = result.index + result[0].length;
-    if (result[0].length === 0) {
-      regex.lastIndex += 1;
-    }
+  };
+
+  const summary = matchCount === 0 ? "0/0" : `${currentMatch + 1}/${matchCount}`;
+
+  return (
+    <div className="flex items-center gap-1.5" role="search" aria-label={`${label} find`}>
+      <Input
+        ref={inputRef}
+        type="search"
+        defaultValue=""
+        onChange={(event) => handleChange(event.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Find in content…"
+        className="h-7 appearance-none text-xs [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none"
+        autoFocus
+        aria-label={`Find in ${label}`}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <span
+        className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+        aria-live="polite"
+      >
+        {summary}
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="size-7 p-0 [&_svg]:size-3.5"
+        disabled={matchCount === 0}
+        onClick={() => onStep(-1)}
+        aria-label="Previous match"
+      >
+        <ChevronUp aria-hidden />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="size-7 p-0 [&_svg]:size-3.5"
+        disabled={matchCount === 0}
+        onClick={() => onStep(1)}
+        aria-label="Next match"
+      >
+        <ChevronDown aria-hidden />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="size-7 p-0 [&_svg]:size-3.5"
+        onClick={onClose}
+        aria-label="Close find"
+      >
+        <X aria-hidden />
+      </Button>
+    </div>
+  );
+});
+
+const HighlightedContent = memo(function HighlightedContent({
+  content,
+  query,
+  matchStart,
+  matchLength,
+  markRef,
+}: {
+  content: string;
+  query: string;
+  matchStart: number | null;
+  matchLength: number;
+  markRef: RefObject<HTMLElement | null>;
+}) {
+  if (matchStart == null || !query || matchLength === 0) {
+    return content;
   }
 
-  if (lastIndex < content.length) {
-    segments.push({ text: content.slice(lastIndex), matchIndex: null });
-  }
-
-  return segments;
-}
+  const matchEnd = matchStart + matchLength;
+  return (
+    <>
+      {content.slice(0, matchStart)}
+      <mark
+        ref={(node) => {
+          markRef.current = node;
+        }}
+        className="rounded-sm bg-warning text-warning-foreground"
+      >
+        {content.slice(matchStart, matchEnd)}
+      </mark>
+      {content.slice(matchEnd)}
+    </>
+  );
+});
 
 export function ContentViewer({
   content,
@@ -76,15 +187,19 @@ export function ContentViewer({
   const [showFind, setShowFind] = useState(false);
   const [query, setQuery] = useState("");
   const [activeMatch, setActiveMatch] = useState(0);
-  const activeMarkRef = useRef<HTMLElement | null>(null);
+  const deferredQuery = useDeferredValue(query);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const markRef = useRef<HTMLElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const matchCountRef = useRef(0);
 
-  const segments = useMemo(() => splitOnQuery(content, query), [content, query]);
-  const matchCount = useMemo(
-    () => segments.reduce((total, segment) => total + (segment.matchIndex != null ? 1 : 0), 0),
-    [segments],
+  const matches = useMemo(
+    () => findMatches(content, deferredQuery),
+    [content, deferredQuery],
   );
-  const currentMatch =
-    matchCount === 0 ? 0 : ((activeMatch % matchCount) + matchCount) % matchCount;
+  const matchCount = matches.length;
+  const currentMatch = wrapMatchIndex(activeMatch, matchCount);
+  const current = matchCount === 0 ? null : (matches[currentMatch] ?? null);
 
   const handleCopy = async () => {
     try {
@@ -110,18 +225,89 @@ export function ContentViewer({
     URL.revokeObjectURL(url);
   };
 
-  const stepMatch = (delta: number) => {
-    if (matchCount === 0) {
+  const openFind = useCallback(() => {
+    setShowFind(true);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+  }, []);
+
+  const closeFind = useCallback(() => {
+    setShowFind(false);
+    setQuery("");
+    setActiveMatch(0);
+  }, []);
+
+  const handleQueryChange = useCallback((next: string) => {
+    setQuery(next);
+    setActiveMatch(0);
+  }, []);
+
+  const stepMatch = useCallback((delta: number) => {
+    if (matchCountRef.current === 0) {
       return;
     }
     setActiveMatch((value) => value + delta);
-    window.requestAnimationFrame(() => {
-      activeMarkRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    matchCountRef.current = matchCount;
+  }, [matchCount]);
+
+  useEffect(() => {
+    if (current == null) {
+      return;
+    }
+    const reduceMotion =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    markRef.current?.scrollIntoView?.({
+      block: "center",
+      behavior: reduceMotion ? "auto" : "smooth",
     });
-  };
+  }, [current, currentMatch]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const root = containerRef.current;
+      if (!root) {
+        return;
+      }
+      const target = event.target;
+      const inside =
+        target instanceof Node && (root.contains(target) || target === root);
+      if (!inside) {
+        return;
+      }
+      if (isFindShortcut(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        openFind();
+        return;
+      }
+      if (!showFind) {
+        return;
+      }
+      if (isFindNextShortcut(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        stepMatch(event.shiftKey ? -1 : 1);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeFind();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [openFind, closeFind, showFind, stepMatch]);
 
   return (
-    <div className="space-y-1">
+    <div ref={containerRef} className="space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
@@ -137,7 +323,7 @@ export function ContentViewer({
             variant="ghost"
             size="sm"
             className="h-6 gap-1 px-1.5 text-[11px] [&_svg]:size-3"
-            onClick={() => setShowFind((value) => !value)}
+            onClick={() => (showFind ? closeFind() : openFind())}
             aria-pressed={showFind}
           >
             <Search aria-hidden />
@@ -167,92 +353,33 @@ export function ContentViewer({
       </div>
 
       {showFind ? (
-        <div className="flex items-center gap-1.5">
-          <Input
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setActiveMatch(0);
-            }}
-            placeholder="Find in content…"
-            className="h-7 text-xs"
-            autoFocus
-          />
-          <span className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
-            {query ? `${matchCount === 0 ? 0 : currentMatch + 1}/${matchCount}` : "0/0"}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="size-7 p-0 [&_svg]:size-3.5"
-            disabled={matchCount === 0}
-            onClick={() => stepMatch(-1)}
-            aria-label="Previous match"
-          >
-            <ChevronUp aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="size-7 p-0 [&_svg]:size-3.5"
-            disabled={matchCount === 0}
-            onClick={() => stepMatch(1)}
-            aria-label="Next match"
-          >
-            <ChevronDown aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="size-7 p-0 [&_svg]:size-3.5"
-            onClick={() => {
-              setShowFind(false);
-              setQuery("");
-            }}
-            aria-label="Close find"
-          >
-            <X aria-hidden />
-          </Button>
-        </div>
+        <FindBar
+          label={label}
+          matchCount={deferredQuery ? matchCount : 0}
+          currentMatch={currentMatch}
+          inputRef={inputRef}
+          onQueryChange={handleQueryChange}
+          onStep={stepMatch}
+          onClose={closeFind}
+        />
       ) : null}
 
       <pre
+        tabIndex={-1}
         className={cn(
-          "overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 text-[11px] font-mono",
+          "overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 text-[11px] font-mono focus-visible:outline-none",
           height === "full"
             ? "max-h-[calc(96vh-14rem)] min-h-32 resize-y"
             : "max-h-60",
         )}
       >
-        {segments.map((segment, index) => {
-          if (segment.matchIndex == null) {
-            return <Fragment key={index}>{segment.text}</Fragment>;
-          }
-          const isActive = segment.matchIndex === currentMatch;
-          return (
-            <mark
-              key={index}
-              ref={
-                isActive
-                  ? (node) => {
-                      activeMarkRef.current = node;
-                    }
-                  : undefined
-              }
-              className={cn(
-                "rounded-sm",
-                isActive
-                  ? "bg-warning text-warning-foreground"
-                  : "bg-warning/40 text-foreground",
-              )}
-            >
-              {segment.text}
-            </mark>
-          );
-        })}
+        <HighlightedContent
+          content={content}
+          query={deferredQuery}
+          matchStart={current?.start ?? null}
+          matchLength={current?.length ?? 0}
+          markRef={markRef}
+        />
       </pre>
     </div>
   );

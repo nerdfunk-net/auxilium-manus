@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
+    from services.secret_manager.registry import SecretManagerClientRegistry
     from services.vault.client import OpenBaoService
 
 from core.config import settings
@@ -52,6 +53,10 @@ _login_user_rate_limiter: LoginRateLimiter | None = None
 # write endpoints. See doc/VAULT_INTEGRATION.md.
 _vault_service: OpenBaoService | None = None
 _vault_management_service: OpenBaoService | None = None
+# Secret Manager (OpenBao/Infisical network-secret connections). Lazily built
+# on first access — connections are DB rows, not known at boot. See
+# doc/SECRET_MANAGER_INTEGRATION.md.
+_secret_manager_registry: SecretManagerClientRegistry | None = None
 
 
 def get_nautobot_app_service() -> NautobotService:
@@ -293,6 +298,31 @@ def get_vault_management_service() -> OpenBaoService | None:
 def set_vault_management_service(service: OpenBaoService | None) -> None:
     global _vault_management_service
     _vault_management_service = service
+
+
+def get_secret_manager_registry() -> SecretManagerClientRegistry:
+    """Lazily create the process-wide Secret Manager client registry.
+
+    Unlike the vault singletons above, this never needs eager startup —
+    connections are DB rows, discovered on first use (see
+    services/secret_manager/registry.py).
+    """
+    global _secret_manager_registry
+    if _secret_manager_registry is None:
+        from services.secret_manager.registry import SecretManagerClientRegistry
+
+        _secret_manager_registry = SecretManagerClientRegistry()
+    return _secret_manager_registry
+
+
+async def stop_secret_manager_services() -> None:
+    """Shut down every lazily-created Secret Manager client. Called from both
+    the FastAPI lifespan and each Hatchet worker's shutdown, mirroring
+    ``stop_vault_services``."""
+    global _secret_manager_registry
+    if _secret_manager_registry is not None:
+        await _secret_manager_registry.shutdown_all()
+        _secret_manager_registry = None
 
 
 def build_credentials_service(db: Session | None = None, *, with_management: bool = False):

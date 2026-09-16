@@ -89,6 +89,12 @@ def get_git_repository_service(db: Session = Depends(get_db)):
     return GitRepositoryService(db)
 
 
+def get_secret_manager_connection_service(db: Session = Depends(get_db)):
+    from services.secret_manager.connection_service import SecretManagerConnectionService
+
+    return SecretManagerConnectionService(db)
+
+
 def get_git_auth_service():
     return service_factory.build_git_auth_service()
 

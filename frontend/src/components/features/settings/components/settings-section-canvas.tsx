@@ -8,6 +8,7 @@ import { HatchetSettingsCanvas } from "./hatchet-settings-canvas";
 import { LoggingSettingsCanvas } from "./logging-settings-canvas";
 import { PermissionsSettingsCanvas } from "./permissions-settings-canvas";
 import { RedisSettingsCanvas } from "./redis-settings-canvas";
+import { SecretManagerSettingsCanvas } from "./secret-manager-settings-canvas";
 import { SourcesSettingsCanvas } from "./sources-settings-canvas";
 
 interface SettingsSectionCanvasProps {
@@ -45,6 +46,10 @@ export function SettingsSectionCanvas({ section }: SettingsSectionCanvasProps) {
 
   if (section === "git-repositories") {
     return <GitRepositoriesSettingsCanvas />;
+  }
+
+  if (section === "secret-manager") {
+    return <SecretManagerSettingsCanvas />;
   }
 
   return null;

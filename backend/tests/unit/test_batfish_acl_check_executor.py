@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import WorkflowContext
 from services.artifacts import InMemoryArtifactService
+from services.batfish.common.exceptions import BatfishAnswerFailedError
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_acl_check.executor import execute
 from workflow_steps.common.batfish_context import store_batfish_snapshot
@@ -72,6 +73,35 @@ class BatfishAclCheckExecutorTests(unittest.IsolatedAsyncioTestCase):
                     node_id="node-1",
                     device_sessions=MagicMock(),
                 )
+
+    async def test_unknown_node_raises_value_error_not_internal_error(self) -> None:
+        # Reproduces the reported bug: an unknown node/device makes Batfish
+        # return a non-table Answer, which BatfishService now surfaces as
+        # BatfishAnswerFailedError instead of crashing with an opaque
+        # AttributeError. The executor must translate that into a ValueError
+        # (a "configuration" category, user-facing message) rather than let
+        # it propagate as an unclassified exception ("internal" category,
+        # generic message).
+        run = MagicMock()
+        run.id = 1
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.test_filters = AsyncMock(
+                side_effect=BatfishAnswerFailedError("testFilters", {"status": "FAILURE"})
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            with self.assertRaises(ValueError) as ctx:
+                await execute(
+                    config=_BASE_CONFIG,
+                    context=_context_with_snapshot(),
+                    run=run,
+                    artifact_service=InMemoryArtifactService(),
+                    node_id="node-1",
+                    device_sessions=MagicMock(),
+                )
+        self.assertIn("R1", str(ctx.exception))
+        self.assertIn("TEST-ACL", str(ctx.exception))
 
     async def test_missing_node_raises_value_error(self) -> None:
         run = MagicMock()

@@ -15,6 +15,7 @@ export function generateStaticParams() {
     { section: "redis" },
     { section: "logging" },
     { section: "version-control" },
+    { section: "secret-manager" },
   ];
 }
 

@@ -24,6 +24,7 @@ import service_factory
 from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
+from services.batfish.common.exceptions import BatfishAnswerFailedError
 from services.batfish.query_helpers import query_test_filters, require_field
 from workflow_steps.batfish_acl_check.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
@@ -68,19 +69,27 @@ async def execute(
         filter_name,
     )
 
-    rows, action = await query_test_filters(
-        batfish,
-        snap.connection,
-        batfish_network=snap.network,
-        snapshot=snap.snapshot,
-        node=node,
-        filter_name=filter_name,
-        dst_ips=dst_ips,
-        src_ips=merged_config.get("src_ips"),
-        applications=merged_config.get("applications"),
-        ip_protocols=merged_config.get("ip_protocols"),
-        start_location=merged_config.get("start_location"),
-    )
+    try:
+        rows, action = await query_test_filters(
+            batfish,
+            snap.connection,
+            batfish_network=snap.network,
+            snapshot=snap.snapshot,
+            node=node,
+            filter_name=filter_name,
+            dst_ips=dst_ips,
+            src_ips=merged_config.get("src_ips"),
+            applications=merged_config.get("applications"),
+            ip_protocols=merged_config.get("ip_protocols"),
+            start_location=merged_config.get("start_location"),
+        )
+    except BatfishAnswerFailedError as exc:
+        raise ValueError(
+            f"Batfish could not evaluate filter {filter_name!r} on node={node!r} -- "
+            "this usually means the device or filter is not known to this Batfish "
+            "snapshot (check for a typo, or that the device has been collected "
+            "into the snapshot)."
+        ) from exc
 
     permitted = action == "PERMIT"
     output_key = str(merged_config.get("output_key") or "batfish_acl_check").strip() or (

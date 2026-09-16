@@ -5,6 +5,7 @@ import {
   Plug,
   ScrollText,
   Settings2,
+  ShieldCheck,
   Users,
   Workflow,
 } from "lucide-react";
@@ -83,5 +84,12 @@ export const SETTINGS_SECTIONS: {
     description: "Git repositories used by workflow steps and workflow version control.",
     icon: GitBranch,
     canShow: (user) => hasPermission(user, "git.repositories", "read"),
+  },
+  {
+    id: "secret-manager",
+    label: "Secret Manager",
+    description: "OpenBao/Infisical connections used by secret-get/set/generate workflow steps.",
+    icon: ShieldCheck,
+    canShow: (user) => hasPermission(user, "secret_manager.connections", "read"),
   },
 ];

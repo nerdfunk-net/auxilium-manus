@@ -127,6 +127,11 @@ export const queryKeys = {
         : ([...queryKeys.credentials.all, "list"] as const),
     vaultStatus: () => [...queryKeys.credentials.all, "vault-status"] as const,
   },
+  secretManagerConnections: {
+    all: ["secret-manager-connections"] as const,
+    list: (activeOnly?: boolean) =>
+      [...queryKeys.secretManagerConnections.all, "list", activeOnly ? "active" : "all"] as const,
+  },
   gitRepositories: {
     all: ["git-repositories"] as const,
     list: (activeOnly?: boolean, category?: string) =>

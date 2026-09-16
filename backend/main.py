@@ -33,6 +33,7 @@ from routers.nautobot.custom_fields import router as nautobot_custom_fields_rout
 from routers.netmiko import router as netmiko_router
 from routers.oidc import router as oidc_router
 from routers.rbac import router as rbac_router
+from routers.secret_manager import router as secret_manager_router
 from routers.settings import router as settings_router
 from routers.sources.batfish import (
     batfish_source_crud_router,
@@ -140,6 +141,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await batfish_service.shutdown()
     await mattermost_service.shutdown()
     await stop_vault_services()
+    await service_factory.stop_secret_manager_services()
 
 
 app = FastAPI(
@@ -185,6 +187,7 @@ app.include_router(workflow_background_tier_router, prefix=settings.api_prefix)
 app.include_router(dashboard_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)
 app.include_router(credentials_router, prefix=settings.api_prefix)
+app.include_router(secret_manager_router, prefix=settings.api_prefix)
 app.include_router(templates_router, prefix=settings.api_prefix)
 app.include_router(netmiko_router, prefix=settings.api_prefix)
 app.include_router(hatchet_settings_router, prefix=settings.api_prefix)

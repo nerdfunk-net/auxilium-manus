@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from models.workflow_context import DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
+from services.batfish.common.exceptions import BatfishAnswerFailedError
 from services.batfish.credentials import BatfishConnection
 from workflow_steps.batfish_path_check.executor import execute
 from workflow_steps.common.batfish_context import store_batfish_snapshot
@@ -70,6 +71,36 @@ class BatfishPathCheckExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["pathConstraints"], {"startLocation": "R1", "endLocation": "R2"})
         self.assertNotIn("headers", kwargs["pathConstraints"])
         self.assertEqual(kwargs["headers"], {"dstIps": "10.0.0.1"})
+
+    async def test_unknown_device_raises_value_error_not_internal_error(self) -> None:
+        # Reproduces the reported bug: an unknown source/destination device
+        # makes Batfish return a non-table Answer, which BatfishService now
+        # surfaces as BatfishAnswerFailedError instead of crashing with an
+        # opaque AttributeError ('Answer' object has no attribute 'frame').
+        # The executor must translate that into a ValueError (a
+        # "configuration" category, user-facing message naming the device(s))
+        # rather than let it propagate as an unclassified exception
+        # ("internal" category, generic "Unexpected error" message).
+        run = MagicMock()
+        run.id = 1
+        with patch(_SERVICE_FACTORY_TARGET) as service_factory_mock:
+            batfish = MagicMock()
+            batfish.reachability = AsyncMock(
+                side_effect=BatfishAnswerFailedError("reachability", {"status": "FAILURE"})
+            )
+            service_factory_mock.get_batfish_app_service.return_value = batfish
+
+            with self.assertRaises(ValueError) as ctx:
+                await execute(
+                    config={"start_node": "unknown-router", "end_node": "R2"},
+                    context=_context_with_snapshot(),
+                    run=run,
+                    artifact_service=InMemoryArtifactService(),
+                    node_id="node-1",
+                    device_sessions=MagicMock(),
+                )
+        self.assertIn("unknown-router", str(ctx.exception))
+        self.assertIn("R2", str(ctx.exception))
 
     async def test_missing_start_node_raises_value_error(self) -> None:
         run = MagicMock()

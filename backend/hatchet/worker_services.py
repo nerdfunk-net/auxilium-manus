@@ -72,4 +72,5 @@ async def start_all(process_name: str = WORKER_PROCESS_NAME) -> AsyncIterator[No
         await batfish_service.shutdown()
         await mattermost_service.shutdown()
         await stop_vault_services()
+        await service_factory.stop_secret_manager_services()
         logger.info("Worker services shut down")

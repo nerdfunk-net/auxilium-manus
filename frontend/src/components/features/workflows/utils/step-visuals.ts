@@ -17,6 +17,8 @@ import {
   HardDriveDownload,
   HardDriveUpload,
   Key,
+  KeyRound,
+  KeySquare,
   List,
   Lock,
   LockOpen,
@@ -24,6 +26,7 @@ import {
   MessageSquare,
   PackagePlus,
   Replace,
+  RefreshCw,
   Route,
   Router,
   Scale,
@@ -58,6 +61,7 @@ export const ARTIFACT_TYPE_ORDER = [
   "content_tools",
   "debug",
   "notify",
+  "secrets",
   "cisco",
   "pyats",
   "batfish",
@@ -87,6 +91,7 @@ export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   batfish: "Batfish",
   configuration_management: "Configuration Management",
   notify: "Notify",
+  secrets: "Secrets",
 };
 
 export function formatPaletteCategory(category: string): string {
@@ -146,6 +151,11 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "batfish-routing-table": Route,
   "batfish-path-check": Signpost,
   "batfish-acl-check": ShieldAlert,
+  // Same reason as the pyats/batfish entries above: palette_category:
+  // secrets means the artifact_type icon fallback doesn't apply.
+  "secret-get": KeyRound,
+  "secret-set": KeySquare,
+  "secret-generate": RefreshCw,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {
@@ -188,6 +198,7 @@ export const categoryTileClasses: Record<string, string> = {
   trigger: "bg-muted text-muted-foreground",
   result: "bg-step-surface text-step-muted-foreground",
   notify: "bg-blue-100 text-blue-700",
+  secrets: "bg-teal-100 text-teal-700",
 };
 
 export const CATEGORY_TILE_FALLBACK = "bg-muted text-muted-foreground";
@@ -210,6 +221,7 @@ export const categoryBorderAccentClasses: Record<string, string> = {
   persistent_artifact: "border-l-violet-700",
   template_rendering: "border-l-orange-700",
   notify: "border-l-blue-700",
+  secrets: "border-l-teal-700",
 };
 
 export const CATEGORY_BORDER_FALLBACK = "border-l-border";

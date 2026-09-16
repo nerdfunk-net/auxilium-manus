@@ -1,0 +1,139 @@
+# Auxilium Manus — Infisical (secret manager, optional)
+#
+# Infisical (https://infisical.com/docs/self-hosting/deployment-options/standalone-infisical)
+# is a self-hosted secret manager. The published image is the application only —
+# PostgreSQL and Redis must be supplied alongside it (same layout as Infisical's
+# official docker-compose.prod.yml). This stack is the local Infisical backend
+# for Settings → Secret Manager connections (`backend: infisical`).
+#
+# Prerequisite: the app stack's `backend` network must already exist (created
+# automatically the first time `docker/docker-compose.yml` is brought up).
+# Running this standalone? Create it once:
+#   docker network create backend
+#
+# Start:
+#   cd docker/infisical
+#   cp .env.example .env
+#   # fill ENCRYPTION_KEY (openssl rand -hex 16),
+#   #      AUTH_SECRET     (openssl rand -base64 32),
+#   #      POSTGRES_PASSWORD
+#   docker compose up -d
+#
+# Verify:
+#   docker compose ps                                    # infisical should read "healthy"
+#   curl -s http://127.0.0.1:8080/api/status             # {"ok":true,...} or similar
+#
+# First-time setup:
+#   1. Open http://localhost:8080 and create the first account (becomes
+#      instance administrator). Do this before anyone else can reach the UI.
+#   2. In Infisical, create a project and a Universal Auth machine identity
+#      for Manus. Copy the client id / client secret into a Manus credential,
+#      then add a Secret Manager connection (backend: infisical) pointing at
+#      this instance.
+#
+# Reachability (same pattern as docker/openbao and docker/mattermost):
+#   - Backend containerized on the `backend` network (manus-web / manus-worker
+#     from docker/docker-compose.yml):
+#       URL: http://infisical:8080      (container DNS name)
+#   - Backend running natively on the host (the CLAUDE.md dev workflow —
+#     `python start.py` / `python scripts/run_worker_dev.py`):
+#       URL: http://127.0.0.1:8080      (the published port below)
+#     The backend rejects loopback source URLs by default — set
+#     ALLOW_LOOPBACK_SOURCE_URLS=true in backend/.env for this local-lab case.
+#
+# The published port is bound to 127.0.0.1 only — reachable from this machine,
+# not the LAN. PostgreSQL (5432) and Redis (6379) are not published at all;
+# they stay on the private `infisical-internal` network.
+#
+# SITE_URL is the browser-facing origin Infisical uses for cookies/CORS. Keep
+# it matching how you open the UI (http://localhost:8080 by default). The
+# Manus connection's `site_url` is independent: it is the URL the *backend*
+# uses to call Infisical's API (container DNS vs published localhost port).
+#
+# Back up ENCRYPTION_KEY together with the `infisical_pg_data` volume. Without
+# that key, a restored database cannot decrypt stored secrets.
+#
+# Docs:
+#   https://infisical.com/docs/self-hosting/deployment-options/standalone-infisical
+#   https://infisical.com/docs/self-hosting/deployment-options/docker-compose
+#   https://infisical.com/docs/self-hosting/configuration/envars
+
+services:
+  infisical-db:
+    image: postgres:17-alpine
+    container_name: infisical-db
+    hostname: infisical-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-infisical}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/infisical/.env}"
+      POSTGRES_DB: "${POSTGRES_DB:-infisical}"
+    volumes:
+      - infisical_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - infisical-internal
+
+  infisical-redis:
+    image: redis:8-alpine
+    container_name: infisical-redis
+    hostname: infisical-redis
+    restart: unless-stopped
+    volumes:
+      - infisical_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - infisical-internal
+
+  infisical:
+    # Pin INFISICAL_IMAGE_TAG in .env for reproducible deploys. Tags:
+    # https://hub.docker.com/r/infisical/infisical/tags  (after v0.147.0 the
+    # `-postgres` suffix was dropped; `latest` is the PostgreSQL image).
+    image: infisical/infisical:${INFISICAL_IMAGE_TAG:-latest}
+    container_name: infisical
+    hostname: infisical
+    restart: unless-stopped
+    depends_on:
+      infisical-db:
+        condition: service_healthy
+      infisical-redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      TELEMETRY_ENABLED: "false"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in docker/infisical/.env (openssl rand -hex 16)}"
+      AUTH_SECRET: "${AUTH_SECRET:?Set AUTH_SECRET in docker/infisical/.env (openssl rand -base64 32)}"
+      SITE_URL: "${SITE_URL:-http://localhost:8080}"
+      DB_CONNECTION_URI: "postgres://${POSTGRES_USER:-infisical}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/infisical/.env}@infisical-db:5432/${POSTGRES_DB:-infisical}"
+      REDIS_URL: redis://infisical-redis:6379
+    ports:
+      # nautobot is using port 8080 so we need to use a different port here
+      - "127.0.0.1:8081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    networks:
+      - infisical-internal
+      - backend
+
+volumes:
+  infisical_pg_data:
+  infisical_redis_data:
+
+networks:
+  infisical-internal:
+    driver: bridge
+  backend:
+    external: true

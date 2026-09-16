@@ -8,6 +8,7 @@ from core.models.notifications import Notification
 from core.models.rbac import Permission, Role, RolePermission, UserPermission, UserRole
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.schedules import WorkflowSchedule
+from core.models.secret_manager import SecretManagerConnection
 from core.models.settings import Setting
 from core.models.templates import Template
 from core.models.user_preferences import UserPreference
@@ -25,6 +26,7 @@ __all__ = [
     "Permission",
     "Role",
     "RolePermission",
+    "SecretManagerConnection",
     "Setting",
     "Template",
     "User",
