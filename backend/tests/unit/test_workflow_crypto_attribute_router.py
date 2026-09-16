@@ -12,8 +12,10 @@ from fastapi.testclient import TestClient
 from core.auth import get_current_user, verify_token
 from core.database import get_db
 from core.models.users import User
+from routers import workflow_crypto_attribute
 from routers.workflow_crypto_attribute import router as crypto_router
 from services.auth.rbac_service import RBACService
+from workflow_steps.common.credential_resolver import CredentialReferenceNotFoundError
 
 
 def _make_user(user_id: int = 1) -> User:
@@ -80,5 +82,62 @@ def test_decrypt_malformed_token_is_400(client: TestClient) -> None:
     resp = client.post(
         "/api/workflow-steps/decrypt-attribute/test",
         json={"ciphertext": "not-a-real-token", "shared_secret": "k"},
+    )
+    assert resp.status_code == 400
+
+
+def test_both_secret_sources_is_422(client: TestClient) -> None:
+    resp = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x", "shared_secret": "k", "credential_reference": "vault-cred"},
+    )
+    assert resp.status_code == 422
+
+
+def test_neither_secret_source_is_422(client: TestClient) -> None:
+    resp = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x"},
+    )
+    assert resp.status_code == 422
+
+
+def test_encrypt_with_credential_reference_resolves_from_vault(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        workflow_crypto_attribute,
+        "resolve_shared_secret_credential",
+        lambda db, name, *, acting_user_id: ("aes-256-gcm", "vault-key"),
+    )
+
+    enc = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "cisco123", "credential_reference": "tacacs-vault"},
+    )
+    assert enc.status_code == 200, enc.text
+    token = enc.json()["ciphertext"]
+
+    dec = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": token, "credential_reference": "tacacs-vault"},
+    )
+    assert dec.status_code == 200, dec.text
+    assert dec.json() == {"plaintext": "cisco123", "algorithm": "aes-256-gcm"}
+
+
+def test_unknown_credential_reference_is_400(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _raise(db, name, *, acting_user_id):
+        raise CredentialReferenceNotFoundError(f"credential {name!r} not found")
+
+    monkeypatch.setattr(
+        workflow_crypto_attribute, "resolve_shared_secret_credential", _raise
+    )
+
+    resp = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "x", "credential_reference": "missing"},
     )
     assert resp.status_code == 400

@@ -13,6 +13,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  SharedSecretSourceField,
+  type SharedSecretSourceMode,
+} from "@/components/features/workflow-steps/shared/shared-secret-source-field";
 import { useDecryptAttributeTestMutation } from "@/hooks/queries/use-crypto-attribute-mutations";
 
 interface DecryptAttributeTestDialogProps {
@@ -23,17 +27,24 @@ interface DecryptAttributeTestDialogProps {
  * initializers reset the form on every open without an effect. */
 export function DecryptAttributeTestDialog({ onClose }: DecryptAttributeTestDialogProps) {
   const [ciphertext, setCiphertext] = useState("");
-  const [sharedSecret, setSharedSecret] = useState("");
+  const [secretMode, setSecretMode] = useState<SharedSecretSourceMode>("credential");
+  const [credentialReference, setCredentialReference] = useState("");
+  const [manualSecret, setManualSecret] = useState("");
   const mutation = useDecryptAttributeTestMutation();
 
-  const canSubmit =
-    ciphertext.trim().length > 0 && sharedSecret.length > 0 && !mutation.isPending;
+  const hasSecret =
+    secretMode === "credential" ? credentialReference.length > 0 : manualSecret.length > 0;
+  const canSubmit = ciphertext.trim().length > 0 && hasSecret && !mutation.isPending;
 
   const handleSubmit = () => {
     if (!canSubmit) {
       return;
     }
-    mutation.mutate({ ciphertext: ciphertext.trim(), shared_secret: sharedSecret });
+    mutation.mutate(
+      secretMode === "credential"
+        ? { ciphertext: ciphertext.trim(), credential_reference: credentialReference }
+        : { ciphertext: ciphertext.trim(), shared_secret: manualSecret },
+    );
   };
 
   return (
@@ -61,19 +72,15 @@ export function DecryptAttributeTestDialog({ onClose }: DecryptAttributeTestDial
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-[11px] text-muted-foreground" htmlFor="dec-test-secret">
-              Shared secret
-            </Label>
-            <Input
-              id="dec-test-secret"
-              type="password"
-              autoComplete="off"
-              className="h-8 font-mono text-xs"
-              value={sharedSecret}
-              onChange={(event) => setSharedSecret(event.target.value)}
-            />
-          </div>
+          <SharedSecretSourceField
+            idPrefix="dec-test"
+            mode={secretMode}
+            onModeChange={setSecretMode}
+            credentialReference={credentialReference}
+            onCredentialReferenceChange={setCredentialReference}
+            manualSecret={manualSecret}
+            onManualSecretChange={setManualSecret}
+          />
 
           {mutation.isError ? (
             <p className="text-[11px] text-destructive">{mutation.error.message}</p>

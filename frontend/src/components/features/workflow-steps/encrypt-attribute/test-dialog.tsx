@@ -20,6 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  SharedSecretSourceField,
+  type SharedSecretSourceMode,
+} from "@/components/features/workflow-steps/shared/shared-secret-source-field";
 import { useEncryptAttributeTestMutation } from "@/hooks/queries/use-crypto-attribute-mutations";
 import {
   DEFAULT_SHARED_SECRET_ALGORITHM,
@@ -39,17 +43,25 @@ export function EncryptAttributeTestDialog({
   algorithm,
 }: EncryptAttributeTestDialogProps) {
   const [plaintext, setPlaintext] = useState("");
-  const [sharedSecret, setSharedSecret] = useState("");
+  const [secretMode, setSecretMode] = useState<SharedSecretSourceMode>("credential");
+  const [credentialReference, setCredentialReference] = useState("");
+  const [manualSecret, setManualSecret] = useState("");
   const [algo, setAlgo] = useState(algorithm || DEFAULT_SHARED_SECRET_ALGORITHM);
   const mutation = useEncryptAttributeTestMutation();
 
-  const canSubmit = plaintext.length > 0 && sharedSecret.length > 0 && !mutation.isPending;
+  const hasSecret =
+    secretMode === "credential" ? credentialReference.length > 0 : manualSecret.length > 0;
+  const canSubmit = plaintext.length > 0 && hasSecret && !mutation.isPending;
 
   const handleSubmit = () => {
     if (!canSubmit) {
       return;
     }
-    mutation.mutate({ plaintext, shared_secret: sharedSecret, algorithm: algo });
+    mutation.mutate(
+      secretMode === "credential"
+        ? { plaintext, credential_reference: credentialReference, algorithm: algo }
+        : { plaintext, shared_secret: manualSecret, algorithm: algo },
+    );
   };
 
   return (
@@ -77,19 +89,15 @@ export function EncryptAttributeTestDialog({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-[11px] text-muted-foreground" htmlFor="enc-test-secret">
-              Shared secret
-            </Label>
-            <Input
-              id="enc-test-secret"
-              type="password"
-              autoComplete="off"
-              className="h-8 font-mono text-xs"
-              value={sharedSecret}
-              onChange={(event) => setSharedSecret(event.target.value)}
-            />
-          </div>
+          <SharedSecretSourceField
+            idPrefix="enc-test"
+            mode={secretMode}
+            onModeChange={setSecretMode}
+            credentialReference={credentialReference}
+            onCredentialReferenceChange={setCredentialReference}
+            manualSecret={manualSecret}
+            onManualSecretChange={setManualSecret}
+          />
 
           <div className="space-y-1.5">
             <Label className="text-[11px] text-muted-foreground">Algorithm</Label>

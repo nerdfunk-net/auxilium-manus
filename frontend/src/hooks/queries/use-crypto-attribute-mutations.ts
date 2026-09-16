@@ -4,9 +4,11 @@ import { useMutation } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
 
+/** Exactly one of `shared_secret` / `credential_reference` must be set. */
 export interface EncryptAttributeTestRequest {
   plaintext: string;
-  shared_secret: string;
+  shared_secret?: string;
+  credential_reference?: string;
   algorithm?: string;
 }
 
@@ -15,9 +17,11 @@ export interface EncryptAttributeTestResponse {
   algorithm: string;
 }
 
+/** Exactly one of `shared_secret` / `credential_reference` must be set. */
 export interface DecryptAttributeTestRequest {
   ciphertext: string;
-  shared_secret: string;
+  shared_secret?: string;
+  credential_reference?: string;
   algorithm?: string;
 }
 
@@ -26,7 +30,8 @@ export interface DecryptAttributeTestResponse {
   algorithm: string;
 }
 
-/** "Test Encryption" modal — stateless crypto calculator, secret typed by the user. */
+/** "Test Encryption" modal — crypto calculator; the shared secret is either
+ * typed inline or resolved server-side from a vault credential reference. */
 export function useEncryptAttributeTestMutation() {
   const { apiCall } = useApi();
   return useMutation<EncryptAttributeTestResponse, Error, EncryptAttributeTestRequest>({
@@ -39,7 +44,8 @@ export function useEncryptAttributeTestMutation() {
   });
 }
 
-/** "Test Decryption" modal — stateless crypto calculator, secret typed by the user. */
+/** "Test Decryption" modal — crypto calculator; the shared secret is either
+ * typed inline or resolved server-side from a vault credential reference. */
 export function useDecryptAttributeTestMutation() {
   const { apiCall } = useApi();
   return useMutation<DecryptAttributeTestResponse, Error, DecryptAttributeTestRequest>({

@@ -5,6 +5,7 @@ import { useMemo, useState, type DragEvent } from "react";
 
 import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
 import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
+import { useSecretManagerConnectionsQuery } from "@/hooks/queries/use-secret-manager-connections-query";
 import { cn } from "@/lib/utils";
 
 import type { PluginDefinition } from "../types/plugin-registry";
@@ -20,6 +21,12 @@ import {
   type PaletteItem,
 } from "../utils/step-catalog";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+
+// These steps read/write an external Secret Manager connection and make no
+// sense to offer until one is configured under Settings -> Secret Manager.
+// Other "secrets" category steps (encrypt-attribute, decrypt-attribute) use
+// the credential vault instead and stay visible regardless.
+const SECRET_MANAGER_STEP_KINDS = new Set(["secret-generate", "secret-get", "secret-set"]);
 
 interface StepCatalogProps {
   errorMessage?: string;
@@ -125,6 +132,10 @@ export function StepCatalog({ errorMessage, isLoading, onAddStep, plugins }: Ste
   const { data: batfishSourcesData } = useBatfishSourcesQuery();
   const hasBatfishSource = (batfishSourcesData?.sources.length ?? 0) > 0;
 
+  const { data: secretManagerConnectionsData } = useSecretManagerConnectionsQuery();
+  const hasSecretManagerConnection =
+    (secretManagerConnectionsData?.connections.length ?? 0) > 0;
+
   const groups = useMemo(() => {
     const allGroups = groupPaletteItems(plugins);
     // The PyATS category only makes sense once a pyATS shim source is
@@ -135,10 +146,21 @@ export function StepCatalog({ errorMessage, isLoading, onAddStep, plugins }: Ste
       : allGroups.filter((group) => group.categoryKey !== "pyats");
     // The Batfish category only makes sense once a Batfish source is
     // configured under Settings -> Sources — same reasoning as pyATS above.
-    return hasBatfishSource
+    const withoutBatfish = hasBatfishSource
       ? withoutPyats
       : withoutPyats.filter((group) => group.categoryKey !== "batfish");
-  }, [plugins, hasPyatsSource, hasBatfishSource]);
+    // Secret Get/Set/Generate only make sense once a Secret Manager
+    // connection is configured under Settings -> Secret Manager — hide just
+    // those steps (not the whole "secrets" category, which also holds
+    // encrypt-attribute/decrypt-attribute that use the credential vault).
+    if (hasSecretManagerConnection) return withoutBatfish;
+    return withoutBatfish
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => !SECRET_MANAGER_STEP_KINDS.has(item.kind)),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [plugins, hasPyatsSource, hasBatfishSource, hasSecretManagerConnection]);
   const query = search.trim().toLowerCase();
 
   const visibleGroups = useMemo(() => {
