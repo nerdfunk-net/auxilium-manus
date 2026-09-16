@@ -106,6 +106,21 @@ export function SecretSetHelpPanel() {
           secret manager path, so it&apos;s safe to run inside a fanned-out branch —
           no Fan In node required.
         </p>
+        <p>
+          That safety depends on <HelpCode>path_template</HelpCode> actually
+          rendering to a different path per device. If you override it to a{" "}
+          <span className="font-medium text-foreground">fixed, shared path</span>,
+          concurrent fan-out children writing different <HelpCode>field</HelpCode>{" "}
+          values to that same path can race —{" "}
+          <span className="font-medium text-foreground">on an OpenBao
+          connection</span>, each write reads the whole secret, changes one
+          field, and writes the whole thing back, so two concurrent writes can
+          silently lose one field&apos;s update. Infisical writes each field as
+          its own API call and doesn&apos;t hit this specific race. If you can&apos;t
+          keep the path device-unique, put a{" "}
+          <span className="font-medium text-foreground">Fan In</span> node
+          before this step, same as for git-backed sinks.
+        </p>
       </HelpWarning>
 
       <HelpSection title="Outcomes">
