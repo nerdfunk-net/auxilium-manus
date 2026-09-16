@@ -212,8 +212,7 @@ function CompareDataConfigPanel({
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Compare workflow data to a reference file</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
+        <p className="text-[11px] text-step-surface-foreground">
           Devices route to <span className="font-mono">match</span>,{" "}
           <span className="font-mono">mismatch</span>, or{" "}
           <span className="font-mono">failure</span> handles. On mismatch, the unified

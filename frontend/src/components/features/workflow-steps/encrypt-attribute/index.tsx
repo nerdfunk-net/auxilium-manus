@@ -46,14 +46,6 @@ function EncryptAttributeConfigPanel({ config, onChange }: PluginConfigPanelProp
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Encrypt an attribute value with a shared secret</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Reads a cleartext value, encrypts it, and writes the portable ciphertext
-          token to the destination path for later persistence (disk or Git).
-        </p>
-      </div>
-
       <div className="space-y-1.5">
         <Label className="font-mono text-xs font-medium" htmlFor="encrypt-attribute-source">
           source_path

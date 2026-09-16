@@ -145,12 +145,6 @@ function LogAttributesConfigPanel({ config, onChange, nodeId }: PluginConfigPane
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        Dumps the entire workflow context: device identity, every attribute bag (Nautobot,
-        Git, custom), parsed values, command metadata, errors, pending commands, and
-        workflow metadata.
-      </div>
-
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">output_destination</span>

@@ -29,14 +29,6 @@ function SecretGetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Read a secret per device</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Reads one field from a Secret Manager connection per device and seals it into the
-          device&apos;s attribute bag. A device with no value is routed to the failure outcome.
-        </p>
-      </div>
-
       <SecretManagerConnectionField config={config} onChange={onChange} />
 
       <div className="space-y-1.5">

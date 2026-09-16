@@ -242,15 +242,6 @@ function FilterOutputConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Remove volatile fields before comparison</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Applies regex patterns or dot-path selectors to clean up command output. The filtered
-          result is stored and consumed by downstream steps via{" "}
-          <span className="font-mono">filtered_output</span>.
-        </p>
-      </div>
-
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">content_source</span>

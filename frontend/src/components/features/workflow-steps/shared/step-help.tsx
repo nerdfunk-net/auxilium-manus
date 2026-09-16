@@ -47,7 +47,7 @@ export function HelpWarning({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-warning-foreground">
+    <div className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
       <p className="font-medium">{title}</p>
       <div className="mt-1 space-y-1">{children}</div>
     </div>

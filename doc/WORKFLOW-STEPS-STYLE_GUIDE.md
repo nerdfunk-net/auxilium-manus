@@ -356,6 +356,12 @@ All text/number inputs follow the same pattern:
 
 ## Condition / info banners
 
+Yellow/amber warning banners always use the **small `text-[11px]` body font** — never
+`text-xs` or an unset (inherited, larger) size. An unset size is the bug that made the
+`HelpWarning` boxes in a step's Help tab look oversized next to every other small-font
+banner in the app (fixed in `shared/step-help.tsx`); when adding a new warning banner,
+copy the `text-[11px]` size explicitly rather than relying on inheritance.
+
 ```tsx
 // Step info (adding-to context)
 <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
@@ -365,10 +371,16 @@ All text/number inputs follow the same pattern:
   </span>
 </div>
 
-// Warning (missing config)
-<p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
+// Warning (missing config, or inline in a ConfigPanel) — reference: fan-out-config.tsx
+<p className="rounded-lg border border-warning-border bg-warning px-3 py-2 text-[11px] text-warning-foreground">
   Configure a Nautobot source…
 </p>
+
+// Warning inside a Help tab — always use the shared HelpWarning component,
+// never a hand-rolled div; it already carries the correct text-[11px] size
+<HelpWarning title="Fan-out risk if path_template is not device-unique">
+  <p>…</p>
+</HelpWarning>
 ```
 
 ---

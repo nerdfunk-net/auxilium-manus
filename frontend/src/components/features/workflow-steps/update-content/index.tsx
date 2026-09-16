@@ -107,14 +107,6 @@ function UpdateContentConfigPanel({ config, onChange }: PluginConfigPanelProps) 
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Search and replace device config text</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Choose which config to edit, then add one or more regex rules. Rules run in
-          order for each device.
-        </p>
-      </div>
-
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">content_source</span>

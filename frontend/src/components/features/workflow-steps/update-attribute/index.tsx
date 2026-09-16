@@ -119,14 +119,6 @@ function UpdateAttributeConfigPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Update one or more device attributes</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Add attribute updates below. Each entry writes a fixed value or a regex-derived
-          value into the workflow device context.
-        </p>
-      </div>
-
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">

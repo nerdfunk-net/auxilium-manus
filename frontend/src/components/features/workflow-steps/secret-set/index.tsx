@@ -36,14 +36,6 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Write an explicit secret value per device</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Writes a literal value, or one read from another attribute path, to a Secret Manager
-          connection per device. Also seals the value into the device&apos;s attribute bag.
-        </p>
-      </div>
-
       <SecretManagerConnectionField config={config} onChange={onChange} />
 
       <div className="space-y-1.5">

@@ -46,15 +46,6 @@ function DecryptAttributeConfigPanel({ config, onChange }: PluginConfigPanelProp
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg bg-step-surface px-3 py-2 text-xs text-step-surface-foreground">
-        <p className="font-medium">Decrypt an attribute value with a shared secret</p>
-        <p className="mt-1 text-[11px] text-step-surface-foreground">
-          Reads a ciphertext token, decrypts it, and stores the cleartext at the
-          destination path as a <span className="font-medium">sealed</span> secret —
-          redacted in run logs, revealed only to the template renderer.
-        </p>
-      </div>
-
       <div className="space-y-1.5">
         <Label className="font-mono text-xs font-medium" htmlFor="decrypt-attribute-source">
           source_path
