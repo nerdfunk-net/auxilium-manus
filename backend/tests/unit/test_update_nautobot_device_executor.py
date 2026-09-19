@@ -333,6 +333,21 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("d1", success.context.devices)
         self.assertEqual(success.context.devices["d1"].source, "nautobot")
 
+    async def test_dry_run_skips_updates_and_returns_context_unchanged(self) -> None:
+        cfg = {**_CFG, "dry_run": True}
+        run = MagicMock()
+        run.id = 1
+        ctx = WorkflowContext(run_id="r", workflow_id="w", devices={"d1": _device("d1")})
+        with patch.object(mod, "_build_update_service") as build_service:
+            outcomes = await execute(
+                config=cfg, context=ctx, run=run, artifact_service=MagicMock(),
+                node_id="n", device_sessions=MagicMock(),
+            )
+        build_service.assert_not_called()
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        self.assertIs(outcomes[0].context, ctx)
+        self.assertIn("d1", outcomes[0].context.devices)
+
 
 if __name__ == "__main__":
     unittest.main()

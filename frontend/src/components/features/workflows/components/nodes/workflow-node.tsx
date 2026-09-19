@@ -7,7 +7,7 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
-import { Ban, Info, Settings2, Split } from "lucide-react";
+import { Ban, FlaskConical, Info, Settings2, Split } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
     !!fanOut &&
     typeof fanOut === "object" &&
     (fanOut as Record<string, unknown>).enabled === true;
+  const dryRunEnabled = data.pluginConfig?.dry_run === true;
   const showOutcomeLabels = outcomes.length > 1;
   const isDisabled = data.disabled === true;
 
@@ -191,6 +192,15 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
               >
                 <Split className="size-3" aria-hidden />
                 Fan out
+              </Badge>
+            ) : null}
+            {dryRunEnabled ? (
+              <Badge
+                className="shrink-0 gap-1 border-step-border bg-step-surface text-step-muted-foreground"
+                variant="outline"
+              >
+                <FlaskConical className="size-3" aria-hidden />
+                Dry run
               </Badge>
             ) : null}
             {isAwaitingThisStep ? (

@@ -55,6 +55,7 @@ class _ParsedConfig:
     default_prefix_length: str
     sync_interfaces: bool
     identifier_mode: str
+    dry_run: bool
 
 
 def _strip_empty(value: Any) -> Any:
@@ -145,6 +146,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         default_prefix_length=default_prefix_length,
         sync_interfaces=bool(config.get("sync_interfaces", False)),
         identifier_mode=identifier_mode,
+        dry_run=bool(config.get("dry_run", False)),
     )
 
 
@@ -372,6 +374,15 @@ async def execute(
     del artifact_service
 
     parsed = _parse_config(config)
+
+    if parsed.dry_run:
+        logger.info(
+            "%s dry run enabled - no devices will be updated run_id=%s node_id=%s",
+            _STEP_ID,
+            run.id,
+            node_id,
+        )
+        return [StepOutcome(name="success", context=context)]
 
     db = object_session(run)
     if db is None:

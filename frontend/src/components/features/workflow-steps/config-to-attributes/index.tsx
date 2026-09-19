@@ -316,6 +316,13 @@ function ConfigToAttributesConfigPanel({
           IPv4 disappeared from the config is routed to Failed.
         </p>
 
+        {updatePrimaryIpv4 && !selected.includes("interfaces") && (
+          <p className="text-[11px] text-warning-foreground">
+            Has no effect until &quot;Add Interfaces&quot; is checked above — this
+            step only reads and marks primary IPv4 on the interfaces it builds.
+          </p>
+        )}
+
         {updatePrimaryIpv4 ? (
           <div className="space-y-2 pl-1">
             <div className="flex items-center gap-1.5">

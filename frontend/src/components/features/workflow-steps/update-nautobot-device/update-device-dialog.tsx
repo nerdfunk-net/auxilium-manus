@@ -138,6 +138,7 @@ function UpdateDeviceDialogForm({
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
       sync_interfaces: draft.sync_interfaces ?? false,
+      dry_run: draft.dry_run ?? false,
     });
     onClose();
   };
@@ -273,6 +274,22 @@ function UpdateDeviceDialogForm({
                 }
               />
             </div>
+          </section>
+
+          <section className="space-y-2 border-t pt-3">
+            <div className="flex items-center justify-between">
+              <Label className="font-mono text-xs font-medium">dry_run</Label>
+              <Switch
+                checked={draft.dry_run ?? false}
+                onCheckedChange={(checked) =>
+                  setDraft((current) => ({ ...current, dry_run: checked }))
+                }
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              When on, the step does nothing and only logs that dry run is enabled — no
+              fields or interfaces are updated in Nautobot.
+            </p>
           </section>
         </div>
 

@@ -13,4 +13,5 @@ def get_config() -> dict:
         "add_prefix": True,
         "default_prefix_length": "/24",
         "sync_interfaces": False,
+        "dry_run": False,
     }

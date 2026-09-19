@@ -64,6 +64,7 @@ export interface UpdateNautobotDeviceConfig {
   add_prefix?: boolean;
   default_prefix_length?: string;
   sync_interfaces?: boolean;
+  dry_run?: boolean;
 }
 
 export const DEVICE_FIELD_DEFINITIONS = [

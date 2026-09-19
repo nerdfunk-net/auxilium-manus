@@ -215,6 +215,14 @@ export function ConfigToAttributesHelpPanel() {
           This control decides how (or whether) this step picks the device&apos;s
           Nautobot primary IPv4 from the parsed interfaces.
         </p>
+        <HelpWarning title="Requires Add Interfaces to be checked">
+          <p>
+            This control only affects the interfaces this step builds — with{" "}
+            <HelpCode>Add Interfaces</HelpCode> unchecked, the step is a no-op
+            regardless of this setting: no primary IPv4 selection or
+            verification happens, and no device is routed to failure.
+          </p>
+        </HelpWarning>
         <p>
           <span className="font-medium text-foreground">Checked</span> — try each
           strategy in <HelpCode>primary_ipv4_priority</HelpCode>, top to bottom;

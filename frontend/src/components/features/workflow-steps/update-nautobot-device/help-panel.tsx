@@ -281,11 +281,22 @@ export function UpdateNautobotDeviceHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Dry run">
+        <p>
+          When <HelpCode>dry_run</HelpCode> is on, the step does nothing — no Nautobot
+          calls are made and no device or interface fields are changed. It only logs
+          that dry run is enabled and reports success. Since nothing changes, the
+          device&apos;s existing attribute bag already reflects its current settings,
+          so there is no separate dry-run preview in the run&apos;s detail view.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>
             <span className="font-medium text-foreground">success</span> — Nautobot
-            accepted the update for the device.
+            accepted the update for the device (or, with <HelpCode>dry_run</HelpCode>{" "}
+            on, the step was skipped without error).
           </li>
           <li>
             <span className="font-medium text-foreground">failure</span> — missing

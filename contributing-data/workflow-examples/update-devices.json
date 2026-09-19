@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-19T20:02:49.738Z",
+  "exported_at": "2026-09-19T20:22:23.332Z",
   "name": "Update Devices",
   "description": "Update Devices in Nautobot",
   "folder": "/Nautobot",
@@ -140,69 +140,10 @@
       "selected": false
     },
     {
-      "id": "update-nautobot-device-7",
-      "type": "workflowNode",
-      "position": {
-        "x": -679.9032981890098,
-        "y": 196.95364509815715
-      },
-      "zIndex": 1,
-      "data": {
-        "kind": "update-nautobot-device",
-        "stepUuid": "1304f9c7-c5b1-462c-a32e-376993807251",
-        "title": "Update Device",
-        "overview": "Update Nautobot device fields, interfaces, and tags.",
-        "description": "Update device attributes, interfaces, tags, and custom fields in Nautobot.",
-        "artifactType": "command_execution",
-        "requires": [
-          "identity"
-        ],
-        "requiresParsed": [],
-        "produces": [],
-        "producesParsed": [],
-        "consumes": [],
-        "outcomes": [
-          {
-            "name": "success"
-          },
-          {
-            "name": "failure"
-          }
-        ],
-        "disabled": false,
-        "pluginConfig": {
-          "nautobot_source_id": "nautobot",
-          "update_fields": {
-            "serial": {
-              "enabled": false,
-              "value": ""
-            },
-            "custom_fields": {}
-          },
-          "interfaces": [],
-          "device_identifier": {
-            "mode": "from_context"
-          },
-          "add_prefix": true,
-          "default_prefix_length": "/24",
-          "sync_interfaces": false,
-          "interfaces_source": "nautobot_origin"
-        },
-        "incomeHandleSide": "top",
-        "outcomeHandleSide": "right"
-      },
-      "measured": {
-        "width": 320,
-        "height": 128
-      },
-      "dragging": false,
-      "selected": false
-    },
-    {
       "id": "get-nautobot-attributes-8",
       "type": "workflowNode",
       "position": {
-        "x": -679.9032981890098,
+        "x": -681.939537550803,
         "y": -180.030556646293
       },
       "zIndex": 1,
@@ -247,7 +188,7 @@
       "id": "config-to-attributes-10",
       "type": "workflowNode",
       "position": {
-        "x": -679.9032981890098,
+        "x": -681.939537550803,
         "y": 5.114553636999375
       },
       "zIndex": 1,
@@ -298,7 +239,7 @@
       "type": "workflowNode",
       "position": {
         "x": -304.3080848815638,
-        "y": 196.95364509815715
+        "y": 197.53031025366204
       },
       "zIndex": 1,
       "data": {
@@ -512,6 +453,61 @@
       },
       "dragging": false,
       "selected": false
+    },
+    {
+      "id": "update-nautobot-device-10",
+      "type": "workflowNode",
+      "position": {
+        "x": -681.939537550803,
+        "y": 197.53031025366204
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "update-nautobot-device",
+        "stepUuid": "0d7805b6-d207-4c2a-b761-9038fda03b37",
+        "title": "Update Device",
+        "overview": "Update Nautobot device fields, interfaces, and tags.",
+        "description": "Update device attributes, interfaces, tags, and custom fields in Nautobot.",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "update_fields": {
+            "custom_fields": {}
+          },
+          "interfaces_source": "nautobot_origin",
+          "interfaces": [],
+          "dry_run": true,
+          "device_identifier": {
+            "mode": "from_context"
+          },
+          "add_prefix": true,
+          "default_prefix_length": "/24",
+          "sync_interfaces": false
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
     }
   ],
   "canvas_edges": [
@@ -539,19 +535,6 @@
       "target": "config-to-attributes-10",
       "targetHandle": "input",
       "id": "xy-edge__batfish-extract-facts-6success-config-to-attributes-10input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "config-to-attributes-10",
-      "sourceHandle": "success",
-      "target": "update-nautobot-device-7",
-      "targetHandle": "input",
-      "id": "xy-edge__config-to-attributes-10success-update-nautobot-device-7input",
       "selected": false
     },
     {
@@ -624,11 +607,24 @@
       "data": {
         "edgeStyle": "bezier"
       },
-      "source": "update-nautobot-device-7",
+      "source": "config-to-attributes-10",
+      "sourceHandle": "success",
+      "target": "update-nautobot-device-10",
+      "targetHandle": "input",
+      "id": "xy-edge__config-to-attributes-10success-update-nautobot-device-10input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-nautobot-device-10",
       "sourceHandle": "success",
       "target": "notify-mattermost-8",
       "targetHandle": "input",
-      "id": "xy-edge__update-nautobot-device-7success-notify-mattermost-8input"
+      "id": "xy-edge__update-nautobot-device-10success-notify-mattermost-8input"
     }
   ],
   "canvas_groups": [],

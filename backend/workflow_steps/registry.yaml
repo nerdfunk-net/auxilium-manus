@@ -2105,6 +2105,13 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: dry_run
+          description: >
+            Skip the update entirely and only log that dry run is enabled — no
+            Nautobot calls are made and no fields or interfaces change.
+          data_type: boolean
+          required: false
+          default: false
 
   - id: update-config-context
     name: Update Config Context
