@@ -14,6 +14,7 @@ from dataclasses import field as dataclass_field
 from typing import Any
 
 from services.nautobot import NautobotService
+from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.types import InterfaceUpdateResult
 
@@ -60,6 +61,7 @@ def _build_interface_payload(
     interface: dict[str, Any],
     interface_type: str,
     interface_status_id: str,
+    untagged_vlan_id: str | None,
 ) -> dict[str, Any]:
     interface_payload: dict[str, Any] = {
         "name": interface["name"],
@@ -83,16 +85,49 @@ def _build_interface_payload(
                 continue
             interface_payload[field] = interface[field]
 
-    # Nautobot REST API requires VLAN references as {"id": uuid}
-    untagged_vlan = interface.get("untagged_vlan")
-    if untagged_vlan and untagged_vlan != "none":
-        interface_payload["untagged_vlan"] = {"id": untagged_vlan}
+    # Nautobot REST API requires VLAN references as {"id": uuid}. untagged_vlan_id
+    # is already resolved by the caller (either passed through as-is if the
+    # interface dict already carried a UUID, or resolved/created from a raw vid).
+    if untagged_vlan_id:
+        interface_payload["untagged_vlan"] = {"id": untagged_vlan_id}
 
     tagged_vlans = interface.get("tagged_vlans")
     if tagged_vlans:
         interface_payload["tagged_vlans"] = [{"id": vid} for vid in tagged_vlans]
 
     return interface_payload
+
+
+async def _resolve_untagged_vlan_id(
+    *,
+    common: DeviceCommonService,
+    interface: dict[str, Any],
+    device_location_id: str | None,
+    warnings: list[str],
+) -> str | None:
+    """Resolve ``interface["untagged_vlan"]`` to a Nautobot VLAN UUID.
+
+    Accepts either an already-resolved UUID (existing manual-config behavior,
+    passed straight through) or a raw VLAN vid (int), which is looked up —
+    and created if missing — via ``DeviceCommonService.ensure_vlan_exists``.
+    """
+    raw_vlan = interface.get("untagged_vlan")
+    if not raw_vlan or raw_vlan == "none":
+        return None
+
+    if is_valid_uuid(str(raw_vlan)):
+        return str(raw_vlan)
+
+    try:
+        vid = int(raw_vlan)
+    except (TypeError, ValueError):
+        warnings.append(
+            f"Interface {interface['name']}: untagged_vlan {raw_vlan!r} is not a "
+            "valid VLAN ID or UUID — omitting"
+        )
+        return None
+
+    return await common.ensure_vlan_exists(vid, location_id=device_location_id)
 
 
 @dataclass
@@ -105,6 +140,7 @@ class _InterfaceUpdateState:
     warnings: list[str] = dataclass_field(default_factory=list)
     cleaned_interfaces: set[str] = dataclass_field(default_factory=set)
     interfaces_deleted: int = 0
+    interface_id_map: dict[str, str] = dataclass_field(default_factory=dict)
 
     def to_result(self) -> InterfaceUpdateResult:
         return InterfaceUpdateResult(
@@ -146,6 +182,7 @@ class InterfaceManagerService:
         interfaces: list[dict[str, Any]],
         add_prefixes_automatically: bool = False,
         sync_interfaces: bool = False,
+        device_location_id: str | None = None,
     ) -> InterfaceUpdateResult:
         """Create or update interfaces: IPs → interfaces → assign → optional primary."""
         logger.info(
@@ -182,7 +219,15 @@ class InterfaceManagerService:
                 device_id=device_id,
                 interface=interface,
                 state=state,
+                device_location_id=device_location_id,
             )
+
+        logger.info("\n==== STEP 2.5: ASSIGN LAG MEMBERSHIPS ====")
+        await self._assign_lag_memberships(
+            device_id=device_id,
+            interfaces=interfaces,
+            state=state,
+        )
 
         if state.primary_ipv4_id:
             await self._set_primary_ipv4(
@@ -199,6 +244,7 @@ class InterfaceManagerService:
         device_id: str,
         interface: dict[str, Any],
         state: _InterfaceUpdateState,
+        device_location_id: str | None = None,
     ) -> None:
         try:
             logger.info("\n--- Processing interface: %s ---", interface["name"])
@@ -206,6 +252,7 @@ class InterfaceManagerService:
                 device_id=device_id,
                 interface=interface,
                 warnings=state.warnings,
+                device_location_id=device_location_id,
             )
             logger.info("Interface ID returned: %s", interface_id)
 
@@ -213,6 +260,7 @@ class InterfaceManagerService:
                 return
 
             iface_name = interface["name"]
+            state.interface_id_map[iface_name] = interface_id
             if was_updated:
                 if iface_name not in state.updated_interfaces:
                     state.updated_interfaces.append(iface_name)
@@ -247,6 +295,65 @@ class InterfaceManagerService:
                 f"Interface {interface['name']}: Failed to process interface: {error_msg}"
             )
             logger.error("Error processing interface %s: %s", interface["name"], error_msg)
+
+    async def _assign_lag_memberships(
+        self,
+        *,
+        device_id: str,
+        interfaces: list[dict[str, Any]],
+        state: _InterfaceUpdateState,
+    ) -> None:
+        """Wire each member interface's ``lag`` to its port-channel's UUID.
+
+        Runs after every interface in the batch has already been created or
+        updated (``state.interface_id_map`` is fully populated by then), since
+        a member can reference a port-channel that hadn't been processed yet
+        — Batfish's JSON key order isn't guaranteed to put it first.
+        """
+        for interface in interfaces:
+            member_name = (interface.get("name") or "").strip()
+            raw_lag = interface.get("lag")
+            if not member_name or not raw_lag or raw_lag == "none":
+                continue
+
+            member_id = state.interface_id_map.get(member_name)
+            if not member_id:
+                # This interface itself failed to create/update — nothing to patch.
+                continue
+
+            lag_name = str(raw_lag)
+            if is_valid_uuid(lag_name):
+                lag_id: str | None = lag_name
+            elif lag_name == member_name:
+                state.warnings.append(
+                    f"Interface {member_name}: lag cannot reference itself — omitting"
+                )
+                continue
+            else:
+                lag_id = state.interface_id_map.get(lag_name)
+                if not lag_id:
+                    lag_id = await self.common.resolve_interface_by_name(
+                        device_id=device_id, interface_name=lag_name
+                    )
+                if not lag_id:
+                    state.warnings.append(
+                        f"Interface {member_name}: lag interface '{lag_name}' not "
+                        "found — omitting"
+                    )
+                    continue
+
+            try:
+                await self.nautobot.rest_request(
+                    endpoint=f"dcim/interfaces/{member_id}/",
+                    method="PATCH",
+                    data={"lag": {"id": lag_id}},
+                )
+                logger.info("  Set lag for %s -> %s (%s)", member_name, lag_name, lag_id)
+            except Exception as e:
+                state.warnings.append(
+                    f"Interface {member_name}: failed to set lag '{lag_name}': {e}"
+                )
+                logger.error("Error setting lag for %s: %s", member_name, e)
 
     async def _assign_ips_for_interface(
         self,
@@ -480,6 +587,7 @@ class InterfaceManagerService:
         device_id: str,
         interface: dict[str, Any],
         warnings: list[str],
+        device_location_id: str | None = None,
     ) -> tuple[str | None, bool]:
         """
         Create or update a single interface.
@@ -488,6 +596,8 @@ class InterfaceManagerService:
             device_id: Device UUID
             interface: Interface specification
             warnings: List to append warnings to
+            device_location_id: Device's Nautobot location UUID, if known —
+                used to scope untagged_vlan resolution/creation
 
         Returns:
             Tuple of (interface UUID if successful, was_updated flag)
@@ -501,11 +611,18 @@ class InterfaceManagerService:
         interface_status_id = await self.common.resolve_status_id(
             interface_status, "dcim.interface"
         )
+        untagged_vlan_id = await _resolve_untagged_vlan_id(
+            common=self.common,
+            interface=interface,
+            device_location_id=device_location_id,
+            warnings=warnings,
+        )
         interface_payload = _build_interface_payload(
             device_id=device_id,
             interface=interface,
             interface_type=interface_type,
             interface_status_id=interface_status_id,
+            untagged_vlan_id=untagged_vlan_id,
         )
 
         existing_id = await self.common.resolve_interface_by_name(

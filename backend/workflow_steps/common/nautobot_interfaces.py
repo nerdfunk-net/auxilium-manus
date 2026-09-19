@@ -15,6 +15,8 @@ def _strip_empty(value: Any) -> Any:
 
 def infer_interface_type_from_name(name: str) -> str:
     """Guess a Nautobot interface type slug from a Cisco-style interface name."""
+    if "port-channel" in name.lower():
+        return "lag"
     if name.startswith("Gigabit"):
         return "1000base-t"
     if name.startswith("Ethernet"):
@@ -65,6 +67,8 @@ def build_interfaces_from_config(config: dict[str, Any], *, step_id: str) -> lis
             "mtu",
             "mode",
             "ip_role",
+            "untagged_vlan",
+            "lag",
         ):
             if field not in item:
                 continue
@@ -153,6 +157,28 @@ def interfaces_from_nautobot_bag(
         enabled = item.get("enabled")
         if isinstance(enabled, bool):
             iface["enabled"] = enabled
+
+        mtu = item.get("mtu")
+        if isinstance(mtu, int) and mtu:
+            iface["mtu"] = mtu
+
+        mode = _strip_empty(item.get("mode"))
+        if mode:
+            iface["mode"] = mode
+
+        # untagged_vlan may be a pre-resolved Nautobot VLAN UUID or a raw vid
+        # (int) — resolution/creation happens downstream, at Nautobot write
+        # time, so it is passed through as-is here.
+        untagged_vlan = item.get("untagged_vlan")
+        if untagged_vlan and untagged_vlan != "none":
+            iface["untagged_vlan"] = untagged_vlan
+
+        # lag may be a pre-resolved Nautobot interface UUID or a raw
+        # interface name (e.g. "Port-channel10") — resolved downstream,
+        # at Nautobot write time, against the same device's interfaces.
+        lag = item.get("lag")
+        if lag and lag != "none":
+            iface["lag"] = lag
 
         raw_ip_addresses = item.get("ip_addresses")
         if isinstance(raw_ip_addresses, list):

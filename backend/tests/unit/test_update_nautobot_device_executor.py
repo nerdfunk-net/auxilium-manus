@@ -246,6 +246,54 @@ class UpdateOneDeviceTests(unittest.IsolatedAsyncioTestCase):
         _, kwargs = update_service.update_device.call_args
         self.assertIsNone(kwargs["interfaces"])
 
+    async def test_device_location_id_read_from_nautobot_bag(self) -> None:
+        parsed = mod._parse_config(_CFG)
+        device = DeviceContext(
+            id="d1",
+            name="d1",
+            hostname="d1",
+            primary_ip4="10.0.0.1",
+            attribute_bags={
+                "nautobot": {"location": {"id": "loc-uuid", "name": "HQ"}}
+            },
+        )
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(
+            return_value={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 0}
+        )
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={}),
+        ):
+            await _update_one_device(
+                device_key="d1", device=device, config=_CFG,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n", nautobot_service=MagicMock(), credentials=MagicMock(),
+                update_service=update_service, parsed=parsed,
+            )
+        _, kwargs = update_service.update_device.call_args
+        self.assertEqual(kwargs["device_location_id"], "loc-uuid")
+
+    async def test_device_location_id_none_when_no_nautobot_bag(self) -> None:
+        parsed = mod._parse_config(_CFG)
+        device = _device("d1")
+        update_service = MagicMock()
+        update_service.update_device = AsyncMock(
+            return_value={"device_id": "nb-1", "device_name": "r1", "interfaces_failed": 0}
+        )
+        with (
+            patch.object(mod, "resolve_nautobot_device_id", AsyncMock(return_value="nb-1")),
+            patch.object(mod, "build_resolved_update_data", return_value={}),
+        ):
+            await _update_one_device(
+                device_key="d1", device=device, config=_CFG,
+                context=WorkflowContext(run_id="r", workflow_id="w", devices={}),
+                node_id="n", nautobot_service=MagicMock(), credentials=MagicMock(),
+                update_service=update_service, parsed=parsed,
+            )
+        _, kwargs = update_service.update_device.call_args
+        self.assertIsNone(kwargs["device_location_id"])
+
 
 class ExecuteTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_db_session_raises(self) -> None:

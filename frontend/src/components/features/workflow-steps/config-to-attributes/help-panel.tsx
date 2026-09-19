@@ -50,18 +50,23 @@ export function ConfigToAttributesHelpPanel() {
             lines). Only <HelpCode>config_source: running</HelpCode> is supported
             for this format — Get &amp; Parse Config never captures startup-config.
           </li>
+          <li>
+            <span className="font-medium text-foreground">Batfish</span> — output
+            from an upstream <span className="font-medium text-foreground">
+            Extract Facts</span> step (Batfish&apos;s extracted per-node facts,
+            keyed by interface name). Only <HelpCode>config_source: running</HelpCode>{" "}
+            is supported for this format too — Batfish facts have no
+            running/startup distinction.
+          </li>
         </ul>
-        <p className="text-muted-foreground">
-          A Batfish source format is planned as a future addition to this same
-          contract.
-        </p>
       </HelpSection>
 
       <HelpSection title="Config source">
         <p>
           Choose which parsed config to read attribute values from —{" "}
           <HelpCode>running</HelpCode> or <HelpCode>startup</HelpCode> (exactly
-          one). Genie only ever populates <HelpCode>running</HelpCode>.
+          one). Genie and Batfish only ever populate <HelpCode>running</HelpCode>
+          — Batfish has no startup-config equivalent at all.
         </p>
         <HelpExample>
           config_source: running
@@ -113,20 +118,34 @@ export function ConfigToAttributesHelpPanel() {
           </li>
           <li>
             <span className="font-medium text-foreground">status</span> — always{" "}
-            <HelpCode>Active</HelpCode>.
+            <HelpCode>Active</HelpCode> for every source format (Nautobot&apos;s{" "}
+            <HelpCode>status</HelpCode> is a lifecycle field, not an admin-state
+            flag).
           </li>
           <li>
             <span className="font-medium text-foreground">enabled</span> —{" "}
             <HelpCode>true</HelpCode> unless the interface has a{" "}
-            <HelpCode>shutdown</HelpCode> line in its config.
+            <HelpCode>shutdown</HelpCode> line in its config; for Batfish, taken
+            directly from the interface&apos;s real{" "}
+            <HelpCode>Admin_Up</HelpCode> state.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">mtu</span> — carried
+            through when the source reports one (currently only Batfish&apos;s{" "}
+            <HelpCode>MTU</HelpCode> fact).
           </li>
           <li>
             <span className="font-medium text-foreground">ip_addresses</span> —
             every IP the interface has. The primary address is marked{" "}
             <HelpCode>is_primary</HelpCode>; an IOS{" "}
             <HelpCode>ip address ... secondary</HelpCode> line (or, for Cisco
-            Config Parser, a parsed secondary IP) is marked with Nautobot IP role{" "}
-            <HelpCode>secondary</HelpCode> instead.
+            Config Parser, a parsed secondary IP; or for Batfish, any address in{" "}
+            <HelpCode>All_Prefixes</HelpCode> other than{" "}
+            <HelpCode>Primary_Address</HelpCode>) is marked with Nautobot IP role{" "}
+            <HelpCode>secondary</HelpCode> instead. Note Batfish&apos;s{" "}
+            <HelpCode>Primary_Address</HelpCode> is the interface&apos;s own
+            primary address, not Nautobot&apos;s device-level{" "}
+            <HelpCode>primary_ip4</HelpCode>.
           </li>
         </ul>
         <HelpExample>
@@ -147,8 +166,9 @@ export function ConfigToAttributesHelpPanel() {
       <HelpSection title="Typical setup">
         <ol className="list-decimal space-y-1.5 pl-4">
           <li>
-            Upstream, add either Get Configs → Parse Cisco Config, or Add Testbed
-            → Get &amp; Parse Config (pyATS/Genie).
+            Upstream, add either Get Configs → Parse Cisco Config, Add Testbed →
+            Get &amp; Parse Config (pyATS/Genie), or Get from Batfish → Init
+            Batfish Snapshot → Extract Facts.
           </li>
           <li>
             Add this step after it; set <HelpCode>source_format</HelpCode> to

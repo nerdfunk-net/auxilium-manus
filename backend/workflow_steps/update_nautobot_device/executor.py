@@ -296,8 +296,9 @@ async def _update_one_device(
 
         resolved = device or DeviceContext(id=device_key, name=device_key, hostname=device_key)
 
+        bag = device.attribute_bags.get("nautobot") if device is not None else None
+
         if parsed.interfaces_source == "nautobot_origin":
-            bag = device.attribute_bags.get("nautobot") if device is not None else None
             interfaces_payload = (
                 interfaces_from_nautobot_bag(
                     bag, default_prefix_length=parsed.default_prefix_length
@@ -306,6 +307,12 @@ async def _update_one_device(
             )
         else:
             interfaces_payload = parsed.manual_interfaces or None
+
+        device_location_id: str | None = None
+        if isinstance(bag, dict):
+            location = bag.get("location")
+            if isinstance(location, dict):
+                device_location_id = location.get("id")
 
         result = await update_service.update_device(
             device_identifier=device_identifier,
@@ -318,6 +325,7 @@ async def _update_one_device(
             add_prefix=parsed.add_prefix,
             default_prefix_length=parsed.default_prefix_length,
             sync_interfaces=parsed.sync_interfaces,
+            device_location_id=device_location_id,
         )
         if int(result.get("interfaces_failed") or 0) > 0:
             raise RuntimeError(

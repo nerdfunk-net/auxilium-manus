@@ -4,7 +4,28 @@ from __future__ import annotations
 
 import unittest
 
-from workflow_steps.common.nautobot_interfaces import interfaces_from_nautobot_bag
+from workflow_steps.common.nautobot_interfaces import (
+    infer_interface_type_from_name,
+    interfaces_from_nautobot_bag,
+)
+
+
+class InferInterfaceTypeFromNameTests(unittest.TestCase):
+    def test_port_channel_maps_to_lag(self) -> None:
+        self.assertEqual(infer_interface_type_from_name("Port-channel10"), "lag")
+
+    def test_port_channel_case_insensitive(self) -> None:
+        self.assertEqual(infer_interface_type_from_name("port-channel1"), "lag")
+        self.assertEqual(infer_interface_type_from_name("PORT-CHANNEL2"), "lag")
+
+    def test_gigabit_maps_to_1000base_t(self) -> None:
+        self.assertEqual(infer_interface_type_from_name("GigabitEthernet0/1"), "1000base-t")
+
+    def test_ethernet_maps_to_100base_tx(self) -> None:
+        self.assertEqual(infer_interface_type_from_name("Ethernet0/0"), "100base-tx")
+
+    def test_unknown_defaults_to_virtual(self) -> None:
+        self.assertEqual(infer_interface_type_from_name("Loopback0"), "virtual")
 
 
 class InterfacesFromNautobotBagTests(unittest.TestCase):
@@ -99,6 +120,105 @@ class InterfacesFromNautobotBagTests(unittest.TestCase):
         self.assertEqual(
             interfaces[0]["ip_addresses"], [{"address": "10.0.0.1/24", "namespace": "Global"}]
         )
+
+    def test_mtu_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0", "mtu": 1500}]},
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["mtu"], 1500)
+
+    def test_mtu_omitted_when_missing(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("mtu", interfaces[0])
+
+    def test_mtu_omitted_when_not_int(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0", "mtu": "1500"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("mtu", interfaces[0])
+
+    def test_mode_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0", "mode": "access"}]},
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["mode"], "access")
+
+    def test_mode_omitted_when_missing(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("mode", interfaces[0])
+
+    def test_untagged_vlan_int_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0", "untagged_vlan": 100}]},
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["untagged_vlan"], 100)
+
+    def test_untagged_vlan_uuid_string_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {"name": "Ethernet0/0", "untagged_vlan": "3542814a-d33f-4cc3-bfdd-eb3a35945b31"}
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["untagged_vlan"], "3542814a-d33f-4cc3-bfdd-eb3a35945b31")
+
+    def test_untagged_vlan_omitted_when_missing(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("untagged_vlan", interfaces[0])
+
+    def test_untagged_vlan_omitted_when_none_sentinel(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/0", "untagged_vlan": "none"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("untagged_vlan", interfaces[0])
+
+    def test_lag_name_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/2", "lag": "Port-channel10"}]},
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["lag"], "Port-channel10")
+
+    def test_lag_uuid_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {"name": "Ethernet0/2", "lag": "3542814a-d33f-4cc3-bfdd-eb3a35945b31"}
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["lag"], "3542814a-d33f-4cc3-bfdd-eb3a35945b31")
+
+    def test_lag_omitted_when_missing(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/2"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("lag", interfaces[0])
+
+    def test_lag_omitted_when_none_sentinel(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/2", "lag": "none"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("lag", interfaces[0])
 
 
 if __name__ == "__main__":

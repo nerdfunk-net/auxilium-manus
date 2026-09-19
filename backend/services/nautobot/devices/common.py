@@ -39,6 +39,7 @@ from services.nautobot.managers import (
     InterfaceManager,
     IPManager,
     PrefixManager,
+    VLANManager,
 )
 from services.nautobot.resolvers import (
     DeviceResolver,
@@ -65,6 +66,7 @@ class DeviceCommonService:
     - InterfaceManager: Interface lifecycle management
     - IPManager: IP address operations
     - PrefixManager: Prefix operations
+    - VLANManager: VLAN lookup/creation
 
     Usage:
         service = DeviceCommonService(nautobot_service)
@@ -94,6 +96,7 @@ class DeviceCommonService:
         self._prefix_manager = None
         self._interface_manager = None
         self._device_manager = None
+        self._vlan_manager = None
 
     # ========================================================================
     # LAZY-LOADED PROPERTIES (Resolvers & Managers)
@@ -141,6 +144,16 @@ class DeviceCommonService:
                 self.metadata_resolver,
             )
         return self._prefix_manager
+
+    @property
+    def vlan_manager(self) -> VLANManager:
+        """Lazy-load VLANManager on first access."""
+        if self._vlan_manager is None:
+            self._vlan_manager = VLANManager(
+                self.nautobot,
+                self.metadata_resolver,
+            )
+        return self._vlan_manager
 
     @property
     def interface_manager(self) -> InterfaceManager:
@@ -349,6 +362,24 @@ class DeviceCommonService:
         return await self.prefix_manager.ensure_prefix_exists(
             prefix, namespace, status, prefix_type, location, description, **kwargs
         )
+
+    # ========================================================================
+    # VLAN METHODS (delegated to VLANManager)
+    # ========================================================================
+
+    async def resolve_vlan_id(self, vid: int, location_id: str | None = None) -> str | None:
+        """Delegate to VLANManager."""
+        return await self.vlan_manager.resolve_vlan_id(vid, location_id)
+
+    async def ensure_vlan_exists(
+        self,
+        vid: int,
+        location_id: str | None = None,
+        status: str = "active",
+        name: str | None = None,
+    ) -> str:
+        """Delegate to VLANManager."""
+        return await self.vlan_manager.ensure_vlan_exists(vid, location_id, status, name)
 
     # ========================================================================
     # INTERFACE METHODS (delegated to InterfaceManager)

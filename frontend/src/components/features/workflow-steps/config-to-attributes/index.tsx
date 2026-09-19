@@ -205,7 +205,8 @@ function ConfigToAttributesConfigPanel({
         <p className="text-[11px] leading-4 text-muted-foreground">
           Must match the matching upstream step&apos;s{" "}
           <span className="font-mono">output_key</span> — Parse Cisco Config for
-          cisco_config_parser, or Get &amp; Parse Config for genie.
+          cisco_config_parser, Get &amp; Parse Config for genie, or Extract Facts
+          for batfish.
         </p>
         <AttributePathPicker
           open={pickerOpen}

@@ -296,6 +296,13 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 "no ip address": {},
                 "shutdown": {},
             },
+            "interface Ethernet0/1": {
+                "switchport access vlan 100": {},
+                "switchport mode access": {},
+            },
+            "interface Ethernet0/3": {
+                "channel-group 10 mode active": {},
+            },
             "router ospf 100": {"network 192.168.178.240 0.0.0.0 area 0": {}},
         }
         device = _device(
@@ -313,7 +320,17 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         by_name = {i["name"]: i for i in interfaces}
 
-        self.assertEqual(set(by_name), {"Loopback0", "Ethernet0/0", "Ethernet0/2"})
+        self.assertEqual(
+            set(by_name),
+            {"Loopback0", "Ethernet0/0", "Ethernet0/2", "Ethernet0/1", "Ethernet0/3"},
+        )
+
+        eth01 = by_name["Ethernet0/1"]
+        self.assertEqual(eth01["mode"], "access")
+        self.assertEqual(eth01["untagged_vlan"], 100)
+
+        eth03 = by_name["Ethernet0/3"]
+        self.assertEqual(eth03["lag"], "Port-channel10")
 
         self.assertEqual(by_name["Loopback0"]["type"], "virtual")
         self.assertEqual(by_name["Loopback0"]["description"], "Loopback")
@@ -345,6 +362,39 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(eth02["enabled"])
         self.assertNotIn("ip_addresses", eth02)
 
+    async def test_genie_channel_group_without_mode_suffix_sets_lag(self) -> None:
+        running_config = {
+            "interface Ethernet0/4": {"channel-group 5": {}},
+        }
+        device = _device("dev-1", parsed={"cisco_config": {"running": running_config}})
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "source_format": "genie"},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        self.assertEqual(interfaces[0]["lag"], "Port-channel5")
+
+    async def test_genie_access_vlan_without_explicit_switchport_mode_line(self) -> None:
+        running_config = {
+            "interface Ethernet0/5": {"switchport access vlan 200": {}},
+        }
+        device = _device("dev-1", parsed={"cisco_config": {"running": running_config}})
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "source_format": "genie"},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        self.assertEqual(interfaces[0]["mode"], "access")
+        self.assertEqual(interfaces[0]["untagged_vlan"], 200)
+
     async def test_genie_source_format_rejects_startup_config_source(self) -> None:
         device = _device("dev-1", parsed={"cisco_config": {"running": {}}})
         with self.assertRaises(ValueError):
@@ -356,6 +406,131 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="node-1",
                 device_sessions=MagicMock(),
             )
+
+    async def test_batfish_source_format_builds_interfaces(self) -> None:
+        # Trimmed from a real batfish-extract-facts output for one node.
+        node_facts = {
+            "Interfaces": {
+                "Ethernet0/0": {
+                    "Active": True,
+                    "Admin_Up": True,
+                    "All_Prefixes": ["192.168.178.120/24", "192.168.178.240/24"],
+                    "Description": "xxx",
+                    "MTU": 1500,
+                    "Primary_Address": "192.168.178.240/24",
+                },
+                "Ethernet0/2": {
+                    "Active": False,
+                    "Admin_Up": False,
+                    "All_Prefixes": [],
+                    "Description": "test",
+                    "MTU": 1500,
+                    "Primary_Address": None,
+                },
+            }
+        }
+        device = _device(
+            "dev-1",
+            parsed={"batfish_extract_facts": {"parsed": node_facts, "error": None}},
+        )
+        outcomes = await execute(
+            config={
+                **_BASE_CONFIG,
+                "source_format": "batfish",
+                "parsed_key": "batfish_extract_facts",
+            },
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+
+        eth00 = by_name["Ethernet0/0"]
+        self.assertEqual(eth00["status"], "Active")
+        self.assertTrue(eth00["enabled"])
+        self.assertEqual(eth00["mtu"], 1500)
+        self.assertEqual(
+            eth00["ip_addresses"],
+            [
+                {
+                    "address": "192.168.178.240/24",
+                    "namespace": "Global",
+                    "is_primary": True,
+                },
+                {
+                    "address": "192.168.178.120/24",
+                    "namespace": "Global",
+                    "ip_role": "secondary",
+                },
+            ],
+        )
+
+        eth02 = by_name["Ethernet0/2"]
+        self.assertEqual(eth02["status"], "Active")
+        self.assertFalse(eth02["enabled"])
+        self.assertNotIn("ip_addresses", eth02)
+
+    async def test_batfish_source_format_rejects_startup_config_source(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed={"batfish_extract_facts": {"parsed": {"Interfaces": {}}, "error": None}},
+        )
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    **_BASE_CONFIG,
+                    "source_format": "batfish",
+                    "parsed_key": "batfish_extract_facts",
+                    "config_source": "startup",
+                },
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_batfish_source_format_skips_device_with_error(self) -> None:
+        failed_device = _device(
+            "dev-1",
+            parsed={
+                "batfish_extract_facts": {
+                    "parsed": None,
+                    "error": "no facts found for node 'dev-1' in this Batfish snapshot",
+                }
+            },
+        )
+        ok_device = _device(
+            "dev-2",
+            parsed={
+                "batfish_extract_facts": {
+                    "parsed": {
+                        "Interfaces": {
+                            "Ethernet0/0": {"Active": True, "Admin_Up": True},
+                        }
+                    },
+                    "error": None,
+                }
+            },
+        )
+        outcomes = await execute(
+            config={
+                **_BASE_CONFIG,
+                "source_format": "batfish",
+                "parsed_key": "batfish_extract_facts",
+            },
+            context=_context({"dev-1": failed_device, "dev-2": ok_device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        devices = outcomes[0].context.devices
+        self.assertNotIn("nautobot", devices["dev-1"].attribute_bags)
+        self.assertIn("nautobot", devices["dev-2"].attribute_bags)
 
     async def test_invalid_source_format_raises(self) -> None:
         device = _device("dev-1", parsed=_parsed({"name": "Ethernet0/0", "children": []}))

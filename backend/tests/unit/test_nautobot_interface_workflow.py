@@ -17,6 +17,7 @@ from services.nautobot.devices.interface_workflow import (
     _ip_map_key,
     _normalize_interface_ip_list,
     _normalize_interface_type,
+    _resolve_untagged_vlan_id,
 )
 
 
@@ -55,11 +56,11 @@ class PureHelperTests(unittest.TestCase):
                 "mtu": 1500,
                 "mode": "none",  # dropped
                 "description": None,  # dropped
-                "untagged_vlan": "vl1",
                 "tagged_vlans": ["vl2", "vl3"],
             },
             interface_type="virtual",
             interface_status_id="st1",
+            untagged_vlan_id="vl1",
         )
         self.assertEqual(payload["device"], "d1")
         self.assertEqual(payload["status"], "st1")
@@ -70,14 +71,87 @@ class PureHelperTests(unittest.TestCase):
         self.assertEqual(payload["untagged_vlan"], {"id": "vl1"})
         self.assertEqual(payload["tagged_vlans"], [{"id": "vl2"}, {"id": "vl3"}])
 
-    def test_build_interface_payload_skips_none_untagged_vlan(self) -> None:
+    def test_build_interface_payload_omits_untagged_vlan_when_id_is_none(self) -> None:
         payload = _build_interface_payload(
             device_id="d1",
-            interface={"name": "Gi0/0", "untagged_vlan": "none"},
+            interface={"name": "Gi0/0"},
             interface_type="virtual",
             interface_status_id="st1",
+            untagged_vlan_id=None,
         )
         self.assertNotIn("untagged_vlan", payload)
+
+
+class ResolveUntaggedVlanIdTests(unittest.IsolatedAsyncioTestCase):
+    def _common(self) -> MagicMock:
+        common = MagicMock()
+        common.ensure_vlan_exists = AsyncMock(return_value="vlan-uuid")
+        return common
+
+    async def test_missing_returns_none(self) -> None:
+        common = self._common()
+        result = await _resolve_untagged_vlan_id(
+            common=common, interface={"name": "Gi0/0"}, device_location_id=None, warnings=[]
+        )
+        self.assertIsNone(result)
+        common.ensure_vlan_exists.assert_not_awaited()
+
+    async def test_none_sentinel_returns_none(self) -> None:
+        common = self._common()
+        result = await _resolve_untagged_vlan_id(
+            common=common,
+            interface={"name": "Gi0/0", "untagged_vlan": "none"},
+            device_location_id=None,
+            warnings=[],
+        )
+        self.assertIsNone(result)
+        common.ensure_vlan_exists.assert_not_awaited()
+
+    async def test_already_uuid_passes_through_without_resolving(self) -> None:
+        common = self._common()
+        result = await _resolve_untagged_vlan_id(
+            common=common,
+            interface={"name": "Gi0/0", "untagged_vlan": "3542814a-d33f-4cc3-bfdd-eb3a35945b31"},
+            device_location_id=None,
+            warnings=[],
+        )
+        self.assertEqual(result, "3542814a-d33f-4cc3-bfdd-eb3a35945b31")
+        common.ensure_vlan_exists.assert_not_awaited()
+
+    async def test_raw_vid_resolved_via_ensure_vlan_exists(self) -> None:
+        common = self._common()
+        result = await _resolve_untagged_vlan_id(
+            common=common,
+            interface={"name": "Gi0/0", "untagged_vlan": 100},
+            device_location_id="loc-uuid",
+            warnings=[],
+        )
+        self.assertEqual(result, "vlan-uuid")
+        common.ensure_vlan_exists.assert_awaited_once_with(100, location_id="loc-uuid")
+
+    async def test_raw_vid_with_no_location(self) -> None:
+        common = self._common()
+        await _resolve_untagged_vlan_id(
+            common=common,
+            interface={"name": "Gi0/0", "untagged_vlan": 100},
+            device_location_id=None,
+            warnings=[],
+        )
+        common.ensure_vlan_exists.assert_awaited_once_with(100, location_id=None)
+
+    async def test_invalid_value_warns_and_returns_none(self) -> None:
+        common = self._common()
+        warnings: list[str] = []
+        result = await _resolve_untagged_vlan_id(
+            common=common,
+            interface={"name": "Gi0/0", "untagged_vlan": "not-a-vid-or-uuid"},
+            device_location_id=None,
+            warnings=warnings,
+        )
+        self.assertIsNone(result)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Gi0/0", warnings[0])
+        common.ensure_vlan_exists.assert_not_awaited()
 
     def test_state_to_result_counts(self) -> None:
         state = _InterfaceUpdateState()
@@ -109,6 +183,7 @@ def _make_service(rest_dispatch=None) -> InterfaceManagerService:
     common.resolve_status_id = AsyncMock(return_value="status-uuid")
     common.resolve_interface_by_name = AsyncMock(return_value=None)
     common.resolve_role_id_for_content_type = AsyncMock(return_value="role-uuid")
+    common.ensure_vlan_exists = AsyncMock(return_value="vlan-uuid")
     svc.common = common
     return svc
 
@@ -234,6 +309,16 @@ class CreateOrUpdateInterfaceTests(unittest.IsolatedAsyncioTestCase):
             warnings=[],
         )
         self.assertEqual(result, ("if-raced", True))
+
+    async def test_untagged_vlan_vid_resolved_with_device_location(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {"id": "if-new"})
+        await svc._create_or_update_interface(
+            "d1",
+            {"name": "Gi0/0", "type": "virtual", "untagged_vlan": 100},
+            [],
+            device_location_id="loc-uuid",
+        )
+        svc.common.ensure_vlan_exists.assert_awaited_once_with(100, location_id="loc-uuid")
 
     async def test_create_race_fallback_generic_error_warns(self) -> None:
         svc = _make_service()
@@ -396,6 +481,158 @@ class UpdateDeviceInterfacesTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(state.failed_interfaces, ["Gi0/0"])
         self.assertEqual(len(state.warnings), 1)
+
+    async def test_process_one_interface_records_interface_id_map(self) -> None:
+        svc = _make_service()
+        state = _InterfaceUpdateState()
+        svc._create_or_update_interface = AsyncMock(return_value=("if1", False))
+        await svc._process_one_interface(
+            device_id="d1", interface={"name": "Gi0/0"}, state=state
+        )
+        self.assertEqual(state.interface_id_map, {"Gi0/0": "if1"})
+
+    async def test_two_interface_batch_sets_lag_membership(self) -> None:
+        created_ids = {"Port-channel10": "pc-id", "Ethernet0/2": "eth-id"}
+        patch_calls: list[tuple] = []
+
+        async def dispatch(**kw):
+            method, endpoint = kw.get("method"), kw.get("endpoint", "")
+            if method == "POST" and endpoint == "dcim/interfaces/":
+                name = kw.get("data", {}).get("name")
+                return {"id": created_ids[name]}
+            if method == "PATCH" and endpoint.startswith("dcim/interfaces/"):
+                patch_calls.append((endpoint, kw.get("data")))
+                return {}
+            if method == "GET" and "ip-address-to-interface" in endpoint:
+                return {"count": 0}
+            return {}
+
+        svc = _make_service(rest_dispatch=dispatch)
+        interfaces = [
+            {"name": "Ethernet0/2", "type": "100base-tx", "lag": "Port-channel10"},
+            {"name": "Port-channel10", "type": "lag"},
+        ]
+        result = await svc.update_device_interfaces("d1", interfaces)
+        self.assertEqual(result.interfaces_created, 2)
+        self.assertIn(("dcim/interfaces/eth-id/", {"lag": {"id": "pc-id"}}), patch_calls)
+
+
+class AssignLagMembershipsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lag_in_same_batch_resolved_from_map(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {"Ethernet0/2": "eth-id", "Port-channel10": "pc-id"}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[{"name": "Ethernet0/2", "lag": "Port-channel10"}],
+            state=state,
+        )
+        svc.common.resolve_interface_by_name.assert_not_awaited()
+        svc.nautobot.rest_request.assert_awaited_once_with(
+            endpoint="dcim/interfaces/eth-id/",
+            method="PATCH",
+            data={"lag": {"id": "pc-id"}},
+        )
+
+    async def test_lag_not_in_batch_falls_back_to_resolver(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        svc.common.resolve_interface_by_name = AsyncMock(return_value="pc-existing")
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {"Ethernet0/2": "eth-id"}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[{"name": "Ethernet0/2", "lag": "Port-channel10"}],
+            state=state,
+        )
+        svc.common.resolve_interface_by_name.assert_awaited_once_with(
+            device_id="d1", interface_name="Port-channel10"
+        )
+        svc.nautobot.rest_request.assert_awaited_once_with(
+            endpoint="dcim/interfaces/eth-id/",
+            method="PATCH",
+            data={"lag": {"id": "pc-existing"}},
+        )
+
+    async def test_lag_already_uuid_used_directly(self) -> None:
+        svc = _make_service(rest_dispatch=lambda **kw: {})
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {"Ethernet0/2": "eth-id"}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[
+                {"name": "Ethernet0/2", "lag": "3542814a-d33f-4cc3-bfdd-eb3a35945b31"}
+            ],
+            state=state,
+        )
+        svc.common.resolve_interface_by_name.assert_not_awaited()
+        svc.nautobot.rest_request.assert_awaited_once_with(
+            endpoint="dcim/interfaces/eth-id/",
+            method="PATCH",
+            data={"lag": {"id": "3542814a-d33f-4cc3-bfdd-eb3a35945b31"}},
+        )
+
+    async def test_lag_not_found_warns_and_skips(self) -> None:
+        svc = _make_service()
+        svc.common.resolve_interface_by_name = AsyncMock(return_value=None)
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {"Ethernet0/2": "eth-id"}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[{"name": "Ethernet0/2", "lag": "Port-channel10"}],
+            state=state,
+        )
+        svc.nautobot.rest_request.assert_not_awaited()
+        self.assertEqual(len(state.warnings), 1)
+        self.assertIn("Port-channel10", state.warnings[0])
+
+    async def test_lag_self_reference_warns_and_skips(self) -> None:
+        svc = _make_service()
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {"Ethernet0/2": "eth-id"}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[{"name": "Ethernet0/2", "lag": "Ethernet0/2"}],
+            state=state,
+        )
+        svc.nautobot.rest_request.assert_not_awaited()
+        self.assertEqual(len(state.warnings), 1)
+
+    async def test_member_missing_from_id_map_skipped(self) -> None:
+        svc = _make_service()
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[{"name": "Ethernet0/2", "lag": "Port-channel10"}],
+            state=state,
+        )
+        svc.common.resolve_interface_by_name.assert_not_awaited()
+        svc.nautobot.rest_request.assert_not_awaited()
+        self.assertEqual(state.warnings, [])
+
+    async def test_no_lag_field_skipped(self) -> None:
+        svc = _make_service()
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {"Ethernet0/2": "eth-id"}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[{"name": "Ethernet0/2"}],
+            state=state,
+        )
+        svc.nautobot.rest_request.assert_not_awaited()
+
+    async def test_patch_failure_appends_warning_without_raising(self) -> None:
+        svc = _make_service()
+        svc.nautobot.rest_request = AsyncMock(side_effect=RuntimeError("boom"))
+        state = _InterfaceUpdateState()
+        state.interface_id_map = {"Ethernet0/2": "eth-id", "Port-channel10": "pc-id"}
+        await svc._assign_lag_memberships(
+            device_id="d1",
+            interfaces=[{"name": "Ethernet0/2", "lag": "Port-channel10"}],
+            state=state,
+        )
+        self.assertEqual(len(state.warnings), 1)
+        self.assertIn("Ethernet0/2", state.warnings[0])
 
 
 if __name__ == "__main__":

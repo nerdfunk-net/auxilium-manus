@@ -13,6 +13,9 @@ from workflow_steps.common.nautobot_interfaces import (
     cidr_from_ip_and_mask,
     infer_interface_type_from_name,
 )
+from workflow_steps.config_to_attributes.batfish_facts import (
+    build_layer3_interfaces_from_batfish_facts,
+)
 from workflow_steps.config_to_attributes.config import get_config
 from workflow_steps.config_to_attributes.genie_running_config import (
     build_layer3_interfaces_from_genie_running_config,
@@ -26,11 +29,13 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "config-to-attributes"
 _CONFIG_SOURCES = frozenset({"running", "startup"})
 _SUPPORTED_ATTRIBUTES = frozenset({"layer3_interfaces"})
-_SOURCE_FORMATS = frozenset({"cisco_config_parser", "genie"})
+_SOURCE_FORMATS = frozenset({"cisco_config_parser", "genie", "batfish"})
 _UPSTREAM_STEP_NAME = {
     "cisco_config_parser": "Parse Cisco Config",
     "genie": "Get & Parse Config",
+    "batfish": "Extract Facts",
 }
+_STARTUP_UNSUPPORTED_FORMATS = frozenset({"genie", "batfish"})
 
 
 def _parse_config_source(config: dict[str, Any]) -> str:
@@ -66,18 +71,25 @@ def _parse_attributes(config: dict[str, Any]) -> set[str]:
 
 
 def _select_parsed_entry(
-    device: DeviceContext, parsed_key: str, config_source: str
+    device: DeviceContext, parsed_key: str, config_source: str, source_format: str
 ) -> dict[str, Any] | None:
-    """Resolve the parsed Cisco config model to read L3 interfaces from.
+    """Resolve the parsed config model to read L3 interfaces from.
 
-    ``parse-cisco-config`` always writes ``{"running": ..., "startup": ...}`` at
-    ``parsed[parsed_key]`` (the branch it did not parse stays ``None``), so read
-    the ``config_source`` sub-key directly.
+    ``parse-cisco-config``/``get-pyats-config`` always write ``{"running": ...,
+    "startup": ...}`` at ``parsed[parsed_key]`` (the branch not parsed stays
+    ``None``), so read the ``config_source`` sub-key directly. ``batfish-
+    extract-facts`` writes a different, non-fatal shape instead — ``{"parsed":
+    <node's facts or None>, "error": str | None}`` — with no running/startup
+    distinction, so for that format read ``"parsed"`` regardless of
+    ``config_source``.
     """
     entry = device.parsed.get(parsed_key)
     if not isinstance(entry, dict):
         return None
-    nested = entry.get(config_source)
+    if source_format == "batfish":
+        nested = entry.get("parsed")
+    else:
+        nested = entry.get(config_source)
     return nested if isinstance(nested, dict) else None
 
 
@@ -142,6 +154,8 @@ def _build_layer3_interfaces(
 ) -> list[dict[str, Any]]:
     if source_format == "genie":
         return build_layer3_interfaces_from_genie_running_config(parsed_entry)
+    if source_format == "batfish":
+        return build_layer3_interfaces_from_batfish_facts(parsed_entry)
     return _build_layer3_interfaces_cisco_config_parser(parsed_entry)
 
 
@@ -161,10 +175,11 @@ async def execute(
     attributes = _parse_attributes(config)
     source_format = _parse_source_format(config)
 
-    if source_format == "genie" and config_source == "startup":
+    if source_format in _STARTUP_UNSUPPORTED_FORMATS and config_source == "startup":
+        upstream_step = _UPSTREAM_STEP_NAME[source_format]
         raise ValueError(
-            f"{_STEP_ID}: source_format 'genie' only supports config_source 'running' — "
-            "Get & Parse Config never captures show startup-config"
+            f"{_STEP_ID}: source_format {source_format!r} only supports config_source "
+            f"'running' — {upstream_step} never captures show startup-config"
         )
 
     logger.info(
@@ -189,7 +204,7 @@ async def execute(
     interfaces_written = 0
 
     for device_id, device in context.devices.items():
-        parsed_entry = _select_parsed_entry(device, parsed_key, config_source)
+        parsed_entry = _select_parsed_entry(device, parsed_key, config_source, source_format)
         if parsed_entry is None:
             continue
 

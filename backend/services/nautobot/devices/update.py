@@ -137,6 +137,7 @@ class DeviceUpdateService:
         add_prefix: bool,
         sync_interfaces: bool,
         warnings: list[str],
+        device_location_id: str | None = None,
     ) -> tuple[int, int, int]:
         logger.info("Step 3.5: Creating/updating %s interface(s)", len(interfaces))
         logger.info("Prefix auto-creation enabled: %s", add_prefix)
@@ -145,6 +146,7 @@ class DeviceUpdateService:
             interfaces=interfaces,
             add_prefixes_automatically=add_prefix,
             sync_interfaces=sync_interfaces,
+            device_location_id=device_location_id,
         )
         warnings.extend(interface_result.warnings)
         logger.info(
@@ -311,6 +313,7 @@ class DeviceUpdateService:
         matching_strategy: str = "exact",
         rack_location: str | None = None,
         sync_interfaces: bool = False,
+        device_location_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Update a single device.
@@ -429,6 +432,7 @@ class DeviceUpdateService:
                         add_prefix=add_prefix,
                         sync_interfaces=sync_interfaces,
                         warnings=warnings,
+                        device_location_id=device_location_id,
                     )
                 )
             return await self._finalize_device_update(

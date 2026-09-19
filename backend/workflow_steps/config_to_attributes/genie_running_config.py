@@ -21,6 +21,8 @@ from workflow_steps.common.nautobot_interfaces import (
 _INTERFACE_PREFIX = "interface "
 _DESCRIPTION_RE = re.compile(r"^description\s+(.*)$", re.IGNORECASE)
 _IP_ADDRESS_RE = re.compile(r"^ip address (\S+) (\S+)(\s+secondary)?$", re.IGNORECASE)
+_CHANNEL_GROUP_RE = re.compile(r"^channel-group\s+(\d+)(?:\s+mode\s+\S+)?$", re.IGNORECASE)
+_ACCESS_VLAN_RE = re.compile(r"^switchport access vlan\s+(\d+)$", re.IGNORECASE)
 
 
 def _is_shutdown(children: dict[str, Any]) -> bool:
@@ -54,6 +56,22 @@ def _find_ip_addresses(children: dict[str, Any]) -> list[dict[str, Any]]:
     return addresses
 
 
+def _find_lag(children: dict[str, Any]) -> str | None:
+    for key in children:
+        match = _CHANNEL_GROUP_RE.match(str(key).strip())
+        if match:
+            return f"Port-channel{match.group(1)}"
+    return None
+
+
+def _find_access_vlan(children: dict[str, Any]) -> int | None:
+    for key in children:
+        match = _ACCESS_VLAN_RE.match(str(key).strip())
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def _build_interface(name: str, children: Any) -> dict[str, Any] | None:
     name = name.strip()
     if not name:
@@ -70,6 +88,15 @@ def _build_interface(name: str, children: Any) -> dict[str, Any] | None:
     description = _find_description(children)
     if description:
         iface["description"] = description
+
+    access_vlan = _find_access_vlan(children)
+    if access_vlan is not None:
+        iface["mode"] = "access"
+        iface["untagged_vlan"] = access_vlan
+
+    lag = _find_lag(children)
+    if lag:
+        iface["lag"] = lag
 
     ip_addresses = _find_ip_addresses(children)
     if ip_addresses:
