@@ -16,10 +16,35 @@ def _l3_interfaces(*items: dict) -> dict:
     return {"l3_interfaces": list(items)}
 
 
+def _parsed_model(
+    *,
+    l3_interfaces: list[dict] | None = None,
+    l2_access_interfaces: list[dict] | None = None,
+    l2_trunk_interfaces: list[dict] | None = None,
+    port_channels: list[dict] | None = None,
+) -> dict:
+    return {
+        "l3_interfaces": l3_interfaces or [],
+        "l2_access_interfaces": l2_access_interfaces or [],
+        "l2_trunk_interfaces": l2_trunk_interfaces or [],
+        "port_channels": port_channels or [],
+    }
+
+
 def _parsed(*items: dict, source: str = "running") -> dict:
     """A parse-cisco-config entry — always ``{"running": ..., "startup": ...}``,
     with the branch other than ``source`` left ``None``."""
     model = _l3_interfaces(*items)
+    return {
+        "cisco_config": {
+            "running": model if source == "running" else None,
+            "startup": model if source == "startup" else None,
+        }
+    }
+
+
+def _parsed_full(model: dict, *, source: str = "running") -> dict:
+    """Like ``_parsed`` but takes a full parsed-model dict (see ``_parsed_model``)."""
     return {
         "cisco_config": {
             "running": model if source == "running" else None,
@@ -232,13 +257,30 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bag["interfaces"][0]["status"], "Active")
         self.assertEqual(bag["interfaces"][0]["type"], "100base-tx")
 
-    async def test_noop_when_layer3_interfaces_not_selected(self) -> None:
+    async def test_noop_when_interfaces_not_selected(self) -> None:
         device = _device(
             "dev-1",
             parsed=_parsed({"name": "Ethernet0/0", "children": []}),
         )
         outcomes = await execute(
             config={**_BASE_CONFIG, "attributes": []},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        self.assertNotIn("nautobot", outcomes[0].context.devices["dev-1"].attribute_bags)
+
+    async def test_noop_when_old_layer3_interfaces_key_used(self) -> None:
+        # Renamed layer3_interfaces -> interfaces; the old key is no longer
+        # recognized and must silently no-op rather than build anything.
+        device = _device(
+            "dev-1",
+            parsed=_parsed({"name": "Ethernet0/0", "children": []}),
+        )
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "attributes": ["layer3_interfaces"]},
             context=_context({"dev-1": device}),
             run=_run(),
             artifact_service=MagicMock(),
@@ -531,6 +573,191 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         devices = outcomes[0].context.devices
         self.assertNotIn("nautobot", devices["dev-1"].attribute_bags)
         self.assertIn("nautobot", devices["dev-2"].attribute_bags)
+
+    async def test_cisco_config_parser_l2_access_interfaces(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed_full(
+                _parsed_model(
+                    l2_access_interfaces=[
+                        {
+                            "name": "Ethernet0/0",
+                            "data_vlan": "100",
+                            "children": ["switchport access vlan 100"],
+                        },
+                        {
+                            "name": "Ethernet0/3",
+                            "data_vlan": "200",
+                            "children": ["switchport access vlan 200"],
+                        },
+                    ],
+                )
+            ),
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+        self.assertEqual(by_name["Ethernet0/0"]["mode"], "access")
+        self.assertEqual(by_name["Ethernet0/0"]["untagged_vlan"], 100)
+        self.assertEqual(by_name["Ethernet0/3"]["untagged_vlan"], 200)
+
+    async def test_cisco_config_parser_l2_trunk_interfaces_with_vlan_range(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed_full(
+                _parsed_model(
+                    l2_trunk_interfaces=[
+                        {
+                            "name": "Ethernet0/4",
+                            "allowed_vlans": "10,20,30-32",
+                            "children": ["switchport trunk allowed vlan 10,20,30-32"],
+                        },
+                    ],
+                )
+            ),
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        eth04 = interfaces[0]
+        self.assertEqual(eth04["mode"], "trunk")
+        self.assertEqual(eth04["tagged_vlans"], [10, 20, 30, 31, 32])
+
+    async def test_cisco_config_parser_port_channel_member_bug_mitigation(self) -> None:
+        # Reproduces the real "switch" example: Ethernet0/2 is a channel-group-only
+        # member with no IP and no switchport command, so cisco_config_parser omits
+        # it from l3/l2_access/l2_trunk entirely — the same is true for
+        # Port-channel10 itself (no IP, no switchport command on the bundle).
+        device = _device(
+            "dev-1",
+            parsed=_parsed_full(
+                _parsed_model(
+                    l2_access_interfaces=[
+                        {
+                            "name": "Ethernet0/0",
+                            "data_vlan": "100",
+                            "children": ["switchport access vlan 100"],
+                        },
+                    ],
+                    port_channels=[
+                        {
+                            "name": "Port-channel10",
+                            "id": "10",
+                            "description": "port-channel 10",
+                            "protocol": "lacp",
+                            "members": [{"interface": "Ethernet0/2", "mode": "active"}],
+                        }
+                    ],
+                )
+            ),
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+
+        self.assertEqual(set(by_name), {"Ethernet0/0", "Ethernet0/2", "Port-channel10"})
+
+        member = by_name["Ethernet0/2"]
+        self.assertEqual(member["lag"], "Port-channel10")
+        self.assertTrue(member["enabled"])
+        self.assertEqual(member["status"], "Active")
+        self.assertEqual(member["type"], "100base-tx")
+
+        port_channel = by_name["Port-channel10"]
+        self.assertEqual(port_channel["type"], "lag")
+        self.assertEqual(port_channel["description"], "port-channel 10")
+        self.assertTrue(port_channel["enabled"])
+
+        # Unrelated l2_access interface is untouched.
+        self.assertNotIn("lag", by_name["Ethernet0/0"])
+
+    async def test_cisco_config_parser_port_channel_member_with_real_l3_config(self) -> None:
+        # A member interface that also has real L3 config (LAB example's
+        # Ethernet0/2, a member of Port-channel11) must keep its existing data
+        # and just get lag merged on top, not be clobbered by a stub.
+        device = _device(
+            "dev-1",
+            parsed=_parsed_full(
+                _parsed_model(
+                    l3_interfaces=[
+                        {
+                            "name": "Ethernet0/2",
+                            "description": "portchannel",
+                            "children": ["description portchannel", "shutdown"],
+                        },
+                    ],
+                    port_channels=[
+                        {
+                            "name": "Port-channel11",
+                            "id": "11",
+                            "description": "port-channel 11",
+                            "members": [{"interface": "Ethernet0/2", "mode": "active"}],
+                        }
+                    ],
+                )
+            ),
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+
+        eth02 = by_name["Ethernet0/2"]
+        self.assertEqual(eth02["description"], "portchannel")
+        self.assertFalse(eth02["enabled"])  # preserved from real l3 data, not stub default
+        self.assertEqual(eth02["lag"], "Port-channel11")
+
+    async def test_cisco_config_parser_port_channel_falls_back_to_id_when_name_missing(
+        self,
+    ) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed_full(
+                _parsed_model(
+                    port_channels=[
+                        {"id": "7", "members": [{"interface": "Ethernet0/9", "mode": "on"}]}
+                    ],
+                )
+            ),
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+        self.assertIn("Port-channel7", by_name)
+        self.assertEqual(by_name["Ethernet0/9"]["lag"], "Port-channel7")
 
     async def test_invalid_source_format_raises(self) -> None:
         device = _device("dev-1", parsed=_parsed({"name": "Ethernet0/0", "children": []}))

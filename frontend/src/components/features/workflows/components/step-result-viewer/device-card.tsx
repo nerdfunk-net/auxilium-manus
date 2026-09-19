@@ -16,16 +16,16 @@ import { DeviceConfigsContent } from "./device-configs-content";
 import { DeviceDetailDialog } from "./device-detail-dialog";
 import { DeviceDryRunContent, getDryRunEntries } from "./device-dry-run-content";
 import { DeviceErrorList } from "./device-error-list";
-import { DeviceGenieConfigContent } from "./device-genie-config-content";
 import { DeviceParsedCommandOutputContent } from "./device-parsed-command-output-content";
+import { DeviceParsedConfigContent } from "./device-parsed-config-content";
 import { DeviceParsedTemplatesContent } from "./device-parsed-templates-content";
 import { DeviceSnapshotContent } from "./device-snapshot-content";
 import { DeviceStatusIcon } from "./devices-section";
 import {
   getComparisonDiffEntries,
   getComparisonResultEntries,
-  getGenieParsedConfigEntries,
   getParsedCommandOutputEntries,
+  getParsedConfigEntries,
   getParsedTemplateEntries,
   getSnapshotEntries,
 } from "./parsed-guards";
@@ -64,8 +64,8 @@ export function DeviceCard({
     () => getComparisonDiffEntries(device.parsed ?? {}),
     [device.parsed],
   );
-  const genieConfigEntries = useMemo(
-    () => getGenieParsedConfigEntries(device.parsed ?? {}),
+  const parsedConfigEntries = useMemo(
+    () => getParsedConfigEntries(device.parsed ?? {}),
     [device.parsed],
   );
   const snapshotEntries = useMemo(
@@ -79,7 +79,7 @@ export function DeviceCard({
   const hasParsedTemplates = parsedTemplateEntries.length > 0;
   const hasComparisons =
     comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0;
-  const hasGenieConfig = genieConfigEntries.length > 0;
+  const hasParsedConfig = parsedConfigEntries.length > 0;
   const hasSnapshot = snapshotEntries.length > 0;
   const hasParsedCommandOutput = parsedCommandOutputEntries.length > 0;
   const dryRunEntries = useMemo(
@@ -89,7 +89,7 @@ export function DeviceCard({
   const hasDryRun = dryRunEntries.length > 0;
   const [showDryRun, setShowDryRun] = useState(true);
   const [showComparisons, setShowComparisons] = useState(hasComparisons);
-  const [showGenieConfig, setShowGenieConfig] = useState(false);
+  const [showParsedConfig, setShowParsedConfig] = useState(false);
   const [showSnapshot, setShowSnapshot] = useState(false);
   const [showParsedCommandOutput, setShowParsedCommandOutput] = useState(false);
   const hasConfigs = Boolean(device.running_config_ref || device.startup_config_ref);
@@ -196,12 +196,12 @@ export function DeviceCard({
               ))}
             </div>
           ) : null}
-          {hasGenieConfig ? (
+          {hasParsedConfig ? (
             <div className="mt-2 space-y-1">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Genie parsed config
+                Parsed config
               </p>
-              {genieConfigEntries.map(({ key, entry }) => (
+              {parsedConfigEntries.map(({ key, entry }) => (
                 <div key={key} className="text-xs text-muted-foreground">
                   <span className="font-mono">{key}</span>
                   {" · "}
@@ -253,7 +253,7 @@ export function DeviceCard({
           hasCommandResults ||
           hasParsedTemplates ||
           hasComparisons ||
-          hasGenieConfig ||
+          hasParsedConfig ||
           hasSnapshot ||
           hasParsedCommandOutput ||
           hasDryRun ||
@@ -317,13 +317,13 @@ export function DeviceCard({
                   {comparisonDiffEntries.length !== 1 ? "s" : ""}
                 </button>
               ) : null}
-              {hasGenieConfig ? (
+              {hasParsedConfig ? (
                 <button
                   type="button"
                   className="text-xs text-primary hover:underline"
-                  onClick={() => setShowGenieConfig((value) => !value)}
+                  onClick={() => setShowParsedConfig((value) => !value)}
                 >
-                  {showGenieConfig ? "Hide" : "Show"} Genie parsed config
+                  {showParsedConfig ? "Hide" : "Show"} parsed config
                 </button>
               ) : null}
               {hasSnapshot ? (
@@ -378,8 +378,8 @@ export function DeviceCard({
               comparisonDiffs={comparisonDiffEntries}
             />
           ) : null}
-          {showGenieConfig && hasGenieConfig ? (
-            <DeviceGenieConfigContent entries={genieConfigEntries} />
+          {showParsedConfig && hasParsedConfig ? (
+            <DeviceParsedConfigContent entries={parsedConfigEntries} />
           ) : null}
           {showSnapshot && hasSnapshot ? (
             <DeviceSnapshotContent runId={runId ?? null} entries={snapshotEntries} />

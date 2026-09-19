@@ -74,12 +74,14 @@ export interface ParsedComparisonDiffEntry {
 }
 
 /**
- * Genie-parsed config output from get-pyats-config / parse-cisco-config:
- * `{"running": <genie dict>|null}` (parse-cisco-config additionally has a
- * `startup` key). Stored inline in `device.parsed` -- unlike templates and
- * comparisons, this is small structured JSON, not an artifact reference.
+ * Parsed-config output from get-pyats-config (Genie) or parse-cisco-config
+ * (cisco-config-parser): `{"running": <parsed dict>|null}` (parse-cisco-config
+ * additionally has a `startup` key). Stored inline in `device.parsed` --
+ * unlike templates and comparisons, this is small structured JSON, not an
+ * artifact reference. The two steps' outputs are structurally identical and
+ * indistinguishable in the frontend, so they render as one generic section.
  */
-export interface GenieParsedConfigEntry {
+export interface ParsedConfigEntry {
   running?: unknown;
   startup?: unknown;
 }

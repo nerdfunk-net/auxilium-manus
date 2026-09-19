@@ -7,29 +7,29 @@ import type { DeviceContext } from "@/lib/workflow-context-types";
 
 import { ContentViewer } from "./content-viewer";
 import { DeviceConfigsContent } from "./device-configs-content";
-import type { GenieParsedConfigEntry } from "./types";
+import type { ParsedConfigEntry } from "./types";
 
 /**
  * Detail-dialog "Device configs" section. Shows raw running/startup config and,
  * when a parse step (parse-cisco-config / get-pyats-config) also ran, exposes the
- * Genie-parsed structure behind a Raw / Parsed tab switch.
+ * parsed structure behind a Raw / Parsed tab switch.
  */
 export function DeviceConfigSection({
   device,
   runId,
-  genieConfigEntries,
+  parsedConfigEntries,
 }: {
   device: DeviceContext;
   runId: number | null;
-  genieConfigEntries: Array<{ key: string; entry: GenieParsedConfigEntry }>;
+  parsedConfigEntries: Array<{ key: string; entry: ParsedConfigEntry }>;
 }) {
   const hasRaw = Boolean(device.running_config_ref || device.startup_config_ref);
-  const hasParsed = genieConfigEntries.length > 0;
+  const hasParsed = parsedConfigEntries.length > 0;
   const [tab, setTab] = useState("raw");
 
   const parsedPanels = (
     <div className="space-y-4">
-      {genieConfigEntries.map(({ key, entry }) => (
+      {parsedConfigEntries.map(({ key, entry }) => (
         <div key={key} className="space-y-2">
           <p className="font-mono text-[10px] text-muted-foreground">output_key: {key}</p>
           {"running" in entry ? (

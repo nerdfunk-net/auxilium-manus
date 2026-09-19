@@ -86,7 +86,7 @@ def _build_interface(name: str, iface: dict[str, Any]) -> dict[str, Any] | None:
     return built
 
 
-def build_layer3_interfaces_from_batfish_facts(
+def build_interfaces_from_batfish_facts(
     node_facts: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Extract interfaces from one node's Batfish ``extract_facts`` output."""

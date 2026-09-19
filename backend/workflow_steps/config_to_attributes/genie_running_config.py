@@ -105,10 +105,10 @@ def _build_interface(name: str, children: Any) -> dict[str, Any] | None:
     return iface
 
 
-def build_layer3_interfaces_from_genie_running_config(
+def build_interfaces_from_genie_running_config(
     running_config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Extract Layer3 interfaces from a Genie-parsed ``show running-config`` tree."""
+    """Extract interfaces from a Genie-parsed ``show running-config`` tree."""
     if not isinstance(running_config, dict):
         return []
 

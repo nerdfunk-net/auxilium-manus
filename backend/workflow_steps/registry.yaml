@@ -1815,12 +1815,13 @@ plugins:
     name: Config to Attributes
     overview: Turn parsed device config into Nautobot attributes.
     description: >
-      Read a device's parsed config — from Parse Cisco Config or Get & Parse
-      Config (pyATS/Genie) — and populate its Nautobot attribute bag,
-      starting with Layer3 interfaces, for later use by Add to Nautobot or
-      Update Device (interfaces_source: nautobot_origin). A Batfish
-      source_format is planned as a future addition to this same contract.
-      No live Nautobot connection is used.
+      Read a device's parsed config — from Parse Cisco Config, Get & Parse
+      Config (pyATS/Genie), or Extract Facts (Batfish) — and populate its
+      Nautobot attribute bag with its interfaces, for later use by Add to
+      Nautobot or Update Device (interfaces_source: nautobot_origin). Does
+      not distinguish Layer 2 from Layer 3 interfaces — an interface is
+      built whether it carries an IP address, a switchport VLAN, or is a
+      port-channel/LAG. No live Nautobot connection is used.
     artifact_type: inventory_selector
     palette_category: nautobot
     directory: config_to_attributes
@@ -1835,36 +1836,46 @@ plugins:
         - name: source_format
           description: >
             Which parser produced the config at parsed.<parsed_key> —
-            cisco_config_parser (from Parse Cisco Config) or genie (from
-            Get & Parse Config).
+            cisco_config_parser (from Parse Cisco Config), genie (from
+            Get & Parse Config), or batfish (from Extract Facts).
           data_type: string
           required: true
           example: cisco_config_parser
         - name: config_source
           description: >
             Which parsed config to read for attribute values — running or
-            startup (exactly one). genie only ever populates running.
+            startup (exactly one). genie and batfish only ever populate
+            running.
           data_type: string
           required: true
           example: running
         - name: parsed_key
           description: >
             The output_key used by the matching upstream step
-            (parsed.<parsed_key>) — Parse Cisco Config or Get & Parse
-            Config. Must match that step's own "output_key" configuration
-            value.
+            (parsed.<parsed_key>) — Parse Cisco Config, Get & Parse
+            Config, or Extract Facts. Must match that step's own
+            "output_key" configuration value.
           data_type: string
           required: true
           example: cisco_config
         - name: attributes
           description: >
             Which attribute groups to populate. Currently only
-            "layer3_interfaces" is implemented; more groups will be added
-            later.
+            "interfaces" is implemented; more groups will be added later.
+            For cisco_config_parser, this merges the library's
+            l3_interfaces, l2_access_interfaces, l2_trunk_interfaces, and
+            port_channels sections into one interface list, keyed by
+            interface name. Known limitation: an interface whose only
+            configuration is "channel-group N mode X" (no IP, no
+            switchport command) is invisible to the library outside of
+            port_channels[].members — this step synthesizes a minimal
+            entry for it (and for the port-channel interface itself, if
+            also missing) with lag set, but cannot recover its
+            description or shutdown state.
           data_type: object_list
           required: true
           example:
-            - layer3_interfaces
+            - interfaces
 
   - id: add-to-nautobot
     name: Add to Nautobot

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
@@ -14,11 +15,11 @@ from workflow_steps.common.nautobot_interfaces import (
     infer_interface_type_from_name,
 )
 from workflow_steps.config_to_attributes.batfish_facts import (
-    build_layer3_interfaces_from_batfish_facts,
+    build_interfaces_from_batfish_facts,
 )
 from workflow_steps.config_to_attributes.config import get_config
 from workflow_steps.config_to_attributes.genie_running_config import (
-    build_layer3_interfaces_from_genie_running_config,
+    build_interfaces_from_genie_running_config,
 )
 
 if TYPE_CHECKING:
@@ -28,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "config-to-attributes"
 _CONFIG_SOURCES = frozenset({"running", "startup"})
-_SUPPORTED_ATTRIBUTES = frozenset({"layer3_interfaces"})
+_SUPPORTED_ATTRIBUTES = frozenset({"interfaces"})
+_VLAN_RANGE_RE = re.compile(r"^(\d+)-(\d+)$")
 _SOURCE_FORMATS = frozenset({"cisco_config_parser", "genie", "batfish"})
 _UPSTREAM_STEP_NAME = {
     "cisco_config_parser": "Parse Cisco Config",
@@ -133,30 +135,187 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     return iface
 
 
-def _build_layer3_interfaces_cisco_config_parser(
+def _parse_vlan_list(raw: Any) -> list[int]:
+    """Parse a comma-separated VLAN id/range string into a list of ints.
+
+    E.g. ``"10,20,30-32"`` -> ``[10, 20, 30, 31, 32]``. Best-effort: the
+    cisco_config_parser library's own regex only captures a single
+    ``switchport trunk allowed vlan ...`` line via ``.search()``, so a
+    continuation line like ``... vlan add 50`` is already invisible upstream
+    of this function — this only parses whatever single line the library did
+    capture.
+    """
+    if not raw:
+        return []
+    text = str(raw).strip()
+    if not text:
+        return []
+    vlans: list[int] = []
+    for token in text.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        range_match = _VLAN_RANGE_RE.match(token)
+        if range_match:
+            start, end = int(range_match.group(1)), int(range_match.group(2))
+            vlans.extend(range(start, end + 1))
+        elif token.isdigit():
+            vlans.append(int(token))
+    return vlans
+
+
+def _build_l2_access_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        return None
+
+    iface: dict[str, Any] = {
+        "name": name,
+        "status": "Active",
+        "type": infer_interface_type_from_name(name),
+        "enabled": _is_enabled(raw.get("children")),
+        "mode": "access",
+    }
+
+    description = str(raw.get("description") or "").strip()
+    if description:
+        iface["description"] = description
+
+    try:
+        data_vlan = raw.get("data_vlan")
+        if data_vlan not in (None, ""):
+            iface["untagged_vlan"] = int(data_vlan)
+    except (TypeError, ValueError):
+        pass
+
+    return iface
+
+
+def _build_l2_trunk_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        return None
+
+    iface: dict[str, Any] = {
+        "name": name,
+        "status": "Active",
+        "type": infer_interface_type_from_name(name),
+        "enabled": _is_enabled(raw.get("children")),
+        "mode": "trunk",
+    }
+
+    description = str(raw.get("description") or "").strip()
+    if description:
+        iface["description"] = description
+
+    tagged_vlans = _parse_vlan_list(raw.get("allowed_vlans"))
+    if tagged_vlans:
+        iface["tagged_vlans"] = tagged_vlans
+
+    return iface
+
+
+def _stub_interface(name: str, description: Any = None) -> dict[str, Any]:
+    """A minimal interface entry for a name only known via ``port_channels``.
+
+    Mitigates a cisco_config_parser gap: an interface whose only
+    configuration is ``channel-group N mode X`` (no IP, no switchport
+    command) — and a bundle interface with neither an IP nor a switchport
+    command on it — is absent from ``l3_interfaces``, ``l2_access_interfaces``,
+    and ``l2_trunk_interfaces`` alike; the library only records it inside
+    ``port_channels[].members``/``port_channels[].name``. Its description and
+    admin (shutdown) state cannot be recovered in this case — the library
+    drops the whole interface stanza — so ``enabled`` defaults to ``True``.
+    """
+    iface: dict[str, Any] = {
+        "name": name,
+        "status": "Active",
+        "type": infer_interface_type_from_name(name),
+        "enabled": True,
+    }
+    desc = str(description or "").strip()
+    if desc:
+        iface["description"] = desc
+    return iface
+
+
+def _resolve_port_channel_name(port_channel: dict[str, Any]) -> str | None:
+    name = str(port_channel.get("name") or "").strip()
+    if name:
+        return name
+    po_id = str(port_channel.get("id") or "").strip()
+    return f"Port-channel{po_id}" if po_id else None
+
+
+def _apply_port_channels(interfaces: dict[str, dict[str, Any]], raw_port_channels: Any) -> None:
+    """Fill LAG interfaces/members missing from the per-type sections above.
+
+    Only fills gaps and adds ``lag`` — never overwrites ``mode``/
+    ``tagged_vlans``/``untagged_vlan``/IP data an interface already picked up
+    from ``l3_interfaces``/``l2_access_interfaces``/``l2_trunk_interfaces``.
+    """
+    if not isinstance(raw_port_channels, list):
+        return
+    for port_channel in raw_port_channels:
+        if not isinstance(port_channel, dict):
+            continue
+        po_name = _resolve_port_channel_name(port_channel)
+        if not po_name:
+            continue
+        if po_name not in interfaces:
+            interfaces[po_name] = _stub_interface(po_name, port_channel.get("description"))
+
+        members = port_channel.get("members")
+        if not isinstance(members, list):
+            continue
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            member_name = str(member.get("interface") or "").strip()
+            if not member_name:
+                continue
+            if member_name not in interfaces:
+                interfaces[member_name] = _stub_interface(member_name)
+            interfaces[member_name]["lag"] = po_name
+
+
+def _build_interfaces_cisco_config_parser(
     parsed_entry: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    raw_interfaces = parsed_entry.get("l3_interfaces")
-    if not isinstance(raw_interfaces, list):
-        return []
-    built: list[dict[str, Any]] = []
-    for raw in raw_interfaces:
+    interfaces: dict[str, dict[str, Any]] = {}
+
+    for raw in parsed_entry.get("l3_interfaces") or []:
         if not isinstance(raw, dict):
             continue
         iface = _build_interface(raw)
         if iface is not None:
-            built.append(iface)
-    return built
+            interfaces[iface["name"]] = iface
+
+    for raw in parsed_entry.get("l2_access_interfaces") or []:
+        if not isinstance(raw, dict):
+            continue
+        iface = _build_l2_access_interface(raw)
+        if iface is not None and iface["name"] not in interfaces:
+            interfaces[iface["name"]] = iface
+
+    for raw in parsed_entry.get("l2_trunk_interfaces") or []:
+        if not isinstance(raw, dict):
+            continue
+        iface = _build_l2_trunk_interface(raw)
+        if iface is not None and iface["name"] not in interfaces:
+            interfaces[iface["name"]] = iface
+
+    _apply_port_channels(interfaces, parsed_entry.get("port_channels"))
+
+    return list(interfaces.values())
 
 
-def _build_layer3_interfaces(
-    parsed_entry: dict[str, Any], source_format: str
-) -> list[dict[str, Any]]:
+def _build_interfaces(parsed_entry: dict[str, Any], source_format: str) -> list[dict[str, Any]]:
     if source_format == "genie":
-        return build_layer3_interfaces_from_genie_running_config(parsed_entry)
+        return build_interfaces_from_genie_running_config(parsed_entry)
     if source_format == "batfish":
-        return build_layer3_interfaces_from_batfish_facts(parsed_entry)
-    return _build_layer3_interfaces_cisco_config_parser(parsed_entry)
+        return build_interfaces_from_batfish_facts(parsed_entry)
+    return _build_interfaces_cisco_config_parser(parsed_entry)
 
 
 async def execute(
@@ -195,7 +354,7 @@ async def execute(
         len(context.devices),
     )
 
-    if "layer3_interfaces" not in attributes or not context.devices:
+    if "interfaces" not in attributes or not context.devices:
         logger.info("%s finished (no-op) run_id=%s", _STEP_ID, run.id)
         return [StepOutcome(name="success", context=context)]
 
@@ -208,7 +367,7 @@ async def execute(
         if parsed_entry is None:
             continue
 
-        interfaces = _build_layer3_interfaces(parsed_entry, source_format)
+        interfaces = _build_interfaces(parsed_entry, source_format)
         if not interfaces:
             continue
 
@@ -229,7 +388,7 @@ async def execute(
     if devices_with_data == 0:
         upstream_step = _UPSTREAM_STEP_NAME[source_format]
         raise ValueError(
-            f"{_STEP_ID}: no parsed config with layer3 interfaces found at "
+            f"{_STEP_ID}: no parsed config with interfaces found at "
             f"parsed.{parsed_key}.{config_source} on any device — add a '{upstream_step}' "
             "step upstream with a matching output_key"
         )

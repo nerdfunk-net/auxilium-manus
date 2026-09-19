@@ -80,6 +80,11 @@ def build_interfaces_from_config(config: dict[str, Any], *, step_id: str) -> lis
             cleaned = _strip_empty(value)
             if cleaned is not None:
                 iface[field] = cleaned
+        tagged_vlans = item.get("tagged_vlans")
+        if isinstance(tagged_vlans, list):
+            cleaned_tagged_vlans = [v for v in tagged_vlans if v not in (None, "")]
+            if cleaned_tagged_vlans:
+                iface["tagged_vlans"] = cleaned_tagged_vlans
         if item.get("is_primary_ipv4"):
             iface["is_primary_ipv4"] = True
         interfaces.append(iface)
@@ -179,6 +184,15 @@ def interfaces_from_nautobot_bag(
         lag = item.get("lag")
         if lag and lag != "none":
             iface["lag"] = lag
+
+        # tagged_vlans entries may be pre-resolved Nautobot VLAN UUIDs or raw
+        # vids (int) — resolved/created downstream, at Nautobot write time,
+        # same as untagged_vlan above.
+        tagged_vlans = item.get("tagged_vlans")
+        if isinstance(tagged_vlans, list):
+            cleaned_tagged_vlans = [v for v in tagged_vlans if v not in (None, "", "none")]
+            if cleaned_tagged_vlans:
+                iface["tagged_vlans"] = cleaned_tagged_vlans
 
         raw_ip_addresses = item.get("ip_addresses")
         if isinstance(raw_ip_addresses, list):

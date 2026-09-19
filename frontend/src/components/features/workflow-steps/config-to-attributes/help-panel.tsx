@@ -25,10 +25,12 @@ export function ConfigToAttributesHelpPanel() {
         </p>
         <p>
           Currently supports one attribute group:{" "}
-          <span className="font-medium text-foreground">Layer3 Interfaces</span> —
+          <span className="font-medium text-foreground">Add Interfaces</span> —
           name, status, type, description, IP addresses (including secondaries,
-          with an explicit Nautobot IP role), and enabled state. More groups will
-          be added later.
+          with an explicit Nautobot IP role), and enabled state. This step does
+          not distinguish Layer&nbsp;2 from Layer&nbsp;3 interfaces — an
+          interface is an interface, regardless of whether it carries an IP
+          address, a switchport VLAN, or is a port-channel/LAG.
         </p>
       </HelpSection>
 
@@ -105,7 +107,7 @@ export function ConfigToAttributesHelpPanel() {
 
       <HelpSection title="Attributes">
         <p>
-          Check <HelpCode>Layer3 Interfaces</HelpCode> to build the interfaces
+          Check <HelpCode>Add Interfaces</HelpCode> to build the interfaces
           list. Per interface, regardless of source format:
         </p>
         <ul className="list-disc space-y-1 pl-4">
@@ -113,7 +115,8 @@ export function ConfigToAttributesHelpPanel() {
             <span className="font-medium text-foreground">type</span> —{" "}
             <HelpCode>1000base-t</HelpCode> for names starting with{" "}
             <HelpCode>Gigabit</HelpCode>, <HelpCode>100base-tx</HelpCode> for names
-            starting with <HelpCode>Ethernet</HelpCode>, else{" "}
+            starting with <HelpCode>Ethernet</HelpCode>, <HelpCode>lag</HelpCode>{" "}
+            for names containing <HelpCode>port-channel</HelpCode>, else{" "}
             <HelpCode>virtual</HelpCode>.
           </li>
           <li>
@@ -135,6 +138,32 @@ export function ConfigToAttributesHelpPanel() {
             <HelpCode>MTU</HelpCode> fact).
           </li>
           <li>
+            <span className="font-medium text-foreground">mode / untagged_vlan</span>{" "}
+            — set to <HelpCode>access</HelpCode> with the numeric VLAN ID for a{" "}
+            <HelpCode>switchport access vlan</HelpCode> interface (Cisco Config
+            Parser&apos;s <HelpCode>l2_access_interfaces</HelpCode>, Genie&apos;s{" "}
+            <HelpCode>switchport access vlan</HelpCode> line, or Batfish&apos;s{" "}
+            <HelpCode>Access_VLAN</HelpCode> fact).
+          </li>
+          <li>
+            <span className="font-medium text-foreground">mode / tagged_vlans</span>{" "}
+            — set to <HelpCode>trunk</HelpCode> with a parsed list of VLAN IDs for
+            a Cisco Config Parser trunk interface (
+            <HelpCode>l2_trunk_interfaces</HelpCode>, e.g.{" "}
+            <HelpCode>switchport trunk allowed vlan 10,20,30-40</HelpCode>). Only
+            supported for this source format today — Genie and Batfish don&apos;t
+            report trunk/allowed-VLAN data.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">lag</span> — the
+            port-channel/bundle interface name (e.g.{" "}
+            <HelpCode>Port-channel10</HelpCode>) this interface is a member of, set
+            from a <HelpCode>channel-group</HelpCode>/<HelpCode>bundle id</HelpCode>{" "}
+            line (Cisco Config Parser&apos;s <HelpCode>port_channels</HelpCode>,
+            Genie&apos;s <HelpCode>channel-group</HelpCode> line, or Batfish&apos;s{" "}
+            <HelpCode>Channel_Group</HelpCode> fact).
+          </li>
+          <li>
             <span className="font-medium text-foreground">ip_addresses</span> —
             every IP the interface has. The primary address is marked{" "}
             <HelpCode>is_primary</HelpCode>; an IOS{" "}
@@ -149,8 +178,32 @@ export function ConfigToAttributesHelpPanel() {
           </li>
         </ul>
         <HelpExample>
-          attributes: [layer3_interfaces]
+          attributes: [interfaces]
         </HelpExample>
+        <HelpWarning title="Cisco Config Parser: channel-group-only interfaces are invisible to the library">
+          <p>
+            An interface whose only configuration is{" "}
+            <HelpCode>channel-group N mode active</HelpCode> (no IP address, no{" "}
+            <HelpCode>switchport</HelpCode> command) is not reported by the Cisco
+            Config Parser library in <HelpCode>l3_interfaces</HelpCode>,{" "}
+            <HelpCode>l2_access_interfaces</HelpCode>, or{" "}
+            <HelpCode>l2_trunk_interfaces</HelpCode> — the only trace of it is as a
+            member entry inside <HelpCode>port_channels[].members</HelpCode>. The
+            same is true of a port-channel/bundle interface itself (e.g.{" "}
+            <HelpCode>interface Port-channel10</HelpCode>) when it carries neither
+            an IP address nor a switchport command.
+          </p>
+          <p>
+            This step mitigates that gap: any interface only known via{" "}
+            <HelpCode>port_channels</HelpCode> is still added, with{" "}
+            <HelpCode>lag</HelpCode> pointing at its port-channel, and the
+            port-channel itself is added too if it&apos;s otherwise missing. Its
+            description and admin (shutdown) state cannot be recovered in this
+            case — the library drops that information along with the rest of the
+            interface stanza — so <HelpCode>enabled</HelpCode> defaults to{" "}
+            <HelpCode>true</HelpCode> for a synthesized interface.
+          </p>
+        </HelpWarning>
       </HelpSection>
 
       <HelpSection title="Outcomes">
@@ -175,7 +228,7 @@ export function ConfigToAttributesHelpPanel() {
             match, set <HelpCode>parsed_key</HelpCode> and{" "}
             <HelpCode>config_source</HelpCode> to match the upstream step&apos;s{" "}
             <HelpCode>output_key</HelpCode>, and check{" "}
-            <HelpCode>Layer3 Interfaces</HelpCode>.
+            <HelpCode>Add Interfaces</HelpCode>.
           </li>
           <li>
             Add Add to Nautobot or Update Device after it with{" "}

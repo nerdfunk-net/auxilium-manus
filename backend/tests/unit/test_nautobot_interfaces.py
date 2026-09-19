@@ -220,6 +220,50 @@ class InterfacesFromNautobotBagTests(unittest.TestCase):
         )
         self.assertNotIn("lag", interfaces[0])
 
+    def test_tagged_vlans_int_list_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/4", "tagged_vlans": [10, 20, 30]}]},
+            default_prefix_length="/24",
+        )
+        self.assertEqual(interfaces[0]["tagged_vlans"], [10, 20, 30])
+
+    def test_tagged_vlans_uuid_list_passes_through(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {
+                "interfaces": [
+                    {
+                        "name": "Ethernet0/4",
+                        "tagged_vlans": ["3542814a-d33f-4cc3-bfdd-eb3a35945b31"],
+                    }
+                ]
+            },
+            default_prefix_length="/24",
+        )
+        self.assertEqual(
+            interfaces[0]["tagged_vlans"], ["3542814a-d33f-4cc3-bfdd-eb3a35945b31"]
+        )
+
+    def test_tagged_vlans_omitted_when_missing(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/4"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("tagged_vlans", interfaces[0])
+
+    def test_tagged_vlans_omitted_when_empty_list(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/4", "tagged_vlans": []}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("tagged_vlans", interfaces[0])
+
+    def test_tagged_vlans_omitted_when_not_a_list(self) -> None:
+        interfaces = interfaces_from_nautobot_bag(
+            {"interfaces": [{"name": "Ethernet0/4", "tagged_vlans": "10,20"}]},
+            default_prefix_length="/24",
+        )
+        self.assertNotIn("tagged_vlans", interfaces[0])
+
 
 if __name__ == "__main__":
     unittest.main()

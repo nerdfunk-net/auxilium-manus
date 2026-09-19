@@ -17,6 +17,7 @@ from services.nautobot.devices.interface_workflow import (
     _ip_map_key,
     _normalize_interface_ip_list,
     _normalize_interface_type,
+    _resolve_tagged_vlan_ids,
     _resolve_untagged_vlan_id,
 )
 
@@ -56,11 +57,11 @@ class PureHelperTests(unittest.TestCase):
                 "mtu": 1500,
                 "mode": "none",  # dropped
                 "description": None,  # dropped
-                "tagged_vlans": ["vl2", "vl3"],
             },
             interface_type="virtual",
             interface_status_id="st1",
             untagged_vlan_id="vl1",
+            tagged_vlan_ids=["vl2", "vl3"],
         )
         self.assertEqual(payload["device"], "d1")
         self.assertEqual(payload["status"], "st1")
@@ -78,8 +79,10 @@ class PureHelperTests(unittest.TestCase):
             interface_type="virtual",
             interface_status_id="st1",
             untagged_vlan_id=None,
+            tagged_vlan_ids=[],
         )
         self.assertNotIn("untagged_vlan", payload)
+        self.assertNotIn("tagged_vlans", payload)
 
 
 class ResolveUntaggedVlanIdTests(unittest.IsolatedAsyncioTestCase):
@@ -152,6 +155,60 @@ class ResolveUntaggedVlanIdTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("Gi0/0", warnings[0])
         common.ensure_vlan_exists.assert_not_awaited()
+
+
+class ResolveTaggedVlanIdsTests(unittest.IsolatedAsyncioTestCase):
+    def _common(self) -> MagicMock:
+        common = MagicMock()
+        common.ensure_vlan_exists = AsyncMock(return_value="vlan-uuid")
+        return common
+
+    async def test_missing_returns_empty_list(self) -> None:
+        common = self._common()
+        result = await _resolve_tagged_vlan_ids(
+            common=common, interface={"name": "Gi0/0"}, device_location_id=None, warnings=[]
+        )
+        self.assertEqual(result, [])
+        common.ensure_vlan_exists.assert_not_awaited()
+
+    async def test_raw_vids_resolved_via_ensure_vlan_exists(self) -> None:
+        common = self._common()
+        result = await _resolve_tagged_vlan_ids(
+            common=common,
+            interface={"name": "Gi0/0", "tagged_vlans": [10, 20]},
+            device_location_id="loc-uuid",
+            warnings=[],
+        )
+        self.assertEqual(result, ["vlan-uuid", "vlan-uuid"])
+        common.ensure_vlan_exists.assert_any_await(10, location_id="loc-uuid")
+        common.ensure_vlan_exists.assert_any_await(20, location_id="loc-uuid")
+
+    async def test_already_uuid_passes_through_without_resolving(self) -> None:
+        common = self._common()
+        result = await _resolve_tagged_vlan_ids(
+            common=common,
+            interface={
+                "name": "Gi0/0",
+                "tagged_vlans": ["3542814a-d33f-4cc3-bfdd-eb3a35945b31"],
+            },
+            device_location_id=None,
+            warnings=[],
+        )
+        self.assertEqual(result, ["3542814a-d33f-4cc3-bfdd-eb3a35945b31"])
+        common.ensure_vlan_exists.assert_not_awaited()
+
+    async def test_invalid_entry_warns_and_is_skipped(self) -> None:
+        common = self._common()
+        warnings: list[str] = []
+        result = await _resolve_tagged_vlan_ids(
+            common=common,
+            interface={"name": "Gi0/0", "tagged_vlans": [10, "not-a-vid-or-uuid"]},
+            device_location_id=None,
+            warnings=warnings,
+        )
+        self.assertEqual(result, ["vlan-uuid"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Gi0/0", warnings[0])
 
     def test_state_to_result_counts(self) -> None:
         state = _InterfaceUpdateState()

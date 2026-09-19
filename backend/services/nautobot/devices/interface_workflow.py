@@ -62,6 +62,7 @@ def _build_interface_payload(
     interface_type: str,
     interface_status_id: str,
     untagged_vlan_id: str | None,
+    tagged_vlan_ids: list[str],
 ) -> dict[str, Any]:
     interface_payload: dict[str, Any] = {
         "name": interface["name"],
@@ -91,9 +92,8 @@ def _build_interface_payload(
     if untagged_vlan_id:
         interface_payload["untagged_vlan"] = {"id": untagged_vlan_id}
 
-    tagged_vlans = interface.get("tagged_vlans")
-    if tagged_vlans:
-        interface_payload["tagged_vlans"] = [{"id": vid} for vid in tagged_vlans]
+    if tagged_vlan_ids:
+        interface_payload["tagged_vlans"] = [{"id": vlan_id} for vlan_id in tagged_vlan_ids]
 
     return interface_payload
 
@@ -128,6 +128,45 @@ async def _resolve_untagged_vlan_id(
         return None
 
     return await common.ensure_vlan_exists(vid, location_id=device_location_id)
+
+
+async def _resolve_tagged_vlan_ids(
+    *,
+    common: DeviceCommonService,
+    interface: dict[str, Any],
+    device_location_id: str | None,
+    warnings: list[str],
+) -> list[str]:
+    """Resolve ``interface["tagged_vlans"]`` to a list of Nautobot VLAN UUIDs.
+
+    Same accepted shapes as ``_resolve_untagged_vlan_id`` (already-resolved UUID or
+    raw VLAN vid), applied per entry.
+    """
+    raw_vlans = interface.get("tagged_vlans")
+    if not isinstance(raw_vlans, list):
+        return []
+
+    vlan_ids: list[str] = []
+    for raw_vlan in raw_vlans:
+        if not raw_vlan or raw_vlan == "none":
+            continue
+
+        if is_valid_uuid(str(raw_vlan)):
+            vlan_ids.append(str(raw_vlan))
+            continue
+
+        try:
+            vid = int(raw_vlan)
+        except (TypeError, ValueError):
+            warnings.append(
+                f"Interface {interface['name']}: tagged_vlans entry {raw_vlan!r} is not "
+                "a valid VLAN ID or UUID — omitting"
+            )
+            continue
+
+        vlan_ids.append(await common.ensure_vlan_exists(vid, location_id=device_location_id))
+
+    return vlan_ids
 
 
 @dataclass
@@ -617,12 +656,19 @@ class InterfaceManagerService:
             device_location_id=device_location_id,
             warnings=warnings,
         )
+        tagged_vlan_ids = await _resolve_tagged_vlan_ids(
+            common=self.common,
+            interface=interface,
+            device_location_id=device_location_id,
+            warnings=warnings,
+        )
         interface_payload = _build_interface_payload(
             device_id=device_id,
             interface=interface,
             interface_type=interface_type,
             interface_status_id=interface_status_id,
             untagged_vlan_id=untagged_vlan_id,
+            tagged_vlan_ids=tagged_vlan_ids,
         )
 
         existing_id = await self.common.resolve_interface_by_name(

@@ -1,9 +1,9 @@
 import type {
-  GenieParsedConfigEntry,
   ParsedCommandEntry,
   ParsedCommandOutputEntry,
   ParsedComparisonDiffEntry,
   ParsedComparisonResultEntry,
+  ParsedConfigEntry,
   ParsedTemplateEntry,
   SnapshotEntry,
 } from "./types";
@@ -90,7 +90,7 @@ export function getComparisonDiffEntries(
   return result;
 }
 
-export function isGenieParsedConfigEntry(value: unknown): value is GenieParsedConfigEntry {
+export function isParsedConfigEntry(value: unknown): value is ParsedConfigEntry {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -105,12 +105,12 @@ export function isGenieParsedConfigEntry(value: unknown): value is GenieParsedCo
   return "running" in value || "startup" in value;
 }
 
-export function getGenieParsedConfigEntries(
+export function getParsedConfigEntries(
   parsed: Record<string, unknown>,
-): Array<{ key: string; entry: GenieParsedConfigEntry }> {
+): Array<{ key: string; entry: ParsedConfigEntry }> {
   return Object.entries(parsed)
-    .filter(([, value]) => isGenieParsedConfigEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as GenieParsedConfigEntry }));
+    .filter(([, value]) => isParsedConfigEntry(value))
+    .map(([key, entry]) => ({ key, entry: entry as ParsedConfigEntry }));
 }
 
 export function isSnapshotEntry(value: unknown): value is SnapshotEntry {
@@ -159,7 +159,7 @@ export function isParsedCommandOutputEntry(
     isComparisonResultEntry(value) ||
     isComparisonDiffEntry(value) ||
     isComparisonDiffFeatureMap(value) ||
-    isGenieParsedConfigEntry(value) ||
+    isParsedConfigEntry(value) ||
     isSnapshotEntry(value)
   ) {
     return false;
@@ -197,7 +197,7 @@ export function isFactsEntry(value: unknown): value is ParsedCommandEntry {
     isComparisonResultEntry(value) ||
     isComparisonDiffEntry(value) ||
     isComparisonDiffFeatureMap(value) ||
-    isGenieParsedConfigEntry(value) ||
+    isParsedConfigEntry(value) ||
     isSnapshotEntry(value) ||
     isParsedCommandOutputEntry(value)
   ) {

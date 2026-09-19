@@ -49,8 +49,8 @@ import {
   getComparisonDiffEntries,
   getComparisonResultEntries,
   getFactsEntries,
-  getGenieParsedConfigEntries,
   getParsedCommandOutputEntries,
+  getParsedConfigEntries,
   getParsedTemplateEntries,
   getSnapshotEntries,
 } from "./parsed-guards";
@@ -105,8 +105,8 @@ export function DeviceDetailDialog({
     () => getComparisonDiffEntries(device.parsed ?? {}),
     [device.parsed],
   );
-  const genieConfigEntries = useMemo(
-    () => getGenieParsedConfigEntries(device.parsed ?? {}),
+  const parsedConfigEntries = useMemo(
+    () => getParsedConfigEntries(device.parsed ?? {}),
     [device.parsed],
   );
   const snapshotEntries = useMemo(
@@ -218,7 +218,7 @@ export function DeviceDetailDialog({
       });
     }
 
-    if (device.running_config_ref || device.startup_config_ref || genieConfigEntries.length > 0) {
+    if (device.running_config_ref || device.startup_config_ref || parsedConfigEntries.length > 0) {
       list.push({
         id: "configs",
         label: "Device configs",
@@ -226,12 +226,12 @@ export function DeviceDetailDialog({
         count:
           (device.running_config_ref ? 1 : 0) +
           (device.startup_config_ref ? 1 : 0) +
-          genieConfigEntries.length,
+          parsedConfigEntries.length,
         render: () => (
           <DeviceConfigSection
             device={device}
             runId={runId}
-            genieConfigEntries={genieConfigEntries}
+            parsedConfigEntries={parsedConfigEntries}
           />
         ),
       });
@@ -326,7 +326,7 @@ export function DeviceDetailDialog({
     // Parsed config lives inside the "Device configs" section (Raw / Parsed tabs);
     // surface it on its own too when it is the only structured output present.
     if (
-      genieConfigEntries.length > 0 &&
+      parsedConfigEntries.length > 0 &&
       !device.running_config_ref &&
       !device.startup_config_ref
     ) {
@@ -349,8 +349,8 @@ export function DeviceDetailDialog({
     device,
     dryRunEntries,
     factsEntries,
-    genieConfigEntries,
     parsedCommandOutputEntries,
+    parsedConfigEntries,
     parsedTemplateEntries,
     runId,
     snapshotEntries,
