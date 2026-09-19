@@ -52,7 +52,7 @@ def _find_ip_addresses(children: dict[str, Any]) -> list[dict[str, Any]]:
         if secondary:
             addresses.append({"address": cidr, "namespace": "Global", "ip_role": "secondary"})
         else:
-            addresses.append({"address": cidr, "namespace": "Global", "is_primary": True})
+            addresses.append({"address": cidr, "namespace": "Global"})
     return addresses
 
 

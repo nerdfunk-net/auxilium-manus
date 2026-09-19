@@ -1,0 +1,644 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-19T20:02:49.738Z",
+  "name": "Update Devices",
+  "description": "Update Devices in Nautobot",
+  "folder": "/Nautobot",
+  "visibility": "private",
+  "notes": null,
+  "canvas_nodes": [
+    {
+      "id": "batfish-init-snapshot-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 81.72801859930263,
+        "y": 5.114553636999375
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "batfish-init-snapshot",
+        "stepUuid": "f8427a16-b579-4d3c-adb7-fd3cb14a2ce9",
+        "title": "Init Batfish Snapshot",
+        "overview": "Build a Batfish snapshot from this run's device configs.",
+        "description": "Assembles the current run's device running-configs into a fresh Batfish snapshot and records its location for downstream Batfish query steps (Routing Table, Path Check, ACL Check). Not fan-out-safe -- like store-artifact/git steps, this must run after a Fan In in a fanned-out workflow, never inside the fanned-out branch (see doc/BATFISH_INTEGRATION.md \"Snapshot lifecycle\").\n",
+        "artifactType": "persistent_artifact",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "batfish_source_id": "batfish"
+        },
+        "disabled": false,
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-device-configs-5",
+      "type": "workflowNode",
+      "position": {
+        "x": -304.3080848815638,
+        "y": -180.030556646293
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "02a90c27-2751-4823-b7de-7a7c04eedd5b",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "config_format": "running"
+        },
+        "disabled": false
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "batfish-extract-facts-6",
+      "type": "workflowNode",
+      "position": {
+        "x": -304.3080848815638,
+        "y": 5.114553636999375
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "batfish-extract-facts",
+        "stepUuid": "70d8ebff-2479-4cc5-b438-cdecd86813f3",
+        "title": "Extract Facts",
+        "overview": "Pull parsed device facts out of a Batfish snapshot via Batfish's extract_facts question.",
+        "description": "Retrieves the configuration facts Batfish parsed (hostname, NTP/ TACACS/DNS servers, interfaces, BGP/OSPF settings, etc.) for a set of nodes in an already-initialized snapshot -- no expected values, just what Batfish actually sees. Writes each device's own facts into device.parsed[output_key] for downstream steps to read, in addition to one workflow-level artifact covering every extracted node.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "disabled": false,
+        "pluginConfig": {
+          "output_key": "parsed_config"
+        },
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "update-nautobot-device-7",
+      "type": "workflowNode",
+      "position": {
+        "x": -679.9032981890098,
+        "y": 196.95364509815715
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "update-nautobot-device",
+        "stepUuid": "1304f9c7-c5b1-462c-a32e-376993807251",
+        "title": "Update Device",
+        "overview": "Update Nautobot device fields, interfaces, and tags.",
+        "description": "Update device attributes, interfaces, tags, and custom fields in Nautobot.",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "disabled": false,
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "update_fields": {
+            "serial": {
+              "enabled": false,
+              "value": ""
+            },
+            "custom_fields": {}
+          },
+          "interfaces": [],
+          "device_identifier": {
+            "mode": "from_context"
+          },
+          "add_prefix": true,
+          "default_prefix_length": "/24",
+          "sync_interfaces": false,
+          "interfaces_source": "nautobot_origin"
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-8",
+      "type": "workflowNode",
+      "position": {
+        "x": -679.9032981890098,
+        "y": -180.030556646293
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "1927d496-bef0-4661-8955-71ba0e72bf22",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices.",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "config-to-attributes-10",
+      "type": "workflowNode",
+      "position": {
+        "x": -679.9032981890098,
+        "y": 5.114553636999375
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "config-to-attributes",
+        "stepUuid": "639b48d5-6b93-450a-aef0-d0b004290378",
+        "title": "Config to Attributes",
+        "overview": "Turn parsed device config into Nautobot attributes.",
+        "description": "Read a device's parsed config — from Parse Cisco Config or Get & Parse Config (pyATS/Genie) — and populate its Nautobot attribute bag, starting with Layer3 interfaces, for later use by Add to Nautobot or Update Device (interfaces_source: nautobot_origin). A Batfish source_format is planned as a future addition to this same contract. No live Nautobot connection is used.\n",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity",
+          "parsed"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "source_format": "batfish",
+          "attributes": [
+            "interfaces"
+          ],
+          "parsed_key": "parsed_config",
+          "update_primary_ipv4": true,
+          "primary_ipv4_custom_pattern": "(Ethernet|Vlan)"
+        },
+        "disabled": false,
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "notify-mattermost-8",
+      "type": "workflowNode",
+      "position": {
+        "x": -304.3080848815638,
+        "y": 196.95364509815715
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "ecf9c621-9e13-4071-8987-2512efbb95e1",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "Updated {devices} in nautobot"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-devices-8",
+      "type": "workflowNode",
+      "position": {
+        "x": -1067.7827794557256,
+        "y": -180.030556646293
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "018faee5-c065-415f-934d-38c127cc5e84",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "inventory_id": 1,
+          "inventory_name": "LAB",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "OR",
+            "negate": false,
+            "items": [
+              {
+                "id": "1789503308731-2ai2ewwhb",
+                "field": "name",
+                "operator": "equals",
+                "value": "LAB"
+              },
+              {
+                "id": "1789503316965-tenmw8ncn",
+                "field": "name",
+                "operator": "equals",
+                "value": "lab-2"
+              },
+              {
+                "id": "1789503322581-si6o2gheu",
+                "field": "name",
+                "operator": "equals",
+                "value": "switch"
+              }
+            ]
+          },
+          "device_ids": [],
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        },
+        "disabled": true
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "fan-in-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 76.36528248802685,
+        "y": -180.030556646293
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "fan-in",
+        "stepUuid": "05ad1425-6865-46a6-a4c7-cab35d0360b0",
+        "title": "Fan In",
+        "overview": "Rejoin fan-out branches into one execution path.",
+        "description": "Rejoin a fanned-out workflow into a single path. Per-device steps run in parallel child workflows up to this node; steps placed after it run once over all devices. Place git / store-artifact steps after Fan In for safe, single-commit exports.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "get-from-list-10",
+      "type": "workflowNode",
+      "position": {
+        "x": -1068,
+        "y": -348
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-from-list",
+        "stepUuid": "3c28e9de-196f-4ddb-9009-bd11243f63ee",
+        "title": "Get from List",
+        "overview": "Configure a static list of devices.",
+        "description": "Enter one or more device names and/or IP addresses to use as workflow targets.\n",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "devices": [
+            {
+              "name": "switch",
+              "ip_address": "192.168.178.242/24"
+            }
+          ],
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        },
+        "disabled": false
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "batfish-init-snapshot-4",
+      "sourceHandle": "success",
+      "target": "batfish-extract-facts-6",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-init-snapshot-4success-batfish-extract-facts-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "batfish-extract-facts-6",
+      "sourceHandle": "success",
+      "target": "config-to-attributes-10",
+      "targetHandle": "input",
+      "id": "xy-edge__batfish-extract-facts-6success-config-to-attributes-10input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "config-to-attributes-10",
+      "sourceHandle": "success",
+      "target": "update-nautobot-device-7",
+      "targetHandle": "input",
+      "id": "xy-edge__config-to-attributes-10success-update-nautobot-device-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-8",
+      "sourceHandle": "success",
+      "target": "get-device-configs-5",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-8success-get-device-configs-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-8",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-8",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-8success-get-nautobot-attributes-8input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-from-list-10",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-8",
+      "targetHandle": "input",
+      "id": "xy-edge__get-from-list-10success-get-nautobot-attributes-8input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-device-configs-5",
+      "sourceHandle": "success",
+      "target": "fan-in-9",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-5success-fan-in-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "fan-in-9",
+      "sourceHandle": "success",
+      "target": "batfish-init-snapshot-4",
+      "targetHandle": "input",
+      "id": "xy-edge__fan-in-9success-batfish-init-snapshot-4input"
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-nautobot-device-7",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-8",
+      "targetHandle": "input",
+      "id": "xy-edge__update-nautobot-device-7success-notify-mattermost-8input"
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}

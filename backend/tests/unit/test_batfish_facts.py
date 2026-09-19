@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from workflow_steps.config_to_attributes.batfish_facts import (
-    build_layer3_interfaces_from_batfish_facts,
+    build_interfaces_from_batfish_facts,
 )
 
 
@@ -27,7 +27,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertEqual(len(interfaces), 1)
         iface = interfaces[0]
         self.assertEqual(iface["name"], "Ethernet0/0")
@@ -39,7 +39,6 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 {
                     "address": "192.168.178.240/24",
                     "namespace": "Global",
-                    "is_primary": True,
                 },
                 {
                     "address": "192.168.178.120/24",
@@ -62,7 +61,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertNotIn("ip_addresses", interfaces[0])
 
     def test_status_always_active_regardless_of_batfish_active_flag(self) -> None:
@@ -72,7 +71,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 "Ethernet0/1": {"Active": False, "Admin_Up": False},
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         for iface in interfaces:
             self.assertEqual(iface["status"], "Active")
 
@@ -84,7 +83,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 "Ethernet0/2": {"Active": False, "Admin_Up": True},
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         by_name = {i["name"]: i for i in interfaces}
         self.assertTrue(by_name["Ethernet0/0"]["enabled"])
         self.assertFalse(by_name["Ethernet0/1"]["enabled"])
@@ -103,7 +102,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertEqual(interfaces[0]["mode"], "access")
         self.assertEqual(interfaces[0]["untagged_vlan"], 100)
 
@@ -121,7 +120,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertNotIn("mode", interfaces[0])
         self.assertNotIn("untagged_vlan", interfaces[0])
 
@@ -138,7 +137,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertNotIn("mode", interfaces[0])
         self.assertNotIn("untagged_vlan", interfaces[0])
 
@@ -155,7 +154,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertNotIn("mode", interfaces[0])
         self.assertNotIn("untagged_vlan", interfaces[0])
 
@@ -170,7 +169,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertEqual(interfaces[0]["lag"], "Port-channel10")
 
     def test_no_channel_group_omits_lag(self) -> None:
@@ -184,7 +183,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertNotIn("lag", interfaces[0])
 
     def test_port_channel_interface_gets_lag_type(self) -> None:
@@ -199,7 +198,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertEqual(interfaces[0]["type"], "lag")
         self.assertNotIn("lag", interfaces[0])
 
@@ -215,7 +214,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertEqual(len(interfaces), 1)
         self.assertEqual(interfaces[0]["name"], "Ethernet0/0")
         self.assertNotIn("ip_addresses", interfaces[0])
@@ -231,7 +230,7 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 }
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         self.assertEqual(len(interfaces), 1)
 
     def test_interface_type_inferred_from_name(self) -> None:
@@ -242,18 +241,18 @@ class BuildLayer3InterfacesFromBatfishFactsTests(unittest.TestCase):
                 "Vlan100": {"Active": True, "Admin_Up": True},
             }
         )
-        interfaces = build_layer3_interfaces_from_batfish_facts(node_facts)
+        interfaces = build_interfaces_from_batfish_facts(node_facts)
         by_name = {i["name"]: i for i in interfaces}
         self.assertEqual(by_name["GigabitEthernet0/1"]["type"], "1000base-t")
         self.assertEqual(by_name["Ethernet0/0"]["type"], "100base-tx")
         self.assertEqual(by_name["Vlan100"]["type"], "virtual")
 
     def test_missing_interfaces_key_returns_empty_list(self) -> None:
-        self.assertEqual(build_layer3_interfaces_from_batfish_facts({}), [])
+        self.assertEqual(build_interfaces_from_batfish_facts({}), [])
 
     def test_non_dict_input_returns_empty_list(self) -> None:
-        self.assertEqual(build_layer3_interfaces_from_batfish_facts(None), [])  # type: ignore[arg-type]
-        self.assertEqual(build_layer3_interfaces_from_batfish_facts([]), [])  # type: ignore[arg-type]
+        self.assertEqual(build_interfaces_from_batfish_facts(None), [])  # type: ignore[arg-type]
+        self.assertEqual(build_interfaces_from_batfish_facts([]), [])  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

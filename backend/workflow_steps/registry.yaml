@@ -1821,7 +1821,11 @@ plugins:
       Nautobot or Update Device (interfaces_source: nautobot_origin). Does
       not distinguish Layer 2 from Layer 3 interfaces — an interface is
       built whether it carries an IP address, a switchport VLAN, or is a
-      port-channel/LAG. No live Nautobot connection is used.
+      port-channel/LAG. No live Nautobot connection is used. Optionally
+      selects which interface's address becomes the device's Nautobot
+      primary IPv4 — a Cisco config has no field for that — or verifies the
+      device's already-known primary IPv4 is still present, routing devices
+      that fail either check to the "failure" outcome.
     artifact_type: inventory_selector
     palette_category: nautobot
     directory: config_to_attributes
@@ -1831,6 +1835,7 @@ plugins:
     consumes: []
     outcomes:
       - name: success
+      - name: failure
     metadata:
       configuration_input:
         - name: source_format
@@ -1876,6 +1881,51 @@ plugins:
           required: true
           example:
             - interfaces
+        - name: update_primary_ipv4
+          description: >
+            When enabled, select one interface's address (by
+            primary_ipv4_priority) to become the device's Nautobot primary
+            IPv4, and route a device to the "failure" outcome if no
+            strategy matches. When disabled (default), the device's
+            already-known primary IPv4 (its inventory-sourced primary_ip4)
+            is instead verified against the parsed interfaces and
+            re-affirmed if still present — a device whose current primary
+            IPv4 has disappeared from the config is routed to "failure".
+            A device with no known primary_ip4 and this disabled is passed
+            through unchanged. Interfaces are always written either way —
+            only primary-IPv4 selection is gated by this flag.
+          data_type: boolean
+          required: false
+          example: true
+        - name: primary_ipv4_priority
+          description: >
+            Only used when update_primary_ipv4 is enabled. Ordered list —
+            tried top to bottom, first match wins — of exactly these four
+            strategies, each exactly once: management_interface (first
+            interface whose name starts with "Management" or "Mgmt",
+            case-insensitive), loopback_highest (Loopback interface with
+            the highest numeric suffix, e.g. Loopback100 over Loopback0),
+            loopback_lowest (lowest numeric suffix, e.g. Loopback0 over
+            Loopback100), custom_interface (first interface whose name
+            matches primary_ipv4_custom_pattern). A secondary IP address on
+            an interface is never selected.
+          data_type: string_list
+          required: false
+          example:
+            - management_interface
+            - loopback_highest
+            - loopback_lowest
+            - custom_interface
+        - name: primary_ipv4_custom_pattern
+          description: >
+            Regular expression (case-insensitive, re.search semantics)
+            matched against interface names for the custom_interface
+            strategy in primary_ipv4_priority. Only used when
+            update_primary_ipv4 is enabled and custom_interface is reached;
+            an empty pattern means that strategy never matches.
+          data_type: string
+          required: false
+          example: ^Vlan1$
 
   - id: add-to-nautobot
     name: Add to Nautobot

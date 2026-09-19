@@ -165,16 +165,18 @@ export function ConfigToAttributesHelpPanel() {
           </li>
           <li>
             <span className="font-medium text-foreground">ip_addresses</span> —
-            every IP the interface has. The primary address is marked{" "}
-            <HelpCode>is_primary</HelpCode>; an IOS{" "}
+            every IP the interface has. An IOS{" "}
             <HelpCode>ip address ... secondary</HelpCode> line (or, for Cisco
             Config Parser, a parsed secondary IP; or for Batfish, any address in{" "}
             <HelpCode>All_Prefixes</HelpCode> other than{" "}
             <HelpCode>Primary_Address</HelpCode>) is marked with Nautobot IP role{" "}
-            <HelpCode>secondary</HelpCode> instead. Note Batfish&apos;s{" "}
-            <HelpCode>Primary_Address</HelpCode> is the interface&apos;s own
-            primary address, not Nautobot&apos;s device-level{" "}
-            <HelpCode>primary_ip4</HelpCode>.
+            <HelpCode>secondary</HelpCode>. Which single address across all
+            interfaces is marked <HelpCode>is_primary</HelpCode> (Nautobot&apos;s
+            device-level primary IPv4) is controlled separately — see{" "}
+            <span className="font-medium text-foreground">
+              Update Primary IPv4 address
+            </span>{" "}
+            below.
           </li>
         </ul>
         <HelpExample>
@@ -206,12 +208,92 @@ export function ConfigToAttributesHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
+      <HelpSection title="Update Primary IPv4 address">
+        <p>
+          A Cisco config has no field that says &quot;this is my primary
+          IPv4&quot; — it&apos;s an operational convention, not a config line.
+          This control decides how (or whether) this step picks the device&apos;s
+          Nautobot primary IPv4 from the parsed interfaces.
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Checked</span> — try each
+          strategy in <HelpCode>primary_ipv4_priority</HelpCode>, top to bottom;
+          the first interface that matches wins and is marked{" "}
+          <HelpCode>is_primary</HelpCode>. A secondary IP address is never
+          selected. If no strategy matches, the device is routed to{" "}
+          <span className="font-medium text-foreground">failure</span>.
+        </p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            <span className="font-medium text-foreground">
+              Use Management Interface
+            </span>{" "}
+            — first interface whose name starts with{" "}
+            <HelpCode>Management</HelpCode> or <HelpCode>Mgmt</HelpCode>
+            (case-insensitive).
+          </li>
+          <li>
+            <span className="font-medium text-foreground">
+              Use Loopback Interface (highest Loopback first)
+            </span>{" "}
+            — the Loopback interface with the highest numeric suffix, e.g.{" "}
+            <HelpCode>Loopback100</HelpCode> over <HelpCode>Loopback0</HelpCode>.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">
+              Use Loopback Interface (lowest Loopback first)
+            </span>{" "}
+            — the lowest numeric suffix, e.g. <HelpCode>Loopback0</HelpCode> over{" "}
+            <HelpCode>Loopback100</HelpCode>.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">
+              Custom Interface Name / Regex
+            </span>{" "}
+            — first interface whose name matches{" "}
+            <HelpCode>primary_ipv4_custom_pattern</HelpCode> (case-insensitive).
+            An empty pattern means this strategy never matches.
+          </li>
+        </ul>
+        <p>
+          All four strategies always exist in the list — use the arrows to
+          reorder them; none can be removed.
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Unchecked (default)</span>{" "}
+          — no new primary is selected. Instead, the device&apos;s already-known
+          primary IPv4 (its inventory-sourced <HelpCode>primary_ip4</HelpCode>) is
+          verified against the parsed interfaces: if still present on any
+          interface, it&apos;s re-affirmed (marked <HelpCode>is_primary</HelpCode>{" "}
+          so it isn&apos;t silently overwritten downstream); if it has disappeared
+          from the config, the device is routed to{" "}
+          <span className="font-medium text-foreground">failure</span>. A device
+          with no known <HelpCode>primary_ip4</HelpCode> at all is passed through
+          unchanged.
+        </p>
+        <HelpWarning title="Interfaces are always written, even on failure">
+          <p>
+            Either way, the interfaces list itself is always merged into the
+            device&apos;s attribute bag — only the primary-IPv4 decision routes a
+            device to <span className="font-medium text-foreground">failure</span>.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>
             <span className="font-medium text-foreground">success</span> — the
             nautobot attribute bag was updated on every device that had usable
-            parsed data; devices without data are left unchanged.
+            parsed data and, if applicable, a primary IPv4 was resolved or
+            verified; devices without parsed data are left unchanged.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">failure</span> — a
+            device had parsed interfaces but its primary IPv4 could not be
+            resolved (Update Primary IPv4 address checked, no strategy matched)
+            or verified (unchecked, its known primary IPv4 is no longer on any
+            interface). Its interfaces were still written.
           </li>
         </ul>
       </HelpSection>
@@ -229,6 +311,12 @@ export function ConfigToAttributesHelpPanel() {
             <HelpCode>config_source</HelpCode> to match the upstream step&apos;s{" "}
             <HelpCode>output_key</HelpCode>, and check{" "}
             <HelpCode>Add Interfaces</HelpCode>.
+          </li>
+          <li>
+            Decide how the device&apos;s primary IPv4 should be handled: check{" "}
+            <HelpCode>Update Primary IPv4 address</HelpCode> and order the
+            priority list to select one, or leave it unchecked to verify the
+            device&apos;s existing primary IPv4 instead.
           </li>
           <li>
             Add Add to Nautobot or Update Device after it with{" "}

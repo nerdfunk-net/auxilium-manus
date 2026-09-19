@@ -1,11 +1,12 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -23,8 +24,11 @@ import type {
 import { ConfigToAttributesHelpPanel } from "./help-panel";
 import {
   ATTRIBUTE_GROUPS,
+  DEFAULT_PRIMARY_IPV4_PRIORITY,
+  PRIMARY_IPV4_STRATEGIES,
   SOURCE_FORMAT_OPTIONS,
   type AttributeGroupKey,
+  type PrimaryIpv4Strategy,
   type SourceFormat,
 } from "./types";
 
@@ -76,6 +80,27 @@ function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
   );
 }
 
+function parseUpdatePrimaryIpv4(config: Record<string, unknown>): boolean {
+  return config.update_primary_ipv4 === true;
+}
+
+function parsePrimaryIpv4Priority(config: Record<string, unknown>): PrimaryIpv4Strategy[] {
+  const raw = config.primary_ipv4_priority;
+  if (!Array.isArray(raw)) return DEFAULT_PRIMARY_IPV4_PRIORITY;
+  const strategies = PRIMARY_IPV4_STRATEGIES.map((strategy) => strategy.key);
+  const valid = raw.filter(
+    (item): item is PrimaryIpv4Strategy =>
+      typeof item === "string" && strategies.includes(item as PrimaryIpv4Strategy),
+  );
+  return valid.length === strategies.length ? valid : DEFAULT_PRIMARY_IPV4_PRIORITY;
+}
+
+function parsePrimaryIpv4CustomPattern(config: Record<string, unknown>): string {
+  return typeof config.primary_ipv4_custom_pattern === "string"
+    ? config.primary_ipv4_custom_pattern
+    : "";
+}
+
 function ConfigToAttributesConfigPanel({
   config,
   onChange,
@@ -87,6 +112,9 @@ function ConfigToAttributesConfigPanel({
   const configSource = useMemo(() => parseConfigSource(config), [config]);
   const parsedKey = parseParsedKey(config);
   const selected = useMemo(() => parseAttributes(config), [config]);
+  const updatePrimaryIpv4 = parseUpdatePrimaryIpv4(config);
+  const primaryIpv4Priority = useMemo(() => parsePrimaryIpv4Priority(config), [config]);
+  const primaryIpv4CustomPattern = parsePrimaryIpv4CustomPattern(config);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const handleSourceFormatChange = useCallback(
@@ -125,6 +153,33 @@ function ConfigToAttributesConfigPanel({
       onChange({ ...config, attributes: next });
     },
     [config, onChange, selected],
+  );
+
+  const handleUpdatePrimaryIpv4Change = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, update_primary_ipv4: checked });
+    },
+    [config, onChange],
+  );
+
+  const handleMovePriority = useCallback(
+    (index: number, direction: -1 | 1) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= primaryIpv4Priority.length) {
+        return;
+      }
+      const next = [...primaryIpv4Priority];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      onChange({ ...config, primary_ipv4_priority: next });
+    },
+    [config, onChange, primaryIpv4Priority],
+  );
+
+  const handleCustomPatternChange = useCallback(
+    (value: string) => {
+      onChange({ ...config, primary_ipv4_custom_pattern: value });
+    },
+    [config, onChange],
   );
 
   return (
@@ -244,6 +299,92 @@ function ConfigToAttributesConfigPanel({
         {selected.length === 0 && (
           <p className="text-[11px] text-warning-foreground">No attributes selected</p>
         )}
+      </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <label className="flex items-center gap-1.5 text-xs font-medium">
+          <Checkbox
+            checked={updatePrimaryIpv4}
+            onCheckedChange={(checked) => handleUpdatePrimaryIpv4Change(checked === true)}
+          />
+          Update Primary IPv4 address
+        </label>
+        <p className="text-[11px] text-muted-foreground">
+          Select which interface&apos;s address becomes the device&apos;s primary IPv4
+          in Nautobot. When off, this step instead verifies the device&apos;s current
+          primary IPv4 is still present in the parsed config — a device whose primary
+          IPv4 disappeared from the config is routed to Failed.
+        </p>
+
+        {updatePrimaryIpv4 ? (
+          <div className="space-y-2 pl-1">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">primary_ipv4_priority</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                string_list
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              {primaryIpv4Priority.map((strategyKey, index) => {
+                const strategy = PRIMARY_IPV4_STRATEGIES.find((item) => item.key === strategyKey);
+                if (!strategy) return null;
+                return (
+                  <div
+                    key={strategyKey}
+                    className="flex items-start gap-1.5 rounded-lg border border-border bg-card p-2"
+                  >
+                    <div className="flex shrink-0 flex-col gap-0.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-7"
+                        onClick={() => handleMovePriority(index, -1)}
+                        disabled={index === 0}
+                        title="Move up (higher priority)"
+                      >
+                        <ArrowUp className="size-3.5" aria-hidden />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-7"
+                        onClick={() => handleMovePriority(index, 1)}
+                        disabled={index === primaryIpv4Priority.length - 1}
+                        title="Move down (lower priority)"
+                      >
+                        <ArrowDown className="size-3.5" aria-hidden />
+                      </Button>
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge className="h-4 rounded px-1 text-[10px]" variant="outline">
+                          #{index + 1}
+                        </Badge>
+                        <span className="text-xs font-medium">{strategy.label}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{strategy.description}</p>
+                      {strategyKey === "custom_interface" ? (
+                        <Input
+                          value={primaryIpv4CustomPattern}
+                          onChange={(event) => handleCustomPatternChange(event.target.value)}
+                          placeholder="^Vlan1$"
+                          className="h-7 font-mono text-[11px]"
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Tried top to bottom — the first strategy that matches an interface wins.
+              Use the arrows to reorder. A secondary IP address on an interface is
+              never selected as the primary.
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );

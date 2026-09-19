@@ -42,9 +42,7 @@ def _build_ip_addresses(iface: dict[str, Any]) -> list[dict[str, Any]]:
     ip_addresses: list[dict[str, Any]] = []
     for address in addresses:
         entry: dict[str, Any] = {"address": address, "namespace": "Global"}
-        if primary and address == primary:
-            entry["is_primary"] = True
-        else:
+        if not (primary and address == primary):
             entry["ip_role"] = "secondary"
         ip_addresses.append(entry)
     return ip_addresses

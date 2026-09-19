@@ -54,7 +54,11 @@ def _parsed_full(model: dict, *, source: str = "running") -> dict:
 
 
 def _device(
-    device_id: str, *, parsed: dict | None = None, nautobot_bag: dict | None = None
+    device_id: str,
+    *,
+    parsed: dict | None = None,
+    nautobot_bag: dict | None = None,
+    primary_ip4: str | None = None,
 ) -> DeviceContext:
     return DeviceContext(
         id=device_id,
@@ -65,6 +69,7 @@ def _device(
         status=DeviceStatus.OK,
         parsed=parsed or {},
         attribute_bags={"nautobot": nautobot_bag} if nautobot_bag is not None else {},
+        primary_ip4=primary_ip4,
     )
 
 
@@ -174,7 +179,6 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "address": "192.168.178.120/24",
                     "namespace": "Global",
-                    "is_primary": True,
                 },
                 {
                     "address": "192.168.178.120/24",
@@ -189,7 +193,6 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "address": "192.168.179.240/24",
                     "namespace": "Global",
-                    "is_primary": True,
                 }
             ],
         )
@@ -378,7 +381,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_name["Loopback0"]["description"], "Loopback")
         self.assertEqual(
             by_name["Loopback0"]["ip_addresses"],
-            [{"address": "192.168.179.254/32", "namespace": "Global", "is_primary": True}],
+            [{"address": "192.168.179.254/32", "namespace": "Global"}],
         )
 
         eth00 = by_name["Ethernet0/0"]
@@ -395,7 +398,6 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "address": "192.168.178.240/24",
                     "namespace": "Global",
-                    "is_primary": True,
                 },
             ],
         )
@@ -500,7 +502,6 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "address": "192.168.178.240/24",
                     "namespace": "Global",
-                    "is_primary": True,
                 },
                 {
                     "address": "192.168.178.120/24",
@@ -785,6 +786,227 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
             device_sessions=MagicMock(),
         )
         self.assertIn(Capability.ATTRIBUTES, outcomes[0].context.devices["dev-1"].capabilities)
+
+
+class PrimaryIpv4SelectionTests(unittest.IsolatedAsyncioTestCase):
+    def _iface(self, name: str, ip: str, mask: str = "255.255.255.0") -> dict:
+        return {"name": name, "ip_address": ip, "mask": mask, "children": []}
+
+    async def test_management_interface_selected_first(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(
+                self._iface("Mgmt0", "10.0.0.1"),
+                self._iface("Loopback0", "1.1.1.1"),
+            ),
+        )
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "update_primary_ipv4": True},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+        self.assertTrue(by_name["Mgmt0"]["ip_addresses"][0]["is_primary"])
+        self.assertNotIn("is_primary", by_name["Loopback0"]["ip_addresses"][0])
+
+    async def test_loopback_highest_selected_when_no_management(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(
+                self._iface("Loopback0", "1.1.1.1"),
+                self._iface("Loopback100", "2.2.2.2"),
+            ),
+        )
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "update_primary_ipv4": True},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+        self.assertTrue(by_name["Loopback100"]["ip_addresses"][0]["is_primary"])
+        self.assertNotIn("is_primary", by_name["Loopback0"]["ip_addresses"][0])
+
+    async def test_loopback_lowest_selected_when_priority_reordered(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(
+                self._iface("Loopback0", "1.1.1.1"),
+                self._iface("Loopback100", "2.2.2.2"),
+            ),
+        )
+        outcomes = await execute(
+            config={
+                **_BASE_CONFIG,
+                "update_primary_ipv4": True,
+                "primary_ipv4_priority": [
+                    "loopback_lowest",
+                    "loopback_highest",
+                    "management_interface",
+                    "custom_interface",
+                ],
+            },
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+        self.assertTrue(by_name["Loopback0"]["ip_addresses"][0]["is_primary"])
+        self.assertNotIn("is_primary", by_name["Loopback100"]["ip_addresses"][0])
+
+    async def test_custom_interface_regex_selected(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(
+                self._iface("Vlan1", "192.168.1.1"),
+                self._iface("Vlan2", "192.168.2.1"),
+            ),
+        )
+        outcomes = await execute(
+            config={
+                **_BASE_CONFIG,
+                "update_primary_ipv4": True,
+                "primary_ipv4_priority": [
+                    "custom_interface",
+                    "management_interface",
+                    "loopback_highest",
+                    "loopback_lowest",
+                ],
+                "primary_ipv4_custom_pattern": r"^Vlan1$",
+            },
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+        self.assertTrue(by_name["Vlan1"]["ip_addresses"][0]["is_primary"])
+        self.assertNotIn("is_primary", by_name["Vlan2"]["ip_addresses"][0])
+
+    async def test_no_strategy_matches_routes_to_failure(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(self._iface("Ethernet0/0", "10.0.0.5")),
+        )
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "update_primary_ipv4": True},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        self.assertEqual(outcomes[0].name, "success")
+        self.assertNotIn("dev-1", outcomes[0].context.devices)
+        self.assertEqual(outcomes[1].name, "failure")
+        failed = outcomes[1].context.devices["dev-1"]
+        self.assertEqual(failed.status, DeviceStatus.FAILED)
+        self.assertEqual(failed.errors[0].code, "primary_ipv4_not_found")
+        # Interfaces are still written even though primary selection failed.
+        self.assertIn("nautobot", failed.attribute_bags)
+
+    async def test_invalid_priority_raises(self) -> None:
+        device = _device("dev-1", parsed=_parsed(self._iface("Ethernet0/0", "10.0.0.5")))
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    **_BASE_CONFIG,
+                    "update_primary_ipv4": True,
+                    "primary_ipv4_priority": ["management_interface", "loopback_highest"],
+                },
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_invalid_custom_pattern_raises(self) -> None:
+        device = _device("dev-1", parsed=_parsed(self._iface("Ethernet0/0", "10.0.0.5")))
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    **_BASE_CONFIG,
+                    "update_primary_ipv4": True,
+                    "primary_ipv4_custom_pattern": "[unclosed",
+                },
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_checkbox_off_preserves_existing_primary_when_present(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(
+                self._iface("Mgmt0", "10.0.0.1"),
+                self._iface("Loopback0", "1.1.1.1"),
+            ),
+            primary_ip4="1.1.1.1/32",
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        self.assertEqual(outcomes[0].name, "success")
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+        self.assertTrue(by_name["Loopback0"]["ip_addresses"][0]["is_primary"])
+        self.assertNotIn("is_primary", by_name["Mgmt0"]["ip_addresses"][0])
+
+    async def test_checkbox_off_routes_to_failure_when_primary_missing(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(self._iface("Mgmt0", "10.0.0.1")),
+            primary_ip4="9.9.9.9",
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        self.assertEqual(outcomes[1].name, "failure")
+        failed = outcomes[1].context.devices["dev-1"]
+        self.assertEqual(failed.status, DeviceStatus.FAILED)
+        self.assertEqual(failed.errors[0].code, "primary_ipv4_not_found")
+
+    async def test_checkbox_off_no_known_primary_passes_through_unmarked(self) -> None:
+        device = _device(
+            "dev-1",
+            parsed=_parsed(self._iface("Mgmt0", "10.0.0.1")),
+        )
+        outcomes = await execute(
+            config=_BASE_CONFIG,
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        self.assertEqual(outcomes[0].name, "success")
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        self.assertNotIn("is_primary", interfaces[0]["ip_addresses"][0])
 
 
 if __name__ == "__main__":
