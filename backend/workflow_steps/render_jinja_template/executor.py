@@ -7,7 +7,6 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from core.database import get_db_session
 from core.models.runs import WorkflowRun
 from models.workflow_context import (
     Capability,
@@ -19,8 +18,6 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.templates.exceptions import TemplateNotFoundError
-from services.templates.templates_service import TemplatesService
 from workflow_steps.common.jinja_render import (
     JinjaTemplateError,
     build_jinja_context,
@@ -28,6 +25,7 @@ from workflow_steps.common.jinja_render import (
     render_jinja_template,
     validate_jinja_template,
 )
+from workflow_steps.common.template_content import load_stored_template
 from workflow_steps.render_jinja_template.config import get_config
 
 if TYPE_CHECKING:
@@ -38,19 +36,6 @@ logger = logging.getLogger(__name__)
 
 def _default_config() -> dict[str, Any]:
     return get_config()
-
-
-def _load_stored_template(template_id: int) -> str:
-    db = get_db_session()
-    try:
-        record = TemplatesService(db).get_template(template_id)
-    except TemplateNotFoundError as exc:
-        raise ValueError(
-            f"render-jinja-template: stored template {template_id} was not found"
-        ) from exc
-    finally:
-        db.close()
-    return str(record.get("content") or "")
 
 
 def _resolve_template(config: dict[str, Any]) -> str:
@@ -66,7 +51,7 @@ def _resolve_template(config: dict[str, Any]) -> str:
             template_id = int(raw_id)
         except (TypeError, ValueError) as exc:
             raise ValueError("render-jinja-template: template_id must be an integer") from exc
-        template = _load_stored_template(template_id).strip()
+        template = load_stored_template(template_id, step_id="render-jinja-template").strip()
         if not template:
             raise ValueError(f"render-jinja-template: stored template {template_id} has no content")
         validate_jinja_template(template)

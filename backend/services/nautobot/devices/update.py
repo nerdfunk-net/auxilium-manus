@@ -705,3 +705,28 @@ class DeviceUpdateService:
 
         logger.info("Successfully updated device %s", device_id)
         return updated_fields
+
+    async def get_local_config_context(self, device_id: str) -> dict[str, Any]:
+        """Fetch a device's current ``local_config_context_data`` (``{}`` if unset).
+
+        Nautobot's REST device serializer treats this field as a plain JSON
+        scalar — there is no server-side partial update on it, so callers that
+        need to change one part of it must GET the current value, compute the
+        new document, and PATCH the whole thing back via
+        :meth:`set_local_config_context`.
+        """
+        result = await self.nautobot.rest_request(
+            endpoint=f"dcim/devices/{device_id}/",
+            method="GET",
+        )
+        return result.get("local_config_context_data") or {}
+
+    async def set_local_config_context(
+        self, device_id: str, value: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Replace a device's ``local_config_context_data`` wholesale."""
+        return await self.nautobot.rest_request(
+            endpoint=f"dcim/devices/{device_id}/",
+            method="PATCH",
+            data={"local_config_context_data": value},
+        )

@@ -60,6 +60,7 @@ import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-
 import { OpenChangeRequestPlugin } from "@/components/features/workflow-steps/open-change-request";
 import { FromChangeRequestPlugin } from "@/components/features/workflow-steps/from-change-request";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
+import { UpdateConfigContextPlugin } from "@/components/features/workflow-steps/update-config-context";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
 import { EncryptAttributePlugin } from "@/components/features/workflow-steps/encrypt-attribute";
 import { DecryptAttributePlugin } from "@/components/features/workflow-steps/decrypt-attribute";
@@ -122,6 +123,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-pull": GitPullPlugin,
   "git-push": GitPushPlugin,
   "update-nautobot-device": UpdateNautobotDevicePlugin,
+  "update-config-context": UpdateConfigContextPlugin,
   "update-attribute": UpdateAttributePlugin,
   "encrypt-attribute": EncryptAttributePlugin,
   "decrypt-attribute": DecryptAttributePlugin,

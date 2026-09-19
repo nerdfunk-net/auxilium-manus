@@ -2022,6 +2022,67 @@ plugins:
           required: false
           default: false
 
+  - id: update-config-context
+    name: Update Config Context
+    overview: Add or update a Nautobot device's local config context.
+    description: Write, update, or append values in a device's local config context in Nautobot.
+    artifact_type: command_execution
+    palette_category: nautobot
+    directory: update_config_context
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: device_identifier
+          description: >
+            How to identify the device. Use from_context for workflow devices, or
+            explicit with id or name when running standalone.
+          data_type: object
+          required: false
+          example:
+            mode: from_context
+        - name: mode
+          description: >
+            write replaces the entire local config context. update sets a value at
+            an existing json path, leaving everything else untouched. append adds a
+            new key at a json path, merging into an existing object there without
+            disturbing its other keys — or, with an empty path, merges the resolved
+            value's own top-level keys directly into the document root.
+          data_type: string
+          required: true
+          default: write
+          example: update
+        - name: path
+          description: >
+            Dotted path into local_config_context_data, with numeric segments for
+            list items (for example credentials.0.password or tacacs). Required for
+            update; ignored for write. Optional for append — leave empty to merge the
+            resolved value's own top-level keys directly into the document root
+            instead of nesting them under a new key. List indices must already
+            exist — lists are never extended.
+          data_type: string
+          required: false
+          example: credentials.0.password
+        - name: value_source
+          description: >
+            Where the new value comes from: an existing device attribute (by dotted
+            path), or a rendered stored template. For mode write, the resolved value
+            must be a JSON object.
+          data_type: object
+          required: true
+          example:
+            type: attribute
+            attribute_path: tacacs.shared_secret
+
   - id: get-device-configs
     name: Get Configs
     overview: Get device configuration in the chosen format.
