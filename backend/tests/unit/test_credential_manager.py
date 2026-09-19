@@ -159,6 +159,26 @@ class GenericTests(CredentialManagerTestBase):
             self._manager().generic("lab-key")
 
 
+class SecretManagerAuthTests(CredentialManagerTestBase):
+    """SM2: Secret Manager connection auth must be 'generic' only, never 'ssh'."""
+
+    def test_secret_manager_auth_rejects_ssh_credential(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            _credential(name="fleet-ssh", cred_type="ssh")
+        ]
+        with self.assertRaisesRegex(CredentialUnusableError, "must be type 'generic'"):
+            self._manager().secret_manager_auth("fleet-ssh")
+        self.mock_service.get_decrypted_password.assert_not_called()
+
+    def test_secret_manager_auth_accepts_generic_credential(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            {**_credential(name="bao-approle", cred_type="generic"), "username": "role-id"}
+        ]
+        self.mock_service.get_decrypted_password.return_value = "secret-id"
+        secret = self._manager().secret_manager_auth("bao-approle")
+        self.assertEqual((secret.username, secret.password), ("role-id", "secret-id"))
+
+
 class SharedSecretTests(CredentialManagerTestBase):
     def test_returns_algorithm_and_passphrase(self) -> None:
         self.mock_service.list_credentials.return_value = [

@@ -1,15 +1,19 @@
 # Plan: Fix SM1, SM2, SM3, B1, B2
 
 Source: `doc/analysis/FABLE_BACKEND_20260916.md` §2.2 (SM), §3.2 (B), §6.
-Status: **proposed**.
+Status: **Fixed** — implemented on `main` (working tree, not yet committed as of
+2026-09-19). All five issues below are closed: `pytest tests/unit` is green (3127 passed,
+84.51 % coverage, ratchet 81 %), `ruff check .`, all four `scripts/check_*.py` guards, and
+`cd frontend && npx tsc --noEmit && npx eslint .` all pass clean. See §6 for the full
+verification record.
 
-| # | Sev | Issue | Decision |
-|---|---|---|---|
-| SM1 | M | `POST /secret-manager/connections/{id}/test` always reports success | `ensure_started` must prove authentication for both adapters (D1) |
-| SM2 | M | Secret Manager `addr`/`site_url` skip the outbound-URL policy, `verify_ssl=false` honoured in production, any global `ssh` credential usable as connection auth | outbound policy + https-only + TLS-verify required outside development; `generic`-type credential only; `secret_manager.*` becomes a protected resource (D2) |
-| SM3 | M | `secret-set` `fixed_value` stores a literal secret in the workflow definition and in the workflows git repo | remove `fixed` mode; `attribute` is the only mode (D3) |
-| B1 | M | Batfish `host` skips the outbound-URL policy; `init_snapshot` becomes a config-exfiltration channel | outbound policy on `http://{host}:{port}` at create/update/test and at resolve time (D4) |
-| B2 | M | Ad-hoc Batfish query endpoints readable by the `viewer` role across private workflows | new `sources.batfish:query` permission, not granted to `viewer`; discovery stays `read` (D5) |
+| # | Sev | Issue | Decision | Status |
+|---|---|---|---|---|
+| SM1 | M | `POST /secret-manager/connections/{id}/test` always reports success | `ensure_started` must prove authentication for both adapters (D1) | **Fixed** |
+| SM2 | M | Secret Manager `addr`/`site_url` skip the outbound-URL policy, `verify_ssl=false` honoured in production, any global `ssh` credential usable as connection auth | outbound policy + https-only + TLS-verify required outside development; `generic`-type credential only; `secret_manager.*` becomes a protected resource (D2) | **Fixed** |
+| SM3 | M | `secret-set` `fixed_value` stores a literal secret in the workflow definition and in the workflows git repo | remove `fixed` mode; `attribute` is the only mode (D3) | **Fixed** |
+| B1 | M | Batfish `host` skips the outbound-URL policy; `init_snapshot` becomes a config-exfiltration channel | outbound policy on `http://{host}:{port}` at create/update/test and at resolve time (D4) | **Fixed** |
+| B2 | M | Ad-hoc Batfish query endpoints readable by the `viewer` role across private workflows | new `sources.batfish:query` permission, not granted to `viewer`; discovery stays `read` (D5) | **Fixed** |
 
 Every issue ends with the tests that must exist before it is considered done. Run from
 `backend/` with the project venv: `source ../.venv/bin/activate`. Order of work: SM2 → B1 →
@@ -721,6 +725,12 @@ override or via a custom role (same shape as the existing
 Done when: `pytest tests/unit -k "secret_manager or credential_manager or rbac_elevation"` is
 green; `ruff check services/secret_manager services/credentials/manager.py services/auth/rbac_service.py`.
 
+**Status: Fixed.** Implemented as designed in §1.1–§1.9; tests in §1.10 added verbatim
+(plus `test_secret_manager_auth_rejects_ssh_credential` /
+`test_secret_manager_auth_accepts_generic_credential` in `test_credential_manager.py`, and
+three `secret_manager.*` protected-permission cases in `test_rbac_elevation.py`). All
+target commands pass.
+
 ---
 
 ## 2. B1 — outbound policy for Batfish sources
@@ -1087,6 +1097,10 @@ Any existing test in `test_batfish_context_ref_resolver.py`, `test_batfish_previ
 mock `resolve_connection` are unaffected.
 
 Done when: `pytest tests/unit -k batfish` green; `ruff check services/batfish routers/sources/batfish`.
+
+**Status: Fixed.** Implemented as designed in §2.1–§2.3; tests in §2.4 added verbatim, plus
+one router test (`test_test_connection_inline_target_rejected_by_outbound_policy`) covering
+the inline-dialog path. `pytest tests/unit -k batfish` → 294 passed.
 
 ---
 
@@ -1685,6 +1699,9 @@ raises `VaultError`, `service.healthy` is `False`; after a successful one it is 
 Done when: all four new files pass; coverage of `services/secret_manager/` ≥ 80 % in the
 feature subset run; `pytest tests/unit -k "secret_manager or vault_client"` green.
 
+**Status: Fixed.** All four new test files and the `vault_client.py` `healthy`-property
+tests added as designed. `pytest tests/unit -k "secret_manager or vault_client"` → 77 passed.
+
 ---
 
 ## 4. B2 — `sources.batfish:query` for the ad-hoc endpoints
@@ -1867,6 +1884,12 @@ add `test_viewer_does_not_receive_batfish_query`: after `seed_rbac`, the `viewer
 `sources.batfish:read` and not `sources.batfish:query`; `admin` holds both.
 
 Done when: `pytest tests/unit -k "batfish or rbac_seed"` green; `cd frontend && npm run lint && npx tsc --noEmit`.
+
+**Status: Fixed.** The query router file had one `_forbidden_without_permission` test (not
+nine as estimated); updated to assert `sources.batfish:query`. Added
+`test_viewer_does_not_receive_batfish_query` to `test_rbac_seed.py`.
+`pytest tests/unit -k "batfish or rbac_seed"` → 298 passed; frontend `eslint` and `tsc --noEmit`
+clean.
 
 ---
 
@@ -2385,25 +2408,44 @@ the same way.
 Done when: `pytest tests/unit -k "secret_set or registry"` green; `ruff check workflow_steps/secret_set`;
 `cd frontend && npm run lint && npx tsc --noEmit`.
 
+**Status: Fixed.** Implemented as designed in §5.1–§5.5; tests in §5.6 added verbatim.
+`pytest tests/unit/test_secret_set_executor.py` → 8 passed; frontend `eslint`/`tsc --noEmit`
+clean.
+
 ---
 
-## 6. Verification checklist (whole plan)
+## 6. Verification checklist (whole plan) — **run 2026-09-19, all green**
 
 From `backend/` with the venv active:
 
 ```bash
-ruff check services/secret_manager services/credentials/manager.py services/auth \
-           services/batfish routers/sources/batfish routers/secret_manager.py \
-           workflow_steps/secret_set services/vault/client.py
-python scripts/check_asyncio_run.py && python scripts/check_http_500_leaks.py && \
-python scripts/check_router_repositories.py && python scripts/check_text_sql.py
-python -m pytest tests/unit          # ratchet 81 %; expect > 83 %
-pyright services/secret_manager routers/secret_manager.py services/batfish   # advisory
+ruff check .                                    # All checks passed!
+python scripts/check_asyncio_run.py             # [OK]
+python scripts/check_http_500_leaks.py          # [OK]
+python scripts/check_router_repositories.py     # [OK]
+python scripts/check_text_sql.py                # [OK]
+python -m pytest -q                             # 3127 passed, 84.51% coverage (ratchet 81%)
+pyright                                         # 168 pre-existing findings, 0 new; the 4
+                                                 # findings in connection_service.py were
+                                                 # confirmed pre-existing via `git stash`
+pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
+                                                 # only pre-existing gitpython advisories,
+                                                 # unrelated to this plan
 ```
 
-From `frontend/`: `npm run lint && npx tsc --noEmit`.
+From `frontend/`: `npx eslint .` and `npx tsc --noEmit` — both clean.
 
-Manual smoke (native dev, `ALLOW_LOOPBACK_SOURCE_URLS=true`, `ENV=development`):
+**Sandbox caveat, not a real failure:** a first full-suite run inside the sandboxed shell
+showed 85 failures, all in `test_git_*` files, all `subprocess.CalledProcessError` from
+`git clone file://...` under `/tmp`. Re-running the exact same suite with unrestricted
+filesystem/network permissions passed all of them — this is a sandbox restriction on
+`git clone` outside the workspace, not a regression from this plan. Confirmed by diffing
+one failing test's error against a `git stash`-clean run reproducing the same message
+before any of this plan's changes existed.
+
+Manual smoke (native dev, `ALLOW_LOOPBACK_SOURCE_URLS=true`, `ENV=development`) — **not run**;
+the six scenarios below are the recommended pre-deploy check but require a live OpenBao/
+Infisical/Batfish stack that wasn't available in this session:
 
 1. Settings → Secret Manager → create an OpenBao connection with a **wrong** `secret_id` →
    Test must report *failure* with "AppRole login failed"; fix the secret → success.
@@ -2416,5 +2458,6 @@ Manual smoke (native dev, `ALLOW_LOOPBACK_SOURCE_URLS=true`, `ENV=development`):
 6. Open a workflow saved with a `secret-set` in `fixed` mode → run fails at that step with the
    migration hint; switch to a run input → succeeds.
 
-Then update `doc/analysis/FABLE_BACKEND_20260916.md` §2.2 / §3.2 Status columns and §6 with
-the commit SHA(s), as was done for the 2026-09-12 audit.
+`doc/analysis/FABLE_BACKEND_20260916.md` §2.2 / §3.2 Status columns and §6 are **not yet
+updated** — this plan's changes are uncommitted on `main` as of 2026-09-19; update that doc
+with the real commit SHA(s) once this lands, as was done for the 2026-09-12 audit.

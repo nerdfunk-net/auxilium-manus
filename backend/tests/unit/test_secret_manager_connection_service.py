@@ -4,6 +4,7 @@ in-memory SQLite."""
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -38,6 +39,20 @@ class SecretManagerConnectionServiceTests(unittest.TestCase):
         self.db = sessionmaker(bind=engine)()
         self.addCleanup(self.db.close)
         self.service = SecretManagerConnectionService(self.db)
+
+        # No real DNS in unit tests: keep the URL as-is unless it is one of
+        # the cases the transport-policy tests below exercise explicitly.
+        validate_patcher = patch(
+            "services.secret_manager.transport_policy.validate_outbound_http_url",
+            side_effect=lambda url, *, resolve_dns=True: url.rstrip("/"),
+        )
+        self.mock_validate = validate_patcher.start()
+        self.addCleanup(validate_patcher.stop)
+        env_patcher = patch(
+            "services.secret_manager.transport_policy.settings.environment", "development"
+        )
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
 
     def _create(self, **overrides) -> int:
         return self.service.create_connection({**_OPENBAO_BASE, **overrides})
@@ -106,6 +121,53 @@ class SecretManagerConnectionServiceTests(unittest.TestCase):
         connection_id = self._create()
         self.assertTrue(self.service.delete_connection(connection_id))
         self.assertIsNone(self.service.get_connection(connection_id))
+
+    # ---- SM2: transport policy -------------------------------------------
+    def test_create_rejects_unsafe_url(self) -> None:
+        from core.safe_urls import UnsafeURLError
+
+        self.mock_validate.side_effect = UnsafeURLError("URL resolves to link-local address")
+        with self.assertRaisesRegex(ValueError, "backend_config.addr"):
+            self._create(backend_config={"addr": "http://169.254.169.254", "mount": "m"})
+
+    def test_create_outside_development_requires_https(self) -> None:
+        with patch(
+            "services.secret_manager.transport_policy.settings.environment", "production"
+        ):
+            with self.assertRaisesRegex(ValueError, "must use https"):
+                self._create(backend_config={"addr": "http://vault.internal:8200", "mount": "m"})
+
+    def test_create_outside_development_requires_verify_ssl(self) -> None:
+        with patch(
+            "services.secret_manager.transport_policy.settings.environment", "production"
+        ):
+            with self.assertRaisesRegex(ValueError, "verify_ssl=false"):
+                self._create(verify_ssl=False)
+
+    def test_create_in_development_allows_http_and_no_verify(self) -> None:
+        connection_id = self._create(
+            verify_ssl=False,
+            backend_config={"addr": "http://127.0.0.1:8200", "mount": "m"},
+        )
+        self.assertTrue(self.service.get_connection(connection_id)["backend_config"]["addr"])
+
+    def test_update_verify_ssl_alone_is_policy_checked(self) -> None:
+        connection_id = self._create()
+        with patch(
+            "services.secret_manager.transport_policy.settings.environment", "production"
+        ):
+            with self.assertRaisesRegex(ValueError, "verify_ssl=false"):
+                self.service.update_connection(connection_id, {"verify_ssl": False})
+
+    def test_infisical_site_url_is_policy_checked(self) -> None:
+        from core.safe_urls import UnsafeURLError
+
+        self.mock_validate.side_effect = UnsafeURLError("URL host is not allowed")
+        with self.assertRaisesRegex(ValueError, "backend_config.site_url"):
+            self.service.create_connection(
+                {**_INFISICAL_BASE, "backend_config": {**_INFISICAL_BASE["backend_config"],
+                                                       "site_url": "http://metadata.google.internal"}}
+            )
 
 
 if __name__ == "__main__":

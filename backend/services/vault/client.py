@@ -47,6 +47,14 @@ class OpenBaoService:
         self._renew_task: asyncio.Task | None = None
         self._healthy = False
 
+    @property
+    def healthy(self) -> bool:
+        """True once a login (startup or renew) has succeeded and no renew has
+        failed since. ``startup()`` soft-fails by design (the app must boot
+        without OpenBao); callers that need a hard answer -- the Secret
+        Manager adapter's ``ensure_started`` (SM1) -- read this instead."""
+        return self._healthy
+
     # ------------------------------------------------------------------ lifecycle
     def _build_client(self) -> httpx.Client:
         if not self._cfg.verify_ssl:

@@ -26,6 +26,7 @@ question" section).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -42,6 +43,7 @@ from services.secret_manager.exceptions import (
     SecretManagerPermissionError,
     SecretManagerUnavailableError,
 )
+from services.secret_manager.transport_policy import validate_connection_transport
 
 logger = logging.getLogger(__name__)
 
@@ -115,13 +117,24 @@ class InfisicalSecretManagerClient:
 
     def __init__(self, cfg: SecretManagerConnectionConfig) -> None:
         self._name = cfg.name
-        site_url = str(cfg.backend_config.get("site_url") or "").strip()
         project_id = str(cfg.backend_config.get("project_id") or "").strip()
         environment = str(cfg.backend_config.get("environment") or "").strip()
-        if not site_url or not project_id or not environment:
+        try:
+            # Rows can predate the CRUD-time check; re-validate without DNS (SM2).
+            site_url = validate_connection_transport(
+                backend="infisical",
+                backend_config=cfg.backend_config,
+                verify_ssl=cfg.verify_ssl,
+                resolve_dns=False,
+            )
+        except ValueError as exc:
             raise SecretManagerConfigError(
-                f"Infisical connection '{cfg.name}' needs 'site_url', 'project_id', "
-                "and 'environment' in backend_config"
+                f"Infisical connection '{cfg.name}': {exc}"
+            ) from exc
+        if not project_id or not environment:
+            raise SecretManagerConfigError(
+                f"Infisical connection '{cfg.name}' needs 'project_id' and 'environment' "
+                "in backend_config"
             )
         self._project_id = project_id
         self._environment = environment
@@ -133,10 +146,15 @@ class InfisicalSecretManagerClient:
         self._tokens = _InfisicalTokenManager(cfg.auth_id, cfg.auth_secret, role_label=cfg.name)
 
     async def ensure_started(self) -> None:
-        # No background renew loop — see _InfisicalTokenManager docstring.
-        # Nothing to await; kept so the registry can treat every adapter
-        # uniformly (await ensure_started() once before first use).
-        return None
+        """Perform the Universal Auth login now, off the event loop.
+
+        There is no background renew loop (see _InfisicalTokenManager), but a
+        connection must prove it can authenticate before the registry caches
+        it -- otherwise ``POST …/test`` reports success without ever
+        contacting Infisical (SM1). Raises ``SecretManagerConfigError`` /
+        ``SecretManagerAuthError`` / ``SecretManagerUnavailableError``.
+        """
+        await asyncio.to_thread(self._tokens.current, self._client)
 
     def _request(
         self,

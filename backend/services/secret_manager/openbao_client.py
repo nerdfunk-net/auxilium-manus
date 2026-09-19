@@ -14,9 +14,11 @@ import logging
 from services.secret_manager.client import SecretVersionInfo
 from services.secret_manager.config import SecretManagerConnectionConfig
 from services.secret_manager.exceptions import (
+    SecretManagerAuthError,
     SecretManagerConfigError,
     SecretManagerUnavailableError,
 )
+from services.secret_manager.transport_policy import validate_connection_transport
 from services.vault.client import OpenBaoService
 from services.vault.config import VaultConfig
 from services.vault.exceptions import VaultError, VaultSecretNotFoundError
@@ -25,11 +27,20 @@ logger = logging.getLogger(__name__)
 
 
 def _build_vault_config(cfg: SecretManagerConnectionConfig) -> VaultConfig:
-    addr = str(cfg.backend_config.get("addr") or "").strip()
     mount = str(cfg.backend_config.get("mount") or "").strip()
-    if not addr or not mount:
+    try:
+        # Rows can predate the CRUD-time check; re-validate without DNS (SM2).
+        addr = validate_connection_transport(
+            backend="openbao",
+            backend_config=cfg.backend_config,
+            verify_ssl=cfg.verify_ssl,
+            resolve_dns=False,
+        )
+    except ValueError as exc:
+        raise SecretManagerConfigError(f"OpenBao connection '{cfg.name}': {exc}") from exc
+    if not mount:
         raise SecretManagerConfigError(
-            f"OpenBao connection '{cfg.name}' needs both 'addr' and 'mount' in backend_config"
+            f"OpenBao connection '{cfg.name}' needs 'mount' in backend_config"
         )
     if not cfg.auth_id or not cfg.auth_secret:
         raise SecretManagerConfigError(
@@ -56,7 +67,21 @@ class OpenBaoSecretManagerClient:
         self._service = OpenBaoService(_build_vault_config(cfg))
 
     async def ensure_started(self) -> None:
+        """Start the underlying client and *prove* the AppRole login worked.
+
+        ``OpenBaoService.startup()`` deliberately swallows a failed login
+        (the credential vault must not take the app down at boot); for a
+        Secret Manager connection that would make ``POST …/test`` report
+        success on a wrong secret_id (SM1). Shut the service down again on
+        failure so its renew task does not leak, then raise.
+        """
         await self._service.startup()
+        if not self._service.healthy:
+            await self._service.shutdown()
+            raise SecretManagerAuthError(
+                f"OpenBao connection '{self._name}': AppRole login failed -- check addr, "
+                "mount, namespace, and the credential's role_id/secret_id"
+            )
 
     def get_field(self, path: str, field: str, *, version: int | None = None) -> str | None:
         try:

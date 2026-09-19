@@ -28,9 +28,14 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("sources.pyats", "read", "View pyATS shim sources"),
     ("sources.pyats", "write", "Create or update pyATS shim sources"),
     ("sources.pyats", "delete", "Delete pyATS shim sources"),
-    ("sources.batfish", "read", "View Batfish sources"),
+    ("sources.batfish", "read", "View Batfish sources and list networks/snapshots"),
     ("sources.batfish", "write", "Create or update Batfish sources"),
     ("sources.batfish", "delete", "Delete Batfish sources"),
+    # Ad-hoc questions from the Template Editor return routing tables, ACL
+    # verdicts, and extracted facts for ANY network on the coordinator --
+    # including networks built by workflows the caller cannot see (B2).
+    # Deliberately not a "read" action, so the seeded viewer role never gets it.
+    ("sources.batfish", "query", "Run ad-hoc Batfish questions from the template editor"),
     ("sources.mattermost", "read", "View Mattermost sources"),
     ("sources.mattermost", "write", "Create or update Mattermost sources"),
     ("sources.mattermost", "delete", "Delete Mattermost sources"),

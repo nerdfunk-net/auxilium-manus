@@ -44,7 +44,9 @@ source once those are implemented.
 
 5. Reachability depends on where the backend itself runs:
    - **Backend running natively on the host** (the CLAUDE.md dev workflow):
-     `host=127.0.0.1`, ports `9996`/`9997` (published below).
+     `host=127.0.0.1`, ports `9996`/`9997` (published below). Loopback
+     targets are refused by the outbound-URL policy unless
+     `ALLOW_LOOPBACK_SOURCE_URLS=true` is set in `backend/.env`.
    - **Backend also containerized** on the `backend` Docker network:
      `host=batfish`, ports `9996`/`9997` (container DNS name).
 

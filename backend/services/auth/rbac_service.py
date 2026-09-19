@@ -7,9 +7,11 @@ from core.models.rbac import Permission
 from repositories.rbac_repository import RBACRepository
 
 ADMIN_ROLE_NAME = "admin"
-# Permissions on these resources let a holder change who can do what; only
+# Permissions on these resources let a holder change who can do what, or
+# read secret material by other means (secret_manager.connections:write can
+# point a connection's auth credential at an arbitrary host -- SM2); only
 # admins may hand them out or take them away (policy P3).
-PROTECTED_RESOURCES: tuple[str, ...] = ("rbac.", "users", "system.")
+PROTECTED_RESOURCES: tuple[str, ...] = ("rbac.", "users", "system.", "secret_manager.")
 
 
 def _is_protected(permission: Permission) -> bool:

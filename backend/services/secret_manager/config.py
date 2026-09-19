@@ -43,9 +43,10 @@ def load_connection_config(connection_id: int, db: Session) -> SecretManagerConn
     auth_secret = ""
     credential_name = connection.get("credential_name")
     if credential_name:
-        # Background/system-scoped, like git auth — global credentials only.
+        # Background/system-scoped, like git auth — global credentials only,
+        # and `generic` type only (SM2: never a device SSH credential).
         try:
-            secret = CredentialManager(db).generic(credential_name)
+            secret = CredentialManager(db).secret_manager_auth(credential_name)
         except ValueError as exc:
             raise ValueError(
                 f"Secret manager connection '{connection['name']}': {exc}"

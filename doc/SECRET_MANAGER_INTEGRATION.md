@@ -213,12 +213,24 @@ column set means most columns are `NULL` for one backend or the other — the
 same problem the pre-consolidation git-config KV system had.
 
 **`credential_name`** resolves this *connection's own* auth material via the
-existing `CredentialManager` facade — `CredentialManager(db).generic(name)`,
-a `generic`-type credential holding the OpenBao AppRole `secret_id` /
-Infisical `client_secret` as its password field, and `role_id`/`client_id`
-as its username. Reuses the existing credential-resolution seam (global-only,
-background/system-scoped — no `acting_user_id`) instead of inventing a third
-way to store "a secret needed to reach a secret store."
+existing `CredentialManager` facade — `CredentialManager(db).secret_manager_auth(name)`,
+which accepts a **`generic`-type credential only** (an `ssh` credential is
+rejected, so a device password can never be sent to a connection's URL)
+holding the OpenBao AppRole `secret_id` / Infisical `client_secret` as its
+password field, and `role_id`/`client_id` as its username. Reuses the
+existing credential-resolution seam (global-only, background/system-scoped —
+no `acting_user_id`) instead of inventing a third way to store "a secret
+needed to reach a secret store."
+
+**Transport policy.** `addr` / `site_url` must pass
+`core.safe_urls.validate_outbound_http_url` (no link-local, metadata, or —
+unless `ALLOW_LOOPBACK_SOURCE_URLS=true` — loopback targets). Outside
+`ENV=development` the URL must be `https://` and `verify_ssl` must stay
+`true`, mirroring `VAULT_ADDR`/`VAULT_VERIFY_SSL` for the credential vault.
+Enforced on create/update (`SecretManagerConnectionService`) and again when a
+client is built (`services/secret_manager/transport_policy.py`).
+`secret_manager.connections:*` is a protected permission (P3): only an admin
+may grant it.
 
 ## Client abstraction
 
@@ -346,7 +358,7 @@ configuration_management`, `requires: [identity]`, `produces: [attributes]`,
 | Step | Config (`workflow_steps/{step}/config.py` defaults) | Behaviour |
 |---|---|---|
 | `secret-get` | `connection_id`, `path_template`, `field`, `destination_path`, `version` (optional) | Reads and seals the value into the device's attribute bag. A missing value routes that device to `failure` (proceed-with-survivors); a connection-wide error (unreachable/auth-denied) fails the whole step. |
-| `secret-set` | `connection_id`, `path_template`, `field`, `mode` (`fixed`\|`attribute`), `fixed_value`, `source_path`, `destination_path` | Writes an explicit value — a literal, or one read from another attribute path (`attribute` mode is a trusted, `reveal_secrets=True` consumer, same as `update-ise-tacacs-key`). Also seals the written value into `destination_path`. |
+| `secret-set` | `connection_id`, `path_template`, `field`, `source_path`, `destination_path` | Writes the value read from `source_path` — a run input (`run_input.<name>`, supplied at trigger time, never persisted in the definition) or a sealed upstream value (a trusted, `reveal_secrets=True` consumer, same as `update-ise-tacacs-key`). Also seals the written value into `destination_path`. **No literal-value mode**: step config is stored in plaintext in `workflows.canvas_nodes` and pushed to the workflows git repository, so a literal there would be a stored secret; a saved `mode: fixed` fails at run time with a migration hint. |
 | `secret-generate` | `connection_id`, `path_template`, `field`, `destination_path`, `charset` (`hex`\|`alnum`\|`alnum_symbols`), `length` | Generates via `secrets.token_hex`/`secrets.choice` (stdlib `secrets`, never `random`), stores it, seals it into `destination_path`. No per-device `failure` outcome exists here — generation can't fail per-device, only the whole-step connection-error path uses `failure`. |
 
 All three default `destination_path` to `tacacs.shared_secret` — the same

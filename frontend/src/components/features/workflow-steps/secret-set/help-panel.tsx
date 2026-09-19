@@ -12,8 +12,9 @@ export function SecretSetHelpPanel() {
     <div className="space-y-6">
       <HelpSection title="What this step does">
         <p>
-          Writes an explicit value — a literal, or one read from another attribute
-          path — to one field of an external Secret Manager connection (OpenBao or
+          Writes a value read from another attribute path — a run input the operator
+          supplied at trigger time, or a sealed value from an upstream secret step —
+          to one field of an external Secret Manager connection (OpenBao or
           Infisical) per device. Also seals the written value into the device&apos;s
           attribute bag, so a later step in the same run can use it without a second
           round trip to the secret manager.
@@ -23,6 +24,8 @@ export function SecretSetHelpPanel() {
           a static run attribute, or it came from another system) and you just need
           to store it — for a <em>generated</em> random value, use{" "}
           <span className="font-medium text-foreground">Secret Generate</span> instead.
+          There is no literal-value option: step config is stored in plaintext in the
+          workflow definition, so a literal here would be a stored secret.
         </p>
       </HelpSection>
 
@@ -55,30 +58,14 @@ export function SecretSetHelpPanel() {
         </p>
       </HelpSection>
 
-      <HelpSection title="mode">
-        <p>
-          <HelpCode>fixed</HelpCode> writes the literal value typed into{" "}
-          <HelpCode>fixed_value</HelpCode>. <HelpCode>attribute</HelpCode> reads the
-          value to write from <HelpCode>source_path</HelpCode> instead — typically a{" "}
-          <HelpCode>run_input.*</HelpCode> value an operator supplied when triggering
-          the run.
-        </p>
-      </HelpSection>
-
-      <HelpSection title="fixed_value">
-        <p>
-          The literal value to write, used only in <HelpCode>fixed</HelpCode> mode.
-          Masked the same way any credential input is.
-        </p>
-      </HelpSection>
-
       <HelpSection title="source_path">
         <p>
-          Attribute path to read the value from, used only in{" "}
-          <HelpCode>attribute</HelpCode> mode — e.g.{" "}
-          <HelpCode>run_input.new_tacacs_key</HelpCode>. Unlike most generic
-          steps, this one <em>is</em> a trusted consumer: it may read a sealed
-          value here as cleartext, in memory, for this one write.
+          Attribute path to read the value from — e.g.{" "}
+          <HelpCode>run_input.new_tacacs_key</HelpCode>, a static run input an
+          operator supplied when triggering the run, or the{" "}
+          <HelpCode>destination_path</HelpCode> of an upstream secret step. Unlike
+          most generic steps, this one <em>is</em> a trusted consumer: it may read a
+          sealed value here as cleartext, in memory, for this one write.
         </p>
       </HelpSection>
 
@@ -109,7 +96,7 @@ export function SecretSetHelpPanel() {
         <p>
           That safety depends on <HelpCode>path_template</HelpCode> actually
           rendering to a different path per device. If you override it to a{" "}
-          <span className="font-medium text-foreground">fixed, shared path</span>,
+          <span className="font-medium text-foreground">static, shared path</span>,
           concurrent fan-out children writing different <HelpCode>field</HelpCode>{" "}
           values to that same path can race —{" "}
           <span className="font-medium text-foreground">on an OpenBao
@@ -131,10 +118,10 @@ export function SecretSetHelpPanel() {
           </li>
           <li>
             <span className="font-medium text-foreground">failure</span> — devices
-            where <HelpCode>source_path</HelpCode> resolved to nothing (attribute
-            mode only), each carrying a <HelpCode>DeviceError</HelpCode>. If the
-            connection itself is unreachable or authentication fails, the{" "}
-            <em>whole</em> step routes to <HelpCode>failure</HelpCode> instead.
+            where <HelpCode>source_path</HelpCode> resolved to nothing, each
+            carrying a <HelpCode>DeviceError</HelpCode>. If the connection itself is
+            unreachable or authentication fails, the <em>whole</em> step routes to{" "}
+            <HelpCode>failure</HelpCode> instead.
           </li>
         </ul>
       </HelpSection>
@@ -146,9 +133,7 @@ export function SecretSetHelpPanel() {
           </li>
           <li>
             Declare a static run attribute (e.g. <HelpCode>new_tacacs_key</HelpCode>)
-            on the workflow, set <HelpCode>mode</HelpCode> to{" "}
-            <HelpCode>attribute</HelpCode>, and point{" "}
-            <HelpCode>source_path</HelpCode> at{" "}
+            on the workflow and point <HelpCode>source_path</HelpCode> at{" "}
             <HelpCode>run_input.new_tacacs_key</HelpCode>.
           </li>
           <li>
@@ -160,8 +145,6 @@ export function SecretSetHelpPanel() {
           path_template: network/{"{device.name}"}/tacacs
           <br />
           field: key
-          <br />
-          mode: attribute
           <br />
           source_path: run_input.new_tacacs_key
           <br />

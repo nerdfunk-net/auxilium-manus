@@ -84,3 +84,31 @@ the plaintext out of this host except when actually in use, so it gets the stron
 treatment. **Accepted as-is**: making `local` keys ephemeral too is a larger change (every git
 caller would need the same discard-in-`finally` discipline it already has for `vault` keys) and is
 not required to close the OpenBao-specific gap V2 targeted.
+
+## Batfish: raw device configurations are uploaded to the coordinator
+
+`batfish-init-snapshot` writes every device's running-config (live mode) or
+every matched file of a git repository (git mode) into a temp directory and
+uploads it as a snapshot to the configured Batfish coordinator, which stores
+it in its `/data` volume. Configs may contain enable secrets, SNMP
+communities, or pre-shared keys if the collecting step did not scrub them.
+**Accepted as-is**: this is the same trust boundary as the git-mirrored config
+backups, and the coordinator has no authentication of its own — which is why
+(a) `docker/batfish/docker-compose.yaml` binds its ports to `127.0.0.1` only,
+and (b) a source's `host`/`port` must pass `validate_outbound_http_url`
+(`services/batfish/source_config_service.py::_validate_target`), so a
+`sources.batfish:write` holder cannot point the upload at an arbitrary host.
+Ad-hoc query results (routing tables, ACL verdicts, extracted facts) are gated
+by the separate `sources.batfish:query` permission, which the read-only
+`viewer` role does not hold.
+
+## Secret Manager connections send their own auth material to a configured URL
+
+A Secret Manager connection's `credential_name` (AppRole `role_id`/`secret_id`
+or Infisical `client_id`/`client_secret`) is POSTed to the connection's
+`addr`/`site_url` on every login. **Mitigated, not accepted**: the URL must
+pass `validate_outbound_http_url`, must be `https` with `verify_ssl=true`
+outside development, the credential must be of type `generic` (an `ssh`
+device credential is rejected), and `secret_manager.connections:*` is a
+protected permission only an admin can grant (P3). See
+`doc/SECRET_MANAGER_INTEGRATION.md` → "Transport policy".

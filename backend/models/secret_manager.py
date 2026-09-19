@@ -44,9 +44,17 @@ class SecretManagerConnectionRequest(BaseModel):
     backend: SecretManagerBackend = Field(..., description="Which secret manager this connects to")
     credential_name: str | None = Field(
         None,
-        description="Name of the stored credential holding this connection's own auth material",
+        max_length=255,
+        description=(
+            "Name of a global 'generic' credential holding this connection's own auth "
+            "material (username = role_id / client_id, password = secret_id / client_secret). "
+            "SSH credentials are rejected."
+        ),
     )
-    verify_ssl: bool = Field(default=True, description="Verify TLS certificates")
+    verify_ssl: bool = Field(
+        default=True,
+        description="Verify TLS certificates (must be true outside development)",
+    )
     is_active: bool = Field(default=True, description="Connection is active")
     description: str | None = Field(None, description="Connection description")
     backend_config: dict[str, Any] = Field(

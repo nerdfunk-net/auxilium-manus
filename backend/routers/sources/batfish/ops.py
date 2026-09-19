@@ -11,6 +11,7 @@ source dialog can test a connection before it is saved.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
@@ -62,7 +63,8 @@ async def test_connection(
     _: User = Depends(get_current_user),
     config: BatfishSourceConfigService = Depends(get_batfish_source_config_service),
 ) -> BatfishTestConnectionResponse:
-    connection = _resolve_connection(request, config)
+    # _resolve_connection now does a DNS lookup (B1) -- off the event loop.
+    connection = await asyncio.to_thread(_resolve_connection, request, config)
     batfish = service_factory.get_batfish_app_service()
 
     try:

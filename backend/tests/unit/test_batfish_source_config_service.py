@@ -25,6 +25,14 @@ class BatfishSourceConfigServiceTests(unittest.TestCase):
         self.addCleanup(settings_patcher.stop)
         self.mock_settings = self.mock_settings_cls.return_value
 
+        # No real DNS in unit tests; the policy tests below override side_effect.
+        validate_patcher = patch(
+            "services.batfish.source_config_service.validate_outbound_http_url",
+            side_effect=lambda url, *, resolve_dns=True: url,
+        )
+        self.mock_validate = validate_patcher.start()
+        self.addCleanup(validate_patcher.stop)
+
         self.service = BatfishSourceConfigService(db=MagicMock())
 
     def test_create_source_stores_host_and_port(self) -> None:
@@ -135,6 +143,57 @@ class BatfishSourceConfigServiceTests(unittest.TestCase):
         result = self.service.list_sources()
         self.assertEqual(result[0]["host"], "batfish")
         self.assertEqual(result[0]["port"], 9996)
+
+    # ---- B1: outbound policy ----------------------------------------------
+    def test_create_source_applies_outbound_policy_with_dns(self) -> None:
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_settings.create.return_value = _setting(
+            "sources.batfish.lab", {"host": "batfish", "port": 9996, "source_id": "lab"}
+        )
+        self.service.create_source(source_id="lab", host="batfish", port=9996)
+        self.mock_validate.assert_called_once_with("http://batfish:9996", resolve_dns=True)
+
+    def test_create_source_rejects_disallowed_target(self) -> None:
+        from core.safe_urls import UnsafeURLError
+
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_validate.side_effect = UnsafeURLError("URL resolves to link-local address")
+        with self.assertRaisesRegex(BatfishValidationError, "not allowed"):
+            self.service.create_source(source_id="lab", host="169.254.169.254", port=80)
+        self.mock_settings.create.assert_not_called()
+
+    def test_update_port_only_revalidates_pair(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.batfish.lab", {"host": "batfish", "port": 9996, "source_id": "lab"}
+        )
+        self.mock_settings.update.return_value = _setting(
+            "sources.batfish.lab", {"host": "batfish", "port": 9999, "source_id": "lab"}
+        )
+        self.service.update_source("lab", port=9999)
+        self.mock_validate.assert_called_once_with("http://batfish:9999", resolve_dns=True)
+
+    def test_resolve_connection_rechecks_without_dns(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.batfish.lab", {"host": "batfish", "port": 9996, "source_id": "lab"}
+        )
+        connection = self.service.resolve_connection("lab")
+        self.assertEqual((connection.host, connection.port), ("batfish", 9996))
+        self.mock_validate.assert_called_once_with("http://batfish:9996", resolve_dns=False)
+
+    def test_resolve_connection_refuses_legacy_disallowed_row(self) -> None:
+        from core.safe_urls import UnsafeURLError
+
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.batfish.lab",
+            {"host": "metadata.google.internal", "port": 80, "source_id": "lab"},
+        )
+        self.mock_validate.side_effect = UnsafeURLError("URL host is not allowed")
+        with self.assertRaises(BatfishValidationError):
+            self.service.resolve_connection("lab")
+
+    def test_inline_connection_applies_policy_with_dns(self) -> None:
+        self.service.resolve_inline_connection(host="10.0.0.5", port=9996)
+        self.mock_validate.assert_called_once_with("http://10.0.0.5:9996", resolve_dns=True)
 
 
 if __name__ == "__main__":

@@ -614,12 +614,9 @@ exactly the same two-case split documented in `docker/batfish/README.md` and
 already hit once by pyATS: native-backend dev
 (`python start.py` / `python scripts/run_worker_dev.py`) uses
 `host=127.0.0.1`; a fully containerized backend uses `host=batfish`. The
-loopback case needs `ALLOW_LOOPBACK_SOURCE_URLS=true` in `backend/.env` if
-the source URL validation path treats a bare hostname the same way it treats
-pyATS's/OpenBao's loopback URLs — verify `validate_outbound_http_url`'s
-behavior against a non-HTTP `host:port` pair specifically, since Batfish's
-source config isn't a URL in the same shape as every other source (see "Open
-items" below). **Remember to restart the Hatchet worker** after changing the
+loopback case needs `ALLOW_LOOPBACK_SOURCE_URLS=true` in `backend/.env` (the
+host/port pair is validated with `validate_outbound_http_url`, same as every
+other source). **Remember to restart the Hatchet worker** after changing the
 source config or this env var, for the same reason documented in the pyATS
 doc's "Configuring a source" section — the worker only re-reads config at its
 own process startup.
@@ -643,10 +640,9 @@ own process startup.
   device configs.
 - Batfish answers (routing tables, ACL contents, reachable paths) are
   themselves sensitive — they describe exactly how to reach or bypass
-  network controls. `sources:batfish` read access should be scoped by
-  RBAC the same as `sources:pyats`/`sources:ise`, and query-step results
-  should be treated with the same care as raw config content when stored as
-  artifacts.
+  network controls. Ad-hoc query results are gated by `sources.batfish:query`,
+  which the seeded `viewer` role does not hold; workflow-run results stay
+  behind `workflow_runs:read` + run visibility.
 
 ## Workflow steps
 
@@ -1734,10 +1730,15 @@ blank required field fails immediately, before paying for a Batfish
 snapshot-listing round-trip in `resolve_latest_snapshot_name`.
 
 **New endpoints, one per question, under the existing source prefix**
-(`routers/sources/batfish/query.py`, same `require_permission("sources.batfish",
-"read")` as the rest of that router -- this is a read-only analysis call
-against an already-built snapshot, no device contact, so no new permission
-was added):
+(`routers/sources/batfish/query.py`, gated by `require_permission("sources.batfish",
+"query")` -- a dedicated permission, not `read`, because these endpoints answer
+questions against *any* network on the coordinator regardless of which
+workflow built it, and Batfish answers (routing tables, ACL verdicts, extracted
+TACACS/SNMP facts) are sensitive; the seeded read-only `viewer` role holds
+`sources.batfish:read` but not `:query`. Discovery (`…/networks`,
+`…/networks/{network}/snapshots`) stays on `read` -- names only, needed by the
+workflow-step config pickers. The Options modal hides the Batfish tab for
+users without `:query`):
 
 ```
 POST /api/sources/batfish/{source_id}/query/routes
@@ -2023,14 +2024,17 @@ and every question already covered by a typed step/endpoint.
   would fail loudly (a pybatfish rejected-kwarg error), not silently, but
   confirm the field actually filters as expected before relying on it for a
   production audit.
-- **RESOLVED during implementation**: no `validate_outbound_http_url` call
-  was needed. `BatfishSourceConfigService` does plain non-empty/length
-  validation on `host` (`_validate_host`) rather than routing it through the
-  URL/loopback-allowlist path every other source uses — `host` is a bare
-  hostname/IP, not a URL, so that path doesn't apply. This also means the
-  loopback case (native-backend dev pointing at `127.0.0.1`) needs no
-  `ALLOW_LOOPBACK_SOURCE_URLS` exception the way pyATS/OpenBao do — there's
-  no URL-shaped value for that guard to reject in the first place.
+- **RESOLVED (2026-09 hardening, B1): `host`/`port` go through
+  `validate_outbound_http_url`.** The earlier claim that "host is a bare
+  hostname, not a URL, so the policy doesn't apply" was wrong — pybatfish
+  builds `http://{host}:{port}/v2/...` from it one line in
+  (`Session.get_base_url2`). `BatfishSourceConfigService._validate_target`
+  now applies the same policy as every other source (no link-local/metadata
+  targets, loopback only with `ALLOW_LOOPBACK_SOURCE_URLS=true`) on create,
+  update, inline test-connection, and again in `resolve_connection`. Native
+  host development against `127.0.0.1` therefore needs
+  `ALLOW_LOOPBACK_SOURCE_URLS=true` in `backend/.env`, exactly like
+  pyATS/OpenBao.
 - **Deferred: no `store-artifact`/`content_resolver.py` integration for
   Batfish query results.** Narrowed in scope since "Viewing results" above
   shipped: *visibility* (seeing the answer in the run detail UI, and now also

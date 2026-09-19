@@ -84,6 +84,29 @@ class AdminReseedRbacTests(unittest.TestCase):
         self.assertEqual(len(user_roles), 1)
         self.assertEqual(user_roles[0].role_id, new_admin_role.id)
 
+    def test_viewer_does_not_receive_batfish_query(self) -> None:
+        # B2: sources.batfish:query is deliberately not a "read" action, so
+        # the seeded read-only viewer role must not receive it, while admin
+        # (which receives every permission) does.
+        admin_reseed_rbac(self.db, remove_existing=False)
+
+        def _role_permission_pairs(role_name: str) -> set[tuple[str, str]]:
+            role = self.db.scalar(select(Role).where(Role.name == role_name))
+            self.assertIsNotNone(role)
+            rows = self.db.scalars(
+                select(Permission)
+                .join(RolePermission, RolePermission.permission_id == Permission.id)
+                .where(RolePermission.role_id == role.id)
+            )
+            return {(p.resource, p.action) for p in rows}
+
+        viewer_permissions = _role_permission_pairs("viewer")
+        admin_permissions = _role_permission_pairs("admin")
+
+        self.assertIn(("sources.batfish", "read"), viewer_permissions)
+        self.assertNotIn(("sources.batfish", "query"), viewer_permissions)
+        self.assertIn(("sources.batfish", "query"), admin_permissions)
+
     def test_non_wipe_reseed_respects_deliberate_demotion(self) -> None:
         # S10: once another admin exists, a non-wipe reseed must NOT re-grant
         # the admin role to INITIAL_USERNAME after it was deliberately demoted.

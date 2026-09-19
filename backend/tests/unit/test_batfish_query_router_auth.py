@@ -69,7 +69,7 @@ def test_query_routes_forbidden_without_permission(
         )
 
     assert response.status_code == 403
-    assert "sources.batfish:read" in response.json()["detail"]
+    assert "sources.batfish:query" in response.json()["detail"]
 
 
 def test_query_routes_success(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:

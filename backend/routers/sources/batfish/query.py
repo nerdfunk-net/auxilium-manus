@@ -39,10 +39,14 @@ from services.batfish.source_config_service import BatfishSourceNotFoundError
 
 logger = logging.getLogger(__name__)
 
+# `query`, not `read`: these endpoints answer questions against any network
+# on the coordinator, regardless of which workflow built it (B2). The
+# read-only `viewer` role holds `sources.batfish:read` (source list, network
+# and snapshot names) but not this.
 router = APIRouter(
     prefix="/sources/batfish",
     tags=["sources-batfish"],
-    dependencies=[Depends(require_permission("sources.batfish", "read"))],
+    dependencies=[Depends(require_permission("sources.batfish", "query"))],
 )
 
 

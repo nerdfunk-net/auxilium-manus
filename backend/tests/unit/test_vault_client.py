@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
 
 from services.vault.client import OpenBaoService
 from services.vault.config import VaultConfig
 from services.vault.exceptions import (
+    VaultError,
     VaultPermissionError,
     VaultSecretNotFoundError,
     VaultUnavailableError,
@@ -167,6 +168,26 @@ class OpenBaoServiceTests(unittest.TestCase):
         )
         with self.assertRaises(VaultUnavailableError):
             svc.read_kv("credentials/c")
+
+
+class OpenBaoServiceHealthyTests(unittest.IsolatedAsyncioTestCase):
+    """SM1: ``healthy`` reflects whether the last login/renew actually worked."""
+
+    async def test_healthy_false_after_failed_startup(self) -> None:
+        cfg = VaultConfig(addr="https://vault.test:8200", auth_method="token", token="t")
+        svc = OpenBaoService(cfg)
+        with patch.object(svc._tokens, "ensure_token", side_effect=VaultError("bad token")):
+            await svc.startup()
+        self.assertFalse(svc.healthy)
+        await svc.shutdown()
+
+    async def test_healthy_true_after_successful_startup(self) -> None:
+        cfg = VaultConfig(addr="https://vault.test:8200", auth_method="token", token="t")
+        svc = OpenBaoService(cfg)
+        with patch.object(svc._tokens, "ensure_token"):
+            await svc.startup()
+        self.assertTrue(svc.healthy)
+        await svc.shutdown()
 
 
 if __name__ == "__main__":

@@ -4,13 +4,6 @@ import { useCallback } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type {
   PluginConfigPanelProps,
@@ -31,7 +24,6 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     [config, onChange],
   );
 
-  const mode = stringField(config, "mode", "fixed") === "attribute" ? "attribute" : "fixed";
   const strictTemplates = config.strict_templates !== false;
 
   return (
@@ -74,58 +66,24 @@ function SecretSetConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       </div>
 
       <div className="space-y-1.5">
-        <Label className="font-mono text-xs font-medium">mode</Label>
-        <Select value={mode} onValueChange={(value) => setField("mode", value)}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="fixed">fixed — a literal value</SelectItem>
-            <SelectItem value="attribute">attribute — read from another attribute path</SelectItem>
-          </SelectContent>
-        </Select>
+        <Label className="font-mono text-xs font-medium" htmlFor="secret-set-source-path">
+          source_path
+        </Label>
+        <Input
+          id="secret-set-source-path"
+          className="h-8 font-mono text-xs"
+          placeholder="run_input.new_tacacs_key"
+          value={stringField(config, "source_path")}
+          onChange={(event) => setField("source_path", event.target.value)}
+        />
         <p className="text-[11px] text-muted-foreground">
-          fixed writes the literal value typed below; attribute reads the value from
-          another attribute path instead (e.g. a run input supplied at trigger time).
+          Attribute path to read the value from — a run input supplied at trigger time
+          (run_input.&lt;name&gt;) or the destination_path of an upstream secret step. A
+          sealed value here is read as trusted cleartext for this write only. Blank uses
+          the default shown above. There is no literal-value option: step config is
+          stored in plaintext in the workflow definition.
         </p>
       </div>
-
-      {mode === "fixed" ? (
-        <div className="space-y-1.5">
-          <Label className="font-mono text-xs font-medium" htmlFor="secret-set-fixed-value">
-            fixed_value
-          </Label>
-          <Input
-            id="secret-set-fixed-value"
-            className="h-8 font-mono text-xs"
-            type="password"
-            autoComplete="new-password"
-            value={stringField(config, "fixed_value")}
-            onChange={(event) => setField("fixed_value", event.target.value)}
-          />
-          <p className="text-[11px] text-muted-foreground">
-            The literal value to write. Required in fixed mode; masked like any other
-            credential input.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          <Label className="font-mono text-xs font-medium" htmlFor="secret-set-source-path">
-            source_path
-          </Label>
-          <Input
-            id="secret-set-source-path"
-            className="h-8 font-mono text-xs"
-            placeholder="run_input.new_tacacs_key"
-            value={stringField(config, "source_path")}
-            onChange={(event) => setField("source_path", event.target.value)}
-          />
-          <p className="text-[11px] text-muted-foreground">
-            Attribute path to read the value from. Required in attribute mode; a
-            sealed value here is read as trusted cleartext for this write only.
-          </p>
-        </div>
-      )}
 
       <div className="space-y-1.5">
         <Label className="font-mono text-xs font-medium" htmlFor="secret-set-destination">

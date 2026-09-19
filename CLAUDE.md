@@ -218,7 +218,7 @@ permissions — the delegation-bound model (no privilege amplification):
 |---|---|
 | P1 | An actor may never change their own roles/overrides, or delete/deactivate themselves. |
 | P2 | An actor may grant (via override or role) only permissions they currently hold. `admin` bypasses. |
-| P3 | Any grant, override, or removal touching `rbac.*`, `users`, or `system.*` requires `admin`. |
+| P3 | Any grant, override, or removal touching `rbac.*`, `users`, `system.*`, or `secret_manager.*` requires `admin`. |
 | P4 | Any change to a user who currently holds `admin` requires `admin`. |
 | P5 | System roles (`is_system=True`) cannot be renamed, deleted, or have `is_system` changed. |
 | P6 | The last **active** user holding `admin` cannot lose it (role removal, deactivation, deletion) — an invariant, not actor-gated: it also blocks an `actor_user_id=None` internal caller. Deactivated admins do not count toward the count of remaining admins. |

@@ -4127,13 +4127,16 @@ plugins:
 
   - id: secret-set
     name: Secret Set
-    overview: Write an explicit value to a Secret Manager connection.
+    overview: Write a value from an attribute path to a Secret Manager connection.
     description: >
-      Write a literal value, or one read from another attribute path (e.g. a
-      static run-input the operator supplied at trigger time), to one field
-      of an external Secret Manager connection per device. Also seals the
-      written value into the device's attribute bag so a later step in the
-      same run can use it. See doc/SECRET_MANAGER_INTEGRATION.md.
+      Write a value read from another attribute path — a run input the
+      operator supplied at trigger time (run_input.<name>), or a sealed value
+      from an upstream secret-get / generate-password / secret-generate step —
+      to one field of an external Secret Manager connection per device. Also
+      seals the written value into the device's attribute bag so a later step
+      in the same run can use it. There is no literal-value mode: step config
+      is stored in plaintext in the workflow definition. See
+      doc/SECRET_MANAGER_INTEGRATION.md.
     artifact_type: configuration_management
     palette_category: secrets
     directory: secret_set
@@ -4160,21 +4163,15 @@ plugins:
           data_type: string
           required: true
           default: key
-        - name: mode
-          description: fixed (use fixed_value) or attribute (read from source_path).
-          data_type: string
-          required: true
-          default: fixed
-        - name: fixed_value
-          description: Literal value to write. Required in fixed mode.
-          data_type: string
-          required: false
         - name: source_path
           description: >
             Attribute path to read the value from (e.g.
-            run_input.new_tacacs_key). Required in attribute mode.
+            run_input.new_tacacs_key, or the destination_path of an upstream
+            generate-password step). A sealed value is read as cleartext for
+            this write only.
           data_type: string
-          required: false
+          required: true
+          default: run_input.new_tacacs_key
         - name: destination_path
           description: Attribute bag path the sealed value is also written to.
           data_type: string

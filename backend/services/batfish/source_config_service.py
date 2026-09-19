@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.safe_urls import UnsafeURLError, validate_outbound_http_url
 from repositories.settings_repository import SettingsRepository
 from services.batfish.common.exceptions import BatfishValidationError
 from services.batfish.credentials import BatfishConnection
@@ -40,6 +41,25 @@ def _validate_host(host: str) -> str:
     return normalized
 
 
+def _validate_target(host: str, port: int, *, resolve_dns: bool) -> str:
+    """Apply the outbound HTTP policy to the coordinator target (B1).
+
+    pybatfish turns ``host``/``port`` into ``http://{host}:{port}/v2/...``
+    (``Session.get_base_url2``) and speaks unauthenticated HTTP to it, so the
+    pair is subject to the same ``validate_outbound_http_url`` policy as every
+    other source URL: no link-local / metadata targets, and loopback only when
+    ``ALLOW_LOOPBACK_SOURCE_URLS=true`` (native-host development against
+    ``127.0.0.1``). ``resolve_dns=True`` at CRUD/test time; ``False`` when a
+    step resolves a stored source (no DNS on the worker hot path).
+    """
+    safe_host = _validate_host(host)
+    try:
+        validate_outbound_http_url(f"http://{safe_host}:{int(port)}", resolve_dns=resolve_dns)
+    except UnsafeURLError as exc:
+        raise BatfishValidationError(f"Batfish host is not allowed: {exc}") from exc
+    return safe_host
+
+
 class BatfishSourceConfigService:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -64,7 +84,7 @@ class BatfishSourceConfigService:
         if self._settings.get_by_key(key) is not None:
             raise BatfishSourceConflictError(source_id)
 
-        safe_host = _validate_host(host)
+        safe_host = _validate_target(host, port, resolve_dns=True)
 
         value = ensure_value_source_id(
             {"host": safe_host, "port": port},
@@ -86,10 +106,11 @@ class BatfishSourceConfigService:
         setting = self._get_setting_or_raise(source_id)
 
         updated_value = dict(setting.value)
-        if host is not None:
-            updated_value["host"] = _validate_host(host)
-        if port is not None:
-            updated_value["port"] = port
+        new_host = host if host is not None else str(updated_value.get("host") or "")
+        new_port = port if port is not None else int(updated_value.get("port", 9996))
+        # Re-validate the resulting pair whichever of the two changed (B1).
+        updated_value["host"] = _validate_target(new_host, new_port, resolve_dns=True)
+        updated_value["port"] = new_port
 
         updated = self._settings.update(setting, {"value": updated_value})
         return self._to_public(updated.value)
@@ -101,11 +122,16 @@ class BatfishSourceConfigService:
     def resolve_connection(self, source_id: str) -> BatfishConnection:
         setting = self._get_setting_or_raise(source_id)
         value = setting.value
-        return BatfishConnection(host=value["host"], port=int(value.get("port", 9996)))
+        port = int(value.get("port", 9996))
+        # Rows can predate the policy; re-check without DNS (B1).
+        host = _validate_target(str(value["host"]), port, resolve_dns=False)
+        return BatfishConnection(host=host, port=port)
 
     def resolve_inline_connection(self, *, host: str, port: int) -> BatfishConnection:
         """Build a connection from unsaved dialog values (no persisted source yet)."""
-        return BatfishConnection(host=_validate_host(host), port=int(port))
+        return BatfishConnection(
+            host=_validate_target(host, int(port), resolve_dns=True), port=int(port)
+        )
 
     def _get_setting_or_raise(self, source_id: str) -> Any:
         key = build_source_key("batfish", source_id)

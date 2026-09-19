@@ -15,7 +15,7 @@ from core.models.users import User
 from dependencies import get_batfish_source_config_service
 from routers.sources.batfish import batfish_source_crud_router, batfish_source_ops_router
 from services.auth.rbac_service import RBACService
-from services.batfish.common.exceptions import BatfishAPIError
+from services.batfish.common.exceptions import BatfishAPIError, BatfishValidationError
 
 
 def _make_user() -> User:
@@ -191,3 +191,33 @@ def test_test_connection_reports_coordinator_unreachable(
     body = response.json()
     assert body["success"] is False
     assert "not reachable" in body["message"]
+
+
+def test_test_connection_inline_target_rejected_by_outbound_policy(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: True)
+
+    mock_config_service = MagicMock()
+    mock_config_service.resolve_inline_connection.side_effect = BatfishValidationError(
+        "Batfish host is not allowed: URL resolves to link-local address"
+    )
+    app.dependency_overrides[get_batfish_source_config_service] = lambda: mock_config_service
+    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[get_current_user] = _make_user
+    app.dependency_overrides[get_db] = _override_db
+
+    import service_factory
+
+    mock_batfish = MagicMock()
+    monkeypatch.setattr(service_factory, "get_batfish_app_service", lambda: mock_batfish)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/sources/batfish/test-connection",
+            json={"host": "169.254.169.254", "port": 80},
+        )
+
+    assert response.status_code == 400
+    assert "not allowed" in response.json()["detail"]
+    mock_batfish.check_health.assert_not_called()

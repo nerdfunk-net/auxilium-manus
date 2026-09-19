@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNetmikoDeviceSearchQuery } from "@/hooks/queries/use-netmiko-device-search-query";
+import { useAuthStore } from "@/lib/auth-store";
+import { hasPermission } from "@/lib/permissions";
 
 import { BatfishOptionsTab } from "./batfish-options-tab";
 import type { BatfishEditorQuestion, BatfishQueryResult, DeviceSummary } from "../types";
@@ -100,6 +102,12 @@ export function OptionsDialog({
     (credential) => credential.type === "ssh",
   );
 
+  // The ad-hoc query endpoints need sources.batfish:query (not :read) -- see
+  // doc/BATFISH_INTEGRATION.md "Template Editor integration". Hide the tab
+  // rather than showing a form whose every "Run Query" returns 403.
+  const user = useAuthStore((state) => state.user);
+  const canQueryBatfish = hasPermission(user, "sources.batfish", "query");
+
   const [searchTerm, setSearchTerm] = useState("");
   // Dismissed by the user (via outside click or picking a device); reopened
   // as soon as they type again or refocus a field with existing results.
@@ -156,7 +164,7 @@ export function OptionsDialog({
         <Tabs defaultValue="netmiko" className="flex min-h-0 flex-1 flex-col gap-0">
           <TabsList className="mx-6 mt-4 w-fit">
             <TabsTrigger value="netmiko">Netmiko</TabsTrigger>
-            <TabsTrigger value="batfish">Batfish</TabsTrigger>
+            {canQueryBatfish ? <TabsTrigger value="batfish">Batfish</TabsTrigger> : null}
           </TabsList>
 
           <TabsContent value="netmiko" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -325,24 +333,26 @@ export function OptionsDialog({
             </div>
           </TabsContent>
 
-          <TabsContent value="batfish" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-            <BatfishOptionsTab
-              targetConfig={batfishTargetConfig}
-              onTargetConfigChange={onBatfishTargetConfigChange}
-              question={batfishQuestion}
-              onQuestionChange={onBatfishQuestionChange}
-              genericQuestionName={batfishGenericQuestionName}
-              onGenericQuestionNameChange={onBatfishGenericQuestionNameChange}
-              params={batfishParams}
-              onParamsChange={onBatfishParamsChange}
-              enabled={batfishEnabled}
-              onEnabledChange={onBatfishEnabledChange}
-              onRunQuery={onRunBatfishQuery}
-              isRunningQuery={isRunningBatfishQuery}
-              canRunQuery={canRunBatfishQuery}
-              result={batfishResult}
-            />
-          </TabsContent>
+          {canQueryBatfish ? (
+            <TabsContent value="batfish" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              <BatfishOptionsTab
+                targetConfig={batfishTargetConfig}
+                onTargetConfigChange={onBatfishTargetConfigChange}
+                question={batfishQuestion}
+                onQuestionChange={onBatfishQuestionChange}
+                genericQuestionName={batfishGenericQuestionName}
+                onGenericQuestionNameChange={onBatfishGenericQuestionNameChange}
+                params={batfishParams}
+                onParamsChange={onBatfishParamsChange}
+                enabled={batfishEnabled}
+                onEnabledChange={onBatfishEnabledChange}
+                onRunQuery={onRunBatfishQuery}
+                isRunningQuery={isRunningBatfishQuery}
+                canRunQuery={canRunBatfishQuery}
+                result={batfishResult}
+              />
+            </TabsContent>
+          ) : null}
         </Tabs>
       </DialogContent>
     </Dialog>

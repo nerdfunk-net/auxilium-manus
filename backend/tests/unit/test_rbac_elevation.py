@@ -149,6 +149,52 @@ class RBACGrantPolicyTests(unittest.TestCase):
                 actor_user_id=self.non_admin_user.id,
             )
 
+    def test_non_admin_cannot_override_secret_manager_permission_via_override(self) -> None:
+        # SM2/P3: secret_manager.* is protected -- even a holder of the
+        # permission cannot grant it to someone else without being admin.
+        secret_manager_write = self.service.create_permission(
+            "secret_manager.connections", "write"
+        )
+        self.service.assign_permission_to_user(
+            self.non_admin_user.id, secret_manager_write.id
+        )
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_user(
+                self.target_user.id,
+                secret_manager_write.id,
+                actor_user_id=self.non_admin_user.id,
+            )
+
+    def test_non_admin_cannot_grant_secret_manager_permission_via_custom_role(self) -> None:
+        secret_manager_write = self.service.create_permission(
+            "secret_manager.connections", "write"
+        )
+        self.service.assign_permission_to_user(
+            self.non_admin_user.id, secret_manager_write.id
+        )
+        custom_role = self.service.create_role("custom")
+        with self.assertRaises(AccessDeniedError):
+            self.service.assign_permission_to_role(
+                custom_role.id,
+                secret_manager_write.id,
+                actor_user_id=self.non_admin_user.id,
+            )
+
+    def test_admin_can_override_secret_manager_permission(self) -> None:
+        secret_manager_write = self.service.create_permission(
+            "secret_manager.connections", "write"
+        )
+        self.service.assign_permission_to_user(
+            self.target_user.id,
+            secret_manager_write.id,
+            actor_user_id=self.admin_user.id,
+        )
+        self.assertTrue(
+            self.service.has_permission(
+                self.target_user.id, "secret_manager.connections", "write"
+            )
+        )
+
     def test_non_admin_cannot_remove_system_role_from_user(self) -> None:
         viewer_role = self.service.create_role("viewer", is_system=True)
         self.service.assign_role_to_user(self.target_user.id, viewer_role.id)
