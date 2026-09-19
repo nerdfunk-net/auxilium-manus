@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,11 +48,14 @@ export function NautobotOptionalFieldRow({
   placeholder,
   spec,
   onChange,
+  onBrowse,
 }: {
   label: string;
   placeholder: string;
   spec: EnabledValueSpec;
   onChange: (patch: Partial<EnabledValueSpec>) => void;
+  /** Renders a "Browse attributes" icon button next to the value input when provided. */
+  onBrowse?: () => void;
 }) {
   return (
     <div className="space-y-1 rounded-lg border border-border bg-muted p-2.5">
@@ -66,13 +69,28 @@ export function NautobotOptionalFieldRow({
         />
         <Label className="text-[11px] font-medium text-muted-foreground">{label}</Label>
       </div>
-      <Input
-        className="h-8 text-xs focus-visible:ring-step/40 disabled:opacity-50"
-        disabled={!spec.enabled}
-        placeholder={placeholder}
-        value={spec.value}
-        onChange={(event) => onChange({ value: event.target.value })}
-      />
+      <div className="flex items-center gap-1.5">
+        <Input
+          className="h-8 text-xs focus-visible:ring-step/40 disabled:opacity-50"
+          disabled={!spec.enabled}
+          placeholder={placeholder}
+          value={spec.value}
+          onChange={(event) => onChange({ value: event.target.value })}
+        />
+        {onBrowse ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-8 shrink-0"
+            disabled={!spec.enabled}
+            onClick={onBrowse}
+            title="Browse attributes"
+          >
+            <Search className="size-3.5" />
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -178,11 +196,14 @@ export function NautobotCustomFieldRow({
   row,
   onChange,
   onRemove,
+  onBrowse,
   valuePlaceholder = "{custom.site | default('N/A')}",
 }: {
   row: NautobotCustomFieldRowValues;
   onChange: (patch: Partial<NautobotCustomFieldRowValues>) => void;
   onRemove: () => void;
+  /** Renders a "Browse attributes" icon button next to the value input when provided. */
+  onBrowse?: () => void;
   valuePlaceholder?: string;
 }) {
   return (
@@ -216,13 +237,28 @@ export function NautobotCustomFieldRow({
           value={row.name}
           onChange={(event) => onChange({ name: event.target.value })}
         />
-        <Input
-          className="h-8 text-xs disabled:opacity-50"
-          disabled={!row.enabled}
-          placeholder={valuePlaceholder}
-          value={row.value}
-          onChange={(event) => onChange({ value: event.target.value })}
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            className="h-8 text-xs disabled:opacity-50"
+            disabled={!row.enabled}
+            placeholder={valuePlaceholder}
+            value={row.value}
+            onChange={(event) => onChange({ value: event.target.value })}
+          />
+          {onBrowse ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0"
+              disabled={!row.enabled}
+              onClick={onBrowse}
+              title="Browse attributes"
+            >
+              <Search className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

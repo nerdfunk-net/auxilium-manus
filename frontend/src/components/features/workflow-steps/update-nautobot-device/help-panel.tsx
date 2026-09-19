@@ -102,7 +102,10 @@ export function UpdateNautobotDeviceHelpPanel() {
           </li>
           <li>
             A context path — e.g. <HelpCode>{"{nautobot.origin}"}</HelpCode>,{" "}
-            <HelpCode>{"{custom.site}"}</HelpCode>
+            <HelpCode>{"{custom.site}"}</HelpCode>. Click the search icon next to a
+            field&apos;s value input to browse real attribute paths from the
+            workflow&apos;s most recent run instead of typing one — selecting a
+            path fills in the value and enables the field.
           </li>
           <li>
             A path with default — e.g.{" "}
@@ -166,8 +169,9 @@ export function UpdateNautobotDeviceHelpPanel() {
       <HelpSection title="Custom fields">
         <p>
           Add rows under <HelpCode>custom_fields</HelpCode> in Edit Update. Each row
-          has a Nautobot custom field name and a value (fixed or templated). Only
-          enabled rows with a non-empty name are sent.
+          has a Nautobot custom field name and a value (fixed or templated) — the
+          search icon next to the value input opens the same attribute browser.
+          Only enabled rows with a non-empty name are sent.
         </p>
         <HelpExample>
           custom_fields:
@@ -182,35 +186,57 @@ export function UpdateNautobotDeviceHelpPanel() {
 
       <HelpSection title="Interfaces">
         <p>
-          Optional interface create/update rows. Each interface supports:
+          Interfaces have two sources, chosen by the <HelpCode>interfaces_source</HelpCode>{" "}
+          dropdown above the rows:
         </p>
         <ul className="list-disc space-y-1 pl-4">
           <li>
-            <HelpCode>name</HelpCode> — interface name (required, e.g.{" "}
-            <HelpCode>GigabitEthernet0/1</HelpCode>)
+            <span className="font-medium text-foreground">Manual</span> — a fixed list you
+            type in advance. Each row supports:
+            <ul className="list-disc space-y-1 py-1 pl-4">
+              <li>
+                <HelpCode>name</HelpCode> — interface name (required, e.g.{" "}
+                <HelpCode>GigabitEthernet0/1</HelpCode>)
+              </li>
+              <li>
+                <HelpCode>type</HelpCode> — Nautobot interface type (e.g.{" "}
+                <HelpCode>1000base-t</HelpCode>)
+              </li>
+              <li>
+                <HelpCode>status</HelpCode> — status slug (e.g. <HelpCode>active</HelpCode>)
+              </li>
+              <li>
+                <HelpCode>ip_address</HelpCode> — address with prefix (e.g.{" "}
+                <HelpCode>10.0.0.1/24</HelpCode> or{" "}
+                <HelpCode>{"{device.primary_ip4}"}</HelpCode>)
+              </li>
+              <li>
+                <HelpCode>description</HelpCode> — free-text description
+              </li>
+              <li>
+                <HelpCode>is_primary_ipv4</HelpCode> — when on, marks this IP as the
+                device primary IPv4 in Nautobot
+              </li>
+            </ul>
           </li>
           <li>
-            <HelpCode>type</HelpCode> — Nautobot interface type (e.g.{" "}
-            <HelpCode>1000base-t</HelpCode>)
-          </li>
-          <li>
-            <HelpCode>status</HelpCode> — status slug (e.g.{" "}
-            <HelpCode>active</HelpCode>)
-          </li>
-          <li>
-            <HelpCode>ip_address</HelpCode> — address with prefix (e.g.{" "}
-            <HelpCode>10.0.0.1/24</HelpCode> or{" "}
-            <HelpCode>{"{device.primary_ip4}"}</HelpCode>)
-          </li>
-          <li>
-            <HelpCode>description</HelpCode> — free-text description
-          </li>
-          <li>
-            <HelpCode>is_primary_ipv4</HelpCode> — when on, marks this IP as the
-            device primary IPv4 in Nautobot
+            <span className="font-medium text-foreground">All from Nautobot origin</span> —
+            ignores the rows and updates every interface present in the device&apos;s nautobot
+            attribute bag, each with however many IP addresses it actually has. Populate that
+            bag upstream with a <span className="font-medium text-foreground">Config to
+            Attributes</span> step (<HelpCode>source_format: genie</HelpCode> after a{" "}
+            <span className="font-medium text-foreground">Get &amp; Parse Config</span> step,
+            or <HelpCode>source_format: cisco_config_parser</HelpCode> after a{" "}
+            <span className="font-medium text-foreground">Parse Cisco Config</span> step). An
+            IOS <HelpCode>ip address ... secondary</HelpCode> line is carried through as an
+            explicit Nautobot IP role of <HelpCode>secondary</HelpCode>. Not available when{" "}
+            <HelpCode>device_identifier.mode</HelpCode> is <HelpCode>explicit</HelpCode> — that
+            mode has no upstream device to read a bag from.
           </li>
         </ul>
         <HelpExample>
+          interfaces_source: manual
+          <br />
           interfaces:
           <br />
           {"  "}- name: Management0

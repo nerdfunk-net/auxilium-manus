@@ -1813,11 +1813,14 @@ plugins:
 
   - id: config-to-attributes
     name: Config to Attributes
-    overview: Turn parsed Cisco config into Nautobot attributes.
+    overview: Turn parsed device config into Nautobot attributes.
     description: >
-      Read a device's parsed Cisco config (from Parse Cisco Config) and populate
-      its Nautobot attribute bag — starting with Layer3 interfaces — for later
-      use by Add to Nautobot. No live Nautobot connection is used.
+      Read a device's parsed config — from Parse Cisco Config or Get & Parse
+      Config (pyATS/Genie) — and populate its Nautobot attribute bag,
+      starting with Layer3 interfaces, for later use by Add to Nautobot or
+      Update Device (interfaces_source: nautobot_origin). A Batfish
+      source_format is planned as a future addition to this same contract.
+      No live Nautobot connection is used.
     artifact_type: inventory_selector
     palette_category: nautobot
     directory: config_to_attributes
@@ -1829,18 +1832,27 @@ plugins:
       - name: success
     metadata:
       configuration_input:
+        - name: source_format
+          description: >
+            Which parser produced the config at parsed.<parsed_key> —
+            cisco_config_parser (from Parse Cisco Config) or genie (from
+            Get & Parse Config).
+          data_type: string
+          required: true
+          example: cisco_config_parser
         - name: config_source
           description: >
             Which parsed config to read for attribute values — running or
-            startup (exactly one).
+            startup (exactly one). genie only ever populates running.
           data_type: string
           required: true
           example: running
         - name: parsed_key
           description: >
-            The output_key used by the upstream Parse Cisco Config step
-            (parsed.<parsed_key>). Must match that step's own
-            "output_key" configuration value.
+            The output_key used by the matching upstream step
+            (parsed.<parsed_key>) — Parse Cisco Config or Get & Parse
+            Config. Must match that step's own "output_key" configuration
+            value.
           data_type: string
           required: true
           example: cisco_config
@@ -1997,8 +2009,19 @@ plugins:
           example:
             status: active
             location: dc1
+        - name: interfaces_source
+          description: >
+            Where to read interfaces from — manual (the interfaces list below)
+            or nautobot_origin (every interface in the device's nautobot
+            attribute bag, populated by an upstream Config to Attributes
+            step). Incompatible with device_identifier.mode "explicit".
+          data_type: string
+          required: false
+          default: manual
         - name: interfaces
-          description: Interfaces to create or update, including IP address and description.
+          description: >
+            Interfaces to create or update, including IP address and
+            description. Ignored when interfaces_source is nautobot_origin.
           data_type: object_list
           required: false
           example:

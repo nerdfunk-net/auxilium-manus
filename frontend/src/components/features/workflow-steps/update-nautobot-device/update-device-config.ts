@@ -2,6 +2,7 @@ import type {
   CustomFieldRow,
   DeviceFieldKey,
   DeviceUpdateFieldsConfig,
+  InterfacesSource,
   UpdateFieldSpec,
   UpdateNautobotDeviceConfig,
 } from "./types";
@@ -132,6 +133,10 @@ export function patchDeviceFieldSpec(
       value: patch.value ?? current.value,
     },
   });
+}
+
+export function interfacesSourceFromConfig(config: Record<string, unknown>): InterfacesSource {
+  return config.interfaces_source === "nautobot_origin" ? "nautobot_origin" : "manual";
 }
 
 export function parseUpdateNautobotDeviceConfig(

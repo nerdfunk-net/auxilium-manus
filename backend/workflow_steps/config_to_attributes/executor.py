@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -10,7 +9,14 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import Capability, DeviceContext, StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.attribute_defaults import merge_nautobot_defaults
+from workflow_steps.common.nautobot_interfaces import (
+    cidr_from_ip_and_mask,
+    infer_interface_type_from_name,
+)
 from workflow_steps.config_to_attributes.config import get_config
+from workflow_steps.config_to_attributes.genie_running_config import (
+    build_layer3_interfaces_from_genie_running_config,
+)
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -20,6 +26,11 @@ logger = logging.getLogger(__name__)
 _STEP_ID = "config-to-attributes"
 _CONFIG_SOURCES = frozenset({"running", "startup"})
 _SUPPORTED_ATTRIBUTES = frozenset({"layer3_interfaces"})
+_SOURCE_FORMATS = frozenset({"cisco_config_parser", "genie"})
+_UPSTREAM_STEP_NAME = {
+    "cisco_config_parser": "Parse Cisco Config",
+    "genie": "Get & Parse Config",
+}
 
 
 def _parse_config_source(config: dict[str, Any]) -> str:
@@ -27,6 +38,15 @@ def _parse_config_source(config: dict[str, Any]) -> str:
     if raw not in _CONFIG_SOURCES:
         raise ValueError(
             f"{_STEP_ID}: config_source must be one of {sorted(_CONFIG_SOURCES)}, got {raw!r}"
+        )
+    return raw
+
+
+def _parse_source_format(config: dict[str, Any]) -> str:
+    raw = str(config.get("source_format") or get_config()["source_format"]).strip().lower()
+    if raw not in _SOURCE_FORMATS:
+        raise ValueError(
+            f"{_STEP_ID}: source_format must be one of {sorted(_SOURCE_FORMATS)}, got {raw!r}"
         )
     return raw
 
@@ -61,30 +81,10 @@ def _select_parsed_entry(
     return nested if isinstance(nested, dict) else None
 
 
-def _infer_interface_type(name: str) -> str:
-    if name.startswith("Gigabit"):
-        return "1000base-t"
-    if name.startswith("Ethernet"):
-        return "100base-tx"
-    return "virtual"
-
-
 def _is_enabled(children: Any) -> bool:
     if not isinstance(children, list):
         return True
     return not any(str(line).strip().lower() == "shutdown" for line in children)
-
-
-def _to_cidr(ip_address: Any, mask: Any) -> str | None:
-    ip_text = str(ip_address).strip() if ip_address else ""
-    mask_text = str(mask).strip() if mask else ""
-    if not ip_text or not mask_text:
-        return None
-    try:
-        prefixlen = ipaddress.IPv4Network(f"0.0.0.0/{mask_text}", strict=False).prefixlen
-    except ValueError:
-        return None
-    return f"{ip_text}/{prefixlen}"
 
 
 def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -95,7 +95,7 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     iface: dict[str, Any] = {
         "name": name,
         "status": "Active",
-        "type": _infer_interface_type(name),
+        "type": infer_interface_type_from_name(name),
         "enabled": _is_enabled(raw.get("children")),
     }
 
@@ -104,14 +104,16 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
         iface["description"] = description
 
     ip_addresses: list[dict[str, Any]] = []
-    primary_cidr = _to_cidr(raw.get("ip_address"), raw.get("mask"))
+    primary_cidr = cidr_from_ip_and_mask(raw.get("ip_address"), raw.get("mask"))
     if primary_cidr:
-        ip_addresses.append({"address": primary_cidr, "namespace": "Global"})
+        ip_addresses.append({"address": primary_cidr, "namespace": "Global", "is_primary": True})
 
     if raw.get("sec_ip_address") and raw.get("sec_mask") and raw.get("sec_subnet"):
-        secondary_cidr = _to_cidr(raw.get("sec_ip_address"), raw.get("sec_mask"))
+        secondary_cidr = cidr_from_ip_and_mask(raw.get("sec_ip_address"), raw.get("sec_mask"))
         if secondary_cidr:
-            ip_addresses.append({"address": secondary_cidr, "namespace": "Global"})
+            ip_addresses.append(
+                {"address": secondary_cidr, "namespace": "Global", "ip_role": "secondary"}
+            )
 
     if ip_addresses:
         iface["ip_addresses"] = ip_addresses
@@ -119,7 +121,9 @@ def _build_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
     return iface
 
 
-def _build_layer3_interfaces(parsed_entry: dict[str, Any]) -> list[dict[str, Any]]:
+def _build_layer3_interfaces_cisco_config_parser(
+    parsed_entry: dict[str, Any],
+) -> list[dict[str, Any]]:
     raw_interfaces = parsed_entry.get("l3_interfaces")
     if not isinstance(raw_interfaces, list):
         return []
@@ -131,6 +135,14 @@ def _build_layer3_interfaces(parsed_entry: dict[str, Any]) -> list[dict[str, Any
         if iface is not None:
             built.append(iface)
     return built
+
+
+def _build_layer3_interfaces(
+    parsed_entry: dict[str, Any], source_format: str
+) -> list[dict[str, Any]]:
+    if source_format == "genie":
+        return build_layer3_interfaces_from_genie_running_config(parsed_entry)
+    return _build_layer3_interfaces_cisco_config_parser(parsed_entry)
 
 
 async def execute(
@@ -147,12 +159,21 @@ async def execute(
     config_source = _parse_config_source(config)
     parsed_key = _parse_parsed_key(config)
     attributes = _parse_attributes(config)
+    source_format = _parse_source_format(config)
+
+    if source_format == "genie" and config_source == "startup":
+        raise ValueError(
+            f"{_STEP_ID}: source_format 'genie' only supports config_source 'running' — "
+            "Get & Parse Config never captures show startup-config"
+        )
 
     logger.info(
-        "%s started run_id=%s node_id=%s config_source=%s parsed_key=%s attributes=%s devices=%d",
+        "%s started run_id=%s node_id=%s source_format=%s config_source=%s parsed_key=%s "
+        "attributes=%s devices=%d",
         _STEP_ID,
         run.id,
         node_id,
+        source_format,
         config_source,
         parsed_key,
         sorted(attributes),
@@ -172,7 +193,7 @@ async def execute(
         if parsed_entry is None:
             continue
 
-        interfaces = _build_layer3_interfaces(parsed_entry)
+        interfaces = _build_layer3_interfaces(parsed_entry, source_format)
         if not interfaces:
             continue
 
@@ -191,10 +212,11 @@ async def execute(
         )
 
     if devices_with_data == 0:
+        upstream_step = _UPSTREAM_STEP_NAME[source_format]
         raise ValueError(
-            f"{_STEP_ID}: no parsed Cisco config with l3_interfaces found at "
-            f"parsed.{parsed_key}.{config_source} on any device — add a 'Parse Cisco "
-            f"Config' step upstream with a matching output_key"
+            f"{_STEP_ID}: no parsed config with layer3 interfaces found at "
+            f"parsed.{parsed_key}.{config_source} on any device — add a '{upstream_step}' "
+            "step upstream with a matching output_key"
         )
 
     for device_id, device in context.devices.items():

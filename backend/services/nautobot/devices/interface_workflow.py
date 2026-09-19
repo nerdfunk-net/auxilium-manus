@@ -374,8 +374,24 @@ class InterfaceManagerService:
 
             ip_kwargs: dict[str, Any] = {}
             if ip_role and ip_role != "none":
-                ip_kwargs["role"] = ip_role
-                logger.info("  Adding role '%s' to IP creation", ip_role)
+                # IP address "role" is a foreign key to Nautobot's generic Role
+                # model (extras.Role), not a plain string choice — a raw string
+                # here fails Nautobot's validation with an error that doesn't
+                # match either special case below, silently dropping the IP.
+                role_id = await self.common.resolve_role_id_for_content_type(
+                    ip_role, "ipam.ipaddress"
+                )
+                if role_id:
+                    ip_kwargs["role"] = role_id
+                    logger.info("  Adding role '%s' (%s) to IP creation", ip_role, role_id)
+                else:
+                    warnings.append(
+                        f"Interface {interface['name']}: IP role '{ip_role}' not found in "
+                        "Nautobot for ipam.ipaddress — creating the IP without a role"
+                    )
+                    logger.warning(
+                        "  Role '%s' not found for ipam.ipaddress — omitting role", ip_role
+                    )
 
             logger.info("  Calling ensure_ip_address_exists for %s", ip_address)
             ip_id = await self.common.ensure_ip_address_exists(

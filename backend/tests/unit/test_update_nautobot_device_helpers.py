@@ -39,6 +39,40 @@ class ParseConfigTests(unittest.TestCase):
         self.assertEqual(parsed.default_prefix_length, "/24")
         self.assertFalse(parsed.sync_interfaces)
         self.assertEqual(parsed.identifier_mode, "from_context")
+        self.assertEqual(parsed.interfaces_source, "manual")
+
+    def test_invalid_interfaces_source_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config(
+                {
+                    "nautobot_source_id": "src-1",
+                    "update_fields": {"name": {"enabled": True, "value": "x"}},
+                    "interfaces_source": "bogus",
+                }
+            )
+
+    def test_nautobot_origin_with_explicit_identifier_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            _parse_config(
+                {
+                    "nautobot_source_id": "src-1",
+                    "interfaces_source": "nautobot_origin",
+                    "device_identifier": {"mode": "explicit", "id": "nb-1"},
+                }
+            )
+
+    def test_nautobot_origin_satisfies_at_least_one_field_requirement(self) -> None:
+        # No enabled update_fields and no manual interfaces — nautobot_origin alone
+        # is enough, since per-device bag contents aren't knowable at parse time.
+        parsed = _parse_config(
+            {
+                "nautobot_source_id": "src-1",
+                "update_fields": {},
+                "interfaces_source": "nautobot_origin",
+            }
+        )
+        self.assertEqual(parsed.interfaces_source, "nautobot_origin")
+        self.assertEqual(parsed.manual_interfaces, [])
 
 
 class ResolveDeviceItemsTests(unittest.TestCase):

@@ -28,7 +28,7 @@ import {
   RackFieldsSection,
   RequiredDeviceFieldsSection,
 } from "./device-fields-section";
-import { InterfacesSection } from "./interfaces-section";
+import { InterfacesSourceSection as InterfacesSection } from "@/components/features/workflow-steps/shared/interfaces-source-section";
 import type {
   AddToNautobotConfig,
   CustomFieldRow,

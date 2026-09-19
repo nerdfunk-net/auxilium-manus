@@ -41,6 +41,27 @@ _PREFERRED_DISCRIMINATOR_NAMES = (
 
 _SCALAR_TYPES = (str, int, float, bool)
 
+_RAW_CONFIG_PLACEHOLDER = "(raw config — not browsable)"
+
+
+def _looks_like_raw_config(value: Any) -> bool:
+    """True when a dict's own keys look like literal CLI config lines rather
+    than field names — e.g. Genie's raw ``show running-config`` parse result
+    (``get-pyats-config``), keyed by lines such as ``"interface Ethernet0/0"``
+    or ``"ip address ... secondary"`` (see doc/PYATS_INTEGRATION.md).
+
+    Real structured data — device fields, a parsed-config *model* (Cisco
+    Config Parser's ``l3_interfaces`` etc.), attribute bags — never has
+    whitespace inside a key; raw CLI line text almost always does. Detected
+    dicts are collapsed to a single opaque leaf instead of recursed into, so
+    hundreds of raw (and sometimes secret-bearing, e.g. a `username ...
+    secret ...` line) CLI lines never turn into clickable "attribute paths"
+    in the picker.
+    """
+    if not isinstance(value, dict) or not value:
+        return False
+    return any(isinstance(key, str) and " " in key for key in value)
+
 
 def merge_ancestor_devices(
     step_results: list[WorkflowStepResult],
@@ -153,6 +174,13 @@ def _build_node(name: str, path: str, values: list[Any]) -> AttributePathNode:
     # A key observed as different shapes across devices/ancestors is rare;
     # dict > list > scalar is an arbitrary but deterministic tie-break.
     if dict_values:
+        if any(_looks_like_raw_config(value) for value in dict_values):
+            return AttributePathNode(
+                name=name,
+                path=path,
+                kind="scalar",
+                example_value=_RAW_CONFIG_PLACEHOLDER,
+            )
         return _build_dict_node(name, path, dict_values)
     if list_values:
         return _build_list_node(name, path, list_values)

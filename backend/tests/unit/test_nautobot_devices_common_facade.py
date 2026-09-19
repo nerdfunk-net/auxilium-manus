@@ -74,6 +74,10 @@ class FacadeDelegationTests(unittest.IsolatedAsyncioTestCase):
         await self.facade.resolve_status_id("active")
         mr.resolve_status_id.assert_awaited_once_with("active", "dcim.device")
         await self.facade.resolve_role_id("leaf")
+        await self.facade.resolve_role_id_for_content_type("secondary", "ipam.ipaddress")
+        mr.resolve_role_id_for_content_type.assert_awaited_once_with(
+            "secondary", "ipam.ipaddress"
+        )
         await self.facade.resolve_platform_id("ios")
         await self.facade.get_platform_name("p")
         await self.facade.resolve_location_id("dc1")

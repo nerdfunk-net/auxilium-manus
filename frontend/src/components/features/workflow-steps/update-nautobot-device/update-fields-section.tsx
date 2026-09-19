@@ -97,6 +97,8 @@ interface UpdateFieldsSectionProps {
   onAddCustomFieldRow: () => void;
   onPatchCustomFieldRow: (id: string, patch: Partial<CustomFieldRow>) => void;
   onRemoveCustomFieldRow: (id: string) => void;
+  onBrowseField: (key: DeviceFieldKey) => void;
+  onBrowseCustomField: (id: string) => void;
 }
 
 export function UpdateFieldsSection({
@@ -106,6 +108,8 @@ export function UpdateFieldsSection({
   onAddCustomFieldRow,
   onPatchCustomFieldRow,
   onRemoveCustomFieldRow,
+  onBrowseField,
+  onBrowseCustomField,
 }: UpdateFieldsSectionProps) {
   const enabledFieldCount = useMemo(() => {
     const baseCount = DEVICE_FIELD_DEFINITIONS.filter(({ key }) => updateFields[key]?.enabled)
@@ -131,6 +135,7 @@ export function UpdateFieldsSection({
             placeholder={placeholder}
             spec={updateFields[key] ?? EMPTY_FIELD_SPEC}
             onChange={(patch) => onPatchField(key, patch)}
+            onBrowse={() => onBrowseField(key)}
           />
         ))}
       </div>
@@ -158,6 +163,7 @@ export function UpdateFieldsSection({
                 row={row}
                 onChange={(patch) => onPatchCustomFieldRow(row.id, patch)}
                 onRemove={() => onRemoveCustomFieldRow(row.id)}
+                onBrowse={() => onBrowseCustomField(row.id)}
               />
             ))}
           </div>

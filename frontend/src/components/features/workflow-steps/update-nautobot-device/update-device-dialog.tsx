@@ -14,11 +14,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-import { InterfacesSection } from "./interfaces-section";
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
+import { InterfacesSourceSection } from "@/components/features/workflow-steps/shared/interfaces-source-section";
+import type {
+  PersistedCanvasNode,
+  WorkflowCanvasEdge,
+} from "@/components/features/workflows/types/workflow-canvas";
+
 import type {
   CustomFieldRow,
   DeviceFieldKey,
   DeviceIdentifierConfig,
+  InterfacesSource,
   InterfaceUpdateConfig,
   UpdateFieldSpec,
   UpdateNautobotDeviceConfig,
@@ -30,6 +37,7 @@ import {
 import {
   customFieldRowsFromConfig,
   customFieldsToConfig,
+  interfacesSourceFromConfig,
   parseUpdateFieldsConfig,
   patchDeviceFieldSpec,
 } from "./update-device-config";
@@ -39,7 +47,12 @@ interface UpdateDeviceDialogProps {
   value: UpdateNautobotDeviceConfig;
   onClose: () => void;
   onChange: (value: UpdateNautobotDeviceConfig) => void;
+  nodeId: string;
+  workflowNodes: PersistedCanvasNode[];
+  workflowEdges: WorkflowCanvasEdge[];
 }
+
+type PickerTarget = { kind: "field"; key: DeviceFieldKey } | { kind: "custom"; id: string };
 
 const EMPTY_INTERFACES: InterfaceUpdateConfig[] = [];
 const EMPTY_UPDATE_FIELDS: NonNullable<UpdateNautobotDeviceConfig["update_fields"]> = {};
@@ -87,6 +100,7 @@ function buildInitialDraft(value: UpdateNautobotDeviceConfig) {
     draft: {
       ...value,
       update_fields: parsedFields,
+      interfaces_source: interfacesSourceFromConfig(value as Record<string, unknown>),
       interfaces: withInterfaceIds(value.interfaces as Array<Partial<InterfaceUpdateConfig>>),
     },
     customFieldRows: customFieldRowsFromConfig(parsedFields),
@@ -97,14 +111,19 @@ function UpdateDeviceDialogForm({
   value,
   onClose,
   onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
 }: Omit<UpdateDeviceDialogProps, "open">) {
   const initial = useMemo(() => buildInitialDraft(value), [value]);
   const [draft, setDraft] = useState(initial.draft);
   const [customFieldRows, setCustomFieldRows] = useState(initial.customFieldRows);
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
 
   const deviceIdentifier = draft.device_identifier ?? { mode: "from_context" };
   const updateFields = draft.update_fields ?? EMPTY_UPDATE_FIELDS;
   const interfaces = draft.interfaces ?? EMPTY_INTERFACES;
+  const interfacesSource: InterfacesSource = draft.interfaces_source ?? "manual";
 
   const handleSave = () => {
     onChange({
@@ -114,6 +133,7 @@ function UpdateDeviceDialogForm({
         ...updateFields,
         custom_fields: customFieldsToConfig(customFieldRows),
       },
+      interfaces_source: interfacesSource,
       interfaces: interfaces.map(interfaceForSave),
       add_prefix: draft.add_prefix ?? true,
       default_prefix_length: draft.default_prefix_length ?? "/24",
@@ -161,6 +181,10 @@ function UpdateDeviceDialogForm({
     }));
   };
 
+  const setInterfacesSource = (source: InterfacesSource) => {
+    setDraft((current) => ({ ...current, interfaces_source: source }));
+  };
+
   const patchCustomFieldRow = (id: string, patch: Partial<CustomFieldRow>) => {
     setCustomFieldRows((rows) =>
       rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
@@ -175,8 +199,18 @@ function UpdateDeviceDialogForm({
     setCustomFieldRows((rows) => rows.filter((row) => row.id !== id));
   };
 
+  const handlePickerSelect = (path: string) => {
+    if (!pickerTarget) return;
+    if (pickerTarget.kind === "field") {
+      patchField(pickerTarget.key, { value: path, enabled: true });
+    } else {
+      patchCustomFieldRow(pickerTarget.id, { value: path, enabled: true });
+    }
+  };
+
   return (
-    <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
+    <>
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b step-header px-4 py-3">
           <DialogTitle className="text-base text-step-header-foreground">Update Device Configuration</DialogTitle>
         </DialogHeader>
@@ -194,10 +228,14 @@ function UpdateDeviceDialogForm({
             onPatchCustomFieldRow={patchCustomFieldRow}
             onPatchField={patchField}
             onRemoveCustomFieldRow={removeCustomFieldRow}
+            onBrowseField={(key) => setPickerTarget({ kind: "field", key })}
+            onBrowseCustomField={(id) => setPickerTarget({ kind: "custom", id })}
           />
 
-          <InterfacesSection
+          <InterfacesSourceSection
             interfaces={interfaces}
+            interfacesSource={interfacesSource}
+            onSourceChange={setInterfacesSource}
             onAddInterface={addInterface}
             onPatchInterface={patchInterface}
             onRemoveInterface={removeInterface}
@@ -251,6 +289,16 @@ function UpdateDeviceDialogForm({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AttributePathPicker
+        open={pickerTarget !== null}
+        onClose={() => setPickerTarget(null)}
+        onSelect={handlePickerSelect}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+      />
+    </>
   );
 }
 
@@ -259,6 +307,9 @@ export function UpdateDeviceDialog({
   value,
   onClose,
   onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
 }: UpdateDeviceDialogProps) {
   return (
     <Dialog
@@ -270,7 +321,14 @@ export function UpdateDeviceDialog({
       }}
     >
       {open ? (
-        <UpdateDeviceDialogForm value={value} onClose={onClose} onChange={onChange} />
+        <UpdateDeviceDialogForm
+          value={value}
+          onClose={onClose}
+          onChange={onChange}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes}
+          workflowEdges={workflowEdges}
+        />
       ) : null}
     </Dialog>
   );

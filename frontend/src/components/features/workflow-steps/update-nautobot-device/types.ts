@@ -53,10 +53,13 @@ export interface InterfaceUpdateConfig {
   is_primary_ipv4?: boolean;
 }
 
+export type InterfacesSource = "manual" | "nautobot_origin";
+
 export interface UpdateNautobotDeviceConfig {
   nautobot_source_id?: string;
   device_identifier?: DeviceIdentifierConfig;
   update_fields?: DeviceUpdateFieldsConfig;
+  interfaces_source?: InterfacesSource;
   interfaces?: InterfaceUpdateConfig[];
   add_prefix?: boolean;
   default_prefix_length?: string;

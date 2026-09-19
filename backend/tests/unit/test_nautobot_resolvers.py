@@ -290,6 +290,46 @@ class MetadataResolverTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await MetadataResolver(svc).resolve_status_id("active")
 
+    async def test_resolve_role_id_for_content_type_passes_through_uuid(self) -> None:
+        svc = _service()
+        self.assertEqual(
+            await MetadataResolver(svc).resolve_role_id_for_content_type(
+                _UUID, "ipam.ipaddress"
+            ),
+            _UUID,
+        )
+        svc.rest_request.assert_not_called()
+
+    async def test_resolve_role_id_for_content_type_matches_name_case_insensitively(self) -> None:
+        svc = _service(
+            rest={
+                "count": 2,
+                "results": [{"name": "Loopback", "id": "p"}, {"name": "Secondary", "id": _UUID}],
+            }
+        )
+        self.assertEqual(
+            await MetadataResolver(svc).resolve_role_id_for_content_type(
+                "secondary", "ipam.ipaddress"
+            ),
+            _UUID,
+        )
+
+    async def test_resolve_role_id_for_content_type_returns_none_when_not_found(self) -> None:
+        svc = _service(rest={"count": 1, "results": [{"name": "Loopback", "id": "p"}]})
+        self.assertIsNone(
+            await MetadataResolver(svc).resolve_role_id_for_content_type(
+                "secondary", "ipam.ipaddress"
+            )
+        )
+
+    async def test_resolve_role_id_for_content_type_returns_none_on_zero_count(self) -> None:
+        svc = _service(rest={"count": 0, "results": []})
+        self.assertIsNone(
+            await MetadataResolver(svc).resolve_role_id_for_content_type(
+                "secondary", "ipam.ipaddress"
+            )
+        )
+
     async def test_resolve_role_id_found(self) -> None:
         svc = _service(graphql={"data": {"roles": [{"id": _UUID}]}})
         self.assertEqual(await MetadataResolver(svc).resolve_role_id("leaf"), _UUID)

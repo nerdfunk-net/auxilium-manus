@@ -21,7 +21,13 @@ import type { UpdateNautobotDeviceConfig } from "./types";
 import { countEnabledUpdateFields } from "./update-device-config";
 import { UpdateNautobotDeviceHelpPanel } from "./help-panel";
 
-function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+function UpdateNautobotDeviceConfigPanel({
+  config,
+  onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: PluginConfigPanelProps) {
   const sourceId = useMemo(() => nautobotSourceIdFromConfig(config), [config]);
   const credentials = useNautobotSourceCredentials({ sourceId });
   const updateConfig = config as UpdateNautobotDeviceConfig;
@@ -30,6 +36,7 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const enabledFieldCount = useMemo(() => countEnabledUpdateFields(config), [config]);
+  const interfacesSource = updateConfig.interfaces_source ?? "manual";
   const interfaceCount = Array.isArray(config.interfaces) ? config.interfaces.length : 0;
   const identifierMode =
     (updateConfig.device_identifier?.mode as string | undefined) ?? "from_context";
@@ -55,7 +62,8 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
   );
 
   const isSourceConfigured = isNautobotSourceConfigured(config);
-  const hasUpdatePayload = enabledFieldCount > 0 || interfaceCount > 0;
+  const hasUpdatePayload =
+    enabledFieldCount > 0 || interfaceCount > 0 || interfacesSource === "nautobot_origin";
 
   return (
     <div className="flex flex-col gap-4">
@@ -108,8 +116,10 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
         {hasUpdatePayload ? (
           <p className="text-[11px] text-muted-foreground">
             {enabledFieldCount} enabled field{enabledFieldCount === 1 ? "" : "s"},{" "}
-            {interfaceCount} interface{interfaceCount === 1 ? "" : "s"},{" "}
-            {identifierMode === "explicit" ? "explicit device" : "from context"}
+            {interfacesSource === "nautobot_origin"
+              ? "interfaces from Nautobot origin"
+              : `${interfaceCount} interface${interfaceCount === 1 ? "" : "s"}`}
+            , {identifierMode === "explicit" ? "explicit device" : "from context"}
           </p>
         ) : (
           <p className="text-[11px] text-warning-foreground">No enabled update fields configured</p>
@@ -138,6 +148,9 @@ function UpdateNautobotDeviceConfigPanel({ config, onChange }: PluginConfigPanel
         value={updateConfig}
         onClose={() => setDialogOpen(false)}
         onChange={handleDialogSave}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes ?? []}
+        workflowEdges={workflowEdges ?? []}
       />
     </div>
   );

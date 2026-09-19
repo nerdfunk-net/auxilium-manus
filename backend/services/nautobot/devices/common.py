@@ -217,6 +217,14 @@ class DeviceCommonService:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.resolve_role_id(role_name)
 
+    async def resolve_role_id_for_content_type(
+        self, role_name: str, content_type: str
+    ) -> str | None:
+        """Delegate to MetadataResolver."""
+        return await self.metadata_resolver.resolve_role_id_for_content_type(
+            role_name, content_type
+        )
+
     async def resolve_platform_id(self, platform_name: str) -> str | None:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.resolve_platform_id(platform_name)

@@ -146,13 +146,27 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             by_name["Ethernet0/0"]["ip_addresses"],
             [
-                {"address": "192.168.178.120/24", "namespace": "Global"},
-                {"address": "192.168.178.120/24", "namespace": "Global"},
+                {
+                    "address": "192.168.178.120/24",
+                    "namespace": "Global",
+                    "is_primary": True,
+                },
+                {
+                    "address": "192.168.178.120/24",
+                    "namespace": "Global",
+                    "ip_role": "secondary",
+                },
             ],
         )
         self.assertEqual(
             by_name["Ethernet0/1"]["ip_addresses"],
-            [{"address": "192.168.179.240/24", "namespace": "Global"}],
+            [
+                {
+                    "address": "192.168.179.240/24",
+                    "namespace": "Global",
+                    "is_primary": True,
+                }
+            ],
         )
         self.assertNotIn("ip_addresses", by_name["Ethernet0/2"])
         self.assertNotIn("description", by_name["Ethernet0/2"])
@@ -263,6 +277,97 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
         self.assertEqual([i["name"] for i in interfaces], ["Ethernet0/0"])
+
+    async def test_genie_source_format_builds_interfaces(self) -> None:
+        # Trimmed from a real get-pyats-config output for "show running-config".
+        running_config = {
+            "hostname LAB": {},
+            "interface Loopback0": {
+                "description Loopback": {},
+                "ip address 192.168.179.254 255.255.255.255": {},
+            },
+            "interface Ethernet0/0": {
+                "description xxx": {},
+                "ip address 192.168.178.120 255.255.255.0 secondary": {},
+                "ip address 192.168.178.240 255.255.255.0": {},
+            },
+            "interface Ethernet0/2": {
+                "description test": {},
+                "no ip address": {},
+                "shutdown": {},
+            },
+            "router ospf 100": {"network 192.168.178.240 0.0.0.0 area 0": {}},
+        }
+        device = _device(
+            "dev-1",
+            parsed={"cisco_config": {"running": running_config}},
+        )
+        outcomes = await execute(
+            config={**_BASE_CONFIG, "source_format": "genie"},
+            context=_context({"dev-1": device}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        interfaces = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]["interfaces"]
+        by_name = {i["name"]: i for i in interfaces}
+
+        self.assertEqual(set(by_name), {"Loopback0", "Ethernet0/0", "Ethernet0/2"})
+
+        self.assertEqual(by_name["Loopback0"]["type"], "virtual")
+        self.assertEqual(by_name["Loopback0"]["description"], "Loopback")
+        self.assertEqual(
+            by_name["Loopback0"]["ip_addresses"],
+            [{"address": "192.168.179.254/32", "namespace": "Global", "is_primary": True}],
+        )
+
+        eth00 = by_name["Ethernet0/0"]
+        self.assertEqual(eth00["description"], "xxx")
+        self.assertTrue(eth00["enabled"])
+        self.assertEqual(
+            eth00["ip_addresses"],
+            [
+                {
+                    "address": "192.168.178.120/24",
+                    "namespace": "Global",
+                    "ip_role": "secondary",
+                },
+                {
+                    "address": "192.168.178.240/24",
+                    "namespace": "Global",
+                    "is_primary": True,
+                },
+            ],
+        )
+
+        eth02 = by_name["Ethernet0/2"]
+        self.assertFalse(eth02["enabled"])
+        self.assertNotIn("ip_addresses", eth02)
+
+    async def test_genie_source_format_rejects_startup_config_source(self) -> None:
+        device = _device("dev-1", parsed={"cisco_config": {"running": {}}})
+        with self.assertRaises(ValueError):
+            await execute(
+                config={**_BASE_CONFIG, "source_format": "genie", "config_source": "startup"},
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_invalid_source_format_raises(self) -> None:
+        device = _device("dev-1", parsed=_parsed({"name": "Ethernet0/0", "children": []}))
+        with self.assertRaises(ValueError):
+            await execute(
+                config={**_BASE_CONFIG, "source_format": "bogus"},
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
 
     async def test_capability_attributes_set(self) -> None:
         device = _device(

@@ -8,6 +8,7 @@ def get_config() -> dict:
             "mode": "from_context",
         },
         "update_fields": {},
+        "interfaces_source": "manual",
         "interfaces": [],
         "add_prefix": True,
         "default_prefix_length": "/24",

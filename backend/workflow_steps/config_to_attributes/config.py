@@ -3,6 +3,7 @@
 
 def get_config() -> dict:
     return {
+        "source_format": "cisco_config_parser",
         "config_source": "running",
         "parsed_key": "cisco_config",
         "attributes": ["layer3_interfaces"],

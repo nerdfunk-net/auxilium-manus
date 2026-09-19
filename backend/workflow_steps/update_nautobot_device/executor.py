@@ -25,6 +25,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.update import DeviceUpdateService
 from workflow_steps.common.nautobot_interfaces import (
     build_interfaces_from_config,
+    interfaces_from_nautobot_bag,
     normalize_interfaces,
 )
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
@@ -41,13 +42,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "update-nautobot-device"
+_SOURCE_MODES = frozenset({"manual", "nautobot_origin"})
 
 
 @dataclass(frozen=True)
 class _ParsedConfig:
     source_id: str
     raw_update_fields: dict[str, Any]
-    interfaces: list[dict[str, Any]]
+    interfaces_source: str
+    manual_interfaces: list[dict[str, Any]]
     add_prefix: bool
     default_prefix_length: str
     sync_interfaces: bool
@@ -102,26 +105,44 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if not isinstance(raw_update_fields, dict):
         raise ValueError(f"{_STEP_ID}: update_fields must be an object")
 
-    interfaces = normalize_interfaces(
-        build_interfaces_from_config(config, step_id=_STEP_ID),
-        str(config.get("default_prefix_length") or "/24"),
-    )
-    if not config_has_enabled_update_fields(raw_update_fields) and not interfaces:
+    interfaces_source = str(config.get("interfaces_source") or "manual").strip().lower()
+    if interfaces_source not in _SOURCE_MODES:
         raise ValueError(
-            f"{_STEP_ID}: configure at least one enabled device field or interface to update"
+            f"{_STEP_ID}: interfaces_source must be one of {sorted(_SOURCE_MODES)}, "
+            f"got {interfaces_source!r}"
         )
+
+    default_prefix_length = str(config.get("default_prefix_length") or "/24")
+    manual_interfaces = normalize_interfaces(
+        build_interfaces_from_config(config, step_id=_STEP_ID),
+        default_prefix_length,
+    )
 
     raw_identifier = config.get("device_identifier") or {}
     identifier_mode = "from_context"
     if isinstance(raw_identifier, dict):
         identifier_mode = str(raw_identifier.get("mode") or "from_context")
 
+    if interfaces_source == "nautobot_origin" and identifier_mode == "explicit":
+        raise ValueError(
+            f"{_STEP_ID}: interfaces_source 'nautobot_origin' requires devices from an "
+            "upstream inventory step (device_identifier.mode 'explicit' has no device "
+            "attribute bag to read interfaces from)"
+        )
+
+    has_interfaces = interfaces_source == "nautobot_origin" or bool(manual_interfaces)
+    if not config_has_enabled_update_fields(raw_update_fields) and not has_interfaces:
+        raise ValueError(
+            f"{_STEP_ID}: configure at least one enabled device field or interface to update"
+        )
+
     return _ParsedConfig(
         source_id=source_id,
         raw_update_fields=raw_update_fields,
-        interfaces=interfaces,
+        interfaces_source=interfaces_source,
+        manual_interfaces=manual_interfaces,
         add_prefix=bool(config.get("add_prefix", True)),
-        default_prefix_length=str(config.get("default_prefix_length") or "/24"),
+        default_prefix_length=default_prefix_length,
         sync_interfaces=bool(config.get("sync_interfaces", False)),
         identifier_mode=identifier_mode,
     )
@@ -274,6 +295,18 @@ async def _update_one_device(
             raise ValueError("device identifier must include id, name, or ip_address")
 
         resolved = device or DeviceContext(id=device_key, name=device_key, hostname=device_key)
+
+        if parsed.interfaces_source == "nautobot_origin":
+            bag = device.attribute_bags.get("nautobot") if device is not None else None
+            interfaces_payload = (
+                interfaces_from_nautobot_bag(
+                    bag, default_prefix_length=parsed.default_prefix_length
+                )
+                or None
+            )
+        else:
+            interfaces_payload = parsed.manual_interfaces or None
+
         result = await update_service.update_device(
             device_identifier=device_identifier,
             update_data=build_resolved_update_data(
@@ -281,7 +314,7 @@ async def _update_one_device(
                 raw_fields=parsed.raw_update_fields,
                 run_id=str(context.run_id) if context.run_id else None,
             ),
-            interfaces=parsed.interfaces or None,
+            interfaces=interfaces_payload,
             add_prefix=parsed.add_prefix,
             default_prefix_length=parsed.default_prefix_length,
             sync_interfaces=parsed.sync_interfaces,
@@ -341,13 +374,15 @@ async def execute(
     enabled_field_count = _count_enabled_fields(parsed.raw_update_fields)
 
     logger.info(
-        "%s started run_id=%s source_id=%s devices=%d enabled_fields=%d interfaces=%d",
+        "%s started run_id=%s source_id=%s devices=%d enabled_fields=%d "
+        "interfaces_source=%s manual_interfaces=%d",
         _STEP_ID,
         run.id,
         parsed.source_id,
         len(device_items),
         enabled_field_count,
-        len(parsed.interfaces),
+        parsed.interfaces_source,
+        len(parsed.manual_interfaces),
     )
 
     results = await asyncio.gather(

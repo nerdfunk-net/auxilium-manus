@@ -108,6 +108,7 @@ def _make_service(rest_dispatch=None) -> InterfaceManagerService:
     common.ensure_ip_address_exists = AsyncMock(return_value="ip-uuid")
     common.resolve_status_id = AsyncMock(return_value="status-uuid")
     common.resolve_interface_by_name = AsyncMock(return_value=None)
+    common.resolve_role_id_for_content_type = AsyncMock(return_value="role-uuid")
     svc.common = common
     return svc
 
@@ -122,8 +123,27 @@ class EnsureOneInterfaceIpTests(unittest.IsolatedAsyncioTestCase):
             add_prefixes_automatically=False,
         )
         self.assertEqual(entry, ("Gi0/0:10.0.0.1/24", "ip-uuid"))
+        svc.common.resolve_role_id_for_content_type.assert_awaited_once_with(
+            "Secondary", "ipam.ipaddress"
+        )
         _args, kwargs = svc.common.ensure_ip_address_exists.call_args
-        self.assertEqual(kwargs["role"], "Secondary")
+        self.assertEqual(kwargs["role"], "role-uuid")
+
+    async def test_unresolved_role_warns_and_omits_role(self) -> None:
+        svc = _make_service()
+        svc.common.resolve_role_id_for_content_type = AsyncMock(return_value=None)
+        warnings: list[str] = []
+        entry = await svc._ensure_one_interface_ip(
+            interface={"name": "Gi0/0", "status": "active"},
+            ip_data={"address": "10.0.0.1/24", "namespace": "Global", "ip_role": "Bogus"},
+            warnings=warnings,
+            add_prefixes_automatically=False,
+        )
+        self.assertEqual(entry, ("Gi0/0:10.0.0.1/24", "ip-uuid"))
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Bogus", warnings[0])
+        _args, kwargs = svc.common.ensure_ip_address_exists.call_args
+        self.assertNotIn("role", kwargs)
 
     async def test_missing_address_returns_none(self) -> None:
         svc = _make_service()

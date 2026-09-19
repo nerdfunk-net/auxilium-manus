@@ -262,6 +262,45 @@ The `ConfigPanel` component renders inside the React Flow node property panel �
 
 ---
 
+## Attribute path fields — Browse attributes picker
+
+Any input whose value can be a `{path}`-style attribute reference (e.g.
+`{nautobot.origin}`, `{custom.site}`, `{parsed.cisco_config.running.hostname}`) must
+offer the shared **Browse attributes** picker next to it, not just a bare text input.
+Reference implementations: `route-on-attribute/index.tsx`, `update-config-context/index.tsx`,
+`config-to-attributes/index.tsx` (`parsed_key`), and `update-nautobot-device` (every
+`update_fields`/`custom_fields` value, via `shared/nautobot-field-rows.tsx`).
+
+- Component: `workflow-steps/shared/attribute-path-picker.tsx`'s `AttributePathPicker` —
+  never fork or reimplement it per step. It browses real attribute values discovered from
+  the workflow's most recent run, scoped to the current node's canvas ancestors.
+- Trigger: a small icon-only button next to the field, using the shared icon-button
+  pattern — `<Button variant="outline" size="icon" className="size-8 shrink-0" title="Browse attributes"><Search className="size-3.5" /></Button>` —
+  never a full-width "Browse attributes" text button crammed into a narrow row.
+- Wiring: give the `ConfigPanel` a `pickerOpen` (or, for a field-set with many pickable
+  inputs like Update Device's per-field rows, a `pickerTarget` naming *which* field is
+  being edited) piece of state; open it on the icon's `onClick`; on `onSelect(path)`,
+  patch the target field's value and close. Pass `nodeId`, `workflowNodes`, and
+  `workflowEdges` straight through from `PluginConfigPanelProps` — never re-derive them.
+- One field's value isn't always the whole picked path: `config-to-attributes`'s
+  `parsed_key` only wants the segment right after the fixed `parsed.` namespace, so its
+  `onSelect` extracts that one segment (`parsedKeyFromAttributePath`) instead of using
+  the raw path verbatim. Transform the picked value to fit the field, don't change the
+  picker.
+- For a field type reused across steps (e.g. the Nautobot field-value rows in
+  `shared/nautobot-field-rows.tsx`), add the picker to the **shared** row component as an
+  optional `onBrowse?: () => void` prop (button hidden when omitted) — one dialog instance
+  owned by the parent panel serves every row, rather than each row managing its own
+  picker state.
+- You never need to filter what the picker shows for your own step: the backend
+  discovery service (`services/workflow_context/attribute_path_discovery.py`) already
+  collapses raw, non-browsable blobs (e.g. Genie's raw `show running-config` parse tree,
+  keyed by literal CLI lines) into a single opaque leaf — a new step's parsed output
+  doesn't need special-casing there unless it introduces a genuinely new "this dict is
+  not real field data" shape.
+
+---
+
 ## Fan-out config (inventory steps)
 
 Inventory steps (`get-nautobot-devices`, `get-git-devices`) expose a **fan-out** block at
@@ -415,6 +454,9 @@ copy the `text-[11px]` size explicitly rather than relying on inheritance.
 - [ ] `aria-hidden` on all decorative icons
 - [ ] Shadcn primitives used for all UI (no raw `<select>`, `<dialog>`, etc.)
 - [ ] Inventory steps: fan-out block matches the shared pattern (`border-t pt-3`, Switch header, fields revealed only when enabled)
+- [ ] Every field that accepts a `{path}` attribute reference has the shared **Browse
+      attributes** icon next to it (see **Attribute path fields** above) — no bare text
+      input left as the only way to enter a path
 - [ ] `HelpPanel` documents every Configuration control with examples (reuse
       `workflow-steps/shared/step-help.tsx`; reference `get-nautobot-devices/help-panel.tsx`)
 

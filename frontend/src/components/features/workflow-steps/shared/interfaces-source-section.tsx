@@ -11,27 +11,49 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { NautobotInterfaceRow } from "@/components/features/workflow-steps/shared/nautobot-field-rows";
+import {
+  NautobotInterfaceRow,
+  type NautobotInterfaceRowValues,
+} from "@/components/features/workflow-steps/shared/nautobot-field-rows";
 
-import type { InterfaceCreateConfig, InterfacesSource } from "./types";
+export type InterfacesSource = "manual" | "nautobot_origin";
 
-interface InterfacesSectionProps {
-  interfaces: InterfaceCreateConfig[];
+export interface InterfaceRowConfig {
+  id?: string;
+  name: string;
+  type?: string;
+  status?: string;
+  ip_address?: string;
+  namespace?: string;
+  description?: string;
+  is_primary_ipv4?: boolean;
+}
+
+interface InterfacesSourceSectionProps<T extends InterfaceRowConfig> {
+  interfaces: T[];
   interfacesSource: InterfacesSource;
   onSourceChange: (source: InterfacesSource) => void;
   onAddInterface: () => void;
-  onPatchInterface: (id: string, patch: Partial<InterfaceCreateConfig>) => void;
+  onPatchInterface: (id: string, patch: Partial<T>) => void;
   onRemoveInterface: (id: string) => void;
+  /** Shown under the "Nautobot origin" select when that source is active. */
+  originDescription?: string;
 }
 
-export function InterfacesSection({
+const DEFAULT_ORIGIN_DESCRIPTION =
+  "Every interface present in the device's nautobot attribute bag is used — however " +
+  "many there are, each with however many IP addresses it has. The rows below are " +
+  "ignored while this is selected.";
+
+export function InterfacesSourceSection<T extends InterfaceRowConfig>({
   interfaces,
   interfacesSource,
   onSourceChange,
   onAddInterface,
   onPatchInterface,
   onRemoveInterface,
-}: InterfacesSectionProps) {
+  originDescription = DEFAULT_ORIGIN_DESCRIPTION,
+}: InterfacesSourceSectionProps<T>) {
   return (
     <section className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
@@ -68,31 +90,28 @@ export function InterfacesSection({
       </Select>
 
       {interfacesSource === "nautobot_origin" ? (
-        <p className="text-[11px] text-muted-foreground">
-          Every interface present in the device&apos;s nautobot attribute bag is created — however
-          many there are, each with however many IP addresses it has. The rows below are ignored
-          while this is selected.
-        </p>
+        <p className="text-[11px] text-muted-foreground">{originDescription}</p>
       ) : interfaces.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">No interfaces configured.</p>
       ) : (
         <div className="space-y-3">
           {interfaces.map((iface) => {
             const rowId = iface.id ?? iface.name;
+            const rowValues: NautobotInterfaceRowValues = {
+              id: rowId,
+              name: iface.name,
+              type: iface.type,
+              status: iface.status,
+              ip_address: iface.ip_address,
+              namespace: iface.namespace ?? "Global",
+              description: iface.description,
+              is_primary_ipv4: iface.is_primary_ipv4,
+            };
             return (
               <NautobotInterfaceRow
                 key={rowId}
-                row={{
-                  id: rowId,
-                  name: iface.name,
-                  type: iface.type,
-                  status: iface.status,
-                  ip_address: iface.ip_address,
-                  namespace: iface.namespace ?? "Global",
-                  description: iface.description,
-                  is_primary_ipv4: iface.is_primary_ipv4,
-                }}
-                onChange={(patch) => onPatchInterface(rowId, patch)}
+                row={rowValues}
+                onChange={(patch) => onPatchInterface(rowId, patch as Partial<T>)}
                 onRemove={() => onRemoveInterface(rowId)}
               />
             );

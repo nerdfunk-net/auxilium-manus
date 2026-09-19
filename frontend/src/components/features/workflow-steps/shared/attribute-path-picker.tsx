@@ -82,7 +82,7 @@ function AttributePathTreeNode({
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 rounded px-1 py-1 hover:bg-muted"
+        className="flex w-max min-w-full items-center gap-1.5 rounded px-1 py-1 hover:bg-muted"
         style={{ paddingLeft: `${depth * 14}px` }}
       >
         {hasChildren ? (
@@ -104,16 +104,16 @@ function AttributePathTreeNode({
         <button
           type="button"
           onClick={() => onSelect(node.path)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="flex items-center gap-2 text-left"
           title={node.path}
         >
-          <span className="truncate font-mono text-xs">{node.name}</span>
+          <span className="whitespace-nowrap font-mono text-xs">{node.name}</span>
           <Badge className="h-4 shrink-0 rounded px-1 text-[10px]" variant="secondary">
             {KIND_BADGE_LABEL[node.kind]}
             {node.item_count !== null ? ` (${node.item_count})` : ""}
           </Badge>
           {node.example_value !== null ? (
-            <span className="truncate text-[11px] text-muted-foreground">
+            <span className="whitespace-nowrap text-[11px] text-muted-foreground">
               {node.example_value}
             </span>
           ) : null}
@@ -231,7 +231,7 @@ export function AttributePathPicker({
     );
   } else {
     body = (
-      <div className="max-h-80 overflow-y-auto rounded border">
+      <div className="max-h-80 overflow-auto rounded border">
         {visibleNodes.map((node) => (
           <AttributePathTreeNode
             key={node.path}
@@ -247,7 +247,7 @@ export function AttributePathPicker({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Browse attributes</DialogTitle>
           <DialogDescription>

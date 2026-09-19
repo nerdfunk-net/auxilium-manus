@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
 
 
@@ -10,6 +11,28 @@ def _strip_empty(value: Any) -> Any:
         stripped = value.strip()
         return stripped if stripped else None
     return value
+
+
+def infer_interface_type_from_name(name: str) -> str:
+    """Guess a Nautobot interface type slug from a Cisco-style interface name."""
+    if name.startswith("Gigabit"):
+        return "1000base-t"
+    if name.startswith("Ethernet"):
+        return "100base-tx"
+    return "virtual"
+
+
+def cidr_from_ip_and_mask(ip_address: Any, mask: Any) -> str | None:
+    """Combine a dotted IP and dotted subnet mask into a CIDR string."""
+    ip_text = str(ip_address).strip() if ip_address else ""
+    mask_text = str(mask).strip() if mask else ""
+    if not ip_text or not mask_text:
+        return None
+    try:
+        prefixlen = ipaddress.IPv4Network(f"0.0.0.0/{mask_text}", strict=False).prefixlen
+    except ValueError:
+        return None
+    return f"{ip_text}/{prefixlen}"
 
 
 def build_interfaces_from_config(config: dict[str, Any], *, step_id: str) -> list[dict[str, Any]]:
@@ -135,14 +158,20 @@ def interfaces_from_nautobot_bag(
         if isinstance(raw_ip_addresses, list):
             addresses: list[dict[str, Any]] = []
             for ip_item in raw_ip_addresses:
-                address = _strip_empty(
-                    ip_item.get("address") if isinstance(ip_item, dict) else ip_item
-                )
+                is_dict = isinstance(ip_item, dict)
+                address = _strip_empty(ip_item.get("address") if is_dict else ip_item)
                 if not address:
                     continue
                 if "/" not in address:
                     address = f"{address}{suffix}"
-                addresses.append({"address": address, "namespace": "Global"})
+                entry: dict[str, Any] = {"address": address, "namespace": "Global"}
+                if is_dict:
+                    ip_role = _strip_empty(ip_item.get("ip_role"))
+                    if ip_role and ip_role != "none":
+                        entry["ip_role"] = ip_role
+                    if ip_item.get("is_primary"):
+                        entry["is_primary"] = True
+                addresses.append(entry)
             if addresses:
                 iface["ip_addresses"] = addresses
 

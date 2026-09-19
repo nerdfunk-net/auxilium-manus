@@ -49,6 +49,45 @@ class MetadataResolver(BaseResolver):
 
         raise ValueError(f"Status '{status_name}' not found for content type '{content_type}'")
 
+    async def resolve_role_id_for_content_type(
+        self, role_name: str, content_type: str
+    ) -> str | None:
+        """
+        Resolve a Role name to its UUID, scoped to one content type, via REST.
+
+        Nautobot's Role model (``extras.Role``) is shared across many object types
+        (device role, IP address role, prefix role, ...); a role name is not
+        guaranteed unique across content types, so ``resolve_role_id``'s unscoped
+        GraphQL lookup can return the wrong role (or none) when the same name is
+        used for two different object types. This mirrors ``resolve_status_id``'s
+        content-type-scoped REST lookup with a case-insensitive name match.
+
+        Args:
+            role_name: Name of the role (e.g., "Secondary") or UUID
+            content_type: Content type the role must apply to
+                         (e.g., "ipam.ipaddress", "dcim.device")
+
+        Returns:
+            Role UUID if found, None otherwise (never raises for "not found").
+        """
+        if is_valid_uuid(role_name):
+            logger.debug("Role is already a UUID: %s", role_name)
+            return role_name
+
+        logger.info("Resolving role '%s' for content type '%s'", role_name, content_type)
+
+        endpoint = f"extras/roles/?content_types={content_type}&format=json"
+        result = await self.nautobot.rest_request(endpoint=endpoint, method="GET")
+
+        if result and result.get("count", 0) > 0:
+            for role in result.get("results", []):
+                if role.get("name", "").lower() == role_name.lower():
+                    logger.info("Resolved role '%s' to UUID %s", role_name, role["id"])
+                    return role["id"]
+
+        logger.warning("Role '%s' not found for content type '%s'", role_name, content_type)
+        return None
+
     async def resolve_role_id(self, role_name: str) -> str | None:
         """
         Resolve role name to UUID using GraphQL.

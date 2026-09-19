@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { Search } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -18,7 +21,12 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 import { ConfigToAttributesHelpPanel } from "./help-panel";
-import { ATTRIBUTE_GROUPS, type AttributeGroupKey } from "./types";
+import {
+  ATTRIBUTE_GROUPS,
+  SOURCE_FORMAT_OPTIONS,
+  type AttributeGroupKey,
+  type SourceFormat,
+} from "./types";
 
 const CONFIG_SOURCE_OPTIONS = [
   { value: "running", label: "Running Config" },
@@ -35,8 +43,28 @@ function parseConfigSource(config: Record<string, unknown>): ConfigSource {
     : "running";
 }
 
+function parseSourceFormat(config: Record<string, unknown>): SourceFormat {
+  const raw = config.source_format;
+  if (typeof raw !== "string") return "cisco_config_parser";
+  return SOURCE_FORMAT_OPTIONS.some((option) => option.value === raw)
+    ? (raw as SourceFormat)
+    : "cisco_config_parser";
+}
+
 function parseParsedKey(config: Record<string, unknown>): string {
   return typeof config.parsed_key === "string" ? config.parsed_key : "";
+}
+
+/**
+ * The attribute path picker returns a full dotted path (e.g.
+ * "parsed.pyats_config.running"), but parsed_key is just the segment right
+ * after the fixed "parsed." namespace — the output_key an upstream parsing
+ * step used. Extract that one segment; fall back to the raw path for any
+ * shape that doesn't start with "parsed." (shouldn't normally happen here).
+ */
+function parsedKeyFromAttributePath(path: string): string {
+  const match = /^parsed\.([^.[]+)/.exec(path);
+  return match ? match[1] : path;
 }
 
 function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
@@ -48,10 +76,25 @@ function parseAttributes(config: Record<string, unknown>): AttributeGroupKey[] {
   );
 }
 
-function ConfigToAttributesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+function ConfigToAttributesConfigPanel({
+  config,
+  onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: PluginConfigPanelProps) {
+  const sourceFormat = useMemo(() => parseSourceFormat(config), [config]);
   const configSource = useMemo(() => parseConfigSource(config), [config]);
   const parsedKey = parseParsedKey(config);
   const selected = useMemo(() => parseAttributes(config), [config]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const handleSourceFormatChange = useCallback(
+    (value: string) => {
+      onChange({ ...config, source_format: value });
+    },
+    [config, onChange],
+  );
 
   const handleSourceChange = useCallback(
     (value: string) => {
@@ -67,6 +110,13 @@ function ConfigToAttributesConfigPanel({ config, onChange }: PluginConfigPanelPr
     [config, onChange],
   );
 
+  const handlePickerSelect = useCallback(
+    (path: string) => {
+      handleParsedKeyChange(parsedKeyFromAttributePath(path));
+    },
+    [handleParsedKeyChange],
+  );
+
   const handleToggle = useCallback(
     (key: AttributeGroupKey) => {
       const next = selected.includes(key)
@@ -79,6 +129,30 @@ function ConfigToAttributesConfigPanel({ config, onChange }: PluginConfigPanelPr
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">source_format</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Label className="sr-only" htmlFor="source-format">
+          Source format
+        </Label>
+        <Select value={sourceFormat} onValueChange={handleSourceFormatChange}>
+          <SelectTrigger id="source-format" className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SOURCE_FORMAT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-xs font-medium">config_source</span>
@@ -110,16 +184,37 @@ function ConfigToAttributesConfigPanel({ config, onChange }: PluginConfigPanelPr
             string
           </Badge>
         </div>
-        <Input
-          value={parsedKey}
-          onChange={(event) => handleParsedKeyChange(event.target.value)}
-          placeholder="cisco_config"
-          className="h-8 font-mono text-xs"
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={parsedKey}
+            onChange={(event) => handleParsedKeyChange(event.target.value)}
+            placeholder="cisco_config"
+            className="h-8 font-mono text-xs"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={() => setPickerOpen(true)}
+            title="Browse attributes"
+          >
+            <Search className="size-3.5" />
+          </Button>
+        </div>
         <p className="text-[11px] leading-4 text-muted-foreground">
-          Must match the upstream Parse Cisco Config step&apos;s{" "}
-          <span className="font-mono">output_key</span>.
+          Must match the matching upstream step&apos;s{" "}
+          <span className="font-mono">output_key</span> — Parse Cisco Config for
+          cisco_config_parser, or Get &amp; Parse Config for genie.
         </p>
+        <AttributePathPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onSelect={handlePickerSelect}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes ?? []}
+          workflowEdges={workflowEdges ?? []}
+        />
       </div>
 
       <div className="space-y-1.5">

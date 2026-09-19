@@ -116,6 +116,62 @@ class BuildAttributePathTreeTests(unittest.TestCase):
         child_names = {c.name for c in parsed_node.children}
         self.assertEqual(child_names, {"batfish", "other_key"})
 
+    def test_raw_config_line_tree_collapses_to_opaque_scalar(self) -> None:
+        # Shape produced by get-pyats-config: Device.parse("show running-config")
+        # keyed by literal CLI lines — must never explode into clickable paths.
+        devices = {
+            "d1": _device(
+                "d1",
+                parsed={
+                    "pyats_config": {
+                        "running": {
+                            "hostname LAB": {},
+                            "interface Ethernet0/0": {
+                                "description xxx": {},
+                                "ip address 192.168.178.120 255.255.255.0 secondary": {},
+                            },
+                            "username noc privilege 15 secret 9 $9$abc": {},
+                        }
+                    }
+                },
+            )
+        }
+        tree = build_attribute_path_tree(devices)
+        parsed_node = self._find(tree, "parsed")
+        pyats_node = self._find(parsed_node.children, "pyats_config")
+        running_node = self._find(pyats_node.children, "running")
+        self.assertEqual(running_node.kind, "scalar")
+        self.assertEqual(running_node.children, [])
+        self.assertIn("not browsable", running_node.example_value or "")
+        # No raw CLI line or secret ever leaks into a node name/path/value.
+        self.assertNotIn("secret", running_node.model_dump_json())
+        self.assertNotIn("Ethernet0/0", running_node.model_dump_json())
+
+    def test_structured_parsed_config_with_clean_keys_still_browsable(self) -> None:
+        # Cisco Config Parser's model also lives under a "running" key, but its
+        # own top-level keys are clean field names — must stay fully browsable.
+        devices = {
+            "d1": _device(
+                "d1",
+                parsed={
+                    "cisco_config": {
+                        "running": {
+                            "hostname": "LAB",
+                            "l3_interfaces": [],
+                        }
+                    }
+                },
+            )
+        }
+        tree = build_attribute_path_tree(devices)
+        parsed_node = self._find(tree, "parsed")
+        cisco_node = self._find(parsed_node.children, "cisco_config")
+        running_node = self._find(cisco_node.children, "running")
+        self.assertEqual(running_node.kind, "dict")
+        hostname = self._find(running_node.children, "hostname")
+        self.assertEqual(hostname.path, "parsed.cisco_config.running.hostname")
+        self.assertEqual(hostname.example_value, "LAB")
+
     def test_attribute_bag_namespace_present(self) -> None:
         devices = {"d1": _device("d1", attribute_bags={"nautobot": {"role": "access"}})}
         tree = build_attribute_path_tree(devices)
