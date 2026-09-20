@@ -35,6 +35,8 @@ function UpdateAttributeConfigPanel({
   config,
   onChange,
   nodeId,
+  workflowNodes,
+  workflowEdges,
 }: PluginConfigPanelProps) {
   const initializedForNode = useRef<string | null>(null);
   const parsed = useMemo(() => parseUpdateAttributeConfig(config), [config]);
@@ -236,6 +238,9 @@ function UpdateAttributeConfigPanel({
         initialValue={editor.open ? editor.value : null}
         onClose={() => setEditor(CLOSED_EDITOR)}
         onSave={handleSave}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes ?? []}
+        workflowEdges={workflowEdges ?? []}
       />
     </div>
   );

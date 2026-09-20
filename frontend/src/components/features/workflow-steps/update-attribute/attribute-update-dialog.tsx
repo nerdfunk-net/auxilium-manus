@@ -1,5 +1,6 @@
 "use client";
 
+import { Search } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
+import type {
+  PersistedCanvasNode,
+  WorkflowCanvasEdge,
+} from "@/components/features/workflows/types/workflow-canvas";
 
 import {
   createAttributeUpdate,
@@ -101,12 +108,15 @@ export interface AttributeUpdateEditorProps {
   value: AttributeUpdate;
   onChange: (value: AttributeUpdate) => void;
   fieldId?: string;
+  /** Renders a "Browse attributes" icon button next to destination_path when provided. */
+  onBrowseDestination?: () => void;
 }
 
 export function AttributeUpdateEditor({
   value,
   onChange,
   fieldId = "attribute-editor",
+  onBrowseDestination,
 }: AttributeUpdateEditorProps) {
   const handleModeChange = useCallback(
     (mode: UpdateAttributeMode) => {
@@ -162,14 +172,28 @@ export function AttributeUpdateEditor({
             string
           </Badge>
         </div>
-        <Input
-          value={value.destination_path}
-          onChange={(event) =>
-            onChange({ ...value, destination_path: event.target.value })
-          }
-          placeholder="custom.location"
-          className="h-8 font-mono text-xs"
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={value.destination_path}
+            onChange={(event) =>
+              onChange({ ...value, destination_path: event.target.value })
+            }
+            placeholder="custom.location"
+            className="h-8 font-mono text-xs"
+          />
+          {onBrowseDestination ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={onBrowseDestination}
+              title="Browse attributes"
+            >
+              <Search className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
         <AttributePathHelp />
       </div>
 
@@ -285,6 +309,9 @@ interface AttributeUpdateDialogProps {
   initialValue: AttributeUpdate | null;
   onClose: () => void;
   onSave: (value: AttributeUpdate) => void;
+  nodeId: string;
+  workflowNodes: PersistedCanvasNode[];
+  workflowEdges: WorkflowCanvasEdge[];
 }
 
 function AttributeUpdateDialogForm({
@@ -292,11 +319,15 @@ function AttributeUpdateDialogForm({
   initialValue,
   onClose,
   onSave,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
 }: Omit<AttributeUpdateDialogProps, "open">) {
   const [draft, setDraft] = useState<AttributeUpdate>(
     () => initialValue ?? createAttributeUpdate(),
   );
   const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const handleSave = useCallback(() => {
     const validationError = validateAttributeDraft(draft);
@@ -316,47 +347,62 @@ function AttributeUpdateDialogForm({
   }, [draft, onSave]);
 
   return (
-    <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
-      <DialogHeader className="shrink-0 border-b step-header px-4 py-3">
-        <DialogTitle className="text-base text-step-header-foreground">
-          {mode === "add" ? "Add attribute update" : "Edit attribute update"}
-        </DialogTitle>
-        <DialogDescription className="sr-only">
-          Configure mode, destination path, and value or regex transform for this attribute
-          update.
-        </DialogDescription>
-      </DialogHeader>
+    <>
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="shrink-0 border-b step-header px-4 py-3">
+          <DialogTitle className="text-base text-step-header-foreground">
+            {mode === "add" ? "Add attribute update" : "Edit attribute update"}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure mode, destination path, and value or regex transform for this attribute
+            update.
+          </DialogDescription>
+        </DialogHeader>
 
-      <div className="overflow-y-auto bg-muted p-4">
-        <AttributeUpdateEditor
-          value={draft}
-          onChange={(next) => {
-            setDraft(next);
-            setError(null);
-          }}
-          fieldId="attribute-dialog"
-        />
-        {error ? (
-          <p className="mt-3 rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
-            {error}
-          </p>
-        ) : null}
-      </div>
+        <div className="overflow-y-auto bg-muted p-4">
+          <AttributeUpdateEditor
+            value={draft}
+            onChange={(next) => {
+              setDraft(next);
+              setError(null);
+            }}
+            fieldId="attribute-dialog"
+            onBrowseDestination={() => setPickerOpen(true)}
+          />
+          {error ? (
+            <p className="mt-3 rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
+              {error}
+            </p>
+          ) : null}
+        </div>
 
-      <DialogFooter className="shrink-0 border-t bg-card px-4 py-3">
-        <Button type="button" variant="outline" size="sm" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="bg-step text-step-foreground hover:bg-step-hover"
-          onClick={handleSave}
-        >
-          {mode === "add" ? "Add" : "Save"}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
+        <DialogFooter className="shrink-0 border-t bg-card px-4 py-3">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="bg-step text-step-foreground hover:bg-step-hover"
+            onClick={handleSave}
+          >
+            {mode === "add" ? "Add" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      <AttributePathPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(path) => {
+          setDraft((current) => ({ ...current, destination_path: path }));
+          setError(null);
+        }}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+      />
+    </>
   );
 }
 
@@ -366,6 +412,9 @@ export function AttributeUpdateDialog({
   initialValue,
   onClose,
   onSave,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
 }: AttributeUpdateDialogProps) {
   return (
     <Dialog
@@ -382,6 +431,9 @@ export function AttributeUpdateDialog({
           initialValue={initialValue}
           onClose={onClose}
           onSave={onSave}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes}
+          workflowEdges={workflowEdges}
         />
       ) : null}
     </Dialog>

@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback } from "react";
+import { Search } from "lucide-react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PluginConfigPanelProps } from "@/components/features/workflows/types/plugin-ui";
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 
 import { ListContainsHelpPanel } from "./help-panel";
 
@@ -17,11 +20,18 @@ function parseCaseSensitive(config: Record<string, unknown>): boolean {
   return config.case_sensitive === true;
 }
 
-function ListContainsConfigPanel({ config, onChange, nodeId }: PluginConfigPanelProps) {
+function ListContainsConfigPanel({
+  config,
+  onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: PluginConfigPanelProps) {
   const listPath = parseString(config, "list_path");
   const field = parseString(config, "field");
   const value = parseString(config, "value");
   const caseSensitive = parseCaseSensitive(config);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const handleListPathChange = useCallback(
     (next: string) => onChange({ ...config, list_path: next }),
@@ -49,12 +59,24 @@ function ListContainsConfigPanel({ config, onChange, nodeId }: PluginConfigPanel
             string
           </Badge>
         </div>
-        <Input
-          value={listPath}
-          onChange={(event) => handleListPathChange(event.target.value)}
-          placeholder="parsed.cisco_config.running.access_lists[name=MGMT_100].entries"
-          className="h-8 font-mono text-xs"
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            value={listPath}
+            onChange={(event) => handleListPathChange(event.target.value)}
+            placeholder="parsed.cisco_config.running.access_lists[name=MGMT_100].entries"
+            className="h-8 font-mono text-xs"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={() => setPickerOpen(true)}
+            title="Browse attributes"
+          >
+            <Search className="size-3.5" />
+          </Button>
+        </div>
         <p className="text-[11px] leading-4 text-muted-foreground">
           Dot path to the list to search — supports{" "}
           <span className="font-mono">device.*</span>, bag paths (
@@ -64,6 +86,14 @@ function ListContainsConfigPanel({ config, onChange, nodeId }: PluginConfigPanel
           to filter down to one matching item first (e.g. one ACL by name) before
           continuing the path — see Help for a worked example.
         </p>
+        <AttributePathPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onSelect={handleListPathChange}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes ?? []}
+          workflowEdges={workflowEdges ?? []}
+        />
       </div>
 
       <div className="space-y-1.5">

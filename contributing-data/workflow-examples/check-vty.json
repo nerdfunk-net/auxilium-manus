@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-20T12:24:21.915Z",
+  "exported_at": "2026-09-20T14:41:37.587Z",
   "name": "Check VTY",
   "description": "Check if line vty 0 4 is secured",
   "folder": "/Security",
@@ -68,7 +68,7 @@
       "id": "get-device-configs-2",
       "type": "workflowNode",
       "position": {
-        "x": 401.67798071383305,
+        "x": 401.68967882047536,
         "y": 17.55292816625169
       },
       "zIndex": 1,
@@ -165,7 +165,7 @@
       "id": "update-attribute-4",
       "type": "workflowNode",
       "position": {
-        "x": 1158.5520653906767,
+        "x": 1157.7013769271177,
         "y": 17.55292816625169
       },
       "zIndex": 1,
@@ -221,8 +221,8 @@
       "id": "parse-cisco-config-5",
       "type": "workflowNode",
       "position": {
-        "x": 1158.5520653906767,
-        "y": 226.6944416493222
+        "x": 1157.7013769271177,
+        "y": 226.46296109954812
       },
       "zIndex": 1,
       "data": {
@@ -267,7 +267,7 @@
       "type": "workflowNode",
       "position": {
         "x": 770.7632943531798,
-        "y": 226.6944416493222
+        "y": 226.46296109954812
       },
       "zIndex": 1,
       "data": {
@@ -354,6 +354,96 @@
       },
       "selected": false,
       "dragging": false
+    },
+    {
+      "id": "notify-mattermost-8",
+      "type": "workflowNode",
+      "position": {
+        "x": 1157.7013769271177,
+        "y": -154
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "2721df53-5573-4baa-abf4-e2625a2b7e51",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "VTY of device {device.name} is not secured."
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "notify-mattermost-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 401.68967882047536,
+        "y": 226.46296109954812
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "notify-mattermost",
+        "stepUuid": "684a587c-bb78-48b7-a365-54011ef7d10f",
+        "title": "Notify Mattermost",
+        "overview": "Post a message to a Mattermost channel.",
+        "description": "Posts one message to a Mattermost channel via a configured Mattermost source, team, and channel. Supports {path.to.value} placeholders resolved against the first device in context (e.g. {device.name}, {nautobot.location.name}), plus {devices} (comma-joined device names) and {device_count} for summarizing a multi-device run. Typically wired to an upstream step's success or failure outcome handle to report a workflow's outcome. Fan-out note: place after Fan In (or at the end of a non-fanned workflow) for one summary message per run; inside fan-out children it posts once per child branch.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "mattermost_source_id": "mattermost",
+          "team_name": "Manus",
+          "channel_name": "manus",
+          "message": "VTY of device {device.name} is not secured."
+        },
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
     }
   ],
   "canvas_edges": [
@@ -432,7 +522,34 @@
       "sourceHandle": "success",
       "target": "list-contains-6",
       "targetHandle": "input",
-      "id": "xy-edge__parse-cisco-config-5success-list-contains-6input"
+      "id": "xy-edge__parse-cisco-config-5success-list-contains-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "route-on-content-3",
+      "sourceHandle": "mismatch",
+      "target": "notify-mattermost-8",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-content-3mismatch-notify-mattermost-8input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "list-contains-6",
+      "sourceHandle": "mismatch",
+      "target": "notify-mattermost-9",
+      "targetHandle": "input",
+      "id": "xy-edge__list-contains-6mismatch-notify-mattermost-9input",
+      "selected": false
     }
   ],
   "canvas_groups": [],
