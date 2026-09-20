@@ -12,7 +12,7 @@ export function UndefinedAndUnusedHelpPanel() {
       <HelpSection title="What this step does">
         <p>
           Runs Batfish&apos;s <HelpCode>undefinedReferences</HelpCode> and{" "}
-          <HelpCode>unusedStructures</HelpCode> "hygiene" questions against an
+          <HelpCode>unusedStructures</HelpCode> &ldquo;hygiene&rdquo; questions against an
           already-initialized snapshot. A device with a configuration reference to a
           structure that doesn&apos;t exist (e.g. a route-map naming an undefined ACL) routes to{" "}
           <HelpCode>undefined</HelpCode>. A device with a defined structure (ACL, route-map,
