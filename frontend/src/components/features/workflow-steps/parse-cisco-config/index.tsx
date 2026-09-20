@@ -39,9 +39,14 @@ function parseOutputKey(config: Record<string, unknown>): string {
   return typeof config.output_key === "string" ? config.output_key : "";
 }
 
+function parseNetworkDriverOverride(config: Record<string, unknown>): string {
+  return typeof config.network_driver_override === "string" ? config.network_driver_override : "";
+}
+
 function ParseCiscoConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const configSource = useMemo(() => parseConfigSource(config), [config]);
   const outputKey = parseOutputKey(config);
+  const networkDriverOverride = parseNetworkDriverOverride(config);
 
   const handleSourceChange = useCallback(
     (value: string) => {
@@ -53,6 +58,13 @@ function ParseCiscoConfigConfigPanel({ config, onChange }: PluginConfigPanelProp
   const handleOutputKeyChange = useCallback(
     (value: string) => {
       onChange({ ...config, output_key: value });
+    },
+    [config, onChange],
+  );
+
+  const handleNetworkDriverOverrideChange = useCallback(
+    (value: string) => {
+      onChange({ ...config, network_driver_override: value });
     },
     [config, onChange],
   );
@@ -99,6 +111,25 @@ function ParseCiscoConfigConfigPanel({ config, onChange }: PluginConfigPanelProp
         <p className="text-[11px] leading-4 text-muted-foreground">
           Downstream steps reference this key in{" "}
           <span className="font-mono">parsed.{outputKey || "output_key"}</span>.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-medium">network_driver_override</span>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            string
+          </Badge>
+        </div>
+        <Input
+          value={networkDriverOverride}
+          onChange={(event) => handleNetworkDriverOverrideChange(event.target.value)}
+          placeholder="cisco_ios (optional)"
+          className="h-8 font-mono text-xs"
+        />
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Overrides device.network_driver for platform detection when it&apos;s unset (e.g.
+          the device wasn&apos;t sourced from Nautobot).
         </p>
       </div>
     </div>

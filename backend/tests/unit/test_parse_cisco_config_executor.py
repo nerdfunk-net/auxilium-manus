@@ -282,6 +282,81 @@ class ParseCiscoConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = outcomes[1].context.devices["device-1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
 
+    async def test_network_driver_override_resolves_ambiguous_config(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        artifact_service = InMemoryArtifactService()
+        running_ref = await artifact_service.store(
+            content=_NO_BANNER_CONFIG,
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+            running_config_ref=running_ref,
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"device-1": device})
+
+        outcomes = await execute(
+            config={
+                "config_source": "running",
+                "output_key": "cisco_config",
+                "network_driver_override": "cisco_ios",
+            },
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        success = outcomes[0].context.devices["device-1"]
+        self.assertEqual(success.parsed["cisco_config"]["running"]["hostname"], "router1")
+
+    async def test_network_driver_override_takes_precedence_over_device_driver(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        artifact_service = InMemoryArtifactService()
+        running_ref = await artifact_service.store(
+            content=_NO_BANNER_CONFIG,
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-1",
+        )
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            capabilities={Capability.IDENTITY},
+            status=DeviceStatus.OK,
+            running_config_ref=running_ref,
+            network_driver="cisco_nxos",
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"device-1": device})
+
+        outcomes = await execute(
+            config={
+                "config_source": "running",
+                "output_key": "cisco_config",
+                "network_driver_override": "cisco_ios",
+            },
+            context=context,
+            run=run,
+            artifact_service=artifact_service,
+            node_id="parse-cisco-config-1",
+            device_sessions=MagicMock(),
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        success = outcomes[0].context.devices["device-1"]
+        self.assertEqual(success.parsed["cisco_config"]["running"]["hostname"], "router1")
+
 
 if __name__ == "__main__":
     unittest.main()

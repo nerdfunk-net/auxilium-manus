@@ -1,5 +1,6 @@
 "use client";
 
+import { Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
+import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { SharedSecretCredentialField } from "@/components/features/workflow-steps/shared/shared-secret-credential-field";
 import { SHARED_SECRET_ALGORITHMS } from "@/lib/shared-secret-algorithms";
 
@@ -28,9 +30,16 @@ import { DecryptAttributeTestDialog } from "./test-dialog";
 
 const ALGORITHM_DEFAULT_SENTINEL = "__default__";
 
-function DecryptAttributeConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+function DecryptAttributeConfigPanel({
+  config,
+  onChange,
+  nodeId,
+  workflowNodes,
+  workflowEdges,
+}: PluginConfigPanelProps) {
   const parsed = useMemo(() => parseDecryptAttributeConfig(config), [config]);
   const [testOpen, setTestOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const setField = useCallback(
     (
@@ -50,22 +59,42 @@ function DecryptAttributeConfigPanel({ config, onChange }: PluginConfigPanelProp
         <Label className="font-mono text-xs font-medium" htmlFor="decrypt-attribute-source">
           source_path
         </Label>
-        <Input
-          id="decrypt-attribute-source"
-          className="h-8 font-mono text-xs"
-          placeholder={
-            isListMode
-              ? "nautobot.config_context.credentials"
-              : "nautobot.config_context.secrets.enable_password"
-          }
-          value={parsed.source_path}
-          onChange={(event) => setField("source_path", event.target.value)}
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            id="decrypt-attribute-source"
+            className="h-8 font-mono text-xs"
+            placeholder={
+              isListMode
+                ? "nautobot.config_context.credentials"
+                : "nautobot.config_context.secrets.enable_password"
+            }
+            value={parsed.source_path}
+            onChange={(event) => setField("source_path", event.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={() => setPickerOpen(true)}
+            title="Browse attributes"
+          >
+            <Search className="size-3.5" />
+          </Button>
+        </div>
         <p className="text-[11px] text-muted-foreground">
           {isListMode
             ? "Dot path to a list. Each entry's item_field is decrypted."
             : "Dot path to the encrypted value (ciphertext token)."}
         </p>
+        <AttributePathPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onSelect={(path) => setField("source_path", path)}
+          nodeId={nodeId}
+          workflowNodes={workflowNodes ?? []}
+          workflowEdges={workflowEdges ?? []}
+        />
       </div>
 
       <div className="space-y-1.5">

@@ -49,8 +49,8 @@ def _config_targets(config_source: str) -> tuple[bool, bool]:
     return True, True
 
 
-def _platform_hint(device: DeviceContext) -> str | None:
-    return platform_hint_for_network_driver(device.network_driver)
+def _platform_hint(device: DeviceContext, network_driver_override: str | None) -> str | None:
+    return platform_hint_for_network_driver(network_driver_override or device.network_driver)
 
 
 def _build_parse_entry(
@@ -78,8 +78,9 @@ async def _parse_one_device(
     need_running: bool,
     need_startup: bool,
     output_key: str,
+    network_driver_override: str | None,
 ) -> tuple[str, DeviceContext, bool]:
-    platform_hint = _platform_hint(device)
+    platform_hint = _platform_hint(device, network_driver_override)
     try:
         running_model: dict[str, Any] | None = None
         startup_model: dict[str, Any] | None = None
@@ -203,6 +204,7 @@ async def execute(
     config_source = _parse_config_source(config)
     output_key = parse_output_key(config.get("output_key") or get_config()["output_key"])
     need_running, need_startup = _config_targets(config_source)
+    network_driver_override = str(config.get("network_driver_override") or "").strip() or None
 
     logger.info(
         "parse-cisco-config started run_id=%s node_id=%s devices=%d config_source=%s output_key=%s",
@@ -224,6 +226,7 @@ async def execute(
                 need_running=need_running,
                 need_startup=need_startup,
                 output_key=output_key,
+                network_driver_override=network_driver_override,
             )
             for device_id, device in context.devices.items()
         ]

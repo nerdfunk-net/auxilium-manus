@@ -84,6 +84,31 @@ export function ParseCiscoConfigHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Network driver override">
+        <p>
+          <HelpCode>network_driver_override</HelpCode> forces the platform hint passed to the
+          parser instead of deriving it from <HelpCode>device.network_driver</HelpCode>. Use it
+          when a device has no network driver set — for example it entered the workflow via{" "}
+          <HelpCode>Get from List</HelpCode> instead of <HelpCode>Get from Nautobot</HelpCode>,
+          or the Nautobot record has no platform — and parsing fails because the library
+          can&apos;t detect the platform from the config text alone.
+        </p>
+        <p>
+          Accepts the same values as <HelpCode>network_driver</HelpCode>:{" "}
+          <HelpCode>cisco_ios</HelpCode>, <HelpCode>cisco_xe</HelpCode> /{" "}
+          <HelpCode>cisco_ios_xe</HelpCode>, <HelpCode>cisco_nxos</HelpCode>, and{" "}
+          <HelpCode>cisco_xr</HelpCode> / <HelpCode>cisco_ios_xr</HelpCode>. When set, it takes
+          precedence over <HelpCode>device.network_driver</HelpCode>.
+        </p>
+        <HelpExample>
+          network_driver_override: cisco_ios
+          <br />
+          <span className="text-muted-foreground">
+            → parses as IOS even if device.network_driver is empty
+          </span>
+        </HelpExample>
+      </HelpSection>
+
       <HelpSection title="Using the parsed config downstream">
         <p>
           <HelpCode>parsed.{"{output_key}"}</HelpCode> sits alongside the device&apos;s
@@ -204,7 +229,8 @@ export function ParseCiscoConfigHelpPanel() {
             requested config wasn&apos;t fetched upstream, or the platform
             (IOS/IOS-XE/NXOS/XR) couldn&apos;t be determined from the config text.
             Setting the device&apos;s network driver (e.g. via Get from Nautobot) helps
-            the parser when the config text lacks a recognizable platform banner.
+            the parser when the config text lacks a recognizable platform banner — or set{" "}
+            <HelpCode>network_driver_override</HelpCode> on this step directly.
           </li>
         </ul>
       </HelpSection>
