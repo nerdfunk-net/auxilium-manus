@@ -19,6 +19,7 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.reachable.config import get_config
 
 if TYPE_CHECKING:
@@ -95,16 +96,20 @@ async def _ping_device(
 
     reachable = result.packets_received >= required_replies
 
-    parsed = dict(device.parsed)
-    parsed[f"{node_id}.reachability"] = {
-        "kind": "reachability_result",
-        "reachable": reachable,
-        "host": host,
-        "packets_sent": result.packets_sent,
-        "packets_received": result.packets_received,
-        "required_replies": required_replies,
-        "avg_rtt_ms": result.avg_rtt,
-    }
+    parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "reachability",
+        {
+            "kind": "reachability_result",
+            "reachable": reachable,
+            "host": host,
+            "packets_sent": result.packets_sent,
+            "packets_received": result.packets_received,
+            "required_replies": required_replies,
+            "avg_rtt_ms": result.avg_rtt,
+        },
+    )
     enriched = device.model_copy(
         update={
             "parsed": parsed,

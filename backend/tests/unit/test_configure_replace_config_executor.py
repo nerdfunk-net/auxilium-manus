@@ -180,7 +180,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = outcomes[0].context.devices[_DEVICE_ID]
         self.assertEqual(device.status, DeviceStatus.OK)
         self.assertIn(Capability.PARSED, device.capabilities)
-        entry = device.parsed[f"{_NODE_ID}.configure_replace"]
+        entry = device.parsed[_NODE_ID]["configure_replace"]
         self.assertTrue(entry["confirmed"])
         self.assertEqual(entry["destination_filename"], "new_config.txt")
         self.assertEqual(entry["file_system"], "bootflash:")
@@ -368,7 +368,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         names = [o.name for o in outcomes]
         self.assertEqual(names, ["success"])
         device = outcomes[0].context.devices[_DEVICE_ID]
-        entry = device.parsed[f"{_NODE_ID}.configure_replace"]
+        entry = device.parsed[_NODE_ID]["configure_replace"]
         self.assertTrue(entry["skipped"])
         self.assertEqual(entry["reason"], "no_pending_changes")
         self.assertEqual(shim.run_job.await_count, 1)
@@ -392,7 +392,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         names = [o.name for o in outcomes]
         self.assertEqual(names, ["success"])
         device = outcomes[0].context.devices[_DEVICE_ID]
-        entry = device.parsed[f"{_NODE_ID}.configure_replace"]
+        entry = device.parsed[_NODE_ID]["configure_replace"]
         self.assertTrue(entry["skipped"])
         self.assertEqual(shim.run_job.await_count, 1)
 
@@ -416,7 +416,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         names = [o.name for o in outcomes]
         self.assertEqual(names, ["success"])
         device = outcomes[0].context.devices[_DEVICE_ID]
-        diff_entry = device.parsed[f"{_NODE_ID}.configure_replace_diff"]
+        diff_entry = device.parsed[_NODE_ID]["configure_replace_diff"]
         artifact_ref = diff_entry["pre_diff_artifact_ref"]
         self.assertEqual(await artifacts.resolve(_as_artifact_ref(artifact_ref)), diff_text)
         self.assertEqual(shim.run_job.await_count, 2)
@@ -462,7 +462,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = failure_outcome.context.devices[_DEVICE_ID]
         err = device.errors[0]
         self.assertEqual(err.code, "diff_mismatch")
-        diff_entry = device.parsed[f"{_NODE_ID}.configure_replace_diff"]
+        diff_entry = device.parsed[_NODE_ID]["configure_replace_diff"]
         artifact_ref = diff_entry["post_diff_artifact_ref"]
         self.assertEqual(await artifacts.resolve(_as_artifact_ref(artifact_ref)), diff_text)
         self.assertEqual(shim.run_job.await_count, 2)
@@ -488,7 +488,7 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         names = [o.name for o in outcomes]
         self.assertEqual(names, ["success"])
         device = outcomes[0].context.devices[_DEVICE_ID]
-        self.assertTrue(device.parsed[f"{_NODE_ID}.configure_replace"]["confirmed"])
+        self.assertTrue(device.parsed[_NODE_ID]["configure_replace"]["confirmed"])
         self.assertEqual(shim.run_job.await_count, 2)
 
     async def test_post_diff_command_error_fails_device(self) -> None:
@@ -534,8 +534,8 @@ class ConfigureReplaceConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         names = [o.name for o in outcomes]
         self.assertEqual(names, ["success"])
         device = outcomes[0].context.devices[_DEVICE_ID]
-        self.assertTrue(device.parsed[f"{_NODE_ID}.configure_replace"]["confirmed"])
-        self.assertIn(f"{_NODE_ID}.configure_replace_diff", device.parsed)
+        self.assertTrue(device.parsed[_NODE_ID]["configure_replace"]["confirmed"])
+        self.assertIn("configure_replace_diff", device.parsed[_NODE_ID])
         self.assertEqual(shim.run_job.await_count, 3)
 
     async def test_no_devices_short_circuits(self) -> None:

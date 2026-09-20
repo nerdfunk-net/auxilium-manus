@@ -91,6 +91,7 @@ from services.pyats.source_config_service import (
     PyATSSourceConfigService,
     PyATSSourceNotFoundError,
 )
+from services.workflow_context.node_result import set_node_result
 from services.workflow_context.secret_fields import unwrap_secret
 from workflow_steps.configure_replace_config.config import get_config
 
@@ -285,8 +286,7 @@ def _device_with_diff_refs(
         entry["pre_diff_artifact_ref"] = pre_diff_artifact_ref.model_dump(mode="json")
     if post_diff_artifact_ref is not None:
         entry["post_diff_artifact_ref"] = post_diff_artifact_ref.model_dump(mode="json")
-    parsed = dict(device.parsed)
-    parsed[f"{node_id}.configure_replace_diff"] = entry
+    parsed = set_node_result(device.parsed, node_id, "configure_replace_diff", entry)
     return device.model_copy(
         update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
     )
@@ -403,8 +403,7 @@ async def _process_one_device(
                 "file_system": file_system,
                 "timeout_minutes": timeout_minutes,
             }
-            parsed = dict(device.parsed)
-            parsed[f"{node_id}.configure_replace"] = entry
+            parsed = set_node_result(device.parsed, node_id, "configure_replace", entry)
             enriched = device.model_copy(
                 update={
                     "parsed": parsed,
@@ -561,8 +560,7 @@ async def _process_one_device(
         "file_system": file_system,
         "timeout_minutes": timeout_minutes,
     }
-    parsed = dict(enriched.parsed)
-    parsed[f"{node_id}.configure_replace"] = entry
+    parsed = set_node_result(enriched.parsed, node_id, "configure_replace", entry)
     enriched = enriched.model_copy(
         update={
             "parsed": parsed,

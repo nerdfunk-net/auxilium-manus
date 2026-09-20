@@ -158,7 +158,9 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_name["mismatch"].context.devices, {})
         self.assertEqual(by_name["failure"].context.devices, {})
 
-        comparison = by_name["match"].context.devices["device-1"].parsed[f"{_NODE_ID}.comparison"]
+        comparison = (
+            by_name["match"].context.devices["device-1"].parsed[_NODE_ID]["comparison"]
+        )
         self.assertTrue(comparison["matched"])
         self.assertEqual(comparison["features"], ["bgp"])
         self.assertEqual(comparison["mismatched_features"], [])
@@ -201,12 +203,14 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["mismatch"].context.devices), ["device-1"])
         device_out = by_name["mismatch"].context.devices["device-1"]
-        comparison = device_out.parsed[f"{_NODE_ID}.comparison"]
+        comparison = device_out.parsed[_NODE_ID]["comparison"]
         self.assertFalse(comparison["matched"])
-        self.assertEqual(comparison["comparison_diff_key"], f"{_NODE_ID}.comparison_diff")
+        self.assertEqual(
+            comparison["comparison_diff_key"], f"parsed.{_NODE_ID}.comparison_diff"
+        )
         self.assertEqual(comparison["mismatched_features"], ["bgp"])
 
-        diff_map = device_out.parsed[f"{_NODE_ID}.comparison_diff"]
+        diff_map = device_out.parsed[_NODE_ID]["comparison_diff"]
         diff_entry = diff_map["bgp"]
         self.assertEqual(diff_entry["kind"], "comparison_diff")
         self.assertEqual(diff_entry["feature"], "bgp")
@@ -251,9 +255,7 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["match"].context.devices), ["device-1"])
         self.assertEqual(by_name["mismatch"].context.devices, {})
-        comparison = by_name["match"].context.devices["device-1"].parsed[
-            f"{_NODE_ID}.comparison"
-        ]
+        comparison = by_name["match"].context.devices["device-1"].parsed[_NODE_ID]["comparison"]
         self.assertEqual(comparison["features"], ["bgp", "ospf"])
         self.assertEqual(comparison["mismatched_features"], [])
         self.assertEqual(shim.diff.await_count, 2)
@@ -289,11 +291,11 @@ class ComparePyatsSnapshotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["mismatch"].context.devices), ["device-1"])
         self.assertEqual(by_name["match"].context.devices, {})
         device_out = by_name["mismatch"].context.devices["device-1"]
-        comparison = device_out.parsed[f"{_NODE_ID}.comparison"]
+        comparison = device_out.parsed[_NODE_ID]["comparison"]
         self.assertFalse(comparison["matched"])
         self.assertEqual(comparison["mismatched_features"], ["ospf"])
 
-        diff_map = device_out.parsed[f"{_NODE_ID}.comparison_diff"]
+        diff_map = device_out.parsed[_NODE_ID]["comparison_diff"]
         self.assertEqual(list(diff_map), ["ospf"])
         self.assertEqual(diff_map["ospf"]["feature"], "ospf")
 

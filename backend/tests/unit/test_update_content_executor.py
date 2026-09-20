@@ -137,7 +137,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
             run=_run(), artifact_service=artifacts, node_id="uc-1", device_sessions=MagicMock(),
         )
         success = next(o for o in outcomes if o.name == "success")
-        entry = success.context.devices["d1"].parsed["uc-1.updated_content"]
+        entry = success.context.devices["d1"].parsed["uc-1"]["updated_content"]
         updated = await artifacts.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
         self.assertIn("secret ***", updated)
         self.assertEqual(entry["match_counts"], [1])

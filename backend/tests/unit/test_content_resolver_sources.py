@@ -29,10 +29,14 @@ def _device(**kw) -> DeviceContext:
 
 def _parsed_entry(node_id: str, key: str, kind: str, artifact_id: str = "a1") -> dict:
     return {
-        f"{node_id}.{key}": {
-            "artifact_ref": _ref(artifact_id, kind, "application/json").model_dump(mode="json"),
-            "kind": kind,
-            "step_node_id": node_id,
+        node_id: {
+            key: {
+                "artifact_ref": _ref(
+                    artifact_id, kind, "application/json"
+                ).model_dump(mode="json"),
+                "kind": kind,
+                "step_node_id": node_id,
+            }
         }
     }
 
@@ -140,7 +144,7 @@ class ParsedEntrySourceTests(unittest.TestCase):
 
     def test_merged_content_wrong_kind_is_empty(self) -> None:
         entry = _parsed_entry("merge-1", "merged_content", "merged_content")
-        entry["merge-1.merged_content"]["kind"] = "something_else"
+        entry["merge-1"]["merged_content"]["kind"] = "something_else"
         dev = _device(parsed=entry)
         self.assertEqual(
             list_exportable_content(
@@ -151,7 +155,7 @@ class ParsedEntrySourceTests(unittest.TestCase):
 
     def test_merged_content_missing_artifact_id_is_empty(self) -> None:
         entry = _parsed_entry("merge-1", "merged_content", "merged_content")
-        entry["merge-1.merged_content"]["artifact_ref"] = {"kind": "merged_content"}
+        entry["merge-1"]["merged_content"]["artifact_ref"] = {"kind": "merged_content"}
         dev = _device(parsed=entry)
         self.assertEqual(
             list_exportable_content(
@@ -161,7 +165,7 @@ class ParsedEntrySourceTests(unittest.TestCase):
         )
 
     def test_merged_content_non_dict_entry_is_empty(self) -> None:
-        dev = _device(parsed={"merge-1.merged_content": "not-a-dict"})
+        dev = _device(parsed={"merge-1": {"merged_content": "not-a-dict"}})
         self.assertEqual(
             list_exportable_content(
                 dev, content_source="merged_content", source_step_node_id="merge-1"
@@ -179,7 +183,7 @@ class ParsedEntrySourceTests(unittest.TestCase):
             list_exportable_content(_device(), content_source="filtered_output")
         self.assertEqual(
             list_exportable_content(
-                _device(parsed={"f-1.filtered_output": 5}),
+                _device(parsed={"f-1": {"filtered_output": 5}}),
                 content_source="filtered_output",
                 source_step_node_id="f-1",
             ),
@@ -197,7 +201,7 @@ class ParsedEntrySourceTests(unittest.TestCase):
 
     def test_comparison_diff_wrong_kind_is_empty(self) -> None:
         entry = _parsed_entry("c-1", "comparison_diff", "comparison_diff")
-        entry["c-1.comparison_diff"]["kind"] = "nope"
+        entry["c-1"]["comparison_diff"]["kind"] = "nope"
         dev = _device(parsed=entry)
         self.assertEqual(
             list_exportable_content(

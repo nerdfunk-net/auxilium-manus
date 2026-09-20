@@ -93,7 +93,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["success"].context.devices), ["d1"])
         enriched = by_name["success"].context.devices["d1"]
-        self.assertTrue(enriched.parsed["reach-1.reachability"]["reachable"])
+        self.assertTrue(enriched.parsed["reach-1"]["reachability"]["reachable"])
         self.assertIn(Capability.PARSED, enriched.capabilities)
         self.assertEqual(
             by_name["success"].context.metadata["reach-1.reachability_counts"],

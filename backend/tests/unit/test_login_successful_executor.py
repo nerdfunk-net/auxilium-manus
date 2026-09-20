@@ -63,7 +63,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = outcomes[0].context.devices["device-1"]
         self.assertEqual(device.status, DeviceStatus.OK)
         self.assertIn(Capability.PARSED, device.capabilities)
-        self.assertTrue(device.parsed["node-1.login"]["login_ok"])
+        self.assertTrue(device.parsed["node-1"]["login"]["login_ok"])
 
     async def test_failed_login_routes_to_failure(self) -> None:
         run = MagicMock()
@@ -101,7 +101,7 @@ class LoginSuccessfulExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("device-1", outcomes[1].context.devices)
         failed = outcomes[1].context.devices["device-1"]
         self.assertEqual(failed.status, DeviceStatus.FAILED)
-        self.assertFalse(failed.parsed["node-1.login"]["login_ok"])
+        self.assertFalse(failed.parsed["node-1"]["login"]["login_ok"])
         self.assertEqual(failed.errors[-1].code, "runtimeerror")
 
     async def test_device_without_host_goes_to_failure(self) -> None:

@@ -886,7 +886,7 @@ mismatch map is then used to partition devices.
 
 **Per-device result.** A contributing device whose node name appears in the
 returned mismatch map routes to `mismatch` (with the mismatched fields
-written to `device.parsed["{node_id}.<output_key>"]["parsed"]`); one with no
+written to `device.parsed[node_id][output_key]["parsed"]`); one with no
 entry routes to `match` (empty dict at the same path). A device whose
 expected facts couldn't be resolved (missing rendered content, a Jinja
 render error, or a node-key mismatch) routes to `failure` with a
@@ -1085,7 +1085,7 @@ of the shared `workflow_steps.common.batfish_context.devices_from_nodes`
 helper via `device.model_copy`, the same `device.parsed[...] =
 {"parsed": ..., "error": None}` idiom `batfish-extract-facts`/
 `batfish-validate-facts` already use) and carries **only that node's own
-row** at `device.parsed[f"{node_id}.{output_key}"]`. This was not the
+row** at `device.parsed[node_id][output_key]`. This was not the
 original behavior — `devices` originally carried identity only (no
 `parsed` at all), with the actual property values living solely in the one
 shared, un-partitioned artifact above. That meant a per-device consumer
@@ -1219,7 +1219,7 @@ straight through unchanged otherwise.
 `DeviceContext` in `devices` is built by `_enrich_devices` (layered on top
 of `devices_from_interface_rows` via `device.model_copy`) and carries **only
 that node's own matching interfaces**, grouped under
-`device.parsed[f"{node_id}.{output_key}"]["parsed"]["Interfaces"][<interface
+`device.parsed[node_id][output_key]["parsed"]["Interfaces"][<interface
 name>]` — the same `"Interfaces"` nesting `pybatfish.client._facts.
 get_facts()` itself uses for this question. Same motivation and same fix as
 Node Properties: `devices` originally carried identity only, so a per-device
@@ -1303,7 +1303,7 @@ null/empty one).
 **`devices` outcome: the actual "combined" merge.** One device per distinct
 node seen in *any* enabled question's rows (union, not intersection — a node
 appearing in only one enabled question still gets a device). Each device is
-enriched at `device.parsed[f"{node_id}.{output_key}"]["parsed"]` with only
+enriched at `device.parsed[node_id][output_key]["parsed"]` with only
 the keys for questions that had at least one row for that node:
 
 ```python

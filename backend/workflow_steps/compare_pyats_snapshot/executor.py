@@ -64,6 +64,7 @@ from services.workflow_context.device_template import (
     parse_strict_templates,
     render_device_template,
 )
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 from workflow_steps.common.pyats_features import parse_feature_list
 from workflow_steps.compare_data.reference_reader import read_reference_text
@@ -158,7 +159,7 @@ async def _build_device_result(
     Routes to ``match`` only when every selected feature is identical; otherwise
     ``mismatch``, storing one diff artifact per differing feature.
     """
-    comparison_diff_key = f"{node_id}.comparison_diff"
+    comparison_diff_key = f"parsed.{node_id}.comparison_diff"
     diff_map: dict[str, dict[str, Any]] = {}
     per_feature: dict[str, dict[str, Any]] = {}
     mismatched_features: list[str] = []
@@ -228,10 +229,9 @@ async def _build_device_result(
     if not matched:
         summary["comparison_diff_key"] = comparison_diff_key
 
-    parsed = dict(device.parsed)
-    parsed[f"{node_id}.comparison"] = summary
+    parsed = set_node_result(device.parsed, node_id, "comparison", summary)
     if diff_map:
-        parsed[comparison_diff_key] = diff_map
+        parsed = set_node_result(parsed, node_id, "comparison_diff", diff_map)
     enriched = device.model_copy(
         update={
             "parsed": parsed,

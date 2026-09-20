@@ -92,7 +92,9 @@ class RouteOnContentExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["mismatch"].context.devices), ["dev-old"])
         self.assertEqual(by_name["failure"].context.devices, {})
 
-        match_entry = by_name["match"].context.devices["dev-new"].parsed["node-1.content_match"]
+        match_entry = (
+            by_name["match"].context.devices["dev-new"].parsed["node-1"]["content_match"]
+        )
         self.assertTrue(match_entry["matched"])
         self.assertEqual(match_entry["matched_text"], "tacacs server")
 

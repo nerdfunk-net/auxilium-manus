@@ -61,7 +61,7 @@ class BatfishNodePropertiesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device.capabilities, {Capability.IDENTITY, Capability.PARSED})
         self.assertEqual(device.status, DeviceStatus.OK)
         self.assertEqual(
-            device.parsed["node-1.batfish_node_properties"],
+            device.parsed["node-1"]["batfish_node_properties"],
             {"parsed": {"TACACS_Servers": ["10.0.0.5"]}, "error": None},
         )
 
@@ -89,11 +89,11 @@ class BatfishNodePropertiesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         devices = next(outcome for outcome in outcomes if outcome.name == "devices").context.devices
         self.assertEqual(
-            devices["lab"].parsed["node-1.batfish_node_properties"],
+            devices["lab"].parsed["node-1"]["batfish_node_properties"],
             {"parsed": {"TACACS_Servers": ["ISE_SERVER_1"]}, "error": None},
         )
         self.assertEqual(
-            devices["lab-2"].parsed["node-1.batfish_node_properties"],
+            devices["lab-2"].parsed["node-1"]["batfish_node_properties"],
             {"parsed": {"TACACS_Servers": []}, "error": None},
         )
         # lab-2's row must never leak into lab's parsed data or vice versa.

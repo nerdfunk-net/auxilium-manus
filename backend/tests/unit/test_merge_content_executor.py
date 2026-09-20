@@ -178,7 +178,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         success = next(o for o in outcomes if o.name == "success")
         enriched = success.context.devices["d1"]
-        entry = enriched.parsed["merge-1.merged_content"]
+        entry = enriched.parsed["merge-1"]["merged_content"]
         merged = await artifacts.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
         self.assertIn("=== cmd a ===", merged)
         self.assertIn("=== cmd b ===", merged)

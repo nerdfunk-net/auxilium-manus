@@ -18,6 +18,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import list_exportable_content
 
 if TYPE_CHECKING:
@@ -213,11 +214,15 @@ async def _merge_device(
         )
 
         size_bytes = len(merged_str.encode("utf-8"))
-        updated_parsed = dict(device.parsed)
-        updated_parsed[f"{node_id}.merged_content"] = _merged_content_entry(
-            artifact_ref=artifact_ref,
-            node_id=node_id,
-            size_bytes=size_bytes,
+        updated_parsed = set_node_result(
+            device.parsed,
+            node_id,
+            "merged_content",
+            _merged_content_entry(
+                artifact_ref=artifact_ref,
+                node_id=node_id,
+                size_bytes=size_bytes,
+            ),
         )
 
         enriched = device.model_copy(

@@ -66,7 +66,7 @@ class BatfishInterfacePropertiesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device.capabilities, {Capability.IDENTITY, Capability.PARSED})
         self.assertEqual(device.status, DeviceStatus.OK)
         self.assertEqual(
-            device.parsed["node-1.batfish_interface_properties"],
+            device.parsed["node-1"]["batfish_interface_properties"],
             {
                 "parsed": {"Interfaces": {"GigabitEthernet0/1": {"Description": "uplink"}}},
                 "error": None,
@@ -99,11 +99,15 @@ class BatfishInterfacePropertiesExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         devices = next(outcome for outcome in outcomes if outcome.name == "devices").context.devices
         self.assertEqual(
-            devices["lab"].parsed["node-1.batfish_interface_properties"]["parsed"]["Interfaces"],
+            devices["lab"].parsed["node-1"]["batfish_interface_properties"]["parsed"][
+                "Interfaces"
+            ],
             {"Gi0/1": {"Description": "wan"}},
         )
         self.assertEqual(
-            devices["lab-2"].parsed["node-1.batfish_interface_properties"]["parsed"]["Interfaces"],
+            devices["lab-2"].parsed["node-1"]["batfish_interface_properties"]["parsed"][
+                "Interfaces"
+            ],
             {"Gi0/1": {"Description": ""}},
         )
         # lab's interface data must never leak into lab-2's parsed entry or vice versa.
@@ -137,7 +141,9 @@ class BatfishInterfacePropertiesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(devices), {"lab"})
         # Only the flagged (empty) interface is attached -- not lab's full interface set.
         self.assertEqual(
-            devices["lab"].parsed["node-1.batfish_interface_properties"]["parsed"]["Interfaces"],
+            devices["lab"].parsed["node-1"]["batfish_interface_properties"]["parsed"][
+                "Interfaces"
+            ],
             {"Gi0/2": {"Description": ""}},
         )
 

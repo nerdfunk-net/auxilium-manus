@@ -4,9 +4,60 @@ import type {
   ParsedComparisonDiffEntry,
   ParsedComparisonResultEntry,
   ParsedConfigEntry,
+  ParsedContentMatchEntry,
+  ParsedMembershipEntry,
   ParsedTemplateEntry,
   SnapshotEntry,
 } from "./types";
+
+/**
+ * Every step that stashes its own per-run result under its own canvas node id
+ * (route-on-content, list-contains, compare-data, compare-pyats-snapshot,
+ * reachable, login-successful, merge-content, configure-replace-config,
+ * filter-output, update-content, the batfish property/facts steps, ...)
+ * nests it as `parsed[node_id][key] = <entry>` (see
+ * `backend/services/workflow_context/node_result.py`) instead of a flat
+ * `parsed[output_key] = <entry>` a user chose themselves. A top-level
+ * `device.parsed` value that isn't itself one of the recognized entry shapes
+ * below is therefore treated as a per-node result bag and searched one level
+ * deeper, so every `get*Entries` helper below sees both kinds of entry
+ * uniformly.
+ */
+function isKnownParsedEntry(value: unknown): boolean {
+  return (
+    isParsedTemplateEntry(value) ||
+    isComparisonResultEntry(value) ||
+    isComparisonDiffEntry(value) ||
+    isComparisonDiffFeatureMap(value) ||
+    isParsedConfigEntry(value) ||
+    isSnapshotEntry(value) ||
+    isParsedCommandOutputEntry(value) ||
+    isFactsEntry(value) ||
+    isContentMatchEntry(value) ||
+    isMembershipEntry(value)
+  );
+}
+
+function flattenParsedEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; value: unknown }> {
+  const out: Array<{ key: string; value: unknown }> = [];
+  for (const [key, value] of Object.entries(parsed)) {
+    if (
+      isKnownParsedEntry(value) ||
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      out.push({ key, value });
+      continue;
+    }
+    for (const [innerKey, innerValue] of Object.entries(value as Record<string, unknown>)) {
+      out.push({ key: `${key}.${innerKey}`, value: innerValue });
+    }
+  }
+  return out;
+}
 
 export function isParsedTemplateEntry(value: unknown): value is ParsedTemplateEntry {
   if (typeof value !== "object" || value === null) {
@@ -24,9 +75,9 @@ export function isParsedTemplateEntry(value: unknown): value is ParsedTemplateEn
 export function getParsedTemplateEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedTemplateEntry }> {
-  return Object.entries(parsed)
-    .filter(([, value]) => isParsedTemplateEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as ParsedTemplateEntry }));
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isParsedTemplateEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as ParsedTemplateEntry }));
 }
 
 export function isComparisonResultEntry(value: unknown): value is ParsedComparisonResultEntry {
@@ -69,16 +120,16 @@ function isComparisonDiffFeatureMap(
 export function getComparisonResultEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedComparisonResultEntry }> {
-  return Object.entries(parsed)
-    .filter(([, value]) => isComparisonResultEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as ParsedComparisonResultEntry }));
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isComparisonResultEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as ParsedComparisonResultEntry }));
 }
 
 export function getComparisonDiffEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedComparisonDiffEntry }> {
   const result: Array<{ key: string; entry: ParsedComparisonDiffEntry }> = [];
-  for (const [key, value] of Object.entries(parsed)) {
+  for (const { key, value } of flattenParsedEntries(parsed)) {
     if (isComparisonDiffEntry(value)) {
       result.push({ key, entry: value });
     } else if (isComparisonDiffFeatureMap(value)) {
@@ -108,9 +159,9 @@ export function isParsedConfigEntry(value: unknown): value is ParsedConfigEntry 
 export function getParsedConfigEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedConfigEntry }> {
-  return Object.entries(parsed)
-    .filter(([, value]) => isParsedConfigEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as ParsedConfigEntry }));
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isParsedConfigEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as ParsedConfigEntry }));
 }
 
 export function isSnapshotEntry(value: unknown): value is SnapshotEntry {
@@ -131,9 +182,9 @@ export function isSnapshotEntry(value: unknown): value is SnapshotEntry {
 export function getSnapshotEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: SnapshotEntry }> {
-  return Object.entries(parsed)
-    .filter(([, value]) => isSnapshotEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as SnapshotEntry }));
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isSnapshotEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as SnapshotEntry }));
 }
 
 function isParsedCommandEntry(value: unknown): value is ParsedCommandEntry {
@@ -171,9 +222,9 @@ export function isParsedCommandOutputEntry(
 export function getParsedCommandOutputEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedCommandOutputEntry }> {
-  return Object.entries(parsed)
-    .filter(([, value]) => isParsedCommandOutputEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as ParsedCommandOutputEntry }));
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isParsedCommandOutputEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as ParsedCommandOutputEntry }));
 }
 
 /**
@@ -209,7 +260,39 @@ export function isFactsEntry(value: unknown): value is ParsedCommandEntry {
 export function getFactsEntries(
   parsed: Record<string, unknown>,
 ): Array<{ key: string; entry: ParsedCommandEntry }> {
-  return Object.entries(parsed)
-    .filter(([, value]) => isFactsEntry(value))
-    .map(([key, entry]) => ({ key, entry: entry as ParsedCommandEntry }));
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isFactsEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as ParsedCommandEntry }));
+}
+
+export function isContentMatchEntry(value: unknown): value is ParsedContentMatchEntry {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as ParsedContentMatchEntry).kind === "content_match_result"
+  );
+}
+
+export function getContentMatchEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: ParsedContentMatchEntry }> {
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isContentMatchEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as ParsedContentMatchEntry }));
+}
+
+export function isMembershipEntry(value: unknown): value is ParsedMembershipEntry {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as ParsedMembershipEntry).kind === "membership_result"
+  );
+}
+
+export function getMembershipEntries(
+  parsed: Record<string, unknown>,
+): Array<{ key: string; entry: ParsedMembershipEntry }> {
+  return flattenParsedEntries(parsed)
+    .filter(({ value }) => isMembershipEntry(value))
+    .map(({ key, value }) => ({ key, entry: value as ParsedMembershipEntry }));
 }

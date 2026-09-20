@@ -160,12 +160,14 @@ class ContentResolverTests(unittest.TestCase):
             name="lab",
             hostname="lab",
             parsed={
-                "compare-data-2.comparison_diff": {
-                    "artifact_ref": artifact_ref.model_dump(mode="json"),
-                    "step_node_id": "compare-data-2",
-                    "kind": "comparison_diff",
-                    "matched": False,
-                    "reference_path": "lab.cfg",
+                "compare-data-2": {
+                    "comparison_diff": {
+                        "artifact_ref": artifact_ref.model_dump(mode="json"),
+                        "step_node_id": "compare-data-2",
+                        "kind": "comparison_diff",
+                        "matched": False,
+                        "reference_path": "lab.cfg",
+                    }
                 }
             },
             status=DeviceStatus.OK,

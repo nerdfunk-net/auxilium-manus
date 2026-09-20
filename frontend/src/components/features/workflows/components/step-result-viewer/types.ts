@@ -118,3 +118,24 @@ export interface ParsedCommandEntry {
 }
 
 export type ParsedCommandOutputEntry = Record<string, ParsedCommandEntry>;
+
+/** route-on-content's per-device result — `{node_id: {content_match: ...}}`. */
+export interface ParsedContentMatchEntry {
+  kind: "content_match_result";
+  matched: boolean;
+  content_source: string;
+  match_mode: string;
+  case_sensitive: boolean;
+  multiline: boolean;
+  matched_text?: string;
+}
+
+/** list-contains's per-device result — `{node_id: {membership: ...}}`. */
+export interface ParsedMembershipEntry {
+  kind: "membership_result";
+  matched: boolean;
+  list_path: string;
+  field?: string | null;
+  value: unknown;
+  matched_item?: unknown;
+}

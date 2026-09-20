@@ -10,8 +10,10 @@ import {
   GitCompareArrows,
   Info,
   Layers,
+  ListChecks,
   Radar,
   ScrollText,
+  Search,
   SquareTerminal,
   type LucideIcon,
 } from "lucide-react";
@@ -48,7 +50,9 @@ import { DeviceStatusIcon } from "./devices-section";
 import {
   getComparisonDiffEntries,
   getComparisonResultEntries,
+  getContentMatchEntries,
   getFactsEntries,
+  getMembershipEntries,
   getParsedCommandOutputEntries,
   getParsedConfigEntries,
   getParsedTemplateEntries,
@@ -118,6 +122,14 @@ export function DeviceDetailDialog({
     [device.parsed],
   );
   const factsEntries = useMemo(() => getFactsEntries(device.parsed ?? {}), [device.parsed]);
+  const contentMatchEntries = useMemo(
+    () => getContentMatchEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
+  const membershipEntries = useMemo(
+    () => getMembershipEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
   const commandResultCount = useMemo(
     () =>
       Object.values(device.command_results).reduce(
@@ -294,6 +306,50 @@ export function DeviceDetailDialog({
       });
     }
 
+    if (contentMatchEntries.length > 0) {
+      list.push({
+        id: "content-match",
+        label: "Content match",
+        icon: Search,
+        count: contentMatchEntries.length,
+        render: () => (
+          <div className="space-y-4">
+            {contentMatchEntries.map(({ key, entry }) => (
+              <ContentViewer
+                key={key}
+                label={key}
+                content={JSON.stringify(entry, null, 2)}
+                downloadName={`${device.name}-${key}`}
+                height="full"
+              />
+            ))}
+          </div>
+        ),
+      });
+    }
+
+    if (membershipEntries.length > 0) {
+      list.push({
+        id: "membership",
+        label: "List membership",
+        icon: ListChecks,
+        count: membershipEntries.length,
+        render: () => (
+          <div className="space-y-4">
+            {membershipEntries.map(({ key, entry }) => (
+              <ContentViewer
+                key={key}
+                label={key}
+                content={JSON.stringify(entry, null, 2)}
+                downloadName={`${device.name}-${key}`}
+                height="full"
+              />
+            ))}
+          </div>
+        ),
+      });
+    }
+
     if (comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0) {
       list.push({
         id: "comparisons",
@@ -346,9 +402,11 @@ export function DeviceDetailDialog({
     commandResultCount,
     comparisonDiffEntries,
     comparisonResultEntries,
+    contentMatchEntries,
     device,
     dryRunEntries,
     factsEntries,
+    membershipEntries,
     parsedCommandOutputEntries,
     parsedConfigEntries,
     parsedTemplateEntries,

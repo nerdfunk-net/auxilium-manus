@@ -30,6 +30,7 @@ from services.workflow_context.attribute_regex import (
     apply_regex_content_replace,
     compile_pattern,
 )
+from services.workflow_context.node_result import set_node_result
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
@@ -153,9 +154,11 @@ async def _update_and_store(
     )
 
     size_bytes = len(updated_text.encode("utf-8"))
-    updated_parsed = {
-        **device.parsed,
-        f"{node_id}.updated_content": {
+    updated_parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "updated_content",
+        {
             "artifact_ref": artifact_ref.model_dump(mode="json"),
             "step_node_id": node_id,
             "output_key": "updated_content",
@@ -163,7 +166,7 @@ async def _update_and_store(
             "kind": "updated_content",
             "match_counts": match_counts,
         },
-    }
+    )
 
     return device.model_copy(
         update={

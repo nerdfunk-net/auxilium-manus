@@ -132,7 +132,7 @@ class BuildPropertyOutcomesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[1].name, "devices")
         device = outcomes[1].context.devices["r1"]
         self.assertEqual(
-            device.parsed["node-1.batfish_node_properties"]["parsed"]["TACACS_Servers"],
+            device.parsed["node-1"]["batfish_node_properties"]["parsed"]["TACACS_Servers"],
             ["10.0.0.5"],
         )
 

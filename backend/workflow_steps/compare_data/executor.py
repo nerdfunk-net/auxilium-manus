@@ -23,6 +23,7 @@ from services.workflow_context.device_template import (
     parse_strict_templates,
     render_device_template,
 )
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import (
     ExportableContent,
     list_exportable_content,
@@ -247,7 +248,6 @@ def _build_compare_match_result(
     item: ExportableContent,
     reference_path: str,
 ) -> tuple[str, DeviceContext, str, dict[str, Any]]:
-    device_parsed = dict(device.parsed)
     capabilities = set(device.capabilities)
     record: dict[str, Any] = {
         "device_id": device_id,
@@ -257,13 +257,18 @@ def _build_compare_match_result(
         "matched": True,
         **item.extra,
     }
-    device_parsed[f"{node_id}.comparison"] = _comparison_result_entry(
-        matched=True,
-        content_source=parsed.content_source,
-        reference_path=reference_path,
-        reference_location=parsed.reference_location,
-        node_id=node_id,
-        item_extra=item.extra,
+    device_parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "comparison",
+        _comparison_result_entry(
+            matched=True,
+            content_source=parsed.content_source,
+            reference_path=reference_path,
+            reference_location=parsed.reference_location,
+            node_id=node_id,
+            item_extra=item.extra,
+        ),
     )
     capabilities.add(Capability.PARSED)
     enriched = device.model_copy(
@@ -290,7 +295,6 @@ async def _build_compare_mismatch_result(
     artifact_service: ArtifactService,
     diff_service: GitDiffService,
 ) -> tuple[str, DeviceContext, str, dict[str, Any]]:
-    device_parsed = dict(device.parsed)
     capabilities = set(device.capabilities)
     record: dict[str, Any] = {
         "device_id": device_id,
@@ -317,25 +321,35 @@ async def _build_compare_mismatch_result(
         "additions": diff_result.stats.additions,
         "deletions": diff_result.stats.deletions,
     }
-    comparison_diff_key = f"{node_id}.comparison_diff"
-    device_parsed[comparison_diff_key] = _comparison_diff_entry(
-        artifact_ref=diff_ref,
-        content_source=parsed.content_source,
-        reference_path=reference_path,
-        reference_location=parsed.reference_location,
-        node_id=node_id,
-        item_extra=item.extra,
-        diff_stats=diff_stats,
+    comparison_diff_key = f"parsed.{node_id}.comparison_diff"
+    device_parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "comparison_diff",
+        _comparison_diff_entry(
+            artifact_ref=diff_ref,
+            content_source=parsed.content_source,
+            reference_path=reference_path,
+            reference_location=parsed.reference_location,
+            node_id=node_id,
+            item_extra=item.extra,
+            diff_stats=diff_stats,
+        ),
     )
-    device_parsed[f"{node_id}.comparison"] = _comparison_result_entry(
-        matched=False,
-        content_source=parsed.content_source,
-        reference_path=reference_path,
-        reference_location=parsed.reference_location,
-        diff_stats=diff_stats,
-        comparison_diff_key=comparison_diff_key,
-        node_id=node_id,
-        item_extra=item.extra,
+    device_parsed = set_node_result(
+        device_parsed,
+        node_id,
+        "comparison",
+        _comparison_result_entry(
+            matched=False,
+            content_source=parsed.content_source,
+            reference_path=reference_path,
+            reference_location=parsed.reference_location,
+            diff_stats=diff_stats,
+            comparison_diff_key=comparison_diff_key,
+            node_id=node_id,
+            item_extra=item.extra,
+        ),
     )
     capabilities.add(Capability.PARSED)
     record["diff_stats"] = diff_stats

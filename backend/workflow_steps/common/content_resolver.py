@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from models.workflow_context import ArtifactRef, CommandResult, DeviceContext
+from services.workflow_context.node_result import get_node_result
 
 
 @dataclass(frozen=True)
@@ -261,8 +262,7 @@ def _exportable_from_merged_content(
     *,
     source_step_node_id: str,
 ) -> list[ExportableContent]:
-    key = f"{source_step_node_id}.merged_content"
-    raw = device.parsed.get(key)
+    raw = get_node_result(device.parsed, source_step_node_id, "merged_content")
     if not isinstance(raw, dict):
         return []
     artifact_raw = raw.get("artifact_ref")
@@ -289,8 +289,7 @@ def _exportable_from_comparison_diff(
     *,
     source_step_node_id: str,
 ) -> list[ExportableContent]:
-    key = f"{source_step_node_id}.comparison_diff"
-    raw = device.parsed.get(key)
+    raw = get_node_result(device.parsed, source_step_node_id, "comparison_diff")
     if not isinstance(raw, dict):
         return []
     artifact_raw = raw.get("artifact_ref")
@@ -318,8 +317,7 @@ def _exportable_from_filtered_output(
     *,
     source_step_node_id: str,
 ) -> list[ExportableContent]:
-    key = f"{source_step_node_id}.filtered_output"
-    raw = device.parsed.get(key)
+    raw = get_node_result(device.parsed, source_step_node_id, "filtered_output")
     if not isinstance(raw, dict):
         return []
     artifact_raw = raw.get("artifact_ref")
@@ -346,8 +344,7 @@ def _exportable_from_updated_content(
     *,
     source_step_node_id: str,
 ) -> list[ExportableContent]:
-    key = f"{source_step_node_id}.updated_content"
-    raw = device.parsed.get(key)
+    raw = get_node_result(device.parsed, source_step_node_id, "updated_content")
     if not isinstance(raw, dict):
         return []
     artifact_raw = raw.get("artifact_ref")

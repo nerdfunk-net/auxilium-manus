@@ -135,7 +135,7 @@ class BatfishValidateFactsFieldModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(outcomes["mismatch"].context.devices), {"device-1"})
         self.assertEqual(outcomes["match"].context.devices, {})
         device = outcomes["mismatch"].context.devices["device-1"]
-        self.assertEqual(device.parsed["node-1.batfish_validate_facts"]["parsed"], detail)
+        self.assertEqual(device.parsed["node-1"]["batfish_validate_facts"]["parsed"], detail)
 
     async def test_list_value_field_parses_as_yaml_list(self) -> None:
         devices = {"device-1": _device("device-1", "r1")}

@@ -67,7 +67,7 @@ class BatfishBgpFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[1].name, "devices")
         devices = outcomes[1].context.devices
         self.assertEqual(set(devices), {"r1"})
-        parsed_r1 = devices["r1"].parsed["node-1.batfish_bgp_facts"]["parsed"]
+        parsed_r1 = devices["r1"].parsed["node-1"]["batfish_bgp_facts"]["parsed"]
         self.assertIn("Process", parsed_r1)
         self.assertIn("Peers", parsed_r1)
         self.assertIn("Sessions", parsed_r1)

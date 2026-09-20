@@ -20,6 +20,7 @@ from services.workflow_context.attribute_path import (
     resolve_device_attribute_state,
     resolve_device_value,
 )
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 from workflow_steps.list_contains.config import get_config
 
@@ -112,15 +113,19 @@ def _enrich_membership_result(
     field: str | None,
     resolved_value: Any,
 ) -> DeviceContext:
-    parsed = dict(device.parsed)
-    parsed[f"{node_id}.membership"] = {
-        "kind": "membership_result",
-        "matched": matched,
-        "list_path": list_path,
-        "field": field,
-        "value": resolved_value,
-        "matched_item": matched_item,
-    }
+    parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "membership",
+        {
+            "kind": "membership_result",
+            "matched": matched,
+            "list_path": list_path,
+            "field": field,
+            "value": resolved_value,
+            "matched_item": matched_item,
+        },
+    )
     return device.model_copy(
         update={
             "parsed": parsed,

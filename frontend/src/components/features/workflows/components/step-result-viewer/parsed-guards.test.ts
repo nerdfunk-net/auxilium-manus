@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { getComparisonDiffEntries } from "./parsed-guards";
+import {
+  getComparisonDiffEntries,
+  getComparisonResultEntries,
+  getContentMatchEntries,
+  getMembershipEntries,
+} from "./parsed-guards";
 
 const artifactRef = {
   artifact_id: "a1",
@@ -58,5 +63,78 @@ describe("getComparisonDiffEntries", () => {
     });
 
     expect(entries).toHaveLength(0);
+  });
+
+  it("finds the entry nested under its own node id (the current backend shape)", () => {
+    // compare-data's mismatch branch always writes a sibling "comparison"
+    // result entry alongside "comparison_diff" in the same node-id bag —
+    // include it here too, since a lone { comparison_diff: <diff entry> }
+    // bag is structurally indistinguishable from a one-feature
+    // compare-pyats-snapshot feature map.
+    const entries = getComparisonDiffEntries({
+      "compare-data-1": {
+        comparison: { kind: "comparison_result", matched: false, step_node_id: "compare-data-1" },
+        comparison_diff: diffEntry(),
+      },
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].key).toBe("compare-data-1.comparison_diff");
+  });
+});
+
+describe("getComparisonResultEntries", () => {
+  it("finds a comparison result nested under its own node id", () => {
+    const entries = getComparisonResultEntries({
+      "compare-data-1": {
+        comparison: { kind: "comparison_result", matched: true, step_node_id: "compare-data-1" },
+      },
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].key).toBe("compare-data-1.comparison");
+    expect(entries[0].entry.matched).toBe(true);
+  });
+});
+
+describe("getContentMatchEntries", () => {
+  it("finds route-on-content's result nested under its own node id", () => {
+    const entries = getContentMatchEntries({
+      "route-on-content-3": {
+        content_match: {
+          kind: "content_match_result",
+          matched: true,
+          content_source: "running_config",
+          match_mode: "regex",
+          case_sensitive: false,
+          multiline: false,
+          matched_text: "access-class MGMT_in in",
+        },
+      },
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].key).toBe("route-on-content-3.content_match");
+    expect(entries[0].entry.matched_text).toBe("access-class MGMT_in in");
+  });
+});
+
+describe("getMembershipEntries", () => {
+  it("finds list-contains's result nested under its own node id", () => {
+    const entries = getMembershipEntries({
+      "list-contains-2": {
+        membership: {
+          kind: "membership_result",
+          matched: false,
+          list_path: "parsed.cisco_config.running.access_lists",
+          field: "name",
+          value: "MGMT_in",
+        },
+      },
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].key).toBe("list-contains-2.membership");
+    expect(entries[0].entry.matched).toBe(false);
   });
 });

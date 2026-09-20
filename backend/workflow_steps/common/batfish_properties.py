@@ -45,6 +45,7 @@ from services.batfish.facts_specs import (
     facts_by_node_for_property,
     group_rows_by_node,
 )
+from services.workflow_context.node_result import set_node_result
 
 __all__ = [
     "EMPTY_MATCH_MODES",
@@ -102,7 +103,6 @@ def validate_empty_config(
 def _enrich_devices(
     rows: list[dict[str, Any]], *, node_id: str, output_key: str, spec: PropertyQuestionSpec
 ) -> dict[str, DeviceContext]:
-    parsed_key = f"{node_id}.{output_key}"
     payloads_by_node = facts_by_node_for_property(spec, rows)
 
     enriched: dict[str, DeviceContext] = {}
@@ -115,8 +115,9 @@ def _enrich_devices(
             capabilities={Capability.IDENTITY},
             status=DeviceStatus.OK,
         )
-        parsed = dict(device.parsed)
-        parsed[parsed_key] = {"parsed": payload, "error": None}
+        parsed = set_node_result(
+            device.parsed, node_id, output_key, {"parsed": payload, "error": None}
+        )
         enriched[node] = device.model_copy(
             update={"parsed": parsed, "capabilities": device.capabilities | {Capability.PARSED}}
         )

@@ -18,6 +18,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import list_exportable_content, parse_content_source
 from workflow_steps.common.placeholder_template import render_placeholder_template
 from workflow_steps.route_on_content.config import get_config
@@ -201,16 +202,20 @@ async def _process_device(
         )
         return device_id, failed, "failure"
 
-    device_parsed = dict(device.parsed)
-    device_parsed[f"{node_id}.content_match"] = {
-        "kind": "content_match_result",
-        "matched": matched,
-        "content_source": parsed.content_source,
-        "match_mode": parsed.match_mode,
-        "case_sensitive": parsed.case_sensitive,
-        "multiline": parsed.multiline,
-        **({"matched_text": matched_text} if matched_text is not None else {}),
-    }
+    device_parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "content_match",
+        {
+            "kind": "content_match_result",
+            "matched": matched,
+            "content_source": parsed.content_source,
+            "match_mode": parsed.match_mode,
+            "case_sensitive": parsed.case_sensitive,
+            "multiline": parsed.multiline,
+            **({"matched_text": matched_text} if matched_text is not None else {}),
+        },
+    )
     enriched = device.model_copy(
         update={
             "parsed": device_parsed,

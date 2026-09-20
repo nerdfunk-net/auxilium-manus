@@ -28,6 +28,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.content_resolver import ExportableContent, list_exportable_content
 
 if TYPE_CHECKING:
@@ -200,16 +201,18 @@ async def _filter_and_store(
     )
 
     size_bytes = len(filtered_content.encode("utf-8"))
-    updated_parsed = {
-        **device.parsed,
-        f"{node_id}.filtered_output": {
+    updated_parsed = set_node_result(
+        device.parsed,
+        node_id,
+        "filtered_output",
+        {
             "artifact_ref": artifact_ref.model_dump(mode="json"),
             "step_node_id": node_id,
             "output_key": "filtered_output",
             "size_bytes": size_bytes,
             "kind": "filtered_output",
         },
-    }
+    )
 
     return device.model_copy(
         update={

@@ -67,6 +67,7 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.git.sync import clone_or_pull
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.batfish_init_snapshot.git_source import collect_git_source_files
 from workflow_steps.batfish_validate_facts.config import get_config
 from workflow_steps.common.batfish_context import resolve_batfish_snapshot_ref
@@ -374,8 +375,9 @@ async def execute(
     for device_id, node_name in contributions.items():
         device = context.devices[device_id]
         node_mismatch = mismatches.get(node_name)
-        parsed = dict(device.parsed)
-        parsed[f"{node_id}.{output_key}"] = {"parsed": node_mismatch or {}, "error": None}
+        parsed = set_node_result(
+            device.parsed, node_id, output_key, {"parsed": node_mismatch or {}, "error": None}
+        )
         enriched = device.model_copy(
             update={
                 "parsed": parsed,

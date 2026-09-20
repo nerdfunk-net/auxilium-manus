@@ -576,7 +576,8 @@ plugins:
           example: "{device.name}.pyats-snapshot.json"
         - name: comparison_diff_key
           description: >
-            Parsed key written per device on mismatch ({node_id}.comparison_diff).
+            Attribute path written per device on mismatch
+            (parsed.{node_id}.comparison_diff).
           data_type: string
           required: false
 
@@ -1364,8 +1365,8 @@ plugins:
         - name: output_key
           description: >
             Metadata key this step's aggregate result is stored under
-            ({node_id}.<output_key>); also the device.parsed key each
-            device's own mismatch detail (if any) is written under.
+            ({node_id}.<output_key>); also the device.parsed[node_id] key
+            each device's own mismatch detail (if any) is written under.
           data_type: string
           required: false
           default: batfish_validate_facts
@@ -3645,11 +3646,12 @@ plugins:
           default: false
         - name: comparison_diff_key
           description: >
-            Parsed key written per device on mismatch ({node_id}.comparison_diff).
-            Contains the unified diff artifact for downstream steps and run inspection.
+            Attribute path written per device on mismatch
+            (parsed.{node_id}.comparison_diff). Contains the unified diff
+            artifact for downstream steps and run inspection.
           data_type: string
           required: false
-          example: compare-data-3.comparison_diff
+          example: parsed.compare-data-3.comparison_diff
 
   - id: filter-output
     name: Filter Output

@@ -24,6 +24,8 @@ import { DeviceStatusIcon } from "./devices-section";
 import {
   getComparisonDiffEntries,
   getComparisonResultEntries,
+  getContentMatchEntries,
+  getMembershipEntries,
   getParsedCommandOutputEntries,
   getParsedConfigEntries,
   getParsedTemplateEntries,
@@ -76,12 +78,22 @@ export function DeviceCard({
     () => getParsedCommandOutputEntries(device.parsed ?? {}),
     [device.parsed],
   );
+  const contentMatchEntries = useMemo(
+    () => getContentMatchEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
+  const membershipEntries = useMemo(
+    () => getMembershipEntries(device.parsed ?? {}),
+    [device.parsed],
+  );
   const hasParsedTemplates = parsedTemplateEntries.length > 0;
   const hasComparisons =
     comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0;
   const hasParsedConfig = parsedConfigEntries.length > 0;
   const hasSnapshot = snapshotEntries.length > 0;
   const hasParsedCommandOutput = parsedCommandOutputEntries.length > 0;
+  const hasContentMatches = contentMatchEntries.length > 0;
+  const hasMemberships = membershipEntries.length > 0;
   const dryRunEntries = useMemo(
     () => getDryRunEntries(device.dry_run_results),
     [device.dry_run_results],
@@ -246,6 +258,36 @@ export function DeviceCard({
                   </div>
                 );
               })}
+            </div>
+          ) : null}
+          {hasContentMatches ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Content match
+              </p>
+              {contentMatchEntries.map(({ key, entry }) => (
+                <div key={key} className="text-xs text-muted-foreground">
+                  <span className="font-mono">{key}</span>
+                  {" · "}
+                  {entry.matched ? "matched" : "no match"}
+                  {entry.matched_text ? ` · "${entry.matched_text}"` : ""}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {hasMemberships ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                List membership
+              </p>
+              {membershipEntries.map(({ key, entry }) => (
+                <div key={key} className="text-xs text-muted-foreground">
+                  <span className="font-mono">{key}</span>
+                  {" · "}
+                  {entry.matched ? "found" : "not found"}
+                  {entry.value != null ? ` · looking for "${String(entry.value)}"` : ""}
+                </div>
+              ))}
             </div>
           ) : null}
           <DeviceErrorList errors={device.errors} />

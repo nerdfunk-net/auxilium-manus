@@ -723,6 +723,7 @@ The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/e
 - ❌ External code must never import `workflow_steps` packages directly; only `StepRunner` calls executors
 - ✅ Raise `ValueError` for config/input errors, `RuntimeError` for execution failures
 - ✅ If the step needs a git repository, store `git_repository_id: int` in its config and resolve it via `workflow_steps.common.git_repository_loader.load_git_repository` — see Git Repository Architecture below
+- ✅ If the step writes its own per-run result into `device.parsed` (not a user-chosen `output_key`), nest it under its own node id via `services.workflow_context.node_result.set_node_result(device.parsed, node_id, key, value)` (reads: `get_node_result`) — never a flat `f"{node_id}.{key}"` string key. `resolve_device_attribute`/`resolve_device_value` (used by Route on Attribute, List Contains, Update Attribute, and the attribute-path picker) split every `.` in a path as a nesting separator, so a flat key with an embedded literal dot can never be addressed by a downstream step — it silently resolves to nothing.
 
 ## Security Checklist
 - ✅ Change `SECRET_KEY` and default admin password

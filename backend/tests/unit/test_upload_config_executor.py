@@ -34,13 +34,15 @@ def _device_with_updated_content(device_id: str = "device-1") -> DeviceContext:
         primary_ip4="10.0.0.1/24",
         network_driver="cisco_ios",
         parsed={
-            "update-content-3.updated_content": {
-                "artifact_ref": artifact_ref.model_dump(mode="json"),
-                "step_node_id": "update-content-3",
-                "output_key": "updated_content",
-                "size_bytes": len(UPDATED_CONTENT),
-                "kind": "updated_content",
-                "match_counts": {},
+            "update-content-3": {
+                "updated_content": {
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": "update-content-3",
+                    "output_key": "updated_content",
+                    "size_bytes": len(UPDATED_CONTENT),
+                    "kind": "updated_content",
+                    "match_counts": {},
+                }
             }
         },
         capabilities={Capability.IDENTITY, Capability.PARSED},

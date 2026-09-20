@@ -45,7 +45,7 @@ class BuildBgpFactsOutcomesTests(unittest.IsolatedAsyncioTestCase):
 
         device = devices["r2"]
         self.assertEqual(device.capabilities, {Capability.IDENTITY, Capability.PARSED})
-        parsed = device.parsed["node-1.batfish_bgp_facts"]["parsed"]
+        parsed = device.parsed["node-1"]["batfish_bgp_facts"]["parsed"]
 
         # Process is a list even with one row -- multi-VRF safety, same as OSPF.
         self.assertEqual(parsed["Process"], [{"VRF": "default", "Router_ID": "2.2.2.2"}])
@@ -71,7 +71,7 @@ class BuildBgpFactsOutcomesTests(unittest.IsolatedAsyncioTestCase):
         )
 
         devices = outcomes[1].context.devices
-        parsed = devices["r1"].parsed["node-1.batfish_bgp_facts"]["parsed"]
+        parsed = devices["r1"].parsed["node-1"]["batfish_bgp_facts"]["parsed"]
         self.assertIn("Process", parsed)
         self.assertNotIn("Peers", parsed)
         self.assertNotIn("Sessions", parsed)

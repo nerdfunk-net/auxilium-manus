@@ -58,7 +58,7 @@ class BuildOspfFactsOutcomesTests(unittest.IsolatedAsyncioTestCase):
 
         device = devices["r2"]
         self.assertEqual(device.capabilities, {Capability.IDENTITY, Capability.PARSED})
-        parsed = device.parsed["node-1.batfish_ospf_facts"]["parsed"]
+        parsed = device.parsed["node-1"]["batfish_ospf_facts"]["parsed"]
 
         # Process is a list even with one row -- multi-VRF safety.
         self.assertEqual(
@@ -91,7 +91,7 @@ class BuildOspfFactsOutcomesTests(unittest.IsolatedAsyncioTestCase):
         )
 
         devices = outcomes[1].context.devices
-        parsed = devices["r1"].parsed["node-1.batfish_ospf_facts"]["parsed"]
+        parsed = devices["r1"].parsed["node-1"]["batfish_ospf_facts"]["parsed"]
         self.assertIn("Process", parsed)
         self.assertNotIn("Areas", parsed)
         self.assertNotIn("Interfaces", parsed)
@@ -124,8 +124,12 @@ class BuildOspfFactsOutcomesTests(unittest.IsolatedAsyncioTestCase):
 
         devices = outcomes[1].context.devices
         self.assertEqual(set(devices), {"r1", "r2"})
-        self.assertNotIn("Adjacencies", devices["r1"].parsed["node-1.batfish_ospf_facts"]["parsed"])
-        self.assertNotIn("Process", devices["r2"].parsed["node-1.batfish_ospf_facts"]["parsed"])
+        self.assertNotIn(
+            "Adjacencies", devices["r1"].parsed["node-1"]["batfish_ospf_facts"]["parsed"]
+        )
+        self.assertNotIn(
+            "Process", devices["r2"].parsed["node-1"]["batfish_ospf_facts"]["parsed"]
+        )
 
     async def test_each_enabled_question_stores_its_own_artifact(self) -> None:
         context = WorkflowContext(run_id="run-uuid-1", workflow_id="7")

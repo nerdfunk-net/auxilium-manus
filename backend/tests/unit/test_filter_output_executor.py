@@ -216,7 +216,7 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
         )
         success = next(o for o in outcomes if o.name == "success")
         enriched = success.context.devices["d1"]
-        entry = enriched.parsed["node-1.filtered_output"]
+        entry = enriched.parsed["node-1"]["filtered_output"]
         stored = await artifacts.resolve(ArtifactRef.model_validate(entry["artifact_ref"]))
         self.assertNotIn("uptime", stored)
         self.assertIn("hostname", stored)

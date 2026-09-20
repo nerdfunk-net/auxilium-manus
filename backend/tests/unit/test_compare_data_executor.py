@@ -112,7 +112,9 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_name["failure"].context.devices, {})
 
         comparison = (
-            by_name["match"].context.devices["device-1"].parsed["compare-data-1.comparison"]
+            by_name["match"]
+            .context.devices["device-1"]
+            .parsed["compare-data-1"]["comparison"]
         )
         self.assertTrue(comparison["matched"])
         counts = by_name["match"].context.metadata["compare-data-1.comparison_counts"]
@@ -166,14 +168,20 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["mismatch"].context.devices), ["device-1"])
         comparison = (
-            by_name["mismatch"].context.devices["device-1"].parsed["compare-data-1.comparison"]
+            by_name["mismatch"]
+            .context.devices["device-1"]
+            .parsed["compare-data-1"]["comparison"]
         )
         self.assertFalse(comparison["matched"])
         self.assertIn("diff_stats", comparison)
-        self.assertEqual(comparison["comparison_diff_key"], "compare-data-1.comparison_diff")
+        self.assertEqual(
+            comparison["comparison_diff_key"], "parsed.compare-data-1.comparison_diff"
+        )
 
         diff_entry = (
-            by_name["mismatch"].context.devices["device-1"].parsed["compare-data-1.comparison_diff"]
+            by_name["mismatch"]
+            .context.devices["device-1"]
+            .parsed["compare-data-1"]["comparison_diff"]
         )
         self.assertEqual(diff_entry["kind"], "comparison_diff")
         self.assertIn("artifact_ref", diff_entry)
@@ -237,7 +245,9 @@ class CompareDataExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["mismatch"].context.devices), ["device-1"])
         comparison = (
-            by_name["mismatch"].context.devices["device-1"].parsed["compare-data-1.comparison"]
+            by_name["mismatch"]
+            .context.devices["device-1"]
+            .parsed["compare-data-1"]["comparison"]
         )
         self.assertFalse(comparison["matched"])
         self.assertEqual(comparison["content_source"], "pyats_snapshot")

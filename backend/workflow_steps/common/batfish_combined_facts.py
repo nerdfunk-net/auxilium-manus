@@ -77,7 +77,6 @@ async def build_combined_facts_outcomes(
         }
         summary_parts.append(f"{len(rows)} {spec.row_noun}")
 
-    parsed_key = f"{node_id}.{output_key}"
     payloads_by_node = merge_facts_by_node(specs, rows_by_question)
     device_nodes: dict[str, DeviceContext] = {}
     for node, parsed_payload in payloads_by_node.items():
@@ -90,7 +89,9 @@ async def build_combined_facts_outcomes(
             status=DeviceStatus.OK,
         )
         device_nodes[node] = device.model_copy(
-            update={"parsed": {parsed_key: {"parsed": parsed_payload, "error": None}}}
+            update={
+                "parsed": {node_id: {output_key: {"parsed": parsed_payload, "error": None}}}
+            }
         )
 
     logger.info(

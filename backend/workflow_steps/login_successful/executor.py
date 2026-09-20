@@ -22,6 +22,7 @@ from services.artifacts import ArtifactService
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
+from services.workflow_context.node_result import set_node_result
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
@@ -49,7 +50,6 @@ def _with_login_parsed(
     credential_reference: str,
     error: str | None = None,
 ) -> DeviceContext:
-    parsed = dict(device.parsed)
     result: dict[str, Any] = {
         "kind": "login_result",
         "login_ok": login_ok,
@@ -58,7 +58,7 @@ def _with_login_parsed(
     }
     if error is not None:
         result["error"] = error
-    parsed[f"{node_id}.login"] = result
+    parsed = set_node_result(device.parsed, node_id, "login", result)
     return device.model_copy(
         update={
             "parsed": parsed,

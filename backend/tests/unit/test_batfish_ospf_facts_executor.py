@@ -75,7 +75,7 @@ class BatfishOspfFactsExecutorTests(unittest.IsolatedAsyncioTestCase):
         # identity to resolve -- see batfish_ospf_facts' module docstring),
         # so only r1 (the local side of every enabled question) gets a device.
         self.assertEqual(set(devices), {"r1"})
-        parsed_r1 = devices["r1"].parsed["node-1.batfish_ospf_facts"]["parsed"]
+        parsed_r1 = devices["r1"].parsed["node-1"]["batfish_ospf_facts"]["parsed"]
         self.assertIn("Process", parsed_r1)
         self.assertIn("Areas", parsed_r1)
         self.assertIn("Interfaces", parsed_r1)

@@ -105,7 +105,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(by_name["match"].context.devices), ["d1"])
         self.assertEqual(by_name["mismatch"].context.devices, {})
         self.assertEqual(by_name["failure"].context.devices, {})
-        entry = by_name["match"].context.devices["d1"].parsed["lc-1.membership"]
+        entry = by_name["match"].context.devices["d1"].parsed["lc-1"]["membership"]
         self.assertTrue(entry["matched"])
         self.assertEqual(entry["matched_item"]["name"], "tacacs1")
         self.assertIn(Capability.PARSED, by_name["match"].context.devices["d1"].capabilities)
@@ -283,7 +283,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["match"].context.devices), ["d1"])
-        entry = by_name["match"].context.devices["d1"].parsed["lc-1.membership"]
+        entry = by_name["match"].context.devices["d1"].parsed["lc-1"]["membership"]
         self.assertEqual(entry["value"], "10.0.0.6")
 
     async def test_value_expression_falls_back_to_default(self) -> None:
@@ -500,7 +500,7 @@ class ListContainsExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         by_name = {o.name: o for o in outcomes}
         self.assertEqual(list(by_name["match"].context.devices), ["d1"])
-        entry = by_name["match"].context.devices["d1"].parsed["lc-1.membership"]
+        entry = by_name["match"].context.devices["d1"].parsed["lc-1"]["membership"]
         self.assertEqual(entry["matched_item"]["action"], "permit")
 
     async def test_acl_does_not_permit_source_mismatches(self) -> None:
