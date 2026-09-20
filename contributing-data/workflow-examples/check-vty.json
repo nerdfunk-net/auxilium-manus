@@ -1,0 +1,448 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-20T12:24:21.915Z",
+  "name": "Check VTY",
+  "description": "Check if line vty 0 4 is secured",
+  "folder": "/Security",
+  "visibility": "private",
+  "notes": null,
+  "canvas_nodes": [
+    {
+      "id": "get-from-list-1",
+      "type": "workflowNode",
+      "position": {
+        "x": -345.6943156302491,
+        "y": 17.55292816625169
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-from-list",
+        "stepUuid": "84580fe0-9a37-4927-8721-ad5215cbb9c6",
+        "title": "Get from List",
+        "overview": "Configure a static list of devices.",
+        "description": "Enter one or more device names and/or IP addresses to use as workflow targets.\n",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "devices": [
+            {
+              "name": "LAB",
+              "ip_address": "192.168.178.240/24"
+            }
+          ],
+          "fan_out": {
+            "enabled": false,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 0,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-device-configs-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 401.67798071383305,
+        "y": 17.55292816625169
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-device-configs",
+        "stepUuid": "5394e389-99d3-4200-906e-efbb0dd21498",
+        "title": "Get Configs",
+        "overview": "Get device configuration in the chosen format.",
+        "description": "Get device configuration in the specified format.",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config",
+          "startup_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "credential_reference": "cisco - noc",
+          "config_format": "running"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "route-on-content-3",
+      "type": "workflowNode",
+      "position": {
+        "x": 770.7632943531798,
+        "y": 17.55292816625169
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "route-on-content",
+        "stepUuid": "6cb84911-7b51-4a10-ba0d-ee169e30ac00",
+        "title": "check \"access class\"",
+        "overview": "Branch workflow paths by searching content for text or a pattern.",
+        "description": "Search device content for fixed text or a regular expression and branch on whether it was found.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "match"
+          },
+          {
+            "name": "mismatch"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "content_source": "running_config",
+          "source_step_node_id": "",
+          "parsed_output_key": "",
+          "match_mode": "regex",
+          "pattern": "line vty 0 4\\r?\\n(?:\\s+\\S.*\\r?\\n)*?\\s*access-class\\s+(\\S+)\\s+in\\b",
+          "case_sensitive": false,
+          "multiline": true
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "update-attribute-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 1158.5520653906767,
+        "y": 17.55292816625169
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "update-attribute",
+        "stepUuid": "c518ec15-9678-4bb1-88e9-dec1481e0546",
+        "title": "Update Attribute",
+        "overview": "Set or transform device attributes in the workflow.",
+        "description": "Set or transform one or more in-workflow device attributes using a fixed value or a regular expression with capture groups.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "attributes": [
+            {
+              "id": "d4489f08-5ccd-4600-a792-4f303710eb76",
+              "mode": "regex",
+              "destination_path": "custom.mgmt_acl_name",
+              "fixed_value": "",
+              "source_path": "parsed.route-on-content-3.content_match.matched_text",
+              "pattern": "access-class\\s+(\\S+)\\s+in",
+              "destination_template": "\\1",
+              "regex_flags": {
+                "case_insensitive": false,
+                "multiline": false,
+                "dotall": false
+              }
+            }
+          ]
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "parse-cisco-config-5",
+      "type": "workflowNode",
+      "position": {
+        "x": 1158.5520653906767,
+        "y": 226.6944416493222
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "parse-cisco-config",
+        "stepUuid": "12e2352a-4c18-4be9-93bf-b0d4e801823e",
+        "title": "Parse Cisco Config",
+        "overview": "Parse a Cisco running/startup config into structured data.",
+        "description": "Parse a Cisco IOS/IOS-XE/NXOS/XR running and/or startup configuration into structured data (hostname, VRFs, VLANs, interfaces, ACLs, routing, etc.) using cisco-config-parser, for use by Jinja templates and Log Attributes.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "config_source": "running"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "list-contains-6",
+      "type": "workflowNode",
+      "position": {
+        "x": 770.7632943531798,
+        "y": 226.6944416493222
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "list-contains",
+        "stepUuid": "99da279b-891d-4292-8999-ab87ace5b043",
+        "title": "List Contains",
+        "overview": "Check whether a value is present anywhere in a parsed list.",
+        "description": "Check whether a specific value — or a specific field of each item — appears in a list resolved from device context, e.g. whether a given TACACS+ server is among a device's parsed AAA servers. No Jinja template required.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "match"
+          },
+          {
+            "name": "mismatch"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "list_path": "parsed.cisco_config.running.access_lists",
+          "field": "name",
+          "value": "{custom.mgmt_acl_name}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-7",
+      "type": "workflowNode",
+      "position": {
+        "x": 30.57591402885683,
+        "y": 17.55292816625169
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "cfee10ba-6194-47e5-8a78-dc427588f3ae",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices.",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-device-configs-2",
+      "sourceHandle": "success",
+      "target": "route-on-content-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-2success-route-on-content-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "route-on-content-3",
+      "sourceHandle": "match",
+      "target": "update-attribute-4",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-content-3match-update-attribute-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-attribute-4",
+      "sourceHandle": "success",
+      "target": "parse-cisco-config-5",
+      "targetHandle": "input",
+      "id": "xy-edge__update-attribute-4success-parse-cisco-config-5input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-from-list-1",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-7",
+      "targetHandle": "input",
+      "id": "xy-edge__get-from-list-1success-get-nautobot-attributes-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-7",
+      "sourceHandle": "success",
+      "target": "get-device-configs-2",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-7success-get-device-configs-2input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "parse-cisco-config-5",
+      "sourceHandle": "success",
+      "target": "list-contains-6",
+      "targetHandle": "input",
+      "id": "xy-edge__parse-cisco-config-5success-list-contains-6input"
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [
+    {
+      "name": "cisco - noc",
+      "visibility": "global",
+      "owner_username": null
+    }
+  ],
+  "templates": []
+}

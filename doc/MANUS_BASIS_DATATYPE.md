@@ -1080,8 +1080,20 @@ Quick reference for step authors, using real steps.
 | `add-pyats-testbed`        | `IDENTITY`          | `devices[*].id`, credential/source config     | `devices[*].attribute_bags["pyats_testbed"]` + `PYATS_TESTBED` |
 | `get-pyats-config`         | `IDENTITY`, `PYATS_TESTBED` | `devices[*].attribute_bags["pyats_testbed"]` | `devices[*].parsed[output_key]` + `PARSED` |
 | `run-command`              | `IDENTITY`          | `devices[*]` (hostname, credential config)    | `devices[*].command_results[node_id]` (list, `ArtifactRef`-backed) |
-| `filter-output`            | `IDENTITY`          | `devices[*].command_results` or `devices[*].parsed["{src}.merged_content"]` | `devices[*].parsed["{node_id}.filtered_output"]` + `PARSED` |
+| `filter-output`            | `IDENTITY`          | `devices[*].command_results` or `devices[*].parsed[src_node_id]["merged_content"]` | `devices[*].parsed[node_id]["filtered_output"]` + `PARSED` |
 | `update-attribute`         | `IDENTITY`          | `devices[*]` (any dotted-path source, incl. `parsed.*`) | `devices[*].attribute_bags[bag]` + `ATTRIBUTES` (conditionally — see `effective_produces()`) |
+
+A step that stashes its own per-run result in `parsed` (not a user-chosen `output_key`
+namespace) nests it under its own node id — `parsed[node_id][key]`, via
+`services.workflow_context.node_result.set_node_result`/`get_node_result` — never a flat
+`f"{node_id}.{key}"` string key. The shared dot-path resolver
+(`services.workflow_context.attribute_path`) splits every `.` in a path as a nesting
+separator, so a flat key with a literal dot embedded in it can never be read back by
+`route-on-attribute`, `list-contains`, `update-attribute`, or the attribute-path picker —
+it silently resolves to nothing. `route-on-content`, `list-contains`, `compare-data`,
+`compare-pyats-snapshot`, `reachable`, `login-successful`, `merge-content`,
+`configure-replace-config`, `update-content`, and the Batfish property/facts steps all
+follow this convention.
 
 Full step-by-step catalogue: `doc/WORKFLOW-STEPS.md`; pyATS-specific steps:
 `doc/PYATS_INTEGRATION.md`.
