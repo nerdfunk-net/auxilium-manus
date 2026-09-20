@@ -25,6 +25,7 @@ import { BatfishPathCheckPlugin } from "@/components/features/workflow-steps/bat
 import { BatfishAclCheckPlugin } from "@/components/features/workflow-steps/batfish-acl-check";
 import { BatfishValidateFactsPlugin } from "@/components/features/workflow-steps/batfish-validate-facts";
 import { BatfishExtractFactsPlugin } from "@/components/features/workflow-steps/batfish-extract-facts";
+import { UndefinedAndUnusedPlugin } from "@/components/features/workflow-steps/undefined-and-unused";
 import { ConfigureReplaceConfigPlugin } from "@/components/features/workflow-steps/configure-replace-config";
 import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from-list";
 import { GetFromUserPlugin } from "@/components/features/workflow-steps/get-from-user";
@@ -102,6 +103,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "batfish-acl-check": BatfishAclCheckPlugin,
   "batfish-validate-facts": BatfishValidateFactsPlugin,
   "batfish-extract-facts": BatfishExtractFactsPlugin,
+  "undefined-and-unused": UndefinedAndUnusedPlugin,
   "run-command": RunCommandPlugin,
   "deploy-rendered-template": DeployRenderedTemplatePlugin,
   "route-on-attribute": RouteOnAttributePlugin,

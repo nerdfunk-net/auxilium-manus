@@ -1447,6 +1447,68 @@ plugins:
           data_type: string
           required: false
 
+  - id: undefined-and-unused
+    name: Undefined & Unused
+    overview: Flag undefined references and unused structures via Batfish's hygiene questions.
+    description: >
+      Runs Batfish's undefinedReferences and unusedStructures questions
+      against an already-initialized snapshot. A device with configuration
+      references to structures that don't exist routes to "undefined"; a
+      device with defined structures (ACLs, route-maps, etc.) that are never
+      referenced routes to "unused" -- a device can route to both at once. A
+      device with neither routes to "success"; a device whose config didn't
+      parse cleanly, or has no matching node in the snapshot, routes to
+      "failure".
+    artifact_type: configuration_management
+    palette_category: batfish
+    directory: undefined_and_unused
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: undefined
+      - name: unused
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nodes
+          description: >
+            NodeSpecifier restricting which nodes to check (e.g. a regex like
+            "/^r/" or a comma-separated name list). Leave blank to
+            auto-scope to exactly this run's devices (by name, lowercased).
+          data_type: string
+          required: false
+        - name: output_key
+          description: >
+            device.parsed key each device's own findings are written under
+            (as "<output_key>.undefined" / "<output_key>.unused"), and the
+            metadata key this step's aggregate result is stored under
+            ({node_id}.<output_key>).
+          data_type: string
+          required: false
+          default: undefined_and_unused
+        - name: batfish_source_id
+          description: >
+            Configured Batfish source to query directly, bypassing this
+            run's metadata. Leave blank to use the snapshot recorded by an
+            upstream Init Batfish Snapshot step (default). Must be set
+            together with "network".
+          data_type: string
+          required: false
+        - name: network
+          description: >
+            Batfish network to query directly when batfish_source_id is also
+            set. Bypasses this run's metadata.
+          data_type: string
+          required: false
+        - name: snapshot
+          description: >
+            Snapshot name to query within "network". Leave blank to use the
+            most recently created snapshot in that network.
+          data_type: string
+          required: false
+
   - id: configure-replace-config
     name: Configure Replace Config
     overview: Apply a COMPLETE config file via 'configure replace' and confirm the change.

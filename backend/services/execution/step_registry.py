@@ -87,6 +87,7 @@ from workflow_steps.secret_set.executor import execute as secret_set
 from workflow_steps.set_default_attributes.executor import execute as set_default_attributes
 from workflow_steps.show_summary.executor import execute as show_summary
 from workflow_steps.store_artifact.executor import execute as store_artifact
+from workflow_steps.undefined_and_unused.executor import execute as undefined_and_unused
 from workflow_steps.update_attribute.executor import execute as update_attribute
 from workflow_steps.update_config_context.executor import execute as update_config_context
 from workflow_steps.update_content.executor import execute as update_content
@@ -128,6 +129,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "batfish-bgp-facts": batfish_bgp_facts,
     "batfish-validate-facts": batfish_validate_facts,
     "batfish-extract-facts": batfish_extract_facts,
+    "undefined-and-unused": undefined_and_unused,
     "render-jinja-template": render_jinja_template,
     "run-command": run_command,
     "deploy-rendered-template": deploy_rendered_template,

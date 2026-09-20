@@ -277,6 +277,41 @@ class BatfishService:
         # for consistency with the other three BGP questions.
         return await self._answer(connection, batfish_network, snapshot, "bgpEdges", params)
 
+    async def file_parse_status(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # One row per snapshot config file: File_Name, Status, File_Format,
+        # and Nodes (list of hostnames produced by that file) -- the public
+        # surface for the filename<->hostname map undefinedReferences/
+        # unusedStructures resolve internally but never expose as a column.
+        # See workflow_steps/undefined_and_unused/executor.py. Unlike every
+        # other typed question here, this one takes NO parameters at all
+        # (confirmed live -- a "nodes" kwarg is rejected with
+        # QuestionValidationException); **params exists only so this method
+        # keeps the same shape as its siblings, callers should pass none.
+        return await self._answer(connection, batfish_network, snapshot, "fileParseStatus", params)
+
+    async def undefined_references(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Row identity is a config FILENAME (File_Name), not a Node, unlike
+        # every other typed question in this file. Lines is a FileLines
+        # object (pybatfish attrs class); empirically confirmed it
+        # serializes through frame.to_json() to a plain {"filename": ...,
+        # "lines": [...]} dict, same as every other object-dtype cell this
+        # file already relies on to_json for.
+        return await self._answer(
+            connection, batfish_network, snapshot, "undefinedReferences", params
+        )
+
+    async def unused_structures(
+        self, connection: BatfishConnection, *, batfish_network: str, snapshot: str, **params: Any
+    ) -> list[dict[str, Any]]:
+        # Same filename-keyed row identity as undefined_references, but the
+        # filename is ONLY reachable inside Source_Lines (a FileLines object)
+        # -- this question has no top-level File_Name column at all.
+        return await self._answer(connection, batfish_network, snapshot, "unusedStructures", params)
+
     async def generic_question(
         self,
         connection: BatfishConnection,

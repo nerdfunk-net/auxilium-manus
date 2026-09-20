@@ -504,6 +504,66 @@ async def query_bgp_edges(
     )
 
 
+async def query_file_parse_status(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+) -> list[dict[str, Any]]:
+    """Run the ``fileParseStatus`` question. Shared by undefined-and-unused's
+    executor -- the only place in this codebase needing a filename<->node
+    mapping (undefinedReferences/unusedStructures key their rows by config
+    filename, not Node).
+
+    Unlike every other typed question wrapped here, ``fileParseStatus`` takes
+    **no parameters at all** -- confirmed against Batfish's own question
+    template (``questions/stable/fileParseStatus.json`` has no ``variables``
+    section) after a live coordinator rejected a ``nodes`` kwarg with
+    ``QuestionValidationException: Received unsupported parameters/variables:
+    {'nodes'}``. It always reports every file in the snapshot; the executor
+    filters to the nodes it cares about client-side.
+    """
+    return await batfish.file_parse_status(
+        connection, batfish_network=batfish_network, snapshot=snapshot
+    )
+
+
+async def query_undefined_references(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``undefinedReferences`` question. Shared by
+    undefined-and-unused's executor. Rows are keyed by File_Name, not Node --
+    see ``BatfishService.undefined_references``.
+    """
+    return await batfish.undefined_references(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
+async def query_unused_structures(
+    batfish: BatfishService,
+    connection: BatfishConnection,
+    *,
+    batfish_network: str,
+    snapshot: str,
+    nodes: Any = None,
+) -> list[dict[str, Any]]:
+    """Run the ``unusedStructures`` question. Shared by
+    undefined-and-unused's executor. The filename is only reachable inside
+    the Source_Lines column (no top-level File_Name column on this
+    question) -- see ``BatfishService.unused_structures``.
+    """
+    return await batfish.unused_structures(
+        connection, batfish_network=batfish_network, snapshot=snapshot, nodes=_or_none(nodes)
+    )
+
+
 async def query_generic(
     batfish: BatfishService,
     connection: BatfishConnection,
