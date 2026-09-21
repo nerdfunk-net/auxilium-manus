@@ -23,16 +23,17 @@ export function BatfishInitSnapshotHelpPanel() {
           per run, so history for a given workflow is browsable in Batfish
           over time.
         </p>
-        <HelpWarning title="Not fan-out-safe (live mode)">
+        <HelpWarning title="Not concurrency-safe (live mode)">
           <p>
             In <HelpCode>live</HelpCode> mode this step needs every
             device&apos;s config together in one upload, so it must run{" "}
             <strong>after a Fan In</strong> in a fanned-out workflow — never
             inside the fanned-out branch. Same reasoning as{" "}
             <HelpCode>store-artifact</HelpCode> / git steps: concurrent
-            children would race on the same shared upload.{" "}
-            <HelpCode>git</HelpCode> mode reads nothing from this run&apos;s
-            devices, so this restriction doesn&apos;t apply to it.
+            children would race on the same shared upload — and so would two
+            independent (non-fan-out) branches in the same run that both run
+            this step. <HelpCode>git</HelpCode> mode reads nothing from this
+            run&apos;s devices, so this restriction doesn&apos;t apply to it.
           </p>
         </HelpWarning>
       </HelpSection>

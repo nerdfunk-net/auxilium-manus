@@ -645,9 +645,10 @@ plugins:
     description: >
       Assembles the current run's device running-configs into a fresh Batfish
       snapshot and records its location for downstream Batfish query steps
-      (Routing Table, Path Check, ACL Check). Not fan-out-safe -- like
+      (Routing Table, Path Check, ACL Check). Not concurrency-safe -- like
       store-artifact/git steps, this must run after a Fan In in a fanned-out
-      workflow, never inside the fanned-out branch (see
+      workflow, never inside the fanned-out branch, and never on two
+      independent sibling branches in the same run (see
       doc/BATFISH_INTEGRATION.md "Snapshot lifecycle").
     artifact_type: persistent_artifact
     palette_category: batfish
@@ -4103,8 +4104,11 @@ plugins:
       push it, store a unified diff, and record a Change Request awaiting review.
       Approving the change request (UI or a signed git webhook) dispatches a
       separate deploy run. See doc/CICD_PIPELINE.md.
-      Not fan-out-safe: it creates a branch and commits against a shared working
-      tree. Place it after any Fan In node; never inside a fan-out branch.
+      A per-repo Redis lock (services/change_requests/repo_lock.py) serialises
+      concurrent callers against the same repository so the working tree is
+      never corrupted, but each caller still opens its own branch/commit/change
+      request. Place it after any Fan In node (or other join point) so exactly
+      one change request comes out, not one per fan-out child or sibling branch.
     artifact_type: persistent_artifact
     directory: open_change_request
     enabled: true

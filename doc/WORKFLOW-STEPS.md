@@ -1009,31 +1009,45 @@ have converged.
 - **metadata scalars/dicts** (e.g. `{node}.git_export`) — **first child wins** on
   conflict, silently. A per-run aggregate value cannot be reconstructed this way.
 
-### Writing fan-out-safe steps
+### Writing concurrency-safe steps
 
-When you author a step, assume it may run concurrently in many child workflows against
-the **same external resources**. A step is fan-out-safe when it:
+When you author a step, assume it may run concurrently against the **same external
+resources** via either of two independent mechanisms:
+
+- **Fan-out** — many `DeviceGroupExecution` children, potentially on different Hatchet
+  workers (cross-process — nothing in this process can lock across that boundary).
+- **Independent branches in the same run** — two canvas branches with no dependency on
+  each other run concurrently within one `StepRunner`'s topological-generation walk (see
+  "Independent branches run concurrently" in `doc/HOWTO_BUILD_WORKFLOWS.md`). Same
+  process, same run, but still genuinely concurrent — a step that assumed "nothing else
+  touches this resource while I run" because of graph ordering alone no longer gets that
+  for free unless a real dependency edge (or a join point) enforces it.
+
+A step is concurrency-safe when it:
 
 - writes only to **per-device-unique** destinations (e.g. a `filename_template` keyed on
   `{device.name}`), and
-- holds **no shared mutable external state** that multiple children mutate at once.
+- holds **no shared mutable external state** that multiple concurrent callers — fan-out
+  children or sibling branches — mutate at once.
 
-| Step kind | Fan-out safe? | Why |
+| Step kind | Concurrency safe? | Why |
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `merge-config`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
-| `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent children overwrite/race. |
-| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` / `open-change-request` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). Concurrent children race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. `open-change-request` additionally creates a branch — place it after a Fan In node. |
+| `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent callers overwrite/race. |
+| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`), with **no locking anywhere in the git service layer**. Two concurrent callers targeting the *same* `GitRepository` — whether fan-out children or two independent branches in one run — race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. See `doc/OPEN_TODOS.md` → "No lock protects concurrent writers to the same git working tree". |
+| `open-change-request` | ⚠️ | Different from the row above: `repo_stage_lock` (`services/change_requests/repo_lock.py`, Redis `SET NX EX`, fail-soft if Redis is down) already serialises concurrent callers against the same repo — whether two runs, fan-out children, or two sibling branches in one run — so it does **not** corrupt the working tree. It still creates a *separate* branch/commit/change-request row per caller, though, which is rarely what you want — place it after a join point so exactly one change request comes out, not N. |
 
-**Guidance for git-backed exports under fan-out:** place a **Fan In** node between the
-per-device branch and the git/store steps. The per-device work (configs, commands,
-templates) runs in parallel children; the `store-artifact (git)` / `git-push` steps run
-once on the merged context after the rejoin — one pull, one commit, one push, no
-`index.lock` races. `max_concurrency: 1` only serialises children and still produces N
-commits, so it is not a substitute for the fan-in node.
+**Guidance for git-backed exports:** place a **Fan In** node between per-device fan-out
+branches and the git/store steps (one pull, one commit, one push, no `index.lock` races;
+`max_concurrency: 1` only serialises children and still produces N commits, so it is not a
+substitute). For two independent *non-fan-out* branches that both need to touch the same
+git repository in one run, wire an explicit dependency edge between them (or route both
+through a shared step first) instead of letting the canvas leave them as true siblings —
+nothing in the engine serializes that case for you.
 
 > If you add a step that mutates a shared external resource, either require it to sit after
-> a fan-in node, document its fan-out behaviour in `registry.yaml`, and/or prefer
-> per-device-unique writes.
+> a join point / explicit dependency, document its concurrency behaviour in `registry.yaml`,
+> and/or prefer per-device-unique writes.
 
 ### Change requests (CI/CD pipeline)
 

@@ -52,11 +52,13 @@ export function GitPullHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
-      <HelpWarning title="Not fan-out-safe">
+      <HelpWarning title="Not concurrency-safe">
         <p>
           Do not run Git Pull on a fanned-out branch for the same{" "}
           <HelpCode>git_repository_id</HelpCode> — parallel children pull and write
-          concurrently and can corrupt the shared working tree.
+          concurrently and can corrupt the shared working tree. Two independent
+          (non-fan-out) branches in one run that both pull the same repository race
+          the same way.
         </p>
         <p>
           Pattern: per-device steps on fan-out branches →{" "}

@@ -266,7 +266,7 @@ job; you want continuous streaming, not an operator gate every N devices.
    `store-artifact (git)` opens one shared working tree per git source — if it
    ran once per child instead of once after the join, 300 children would race
    on `index.lock` and produce 300 single-file commits instead of one clean
-   commit. See `doc/WORKFLOW-STEPS.md` → **Writing fan-out-safe steps**.
+   commit. See `doc/WORKFLOW-STEPS.md` → **Writing concurrency-safe steps**.
 
 Final shape:
 
@@ -421,7 +421,7 @@ the fanned-out branch:
   `max_concurrency: 10` only caps how many device-children run at once. 300
   devices → 300 pulls, 10 racing at any given moment.
 - `git-pull` / `git-push` / `store-artifact → git` are all **not
-  fan-out-safe** (`doc/WORKFLOW-STEPS.md` → *Writing fan-out-safe steps*): each
+  concurrency-safe** (`doc/WORKFLOW-STEPS.md` → *Writing concurrency-safe steps*): each
   opens the one shared on-disk working tree for the repo (`load_git_repository`
   → a single `path`). Concurrent children collide on `index.lock`, produce N
   single-file commits instead of one, and reject each other's non-fast-forward

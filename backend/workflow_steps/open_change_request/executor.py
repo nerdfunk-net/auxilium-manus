@@ -6,9 +6,13 @@ artifact, and records a ``ChangeRequest`` row in ``status="staged"``. A reviewer
 (UI or a signed git webhook) approves it later, which dispatches a separate
 deploy run. See ``doc/CICD_PIPELINE.md``.
 
-Not fan-out-safe — it branches and commits against a shared working tree. Place
-it after any Fan In node, never inside a fan-out branch. Concurrent stage runs
-against the same repository are serialised by a per-repo Redis lock.
+Concurrent callers against the same repository — separate stage runs, fan-out
+children, or independent sibling branches in one run — are serialised by a
+per-repo Redis lock (``repo_lock.py``), so the working tree itself is never
+corrupted. That lock doesn't make the step fan-out/branch-safe in the useful
+sense, though: each caller still opens its own branch/commit/change request.
+Place it after any Fan In node (or other join point) so exactly one change
+request comes out, not one per fan-out child or sibling branch.
 """
 
 from __future__ import annotations

@@ -45,7 +45,8 @@ export function SecretGenerateHelpPanel() {
           <HelpCode>filename_template</HelpCode>. Always resolves to a{" "}
           <span className="font-medium text-foreground">per-device-unique</span> path
           when it includes <HelpCode>{"{device.*}"}</HelpCode>, which is what keeps
-          this step fan-out-safe with no Fan In node needed.
+          this step concurrency-safe (fan-out or independent branches) with no Fan In
+          node needed.
         </p>
       </HelpSection>
 

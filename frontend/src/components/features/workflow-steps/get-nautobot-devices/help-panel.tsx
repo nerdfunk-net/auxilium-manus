@@ -190,12 +190,14 @@ export function GetNautobotDevicesHelpPanel() {
           {"  "}max_concurrency: 5
         </HelpExample>
 
-        <HelpWarning title="Git and shared stores are not fan-out-safe">
+        <HelpWarning title="Git and shared stores are not concurrency-safe">
           <ul className="list-disc space-y-0.5 pl-4">
             <li>
               Do not put <HelpCode>store-artifact</HelpCode> (git) or{" "}
               <HelpCode>git-push</HelpCode> on the fanned-out branch — concurrent
-              children race on the same working tree.
+              children race on the same working tree. The same race happens if two
+              independent (non-fan-out) branches in one run both target the same
+              git repository.
             </li>
             <li>
               Pattern: inventory (fan-out on) → per-device steps → Fan In →
