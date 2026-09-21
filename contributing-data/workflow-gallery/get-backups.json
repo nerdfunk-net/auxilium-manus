@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-21T19:00:12.722Z",
+  "exported_at": "2026-09-21T20:18:25.846Z",
   "name": "Get Backups",
   "description": "Get Backups",
   "folder": "Gallery",
@@ -169,7 +169,11 @@
         "incomeHandleSide": "top",
         "outcomeHandleSide": "bottom",
         "pluginConfig": {
-          "credential_reference": "cisco - noc"
+          "credential_reference": "cisco - noc",
+          "retry_backoff_seconds": [
+            10,
+            20
+          ]
         }
       },
       "measured": {

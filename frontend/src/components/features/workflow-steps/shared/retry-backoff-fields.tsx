@@ -1,6 +1,7 @@
 "use client";
 
 import { Minus, Plus } from "lucide-react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,48 @@ export interface RetryBackoffSecondsFieldProps {
   onRetryBackoffSecondsChange: (next: number[]) => void;
 }
 
+interface RetryDelayInputProps {
+  delay: number;
+  onCommit: (clamped: number) => void;
+}
+
+/** Holds its own draft text while focused so clearing the field to type a
+ * replacement value doesn't get fought by a live default/clamp on every
+ * keystroke — the number is only parsed and clamped on blur.
+ *
+ * Reset-on-external-change is done via the `key` the caller passes (keyed on
+ * `delay`, not just row index — see below), not an effect: when the
+ * committed value changes for a reason other than this input's own blur
+ * (e.g. the row's position shifts, or a different node's config is now
+ * shown), React remounts this component with a fresh `draft` instead of a
+ * `useEffect` syncing local state from a prop.
+ */
+function RetryDelayInput({ delay, onCommit }: RetryDelayInputProps) {
+  const [draft, setDraft] = useState(() => String(delay));
+
+  return (
+    <Input
+      type="number"
+      min={MIN_RETRY_BACKOFF_SECONDS}
+      max={MAX_RETRY_BACKOFF_SECONDS}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const parsed = Number.parseInt(draft, 10);
+        const clamped = Number.isFinite(parsed)
+          ? Math.min(MAX_RETRY_BACKOFF_SECONDS, Math.max(MIN_RETRY_BACKOFF_SECONDS, parsed))
+          : DEFAULT_RETRY_DELAY_SECONDS;
+        if (clamped === delay) {
+          setDraft(String(clamped));
+        } else {
+          onCommit(clamped);
+        }
+      }}
+      className="h-8 font-mono text-xs"
+    />
+  );
+}
+
 /** SSH connect-phase retry schedule — shared by every Netmiko-touching step's
  * ConfigPanel (Run Command, Get Configs). Never applied to command execution
  * or to an authentication failure — see connection.py::RetryPolicy. */
@@ -33,11 +76,7 @@ export function RetryBackoffSecondsField({
   retryBackoffSeconds,
   onRetryBackoffSecondsChange,
 }: RetryBackoffSecondsFieldProps) {
-  const handleDelayChange = (index: number, value: string) => {
-    const parsed = Number.parseInt(value, 10);
-    const clamped = Number.isFinite(parsed)
-      ? Math.min(MAX_RETRY_BACKOFF_SECONDS, Math.max(MIN_RETRY_BACKOFF_SECONDS, parsed))
-      : DEFAULT_RETRY_DELAY_SECONDS;
+  const handleDelayCommit = (index: number, clamped: number) => {
     const next = [...retryBackoffSeconds];
     next[index] = clamped;
     onRetryBackoffSecondsChange(next);
@@ -92,13 +131,10 @@ export function RetryBackoffSecondsField({
               <span className="w-14 shrink-0 text-[11px] text-muted-foreground">
                 retry {index + 1}
               </span>
-              <Input
-                type="number"
-                min={MIN_RETRY_BACKOFF_SECONDS}
-                max={MAX_RETRY_BACKOFF_SECONDS}
-                value={delay}
-                onChange={(event) => handleDelayChange(index, event.target.value)}
-                className="h-8 font-mono text-xs"
+              <RetryDelayInput
+                key={`${index}-${delay}`}
+                delay={delay}
+                onCommit={(clamped) => handleDelayCommit(index, clamped)}
               />
               <span className="shrink-0 text-[11px] text-muted-foreground">sec</span>
               <Button
