@@ -9,6 +9,7 @@ generic message plus a correlatable error_id is persisted.
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from types import SimpleNamespace
 from typing import Any
@@ -48,6 +49,7 @@ class StepRunnerErrorPersistenceTests(unittest.IsolatedAsyncioTestCase):
         runner.repo = MagicMock()
         runner.artifact_service = MagicMock()
         runner.plugin_registry = MagicMock()
+        runner._db_lock = asyncio.Lock()
 
         step_result = SimpleNamespace(status="running", error_message=None)
         captured: dict[str, Any] = {}

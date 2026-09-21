@@ -299,7 +299,7 @@ time. It is not a per-workflow setting and does not substitute for configuring
 
 ---
 
-## Fan-out parallelizes devices, not independent branches
+## Independent branches run concurrently
 
 Everything above answers "how many devices are in flight at once." A related
 but different question: if the canvas has two independent branches after a
@@ -311,8 +311,8 @@ single step —
         └─► b2 ─┘
 ```
 
-— do `b1` and `b2` run concurrently? **No, not anywhere in this engine, fan-out
-included.**
+— do `b1` and `b2` run concurrently? **Yes**, when neither depends on the
+other's output.
 
 ### Only two Hatchet tasks exist per run
 
@@ -321,41 +321,56 @@ A run's entire Hatchet-level task graph is fixed and tiny: `prepare_task` →
 native DAG feature (`.task(parents=[...])`) is used for exactly that one
 pipeline — never per canvas node. Hatchet has no idea `b1` or `c` exist; it
 sees one opaque task that happens to run a lot of application code before
-returning.
+returning. This part is unchanged.
 
-### Inside that task, the canvas is walked one node at a time
+### Inside that task, the canvas is walked one *generation* at a time
 
 `execute_steps` calls into `StepRunner` (`services/execution/step_runner/runner.py`),
-which topologically sorts `canvas_nodes`/`canvas_edges` and then loops over
-the sorted list, executing one node's `execute()` per iteration —
-`execute_all()`'s `for node in ordered_nodes: ...` — before moving to the
-next. There's no `asyncio.gather` over sibling nodes anywhere in this walk, so
-`b1` and `b2` run **sequentially**, in whatever order the topological sort
-happens to produce, exactly like every other pair of steps.
+which groups the topologically-sorted `canvas_nodes`/`canvas_edges` into
+dependency layers (`services/execution/graph.py::topological_generations`) —
+every node in one layer has all its parents in strictly earlier layers, so
+nodes within a layer never depend on each other. `execute_all()`/
+`resume_after_join()` walk layer by layer; within a layer, every node's
+`execute()` runs concurrently via `asyncio.gather()`
+(`StepRunner._run_wave`), and the walk only moves to the next layer once the
+current one finishes. So `b1` and `b2` — both depending only on `a`, not on
+each other — land in the same layer and genuinely overlap.
 
-`c` correctly waits for both `b1` and `b2` — but not through any Hatchet
-"wait for parents" primitive. It's implicit in the sequential walk: `c` can
-only appear in the topological order after both its parents, so by the time
-its turn comes up in the loop, `_assemble_input_context` already has `b1` and
-`b2`'s outcomes recorded in `step_outcomes` to merge. Correctness comes from
-ordering, not synchronization.
+`c` correctly waits for both `b1` and `b2` before its own layer starts —
+`_assemble_input_context` merges `b1` and `b2`'s outcomes (already recorded
+in `step_outcomes` once their layer completes) via
+`merge_workflow_contexts` (`services/workflow_context/merge.py`), the same
+merge already used for any multi-parent node. A conflict between the two
+branches (e.g. both writing the same `parsed[output_key]` with different
+data) still raises rather than being silently merged.
 
-### Fan-out doesn't change this — it multiplies it per device, unchanged
+A single shared `SQLAlchemy Session` backs the whole walk; concurrent
+siblings never corrupt it because every `WorkflowStepResult` write already
+self-commits (`RunRepository.update_step_result`/`create_step_result`) and
+`StepRunner` serializes those writes with an internal `asyncio.Lock` — the
+lock only brackets the write itself, never a sibling's actual step work (SSH
+sessions, HTTP calls), so it costs nothing meaningful.
+
+### Fan-out multiplies this per device, unchanged
 
 Enabling fan-out on an upstream inventory step gives you real, Hatchet-visible
 concurrency — but **across devices**, by spawning one `DeviceGroupExecution`
 child workflow per device/chunk (see **Option 2** above). Each child still
-walks its own downstream subgraph — including `b1`/`b2` — with the exact same
+walks its own downstream subgraph — including `b1`/`b2` — with a plain
 sequential, one-node-at-a-time loop
-(`services/execution/step_runner/subgraph.py::run_subgraph`). So with fan-out
-on:
+(`services/execution/step_runner/subgraph.py::run_subgraph`) that has **not**
+been converted to generations yet (a known, separate follow-up — it needs no
+locking to add, since it writes zero `WorkflowStepResult` rows during its
+walk; the parent persists after aggregating). So with fan-out on today:
 
 - N devices → N children running concurrently (bounded by `max_concurrency`).
-- Inside **any one** child, `b1` then `b2`, sequentially — same as with
-  fan-out off.
+- Inside **any one** child, `b1` then `b2`, sequentially — unlike phase 1/4
+  outside fan-out.
 
-In other words: fan-out parallelizes "the same branch across devices," never
-"different branches for the same device."
+In other words: fan-out parallelizes "the same branch across devices"; branch
+concurrency (this section) parallelizes "different branches for the same
+device/run" — the two axes are independent, and today only the fan-out
+children's own subgraph hasn't picked up the second one yet.
 
 Relatedly, a node only acts as the fan-out rejoin point when it is explicitly
 a **Fan In** node (`data.kind == "fan-in"`,
@@ -363,15 +378,6 @@ a **Fan In** node (`data.kind == "fan-in"`,
 ordinary step like `c` does not make it one. Without an explicit Fan In node
 upstream of it, `c` simply runs once per device, inside every child, like any
 other step on the child branch.
-
-### If you actually need `b1`/`b2` concurrency
-
-There's no workflow-graph-level way to get it today. The only place true
-concurrency happens within a single step is *inside* one step's own
-executor — e.g. `get-device-configs` runs `asyncio.gather()` over its own
-devices (**Option 1** above). A step type that needs to do two genuinely
-independent things at once has to do so internally, in its own `execute()`,
-not by being split across two canvas nodes.
 
 ---
 

@@ -8,6 +8,7 @@ per-device fan-out via Hatchet child workflows. Never raises — the caller
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -28,6 +29,7 @@ from services.artifacts import FilesystemArtifactService
 from services.execution.graph import (
     downstream_node_ids,
     find_join_node_id,
+    topological_generations,
 )
 from services.execution.step_result_status import derive_step_result_status
 from services.execution.step_runner.signals import FanOutSignal, classify_step_exception
@@ -72,14 +74,30 @@ class StepRunner:
             max_workers=settings.netmiko_pool_workers,
             enabled=settings.netmiko_session_pooling,
         )
+        # Serializes writes on self.db across concurrently-scheduled sibling
+        # branches (see doc/HOWTO_BUILD_WORKFLOWS.md "independent branches run
+        # concurrently"). A Session isn't safe for interleaved concurrent use,
+        # but every RunRepository write already self-commits, so a lock around
+        # just the write — not the surrounding step execution — is enough.
+        self._db_lock = asyncio.Lock()
 
     async def close_device_sessions(self) -> None:
         """Disconnect everything and shut down the pool's thread executor.
         Idempotent — safe to call even if the pool was never used."""
         await self.device_sessions.close()
 
+    async def _persist_step_result(self, step_result: WorkflowStepResult, **fields: Any) -> None:
+        async with self._db_lock:
+            self.repo.update_step_result(step_result, **fields)
+
     async def execute_all(self, *, run: WorkflowRun, workflow: Workflow) -> bool | FanOutSignal:
         """Execute every step in dependency order.
+
+        Nodes with no dependency on one another (siblings in the same
+        topological generation — see ``services.execution.graph.
+        topological_generations``) run concurrently; a node only starts once
+        every generation before it has finished. See
+        doc/HOWTO_BUILD_WORKFLOWS.md "independent branches run concurrently".
 
         Returns True on full success, False when any step fails (remaining steps
         are marked skipped) or when any step's own device outcome indicates
@@ -93,6 +111,7 @@ class StepRunner:
 
         ordered_nodes = self.build_execution_plan(nodes, edges)
         step_results = self.create_pending_step_results(run_id=run.id, ordered_nodes=ordered_nodes)
+        generations = topological_generations(ordered_nodes, edges)
 
         # node_id -> outcome_name -> WorkflowContext
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {}
@@ -100,52 +119,119 @@ class StepRunner:
         failed = False
         any_reported_failure = False
 
-        for node in ordered_nodes:
-            node_id = node.get("id", "")
-            step_result = step_results[node_id]
-
+        for wave in generations:
             if failed:
-                self.repo.update_step_result(step_result, status="skipped")
+                for node in wave:
+                    await self._persist_step_result(step_results[node["id"]], status="skipped")
                 continue
 
-            raised, indicates_failure = await self.run_node_in_sequence(
-                node=node,
+            wave_failed, wave_reported_failure = await self._run_wave(
+                wave=wave,
                 run=run,
                 workflow=workflow,
                 edges=edges,
                 step_outcomes=step_outcomes,
-                step_result=step_result,
+                step_results=step_results,
                 blocked_nodes=blocked_nodes,
             )
-            if raised:
+            if wave_failed:
                 failed = True
                 continue
-            if indicates_failure:
+            if wave_reported_failure:
                 any_reported_failure = True
 
-            # Check if this step requested fan-out. When it does, stop here and
-            # hand control back to the orchestrator, which dispatches children
-            # and (when a fan-in node exists) resumes execution after the join.
-            success_ctx = step_outcomes.get(node_id, {}).get("success")
-            if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
-                fan_out_config = dict(success_ctx.metadata["_fan_out"])
-                join_node_id = find_join_node_id(node_id, nodes, edges)
-                logger.info(
-                    "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
-                    node_id,
-                    fan_out_config.get("mode"),
-                    join_node_id,
-                    run.id,
-                )
-                return FanOutSignal(
-                    inventory_node_id=node_id,
-                    fan_out_config=fan_out_config,
-                    inventory_outcome=success_ctx,
-                    step_outcomes=dict(step_outcomes),
-                    join_node_id=join_node_id,
-                )
+            # Check if any node in this wave requested fan-out (in wave order
+            # — deterministic, matching the flat walk's "first one wins" when
+            # only one fan-out point is handled per execute_all call). When
+            # one does, stop here and hand control back to the orchestrator,
+            # which dispatches children and (when a fan-in node exists)
+            # resumes execution after the join.
+            for node in wave:
+                node_id = node.get("id", "")
+                success_ctx = step_outcomes.get(node_id, {}).get("success")
+                if success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled"):
+                    fan_out_config = dict(success_ctx.metadata["_fan_out"])
+                    join_node_id = find_join_node_id(node_id, nodes, edges)
+                    logger.info(
+                        "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
+                        node_id,
+                        fan_out_config.get("mode"),
+                        join_node_id,
+                        run.id,
+                    )
+                    return FanOutSignal(
+                        inventory_node_id=node_id,
+                        fan_out_config=fan_out_config,
+                        inventory_outcome=success_ctx,
+                        step_outcomes=dict(step_outcomes),
+                        join_node_id=join_node_id,
+                    )
 
         return not (failed or any_reported_failure)
+
+    async def _run_wave(
+        self,
+        *,
+        wave: list[dict[str, Any]],
+        run: WorkflowRun,
+        workflow: Workflow,
+        edges: list[dict[str, Any]],
+        step_outcomes: dict[str, dict[str, WorkflowContext]],
+        step_results: dict[str, WorkflowStepResult],
+        blocked_nodes: set[str],
+    ) -> tuple[bool, bool]:
+        """Run one topological generation's nodes concurrently.
+
+        Shared by ``execute_all`` and ``resume_after_join`` — the one place
+        ``asyncio.gather`` is used over sibling nodes. Safe because nodes in
+        one generation never depend on each other, so their
+        ``step_outcomes``/``blocked_nodes`` writes never collide and never
+        race a read of the same key (see doc/plans/PARALLEL_EXEC.md).
+
+        Returns ``(failed, any_reported_failure)`` aggregated across the wave,
+        same meaning as ``run_node_in_sequence``'s per-node return. Uses
+        ``return_exceptions=True`` so one sibling's unexpected exception
+        (a bug, not a step-level failure — those are already caught inside
+        ``run_node_in_sequence``) doesn't strand or cancel the others; it is
+        re-raised once every sibling in the wave has finished, matching the
+        "an unexpected exception aborts the whole run" contract this had
+        before waves existed, just deferred until the wave completes.
+        """
+        results = await asyncio.gather(
+            *(
+                self.run_node_in_sequence(
+                    node=node,
+                    run=run,
+                    workflow=workflow,
+                    edges=edges,
+                    step_outcomes=step_outcomes,
+                    step_result=step_results[node["id"]],
+                    blocked_nodes=blocked_nodes,
+                )
+                for node in wave
+            ),
+            return_exceptions=True,
+        )
+
+        failed = False
+        any_reported_failure = False
+        pending_exception: BaseException | None = None
+        for outcome in results:
+            if isinstance(outcome, BaseException):
+                failed = True
+                if pending_exception is None:
+                    pending_exception = outcome
+                continue
+            raised, indicates_failure = outcome
+            if raised:
+                failed = True
+            elif indicates_failure:
+                any_reported_failure = True
+
+        if pending_exception is not None:
+            raise pending_exception
+
+        return failed, any_reported_failure
 
     def build_execution_plan(
         self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
@@ -307,7 +393,7 @@ class StepRunner:
         if self._step_requires_devices(step_type) and self._blocked_by_upstream_failure(
             node_id, edges, step_outcomes, blocked_nodes
         ):
-            self.repo.update_step_result(step_result, status="skipped")
+            await self._persist_step_result(step_result, status="skipped")
             blocked_nodes.add(node_id)
             logger.info(
                 "Step skipped (blocked by upstream device failure) node_id=%s type=%s run_id=%s",
@@ -351,7 +437,7 @@ class StepRunner:
         step_type = node_data.get("kind", "unknown")
         step_config: dict[str, Any] = node_data.get("pluginConfig", {})
 
-        self.repo.update_step_result(
+        await self._persist_step_result(
             step_result,
             status="running",
             started_at=datetime.now(UTC),
@@ -386,7 +472,7 @@ class StepRunner:
                 outcomes=outcomes,
                 input_context=input_context,
             )
-            self.repo.update_step_result(
+            await self._persist_step_result(
                 step_result,
                 status=step_status,
                 output=persisted_output,
@@ -414,7 +500,7 @@ class StepRunner:
                 exc_info=True,
                 extra={"error_id": error_id},
             )
-            self.repo.update_step_result(
+            await self._persist_step_result(
                 step_result,
                 status="failed",
                 error_message=message[:4000],
@@ -452,11 +538,15 @@ class StepRunner:
         nodes that ran before the fan-out point in the same graph — an
         unusual shape in practice (post-join nodes are fed by the fanned-in
         device union, not pre-fan-out context).
+
+        Like ``execute_all``, independent post-join siblings run concurrently
+        — see ``_run_wave``.
         """
         nodes, edges = self.load_execution_graph(workflow)
         ordered_nodes = self._topological_sort(nodes, edges)
 
         post_join_ids = {join_node_id} | downstream_node_ids(join_node_id, nodes, edges)
+        post_join_nodes = [n for n in ordered_nodes if n.get("id", "") in post_join_ids]
 
         # Seed prior outcomes from the children so the fan-in node's parents resolve.
         step_outcomes: dict[str, dict[str, WorkflowContext]] = {
@@ -466,15 +556,11 @@ class StepRunner:
         step_result_by_node: dict[str, WorkflowStepResult] = {
             sr.step_node_id: sr for sr in self.repo.get_step_results_for_run(run.id)
         }
-
-        blocked_nodes: set[str] = set()
-        failed = False
-        any_reported_failure = False
-        for node in ordered_nodes:
-            node_id = node.get("id", "")
-            if node_id not in post_join_ids:
-                continue
-
+        # Resolve every post-join node's row up front (sequential, before any
+        # wave runs concurrently) — mirrors execute_all's create_pending_step_results.
+        step_results: dict[str, WorkflowStepResult] = {}
+        for node in post_join_nodes:
+            node_id = node["id"]
             step_result = step_result_by_node.get(node_id)
             if step_result is None:
                 node_data = node.get("data", {})
@@ -484,24 +570,32 @@ class StepRunner:
                     step_type=node_data.get("kind", "unknown"),
                     step_name=node_data.get("title", node_data.get("kind", "unknown")),
                 )
+            step_results[node_id] = step_result
 
+        generations = topological_generations(post_join_nodes, edges)
+
+        blocked_nodes: set[str] = set()
+        failed = False
+        any_reported_failure = False
+        for wave in generations:
             if failed:
-                self.repo.update_step_result(step_result, status="skipped")
+                for node in wave:
+                    await self._persist_step_result(step_results[node["id"]], status="skipped")
                 continue
 
-            raised, indicates_failure = await self.run_node_in_sequence(
-                node=node,
+            wave_failed, wave_reported_failure = await self._run_wave(
+                wave=wave,
                 run=run,
                 workflow=workflow,
                 edges=edges,
                 step_outcomes=step_outcomes,
-                step_result=step_result,
+                step_results=step_results,
                 blocked_nodes=blocked_nodes,
             )
-            if raised:
+            if wave_failed:
                 failed = True
                 continue
-            if indicates_failure:
+            if wave_reported_failure:
                 any_reported_failure = True
 
         return not (failed or any_reported_failure)

@@ -66,6 +66,41 @@ def topological_order(
     return result
 
 
+def topological_generations(
+    ordered_nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> list[list[dict[str, Any]]]:
+    """Group an already topologically-sorted node list into dependency
+    layers ("waves"): every node in generation N has all its parents (edges
+    whose target is this node, restricted to parents present in
+    *ordered_nodes*) in generations < N. Nodes within one generation have no
+    dependency on each other and are safe to execute concurrently.
+
+    Expects *ordered_nodes* to already be a valid topological order (as
+    ``topological_order``/``graph_resolution.topological_sort`` produce) —
+    cycle detection already happened there, so this does a single O(N+E)
+    depth pass rather than reimplementing Kahn's algorithm.
+    """
+    node_ids = {n["id"] for n in ordered_nodes if "id" in n}
+    parents: dict[str, list[str]] = {nid: [] for nid in node_ids}
+    for edge in edges:
+        src = edge.get("source", "")
+        tgt = edge.get("target", "")
+        if src in node_ids and tgt in node_ids:
+            parents[tgt].append(src)
+
+    depth_by_id: dict[str, int] = {}
+    generations: list[list[dict[str, Any]]] = []
+    for node in ordered_nodes:
+        node_id = node["id"]
+        depth = 1 + max((depth_by_id[p] for p in parents[node_id]), default=-1)
+        depth_by_id[node_id] = depth
+        if depth == len(generations):
+            generations.append([])
+        generations[depth].append(node)
+
+    return generations
+
+
 def downstream_node_ids(
     start_node_id: str,
     nodes: list[dict[str, Any]],
