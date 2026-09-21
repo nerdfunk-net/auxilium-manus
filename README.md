@@ -14,14 +14,20 @@ with a visual, repeatable workflow model:
   inventory) and select one or more targets before building a workflow around them.
 - **Design workflows on a canvas** — compose steps (get config, run a command, render a
   Jinja template, evaluate a condition, write to Git, update Nautobot/ISE, store an
-  artifact, snapshot and diff structured device state via pyATS, …) as nodes on a React
-  Flow canvas, connected by dependency-aware edges. The output of one step becomes the
-  input of the next.
+  artifact, snapshot and diff structured device state via pyATS, analyze routing,
+  reachability, and ACLs offline via Batfish, …) as nodes on a React Flow canvas,
+  connected by dependency-aware edges. The output of one step becomes the input of the
+  next.
 - **Run once or fan out** — execute a workflow interactively against a single device, or
   fan it out into a parallel per-device child workflow across an entire device group.
+- **Independent branches run in parallel automatically** — if the canvas has two (or
+  more) steps with no dependency on each other, the engine runs them concurrently by
+  default, no configuration needed. This is a separate axis from fan-out: fan-out
+  parallelizes one branch across many devices, this parallelizes different branches
+  against the same device/run.
 - **Get durable, resumable execution** — runs are orchestrated by Hatchet, so long-running
-  or multi-device workflows survive worker restarts, support retries, and can be paused at
-  a debug step or an approval gate.
+  or multi-device workflows survive worker restarts, support retries, and can wait at an
+  approval gate (Wait & Run) or end early at a Stop Here step for mid-run inspection.
 - **Keep an audit trail** — every run is stored separately from the workflow definition,
   with per-step status, logs, and results. Command output, device configuration backups,
   and other generated artifacts are persisted as durable, downloadable artifacts.
@@ -62,9 +68,16 @@ trigger specific workflows and settings.
 - Jinja2 template rendering and config deployment to devices via Netmiko/SSH
 - Durable, retryable background execution via Hatchet, with per-run logs and artifacts
 - Fan-out execution: run a workflow across every device in a group in parallel
+- Automatic branch-level concurrency: independent canvas branches (steps with no
+  dependency on each other) run in parallel by default — no toggle, no extra config —
+  layered on top of, and independent from, per-device fan-out
 - pyATS/Genie integration: build a testbed, fetch and parse running config, capture a
   "learn" snapshot of live feature state (BGP, OSPF, interfaces, platform, …), and diff a
   snapshot against a stored reference using Genie's structure-aware diff
+- Batfish integration: build an offline network snapshot from collected device configs
+  and answer routing, reachability, and ACL questions against it — routing tables, path
+  checks, ACL checks, OSPF/BGP facts, node/interface properties, and general config-fact
+  extraction/validation — without touching live devices
 - Notifications: write in-app notifications and/or post to a Mattermost channel, either
   per-step or from a shared error sink that reports every accumulated failure across a
   run's fanned-out devices
@@ -73,8 +86,12 @@ trigger specific workflows and settings.
 - Staged change requests (CI/CD gate): Open Change Request pushes configs to a Git
   branch and records a Change Request in the local DB; Approve & Deploy (or a signed
   Git webhook) starts a separate deploy run that applies the reviewed change
-- Credential vault (encrypted at rest, with SSH login/SSH key/token credential types) and
-  RBAC-protected settings, users, and workflows
+- Credential vault (encrypted at rest by default, or per-credential in OpenBao when
+  enabled) with SSH login/SSH key/token credential types, and RBAC-protected settings,
+  users, and workflows
+- Secret Manager: generate, rotate, and read operational secrets (TACACS+ keys, SNMP
+  community strings/SNMPv3 credentials, …) from a workflow at run time, stored in an
+  external OpenBao or Infisical backend chosen per connection
 
 ## Tech stack
 
@@ -84,7 +101,7 @@ UI, TanStack Query, Zustand, React Hook Form, Zod
 **Backend:** FastAPI, Python, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko,
 GitPython, pyATS/Genie
 
-**Integrations:** Nautobot API, Cisco ISE, pyATS, Mattermost
+**Integrations:** Nautobot API, Cisco ISE, pyATS, Batfish, Mattermost, OpenBao/Infisical
 
 ## The app
 

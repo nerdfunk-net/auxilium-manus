@@ -690,8 +690,12 @@ Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx
 
 > **Read BOTH documents before implementing or changing any step/artifact:**
 > - `doc/WORKFLOW-STEPS.md` — full specification: contracts, registry, execution path,
->   and **fan-out** behaviour (per-device child workflows; git/filesystem sinks are not
->   automatically fan-out-safe).
+>   **fan-out** behaviour (per-device child workflows), and **branch-level concurrency**
+>   (independent canvas branches with no dependency edge run concurrently by default, no
+>   toggle — see "Writing concurrency-safe steps"). Git steps are lock-protected against
+>   corruption either way but still produce one commit per concurrent caller, so
+>   git/filesystem sinks are not automatically safe to place on a fanned-out or
+>   independent-sibling branch without a join point.
 > - `doc/WORKFLOW-STEPS-STYLE_GUIDE.md` — frontend styling: shared **canvas node**
 >   (`w-80` × `h-32`, full title, light-gray input handle, green/red output handles),
 >   `ConfigPanel`/dialog rules (teal palette, card anatomy, fan-out config block).
@@ -951,6 +955,11 @@ remote creates/uses a `GitRepository` row.
   resolve** — private credentials are silently treated as not found.
 - `backend/services/git/sync.py` — `clone_or_pull`/`remove_and_clone`: "ensure the
   local working tree exists" helpers for callers that just need to read files.
+- `backend/services/git/repo_lock.py` — `git_repo_lock(git_repository_id)` (or the split
+  `acquire_git_repo_lock`/`release_git_repo_lock` for a critical section spanning
+  multiple `await` points): a per-repository Redis advisory lock (fail-soft) every
+  git-mutating workflow step must hold across its GitService calls — see
+  `doc/ARCHITECTURAL_OVERVIEW.md` → "Branch-level concurrency" for why.
 - `backend/services/git/device_service.py`, `content_search_service.py` —
   device-YAML discovery and text search over an already-cloned repo.
 - `backend/workflow_steps/common/git_repository_loader.py` — `load_git_repository
@@ -984,6 +993,11 @@ targets the change request's `manus/cr-{id}` branch. See `doc/CICD_PIPELINE.md`.
   feature; reuse an existing `GitCategory` or extend the enum if genuinely new
 - ✅ Reuse `GitService` / `GitRepositoryService` / `git_repository_loader` — one
   resolution path, no parallel implementations
+- ✅ Hold `services/git/repo_lock.py`'s per-repository lock across any sequence of
+  `GitService` calls that mutates the working tree (clone/pull/write/commit/push) —
+  concurrent callers against the same repo are otherwise possible today (fan-out
+  children, independent sibling branches — see "Branch-level concurrency" in
+  `doc/ARCHITECTURAL_OVERVIEW.md`), not just a hypothetical
 - ✅ Reference credentials by name via `credential_name` on the `GitRepository` row
 
 ### DON'T:

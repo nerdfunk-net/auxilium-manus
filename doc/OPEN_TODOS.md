@@ -237,3 +237,106 @@ Secret Manager OpenBao connection specifically:
    `doc/SECRET_MANAGER_INTEGRATION.md` to document the new method(s) —
    don't let those two drift from the code again.
 
+---
+
+## No concurrency cap on independent sibling branches
+
+**Added:** 2026-09-21 · **Area:** `backend/services/execution/step_runner/runner.py`
+
+### What we have
+
+`StepRunner._run_wave` runs every node in one topological generation
+concurrently via `asyncio.gather`, uncapped — no semaphore, no
+`max_concurrency`-style knob. This is a deliberate asymmetry with device
+fan-out, which has always had `fan_out.max_concurrency` precisely because an
+uncapped burst there is a real, verified risk (a wide device count means a
+simultaneous SSH-login/TACACS+ burst against real external infrastructure).
+Branch-level concurrency was reasoned to be different in kind, not just
+degree: the number of concurrent siblings in one wave is bounded by how many
+independent branches a human actually drew on one canvas — low-cardinality
+by construction, not attacker- or inventory-controlled the way a device
+count is. See [[project_parallel_exec_discussion]] (memory) and
+`doc/ARCHITECTURAL_OVERVIEW.md` → "Branch-level concurrency" for the full
+design context this decision was made in.
+
+### Original goal
+
+Not a goal so much as a standing decision to revisit: keep sibling-branch
+concurrency uncapped as long as the low-cardinality assumption holds in
+practice.
+
+### Why it's deferred
+
+No concrete workflow has shown a canvas with wide-enough sibling fan-out
+(tens of independent branches) to make this a real burst risk, unlike device
+fan-out where the risk was obvious a priori (SSH/TACACS+ against real
+network infrastructure). Adding a cap speculatively means a new
+`branch_concurrency` (or similar) setting with no driving use case yet.
+
+### When we revisit
+
+If a real canvas is built with enough independent sibling branches feeding
+into the same external resource (many parallel API/SSH calls with no shared
+device-level pooling to fall back on) that an uncapped `asyncio.gather` burst
+becomes a problem: add a `Semaphore` around `_run_wave`'s gather, sized by a
+new run- or workflow-level setting, mirroring `fan_out.max_concurrency`'s
+existing shape (`hatchet/workflows/workflow_run/fan_out_dispatch.py::_run_groups`)
+rather than inventing a new pattern.
+
+---
+
+## No save-time warning for git-touching steps split across concurrent branches
+
+**Added:** 2026-09-21 · **Area:** `backend/services/workflow/workflow_service.py`,
+`backend/workflow_steps/registry.yaml`
+
+### What we have
+
+Two independent canvas branches (or a fan-out branch without an intervening
+Fan In node) that both reach a git-touching step
+(`store-artifact`/git-clone/git-pull/git-push/open-change-request)
+configured against the *same* `git_repository_id` will each still run their
+own clone/pull/commit/push — `services/git/repo_lock.py` (see
+[[project_parallel_exec_discussion]]) makes this safe against working-tree
+corruption, but it does not merge concurrent callers into one logical
+operation, so the result is still N commits/branches/change-requests instead
+of one. Today this is purely a documentation concern — `doc/WORKFLOW-STEPS.md`
+→ "Writing concurrency-safe steps", the `registry.yaml` entries, and the
+frontend `HelpWarning` panels all tell the workflow author to place such a
+step after a join point, but nothing at save time actually checks for this
+misconfiguration and warns or blocks it.
+
+### Original goal
+
+Detect, at workflow save time, a git-mutating step that is reachable via two
+or more concurrent (non-joined) paths sharing the same `git_repository_id`
+config value, and surface a validation warning (or block the save) —
+mirroring the existing save-time structural check
+`WorkflowService._validate_stop_here_not_in_fan_out` uses for a related
+class of problem (a `stop-here` node placed somewhere fan-out semantics make
+it meaningless).
+
+### Why it's deferred
+
+No concrete incident yet, and the existing policy already accepts the same
+gap for the older, narrower case (a git step placed directly inside a
+fan-out branch with no Fan In was never validated either — only
+documented). Building real detection is also more involved than the
+stop-here check it would mirror: that check is purely structural (is this
+node inside a fan-out region), while this one needs to resolve each
+candidate step's actual `git_repository_id` *config value* (not just its
+position in the graph) and compare it across every concurrent path to the
+same node — cross-node config comparison during save-time graph validation
+has no existing precedent in this codebase.
+
+### When we revisit
+
+If this repeatedly produces duplicate commits/branches/change-requests for
+real users (rather than being caught by the documented guidance): add a
+`WorkflowService` save-time check, in the same architectural spot as
+`_validate_stop_here_not_in_fan_out`, that walks the graph for each
+git-touching step type, resolves its `git_repository_id` from config, and
+flags any `GitRepository` id reachable via more than one concurrent
+(non-joined) path — a warning first, since some workflows may intentionally
+want N commits (e.g. distinct branches per caller), not an outright block.
+

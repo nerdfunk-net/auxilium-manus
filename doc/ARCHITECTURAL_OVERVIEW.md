@@ -51,7 +51,7 @@ and after that change, `StepRunner` still called each step's `execute()`
 exactly once per node, with the same full `context.devices` dict — only the
 loop *inside* the executor changed.
 
-### The one exception: fan-out
+### Two exceptions to "one node at a time": fan-out and branch concurrency
 
 Under `fan_out.enabled: true` (`doc/WORKFLOW-STEPS.md` → "Fan-out
 execution"), each device or chunk runs as its own independent Hatchet child
@@ -61,6 +61,77 @@ disjoint subset of `context.devices` (one device in `per_device` mode, one
 chunk in `chunked` mode), not once for the parent's whole device set. The
 "once per node" rule still holds; fan-out just means there are now multiple
 parallel node-executions, each scoped to fewer devices.
+
+Separately — and this does not require fan-out at all — two canvas nodes
+with no dependency edge between them run **concurrently**, not sequentially.
+See "Branch-level concurrency" below for the full mechanics; the short
+version is that `execute()` is still called exactly once per node either
+way, just not necessarily one-after-another in canvas order anymore.
+
+---
+
+## Branch-level concurrency: independent nodes run in the same wave
+
+**Question:** If the canvas has two branches with no dependency on each
+other — `a → {b1, b2} → c` — do `b1` and `b2` run one after the other, or at
+the same time? And if they do run concurrently, what stops them from
+corrupting shared state (the run's own DB rows, a shared git repository)?
+
+**Answer:** They run concurrently, in every execution path (a plain run, a
+post-fan-in resume, and inside one fan-out child's own subgraph) — this is
+not opt-in and has no canvas toggle, unlike `fan_out.enabled`. Two
+serialisation mechanisms make that safe: one for the run's own bookkeeping,
+one for git.
+
+### How the scheduling works
+
+`StepRunner` groups the topologically-sorted canvas into dependency layers —
+`services/execution/graph.py::topological_generations` — instead of walking
+one flat list. Every node in a layer has all its parents in strictly earlier
+layers, so nodes within one layer never depend on each other by
+construction. `execute_all` (phase 1), `resume_after_join` (phase 4), and
+`subgraph.run_subgraph` (fan-out children) all walk layer by layer; within a
+layer, `StepRunner._run_wave` runs every node's `execute()` concurrently via
+`asyncio.gather(..., return_exceptions=True)`, and the walk only advances to
+the next layer once the whole current one finishes. `c` above only starts
+once both `b1` and `b2` are done — not through any wait/join primitive, just
+because it isn't "ready" (all parents finished) until then.
+
+A hard, unexpected exception in one sibling (not a step-level failure — those
+are already caught and turned into a failed `WorkflowStepResult`, same as
+before) doesn't strand or cancel the others in that layer; they finish, then
+the exception is re-raised, matching the pre-concurrency contract that such
+an exception aborts the whole run — just after the layer completes instead
+of immediately.
+
+### The run's own Session
+
+All of this happens inside one `StepRunner` instance sharing one SQLAlchemy
+`Session`, which is not safe for interleaved concurrent use. Rather than
+give each concurrent branch its own `Session` (the fan-out-child pattern),
+`StepRunner` holds a single `asyncio.Lock` (`self._db_lock`) and every
+`WorkflowStepResult` write goes through `_persist_step_result`, which
+acquires it. This works because `RunRepository.update_step_result`/
+`create_step_result` already call `self.db.commit()` internally — each write
+is already a self-contained unit, so the lock only needs to stop two
+commits interleaving, never the surrounding step work (SSH sessions, HTTP
+calls) that's the actual reason to run branches concurrently in the first
+place.
+
+### Git working trees
+
+A workflow step (`git-clone`/`git-pull`/`git-push`, `store-artifact` with
+`destination: git`, `open-change-request`) that touches a `GitRepository`'s
+on-disk working tree is a different hazard: two concurrent callers against
+the *same* repository — two sibling branches, or a fan-out child on another
+Hatchet worker entirely (a different process, so `StepRunner`'s in-process
+`_db_lock` can't help there) — can race on `index.lock` or a non-fast-forward
+push. `services/git/repo_lock.py` closes this with a Redis `SET NX EX`
+advisory lock keyed by `git_repository_id`, fail-soft if Redis is down. It
+does not turn N concurrent callers into one logical operation, only into N
+safely-serialised ones — see `doc/WORKFLOW-STEPS.md` → "Writing
+concurrency-safe steps" for the author-facing guidance on why a git-touching
+step still usually belongs after a join point.
 
 ---
 
@@ -138,6 +209,14 @@ return device_id, failed, False
 Results are reassembled into a new `devices` dict afterward. One device's
 failure or update can't leak into another device's copy, because each
 `DeviceContext` is an independently produced, immutable Pydantic model.
+
+This same discipline is also what makes concurrent sibling branches safe (see
+"Branch-level concurrency" below): two nodes with no dependency edge share
+the identical `WorkflowContext` object as their input (no defensive copy is
+made), so their concurrent execution only stays correct because neither
+mutates it — every step is expected to produce new copies via
+`.model_copy(...)`, never write into `context.devices`/`.metadata`/a
+`DeviceContext`'s fields in place.
 
 SSH sessions follow the same per-device discipline: `DeviceSessionPool`
 (`backend/services/network/netmiko/session_pool.py`) keys pooled connections
