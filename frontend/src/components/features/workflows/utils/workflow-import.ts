@@ -13,14 +13,72 @@ import {
   type WorkflowExportFile,
   type WorkflowExportTemplate,
 } from "../types/workflow-export";
-import { collectCredentialReferencesFromCanvas } from "./workflow-export";
+import {
+  collectCredentialReferencesFromCanvas,
+  collectGitRepositoryIdsFromCanvas,
+  collectSourceIdsFromCanvas,
+} from "./workflow-export";
 
 export class WorkflowImportParseError extends Error {}
+
+/** Step `kind` -> the Credential.type a step's credential_reference resolves
+ * against (see backend/workflow_steps/common/credential_resolver.py and the
+ * per-step executors that call it). Unlisted kinds default to "ssh", which
+ * matches every step in this table today except the two exceptions below. */
+const SHARED_SECRET_STEP_KINDS = new Set(["encrypt-attribute", "decrypt-attribute"]);
+const GENERIC_STEP_KINDS = new Set(["add-pyats-testbed"]);
+
+export type RequiredCredentialType = "ssh" | "generic" | "shared_secret";
 
 export interface CredentialRemapRequirement {
   name: string;
   visibility: WorkflowExportCredentialRef["visibility"] | "unknown";
   owner_username: string | null;
+  credentialType: RequiredCredentialType;
+}
+
+export interface GitRepositoryRemapRequirement {
+  id: number;
+}
+
+export interface SourceRemapRequirement {
+  sourceId: string;
+}
+
+export type SourceRemapType = "nautobot" | "mattermost" | "batfish" | "pyats";
+
+export const SOURCE_CONFIG_KEY_BY_TYPE: Record<SourceRemapType, string> = {
+  nautobot: "nautobot_source_id",
+  mattermost: "mattermost_source_id",
+  batfish: "batfish_source_id",
+  pyats: "pyats_source_id",
+};
+
+/**
+ * Determine which Credential.type a given credential_reference name must
+ * resolve to, based on the kind(s) of step(s) that reference it on the
+ * canvas. Falls back to "ssh" when the name isn't used by a step kind with a
+ * different resolver, preserving today's default behaviour.
+ */
+function inferCredentialType(
+  canvasNodes: Record<string, unknown>[],
+  name: string,
+): RequiredCredentialType {
+  for (const node of canvasNodes) {
+    const data = node.data;
+    if (typeof data !== "object" || data === null) continue;
+    const dataRecord = data as Record<string, unknown>;
+    const pluginConfig = dataRecord.pluginConfig;
+    if (typeof pluginConfig !== "object" || pluginConfig === null) continue;
+    const ref = (pluginConfig as Record<string, unknown>).credential_reference;
+    if (typeof ref !== "string" || ref.trim() !== name) continue;
+
+    const kind = dataRecord.kind;
+    if (typeof kind !== "string") continue;
+    if (SHARED_SECRET_STEP_KINDS.has(kind)) return "shared_secret";
+    if (GENERIC_STEP_KINDS.has(kind)) return "generic";
+  }
+  return "ssh";
 }
 
 const REQUIRED_ARRAY_FIELDS = [
@@ -191,6 +249,7 @@ export function buildCredentialRemapRequirements(
       name,
       visibility: meta?.visibility ?? "unknown",
       owner_username: meta?.owner_username ?? null,
+      credentialType: inferCredentialType(canvasNodes, name),
     });
   }
 
@@ -198,12 +257,44 @@ export function buildCredentialRemapRequirements(
 }
 
 /**
- * Return a deep-copied canvas with credential_reference values rewritten
- * according to remap (old name → new name). Entries mapping to the same name
- * are no-ops; empty target clears the reference.
+ * Decide which canvas-referenced git_repository_id values must be remapped:
+ * any id not present among the target environment's active git repositories.
  */
-export function applyCredentialRemap(
+export function buildGitRepositoryRemapRequirements(
   canvasNodes: Record<string, unknown>[],
+  availableRepositoryIds: number[],
+): GitRepositoryRemapRequirement[] {
+  const available = new Set(availableRepositoryIds);
+  return collectGitRepositoryIdsFromCanvas(canvasNodes)
+    .filter((id) => !available.has(id))
+    .map((id) => ({ id }));
+}
+
+/**
+ * Decide which canvas-referenced source ids (nautobot/mattermost/batfish/
+ * pyats `*_source_id`) must be remapped: any id not present among the
+ * target environment's configured sources of that type.
+ */
+export function buildSourceRemapRequirements(
+  canvasNodes: Record<string, unknown>[],
+  configKey: string,
+  availableSourceIds: string[],
+): SourceRemapRequirement[] {
+  const available = new Set(availableSourceIds);
+  return collectSourceIdsFromCanvas(canvasNodes, configKey)
+    .filter((sourceId) => !available.has(sourceId))
+    .map((sourceId) => ({ sourceId }));
+}
+
+/**
+ * Return a deep-copied canvas with a flat string pluginConfig field
+ * rewritten according to remap (old value → new value). Entries mapping to
+ * the same value are no-ops; empty target clears the field. Used for
+ * credential_reference and every `*_source_id` field.
+ */
+export function applyStringFieldRemap(
+  canvasNodes: Record<string, unknown>[],
+  configKey: string,
   remap: ReadonlyMap<string, string>,
 ): Record<string, unknown>[] {
   if (remap.size === 0) {
@@ -222,22 +313,24 @@ export function applyCredentialRemap(
     }
 
     const config = pluginConfig as Record<string, unknown>;
-    const ref = config.credential_reference;
+    const ref = config[configKey];
     if (typeof ref !== "string") return cloned;
 
     const trimmed = ref.trim();
     if (!remap.has(trimmed)) return cloned;
 
-    config.credential_reference = remap.get(trimmed) ?? "";
+    config[configKey] = remap.get(trimmed) ?? "";
     return cloned;
   });
 }
 
 /**
- * Rewrite canvas pluginConfig.template_id values using oldId → newId map.
+ * Rewrite a flat numeric pluginConfig field (oldId → newId map). Used for
+ * template_id and git_repository_id.
  */
-export function applyTemplateIdRemap(
+export function applyNumericFieldRemap(
   canvasNodes: Record<string, unknown>[],
+  configKey: string,
   remap: ReadonlyMap<number, number>,
 ): Record<string, unknown>[] {
   if (remap.size === 0) {
@@ -256,12 +349,12 @@ export function applyTemplateIdRemap(
     }
 
     const config = pluginConfig as Record<string, unknown>;
-    const raw = config.template_id;
+    const raw = config[configKey];
     if (raw === null || raw === undefined || raw === "") return cloned;
     const oldId = typeof raw === "number" ? raw : Number(raw);
     if (!Number.isInteger(oldId) || !remap.has(oldId)) return cloned;
 
-    config.template_id = remap.get(oldId) ?? null;
+    config[configKey] = remap.get(oldId) ?? null;
     return cloned;
   });
 }

@@ -96,6 +96,7 @@ RUN pip install --no-index --find-links /tmp/wheelhouse -r backend/requirements.
     && rm -rf /tmp/wheelhouse
 
 COPY backend/ ./backend/
+COPY contributing-data/ ./contributing-data/
 
 COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
 COPY --from=frontend-builder /app/frontend/public ./frontend/public

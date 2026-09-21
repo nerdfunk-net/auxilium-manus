@@ -23,6 +23,20 @@ interface WorkflowImportCredentialRemapProps {
   isLoading?: boolean;
 }
 
+/** Mirrors backend/workflow_steps/common/credential_resolver.py's acceptance
+ * rules: resolve_ssh_credential only accepts "ssh", resolve_generic_credential
+ * accepts "ssh" or "generic", resolve_shared_secret_credential only accepts
+ * "shared_secret". */
+function credentialMatchesType(
+  credential: Credential,
+  requiredType: CredentialRemapRequirement["credentialType"],
+): boolean {
+  if (requiredType === "generic") {
+    return credential.type === "ssh" || credential.type === "generic";
+  }
+  return credential.type === requiredType;
+}
+
 export function WorkflowImportCredentialRemap({
   requirements,
   credentials,
@@ -41,53 +55,63 @@ export function WorkflowImportCredentialRemap({
       </div>
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Loading credentials…</p>
-      ) : credentials.length === 0 ? (
-        <p className="text-xs text-warning-foreground">
-          No SSH credentials available. Add credentials in Settings →
-          Credentials first.
-        </p>
       ) : (
-        requirements.map((requirement) => (
-          <div key={requirement.name} className="grid gap-1.5">
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="font-mono font-medium">{requirement.name}</span>
-              {requirement.visibility === "unknown" ? (
-                <Badge
-                  className="h-4 rounded px-1 text-[10px]"
-                  variant="secondary"
-                >
-                  Unknown
+        requirements.map((requirement) => {
+          const options = credentials.filter((credential) =>
+            credentialMatchesType(credential, requirement.credentialType),
+          );
+          return (
+            <div key={requirement.name} className="grid gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="font-mono font-medium">{requirement.name}</span>
+                <Badge className="h-4 rounded px-1 text-[10px]" variant="outline">
+                  {requirement.credentialType}
                 </Badge>
+                {requirement.visibility === "unknown" ? (
+                  <Badge
+                    className="h-4 rounded px-1 text-[10px]"
+                    variant="secondary"
+                  >
+                    Unknown
+                  </Badge>
+                ) : (
+                  <CredentialVisibilityBadge
+                    className="h-4 rounded px-1 text-[10px]"
+                    visibility={requirement.visibility as CredentialVisibility}
+                  />
+                )}
+                {requirement.owner_username ? (
+                  <span className="text-muted-foreground">
+                    owner: {requirement.owner_username}
+                  </span>
+                ) : null}
+              </div>
+              {options.length === 0 ? (
+                <p className="text-xs text-warning-foreground">
+                  No {requirement.credentialType} credentials available. Add
+                  one in Settings → Credentials first.
+                </p>
               ) : (
-                <CredentialVisibilityBadge
-                  className="h-4 rounded px-1 text-[10px]"
-                  visibility={requirement.visibility as CredentialVisibility}
-                />
+                <Select
+                  value={value[requirement.name] ?? ""}
+                  onValueChange={(selected) => onChange(requirement.name, selected)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select replacement credential" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((credential) => (
+                      <SelectItem key={credential.id} value={credential.name}>
+                        {credential.name} ({credential.username}) ·{" "}
+                        {credential.visibility === "global" ? "Global" : "Private"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
-              {requirement.owner_username ? (
-                <span className="text-muted-foreground">
-                  owner: {requirement.owner_username}
-                </span>
-              ) : null}
             </div>
-            <Select
-              value={value[requirement.name] ?? ""}
-              onValueChange={(selected) => onChange(requirement.name, selected)}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Select replacement credential" />
-              </SelectTrigger>
-              <SelectContent>
-                {credentials.map((credential) => (
-                  <SelectItem key={credential.id} value={credential.name}>
-                    {credential.name} ({credential.username}) ·{" "}
-                    {credential.visibility === "global" ? "Global" : "Private"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );

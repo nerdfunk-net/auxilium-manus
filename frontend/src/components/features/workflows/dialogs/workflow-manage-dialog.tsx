@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Upload } from "lucide-react";
+import { LibraryBig, Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ import {
   getSortedFolders,
   normalizeFolder,
 } from "../utils/workflow-folders";
+import { WorkflowGalleryDialog } from "./workflow-gallery-dialog";
 import { WorkflowImportDialog } from "./workflow-import-dialog";
 import { WorkflowManageFilters } from "./workflow-manage-filters";
 
@@ -92,6 +93,7 @@ export function WorkflowManageDialog({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
   const filteredWorkflows = useMemo(() => {
     if (selectedFolder === null) return workflows;
@@ -396,10 +398,16 @@ export function WorkflowManageDialog({
           </div>
 
           <div className="flex items-center justify-between border-t px-6 py-4">
-            <Button variant="outline" onClick={() => setIsImportOpen(true)}>
-              <Upload className="mr-2 size-4" />
-              Import…
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsGalleryOpen(true)}>
+                <LibraryBig className="mr-2 size-4" />
+                Gallery
+              </Button>
+              <Button variant="outline" onClick={() => setIsImportOpen(true)}>
+                <Upload className="mr-2 size-4" />
+                Import…
+              </Button>
+            </div>
             <Button variant="outline" onClick={onClose}>
               Close
             </Button>
@@ -410,6 +418,10 @@ export function WorkflowManageDialog({
       <WorkflowImportDialog
         open={isImportOpen}
         onClose={() => setIsImportOpen(false)}
+      />
+      <WorkflowGalleryDialog
+        open={isGalleryOpen}
+        onClose={() => setIsGalleryOpen(false)}
       />
     </>
   );

@@ -1,10 +1,11 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-02T07:11:41.160Z",
+  "exported_at": "2026-09-21T12:15:42.360Z",
   "name": "Get Backups",
   "description": "Get Backups",
-  "folder": "/",
+  "folder": "Gallery",
   "visibility": "private",
+  "notes": null,
   "canvas_nodes": [
     {
       "id": "get-nautobot-devices-1",
@@ -168,7 +169,7 @@
         "incomeHandleSide": "top",
         "outcomeHandleSide": "bottom",
         "pluginConfig": {
-          "credential_reference": "noc"
+          "credential_reference": "cisco - noc"
         }
       },
       "measured": {
@@ -253,10 +254,10 @@
           "content_source": "running_config",
           "source_step_node_id": "get-device-configs-3",
           "parsed_output_key": "",
-          "filename_template": "{nautobot.location.name}/{device.name}_{run.date}.running.cfg",
+          "filename_template": "{nautobot.location.name}/{device.name}.running.cfg",
           "strict_templates": true,
           "retention_policy": "standard-90-days",
-          "git_repository_id": 1,
+          "git_repository_id": 4,
           "repository_subdirectory": "configs",
           "pull_before_write": false,
           "commit_after_write": false,
@@ -309,10 +310,10 @@
           "content_source": "startup_config",
           "source_step_node_id": "get-device-configs-3",
           "parsed_output_key": "",
-          "filename_template": "{nautobot.location.name}/{device.name}_{run.date}.startup.cfg",
+          "filename_template": "{nautobot.location.name}/{device.name}.startup.cfg",
           "strict_templates": true,
           "retention_policy": "standard-90-days",
-          "git_repository_id": 1,
+          "git_repository_id": 4,
           "repository_subdirectory": "configs",
           "pull_before_write": false,
           "commit_after_write": false,
@@ -360,7 +361,8 @@
         "incomeHandleSide": "top",
         "outcomeHandleSide": "right",
         "pluginConfig": {
-          "git_repository_id": 1
+          "git_repository_id": 4,
+          "use_change_request_branch": false
         }
       },
       "measured": {
@@ -402,7 +404,7 @@
         ],
         "outcomeHandleSide": "bottom",
         "pluginConfig": {
-          "git_repository_id": 1,
+          "git_repository_id": 4,
           "commit_before_push": true,
           "commit_message_template": "Backup of {timestamp}"
         }
@@ -779,7 +781,7 @@
   "static_attributes": [],
   "credential_references": [
     {
-      "name": "noc",
+      "name": "cisco - noc",
       "visibility": "global",
       "owner_username": null
     }

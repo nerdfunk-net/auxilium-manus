@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from core.safe_http_errors import raise_internal_server_error
 from models.workflow_changes import WorkflowChangeListResponse
 from models.workflows import (
     WorkflowCreate,
+    WorkflowGalleryListResponse,
     WorkflowGitDiffRequest,
     WorkflowGitDiffResponse,
     WorkflowGitHistoryResponse,
@@ -24,6 +26,7 @@ from models.workflows import (
     WorkflowResponse,
     WorkflowUpdate,
 )
+from services.workflow.workflow_gallery_service import WorkflowGalleryService
 from services.workflow.workflow_service import WorkflowService
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,10 @@ router = APIRouter(
 
 def _service(db: Session = Depends(get_db)) -> WorkflowService:
     return WorkflowService(db)
+
+
+def _gallery_service() -> WorkflowGalleryService:
+    return WorkflowGalleryService()
 
 
 @router.get(
@@ -71,6 +78,28 @@ def check_workflow_name(
         user_id=current_user.id,
         exclude_id=exclude_id,
     )
+
+
+@router.get(
+    "/gallery",
+    response_model=WorkflowGalleryListResponse,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
+def list_gallery_workflows(
+    service: WorkflowGalleryService = Depends(_gallery_service),
+) -> WorkflowGalleryListResponse:
+    return service.list_items()
+
+
+@router.get(
+    "/gallery/{gallery_id}",
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
+def get_gallery_workflow(
+    gallery_id: str,
+    service: WorkflowGalleryService = Depends(_gallery_service),
+) -> dict[str, Any]:
+    return service.get_item(gallery_id)
 
 
 @router.get(

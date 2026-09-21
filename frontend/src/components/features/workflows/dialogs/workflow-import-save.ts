@@ -9,11 +9,20 @@ import type {
   WorkflowResponse,
 } from "../types/workflow-persistence";
 import {
-  applyCredentialRemap,
-  applyTemplateIdRemap,
+  applyNumericFieldRemap,
+  applyStringFieldRemap,
   resolveWorkflowTemplatesOnImport,
 } from "../utils/workflow-import";
 import type { WorkflowImportFormValues } from "./workflow-import-schema";
+
+export type SourceRemapType = "nautobot" | "mattermost" | "batfish" | "pyats";
+
+export const SOURCE_CONFIG_KEY_BY_TYPE: Record<SourceRemapType, string> = {
+  nautobot: "nautobot_source_id",
+  mattermost: "mattermost_source_id",
+  batfish: "batfish_source_id",
+  pyats: "pyats_source_id",
+};
 
 interface WorkflowImportSavePayload {
   name: string;
@@ -33,6 +42,8 @@ interface ExecuteWorkflowImportSaveArgs {
   existingTemplates: TemplateListItem[];
   templatesToCreateCount: number;
   credentialRemap: Map<string, string>;
+  gitRepositoryRemap: Map<number, number>;
+  sourceRemaps: Record<SourceRemapType, Map<string, string>>;
   apiCall: <T>(path: string, init?: RequestInit) => Promise<T>;
   queryClient: QueryClient;
   createWorkflow: (payload: WorkflowImportSavePayload) => Promise<WorkflowResponse>;
@@ -49,6 +60,8 @@ export async function executeWorkflowImportSave({
   existingTemplates,
   templatesToCreateCount,
   credentialRemap,
+  gitRepositoryRemap,
+  sourceRemaps,
   apiCall,
   queryClient,
   createWorkflow,
@@ -71,8 +84,27 @@ export async function executeWorkflowImportSave({
     });
   }
 
-  let canvasNodes = applyCredentialRemap(importFile.canvas_nodes, credentialRemap);
-  canvasNodes = applyTemplateIdRemap(canvasNodes, templateIdRemap);
+  let canvasNodes = applyStringFieldRemap(
+    importFile.canvas_nodes,
+    "credential_reference",
+    credentialRemap,
+  );
+  canvasNodes = applyNumericFieldRemap(canvasNodes, "template_id", templateIdRemap);
+  canvasNodes = applyNumericFieldRemap(
+    canvasNodes,
+    "git_repository_id",
+    gitRepositoryRemap,
+  );
+  for (const [sourceType, configKey] of Object.entries(SOURCE_CONFIG_KEY_BY_TYPE) as [
+    SourceRemapType,
+    string,
+  ][]) {
+    canvasNodes = applyStringFieldRemap(
+      canvasNodes,
+      configKey,
+      sourceRemaps[sourceType],
+    );
+  }
 
   const payload: WorkflowImportSavePayload = {
     name: values.name,

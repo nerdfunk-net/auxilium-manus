@@ -1,8 +1,11 @@
 # Plan: Fix SM4 — Hatchet workers never see connection changes
 
 Source: `doc/analysis/FABLE_BACKEND_20260916.md` §2.2 SM4, §6 item 6.
-Status: **Ready to implement.** Analysis below is against the current tree (post
-SM1/SM2/SM3); no further code reading is required to implement this.
+Status: **Ready to implement.** Analysis is against the current tree (post
+SM1/SM2/SM3). A plan review folded three corrections into D2, D5, §4, §5.1,
+and §6.2 (see §0.1); implement this file, not the pre-review draft. Smaller
+nits that did not change the implementation are parked in **§0.2 for later
+review** (N1–N4).
 
 | # | Sev | Issue | Decision | Status |
 |---|---|---|---|---|
@@ -25,20 +28,28 @@ across the API process and the two Hatchet workers (`hatchet/worker.py`,
 `doc/SECRET_MANAGER_INTEGRATION.md` and is not needed once every process re-reads the row
 on use.
 
-**D2 — The freshness read must bypass SQLAlchemy's identity map.** Worker tasks hold one
-`SessionLocal()` for the whole `StepRunner.execute_all` / `execute_subgraph` call
-(`hatchet/workflows/workflow_run/phase1.py` lines 220–245,
+**D2 — The freshness read must *apply* the SELECT (`populate_existing`), not skip SQL.**
+Worker tasks hold one `SessionLocal()` for the whole `StepRunner.execute_all` /
+`execute_subgraph` call (`hatchet/workflows/workflow_run/phase1.py` lines 220–245,
 `hatchet/workflows/device_group_execution.py` lines 53–79). Secret steps take that session
-via `object_session(run)`. `BaseRepository.get_by_id` is `s.query(Model).filter(id==).first()`,
-which returns the identity-map instance without hitting the database when the row is already
-loaded and not expired. `SessionLocal` is `autoflush=False` and the worker session does not
-commit around step boundaries, so a connection loaded on device 1 of a `secret-get` (or by
-an earlier secret step in the same task) would hide an API-process `UPDATE`/`DELETE`
-committed in between. The new lookup therefore uses
-`.execution_options(populate_existing=True)` so the SELECT always runs and overwrites the
-cached instance. That also makes the subsequent `load_connection_config` → `get_connection`
-→ `get_by_id` in the same session see the same committed row (no second round trip, no
-stale `credential_name` / `backend_config` on rebuild).
+via `object_session(run)`. `BaseRepository.get_by_id` is
+`s.query(Model).filter(id==).first()`. That **does emit SQL** every time; it is not
+`Session.get()`. If the instance is already in the identity map and not expired,
+SQLAlchemy **discards** the loaded columns and returns the cached Python object. The
+hazard is stale attributes, not a skipped round trip.
+
+SQLAlchemy 2's identity map is a `WeakInstanceDict`. `get_connection` returns a dict and
+drops the ORM instance, so the next lookup often *does* see the other session's commit
+(the instance was GC'd). `populate_existing` is still required: a live instance (held
+across the device loop, or still reachable on the rebuild path in the same
+`get_or_create`) will hide an API `UPDATE`/`DELETE` without it. `SessionLocal` is
+`autoflush=False`. Between steps `RunRepository.update_step_result` commits
+(`expire_on_commit=True`), so the gap is mainly **within** one step.
+
+The new lookup uses `.execution_options(populate_existing=True)` so that SELECT
+overwrites the live instance. `load_connection_config` → `get_connection` → `get_by_id`
+still SELECTs (do not claim "no second round trip"); if the instance survived, it now
+carries the committed `credential_name` / `backend_config`.
 
 **D3 — Cache key is `updated_at`; `is_active` / missing are hard refusals.**
 `SecretManagerConnectionService.update_connection` already writes
@@ -67,6 +78,22 @@ PK read *before* acquiring the lock so a cache-hit on connection A is not queued
 connection B's login, and so the lock is not held across the new SELECT. After a stale
 pop, shut the old client down outside the lock (same shape as today's `invalidate`).
 
+**D5b — Re-read generation on the rebuild path; never evict a newer cache.** A Hatchet
+worker runs concurrent tasks. Two `get_or_create` calls on the same connection, with the
+row updated between their PK reads, is enough to leak a client:
+
+1. A snapshots generation T1; B snapshots T2 (newer).
+2. B rebuilds and inserts a T2 client.
+3. A's second lock sees `cached.updated_at (T2) != generation.updated_at (T1)`, pops B's
+   client, shuts it down, and inserts a T1 client (A's session may still hold T1 config).
+
+The first lock is therefore compare-only (return on match; **do not pop** on mismatch).
+On miss/mismatch, re-read generation outside the lock, then pop only against that fresh
+snapshot. If the cache already matches the re-read, return it. If a different generation
+appears while we held no lock, loop instead of overwriting. Compare with `==` only
+(same rule as D3 — mixed aware/naive `<` raises `TypeError`). `secret-get` is sequential
+per device; this race is concurrent Hatchet tasks, not the device loop.
+
 **D6 — Residual, accepted.** Rotating the *credential row's* password while leaving the
 connection row untouched does not bump `secret_manager_connections.updated_at`. Workers keep
 the SecretID captured at client construction until the next rebuild. OpenBao then fails
@@ -78,6 +105,42 @@ Out of scope (deliberately): SM5–SM12, B-items, Redis pub/sub, a TTL, moving
 `ensure_started` off the lock (SM8), resolving the client once per step instead of once per
 device (`SecretManagerService.get_field` → `get_or_create` per device is pre-existing).
 
+### 0.1 Plan-review corrections (folded in)
+
+Three defects found against the pre-review draft; they are already applied above and in
+§4 / §5.1 / §6. Do not re-introduce the old text.
+
+1. **Two-session tests must hold the ORM instance.** SQLAlchemy 2.0.51's identity map is
+   a `WeakInstanceDict`. `get_connection` returns a dict and drops the instance, so the
+   next `get_by_id` is a fresh SELECT and already sees the other session's commit. The
+   draft's `assertTrue(worker_svc.get_connection(...)["is_active"])` after an API
+   deactivate **fails** on the prescribed `StaticPool` + `AUTOCOMMIT` engine (verified).
+   The diagnostic ("session expired the instance") was wrong — it was GC, not
+   `expire_on_commit`. Load via `get_by_id` and keep the instance in a local. Use a
+   file-backed SQLite DB with two real connections; drop AUTOCOMMIT + StaticPool.
+2. **Rebuild must re-read generation (D5b).** The draft's second lock compared against
+   the *outer* snapshot, so a stale T1 could pop a T2 cache and leak the T2 OpenBao
+   renew task / httpx client. Compare-only first lock, re-read, pop only against the
+   fresh snapshot, loop if a different generation appears during shutdown.
+3. **D2 and the in-flight-HTTP sentence were misleading.** `filter().first()` always
+   SELECTs; `populate_existing` applies columns, it does not "skip SQL" or save a round
+   trip on rebuild. `OpenBaoService.shutdown()` / Infisical `httpx.Client.close()` **do**
+   abort in-flight calls that still hold the old client. The kill-switch is the *next*
+   `get_or_create`; document that, not "in-flight HTTP is not aborted."
+
+### 0.2 Nits for later review — not blockers
+
+> **REVIEW LATER.** These did not block the plan. They are listed so they can be
+> accepted, skipped, or folded in on a later pass. Implementers may ignore them;
+> none of §2–§7 depends on a decision here.
+
+| ID | Status | Nit | Notes |
+|---|---|---|---|
+| N1 | **Open — review later** | Pre-review draft cited `hatchet/worker_services.py` `start_all`, line 75 as where the worker registry lives | Line 75 is `await service_factory.stop_secret_manager_services()` in `start_all`'s `finally`, not construction. The registry is lazy in `service_factory.get_secret_manager_registry()` (lines 303–315). §1 already uses the corrected wording; this row is the original citation error so it is not silently lost. |
+| N2 | **Open — review later** | `test_get_generation_tracks_update` / `assertGreater` on `updated_at` | Safe **only** because `updated_at` is copied into the frozen dataclass *before* the update (datetime is immutable). Comparing the ORM object to itself after `update_connection` is always `False` (`>`). §6.2 already warns the implementer; worth a glance when reading the test so nobody "simplifies" it to `row.updated_at`. |
+| N3 | **Open — review later** | No registry test for missing/inactive with an **empty** cache | §6.1 only covers drop-cached-client. `_require_generation` raises before any cache lookup, so empty-cache missing/inactive is the same `ValueError` path, but there is no test that `load_connection_config` / `_build_client` are not called and `_clients` stays `{}`. Easy add if you want it. |
+| N4 | **Open — review later** | `get_generation` assigns `updated_at=connection.updated_at` unwrapped | `name=str(...)` and `is_active=bool(...)` already paper over classic `Column` vs Python types. Bare `updated_at` will add another `Column[datetime]` vs `datetime` pyright error in `connection_service.py` (same class as the four existing ones the SM1–SM3 audit called cosmetic). Wrap it (`updated_at=connection.updated_at` → a `datetime` cast) if you care; do not block SM4 on pyright. |
+
 ---
 
 ## 1. Why the current code is wrong (grounded in the tree)
@@ -86,7 +149,9 @@ Three processes each hold a `SecretManagerClientRegistry` singleton via
 `service_factory.get_secret_manager_registry()` (`service_factory.py` lines 303–315):
 
 - FastAPI (`main.py` lifespan calls `stop_secret_manager_services` on shutdown)
-- live Hatchet worker (`hatchet/worker_services.py` `start_all`, line 75)
+- live Hatchet worker (`hatchet/worker_services.py` `start_all`; the registry is
+  constructed lazily on first `get_or_create`, torn down in `start_all`'s `finally`
+  via `stop_secret_manager_services`)
 - background-tier Hatchet worker (same `start_all`)
 
 `service_factory` "holds no cross-process state" (`worker_services.py` lines 5–6). Each
@@ -320,8 +385,11 @@ propagate without an extra log line that the caller cannot distinguish from
 `get_connection`'s. (The audit already flagged those wrappers as noise.)
 
 `get_connection` / `load_connection_config` stay on `get_by_id`. After `get_generation`
-has run in the same session, the identity map holds the fresh instance, so the rebuild
-path's `load_connection_config` decrypts the *current* credential without a second SELECT.
+has run in the same session, a *live* identity-map instance carries the committed
+columns, so the rebuild path's `load_connection_config` decrypts the current
+`credential_name` / `backend_config` even though `get_by_id` still emits a SELECT
+(D2 — it is not `Session.get()`). If the instance was already GC'd, that SELECT is a
+plain load and is also current.
 
 ---
 
@@ -434,7 +502,10 @@ from sqlalchemy.orm import Session
 
 from services.secret_manager.client import SecretManagerClient
 from services.secret_manager.config import SecretManagerConnectionConfig, load_connection_config
-from services.secret_manager.connection_service import SecretManagerConnectionService
+from services.secret_manager.connection_service import (
+    SecretManagerConnectionGeneration,
+    SecretManagerConnectionService,
+)
 from services.secret_manager.exceptions import SecretManagerConfigError
 
 logger = logging.getLogger(__name__)
@@ -463,7 +534,9 @@ class SecretManagerClientRegistry:
         self._clients: dict[int, _CachedClient] = {}
         self._lock = asyncio.Lock()
 
-    async def get_or_create(self, connection_id: int, db: Session) -> SecretManagerClient:
+    async def _require_generation(
+        self, connection_id: int, db: Session
+    ) -> SecretManagerConnectionGeneration:
         generation = SecretManagerConnectionService(db).get_generation(connection_id)
         if generation is None:
             await self.invalidate(connection_id)
@@ -473,27 +546,47 @@ class SecretManagerClientRegistry:
             raise ValueError(
                 f"Secret manager connection '{generation.name}' is not active"
             )
+        return generation
 
-        async with self._lock:
-            cached = self._clients.get(connection_id)
-            if cached is not None and cached.updated_at == generation.updated_at:
-                return cached.client
-            stale = self._clients.pop(connection_id, None)
+    async def get_or_create(self, connection_id: int, db: Session) -> SecretManagerClient:
+        while True:
+            generation = await self._require_generation(connection_id, db)
 
-        if stale is not None:
-            await stale.client.shutdown()
+            async with self._lock:
+                cached = self._clients.get(connection_id)
+                if cached is not None and cached.updated_at == generation.updated_at:
+                    return cached.client
 
-        async with self._lock:
-            cached = self._clients.get(connection_id)
-            if cached is not None and cached.updated_at == generation.updated_at:
-                return cached.client
-            cfg = load_connection_config(connection_id, db)
-            client = _build_client(cfg)
-            await client.ensure_started()
-            self._clients[connection_id] = _CachedClient(
-                client=client, updated_at=generation.updated_at
-            )
-            return client
+            # Miss or mismatch. Re-read so a stale snapshot cannot evict a
+            # newer cache another coroutine inserted (D5b). Then pop only
+            # against this fresh generation.
+            generation = await self._require_generation(connection_id, db)
+
+            stale = None
+            async with self._lock:
+                cached = self._clients.get(connection_id)
+                if cached is not None and cached.updated_at == generation.updated_at:
+                    return cached.client
+                stale = self._clients.pop(connection_id, None)
+
+            if stale is not None:
+                await stale.client.shutdown()
+
+            async with self._lock:
+                cached = self._clients.get(connection_id)
+                if cached is not None and cached.updated_at == generation.updated_at:
+                    return cached.client
+                if cached is not None:
+                    # Different generation appeared while we shut down — do
+                    # not overwrite it; loop and re-read.
+                    continue
+                cfg = load_connection_config(connection_id, db)
+                client = _build_client(cfg)
+                await client.ensure_started()
+                self._clients[connection_id] = _CachedClient(
+                    client=client, updated_at=generation.updated_at
+                )
+                return client
 
     async def invalidate(self, connection_id: int) -> None:
         """Drop and shut down a connection's cached client (e.g. after it was
@@ -519,14 +612,20 @@ Notes the implementer must not "simplify" away:
 - Error strings are byte-for-byte those in `load_connection_config` (`config.py` lines
   38–40). Step executors surface `ValueError` as a configuration failure; changing the
   wording would churn executor tests that match on the message and operators who grep logs.
-- `ensure_started` still runs *before* the insert, so a failed login is still not cached
-  (SM1 invariant, `test_failed_ensure_started_is_not_cached`).
+- `ensure_started` still runs *before* the insert and *inside* the lock, so a failed
+  login is still not cached (SM1 invariant, `test_failed_ensure_started_is_not_cached`)
+  and two coroutines cannot both construct (D5).
 - Compare `updated_at` with `==`, never `<` / timestamps. Both values come from the same
   column in the same dialect. Mixed aware/naive equality is `False` (rebuild every call) —
   that cannot happen on PostgreSQL (`DateTime(timezone=True)` + `datetime.now(UTC)` on
   update). Do not call `.replace(tzinfo=…)` or `.timestamp()`.
-- The double-checked insert after shutdown covers the window where another coroutine
-  rebuilt the same generation while we awaited `stale.client.shutdown()`.
+- Cache-hit path: one PK read, one lock, return. The extra `get_generation` is only on
+  miss/mismatch (D5b).
+- First lock is compare-only. Pop happens only after a re-read, against that fresh
+  generation. The `while True` + `continue` covers a different generation appearing
+  during `stale.client.shutdown()`. Do not "simplify" this into the pre-review
+  double-checked insert that compared against the outer snapshot — that pops a newer
+  cache and leaks its renew task.
 - `invalidate` now pops a `_CachedClient`. `shutdown_all` iterates `.client`. The router
   and `stop_secret_manager_services` do not touch `_clients` directly.
 
@@ -573,7 +672,10 @@ use (PK lookup, `populate_existing`) and rebuilds or refuses when the row
 moved, is inactive, or is gone. Deactivating or deleting a connection is
 therefore a kill-switch for the *next* `secret-get`/`secret-set`/
 `secret-generate` call in every process, without restarting the worker.
-In-flight HTTP calls already using the old client are not aborted.
+A live client already inside `get_field`/`set_field` may error: `invalidate`
+and a generation mismatch both call `shutdown()`, which closes the httpx
+client (OpenBao also cancels its renew task). In-flight calls are not
+cancelled by a cooperative abort; they fail because the transport is gone.
 ```
 
 ### 5.2 Same file — Deferred / follow-ups, Redis bullet (lines 515–517)
@@ -628,7 +730,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services.secret_manager.config import SecretManagerConnectionConfig
 from services.secret_manager.connection_service import SecretManagerConnectionGeneration
 from services.secret_manager.exceptions import SecretManagerAuthError, SecretManagerConfigError
-from services.secret_manager.registry import SecretManagerClientRegistry
+from services.secret_manager.registry import SecretManagerClientRegistry, _CachedClient
 
 _TS = datetime(2026, 9, 16, 12, 0, 0, tzinfo=UTC)
 _TS_LATER = datetime(2026, 9, 16, 13, 0, 0, tzinfo=UTC)
@@ -808,6 +910,36 @@ class RegistryTests(unittest.IsolatedAsyncioTestCase):
             await registry.get_or_create(1, MagicMock())
             load.assert_not_called()
 
+    async def test_stale_snapshot_does_not_evict_newer_cache(self) -> None:
+        """D5b: a get_or_create whose first PK read is behind the cache must
+        re-read and return the newer client, not shut it down."""
+        newer = MagicMock()
+        newer.shutdown = AsyncMock()
+        registry = SecretManagerClientRegistry()
+        registry._clients[1] = _CachedClient(client=newer, updated_at=_TS_LATER)
+        service = MagicMock()
+        service.get_generation.side_effect = [
+            _generation(updated_at=_TS),
+            _generation(updated_at=_TS_LATER),
+        ]
+        with (
+            patch(
+                "services.secret_manager.registry.SecretManagerConnectionService",
+                return_value=service,
+            ),
+            patch(
+                "services.secret_manager.registry.load_connection_config",
+                return_value=_cfg(),
+            ) as load,
+            patch("services.secret_manager.registry._build_client") as build,
+        ):
+            got = await registry.get_or_create(1, MagicMock())
+        self.assertIs(got, newer)
+        newer.shutdown.assert_not_called()
+        build.assert_not_called()
+        load.assert_not_called()
+        self.assertEqual(service.get_generation.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -818,23 +950,33 @@ credential decrypt, no `ensure_started`, cached client shut down. Nested `_patch
 is correct — the inner patch replaces `SecretManagerConnectionService` for the second call
 only.
 
-### 6.2 `tests/unit/test_secret_manager_connection_service.py` — add three tests
+`test_stale_snapshot_does_not_evict_newer_cache` is the D5b test. It seeds the cache at
+`_TS_LATER` and makes the first `get_generation` return `_TS`. The re-read must return
+`_TS_LATER` so the newer client is kept. If the implementer pops on the first lock against
+the outer snapshot, this test fails (`newer.shutdown` awaited, `build` called).
 
-Reuse the existing `setUp` (in-memory SQLite, transport-policy patches). Do **not** try to
-prove identity-map staleness with two SQLite sessions under the default isolation level:
-once `get_connection` has run, that session has an open transaction, and SQLite's snapshot
-will hide the other session's `COMMIT` from *both* `get_by_id` and `get_by_id_fresh`. That
-would make a two-session test either fail or pass for the wrong reason. The load-bearing
-proof is: dirty the identity-map instance *without flushing*, then show `get_by_id` still
-returns the dirty value while `get_by_id_fresh` overwrites it from the SELECT (DB still
-has the committed value). Same mechanism the worker needs against PostgreSQL READ
-COMMITTED; no isolation games.
+Kill-switch / missing-row paths call `_require_generation` once then `invalidate` — they
+do not enter the rebuild loop. Empty-cache missing/inactive is covered by the same raise
+as the drop-cached-client cases (first `_require_generation` fires before any cache
+lookup).
 
-The two-session "API committed, worker session already had the row" analog is still worth
-having, but only with `isolation_level="AUTOCOMMIT"` so each statement sees the latest
-commit while the ORM identity map still holds the old Python object. Use
-`sqlalchemy.pool.StaticPool` + `sqlite://` (`:memory:` is per-connection; two sessions
-would otherwise be two empty databases).
+### 6.2 `tests/unit/test_secret_manager_connection_service.py` — add tests
+
+Reuse the existing `setUp` (in-memory SQLite, transport-policy patches) for the three
+same-session tests. The load-bearing identity-map proof is: dirty the instance *without
+flushing*, then show `get_by_id` still returns the dirty value while `get_by_id_fresh`
+overwrites it from the SELECT (DB still has the committed value). Same mechanism the
+worker needs against PostgreSQL READ COMMITTED.
+
+The two-session "API committed, worker session already had the row" analog is still
+worth having, but **only if the worker holds a strong reference to the ORM instance**.
+SQLAlchemy 2's identity map is a `WeakInstanceDict`. `get_connection` returns a dict and
+drops the instance; the next `get_by_id` is a fresh SELECT and already sees the other
+session's commit — so asserting `get_connection` is still stale after the API update
+**fails**. Do **not** use `isolation_level="AUTOCOMMIT"` + `StaticPool`: sessions then
+share one DBAPI connection, and AUTOCOMMIT was a wrong diagnosis for that failure
+(it was GC, not expiration). Use a file-backed SQLite DB with two real connections and
+`autoflush=False` (same as `SessionLocal`). Load via `get_by_id` and keep `held` alive.
 
 Append to the existing file (before `if __name__ == "__main__"`):
 
@@ -869,31 +1011,31 @@ Append to the existing file (before `if __name__ == "__main__"`):
 
 class SecretManagerConnectionGenerationFreshnessTests(unittest.TestCase):
     """SM4: get_generation must see commits from another session even when
-    this session already has the row in its identity map.
+    this session already holds the ORM instance.
 
-    ``isolation_level="AUTOCOMMIT"`` is required on SQLite so the worker
-    session's next SELECT sees the API session's COMMIT; without it, SQLite
-    snapshot isolation hides the commit from *both* lookups and the test
-    cannot tell populate_existing from a stale snapshot. PostgreSQL workers
-    run READ COMMITTED, where each statement already sees the latest commit
-    and populate_existing is what overwrites the identity map — AUTOCOMMIT
-    SQLite is the unit-test stand-in for that statement visibility.
+    SQLAlchemy 2's identity map is WeakInstanceDict — a dict from
+    get_connection is not a strong ref, so the next lookup would see the
+    commit even without populate_existing and the test would pass for the
+    wrong reason. Hold the instance. File-backed SQLite + two connections
+    (not StaticPool, not AUTOCOMMIT) is the unit-test stand-in for
+    PostgreSQL READ COMMITTED: each statement sees the latest commit;
+    populate_existing is what overwrites the live instance.
     """
 
     def setUp(self) -> None:
-        from sqlalchemy.pool import StaticPool
+        import os
+        import tempfile
 
-        engine = create_engine(
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-            isolation_level="AUTOCOMMIT",
-        )
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        self._db_path = handle.name
+        engine = create_engine(f"sqlite:///{self._db_path}")
         SecretManagerConnection.metadata.create_all(
             engine, tables=[SecretManagerConnection.__table__]
         )
         self.addCleanup(engine.dispose)
-        Session = sessionmaker(bind=engine)
+        self.addCleanup(os.unlink, self._db_path)
+        Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         self.db_worker = Session()
         self.db_api = Session()
         self.addCleanup(self.db_worker.close)
@@ -916,25 +1058,32 @@ class SecretManagerConnectionGenerationFreshnessTests(unittest.TestCase):
     def test_get_generation_sees_deactivation_committed_on_other_session(self) -> None:
         connection_id = self.api_svc.create_connection(dict(_OPENBAO_BASE))
 
-        loaded = self.worker_svc.get_connection(connection_id)
-        self.assertTrue(loaded["is_active"])
+        held = self.worker_svc._repo.get_by_id(connection_id, db=self.db_worker)
+        self.assertIsNotNone(held)
+        self.assertTrue(held.is_active)
 
         self.api_svc.update_connection(connection_id, {"is_active": False})
 
-        # Identity map still holds the pre-update row — this is the SM4 hazard.
-        self.assertTrue(self.worker_svc.get_connection(connection_id)["is_active"])
+        # Strong ref keeps the identity-map instance; get_by_id returns it
+        # without applying the other session's COMMIT — this is the SM4 hazard.
+        self.assertTrue(held.is_active)
+        self.assertIs(
+            self.worker_svc._repo.get_by_id(connection_id, db=self.db_worker), held
+        )
+        self.assertTrue(held.is_active)
 
         generation = self.worker_svc.get_generation(connection_id)
         self.assertIsNotNone(generation)
         self.assertFalse(generation.is_active)
-        # populate_existing overwrote the map, so a later get_connection agrees.
-        self.assertFalse(self.worker_svc.get_connection(connection_id)["is_active"])
+        # populate_existing overwrote the live instance.
+        self.assertFalse(held.is_active)
 
     def test_get_generation_sees_delete_committed_on_other_session(self) -> None:
         connection_id = self.api_svc.create_connection(
             {**_OPENBAO_BASE, "name": "to-delete"}
         )
-        self.assertIsNotNone(self.worker_svc.get_connection(connection_id))
+        held = self.worker_svc._repo.get_by_id(connection_id, db=self.db_worker)
+        self.assertIsNotNone(held)
 
         self.api_svc.delete_connection(connection_id)
 
@@ -942,15 +1091,16 @@ class SecretManagerConnectionGenerationFreshnessTests(unittest.TestCase):
 ```
 
 If `test_get_generation_sees_deactivation_committed_on_other_session` fails because
-`get_connection` after the API update already returns `is_active=False`, the worker
-session expired the instance (do not switch away from AUTOCOMMIT to "fix" that — you
-would lose statement visibility). If it fails because `get_generation` is still
-`is_active=True`, `populate_existing` is not actually on the query.
+`held.is_active` is already `False` after the API update (before `get_generation`),
+the instance was expired or you dropped the strong ref (do not "fix" that by switching
+to AUTOCOMMIT). If it fails because `get_generation` is still `is_active=True`,
+`populate_existing` is not actually on the query.
 
-`test_get_generation_tracks_update` uses `assertGreater` on `updated_at`. On SQLite both
-values come from the same connection; `update_connection` writes `datetime.now(UTC)`
-explicitly (line 154), so the second value is strictly later. Do not compare ISO strings
-from `_to_dict`.
+`test_get_generation_tracks_update` uses `assertGreater` on `updated_at` copied into the
+frozen dataclass *before* the update (datetime is immutable; do not compare the ORM
+object to itself). On SQLite `update_connection` writes `datetime.now(UTC)` explicitly
+(line 154), so the second value is strictly later. Do not compare ISO strings from
+`_to_dict`.
 
 ### 6.3 Router tests — no change
 
@@ -980,17 +1130,18 @@ python -m pytest tests/unit -q --cov-fail-under=81
 
 Done when:
 
-- All eight registry tests in §6.1 pass (four preserved SM1 behaviours + four SM4).
+- All nine registry tests in §6.1 pass (four preserved SM1 behaviours + four SM4 + D5b
+  stale-snapshot-does-not-evict-newer-cache).
 - `get_generation` missing/update tests pass; `get_by_id_fresh` overwrites a dirty
-  identity-map instance; the two-session AUTOCOMMIT tests pass — in particular
-  `get_connection` is stale after the other session's deactivate *and* `get_generation`
-  is not.
+  identity-map instance; the two-session file-backed tests pass — in particular the
+  **held** ORM instance stays stale after the other session's deactivate *and*
+  `get_generation` is not.
 - `ruff check` on the five files is clean. The four guard scripts are OK. Coverage ratchet
   still holds.
 - No new `text()` SQL, no router talking to a repository, no change to executor files.
 
 Not in scope to verify: a live Hatchet worker. The two-session test *is* the worker/API
-split (same engine, two sessions, one commit). A manual check, if desired: start API +
-worker, run a workflow that `secret-get`s once (caches the client), deactivate the
-connection in Settings, run the workflow again — the second run must fail with
-`Secret manager connection '<name>' is not active` without restarting the worker.
+split (file-backed SQLite, two sessions, one commit, held instance). A manual check, if
+desired: start API + worker, run a workflow that `secret-get`s once (caches the client),
+deactivate the connection in Settings, run the workflow again — the second run must fail
+with `Secret manager connection '<name>' is not active` without restarting the worker.

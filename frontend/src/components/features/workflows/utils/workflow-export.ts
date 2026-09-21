@@ -45,6 +45,23 @@ export function collectCredentialReferencesFromCanvas(
 export function collectTemplateIdsFromCanvas(
   canvasNodes: Record<string, unknown>[],
 ): number[] {
+  return collectNumericFieldFromCanvas(canvasNodes, "template_id");
+}
+
+/**
+ * Collect unique numeric git_repository_id values from canvas node
+ * pluginConfig blobs.
+ */
+export function collectGitRepositoryIdsFromCanvas(
+  canvasNodes: Record<string, unknown>[],
+): number[] {
+  return collectNumericFieldFromCanvas(canvasNodes, "git_repository_id");
+}
+
+function collectNumericFieldFromCanvas(
+  canvasNodes: Record<string, unknown>[],
+  configKey: string,
+): number[] {
   const ids = new Set<number>();
 
   for (const node of canvasNodes) {
@@ -52,13 +69,38 @@ export function collectTemplateIdsFromCanvas(
     if (typeof data !== "object" || data === null) continue;
     const pluginConfig = (data as Record<string, unknown>).pluginConfig;
     if (typeof pluginConfig !== "object" || pluginConfig === null) continue;
-    const raw = (pluginConfig as Record<string, unknown>).template_id;
+    const raw = (pluginConfig as Record<string, unknown>)[configKey];
     if (raw === null || raw === undefined || raw === "") continue;
     const id = typeof raw === "number" ? raw : Number(raw);
     if (Number.isInteger(id) && id > 0) ids.add(id);
   }
 
   return [...ids].sort((a, b) => a - b);
+}
+
+/**
+ * Collect unique non-empty string values of a given pluginConfig key from
+ * canvas nodes — used for the nautobot/mattermost/batfish/pyats
+ * `*_source_id` fields.
+ */
+export function collectSourceIdsFromCanvas(
+  canvasNodes: Record<string, unknown>[],
+  configKey: string,
+): string[] {
+  const ids = new Set<string>();
+
+  for (const node of canvasNodes) {
+    const data = node.data;
+    if (typeof data !== "object" || data === null) continue;
+    const pluginConfig = (data as Record<string, unknown>).pluginConfig;
+    if (typeof pluginConfig !== "object" || pluginConfig === null) continue;
+    const raw = (pluginConfig as Record<string, unknown>)[configKey];
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed) ids.add(trimmed);
+  }
+
+  return [...ids].sort();
 }
 
 /**

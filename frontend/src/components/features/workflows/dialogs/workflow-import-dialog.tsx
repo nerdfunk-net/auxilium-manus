@@ -5,7 +5,6 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
 import { useTemplatesQuery } from "@/components/features/templates/hooks/use-templates-query";
 import {
   Dialog,
@@ -18,17 +17,14 @@ import { useApi } from "@/hooks/use-api";
 import { useToast } from "@/hooks/use-toast";
 import { useWorkflowCheckNameMutation } from "@/hooks/queries/use-workflow-check-name";
 import { useWorkflowMutations } from "@/hooks/queries/use-workflow-mutations";
-import { useAuthStore } from "@/lib/auth-store";
 
+import { useWorkflowImportRemap } from "../hooks/use-workflow-import-remap";
 import type { WorkflowExportFile } from "../types/workflow-export";
-import {
-  buildCredentialRemapRequirements,
-  collectCredentialReferencesFromCanvas,
-} from "../utils/workflow-import";
 import { WorkflowImportCredentialRemap } from "./workflow-import-credential-remap";
 import { WorkflowImportFileField } from "./workflow-import-file-field";
 import { WorkflowImportFormFooter } from "./workflow-import-form-footer";
 import { WorkflowImportMetadataFields } from "./workflow-import-metadata-fields";
+import { WorkflowImportReferenceRemap } from "./workflow-import-reference-remap";
 import { executeWorkflowImportSave } from "./workflow-import-save";
 import {
   workflowImportSchema,
@@ -42,6 +38,9 @@ interface WorkflowImportDialogProps {
   onClose: () => void;
 }
 
+const EMPTY_CANVAS_NODES_LIST: Record<string, unknown>[][] = [];
+const EMPTY_CREDENTIAL_REFS_LIST: WorkflowExportFile["credential_references"][] = [];
+
 export function WorkflowImportDialog({
   open,
   onClose,
@@ -51,9 +50,6 @@ export function WorkflowImportDialog({
   const { apiCall } = useApi();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const currentUsername = useAuthStore((state) => state.user?.username ?? "");
-  const { data: credentialsData, isLoading: credentialsLoading } =
-    useCredentialsQuery({ enabled: open });
   const { data: templatesData, isLoading: templatesLoading } = useTemplatesQuery({
     enabled: open,
   });
@@ -67,9 +63,22 @@ export function WorkflowImportDialog({
   } | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isResolvingTemplates, setIsResolvingTemplates] = useState(false);
-  const [credentialRemap, setCredentialRemap] = useState<
-    Record<string, string>
-  >({});
+
+  const canvasNodesList = useMemo(
+    () => (importFile ? [importFile.canvas_nodes] : EMPTY_CANVAS_NODES_LIST),
+    [importFile],
+  );
+  const credentialReferencesList = useMemo(
+    () =>
+      importFile ? [importFile.credential_references] : EMPTY_CREDENTIAL_REFS_LIST,
+    [importFile],
+  );
+
+  const remap = useWorkflowImportRemap({
+    canvasNodesList,
+    credentialReferencesList,
+    enabled: open && Boolean(importFile),
+  });
 
   const {
     register,
@@ -94,48 +103,10 @@ export function WorkflowImportDialog({
     updateWorkflow.isPending ||
     isResolvingTemplates;
 
-  const visibleCredentials = useMemo(
-    () => credentialsData?.credentials ?? [],
-    [credentialsData?.credentials],
-  );
-
   const existingTemplates = useMemo(
     () => templatesData?.templates ?? [],
     [templatesData?.templates],
   );
-
-  const sshCredentials = useMemo(
-    () =>
-      visibleCredentials.filter(
-        (credential) =>
-          credential.type === "ssh" && credential.status !== "expired",
-      ),
-    [visibleCredentials],
-  );
-
-  const canvasCredentialNames = useMemo(
-    () =>
-      importFile
-        ? collectCredentialReferencesFromCanvas(importFile.canvas_nodes)
-        : [],
-    [importFile],
-  );
-
-  const remapRequirements = useMemo(() => {
-    if (!importFile || credentialsLoading) return [];
-    return buildCredentialRemapRequirements(
-      importFile.credential_references,
-      importFile.canvas_nodes,
-      visibleCredentials,
-      currentUsername,
-    );
-  }, [importFile, credentialsLoading, visibleCredentials, currentUsername]);
-
-  const showCredentialMapping =
-    Boolean(importFile) &&
-    (credentialsLoading
-      ? canvasCredentialNames.length > 0
-      : remapRequirements.length > 0);
 
   const templateImportSummary = useMemo(() => {
     if (!importFile || templatesLoading) {
@@ -154,23 +125,15 @@ export function WorkflowImportDialog({
     return { reuse, create };
   }, [importFile, existingTemplates, templatesLoading]);
 
-  const allRemapsSelected = useMemo(
-    () =>
-      remapRequirements.every((requirement) =>
-        Boolean(credentialRemap[requirement.name]?.trim()),
-      ),
-    [remapRequirements, credentialRemap],
-  );
-
   const resetState = useCallback(() => {
     setImportFile(null);
     setParseError(null);
     setPendingOverwrite(null);
     setIsChecking(false);
     setIsResolvingTemplates(false);
-    setCredentialRemap({});
+    remap.resetRemapState();
     reset({ name: "", description: "", folder: "/", visibility: "private" });
-  }, [reset]);
+  }, [reset, remap]);
 
   const handleClose = useCallback(() => {
     resetState();
@@ -182,7 +145,7 @@ export function WorkflowImportDialog({
       setImportFile(parsed);
       setParseError(null);
       setPendingOverwrite(null);
-      setCredentialRemap({});
+      remap.resetRemapState();
       reset({
         name: parsed.name,
         description: parsed.description ?? "",
@@ -190,29 +153,17 @@ export function WorkflowImportDialog({
         visibility: parsed.visibility,
       });
     },
-    [reset],
+    [reset, remap],
   );
 
-  const handleFileError = useCallback((message: string) => {
-    setImportFile(null);
-    setCredentialRemap({});
-    setParseError(message);
-  }, []);
-
-  const handleRemapChange = useCallback((oldName: string, newName: string) => {
-    setCredentialRemap((previous) => ({ ...previous, [oldName]: newName }));
-  }, []);
-
-  const buildRemapMap = useCallback(() => {
-    const map = new Map<string, string>();
-    for (const requirement of remapRequirements) {
-      const selected = credentialRemap[requirement.name]?.trim();
-      if (selected) {
-        map.set(requirement.name, selected);
-      }
-    }
-    return map;
-  }, [remapRequirements, credentialRemap]);
+  const handleFileError = useCallback(
+    (message: string) => {
+      setImportFile(null);
+      remap.resetRemapState();
+      setParseError(message);
+    },
+    [remap],
+  );
 
   const performSave = useCallback(
     async (values: ImportFormValues, overwriteId?: number) => {
@@ -220,13 +171,17 @@ export function WorkflowImportDialog({
 
       setIsResolvingTemplates(true);
       try {
+        const { credentialRemap, gitRepositoryRemap, sourceRemaps } =
+          remap.buildRemapArgs();
         await executeWorkflowImportSave({
           importFile,
           values,
           overwriteId,
           existingTemplates,
           templatesToCreateCount: templateImportSummary.create.length,
-          credentialRemap: buildRemapMap(),
+          credentialRemap,
+          gitRepositoryRemap,
+          sourceRemaps,
           apiCall,
           queryClient,
           createWorkflow: createWorkflow.mutateAsync,
@@ -255,9 +210,9 @@ export function WorkflowImportDialog({
       importFile,
       existingTemplates,
       templateImportSummary.create.length,
+      remap,
       apiCall,
       queryClient,
-      buildRemapMap,
       createWorkflow,
       updateWorkflow,
       toast,
@@ -267,11 +222,11 @@ export function WorkflowImportDialog({
 
   const onSubmit = useCallback(
     async (values: ImportFormValues) => {
-      if (remapRequirements.length > 0 && !allRemapsSelected) {
+      if (remap.hasAnyRequirements && !remap.allSelected) {
         toast({
-          title: "Credentials required",
+          title: "References required",
           description:
-            "Select a replacement credential for each referenced credential before importing.",
+            "Select a replacement for each referenced credential, git repository, or source before importing.",
           variant: "destructive",
         });
         return;
@@ -304,7 +259,7 @@ export function WorkflowImportDialog({
       }
       await performSave(values);
     },
-    [checkName, performSave, remapRequirements.length, allRemapsSelected, toast],
+    [checkName, performSave, remap.hasAnyRequirements, remap.allSelected, toast],
   );
 
   const showTemplateSummary =
@@ -353,15 +308,57 @@ export function WorkflowImportDialog({
               templateImportSummary={templateImportSummary}
             />
 
-            {showCredentialMapping ? (
+            {importFile && remap.credential.requirements.length > 0 ? (
               <WorkflowImportCredentialRemap
-                requirements={remapRequirements}
-                credentials={sshCredentials}
-                value={credentialRemap}
-                onChange={handleRemapChange}
-                isLoading={credentialsLoading}
+                requirements={remap.credential.requirements}
+                credentials={remap.credential.credentials}
+                value={remap.credential.value}
+                onChange={remap.credential.onChange}
+                isLoading={remap.credential.isLoading}
               />
             ) : null}
+
+            {importFile && remap.gitRepository.requirements.length > 0 ? (
+              <WorkflowImportReferenceRemap
+                title="Git repository mapping"
+                description="This workflow references a git repository that doesn't exist here. Choose a replacement before importing."
+                requirements={remap.gitRepository.requirements.map((r) => ({
+                  key: String(r.id),
+                  label: `Repository #${r.id}`,
+                }))}
+                options={remap.gitRepository.options}
+                value={remap.gitRepository.value}
+                onChange={remap.gitRepository.onChange}
+                isLoading={remap.gitRepository.isLoading}
+                emptyMessage="No git repositories configured. Add one in Settings → Git Repositories first."
+              />
+            ) : null}
+
+            {importFile &&
+              (["nautobot", "mattermost", "batfish", "pyats"] as const).map(
+                (sourceType) => {
+                  const section = remap.sources[sourceType];
+                  if (section.requirements.length === 0) return null;
+                  const label =
+                    sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
+                  return (
+                    <WorkflowImportReferenceRemap
+                      key={sourceType}
+                      title={`${label} source mapping`}
+                      description={`This workflow references a ${label} source that isn't configured here. Choose a replacement before importing.`}
+                      requirements={section.requirements.map((r) => ({
+                        key: r.sourceId,
+                        label: r.sourceId,
+                      }))}
+                      options={section.options}
+                      value={section.value}
+                      onChange={section.onChange}
+                      isLoading={section.isLoading}
+                      emptyMessage={`No ${label} sources configured. Add one in Settings → Sources first.`}
+                    />
+                  );
+                },
+              )}
           </div>
 
           <WorkflowImportFormFooter
@@ -370,9 +367,8 @@ export function WorkflowImportDialog({
               !importFile ||
               isSaving ||
               isChecking ||
-              credentialsLoading ||
               templatesLoading ||
-              (remapRequirements.length > 0 && !allRemapsSelected)
+              (remap.hasAnyRequirements && !remap.allSelected)
             }
             submitLabel={
               isChecking

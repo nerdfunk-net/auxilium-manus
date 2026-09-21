@@ -150,3 +150,13 @@ class WorkflowNotesUpdate(BaseModel):
 class WorkflowNotesResponse(BaseModel):
     notes: str | None
     updated_at: datetime
+
+
+class WorkflowGalleryItem(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+
+
+class WorkflowGalleryListResponse(BaseModel):
+    items: list[WorkflowGalleryItem]
