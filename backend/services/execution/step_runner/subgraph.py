@@ -3,10 +3,18 @@ writing WorkflowStepResult rows (the parent aggregates and persists). Split
 out of the StepRunner class because it is a self-contained second walk with
 its own bookkeeping; it reuses the runner's per-node primitives via an
 explicit ``runner`` handle rather than ``self``.
+
+Like ``StepRunner.execute_all``/``resume_after_join``, independent siblings in
+this subgraph run concurrently (topological generations, see
+``services.execution.graph.topological_generations``). This walk needs no
+``asyncio.Lock`` around DB writes the way those two do — it writes zero
+``WorkflowStepResult`` rows during the walk at all; the parent aggregates and
+persists after every child completes.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -14,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from core.models.runs import WorkflowRun
 from core.models.workflows import Workflow
 from models.workflow_context import StepOutcome, WorkflowContext
+from services.execution.graph import topological_generations
 from services.execution.step_runner.signals import classify_step_exception
 
 if TYPE_CHECKING:
@@ -122,6 +131,64 @@ def _record_subgraph_node_error(
     )
 
 
+async def _run_one_subgraph_node(
+    runner: StepRunner,
+    *,
+    run: WorkflowRun,
+    workflow: Workflow,
+    node: dict[str, Any],
+    edges: list[dict[str, Any]],
+    step_outcomes: dict[str, dict[str, WorkflowContext]],
+    step_errors: dict[str, dict[str, str]],
+    blocked_nodes: set[str],
+    initial_context: WorkflowContext,
+) -> None:
+    """Run (or block, or record the error for) one subgraph node.
+
+    Mutates ``step_outcomes``/``step_errors``/``blocked_nodes`` in place —
+    safe to call concurrently for every node in one topological generation,
+    since siblings never share a key (see ``run_subgraph``).
+    """
+    node_id: str = node.get("id", "")
+    node_data: dict[str, Any] = node.get("data", {})
+    step_type: str = node_data.get("kind", "unknown")
+    step_config: dict[str, Any] = node_data.get("pluginConfig", {})
+
+    if _subgraph_node_blocked(
+        runner,
+        node_id=node_id,
+        step_type=step_type,
+        edges=edges,
+        step_outcomes=step_outcomes,
+        blocked_nodes=blocked_nodes,
+        run_id=run.id,
+    ):
+        return
+
+    try:
+        await _execute_one_subgraph_node(
+            runner,
+            run=run,
+            workflow=workflow,
+            node_id=node_id,
+            step_type=step_type,
+            step_config=step_config,
+            edges=edges,
+            step_outcomes=step_outcomes,
+        )
+    except Exception as exc:
+        _record_subgraph_node_error(
+            runner,
+            node_id=node_id,
+            step_type=step_type,
+            run_id=run.id,
+            exc=exc,
+            step_errors=step_errors,
+            step_outcomes=step_outcomes,
+            initial_context=initial_context,
+        )
+
+
 async def run_subgraph(
     runner: StepRunner,
     *,
@@ -134,7 +201,8 @@ async def run_subgraph(
     """Run only the downstream subgraph without writing WorkflowStepResult records.
 
     Used by child workflows during fan-out. The parent aggregates and persists
-    the returned step outcomes.
+    the returned step outcomes. Nodes with no dependency on one another (the
+    same topological generation) run concurrently — see module docstring.
 
     Args:
         runner: The StepRunner instance whose per-node primitives this walk reuses.
@@ -153,6 +221,7 @@ async def run_subgraph(
     """
     nodes, edges = runner.load_execution_graph(workflow)
     ordered_nodes = runner._topological_sort(nodes, edges)
+    subgraph_nodes = [n for n in ordered_nodes if n.get("id", "") in allowed_node_ids]
 
     step_outcomes: dict[str, dict[str, WorkflowContext]] = {
         inventory_node_id: {"success": initial_context}
@@ -160,47 +229,22 @@ async def run_subgraph(
     step_errors: dict[str, dict[str, str]] = {}
     blocked_nodes: set[str] = set()
 
-    for node in ordered_nodes:
-        node_id: str = node.get("id", "")
-        if node_id not in allowed_node_ids:
-            continue
-
-        node_data: dict[str, Any] = node.get("data", {})
-        step_type: str = node_data.get("kind", "unknown")
-        step_config: dict[str, Any] = node_data.get("pluginConfig", {})
-
-        if _subgraph_node_blocked(
-            runner,
-            node_id=node_id,
-            step_type=step_type,
-            edges=edges,
-            step_outcomes=step_outcomes,
-            blocked_nodes=blocked_nodes,
-            run_id=run.id,
-        ):
-            continue
-
-        try:
-            await _execute_one_subgraph_node(
-                runner,
-                run=run,
-                workflow=workflow,
-                node_id=node_id,
-                step_type=step_type,
-                step_config=step_config,
-                edges=edges,
-                step_outcomes=step_outcomes,
+    for wave in topological_generations(subgraph_nodes, edges):
+        await asyncio.gather(
+            *(
+                _run_one_subgraph_node(
+                    runner,
+                    run=run,
+                    workflow=workflow,
+                    node=node,
+                    edges=edges,
+                    step_outcomes=step_outcomes,
+                    step_errors=step_errors,
+                    blocked_nodes=blocked_nodes,
+                    initial_context=initial_context,
+                )
+                for node in wave
             )
-        except Exception as exc:
-            _record_subgraph_node_error(
-                runner,
-                node_id=node_id,
-                step_type=step_type,
-                run_id=run.id,
-                exc=exc,
-                step_errors=step_errors,
-                step_outcomes=step_outcomes,
-                initial_context=initial_context,
-            )
+        )
 
     return step_outcomes, step_errors

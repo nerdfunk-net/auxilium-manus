@@ -351,26 +351,26 @@ self-commits (`RunRepository.update_step_result`/`create_step_result`) and
 lock only brackets the write itself, never a sibling's actual step work (SSH
 sessions, HTTP calls), so it costs nothing meaningful.
 
-### Fan-out multiplies this per device, unchanged
+### Fan-out multiplies this per device — both axes now compose
 
 Enabling fan-out on an upstream inventory step gives you real, Hatchet-visible
 concurrency — but **across devices**, by spawning one `DeviceGroupExecution`
-child workflow per device/chunk (see **Option 2** above). Each child still
-walks its own downstream subgraph — including `b1`/`b2` — with a plain
-sequential, one-node-at-a-time loop
-(`services/execution/step_runner/subgraph.py::run_subgraph`) that has **not**
-been converted to generations yet (a known, separate follow-up — it needs no
-locking to add, since it writes zero `WorkflowStepResult` rows during its
-walk; the parent persists after aggregating). So with fan-out on today:
+child workflow per device/chunk (see **Option 2** above). Each child walks its
+own downstream subgraph — including `b1`/`b2` — through the same
+generation-based walk
+(`services/execution/step_runner/subgraph.py::run_subgraph`), just without
+writing `WorkflowStepResult` rows during the walk (the parent persists after
+aggregating every child's result, so this walk needs no `asyncio.Lock` the
+way phase 1/4 do). So with fan-out on:
 
 - N devices → N children running concurrently (bounded by `max_concurrency`).
-- Inside **any one** child, `b1` then `b2`, sequentially — unlike phase 1/4
-  outside fan-out.
+- Inside **any one** child, `b1` and `b2` also run concurrently with each
+  other — same as outside fan-out.
 
 In other words: fan-out parallelizes "the same branch across devices"; branch
 concurrency (this section) parallelizes "different branches for the same
-device/run" — the two axes are independent, and today only the fan-out
-children's own subgraph hasn't picked up the second one yet.
+device/run" — the two axes are independent and both apply everywhere in the
+engine now, fan-out included.
 
 Relatedly, a node only acts as the fan-out rejoin point when it is explicitly
 a **Fan In** node (`data.kind == "fan-in"`,

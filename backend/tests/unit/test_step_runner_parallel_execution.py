@@ -337,6 +337,56 @@ class ParallelExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final_status, "failed")
         self.assertEqual(set(sink_devices), {"d1", "d2"})
 
+    async def test_fan_out_child_subgraph_siblings_run_concurrently(self) -> None:
+        """`execute_subgraph` (used by fan-out children — see
+        services/execution/step_runner/subgraph.py) also walks topological
+        generations now, not just execute_all/resume_after_join."""
+        nodes = [
+            _node("inv", "get-nautobot-devices"),
+            _node("a1", "run-command"),
+            _node("a2", "run-command"),
+            _node("join", "run-command"),
+        ]
+        edges = [
+            _edge("inv", "a1"),
+            _edge("inv", "a2"),
+            _edge("a1", "join"),
+            _edge("a2", "join"),
+        ]
+        wf = SimpleNamespace(id=1, canvas_nodes=nodes, canvas_edges=edges)
+        run = _make_run(self.db)
+        initial_context = WorkflowContext(
+            run_id=run.uuid, workflow_id="1", devices={"d1": _device("d1")}
+        )
+        in_flight = 0
+        max_in_flight = 0
+
+        async def _execute_step_stub(**kwargs: Any) -> list[StepOutcome]:
+            nonlocal in_flight, max_in_flight
+            node_id = kwargs["node_id"]
+            context: WorkflowContext = kwargs["context"]
+            if node_id in ("a1", "a2"):
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+                await asyncio.sleep(0)
+                in_flight -= 1
+            return [StepOutcome(name="success", context=context)]
+
+        with patch.object(StepRunner, "_execute_step", side_effect=_execute_step_stub):
+            step_outcomes, step_errors = await self.runner.execute_subgraph(
+                run=run,
+                workflow=wf,
+                initial_context=initial_context,
+                inventory_node_id="inv",
+                allowed_node_ids={"a1", "a2", "join"},
+            )
+
+        self.assertEqual(step_errors, {})
+        self.assertEqual(set(step_outcomes), {"inv", "a1", "a2", "join"})
+        self.assertGreaterEqual(max_in_flight, 2, "a1/a2 never overlapped — still sequential")
+        # Subgraph walks must never write WorkflowStepResult rows.
+        self.assertEqual(self.run_repo.get_step_results_for_run(run.id), [])
+
 
 if __name__ == "__main__":
     unittest.main()

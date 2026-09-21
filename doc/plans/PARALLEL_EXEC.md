@@ -14,10 +14,11 @@ debug mode). It's now implemented, on `feature/parallel-steps`:
   self-commits, so a single `asyncio.Lock` on `StepRunner`
   (`_persist_step_result`) around each write is sufficient — it never brackets
   a sibling's actual step work (SSH, HTTP), only the write itself.
-- `subgraph.run_subgraph` (fan-out children) is **not** converted yet — it
-  writes zero `WorkflowStepResult` rows during its walk (the parent persists
-  after aggregating), so it's a safe, low-risk follow-up whenever it's needed,
-  not a blocker.
+- `subgraph.run_subgraph` (fan-out children) is also converted — same
+  generation walk, via a new `_run_one_subgraph_node` helper (no lock needed
+  there, since it writes zero `WorkflowStepResult` rows during the walk; the
+  parent persists after aggregating). Both concurrency axes — devices (fan-out)
+  and independent branches (this work) — now compose everywhere in the engine.
 
 See `doc/HOWTO_BUILD_WORKFLOWS.md` → "Independent branches run concurrently"
 for the user-facing explanation, and
