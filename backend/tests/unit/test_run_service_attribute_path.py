@@ -77,7 +77,6 @@ class RunServiceAttributePathTests(unittest.TestCase):
             triggered_by_id=None,
             status="success",
             trigger_type="manual",
-            run_mode="normal",
             device_ids=[],
         )
         defaults.update(overrides)

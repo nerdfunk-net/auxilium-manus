@@ -74,7 +74,6 @@ def _run_to_summary(run: WorkflowRun, username: str | None) -> WorkflowRunSummar
         triggered_by_username=username,
         status=run.status,
         trigger_type=run.trigger_type,
-        run_mode=run.run_mode,
         current_node_id=run.current_node_id,
         debug_message=run.debug_message,
         approval_state=run.approval_state,
@@ -100,7 +99,6 @@ def _run_to_response(
         triggered_by_username=username,
         status=run.status,
         trigger_type=run.trigger_type,
-        run_mode=run.run_mode,
         current_node_id=run.current_node_id,
         debug_message=run.debug_message,
         approval_state=run.approval_state,
@@ -142,7 +140,6 @@ class RunService:
         trigger_type: str,
         device_ids: list[str],
         run_inputs: dict[str, Any],
-        run_mode: str = "normal",
         change_request_id: int | None = None,
     ) -> WorkflowRun:
         """Create a WorkflowRun and dispatch it into the Hatchet engine.
@@ -159,7 +156,6 @@ class RunService:
             triggered_by_id=triggered_by_id,
             trigger_type=trigger_type,
             device_ids=device_ids,
-            run_mode=run_mode,
             run_inputs=run_inputs,
         )
         if change_request_id is not None:
@@ -221,7 +217,6 @@ class RunService:
             trigger_type=data.trigger_type,
             device_ids=data.device_ids,
             run_inputs=run_inputs,
-            run_mode=data.run_mode,
         )
         return _run_to_response(run, None, [])
 
@@ -379,43 +374,6 @@ class RunService:
         self.run_repo.delete_run(run)
         self.artifact_service.delete_for_run(run.uuid)
 
-    def _assert_not_awaiting_batch_approval(self, run: WorkflowRun) -> None:
-        if run.approval_state is not None and run.approval_state.get("awaiting"):
-            raise ConflictError("Run is awaiting batch approval, not a debug step")
-
-    def step_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
-        """Advance a paused debug-mode run by exactly one node."""
-        result = self.run_repo.get_run_by_id(run_id)
-        if result is None:
-            raise NotFoundError("Run not found")
-        run, username = result
-        self._assert_workflow_access(run.workflow_id, user_id)
-
-        if run.status != "paused" or not run.current_node_id:
-            raise ConflictError(f"Run is not paused and awaiting a step (status={run.status!r})")
-        self._assert_not_awaiting_batch_approval(run)
-
-        self._push_continue_event(run)
-        step_results = self.run_repo.get_step_results_for_run(run_id)
-        return _run_to_response(run, username, step_results)
-
-    def continue_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
-        """Resume a paused debug-mode run to completion without further pauses."""
-        result = self.run_repo.get_run_by_id(run_id)
-        if result is None:
-            raise NotFoundError("Run not found")
-        run, username = result
-        self._assert_workflow_access(run.workflow_id, user_id)
-
-        if run.status != "paused" or not run.current_node_id:
-            raise ConflictError(f"Run is not paused and awaiting a step (status={run.status!r})")
-        self._assert_not_awaiting_batch_approval(run)
-
-        run = self.run_repo.update_run_status(run, status="paused", run_mode="normal")
-        self._push_continue_event(run)
-        step_results = self.run_repo.get_step_results_for_run(run_id)
-        return _run_to_response(run, username, step_results)
-
     def approve_batch(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         """Release the next Wait & Run batch without changing later gates."""
         run, username, state = self._require_awaiting_batch(run_id, user_id)
@@ -448,26 +406,6 @@ class RunService:
         if run.status != "paused" or not state.get("awaiting"):
             raise ConflictError(f"Run is not awaiting batch approval (status={run.status!r})")
         return run, username, state
-
-    def _push_continue_event(self, run: WorkflowRun) -> None:
-        from hatchet.client import hatchet
-        from services.execution.run_events import debug_step_event_key
-
-        event_key = debug_step_event_key(run.uuid, run.current_node_id or "")
-        try:
-            # scope must match the scope passed to aio_wait_for_event on the
-            # worker side (hatchet/workflows/workflow_run.py) — see the
-            # STEP_EVENT_LOOKBACK docstring in services/execution/run_events.py
-            # for why this is needed.
-            hatchet.event.push(event_key, {}, scope=event_key)
-        except Exception:
-            logger.error(
-                "Failed to push continue event run_id=%s event_key=%s",
-                run.id,
-                event_key,
-                exc_info=True,
-            )
-            raise_internal_server_error(logger, "Workflow execution engine unavailable")
 
     def _push_batch_event(self, run: WorkflowRun, batch_index: int) -> None:
         from hatchet.client import hatchet

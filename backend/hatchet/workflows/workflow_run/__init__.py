@@ -28,8 +28,9 @@ from hatchet.client import hatchet
 # Re-exports — keep import paths stable for callers & tests
 # (test_wait_and_run_dispatch.py patches ``wf_run_module.child_workflow``;
 # test_aggregate_and_persist_final.py imports ``_aggregate_and_persist``;
-# test_step_runner_funnel.py / test_debug_mode_stepping.py import
-# ``_run_steps_until_fan_out_or_done``).
+# test_step_runner_funnel.py / test_step_runner_disabled_steps.py /
+# test_step_runner_blocked_by_failure.py / test_execution_characterization.py
+# import ``_run_steps_until_fan_out_or_done``).
 from hatchet.workflows.device_group_execution import child_workflow  # noqa: F401
 from hatchet.workflows.workflow_run.aggregation import (
     _aggregate_and_persist,  # noqa: F401

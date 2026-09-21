@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.execution.graph import topological_order
+from services.execution.graph import downstream_node_ids, topological_order
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
 # Graph-structure node kinds that never honour an author "disabled" flag —
@@ -176,6 +176,37 @@ def resolve_funnels(
 
     remaining_nodes = [n for n in nodes if n.get("id") not in funnel_ids]
     return remaining_nodes, resolved_edges
+
+
+def resolve_stop_here(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Truncate the graph at every ``stop-here`` node.
+
+    Drops every node downstream of a ``stop-here`` node (and any edge
+    touching them) but keeps the ``stop-here`` node itself, so it still
+    executes and its own step result stays inspectable — that's the point of
+    the step. A ``stop-here`` node that is itself downstream of another
+    ``stop-here`` node is dropped along with the rest of that branch: only
+    the first one reached on a given path survives.
+    """
+    stop_ids = {
+        n["id"] for n in nodes if "id" in n and (n.get("data") or {}).get("kind") == "stop-here"
+    }
+    if not stop_ids:
+        return nodes, edges
+
+    truncated: set[str] = set()
+    for stop_id in stop_ids:
+        truncated |= downstream_node_ids(stop_id, nodes, edges)
+
+    remaining_nodes = [n for n in nodes if n.get("id") not in truncated]
+    remaining_edges = [
+        e
+        for e in edges
+        if e.get("source", "") not in truncated and e.get("target", "") not in truncated
+    ]
+    return remaining_nodes, remaining_edges
 
 
 def is_executable_node(node: dict[str, Any], registry: PluginRegistryService) -> bool:

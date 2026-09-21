@@ -86,6 +86,7 @@ from workflow_steps.secret_get.executor import execute as secret_get
 from workflow_steps.secret_set.executor import execute as secret_set
 from workflow_steps.set_default_attributes.executor import execute as set_default_attributes
 from workflow_steps.show_summary.executor import execute as show_summary
+from workflow_steps.stop_here.executor import execute as stop_here
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.undefined_and_unused.executor import execute as undefined_and_unused
 from workflow_steps.update_attribute.executor import execute as update_attribute
@@ -139,6 +140,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "reachable": reachable,
     "login-successful": login_successful,
     "fan-in": fan_in,
+    "stop-here": stop_here,
     "merge-config": merge_config,
     "merge-content": merge_content,
     "filter-output": filter_output,

@@ -87,7 +87,6 @@ def make_run(
     workflow: Workflow,
     triggered_by_id: int | None,
     device_ids: list[str] | None = None,
-    run_mode: str = "normal",
     trigger_type: str = "manual",
 ) -> WorkflowRun:
     run = WorkflowRun(
@@ -96,7 +95,6 @@ def make_run(
         triggered_by_id=triggered_by_id,
         status="pending",
         trigger_type=trigger_type,
-        run_mode=run_mode,
         device_ids=device_ids or [],
         run_inputs={},
     )

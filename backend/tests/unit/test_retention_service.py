@@ -56,7 +56,6 @@ class RetentionServiceTests(unittest.IsolatedAsyncioTestCase):
             workflow_id=self.workflow.id,
             status=status,
             trigger_type="manual",
-            run_mode="normal",
             device_ids=[],
             created_at=created_at,
         )

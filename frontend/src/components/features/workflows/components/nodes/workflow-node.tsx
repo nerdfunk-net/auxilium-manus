@@ -17,7 +17,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 
 import { useWorkflowBuilderStore } from "../../hooks/use-workflow-builder-store";
 import type { HandleSide, WorkflowCanvasNode } from "../../types/workflow-canvas";
@@ -77,10 +76,6 @@ const LABEL_POSITION_CLASS: Record<HandleSide, string> = {
 
 export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNode>) {
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
-  const activeRunId = useWorkflowBuilderStore((state) => state.activeRunId);
-  const { data: activeRun } = useWorkflowRunQuery(activeRunId);
-  const isAwaitingThisStep =
-    activeRun?.status === "paused" && activeRun.current_node_id === id;
   const nodeType = data.artifactType ?? data.kind;
   const hasTargetHandles = (data.requires?.length ?? 0) > 0;
   const outcomes = data.outcomes ?? [];
@@ -117,8 +112,6 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
         NODE_HEIGHT_CLASS,
         categoryBorderAccentClasses[nodeType] ?? CATEGORY_BORDER_FALLBACK,
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
-        isAwaitingThisStep &&
-          "animate-pulse border-step shadow-lg ring-2 ring-step/50",
         isDisabled && "border-dashed opacity-60 grayscale",
       )}
     >
@@ -201,14 +194,6 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
               >
                 <FlaskConical className="size-3" aria-hidden />
                 Dry run
-              </Badge>
-            ) : null}
-            {isAwaitingThisStep ? (
-              <Badge
-                className="shrink-0 animate-pulse border-step bg-step-surface text-step-surface-foreground"
-                variant="outline"
-              >
-                Next Step
               </Badge>
             ) : null}
             {data.isGroupEntryPoint ? (

@@ -68,7 +68,6 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
             triggered_by_id=schedule.created_by_id,
             trigger_type="scheduled",
             device_ids=[],
-            run_mode="normal",
         )
 
         # A one-time trigger is consumed on fire; a cron keeps repeating —

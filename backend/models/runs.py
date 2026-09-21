@@ -19,7 +19,6 @@ RunListStatusFilter = Literal[
 ]
 StepStatus = Literal["pending", "running", "success", "partial", "failed", "skipped"]
 TriggerType = Literal["manual", "scheduled", "webhook"]
-RunMode = Literal["normal", "debug"]
 
 RUN_LIST_STATUS_FILTERS: frozenset[str] = frozenset(
     ["pending", "running", "paused", "success", "failed", "cancelled", "skipped"]
@@ -34,7 +33,6 @@ TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(["success", "failed", "cancell
 class WorkflowRunCreate(BaseModel):
     device_ids: list[str] = []
     trigger_type: TriggerType = "manual"
-    run_mode: RunMode = "normal"
     # Values supplied for the workflow's declared static_attributes.
     # Validated/defaulted server-side — see run_input_validation.resolve_run_inputs.
     run_inputs: dict[str, Any] = {}
@@ -67,7 +65,6 @@ class WorkflowRunSummary(BaseModel):
     triggered_by_username: str | None
     status: str
     trigger_type: str
-    run_mode: str
     current_node_id: str | None
     debug_message: str | None
     approval_state: dict[str, Any] | None = None

@@ -199,11 +199,11 @@ Contract:
   had wired to it directly. Raises `ValueError` if a funnel has zero or more
   than one outgoing edge, or if a funnel feeds directly into another funnel.
 - `load_execution_graph` is a **public** method precisely so external
-  drivers that read a workflow's canvas and walk it themselves — the Hatchet
-  debug-mode per-node loop, `_run_steps_until_fan_out_or_done` in
-  `hatchet/workflows/workflow_run.py`, which is the actual production entry
-  point and does **not** go through `StepRunner.execute_all` — see the same
-  spliced graph as `execute_all`/`resume_after_join`/`execute_subgraph`.
+  drivers that read a workflow's canvas and walk it themselves —
+  `_run_steps_until_fan_out_or_done` in
+  `hatchet/workflows/workflow_run/phase1.py`, which is the actual production
+  entry point and does **not** go through `StepRunner.execute_all` — see the
+  same spliced graph as `execute_all`/`resume_after_join`/`execute_subgraph`.
   Any future caller that reads `canvas_nodes`/`canvas_edges` off a
   `Workflow` directly and drives execution/reachability itself must call
   this instead of reading the columns raw.
@@ -387,9 +387,12 @@ Key points for step authors:
   boundary. Each fan-out child gets its own pool; a workflow that SSHes to
   devices both before and inside a fanned-out branch pays one extra login per
   device at the boundary — rare by construction, accepted.
-- **Durable waits:** the pool is suspended (all live sessions disconnected, pool
-  kept) immediately before every debug-mode step gate; sessions reconnect
-  lazily on the next network step after resume.
+- **Suspend:** `DeviceSessionPool.suspend()` disconnects every live session
+  but keeps the pool usable (the next network step reconnects lazily) —
+  `close()` calls it internally. Nothing in `StepRunner` calls it directly
+  today; its only call site was the per-node debug-mode pause, which has
+  been removed (see [Fan-out execution](#fan-out-execution) for the
+  `stop-here` step that replaced it for mid-run inspection).
 - Never store `device_sessions` or a session object beyond the `execute()` call
   — the pool is scoped to the segment and closed by its owner in a `finally`
   once the segment ends.
@@ -863,10 +866,8 @@ released to the next 10, instead of all devices at once.
   parent's batch-dispatch loop; see the design rationale in doc/WAIT-AND-RUN.md §2.
 - `approval.first_batch_auto` (default `true`) skips the gate before the very first
   batch — the initial **Run** click implicitly approves it.
-- The gate reuses the same durable-wait mechanism as the debug-mode "Next Step" gate
-  (`ctx.aio_wait_for_event` + `hatchet.event.push`, keyed via
-  `services/execution/run_events.py`), just on a `workflow-run.{uuid}.batch.{n}` event
-  namespace instead of `.step.{node_id}`.
+- The gate is a durable wait (`ctx.aio_wait_for_event` + `hatchet.event.push`, keyed
+  via `services/execution/run_events.py`) on a `workflow-run.{uuid}.batch.{n}` event.
 - `WorkflowRun.approval_state` (JSON column) carries batch progress, device counts, and
   the next batch's device names while `status == "paused"`; it is cleared once the run
   reaches a terminal status.
@@ -945,6 +946,15 @@ inventory (fan_out on) → get-configs → render → [FAN IN] → store-artifac
   step's own outcome fails for every device it saw, or when a step downstream of it is
   `skipped` because every device that could have reached it was lost upstream (see
   **Run and step status** below) — not only on a raised exception.
+- **`stop-here` cannot sit inside the fanned-out branch:** it truncates the graph via
+  `StepRunner.load_execution_graph` (`resolve_stop_here` in
+  `services/execution/step_runner/graph_resolution.py`), but a fan-out child
+  (`hatchet/workflows/device_group_execution.py`) reads the raw canvas directly, not
+  through `load_execution_graph` — so a `stop-here` node between the inventory step and
+  its Fan In would silently do nothing there instead of truncating the run.
+  `WorkflowService` rejects this shape at save time
+  (`_validate_stop_here_not_in_fan_out`). `stop-here` is fine anywhere outside a
+  fan-out branch, including after a Fan In node.
 
 ### Run and step status
 

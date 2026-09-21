@@ -447,8 +447,7 @@ shape, so these tests double as end-to-end coverage of that resolution path.
 
 `test_workflow_run_end_to_end.py`. Uses `helpers/workflows.build_linear_workflow()`
 to persist a `Workflow` row with `canvas_nodes` / `canvas_edges`, `make_run()` to
-persist a `WorkflowRun` (`run_mode="normal"`, `trigger_type="manual"`,
-`triggered_by_id=admin.id`), then:
+persist a `WorkflowRun` (`trigger_type="manual"`, `triggered_by_id=admin.id`), then:
 
 ```python
 runner = StepRunner(db)

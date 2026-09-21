@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-21T12:42:43.395Z",
+  "exported_at": "2026-09-21T13:07:19.347Z",
   "name": "Check VTY",
   "description": "Check if line vty 0 4 is secured",
   "folder": "Gallery",

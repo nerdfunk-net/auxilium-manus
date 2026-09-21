@@ -89,7 +89,6 @@ class WaitAndRunDispatchTests(unittest.IsolatedAsyncioTestCase):
             triggered_by_id=None,
             status="running",
             trigger_type="manual",
-            run_mode="normal",
             device_ids=[],
         )
         self.db.add(self.run)

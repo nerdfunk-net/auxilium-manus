@@ -181,32 +181,6 @@ def cancel_run(
 
 
 @router.post(
-    "/runs/{run_id}/step",
-    response_model=WorkflowRunResponse,
-    dependencies=[Depends(require_permission("workflows", "execute"))],
-)
-def step_run(
-    run_id: int,
-    current_user: User = Depends(get_current_user),
-    service: RunService = Depends(_service),
-) -> WorkflowRunResponse:
-    return service.step_run(run_id=run_id, user_id=current_user.id)
-
-
-@router.post(
-    "/runs/{run_id}/continue",
-    response_model=WorkflowRunResponse,
-    dependencies=[Depends(require_permission("workflows", "execute"))],
-)
-def continue_run(
-    run_id: int,
-    current_user: User = Depends(get_current_user),
-    service: RunService = Depends(_service),
-) -> WorkflowRunResponse:
-    return service.continue_run(run_id=run_id, user_id=current_user.id)
-
-
-@router.post(
     "/runs/{run_id}/approve-batch",
     response_model=WorkflowRunResponse,
     dependencies=[Depends(require_permission("workflows", "execute"))],

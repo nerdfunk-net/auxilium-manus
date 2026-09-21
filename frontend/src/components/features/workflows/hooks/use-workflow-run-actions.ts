@@ -15,6 +15,10 @@ import type { UseWorkflowCanvasResult } from "./use-workflow-canvas";
 import type { UseWorkflowPersistenceResult } from "./use-workflow-persistence";
 import { useWorkflowBuilderStore } from "./use-workflow-builder-store";
 
+function runActionErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export interface UseWorkflowRunActionsOptions {
   canvas: UseWorkflowCanvasResult;
   persistence: UseWorkflowPersistenceResult;
@@ -40,7 +44,6 @@ export function useWorkflowRunActions({
   const markSaved = useWorkflowBuilderStore((state) => state.markSaved);
   const markRunning = useWorkflowBuilderStore((state) => state.markRunning);
   const markError = useWorkflowBuilderStore((state) => state.markError);
-  const runMode = useWorkflowBuilderStore((state) => state.runMode);
   const setActiveRunId = useWorkflowBuilderStore((state) => state.setActiveRunId);
 
   const [isRunConfirmOpen, setIsRunConfirmOpen] = useState(false);
@@ -65,23 +68,19 @@ export function useWorkflowRunActions({
         const run = await triggerRun.mutateAsync({
           device_ids: [],
           trigger_type: "manual",
-          run_mode: runMode,
           workflowId: targetId,
           run_inputs: runInputs,
         });
         setActiveRunId(run.id);
-        markRunning(runMode === "debug" ? "Debug run queued" : "Run queued");
-        // Debug mode keeps the canvas visible so the paused-node highlight is
-        // visible; normal runs jump to the executions list only when the
-        // "Switch to Runs" setting (Settings → General) is enabled.
-        if (runMode !== "debug" && (generalSettings?.switch_to_runs_on_start ?? true)) {
+        markRunning("Run queued");
+        if (generalSettings?.switch_to_runs_on_start ?? true) {
           router.push("/workflows/runs");
         }
-      } catch {
-        markError("Failed to trigger run");
+      } catch (error) {
+        markError(runActionErrorMessage(error, "Failed to trigger run"));
       }
     },
-    [triggerRun, runMode, setActiveRunId, markRunning, markError, router, generalSettings],
+    [triggerRun, setActiveRunId, markRunning, markError, router, generalSettings],
   );
 
   const ensureRunInputSchemaPersisted = useCallback(
@@ -95,8 +94,8 @@ export function useWorkflowRunActions({
           handleStaticAttributesChange(effectiveAttrs);
         }
         return true;
-      } catch {
-        markError("Failed to sync run parameters on the workflow");
+      } catch (error) {
+        markError(runActionErrorMessage(error, "Failed to sync run parameters on the workflow"));
         return false;
       }
     },
@@ -202,8 +201,8 @@ export function useWorkflowRunActions({
       handleStaticAttributesChange(effectiveAttrs);
       markSaved(`Saved "${workflowName}"`);
       await requestRun();
-    } catch {
-      markError("Failed to save workflow");
+    } catch (error) {
+      markError(runActionErrorMessage(error, "Failed to save workflow"));
     }
   }, [
     workflowId,

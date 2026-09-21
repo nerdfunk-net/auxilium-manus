@@ -113,7 +113,7 @@ Idle timeout + sliding refresh live in `use-session-manager.ts` (refresh every 1
 
 ### 3.4 Query key factory and polling
 
-`lib/query-keys.ts` is hierarchical and used consistently. Workflow run polling matches the documented job pattern (`staleTime: 0`, interval stops when the run is no longer active, faster poll while paused in debug mode).
+`lib/query-keys.ts` is hierarchical and used consistently. Workflow run polling matches the documented job pattern (`staleTime: 0`, interval stops when the run is no longer active, faster poll while paused for a Wait & Run batch approval gate).
 
 ### 3.5 Workflow builder split
 

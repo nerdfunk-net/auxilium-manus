@@ -398,10 +398,9 @@ wraps the process directly and respawns it on any exit).
 - Fan-out per-device concurrency (`fan_out.max_concurrency`) is untouched —
   a background-tier concurrency limit governs *top-level runs* of one
   workflow, not devices within a run.
-- `cancel_run`, the debug-mode step gate, and Wait & Run batch approval are
-  all already workflow-name-agnostic (keyed by opaque Hatchet run id or by
-  `hatchet.event.push` event scope) — publishing a workflow doesn't change
-  how any of those behave.
+- `cancel_run` and Wait & Run batch approval are already workflow-name-agnostic
+  (keyed by opaque Hatchet run id or by `hatchet.event.push` event scope) —
+  publishing a workflow doesn't change how either behaves.
 - Cron/scheduled trigger *registration* (`hatchet.cron.create`/`hatchet.scheduled.create`
   against the fixed `"ScheduledWorkflowTrigger"` workflow, described above)
   is unaffected — only what `"ScheduledWorkflowTrigger"`'s `dispatch` task

@@ -23,11 +23,9 @@ class WorkflowRun(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     # manual | scheduled | webhook
     trigger_type: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
-    # normal | debug
-    run_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="normal")
-    # node_id awaiting the next step/continue action while status == "paused"
+    # node_id awaiting approval while status == "paused" (Wait & Run)
     current_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # latest engine-authored narration for debug-mode pauses/resumes
+    # latest engine-authored narration for a Wait & Run pause/resume
     debug_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Wait & Run: populated while a fan-out run is between approval batches.
     # None on non-approval runs and cleared when the run reaches a terminal status.

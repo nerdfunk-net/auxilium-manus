@@ -3284,6 +3284,27 @@ plugins:
           required: true
           example: "Device {device.name} processed from ISE"
 
+  - id: stop-here
+    name: Stop Here
+    overview: End the run at this point so you can inspect values so far.
+    description: >
+      Truncates the run here — nothing downstream of this node executes. Use
+      it to inspect the workflow context up to a point in the graph (device
+      attributes, parsed output, etc.) via this step's own result in the run
+      detail view, without building or running the rest of the workflow. Not
+      supported inside a fan-out branch (between a fan-out-enabled inventory
+      step and its Fan In node).
+    artifact_type: control_flow
+    palette_category: debug
+    directory: stop_here
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input: []
+
   - id: log-attributes
     name: Log Attributes
     overview: Dump workflow context to STDOUT or a file.

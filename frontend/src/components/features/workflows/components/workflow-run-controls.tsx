@@ -63,7 +63,12 @@ export function WorkflowRunControls({
 
   return (
     <footer className="flex h-12 items-center justify-between border-t bg-card px-5 text-xs text-muted-foreground">
-      <span className="flex items-center gap-2">
+      <span
+        className={cn(
+          "flex items-center gap-2",
+          workflowStatus === "Error" && "font-bold text-destructive",
+        )}
+      >
         <Icon className="size-4" />
         {statusText}
       </span>

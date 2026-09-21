@@ -37,6 +37,10 @@ export interface UseWorkflowSaveOptions {
   requestRunRef: MutableRefObject<(id: number) => void>;
 }
 
+function saveErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function useWorkflowSave({
   canvas,
   workflowId,
@@ -112,8 +116,8 @@ export function useWorkflowSave({
           setRunAfterSave(false);
           requestRunRef.current(saved.id);
         }
-      } catch {
-        markError("Failed to save workflow");
+      } catch (error) {
+        markError(saveErrorMessage(error, "Failed to save workflow"));
       }
     },
     [
@@ -178,8 +182,8 @@ export function useWorkflowSave({
         setIsSaveAsOpen(false);
         markSaved(`Saved as "${saved.name}"`);
         warnIfGitSyncFailed(saved.git_sync);
-      } catch {
-        markError("Failed to overwrite workflow");
+      } catch (error) {
+        markError(saveErrorMessage(error, "Failed to overwrite workflow"));
       }
     },
     [
@@ -217,7 +221,7 @@ export function useWorkflowSave({
           markSaved(`Saved "${workflowName}"`);
           warnIfGitSyncFailed(saved.git_sync);
         },
-        onError: () => markError("Failed to save workflow"),
+        onError: (error) => markError(saveErrorMessage(error, "Failed to save workflow")),
       },
     );
   }, [
@@ -254,8 +258,8 @@ export function useWorkflowSave({
       markSaved(`Saved "${workflowName}"`);
       warnIfGitSyncFailed(saved.git_sync);
       setIsOpenDialogOpen(true);
-    } catch {
-      markError("Failed to save workflow");
+    } catch (error) {
+      markError(saveErrorMessage(error, "Failed to save workflow"));
     }
   }, [
     workflowId,

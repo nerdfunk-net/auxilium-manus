@@ -73,11 +73,6 @@ class StepRunner:
             enabled=settings.netmiko_session_pooling,
         )
 
-    async def suspend_device_sessions(self) -> None:
-        """Disconnect all live device sessions before a durable wait; the pool
-        stays usable and reconnects lazily on the next network step."""
-        await self.device_sessions.suspend()
-
     async def close_device_sessions(self) -> None:
         """Disconnect everything and shut down the pool's thread executor.
         Idempotent — safe to call even if the pool was never used."""
@@ -188,7 +183,11 @@ class StepRunner:
         # terminal step behind a funnel) or rewire a funnel into another funnel,
         # making funnel resolution raise mid-run. Order matters.
         nodes, edges = _gr.resolve_funnels(nodes, edges)
-        return _gr.resolve_disabled_steps(nodes, edges)
+        nodes, edges = _gr.resolve_disabled_steps(nodes, edges)
+        # Stop-here last: it truncates on the fully-resolved graph, so a
+        # disabled step or funnel feeding a stop-here node is already
+        # accounted for before deciding what's downstream of it.
+        return _gr.resolve_stop_here(nodes, edges)
 
     # Graph-resolution primitives live in ``graph_resolution.py`` (pure, no
     # StepRunner state). These thin wrappers are kept so external and test
@@ -197,6 +196,7 @@ class StepRunner:
     # unchanged — pure delegation, no behaviour change.
     _resolve_disabled_steps = staticmethod(_gr.resolve_disabled_steps)
     _resolve_funnels = staticmethod(_gr.resolve_funnels)
+    _resolve_stop_here = staticmethod(_gr.resolve_stop_here)
 
     def _is_executable_node(self, node: dict[str, Any]) -> bool:
         return _gr.is_executable_node(node, self.plugin_registry)

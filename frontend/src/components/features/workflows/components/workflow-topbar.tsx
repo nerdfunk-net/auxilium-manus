@@ -21,19 +21,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 import {
   useApproveAllMutation,
   useApproveBatchMutation,
-  useContinueRunMutation,
-  useStepRunMutation,
 } from "@/hooks/queries/use-workflow-run-mutations";
 
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
@@ -62,19 +53,13 @@ export function WorkflowTopbar({
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
-  const runMode = useWorkflowBuilderStore((state) => state.runMode);
-  const setRunMode = useWorkflowBuilderStore((state) => state.setRunMode);
   const activeRunId = useWorkflowBuilderStore((state) => state.activeRunId);
 
   const { data: activeRun } = useWorkflowRunQuery(activeRunId);
-  const stepRun = useStepRunMutation(workflowId);
-  const continueRun = useContinueRunMutation(workflowId);
   const approveBatch = useApproveBatchMutation(workflowId);
   const approveAll = useApproveAllMutation(workflowId);
   const approvalState = activeRun?.approval_state;
   const isAwaitingBatch = activeRun?.status === "paused" && approvalState?.awaiting === true;
-  const isAwaitingStep =
-    !isAwaitingBatch && runMode === "debug" && activeRun?.status === "paused";
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-5">
@@ -91,22 +76,6 @@ export function WorkflowTopbar({
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">Run as</span>
-          <Select
-            value={runMode}
-            onValueChange={(value) => setRunMode(value as typeof runMode)}
-          >
-            <SelectTrigger className="h-8 w-[110px]" aria-label="Run as">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="normal">Normal</SelectItem>
-              <SelectItem value="debug">Debug</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
         {isAwaitingBatch && approvalState ? (
           <>
             <Button
@@ -125,27 +94,6 @@ export function WorkflowTopbar({
             >
               <FastForward className="size-4" />
               Run all remaining
-            </Button>
-          </>
-        ) : null}
-
-        {isAwaitingStep ? (
-          <>
-            <Button
-              variant="outline"
-              disabled={stepRun.isPending || !activeRunId}
-              onClick={() => activeRunId && stepRun.mutate(activeRunId)}
-            >
-              <StepForward className="size-4" />
-              Next Step
-            </Button>
-            <Button
-              variant="outline"
-              disabled={continueRun.isPending || !activeRunId}
-              onClick={() => activeRunId && continueRun.mutate(activeRunId)}
-            >
-              <FastForward className="size-4" />
-              Run to completion
             </Button>
           </>
         ) : null}

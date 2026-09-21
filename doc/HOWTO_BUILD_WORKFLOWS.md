@@ -299,6 +299,82 @@ time. It is not a per-workflow setting and does not substitute for configuring
 
 ---
 
+## Fan-out parallelizes devices, not independent branches
+
+Everything above answers "how many devices are in flight at once." A related
+but different question: if the canvas has two independent branches after a
+single step —
+
+```
+        ┌─► b1 ─┐
+   a ───┤        ├─► c
+        └─► b2 ─┘
+```
+
+— do `b1` and `b2` run concurrently? **No, not anywhere in this engine, fan-out
+included.**
+
+### Only two Hatchet tasks exist per run
+
+A run's entire Hatchet-level task graph is fixed and tiny: `prepare_task` →
+`execute_steps` (`hatchet/workflows/workflow_run/__init__.py`). Hatchet's own
+native DAG feature (`.task(parents=[...])`) is used for exactly that one
+pipeline — never per canvas node. Hatchet has no idea `b1` or `c` exist; it
+sees one opaque task that happens to run a lot of application code before
+returning.
+
+### Inside that task, the canvas is walked one node at a time
+
+`execute_steps` calls into `StepRunner` (`services/execution/step_runner/runner.py`),
+which topologically sorts `canvas_nodes`/`canvas_edges` and then loops over
+the sorted list, executing one node's `execute()` per iteration —
+`execute_all()`'s `for node in ordered_nodes: ...` — before moving to the
+next. There's no `asyncio.gather` over sibling nodes anywhere in this walk, so
+`b1` and `b2` run **sequentially**, in whatever order the topological sort
+happens to produce, exactly like every other pair of steps.
+
+`c` correctly waits for both `b1` and `b2` — but not through any Hatchet
+"wait for parents" primitive. It's implicit in the sequential walk: `c` can
+only appear in the topological order after both its parents, so by the time
+its turn comes up in the loop, `_assemble_input_context` already has `b1` and
+`b2`'s outcomes recorded in `step_outcomes` to merge. Correctness comes from
+ordering, not synchronization.
+
+### Fan-out doesn't change this — it multiplies it per device, unchanged
+
+Enabling fan-out on an upstream inventory step gives you real, Hatchet-visible
+concurrency — but **across devices**, by spawning one `DeviceGroupExecution`
+child workflow per device/chunk (see **Option 2** above). Each child still
+walks its own downstream subgraph — including `b1`/`b2` — with the exact same
+sequential, one-node-at-a-time loop
+(`services/execution/step_runner/subgraph.py::run_subgraph`). So with fan-out
+on:
+
+- N devices → N children running concurrently (bounded by `max_concurrency`).
+- Inside **any one** child, `b1` then `b2`, sequentially — same as with
+  fan-out off.
+
+In other words: fan-out parallelizes "the same branch across devices," never
+"different branches for the same device."
+
+Relatedly, a node only acts as the fan-out rejoin point when it is explicitly
+a **Fan In** node (`data.kind == "fan-in"`,
+`services/execution/graph.py::find_join_node_id`) — two edges converging on an
+ordinary step like `c` does not make it one. Without an explicit Fan In node
+upstream of it, `c` simply runs once per device, inside every child, like any
+other step on the child branch.
+
+### If you actually need `b1`/`b2` concurrency
+
+There's no workflow-graph-level way to get it today. The only place true
+concurrency happens within a single step is *inside* one step's own
+executor — e.g. `get-device-configs` runs `asyncio.gather()` over its own
+devices (**Option 1** above). A step type that needs to do two genuinely
+independent things at once has to do so internally, in its own `execute()`,
+not by being split across two canvas nodes.
+
+---
+
 ## A fuller example: fan-out + Fan In with the whole Git feature
 
 The 3-node example above is deliberately minimal. A real backup usually also:
@@ -448,7 +524,7 @@ Every SSH step reaches the network only through
 
 With fan-out disabled the entire run is a single segment. A device's session
 opens when the first SSH step runs against it and stays open until the run
-finishes (or until a durable wait — see "suspend" below). If the workflow has
+finishes. If the workflow has
 `Get Device Configs` followed later by `Deploy Rendered Template` against the
 same devices, both steps share one login per device.
 
@@ -493,16 +569,19 @@ closes, its semaphore slot frees, and the next queued device's child starts
 and opens a fresh session. It is a rolling pool, not a batch — see the slot
 diagram under **`max_concurrency`** above.
 
-### `suspend` vs `close`: durable waits
+### `suspend` vs `close`
 
-Before a **durable wait** inside a segment — chiefly a debug-mode step pause —
-the runner calls `suspend()` instead of `close()`: every live session is
-disconnected (an idle device would drop the TCP session during the wait
-anyway), but the pool stays usable and reconnects lazily on the next network
-step. A routine (non-debug) backup has no such waits, so this never fires for
-it. The `Wait & Run` fan-out approval gate is *not* one of these cases — it
-pauses in the parent during child dispatch, where no pool is held at all, so
-there is nothing to suspend.
+`DeviceSessionPool` has a `suspend()` primitive (disconnect every live
+session, an idle device would drop the TCP session anyway, but keep the pool
+usable — the next network step reconnects lazily) distinct from `close()`
+(disconnect everything **and** shut down the pool's thread executor).
+`close()` calls `suspend()` internally as an implementation detail. Nothing
+in `StepRunner` calls `suspend()` on its own today — its only call site was
+the per-node debug-mode pause, which has been removed (inspecting values
+mid-run is now done via the `stop-here` step instead — see
+`doc/WORKFLOW-STEPS.md` → **Fan-out execution**). The `Wait & Run` fan-out
+approval gate was never one of these cases either — it pauses in the parent
+during child dispatch, where no pool is held at all.
 
 ### The pooling toggle
 
@@ -522,7 +601,6 @@ it uses one.
 | Session opens | First SSH step to touch the device, in the single run-wide segment | First SSH step in that device's child |
 | Session reused by later SSH steps | Yes, for the whole run | Yes, within that child only |
 | Session closes | End of the run | End of that child (before Fan In) |
-| Closed early on a durable wait | `suspend()` on a debug pause — reconnects lazily | `suspend()` inside the child, if it hits one |
 | What closes it | `StepRunner` `finally` → `pool.close()` | Same, per child |
 
 ---

@@ -1,8 +1,6 @@
 """Tests for the Wait & Run approval endpoints on RunService.
 
-Covers the mutual-exclusion guards between debug-mode stepping
-(step_run/continue_run) and batch approval (approve_batch/approve_all) --
-see doc/WAIT-AND-RUN.md §7.
+Covers approve_batch/approve_all -- see doc/WAIT-AND-RUN.md §7.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ from core.domain_exceptions import DomainError
 from core.models.runs import WorkflowRun, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
-from services.execution.run_events import batch_approval_event_key, debug_step_event_key
+from services.execution.run_events import batch_approval_event_key
 from services.execution.run_service import RunService
 
 USER_ID = 1
@@ -58,7 +56,6 @@ class RunServiceApprovalTests(unittest.TestCase):
             triggered_by_id=None,
             status="running",
             trigger_type="manual",
-            run_mode="normal",
             device_ids=[],
         )
         defaults.update(overrides)
@@ -78,7 +75,7 @@ class RunServiceApprovalTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 409)
 
     def test_approve_batch_409_when_not_awaiting_approval(self) -> None:
-        # A debug-mode pause: paused + current_node_id, but no approval_state.
+        # Paused with a current_node_id but no approval_state — not a batch pause.
         run = self._make_run(status="paused", current_node_id="n1")
 
         with self.assertRaises(DomainError) as ctx:
@@ -136,42 +133,6 @@ class RunServiceApprovalTests(unittest.TestCase):
         with self.assertRaises(DomainError) as ctx:
             self.service.approve_batch(run_id=999, user_id=USER_ID)
         self.assertEqual(ctx.exception.status_code, 404)
-
-    # ─── step_run / continue_run guards against an approval pause ──────────
-
-    def test_step_run_409_when_awaiting_batch_approval(self) -> None:
-        run = self._make_run(
-            status="paused",
-            current_node_id="inv",
-            approval_state={"awaiting": True, "next_batch_index": 0, "total_batches": 2},
-        )
-
-        with self.assertRaises(DomainError) as ctx:
-            self.service.step_run(run_id=run.id, user_id=USER_ID)
-        self.assertEqual(ctx.exception.status_code, 409)
-        self.mock_hatchet.event.push.assert_not_called()
-
-    def test_continue_run_409_when_awaiting_batch_approval(self) -> None:
-        run = self._make_run(
-            status="paused",
-            current_node_id="inv",
-            approval_state={"awaiting": True, "next_batch_index": 0, "total_batches": 2},
-        )
-
-        with self.assertRaises(DomainError) as ctx:
-            self.service.continue_run(run_id=run.id, user_id=USER_ID)
-        self.assertEqual(ctx.exception.status_code, 409)
-        self.mock_hatchet.event.push.assert_not_called()
-
-    def test_step_run_still_works_for_a_plain_debug_pause(self) -> None:
-        run = self._make_run(status="paused", current_node_id="n1")
-
-        self.service.step_run(run_id=run.id, user_id=USER_ID)
-
-        expected_key = debug_step_event_key(run.uuid, "n1")
-        self.mock_hatchet.event.push.assert_called_once()
-        args, _kwargs = self.mock_hatchet.event.push.call_args
-        self.assertEqual(args[0], expected_key)
 
 
 if __name__ == "__main__":

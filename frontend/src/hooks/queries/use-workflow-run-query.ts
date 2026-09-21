@@ -5,10 +5,10 @@ import { useApi } from "@/hooks/use-api";
 import { queryKeys } from "@/lib/query-keys";
 
 const ACTIVE_STATUSES = new Set(["pending", "running", "paused"]);
-// "paused" only happens in Debug mode, where a human is actively watching and
-// clicking Next Step — poll fast so the UI reflects a step's completion
-// (which the backend itself reports almost instantly) without a multi-second
-// lag. "pending"/"running" cover unattended/background runs, where 2s is fine.
+// "paused" happens during a Wait & Run batch-approval gate, where a human is
+// actively watching and about to click "Run next batch" — poll fast so the
+// UI reflects the release almost instantly instead of a multi-second lag.
+// "pending"/"running" cover unattended/background runs, where 2s is fine.
 const PAUSED_POLL_INTERVAL_MS = 500;
 const ACTIVE_POLL_INTERVAL_MS = 2000;
 

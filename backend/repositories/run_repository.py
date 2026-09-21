@@ -26,7 +26,6 @@ class RunRepository:
         triggered_by_id: int | None,
         trigger_type: str,
         device_ids: list[str],
-        run_mode: str = "normal",
         run_inputs: dict[str, Any] | None = None,
     ) -> WorkflowRun:
         run = WorkflowRun(
@@ -36,7 +35,6 @@ class RunRepository:
             trigger_type=trigger_type,
             device_ids=device_ids,
             status="pending",
-            run_mode=run_mode,
             run_inputs=run_inputs or {},
         )
         self.db.add(run)
@@ -139,7 +137,6 @@ class RunRepository:
         error_id: str | None = None,
         started_at: datetime | None = None,
         finished_at: datetime | None = None,
-        run_mode: str | None = None,
         current_node_id: str | None = None,
         debug_message: str | None = None,
         approval_state: dict[str, Any] | None = None,
@@ -158,8 +155,6 @@ class RunRepository:
             run.started_at = started_at
         if finished_at is not None:
             run.finished_at = finished_at
-        if run_mode is not None:
-            run.run_mode = run_mode
         if current_node_id is not None:
             run.current_node_id = current_node_id
         if debug_message is not None:

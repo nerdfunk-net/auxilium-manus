@@ -121,8 +121,18 @@ export function migrateCanvasState(
       nodeChanged = true;
     }
 
+    // A node nested inside a background (parentId set) deliberately has no
+    // explicit zIndex — see use-canvas-node-changes.ts's handleNodesChange,
+    // which sets it to `undefined` on attach so React Flow's own parent/child
+    // stacking applies instead of a manual foreground value. Only a
+    // non-parented, non-background node is expected to carry
+    // FOREGROUND_Z_INDEX.
     const desiredZ =
-      nextNode.type === "backgroundNode" ? BACKGROUND_Z_INDEX : FOREGROUND_Z_INDEX;
+      nextNode.type === "backgroundNode"
+        ? BACKGROUND_Z_INDEX
+        : nextNode.parentId
+          ? undefined
+          : FOREGROUND_Z_INDEX;
     if (nextNode.zIndex !== desiredZ) {
       nextNode = { ...nextNode, zIndex: desiredZ };
       nodeChanged = true;

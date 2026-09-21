@@ -13,7 +13,6 @@ export const TERMINAL_RUN_STATUSES: readonly WorkflowRunStatus[] = [
   "cancelled",
 ];
 export type StepStatus = "pending" | "running" | "success" | "partial" | "failed" | "skipped";
-export type WorkflowRunMode = "normal" | "debug";
 
 /** See backend/models/runs.py::ErrorCategory for the full contract. */
 export type ErrorCategory = "configuration" | "execution" | "internal";
@@ -57,7 +56,6 @@ export interface WorkflowRunSummary {
   triggered_by_username: string | null;
   status: WorkflowRunStatus;
   trigger_type: string;
-  run_mode: WorkflowRunMode;
   current_node_id: string | null;
   debug_message: string | null;
   approval_state: ApprovalState | null;
@@ -85,6 +83,5 @@ export interface WorkflowRunListResponse {
 export interface TriggerRunRequest {
   device_ids: string[];
   trigger_type: "manual";
-  run_mode: WorkflowRunMode;
   run_inputs?: Record<string, string | number | boolean>;
 }

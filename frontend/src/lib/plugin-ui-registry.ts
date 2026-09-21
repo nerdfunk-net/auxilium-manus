@@ -4,6 +4,7 @@ import { AddToNautobotPlugin } from "@/components/features/workflow-steps/add-to
 import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-data";
 import { ComparePyatsSnapshotPlugin } from "@/components/features/workflow-steps/compare-pyats-snapshot";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
+import { StopHerePlugin } from "@/components/features/workflow-steps/stop-here";
 import { FilterOutputPlugin } from "@/components/features/workflow-steps/filter-output";
 import { MergeConfigPlugin } from "@/components/features/workflow-steps/merge-config";
 import { MergeContentPlugin } from "@/components/features/workflow-steps/merge-content";
@@ -112,6 +113,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   reachable: ReachablePlugin,
   "login-successful": LoginSuccessfulPlugin,
   "fan-in": FanInPlugin,
+  "stop-here": StopHerePlugin,
   "merge-config": MergeConfigPlugin,
   "merge-content": MergeContentPlugin,
   "filter-output": FilterOutputPlugin,

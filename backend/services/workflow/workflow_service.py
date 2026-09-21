@@ -27,7 +27,12 @@ from models.workflows import (
 )
 from repositories.workflow_repository import WorkflowRepository
 from services.execution.background_tier_service import BackgroundTierService
-from services.execution.graph import GraphCycleError, topological_order
+from services.execution.graph import (
+    GraphCycleError,
+    child_node_ids,
+    find_join_node_id,
+    topological_order,
+)
 from services.execution.schedule_service import ScheduleService
 from services.workflow.workflow_change_service import WorkflowChangeService
 from services.workflow.workflow_git_service import WorkflowGitService, WorkflowGitSyncResult
@@ -46,6 +51,40 @@ def _validate_no_cycle(canvas_nodes: list[dict], canvas_edges: list[dict]) -> No
         topological_order(canvas_nodes, canvas_edges)
     except GraphCycleError as exc:
         raise ValidationFailedError(str(exc)) from exc
+
+
+def _validate_stop_here_not_in_fan_out(
+    canvas_nodes: list[dict], canvas_edges: list[dict]
+) -> None:
+    """Raise HTTP 400 if a ``stop-here`` node sits inside a fan-out branch.
+
+    Fan-out children (``hatchet/workflows/device_group_execution.py``) read
+    the raw canvas directly rather than through
+    ``StepRunner.load_execution_graph``, so a stop-here node placed there
+    would silently do nothing instead of truncating the run — reject it at
+    save time instead of shipping that footgun.
+    """
+    stop_here_ids = {
+        n["id"]
+        for n in canvas_nodes
+        if "id" in n and (n.get("data") or {}).get("kind") == "stop-here"
+    }
+    if not stop_here_ids:
+        return
+
+    for node in canvas_nodes:
+        node_id = node.get("id", "")
+        fan_out = (node.get("data", {}) or {}).get("pluginConfig", {}).get("fan_out") or {}
+        if not fan_out.get("enabled"):
+            continue
+        join_node_id = find_join_node_id(node_id, canvas_nodes, canvas_edges)
+        branch_ids = child_node_ids(node_id, join_node_id, canvas_nodes, canvas_edges)
+        offending = stop_here_ids & branch_ids
+        if offending:
+            raise ValidationFailedError(
+                "Stop Here is not supported inside a fan-out branch "
+                f"(node(s): {', '.join(sorted(offending))})"
+            )
 
 
 def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttributeDef]) -> None:
@@ -160,6 +199,7 @@ class WorkflowService:
     ) -> WorkflowResponse:
         logger.info("Creating workflow name=%r user_id=%s", data.name, user_id)
         _validate_no_cycle(data.canvas_nodes, data.canvas_edges)
+        _validate_stop_here_not_in_fan_out(data.canvas_nodes, data.canvas_edges)
         _validate_static_attributes(data.static_attributes)
         try:
             workflow = self.repo.create(
@@ -220,10 +260,10 @@ class WorkflowService:
                 raise AccessDeniedError("Access denied")
             updated_fields = data.model_dump(exclude_unset=True)
             if "canvas_nodes" in updated_fields or "canvas_edges" in updated_fields:
-                _validate_no_cycle(
-                    updated_fields.get("canvas_nodes", workflow.canvas_nodes),
-                    updated_fields.get("canvas_edges", workflow.canvas_edges),
-                )
+                new_nodes = updated_fields.get("canvas_nodes", workflow.canvas_nodes)
+                new_edges = updated_fields.get("canvas_edges", workflow.canvas_edges)
+                _validate_no_cycle(new_nodes, new_edges)
+                _validate_stop_here_not_in_fan_out(new_nodes, new_edges)
             if "static_attributes" in updated_fields:
                 _validate_static_attributes(updated_fields["static_attributes"] or [])
             workflow = self.repo.update(workflow, updated_fields)

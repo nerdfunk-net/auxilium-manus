@@ -9,7 +9,6 @@ import type {
 } from "../types/workflow-canvas";
 
 type RightPanelTab = "steps" | "properties";
-type RunMode = "normal" | "debug";
 
 /**
  * Snapshot of the in-progress (possibly unsaved) canvas, keyed by the
@@ -52,7 +51,6 @@ interface WorkflowMetadata {
 interface WorkflowBuilderState extends WorkflowMetadata {
   workflowStatus: "Draft" | "Saved" | "Running" | "Error";
   isDirty: boolean;
-  runMode: RunMode;
   activeRunId: number | null;
   rightPanelTab: RightPanelTab;
   selectedNodeId: string | null;
@@ -94,7 +92,6 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   enterGroup: (groupId: string) => void;
   exitToParent: () => void;
   exitToRoot: () => void;
-  setRunMode: (runMode: RunMode) => void;
   setActiveRunId: (activeRunId: number | null) => void;
   setRightPanelTab: (tab: RightPanelTab) => void;
   selectNode: (nodeId: string | null) => void;
@@ -173,7 +170,6 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   ...NEW_WORKFLOW_DEFAULTS,
   workflowStatus: "Draft",
   isDirty: false,
-  runMode: "normal",
   activeRunId: null,
   rightPanelTab: "steps",
   selectedNodeId: null,
@@ -205,7 +201,6 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       };
     }),
   exitToRoot: () => set({ groupNavigationStack: [], activeGroupId: null }),
-  setRunMode: (runMode) => set({ runMode }),
   setActiveRunId: (activeRunId) => set({ activeRunId }),
   setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
   selectNode: (selectedNodeId) =>
