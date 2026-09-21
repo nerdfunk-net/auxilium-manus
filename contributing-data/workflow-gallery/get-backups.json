@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-21T12:15:42.360Z",
+  "exported_at": "2026-09-21T19:00:12.722Z",
   "name": "Get Backups",
   "description": "Get Backups",
   "folder": "Gallery",
@@ -92,7 +92,7 @@
       "id": "get-nautobot-attributes-2",
       "type": "workflowNode",
       "position": {
-        "x": 155.75,
+        "x": 157.71242910864737,
         "y": 225.5
       },
       "zIndex": 1,
@@ -137,7 +137,7 @@
       "id": "get-device-configs-3",
       "type": "workflowNode",
       "position": {
-        "x": 155.75,
+        "x": 157.71242910864737,
         "y": 396.5625
       },
       "zIndex": 1,
@@ -183,7 +183,7 @@
       "id": "fan-in-4",
       "type": "workflowNode",
       "position": {
-        "x": 155.75,
+        "x": 157.71242910864737,
         "y": 571.5
       },
       "zIndex": 1,
@@ -220,10 +220,9 @@
       "id": "store-artifact-5",
       "type": "workflowNode",
       "position": {
-        "x": 155.75,
-        "y": 744.375
+        "x": 461.23109665632387,
+        "y": 72.6588922744728
       },
-      "zIndex": 1,
       "data": {
         "kind": "store-artifact",
         "stepUuid": "a17f4263-b82c-4df7-a4ad-2ac19243aff0",
@@ -270,16 +269,16 @@
         "height": 128
       },
       "selected": false,
-      "dragging": false
+      "dragging": false,
+      "parentId": "background-13"
     },
     {
       "id": "store-artifact-6",
       "type": "workflowNode",
       "position": {
-        "x": 535,
-        "y": 744.375
+        "x": 846.3683839822661,
+        "y": 72.6588922744728
       },
-      "zIndex": 1,
       "data": {
         "kind": "store-artifact",
         "stepUuid": "c0b8861a-0045-4aa6-84e9-bccfd6cf9236",
@@ -326,16 +325,16 @@
         "height": 128
       },
       "selected": false,
-      "dragging": false
+      "dragging": false,
+      "parentId": "background-13"
     },
     {
       "id": "git-pull-7",
       "type": "workflowNode",
       "position": {
-        "x": -234.25,
-        "y": 744.375
+        "x": 77.1183839822661,
+        "y": 72.6588922744728
       },
-      "zIndex": 1,
       "data": {
         "kind": "git-pull",
         "stepUuid": "3fb29749-b043-461b-9b4b-8bc9a4e8c359",
@@ -370,16 +369,16 @@
         "height": 128
       },
       "dragging": false,
-      "selected": false
+      "selected": false,
+      "parentId": "background-13"
     },
     {
       "id": "git-push-8",
       "type": "workflowNode",
       "position": {
-        "x": 921.4966897028442,
-        "y": 744.375
+        "x": 1224.0341426961968,
+        "y": 72.6588922744728
       },
-      "zIndex": 1,
       "data": {
         "kind": "git-push",
         "stepUuid": "0e26386b-d312-4c38-8bf1-7061c6b53557",
@@ -414,14 +413,15 @@
         "height": 128
       },
       "dragging": false,
-      "selected": false
+      "selected": false,
+      "parentId": "background-13"
     },
     {
       "id": "notify-mattermost-9",
       "type": "workflowNode",
       "position": {
-        "x": 921.4966897028442,
-        "y": 982.1768191569298
+        "x": 915.1601933196825,
+        "y": 1172.3258981230347
       },
       "zIndex": 1,
       "data": {
@@ -510,8 +510,8 @@
       "id": "notify-on-error-11",
       "type": "workflowNode",
       "position": {
-        "x": 376.41000633213946,
-        "y": 1097.488335992083
+        "x": 407.7971297845663,
+        "y": 1172.3258981230347
       },
       "zIndex": 1,
       "data": {
@@ -554,8 +554,8 @@
       "id": "funnel-12",
       "type": "funnelNode",
       "position": {
-        "x": 516.8434176793446,
-        "y": 1004.5547537041989
+        "x": 548.242283417703,
+        "y": 1085.014347158742
       },
       "zIndex": 1,
       "data": {
@@ -580,6 +580,135 @@
       },
       "dragging": false,
       "selected": false
+    },
+    {
+      "id": "background-13",
+      "type": "backgroundNode",
+      "position": {
+        "x": -303.5186675476765,
+        "y": 739.1691441113365
+      },
+      "zIndex": -1,
+      "width": 1561,
+      "height": 292,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "fffdd19d-f4b1-4878-8c62-4537b44dbcd1",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1561,
+          "height": 292
+        }
+      },
+      "measured": {
+        "width": 1561,
+        "height": 292
+      },
+      "dragging": false,
+      "selected": false,
+      "resizing": false
+    },
+    {
+      "id": "label-14",
+      "type": "labelNode",
+      "position": {
+        "x": 8.639901539914945,
+        "y": 239.59327726385527
+      },
+      "width": 380,
+      "height": 40,
+      "style": {
+        "width": 380,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "c60b9358-5b1f-428c-96eb-0b6f6954162b",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Git management including locking",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 380,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 380,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "label-15",
+      "type": "labelNode",
+      "position": {
+        "x": 476.3414208288676,
+        "y": 611.9524617647012
+      },
+      "zIndex": 1,
+      "width": 350,
+      "height": 40,
+      "style": {
+        "width": 350,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "37e5ea48-0171-4c9a-9b4a-353abdca6236",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Always use Fan In before GIT",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 350,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 350,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false
     }
   ],
   "canvas_edges": [
@@ -658,7 +787,8 @@
       "sourceHandle": "success",
       "target": "store-artifact-5",
       "targetHandle": "input",
-      "id": "xy-edge__git-pull-7success-store-artifact-5input"
+      "id": "xy-edge__git-pull-7success-store-artifact-5input",
+      "selected": false
     },
     {
       "type": "waypoint",
@@ -677,7 +807,7 @@
       "type": "waypoint",
       "zIndex": 0,
       "data": {
-        "edgeStyle": "bezier"
+        "edgeStyle": "smoothstep"
       },
       "source": "git-push-8",
       "sourceHandle": "success",
@@ -722,7 +852,7 @@
       "type": "waypoint",
       "zIndex": 0,
       "data": {
-        "edgeStyle": "straight"
+        "edgeStyle": "smoothstep"
       },
       "source": "funnel-12",
       "sourceHandle": "output",
@@ -764,8 +894,8 @@
         "edgeStyle": "straight",
         "waypoints": [
           {
-            "x": 117.27033565269956,
-            "y": 1000.1722959983725
+            "x": 130.85667818204098,
+            "y": 1080.4925615779036
           }
         ]
       },
