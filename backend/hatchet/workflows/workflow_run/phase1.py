@@ -4,8 +4,14 @@ inventory step that requests fan-out.
 
 Split out of workflow_run; every function is the same plain async function it
 was before the split. ``_phase1_run_or_early_finish`` keeps its
-injected-dependency signature (``SessionLocal=…, RunRepository=…, …``); the
-lazy in-function imports in ``_fan_out_context_if_requested`` are deliberate.
+injected-dependency signature (``SessionLocal=…, RunRepository=…, …``).
+
+``_run_steps_until_fan_out_or_done`` is a thin adapter around
+``StepRunner.execute_all`` — the single canonical phase-1 walk. It used to
+reimplement that walk loop independently (see doc/plans/PARALLEL_EXEC.md,
+"worth deduplicating"); it now just translates ``execute_all``'s
+``bool | FanOutSignal`` return into the ``(status, fan_out_context, run)``
+tuple this module's callers and tests expect.
 """
 
 from __future__ import annotations
@@ -16,45 +22,9 @@ from typing import Any
 
 from hatchet_sdk import DurableContext
 
+from services.execution.step_runner import FanOutSignal
+
 logger = logging.getLogger(__name__)
-
-
-def _fan_out_context_if_requested(
-    *,
-    node_id: str,
-    step_outcomes: dict[str, dict[str, Any]],
-    canvas_nodes: list[dict[str, Any]],
-    canvas_edges: list[dict[str, Any]],
-    run_id: int,
-) -> dict[str, Any] | None:
-    from services.execution.graph import find_join_node_id
-    from services.execution.step_runner import FanOutSignal
-
-    success_ctx = step_outcomes.get(node_id, {}).get("success")
-    if not (success_ctx and success_ctx.metadata.get("_fan_out", {}).get("enabled")):
-        return None
-
-    fan_out_config = dict(success_ctx.metadata["_fan_out"])
-    join_node_id = find_join_node_id(node_id, canvas_nodes, canvas_edges)
-    logger.info(
-        "Fan-out requested node_id=%s mode=%s join_node_id=%s run_id=%s",
-        node_id,
-        fan_out_config.get("mode"),
-        join_node_id,
-        run_id,
-    )
-    signal = FanOutSignal(
-        inventory_node_id=node_id,
-        fan_out_config=fan_out_config,
-        inventory_outcome=success_ctx,
-        step_outcomes=dict(step_outcomes),
-        join_node_id=join_node_id,
-    )
-    return {
-        "signal": signal,
-        "canvas_nodes": canvas_nodes,
-        "canvas_edges": canvas_edges,
-    }
 
 
 async def _run_steps_until_fan_out_or_done(
@@ -65,9 +35,8 @@ async def _run_steps_until_fan_out_or_done(
     wf: Any,
     ctx: DurableContext,
 ) -> tuple[Any, dict[str, Any] | None, Any]:
-    """Walk nodes in topological order, executing one at a time.
-
-    Behaves exactly like ``StepRunner.execute_all``'s in-one-shot walk.
+    """Walk nodes in topological order, executing one at a time, via
+    ``StepRunner.execute_all``.
 
     Returns ``(final_status_or_none, fan_out_context, run)`` where the first
     element is a terminal status string when the walk completes without
@@ -75,49 +44,17 @@ async def _run_steps_until_fan_out_or_done(
     the signal plus captured canvas nodes/edges for phase 2/3/4); ``run`` is
     the WorkflowRun to keep using in the caller.
     """
-    canvas_nodes, canvas_edges = runner.load_execution_graph(wf)
-    ordered_nodes = runner.build_execution_plan(canvas_nodes, canvas_edges)
-    step_results = runner.create_pending_step_results(run_id=run.id, ordered_nodes=ordered_nodes)
+    result = await runner.execute_all(run=run, workflow=wf)
 
-    step_outcomes: dict[str, dict[str, Any]] = {}
-    blocked_nodes: set[str] = set()
-    failed = False
-    any_reported_failure = False
-
-    for node in ordered_nodes:
-        node_id: str = node.get("id", "")
-        step_result = step_results[node_id]
-
-        if failed:
-            run_repo.update_step_result(step_result, status="skipped")
-            continue
-
-        raised, indicates_failure = await runner.run_node_in_sequence(
-            node=node,
-            run=run,
-            workflow=wf,
-            edges=canvas_edges,
-            step_outcomes=step_outcomes,
-            step_result=step_result,
-            blocked_nodes=blocked_nodes,
+    if isinstance(result, FanOutSignal):
+        canvas_nodes, canvas_edges = runner.load_execution_graph(wf)
+        return (
+            None,
+            {"signal": result, "canvas_nodes": canvas_nodes, "canvas_edges": canvas_edges},
+            run,
         )
-        if raised:
-            failed = True
-            continue
-        if indicates_failure:
-            any_reported_failure = True
 
-        fan_out = _fan_out_context_if_requested(
-            node_id=node_id,
-            step_outcomes=step_outcomes,
-            canvas_nodes=canvas_nodes,
-            canvas_edges=canvas_edges,
-            run_id=run.id,
-        )
-        if fan_out is not None:
-            return None, fan_out, run
-
-    return ("success" if not (failed or any_reported_failure) else "failed"), None, run
+    return ("success" if result else "failed"), None, run
 
 
 async def _phase1_run_or_early_finish(
