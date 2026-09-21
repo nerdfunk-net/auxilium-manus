@@ -43,7 +43,7 @@ class FakeSession:
         self.check_config_mode_calls = 0
         FakeSession.instances.append(self)
 
-    def connect(self, *, privileged: bool = True) -> None:
+    def connect(self, *, privileged: bool = True, retry: object | None = None) -> None:
         self.connect_calls += 1
         if FakeSession.connect_error is not None:
             raise FakeSession.connect_error

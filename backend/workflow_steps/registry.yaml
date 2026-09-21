@@ -2282,6 +2282,32 @@ plugins:
           required: false
           default: both
           example: both
+        - name: read_timeout
+          description: >
+            Seconds to wait for each "show running-config" / "show
+            startup-config" response before failing with a Netmiko "Pattern
+            not detected" timeout. Previously hardcoded to 120s; now
+            configurable.
+          data_type: integer
+          required: false
+          default: 120
+          example: 180
+        - name: retry_backoff_seconds
+          description: >
+            Per-device SSH connect retry schedule for an unstable link — never
+            applied to config retrieval itself or to an authentication failure.
+            Each entry is the number of seconds to wait before that retry
+            attempt; e.g. [10, 20, 30] means connect once, then retry up to 3
+            more times waiting 10s / 20s / 30s between attempts. Empty
+            (default) means no retry, identical to prior behavior. Up to 5
+            entries, 1-600s each.
+          data_type: integer_list
+          required: false
+          default: []
+          example:
+            - 10
+            - 20
+            - 30
 
   - id: read-config
     name: Read Config
@@ -2464,6 +2490,21 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: retry_backoff_seconds
+          description: >
+            Per-device SSH connect retry schedule for an unstable link — never
+            applied to command execution or to an authentication failure. Each
+            entry is the number of seconds to wait before that retry attempt;
+            e.g. [10, 20, 30] means connect once, then retry up to 3 more times
+            waiting 10s / 20s / 30s between attempts. Empty (default) means no
+            retry, identical to prior behavior. Up to 5 entries, 1-600s each.
+          data_type: integer_list
+          required: false
+          default: []
+          example:
+            - 10
+            - 20
+            - 30
 
   - id: merge-config
     name: Merge Config
@@ -2539,6 +2580,22 @@ plugins:
           required: false
           default: 60
           example: 120
+        - name: retry_backoff_seconds
+          description: >
+            Per-device SSH connect retry schedule for an unstable link — never
+            applied to the copy/merge itself or to an authentication failure.
+            Each entry is the number of seconds to wait before that retry
+            attempt; e.g. [10, 20, 30] means connect once, then retry up to 3
+            more times waiting 10s / 20s / 30s between attempts. Empty
+            (default) means no retry, identical to prior behavior. Up to 5
+            entries, 1-600s each.
+          data_type: integer_list
+          required: false
+          default: []
+          example:
+            - 10
+            - 20
+            - 30
 
   - id: deploy-rendered-template
     name: Deploy rendered Template
@@ -2650,6 +2707,22 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: retry_backoff_seconds
+          description: >
+            Per-device SSH connect retry schedule for an unstable link — never
+            applied to command execution or to an authentication failure.
+            Each entry is the number of seconds to wait before that retry
+            attempt; e.g. [10, 20, 30] means connect once, then retry up to 3
+            more times waiting 10s / 20s / 30s between attempts. Empty
+            (default) means no retry, identical to prior behavior. Up to 5
+            entries, 1-600s each.
+          data_type: integer_list
+          required: false
+          default: []
+          example:
+            - 10
+            - 20
+            - 30
 
   - id: route-on-attribute
     name: Route on Attribute

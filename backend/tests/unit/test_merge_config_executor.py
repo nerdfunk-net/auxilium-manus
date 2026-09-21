@@ -314,6 +314,72 @@ class MergeConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
+    async def test_retry_backoff_seconds_passed_through(self) -> None:
+        with (
+            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
+            patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
+        ):
+            merge = AsyncMock(return_value=_ok_result())
+            netmiko_cls.return_value.merge_config = merge
+
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "source_filename": "flash:partial.cfg",
+                    "retry_backoff_seconds": [10, 20, 30],
+                },
+                context=_context({"device-1": _device()}),
+                run=_run(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        retry_policy = merge.await_args.kwargs["retry"]
+        self.assertEqual(retry_policy.backoff_seconds, (10, 20, 30))
+        self.assertEqual(retry_policy.max_attempts, 4)
+
+    async def test_retry_backoff_seconds_defaults_to_no_retry(self) -> None:
+        with (
+            patch(f"{_EXEC}.object_session", return_value=MagicMock()),
+            patch(f"{_EXEC}.resolve_ssh_credential", return_value=("admin", "secret")),
+            patch(f"{_EXEC}.NetmikoService") as netmiko_cls,
+        ):
+            merge = AsyncMock(return_value=_ok_result())
+            netmiko_cls.return_value.merge_config = merge
+
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "source_filename": "flash:partial.cfg",
+                },
+                context=_context({"device-1": _device()}),
+                run=_run(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        retry_policy = merge.await_args.kwargs["retry"]
+        self.assertEqual(retry_policy.backoff_seconds, ())
+        self.assertEqual(retry_policy.max_attempts, 1)
+
+    async def test_retry_backoff_seconds_out_of_bounds_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "source_filename": "flash:partial.cfg",
+                    "retry_backoff_seconds": [0],
+                },
+                context=_context({"device-1": _device()}),
+                run=_run(),
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
     async def test_missing_db_session_raises_runtime_error(self) -> None:
         with (
             patch(f"{_EXEC}.object_session", return_value=None),

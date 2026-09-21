@@ -23,6 +23,7 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
+from services.network.netmiko.connection import RetryPolicy
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
@@ -34,14 +35,14 @@ from services.pyats.source_config_service import (
 )
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
 from workflow_steps.common.jinja_render import parse_output_key
+from workflow_steps.common.read_timeout import parse_read_timeout
+from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "run-command"
 _EXECUTION_MODES = {"config_mode", "exec_mode"}
-_MIN_READ_TIMEOUT = 5
-_MAX_READ_TIMEOUT = 600
 
 
 def _default_config() -> dict[str, Any]:
@@ -104,22 +105,6 @@ def _parse_execution_mode(config: dict[str, Any]) -> str:
     return mode
 
 
-def _parse_read_timeout(config: dict[str, Any]) -> int:
-    raw = config.get("read_timeout")
-    if raw in (None, ""):
-        raw = _default_config()["read_timeout"]
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("run-command: read_timeout must be an integer") from exc
-    if not (_MIN_READ_TIMEOUT <= value <= _MAX_READ_TIMEOUT):
-        raise ValueError(
-            f"run-command: read_timeout must be between {_MIN_READ_TIMEOUT} "
-            f"and {_MAX_READ_TIMEOUT} seconds"
-        )
-    return value
-
-
 def _parse_write_config(config: dict[str, Any]) -> bool:
     value = config.get("write_config_after_execution", False)
     if isinstance(value, bool):
@@ -179,6 +164,7 @@ class _ParsedRunCommandConfig:
     read_timeout: int
     auto_confirm_prompts: bool
     dry_run: bool
+    retry: RetryPolicy
 
 
 def _parse_run_command_config(config: dict[str, Any]) -> _ParsedRunCommandConfig:
@@ -218,9 +204,12 @@ def _parse_run_command_config(config: dict[str, Any]) -> _ParsedRunCommandConfig
         parsed_output_key=parsed_output_key,
         execution_mode=execution_mode,
         write_config_after_execution=write_config_after_execution,
-        read_timeout=_parse_read_timeout(config),
+        read_timeout=parse_read_timeout(
+            config, step_id=_STEP_ID, default=_default_config()["read_timeout"]
+        ),
         auto_confirm_prompts=auto_confirm_prompts,
         dry_run=dry_run,
+        retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
     )
 
 
@@ -291,6 +280,7 @@ async def _run_on_device(
     read_timeout: int,
     auto_confirm_prompts: bool,
     dry_run: bool,
+    retry: RetryPolicy,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, bool, dict[str, str]]:
@@ -337,6 +327,7 @@ async def _run_on_device(
             credential_reference=credential_reference,
             read_timeout=read_timeout,
             auto_confirm_prompts=auto_confirm_prompts,
+            retry=retry,
         )
 
         confirmed = set(result.confirmed_prompts)
@@ -427,6 +418,7 @@ async def _run_on_device_logged(
     read_timeout: int,
     auto_confirm_prompts: bool,
     dry_run: bool,
+    retry: RetryPolicy,
     netmiko: NetmikoService,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, bool, dict[str, str]]:
@@ -454,6 +446,7 @@ async def _run_on_device_logged(
         read_timeout=read_timeout,
         auto_confirm_prompts=auto_confirm_prompts,
         dry_run=dry_run,
+        retry=retry,
         netmiko=netmiko,
         artifact_service=artifact_service,
     )
@@ -656,6 +649,7 @@ async def _run_command_config_mode(
         read_timeout=parsed.read_timeout,
         auto_confirm_prompts=parsed.auto_confirm_prompts,
         credential_reference=parsed.credential_reference,
+        retry=parsed.retry,
     )
     if result.confirmed_prompts:
         logger.warning(
@@ -1031,6 +1025,7 @@ async def execute(
                 read_timeout=parsed.read_timeout,
                 auto_confirm_prompts=parsed.auto_confirm_prompts,
                 dry_run=parsed.dry_run,
+                retry=parsed.retry,
                 netmiko=netmiko,
                 artifact_service=artifact_service,
             )

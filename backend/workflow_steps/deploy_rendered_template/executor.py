@@ -20,19 +20,20 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
+from services.network.netmiko.connection import RetryPolicy
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.content_resolver import list_exportable_content
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.read_timeout import parse_read_timeout
+from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "deploy-rendered-template"
 _EXECUTION_MODES = {"config_mode", "exec_mode"}
-_MIN_READ_TIMEOUT = 5
-_MAX_READ_TIMEOUT = 600
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class _ParsedDeployConfig:
     read_timeout: int
     auto_confirm_prompts: bool
     dry_run: bool
+    retry: RetryPolicy
 
 
 def _default_config() -> dict[str, Any]:
@@ -61,22 +63,6 @@ def _parse_execution_mode(config: dict[str, Any]) -> str:
             f"deploy-rendered-template: execution_mode must be one of {sorted(_EXECUTION_MODES)}"
         )
     return mode
-
-
-def _parse_read_timeout(config: dict[str, Any]) -> int:
-    raw = config.get("read_timeout")
-    if raw in (None, ""):
-        raw = _default_config()["read_timeout"]
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("deploy-rendered-template: read_timeout must be an integer") from exc
-    if not (_MIN_READ_TIMEOUT <= value <= _MAX_READ_TIMEOUT):
-        raise ValueError(
-            f"deploy-rendered-template: read_timeout must be between {_MIN_READ_TIMEOUT} "
-            f"and {_MAX_READ_TIMEOUT} seconds"
-        )
-    return value
 
 
 def _parse_write_config(config: dict[str, Any]) -> bool:
@@ -118,9 +104,12 @@ def _parse_deploy_config(config: dict[str, Any]) -> _ParsedDeployConfig:
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
         execution_mode=_parse_execution_mode(config),
         write_config_after_execution=_parse_write_config(config),
-        read_timeout=_parse_read_timeout(config),
+        read_timeout=parse_read_timeout(
+            config, step_id=_STEP_ID, default=_default_config()["read_timeout"]
+        ),
         auto_confirm_prompts=_parse_auto_confirm_prompts(config),
         dry_run=_parse_dry_run(config),
+        retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
     )
 
 
@@ -228,6 +217,7 @@ async def _run_deploy_config(
         read_timeout=parsed.read_timeout,
         auto_confirm_prompts=parsed.auto_confirm_prompts,
         credential_reference=parsed.credential_reference,
+        retry=parsed.retry,
     )
     if result.confirmed_prompts:
         logger.warning(

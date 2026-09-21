@@ -959,6 +959,135 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
+    async def test_retry_backoff_seconds_passed_through_to_send_commands(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="Cisco IOS",
+                    command_outputs={"show version": "Cisco IOS"},
+                )
+            )
+
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "retry_backoff_seconds": [10, 20, 30],
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        retry_policy = netmiko.send_commands.call_args.kwargs["retry"]
+        self.assertEqual(retry_policy.backoff_seconds, (10, 20, 30))
+        self.assertEqual(retry_policy.max_attempts, 4)
+
+    async def test_retry_backoff_seconds_defaults_to_no_retry(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        with (
+            patch(
+                "workflow_steps.run_command.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.run_command.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.send_commands = AsyncMock(
+                return_value=NetmikoCommandResult(
+                    success=True,
+                    output="Cisco IOS",
+                    command_outputs={"show version": "Cisco IOS"},
+                )
+            )
+
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        retry_policy = netmiko.send_commands.call_args.kwargs["retry"]
+        self.assertEqual(retry_policy.backoff_seconds, ())
+        self.assertEqual(retry_policy.max_attempts, 1)
+
+    async def test_retry_backoff_seconds_out_of_bounds_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "retry_backoff_seconds": [0],
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+    async def test_retry_backoff_seconds_too_many_entries_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config={
+                    "credential_reference": "lab-ssh",
+                    "commands": ["show version"],
+                    "retry_backoff_seconds": [10, 10, 10, 10, 10, 10],
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

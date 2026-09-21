@@ -20,6 +20,10 @@ import type {
 import { listUpstreamSourceSteps } from "@/components/features/workflow-steps/shared/upstream-source-steps";
 
 import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
+import {
+  RetryBackoffSecondsField,
+  parseRetryBackoffSeconds,
+} from "@/components/features/workflow-steps/shared/retry-backoff-fields";
 import { DeployReadTimeoutFields } from "./deploy-fields";
 import { DeployRenderedTemplateHelpPanel } from "./help-panel";
 
@@ -69,6 +73,7 @@ function buildDeployRenderedTemplateConfig(
         : DEFAULT_READ_TIMEOUT,
     auto_confirm_prompts: config.auto_confirm_prompts === true,
     dry_run: config.dry_run === true,
+    retry_backoff_seconds: parseRetryBackoffSeconds(config),
     ...patch,
   };
 }
@@ -105,6 +110,7 @@ function DeployRenderedTemplateConfigPanel({
       : DEFAULT_READ_TIMEOUT;
   const autoConfirmPrompts = config.auto_confirm_prompts === true;
   const dryRun = config.dry_run === true;
+  const retryBackoffSeconds = useMemo(() => parseRetryBackoffSeconds(config), [config]);
 
   const sourceSteps = useMemo(
     () => listUpstreamSourceSteps(workflowNodes, "rendered_template", nodeId),
@@ -195,6 +201,13 @@ function DeployRenderedTemplateConfigPanel({
         ? Math.min(MAX_READ_TIMEOUT, Math.max(MIN_READ_TIMEOUT, parsed))
         : DEFAULT_READ_TIMEOUT;
       onChange(buildDeployRenderedTemplateConfig(config, { read_timeout: clamped }));
+    },
+    [config, onChange],
+  );
+
+  const handleRetryBackoffSecondsChange = useCallback(
+    (next: number[]) => {
+      onChange(buildDeployRenderedTemplateConfig(config, { retry_backoff_seconds: next }));
     },
     [config, onChange],
   );
@@ -348,6 +361,11 @@ function DeployRenderedTemplateConfigPanel({
       <DeployReadTimeoutFields
         readTimeout={readTimeout}
         onReadTimeoutChange={handleReadTimeoutChange}
+      />
+
+      <RetryBackoffSecondsField
+        retryBackoffSeconds={retryBackoffSeconds}
+        onRetryBackoffSecondsChange={handleRetryBackoffSecondsChange}
       />
 
       <div className="flex items-start gap-2">

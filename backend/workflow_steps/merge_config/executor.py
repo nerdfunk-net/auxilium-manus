@@ -38,17 +38,18 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
+from services.network.netmiko.connection import RetryPolicy
 from services.network.netmiko.platform import resolve_connection_device_type
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.read_timeout import parse_read_timeout
+from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "merge-config"
-_MIN_READ_TIMEOUT = 5
-_MAX_READ_TIMEOUT = 600
 _ARTIFACT_KIND = "command_output"
 
 
@@ -58,28 +59,13 @@ def _default_config() -> dict[str, Any]:
     return get_config()
 
 
-def _parse_read_timeout(config: dict[str, Any]) -> int:
-    raw = config.get("read_timeout")
-    if raw in (None, ""):
-        raw = _default_config()["read_timeout"]
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{_STEP_ID}: read_timeout must be an integer") from exc
-    if not (_MIN_READ_TIMEOUT <= value <= _MAX_READ_TIMEOUT):
-        raise ValueError(
-            f"{_STEP_ID}: read_timeout must be between {_MIN_READ_TIMEOUT} "
-            f"and {_MAX_READ_TIMEOUT} seconds"
-        )
-    return value
-
-
 @dataclass(frozen=True)
 class _ParsedMergeConfig:
     credential_reference: str
     source_filename: str
     network_driver_override: str | None
     read_timeout: int
+    retry: RetryPolicy
 
 
 def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
@@ -90,7 +76,10 @@ def _parse_merge_config(config: dict[str, Any]) -> _ParsedMergeConfig:
         credential_reference="",
         source_filename=source_filename,
         network_driver_override=str(config.get("network_driver_override") or "").strip() or None,
-        read_timeout=_parse_read_timeout(config),
+        read_timeout=parse_read_timeout(
+            config, step_id=_STEP_ID, default=_default_config()["read_timeout"]
+        ),
+        retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
     )
 
 
@@ -151,6 +140,7 @@ async def _merge_on_device(
             device_type=device_type,
             credential_reference=parsed.credential_reference,
             read_timeout=parsed.read_timeout,
+            retry=parsed.retry,
         )
     except Exception as exc:
         return _fail_device(

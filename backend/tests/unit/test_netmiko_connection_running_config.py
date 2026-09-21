@@ -71,6 +71,42 @@ class GetRunningConfigTests(unittest.TestCase):
 
         self.assertEqual(result, "!\nhostname LAB")
 
+    def test_get_running_config_default_read_timeout_is_120(self) -> None:
+        session = NetmikoDeviceSession(
+            host="10.0.0.1", device_type="cisco_ios", username="admin", password="secret"
+        )
+        session._connection = MagicMock()
+        session._connection.send_command.return_value = "!\nhostname LAB\n"
+
+        session.get_running_config()
+
+        _, kwargs = session._connection.send_command.call_args
+        self.assertEqual(kwargs["read_timeout"], 120)
+
+    def test_get_running_config_read_timeout_passed_through(self) -> None:
+        session = NetmikoDeviceSession(
+            host="10.0.0.1", device_type="cisco_ios", username="admin", password="secret"
+        )
+        session._connection = MagicMock()
+        session._connection.send_command.return_value = "!\nhostname LAB\n"
+
+        session.get_running_config(read_timeout=200)
+
+        _, kwargs = session._connection.send_command.call_args
+        self.assertEqual(kwargs["read_timeout"], 200)
+
+    def test_get_startup_config_read_timeout_passed_through(self) -> None:
+        session = NetmikoDeviceSession(
+            host="10.0.0.1", device_type="cisco_ios", username="admin", password="secret"
+        )
+        session._connection = MagicMock()
+        session._connection.send_command.return_value = "!\nhostname LAB\n"
+
+        session.get_startup_config(read_timeout=45)
+
+        _, kwargs = session._connection.send_command.call_args
+        self.assertEqual(kwargs["read_timeout"], 45)
+
 
 if __name__ == "__main__":
     unittest.main()

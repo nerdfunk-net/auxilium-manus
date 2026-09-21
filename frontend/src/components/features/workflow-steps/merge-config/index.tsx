@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,10 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
 import { DeployReadTimeoutFields } from "@/components/features/workflow-steps/deploy-rendered-template/deploy-fields";
+import {
+  RetryBackoffSecondsField,
+  parseRetryBackoffSeconds,
+} from "@/components/features/workflow-steps/shared/retry-backoff-fields";
 
 import { MergeConfigHelpPanel } from "./help-panel";
 
@@ -43,6 +47,7 @@ export function buildMergeConfigConfig(
       Number.isFinite(config.read_timeout)
         ? config.read_timeout
         : DEFAULT_READ_TIMEOUT,
+    retry_backoff_seconds: parseRetryBackoffSeconds(config),
     ...patch,
   };
 }
@@ -59,6 +64,7 @@ function MergeConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     Number.isFinite(config.read_timeout)
       ? config.read_timeout
       : DEFAULT_READ_TIMEOUT;
+  const retryBackoffSeconds = useMemo(() => parseRetryBackoffSeconds(config), [config]);
 
   const handleSourceFilenameChange = useCallback(
     (value: string) => {
@@ -83,6 +89,13 @@ function MergeConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         ? Math.min(MAX_READ_TIMEOUT, Math.max(MIN_READ_TIMEOUT, parsed))
         : DEFAULT_READ_TIMEOUT;
       onChange(buildMergeConfigConfig(config, { read_timeout: clamped }));
+    },
+    [config, onChange],
+  );
+
+  const handleRetryBackoffSecondsChange = useCallback(
+    (next: number[]) => {
+      onChange(buildMergeConfigConfig(config, { retry_backoff_seconds: next }));
     },
     [config, onChange],
   );
@@ -137,6 +150,11 @@ function MergeConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       <DeployReadTimeoutFields
         readTimeout={readTimeout}
         onReadTimeoutChange={handleReadTimeoutChange}
+      />
+
+      <RetryBackoffSecondsField
+        retryBackoffSeconds={retryBackoffSeconds}
+        onRetryBackoffSecondsChange={handleRetryBackoffSecondsChange}
       />
     </div>
   );

@@ -20,6 +20,10 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
 import { DeployReadTimeoutFields } from "@/components/features/workflow-steps/deploy-rendered-template/deploy-fields";
+import {
+  RetryBackoffSecondsField,
+  parseRetryBackoffSeconds,
+} from "@/components/features/workflow-steps/shared/retry-backoff-fields";
 import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
 
 import { PyATSSourceSelectDialog } from "../shared/pyats-source-select-dialog";
@@ -99,6 +103,7 @@ function buildRunCommandConfig(
         : DEFAULT_READ_TIMEOUT,
     auto_confirm_prompts: config.auto_confirm_prompts === true,
     dry_run: config.dry_run === true,
+    retry_backoff_seconds: parseRetryBackoffSeconds(config),
     ...patch,
   };
 
@@ -147,6 +152,7 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
   const autoConfirmPrompts = config.auto_confirm_prompts === true;
   const dryRun = config.dry_run === true;
   const parserLocked = executionMode === "config_mode" || autoConfirmPrompts;
+  const retryBackoffSeconds = useMemo(() => parseRetryBackoffSeconds(config), [config]);
 
   const pyatsSourceId = useMemo(() => pyatsSourceIdFromConfig(config), [config]);
   const parsedOutputKey = useMemo(() => parseParsedOutputKey(config), [config]);
@@ -249,6 +255,13 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
   const handleParsedOutputKeyChange = useCallback(
     (value: string) => {
       onChange(buildRunCommandConfig(config, { parsed_output_key: value }));
+    },
+    [config, onChange],
+  );
+
+  const handleRetryBackoffSecondsChange = useCallback(
+    (next: number[]) => {
+      onChange(buildRunCommandConfig(config, { retry_backoff_seconds: next }));
     },
     [config, onChange],
   );
@@ -374,6 +387,11 @@ function RunCommandConfigPanel({ config, onChange, nodeId }: PluginConfigPanelPr
       <DeployReadTimeoutFields
         readTimeout={readTimeout}
         onReadTimeoutChange={handleReadTimeoutChange}
+      />
+
+      <RetryBackoffSecondsField
+        retryBackoffSeconds={retryBackoffSeconds}
+        onRetryBackoffSecondsChange={handleRetryBackoffSecondsChange}
       />
 
       {executionMode === "config_mode" ? (

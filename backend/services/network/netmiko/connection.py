@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 30
 DEFAULT_SESSION_TIMEOUT = 60
 DEFAULT_READ_TIMEOUT = 60
+DEFAULT_CONFIG_READ_TIMEOUT = 120
 
 # Cisco IOS/IOS-XE raises a "...[confirm]" style interactive prompt for
 # certain destructive/careful config commands (e.g. "no username <user>").
@@ -78,6 +80,20 @@ class FileTransferResult:
 
 class NetmikoConnectionError(Exception):
     """Raised when connection or command execution fails."""
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Backoff schedule for a flaky connect-phase timeout (e.g. an unstable WAN
+    link to a device). ``backoff_seconds[i]`` is the wait before retry ``i+1``;
+    an empty tuple means no retry. Never applied to auth failures — see
+    ``NetmikoDeviceSession.connect()``."""
+
+    backoff_seconds: tuple[int, ...] = ()
+
+    @property
+    def max_attempts(self) -> int:
+        return len(self.backoff_seconds) + 1
 
 
 def serialize_command_output(raw: Any) -> str:
@@ -161,7 +177,7 @@ class NetmikoDeviceSession:
         self._connection: ConnectHandler | None = None
         self._session_log_buffer: io.BytesIO | None = io.BytesIO() if capture_session_log else None
 
-    def connect(self, *, privileged: bool = True) -> None:
+    def connect(self, *, privileged: bool = True, retry: RetryPolicy | None = None) -> None:
         if self._connection is not None:
             return
 
@@ -176,18 +192,38 @@ class NetmikoDeviceSession:
             "keepalive": self.keepalive,
         }
 
-        try:
-            logger.info("Connecting to %s (type=%s)", self.host, self.device_type)
-            self._connection = ConnectHandler(**device_params)
-            if privileged:
-                self.enable()
-            logger.info("Connected to %s", self.host)
-        except NetmikoTimeoutException as exc:
-            raise NetmikoConnectionError(f"Connection timeout: {exc}") from exc
-        except NetmikoAuthenticationException as exc:
-            raise NetmikoConnectionError(f"Authentication failed: {exc}") from exc
-        except Exception as exc:
-            raise NetmikoConnectionError(f"Connection failed: {exc}") from exc
+        max_attempts = retry.max_attempts if retry else 1
+        for attempt in range(1, max_attempts + 1):
+            try:
+                logger.info(
+                    "Connecting to %s (type=%s) attempt=%d/%d",
+                    self.host,
+                    self.device_type,
+                    attempt,
+                    max_attempts,
+                )
+                self._connection = ConnectHandler(**device_params)
+                if privileged:
+                    self.enable()
+                logger.info("Connected to %s", self.host)
+                return
+            except NetmikoTimeoutException as exc:
+                if retry and attempt < max_attempts:
+                    delay = retry.backoff_seconds[attempt - 1]
+                    logger.warning(
+                        "Connection timeout to %s on attempt %d/%d, retrying in %ds",
+                        self.host,
+                        attempt,
+                        max_attempts,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise NetmikoConnectionError(f"Connection timeout: {exc}") from exc
+            except NetmikoAuthenticationException as exc:
+                raise NetmikoConnectionError(f"Authentication failed: {exc}") from exc
+            except Exception as exc:
+                raise NetmikoConnectionError(f"Connection failed: {exc}") from exc
 
     def disconnect(self) -> None:
         if self._connection is None:
@@ -510,18 +546,18 @@ class NetmikoDeviceSession:
                 f"Failed to save running-config to startup-config on {self.host}: {exc}"
             ) from exc
 
-    def get_running_config(self) -> str:
+    def get_running_config(self, *, read_timeout: int = DEFAULT_CONFIG_READ_TIMEOUT) -> str:
         return _strip_running_config_banner(
-            self.send_command("show running-config", read_timeout=120)
+            self.send_command("show running-config", read_timeout=read_timeout)
         )
 
-    def get_startup_config(self) -> str:
-        return self.send_command("show startup-config", read_timeout=120)
+    def get_startup_config(self, *, read_timeout: int = DEFAULT_CONFIG_READ_TIMEOUT) -> str:
+        return self.send_command("show startup-config", read_timeout=read_timeout)
 
-    def get_configs(self) -> ConfigResult:
+    def get_configs(self, *, read_timeout: int = DEFAULT_CONFIG_READ_TIMEOUT) -> ConfigResult:
         try:
-            running = self.get_running_config()
-            startup = self.get_startup_config()
+            running = self.get_running_config(read_timeout=read_timeout)
+            startup = self.get_startup_config(read_timeout=read_timeout)
             return ConfigResult(
                 success=True,
                 running_config=running,

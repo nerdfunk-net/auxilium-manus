@@ -1,3 +1,6 @@
+from services.network.netmiko.connection import DEFAULT_CONFIG_READ_TIMEOUT
+
+
 def get_config() -> dict:
     return {
         "credential_reference": "",
@@ -8,4 +11,6 @@ def get_config() -> dict:
         "credential_source": "fixed",
         "credential_param": "",
         "config_format": "both",
+        "read_timeout": DEFAULT_CONFIG_READ_TIMEOUT,
+        "retry_backoff_seconds": [],
     }

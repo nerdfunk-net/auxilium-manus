@@ -20,9 +20,12 @@ from models.workflow_context import (
     bare_hostname,
 )
 from services.artifacts import ArtifactService
+from services.network.netmiko.connection import DEFAULT_CONFIG_READ_TIMEOUT, RetryPolicy
 from services.network.netmiko.service import NetmikoService
 from services.network.netmiko.session_pool import DeviceSessionPool
 from workflow_steps.common.credential_resolver import resolve_ssh_credential
+from workflow_steps.common.read_timeout import parse_read_timeout
+from workflow_steps.common.retry_config import parse_retry_backoff_seconds
 from workflow_steps.common.run_param_reference import resolve_config_reference
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,8 @@ _CONFIG_FORMATS = frozenset({"running", "startup", "both"})
 class _ParsedConfig:
     credential_reference: str
     config_format: str
+    read_timeout: int
+    retry: RetryPolicy
 
 
 def _config_targets(config_format: str) -> tuple[bool, bool]:
@@ -56,6 +61,10 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     return _ParsedConfig(
         credential_reference=credential_reference,
         config_format=config_format,
+        read_timeout=parse_read_timeout(
+            config, step_id=_STEP_ID, default=DEFAULT_CONFIG_READ_TIMEOUT
+        ),
+        retry=parse_retry_backoff_seconds(config, step_id=_STEP_ID),
     )
 
 
@@ -116,6 +125,8 @@ async def _fetch_device(
             include_running=include_running,
             include_startup=include_startup,
             credential_reference=parsed.credential_reference,
+            read_timeout=parsed.read_timeout,
+            retry=parsed.retry,
         )
         if not result.success:
             raise RuntimeError(result.error or "Config retrieval failed")

@@ -16,6 +16,11 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { SshCredentialField } from "@/components/features/workflow-steps/shared/ssh-credential-field";
+import { DeployReadTimeoutFields } from "@/components/features/workflow-steps/deploy-rendered-template/deploy-fields";
+import {
+  RetryBackoffSecondsField,
+  parseRetryBackoffSeconds,
+} from "@/components/features/workflow-steps/shared/retry-backoff-fields";
 import { GetDeviceConfigsHelpPanel } from "./help-panel";
 
 const CONFIG_FORMAT_OPTIONS = [
@@ -26,6 +31,10 @@ const CONFIG_FORMAT_OPTIONS = [
 
 type ConfigFormat = (typeof CONFIG_FORMAT_OPTIONS)[number]["value"];
 
+const DEFAULT_READ_TIMEOUT = 120;
+const MIN_READ_TIMEOUT = 5;
+const MAX_READ_TIMEOUT = 600;
+
 function parseConfigFormat(config: Record<string, unknown>): ConfigFormat {
   const raw = config.config_format;
   if (typeof raw !== "string") return "both";
@@ -34,12 +43,38 @@ function parseConfigFormat(config: Record<string, unknown>): ConfigFormat {
     : "both";
 }
 
+function parseReadTimeout(config: Record<string, unknown>): number {
+  return typeof config.read_timeout === "number" && Number.isFinite(config.read_timeout)
+    ? config.read_timeout
+    : DEFAULT_READ_TIMEOUT;
+}
+
 function GetDeviceConfigsConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const configFormat = useMemo(() => parseConfigFormat(config), [config]);
+  const readTimeout = useMemo(() => parseReadTimeout(config), [config]);
+  const retryBackoffSeconds = useMemo(() => parseRetryBackoffSeconds(config), [config]);
 
   const handleFormatChange = useCallback(
     (value: string) => {
       onChange({ ...config, config_format: value });
+    },
+    [config, onChange],
+  );
+
+  const handleReadTimeoutChange = useCallback(
+    (value: string) => {
+      const parsed = Number.parseInt(value, 10);
+      const clamped = Number.isFinite(parsed)
+        ? Math.min(MAX_READ_TIMEOUT, Math.max(MIN_READ_TIMEOUT, parsed))
+        : DEFAULT_READ_TIMEOUT;
+      onChange({ ...config, read_timeout: clamped });
+    },
+    [config, onChange],
+  );
+
+  const handleRetryBackoffSecondsChange = useCallback(
+    (next: number[]) => {
+      onChange({ ...config, retry_backoff_seconds: next });
     },
     [config, onChange],
   );
@@ -71,6 +106,16 @@ function GetDeviceConfigsConfigPanel({ config, onChange }: PluginConfigPanelProp
           </SelectContent>
         </Select>
       </div>
+
+      <DeployReadTimeoutFields
+        readTimeout={readTimeout}
+        onReadTimeoutChange={handleReadTimeoutChange}
+      />
+
+      <RetryBackoffSecondsField
+        retryBackoffSeconds={retryBackoffSeconds}
+        onRetryBackoffSecondsChange={handleRetryBackoffSecondsChange}
+      />
     </div>
   );
 }

@@ -292,6 +292,100 @@ class DeployRenderedTemplateExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
+    async def test_retry_backoff_seconds_passed_through_to_deploy_config(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        with (
+            patch(
+                "workflow_steps.deploy_rendered_template.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
+            patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(success=True, config_output="ok")
+            )
+
+            await execute(
+                config=_base_config(retry_backoff_seconds=[10, 20, 30]),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+                device_sessions=MagicMock(),
+            )
+
+        retry_policy = netmiko.deploy_config.call_args.kwargs["retry"]
+        self.assertEqual(retry_policy.backoff_seconds, (10, 20, 30))
+        self.assertEqual(retry_policy.max_attempts, 4)
+
+    async def test_retry_backoff_seconds_defaults_to_no_retry(self) -> None:
+        run = MagicMock()
+        run.id = 1
+        db = MagicMock()
+        artifact_service = InMemoryArtifactService()
+        with (
+            patch(
+                "workflow_steps.deploy_rendered_template.executor.object_session",
+                return_value=db,
+            ),
+            patch(
+                "workflow_steps.deploy_rendered_template.executor.resolve_ssh_credential",
+                return_value=("admin", "secret"),
+            ),
+            patch("workflow_steps.deploy_rendered_template.executor.NetmikoService") as netmiko_cls,
+            patch.object(artifact_service, "resolve", new=AsyncMock(return_value=RENDERED_TEXT)),
+        ):
+            netmiko = netmiko_cls.return_value
+            netmiko.deploy_config = AsyncMock(
+                return_value=NetmikoDeployResult(success=True, config_output="ok")
+            )
+
+            await execute(
+                config=_base_config(),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="deploy-1",
+                device_sessions=MagicMock(),
+            )
+
+        retry_policy = netmiko.deploy_config.call_args.kwargs["retry"]
+        self.assertEqual(retry_policy.backoff_seconds, ())
+        self.assertEqual(retry_policy.max_attempts, 1)
+
+    async def test_retry_backoff_seconds_out_of_bounds_raises(self) -> None:
+        run = MagicMock()
+        with self.assertRaises(ValueError):
+            await execute(
+                config=_base_config(retry_backoff_seconds=[0]),
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": _device_with_rendered_template()},
+                ),
+                run=run,
+                artifact_service=InMemoryArtifactService(),
+                node_id="deploy-1",
+                device_sessions=MagicMock(),
+            )
+
     async def test_failure_stores_session_log_artifact(self) -> None:
         run = MagicMock()
         run.id = 1

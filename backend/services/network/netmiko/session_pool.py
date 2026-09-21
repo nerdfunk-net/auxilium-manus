@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import TypeVar
 
 from core.config import settings
-from services.network.netmiko.connection import NetmikoDeviceSession
+from services.network.netmiko.connection import NetmikoDeviceSession, RetryPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,7 @@ class DeviceSessionPool:
         password: str,
         op: Callable[[NetmikoDeviceSession], T],
         debug: bool = False,
+        retry: RetryPolicy | None = None,
     ) -> T:
         """Acquire (or lazily create/reconnect) the session for this key, hold
         its per-session lock, run ``op(session)`` on the thread executor, and
@@ -82,6 +83,9 @@ class DeviceSessionPool:
 
         When the pool is disabled, behaves exactly like the legacy per-call
         flow: a fresh session is connected, used once, and disconnected.
+
+        ``retry`` is a connect-phase-only backoff policy (see
+        ``connection.RetryPolicy``) — it never applies to ``op`` itself.
         """
         loop = asyncio.get_running_loop()
 
@@ -95,7 +99,7 @@ class DeviceSessionPool:
             )
 
             def _run_disposable() -> T:
-                session.connect()
+                session.connect(retry=retry)
                 try:
                     return op(session)
                 finally:
@@ -115,7 +119,7 @@ class DeviceSessionPool:
                     if entry.ever_connected:
                         entry.session.disconnect()
                         self._reconnects += 1
-                    entry.session.connect()
+                    entry.session.connect(retry=retry)
                     entry.ever_connected = True
                 result = op(entry.session)
                 if debug:

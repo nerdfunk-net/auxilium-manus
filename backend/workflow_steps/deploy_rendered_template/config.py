@@ -14,4 +14,5 @@ def get_config() -> dict:
         "read_timeout": DEFAULT_READ_TIMEOUT,
         "auto_confirm_prompts": False,
         "dry_run": False,
+        "retry_backoff_seconds": [],
     }

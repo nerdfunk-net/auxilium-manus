@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from services.network.netmiko.connection import (
+    DEFAULT_CONFIG_READ_TIMEOUT,
     DEFAULT_READ_TIMEOUT,
     CommandResult,
     ConfigResult,
@@ -18,6 +19,7 @@ from services.network.netmiko.connection import (
     FileTransferResult,
     NetmikoConnectionError,
     NetmikoDeviceSession,
+    RetryPolicy,
 )
 from services.network.netmiko.platform import resolve_netmiko_device_type
 from services.network.netmiko.session_pool import DeviceSessionPool
@@ -69,6 +71,7 @@ class NetmikoService:
         device_type: str | None = None,
         read_timeout: int | None = None,
         auto_confirm_prompts: bool = False,
+        retry: RetryPolicy | None = None,
     ) -> CommandResult:
         del privileged  # pooled sessions always connect privileged; see module docstring
         resolved_device_type = device_type or resolve_netmiko_device_type(
@@ -91,6 +94,7 @@ class NetmikoService:
             username=username,
             password=password,
             op=_op,
+            retry=retry,
         )
 
     async def deploy_config(
@@ -108,6 +112,7 @@ class NetmikoService:
         device_type: str | None = None,
         read_timeout: int | None = None,
         auto_confirm_prompts: bool = False,
+        retry: RetryPolicy | None = None,
     ) -> DeployResult:
         resolved_device_type = device_type or resolve_netmiko_device_type(
             network_driver=network_driver,
@@ -142,6 +147,7 @@ class NetmikoService:
             username=username,
             password=password,
             op=_op,
+            retry=retry,
         )
 
     async def merge_config(
@@ -156,6 +162,7 @@ class NetmikoService:
         credential_reference: str,
         device_type: str | None = None,
         read_timeout: int | None = None,
+        retry: RetryPolicy | None = None,
     ) -> CommandResult:
         """Merge a partial config file already on the device into the running
         config via ``copy <source_filename> running-config`` (the merge-config
@@ -181,6 +188,7 @@ class NetmikoService:
             username=username,
             password=password,
             op=_op,
+            retry=retry,
         )
 
     async def get_running_config(
@@ -320,20 +328,23 @@ class NetmikoService:
         credential_reference: str,
         include_running: bool = True,
         include_startup: bool = True,
+        read_timeout: int | None = None,
+        retry: RetryPolicy | None = None,
     ) -> ConfigResult:
         device_type = resolve_netmiko_device_type(
             network_driver=network_driver,
             platform=platform,
         )
+        resolved_read_timeout = read_timeout or DEFAULT_CONFIG_READ_TIMEOUT
 
         def _op(session: NetmikoDeviceSession) -> ConfigResult:
             running: str | None = None
             startup: str | None = None
             try:
                 if include_running:
-                    running = session.get_running_config()
+                    running = session.get_running_config(read_timeout=resolved_read_timeout)
                 if include_startup:
-                    startup = session.get_startup_config()
+                    startup = session.get_startup_config(read_timeout=resolved_read_timeout)
                 return ConfigResult(
                     success=True,
                     running_config=running,
@@ -351,4 +362,5 @@ class NetmikoService:
             username=username,
             password=password,
             op=_op,
+            retry=retry,
         )
