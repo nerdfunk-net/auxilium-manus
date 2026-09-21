@@ -1,75 +1,18 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-20T14:41:37.587Z",
+  "exported_at": "2026-09-21T12:42:43.395Z",
   "name": "Check VTY",
   "description": "Check if line vty 0 4 is secured",
-  "folder": "/Security",
+  "folder": "Gallery",
   "visibility": "private",
-  "notes": null,
+  "notes": "# This workflow checks if the VTY line is secured:\n\nThis config is valid and **passes** the test:\n\n```\nip access-list extended MGMT_in\n 10 permit tcp w.x.y.z any eq 22\n\nline vty 0 4\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\n```\n\nIt does the following:\n1. Check if we find the string \"access-class\"\n2. Get the name of the access class\n3. Check if the access class exists in the config",
   "canvas_nodes": [
-    {
-      "id": "get-from-list-1",
-      "type": "workflowNode",
-      "position": {
-        "x": -345.6943156302491,
-        "y": 17.55292816625169
-      },
-      "zIndex": 1,
-      "data": {
-        "kind": "get-from-list",
-        "stepUuid": "84580fe0-9a37-4927-8721-ad5215cbb9c6",
-        "title": "Get from List",
-        "overview": "Configure a static list of devices.",
-        "description": "Enter one or more device names and/or IP addresses to use as workflow targets.\n",
-        "artifactType": "inventory_selector",
-        "requires": [],
-        "requiresParsed": [],
-        "produces": [
-          "identity"
-        ],
-        "producesParsed": [],
-        "consumes": [],
-        "outcomes": [
-          {
-            "name": "success"
-          },
-          {
-            "name": "failure"
-          }
-        ],
-        "pluginConfig": {
-          "devices": [
-            {
-              "name": "LAB",
-              "ip_address": "192.168.178.240/24"
-            }
-          ],
-          "fan_out": {
-            "enabled": false,
-            "mode": "per_device",
-            "chunk_size": 1,
-            "max_concurrency": 0,
-            "approval": {
-              "enabled": false,
-              "batch_size": 1,
-              "first_batch_auto": true
-            }
-          }
-        }
-      },
-      "measured": {
-        "width": 320,
-        "height": 128
-      },
-      "dragging": false,
-      "selected": false
-    },
     {
       "id": "get-device-configs-2",
       "type": "workflowNode",
       "position": {
-        "x": 401.68967882047536,
-        "y": 17.55292816625169
+        "x": 432.2436204601971,
+        "y": -406.5706057789366
       },
       "zIndex": 1,
       "data": {
@@ -100,7 +43,8 @@
         "pluginConfig": {
           "credential_reference": "cisco - noc",
           "config_format": "running"
-        }
+        },
+        "disabled": true
       },
       "measured": {
         "width": 320,
@@ -113,8 +57,8 @@
       "id": "route-on-content-3",
       "type": "workflowNode",
       "position": {
-        "x": 770.7632943531798,
-        "y": 17.55292816625169
+        "x": -304.6628988028212,
+        "y": 49.75071805564468
       },
       "zIndex": 1,
       "data": {
@@ -152,7 +96,9 @@
           "pattern": "line vty 0 4\\r?\\n(?:\\s+\\S.*\\r?\\n)*?\\s*access-class\\s+(\\S+)\\s+in\\b",
           "case_sensitive": false,
           "multiline": true
-        }
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right"
       },
       "measured": {
         "width": 320,
@@ -165,8 +111,8 @@
       "id": "update-attribute-4",
       "type": "workflowNode",
       "position": {
-        "x": 1157.7013769271177,
-        "y": 17.55292816625169
+        "x": 60.10455396513768,
+        "y": 49.75071805564468
       },
       "zIndex": 1,
       "data": {
@@ -208,7 +154,7 @@
             }
           ]
         },
-        "outcomeHandleSide": "bottom"
+        "outcomeHandleSide": "right"
       },
       "measured": {
         "width": 320,
@@ -221,8 +167,8 @@
       "id": "parse-cisco-config-5",
       "type": "workflowNode",
       "position": {
-        "x": 1157.7013769271177,
-        "y": 226.46296109954812
+        "x": 423.2436204601971,
+        "y": 49.75071805564468
       },
       "zIndex": 1,
       "data": {
@@ -249,8 +195,8 @@
             "name": "failure"
           }
         ],
-        "incomeHandleSide": "top",
-        "outcomeHandleSide": "left",
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right",
         "pluginConfig": {
           "config_source": "running"
         }
@@ -266,8 +212,8 @@
       "id": "list-contains-6",
       "type": "workflowNode",
       "position": {
-        "x": 770.7632943531798,
-        "y": 226.46296109954812
+        "x": 809.6390182899584,
+        "y": 49.75071805564468
       },
       "zIndex": 1,
       "data": {
@@ -297,8 +243,8 @@
             "name": "failure"
           }
         ],
-        "incomeHandleSide": "right",
-        "outcomeHandleSide": "left",
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "bottom",
         "pluginConfig": {
           "list_path": "parsed.cisco_config.running.access_lists",
           "field": "name",
@@ -316,10 +262,9 @@
       "id": "get-nautobot-attributes-7",
       "type": "workflowNode",
       "position": {
-        "x": 30.57591402885683,
-        "y": 17.55292816625169
+        "x": 386.5646849258778,
+        "y": 66.4653325333054
       },
-      "zIndex": 1,
       "data": {
         "kind": "get-nautobot-attributes",
         "stepUuid": "cfee10ba-6194-47e5-8a78-dc427588f3ae",
@@ -346,21 +291,24 @@
         ],
         "pluginConfig": {
           "nautobot_source_id": "nautobot"
-        }
+        },
+        "incomeHandleSide": "left",
+        "outcomeHandleSide": "right"
       },
       "measured": {
         "width": 320,
         "height": 128
       },
       "selected": false,
-      "dragging": false
+      "dragging": false,
+      "parentId": "background-13"
     },
     {
       "id": "notify-mattermost-8",
       "type": "workflowNode",
       "position": {
-        "x": 1157.7013769271177,
-        "y": -154
+        "x": 60.10455396513768,
+        "y": 222.42939422106338
       },
       "zIndex": 1,
       "data": {
@@ -403,8 +351,8 @@
       "id": "notify-mattermost-9",
       "type": "workflowNode",
       "position": {
-        "x": 401.68967882047536,
-        "y": 226.46296109954812
+        "x": 809.6390182899584,
+        "y": 215.46296109954812
       },
       "zIndex": 1,
       "data": {
@@ -435,7 +383,7 @@
           "channel_name": "manus",
           "message": "VTY of device {device.name} is not secured."
         },
-        "incomeHandleSide": "right",
+        "incomeHandleSide": "top",
         "outcomeHandleSide": "left"
       },
       "measured": {
@@ -444,22 +392,267 @@
       },
       "dragging": false,
       "selected": false
+    },
+    {
+      "id": "get-nautobot-devices-9",
+      "type": "workflowNode",
+      "position": {
+        "x": 21.797232157918927,
+        "y": 66.4653325333054
+      },
+      "data": {
+        "kind": "get-nautobot-devices",
+        "stepUuid": "ec97dcb9-a424-4810-8529-5d32199a9c8c",
+        "title": "Get from Nautobot",
+        "overview": "Select devices from the Nautobot inventory.",
+        "description": "Select one or more target devices from the inventory.",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "inventory_id": 1,
+          "inventory_name": "LAB",
+          "inventory_type": "filter",
+          "device_filter": {
+            "id": "root",
+            "logic": "OR",
+            "negate": false,
+            "items": [
+              {
+                "id": "1789503308731-2ai2ewwhb",
+                "field": "name",
+                "operator": "equals",
+                "value": "LAB"
+              },
+              {
+                "id": "1789503316965-tenmw8ncn",
+                "field": "name",
+                "operator": "equals",
+                "value": "lab-2"
+              },
+              {
+                "id": "1789503322581-si6o2gheu",
+                "field": "name",
+                "operator": "equals",
+                "value": "switch"
+              }
+            ]
+          },
+          "device_ids": [],
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        },
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "read-config-10",
+      "type": "workflowNode",
+      "position": {
+        "x": 749.7037514209372,
+        "y": 66.4653325333054
+      },
+      "data": {
+        "kind": "read-config",
+        "stepUuid": "5980b00f-8e7d-4336-8d34-d70e6e220263",
+        "title": "Read Config",
+        "overview": "Load a saved config from disk or git and use it as the device's running config.",
+        "description": "Read a configuration file from disk or a Git source, located by a per-device filename template, and set it as the device's running configuration — for restoring a known-good backup onto a device that has no reachable config of its own.\n",
+        "artifactType": "configuration_management",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "running_config"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "source": "git",
+          "git_repository_id": 4,
+          "path_template": "configs/{nautobot.location.name}/{device.name}.running.cfg",
+          "overwrite_existing": false
+        },
+        "outcomeHandleSide": "bottom"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false,
+      "parentId": "background-13"
+    },
+    {
+      "id": "label-11",
+      "type": "labelNode",
+      "position": {
+        "x": 449.89634217029925,
+        "y": -451.81046505867215
+      },
+      "zIndex": 1,
+      "width": 300,
+      "height": 40,
+      "style": {
+        "width": 300,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "d972cddd-36db-44d7-948d-013107ec3e1d",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Get live config if needed",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": false,
+          "color": "#0f172a",
+          "width": 300,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 300,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "label-12",
+      "type": "labelNode",
+      "position": {
+        "x": 8.6852686896068,
+        "y": 5.504688082724755
+      },
+      "width": 350,
+      "height": 40,
+      "style": {
+        "width": 350,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "2bfe9279-5c18-4cb0-9981-4ec2b3c1321a",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Get data from Nautobot & Config",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": false,
+          "color": "#000000",
+          "width": 350,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 350,
+        "height": 40
+      },
+      "dragging": false,
+      "parentId": "background-13",
+      "selected": false
+    },
+    {
+      "id": "background-13",
+      "type": "backgroundNode",
+      "position": {
+        "x": -326.4601309607401,
+        "y": -250.62988445179008
+      },
+      "zIndex": -1,
+      "width": 1100,
+      "height": 218,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "a10dbdfe-c305-4c35-a364-156726e2778a",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1100,
+          "height": 218
+        }
+      },
+      "measured": {
+        "width": 1100,
+        "height": 218
+      },
+      "dragging": false,
+      "selected": false,
+      "resizing": false
     }
   ],
   "canvas_edges": [
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "get-device-configs-2",
-      "sourceHandle": "success",
-      "target": "route-on-content-3",
-      "targetHandle": "input",
-      "id": "xy-edge__get-device-configs-2success-route-on-content-3input",
-      "selected": false
-    },
     {
       "type": "waypoint",
       "zIndex": 0,
@@ -484,32 +677,6 @@
       "target": "parse-cisco-config-5",
       "targetHandle": "input",
       "id": "xy-edge__update-attribute-4success-parse-cisco-config-5input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "get-from-list-1",
-      "sourceHandle": "success",
-      "target": "get-nautobot-attributes-7",
-      "targetHandle": "input",
-      "id": "xy-edge__get-from-list-1success-get-nautobot-attributes-7input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "get-nautobot-attributes-7",
-      "sourceHandle": "success",
-      "target": "get-device-configs-2",
-      "targetHandle": "input",
-      "id": "xy-edge__get-nautobot-attributes-7success-get-device-configs-2input",
       "selected": false
     },
     {
@@ -549,6 +716,45 @@
       "target": "notify-mattermost-9",
       "targetHandle": "input",
       "id": "xy-edge__list-contains-6mismatch-notify-mattermost-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-devices-9",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-7",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-devices-9success-get-nautobot-attributes-7input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-7",
+      "sourceHandle": "success",
+      "target": "read-config-10",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-7success-read-config-10input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "read-config-10",
+      "sourceHandle": "success",
+      "target": "route-on-content-3",
+      "targetHandle": "input",
+      "id": "xy-edge__read-config-10success-route-on-content-3input",
       "selected": false
     }
   ],
