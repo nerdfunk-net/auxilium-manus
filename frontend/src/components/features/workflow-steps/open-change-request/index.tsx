@@ -144,7 +144,10 @@ function OpenChangeRequestConfigPanel({
           {repositoryId !== null ? "Change repository" : "Choose repository"}
         </Button>
         <p className="text-[11px] text-muted-foreground">
-          The staged branch is pushed here. Not fan-out-safe — place after any Fan In node.
+          The staged branch is pushed here. A per-repo lock prevents concurrent callers
+          from corrupting the working tree, but each caller still opens its own change
+          request — place after any Fan In node (or other join point) so exactly one
+          comes out, not one per branch/device.
         </p>
       </div>
 

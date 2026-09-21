@@ -56,11 +56,12 @@ export function GitCloneHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
-      <HelpWarning title="Not fan-out-safe for the same source">
+      <HelpWarning title="Not concurrency-safe for the same source">
         <p>
           If the workflow fans out per device, do not run Git Clone on every child
           against the same <HelpCode>git_repository_id</HelpCode> — parallel clones and
-          writes contend for one working tree.
+          writes contend for one working tree. The same is true for two independent
+          (non-fan-out) branches in one run that both clone the same repository.
         </p>
         <p>
           Pattern: Git Clone once before fan-out, or clone on the main path only;

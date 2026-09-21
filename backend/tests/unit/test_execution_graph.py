@@ -10,6 +10,7 @@ from services.execution.graph import (
     child_node_ids,
     downstream_node_ids,
     find_join_node_id,
+    topological_generations,
     topological_order,
 )
 
@@ -57,6 +58,67 @@ class TestTopologicalOrder:
 
         with pytest.raises(GraphCycleError):
             topological_order(nodes, edges)
+
+
+class TestTopologicalGenerations:
+    def test_linear_chain_one_node_per_generation(self) -> None:
+        nodes = [_node("a"), _node("b"), _node("c")]
+        edges = [_edge("a", "b"), _edge("b", "c")]
+
+        generations = topological_generations(topological_order(nodes, edges), edges)
+
+        assert [[n["id"] for n in gen] for gen in generations] == [["a"], ["b"], ["c"]]
+
+    def test_diamond_groups_independent_siblings_together(self) -> None:
+        nodes = [_node("a"), _node("b1"), _node("b2"), _node("c")]
+        edges = [
+            _edge("a", "b1"),
+            _edge("a", "b2"),
+            _edge("b1", "c"),
+            _edge("b2", "c"),
+        ]
+
+        generations = topological_generations(topological_order(nodes, edges), edges)
+
+        assert [{n["id"] for n in gen} for gen in generations] == [
+            {"a"},
+            {"b1", "b2"},
+            {"c"},
+        ]
+
+    def test_disconnected_nodes_share_a_generation(self) -> None:
+        nodes = [_node("a"), _node("b")]
+
+        generations = topological_generations(topological_order(nodes, edges=[]), edges=[])
+
+        assert len(generations) == 1
+        assert {n["id"] for n in generations[0]} == {"a", "b"}
+
+    def test_three_way_fan_in_is_one_generation(self) -> None:
+        # configs -> {parse_cisco, batfish, pyats} -> fan_in
+        nodes = [
+            _node("configs"),
+            _node("parse_cisco"),
+            _node("batfish"),
+            _node("pyats"),
+            _node("fan_in", "fan-in"),
+        ]
+        edges = [
+            _edge("configs", "parse_cisco"),
+            _edge("configs", "batfish"),
+            _edge("configs", "pyats"),
+            _edge("parse_cisco", "fan_in"),
+            _edge("batfish", "fan_in"),
+            _edge("pyats", "fan_in"),
+        ]
+
+        generations = topological_generations(topological_order(nodes, edges), edges)
+
+        assert [{n["id"] for n in gen} for gen in generations] == [
+            {"configs"},
+            {"parse_cisco", "batfish", "pyats"},
+            {"fan_in"},
+        ]
 
 
 class TestDownstreamNodeIds:

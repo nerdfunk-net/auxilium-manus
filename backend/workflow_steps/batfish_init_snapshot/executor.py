@@ -5,10 +5,11 @@ git"):
 
 - "live" (default): assembles this run's device running-configs into a
   fresh Batfish snapshot (one Batfish network per Manus workflow by default,
-  one snapshot per run -- see "Snapshot lifecycle"). Not fan-out-safe: like
-  store-artifact/git steps, this needs every device's config together in one
-  upload, so it must run after a Fan In in a fanned-out workflow, never
-  inside the fanned-out branch.
+  one snapshot per run -- see "Snapshot lifecycle"). Not concurrency-safe:
+  like store-artifact/git steps, this needs every device's config together
+  in one upload, so it must run after a Fan In in a fanned-out workflow,
+  never inside the fanned-out branch -- and never on two independent
+  sibling branches in the same run, which would race the same upload.
 - "git": reads already-collected configs from a Git repository instead of
   context.devices -- no live device contact at all, suitable for refreshing
   a production-scale network on a schedule (see

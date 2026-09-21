@@ -47,7 +47,7 @@ export function SecretSetHelpPanel() {
           <HelpCode>filename_template</HelpCode>. Always resolves to a{" "}
           <span className="font-medium text-foreground">per-device-unique</span> path
           when it includes <HelpCode>{"{device.*}"}</HelpCode>, which is what keeps
-          this step fan-out-safe.
+          this step concurrency-safe (fan-out or independent branches).
         </p>
       </HelpSection>
 
@@ -86,12 +86,12 @@ export function SecretSetHelpPanel() {
         </p>
       </HelpSection>
 
-      <HelpWarning title="A per-device path keeps this step fan-out-safe">
+      <HelpWarning title="A per-device path keeps this step concurrency-safe">
         <p>
           Unlike git/filesystem sinks, this step writes to a{" "}
           <span className="font-medium text-foreground">per-device-unique</span>{" "}
-          secret manager path, so it&apos;s safe to run inside a fanned-out branch —
-          no Fan In node required.
+          secret manager path, so it&apos;s safe to run inside a fanned-out branch, or
+          alongside an independent sibling branch — no Fan In node required.
         </p>
         <p>
           That safety depends on <HelpCode>path_template</HelpCode> actually

@@ -302,7 +302,7 @@ export function StoreArtifactHelpPanel() {
         </HelpExample>
       </HelpSection>
 
-      <HelpWarning title="Not fan-out-safe — use Fan In first">
+      <HelpWarning title="Not concurrency-safe — use Fan In first">
         <ul className="list-disc space-y-0.5 pl-4">
           <li>
             Do not place Store Artifact (<HelpCode>git</HelpCode>) on a fanned-out
@@ -310,15 +310,22 @@ export function StoreArtifactHelpPanel() {
             may corrupt commits.
           </li>
           <li>
+            Same race if two independent (non-fan-out) branches in one run both run
+            Store Artifact (<HelpCode>git</HelpCode>) against the same repository —
+            give them a real dependency edge or a shared join point, not just
+            separate canvas branches.
+          </li>
+          <li>
             Pattern: inventory (fan-out on) → per-device steps →{" "}
             <span className="font-medium text-foreground">Fan In</span> → store /
             git-push once.
           </li>
           <li>
-            For <HelpCode>filesystem</HelpCode> on fanned-out branches, use per-device
-            unique paths in <HelpCode>filename_template</HelpCode> (e.g.{" "}
-            <HelpCode>{"{device.name}"}</HelpCode>) so children do not overwrite each
-            other — or still prefer Fan In before a single export step.
+            For <HelpCode>filesystem</HelpCode> on fanned-out branches (or independent
+            sibling branches), use per-device unique paths in{" "}
+            <HelpCode>filename_template</HelpCode> (e.g.{" "}
+            <HelpCode>{"{device.name}"}</HelpCode>) so concurrent writers do not
+            overwrite each other — or still prefer Fan In before a single export step.
           </li>
         </ul>
       </HelpWarning>

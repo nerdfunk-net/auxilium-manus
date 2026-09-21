@@ -100,10 +100,12 @@ export function FanOutHelpSection() {
           <HelpCode>5</HelpCode> at most five children at once.
         </li>
       </ul>
-      <HelpWarning title="Git and shared stores are not fan-out-safe">
+      <HelpWarning title="Git and shared stores are not concurrency-safe">
         <p>
           Pattern: inventory (fan-out on) → per-device steps → Fan In → store /
-          git-push once.
+          git-push once. The same race applies if two independent (non-fan-out)
+          branches in one run both target the same git repository or shared store —
+          give them a real dependency edge or a shared join point too.
         </p>
       </HelpWarning>
       <p className="font-medium text-foreground">Wait for approval between batches</p>
