@@ -86,8 +86,10 @@ export function GitPushHelpPanel() {
       <HelpWarning title="Prefer after Fan In">
         <ul className="list-disc space-y-0.5 pl-4">
           <li>
-            Do not put Git Push on a fanned-out branch — children race on the same
-            repository.
+            A per-repository lock keeps concurrent children from corrupting the same
+            repository (no more racing on <HelpCode>index.lock</HelpCode>), but each
+            child still pushes its own commit — do not put Git Push on a fanned-out
+            branch unless you actually want N pushes.
           </li>
           <li>
             Pattern: fan-out → per-device exports (filesystem or in-memory) → Fan In →

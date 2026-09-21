@@ -74,7 +74,7 @@ class OpenChangeRequestExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("service_factory.build_git_service", return_value=self.git),
             patch(
-                "workflow_steps.open_change_request.executor.repo_stage_lock",
+                "workflow_steps.open_change_request.executor.git_repo_lock",
                 lambda *_a, **_k: contextlib.nullcontext(),
             ),
             patch(

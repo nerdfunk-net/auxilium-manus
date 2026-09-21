@@ -1,4 +1,10 @@
-"""Shared helpers for git workflow steps (clone, pull, push)."""
+"""Shared helpers for git workflow steps (clone, pull, push).
+
+The actual git operation runs inside a per-repository advisory lock
+(``services.git.repo_lock.git_repo_lock``) so two concurrent callers against
+the same ``GitRepository`` — fan-out children, independent sibling branches,
+or separate runs — never race on the shared working tree.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +22,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.git.repo_lock import git_repo_lock
 from workflow_steps.common.git_repository_loader import load_git_repository
 
 logger = logging.getLogger(__name__)
@@ -182,14 +189,14 @@ async def run_git_workflow_step(
 
     git_service = service_factory.build_git_service()
 
+    def _run_locked() -> dict[str, Any]:
+        # git_repo_lock does its own blocking wait (time.sleep polling) — run
+        # the whole locked section in this thread, not on the event loop.
+        with git_repo_lock(repository_id):
+            return operation(git_service, repository, config, context)
+
     try:
-        result = await asyncio.to_thread(
-            operation,
-            git_service,
-            repository,
-            config,
-            context,
-        )
+        result = await asyncio.to_thread(_run_locked)
     except Exception as exc:
         logger.error(
             "%s failed run_id=%s repository_id=%s: %s", step_id, context.run_id, repository_id, exc

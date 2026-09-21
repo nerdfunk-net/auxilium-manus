@@ -236,7 +236,7 @@ Correlation: any pushed commit SHA equal to a `staged` CR's `commit_sha` trigger
 | Repository | `backend/repositories/change_request_repository.py` | `BaseRepository`; `transition()` = atomic conditional update; `find_active_for_commit`, `list_visible`, `list_in_flight` |
 | Service | `backend/services/change_requests/change_request_service.py` | `create_from_step`, `approve`, `mark_reviewed`, `deploy`, `reject`, `reconcile`, `expire_sweep` |
 | Service | `backend/services/change_requests/webhook_service.py` | signature verify → correlate → approve/mark-reviewed |
-| Helper | `backend/services/change_requests/repo_lock.py` | per-repo Redis advisory lock (fail-soft) |
+| Helper | `backend/services/git/repo_lock.py` | per-repo Redis advisory lock (fail-soft) — shared with the git-clone/git-pull/git-push steps and store-artifact (git), not change-request-specific |
 | Helper | `backend/core/webhook_signatures.py` | `verify_github_signature`, `verify_gitlab_token` (`hmac` / `secrets.compare_digest`) |
 | Run engine | `backend/services/execution/run_service.py` | `_create_and_dispatch_run(...)` — shared by manual / approve / webhook, reuses `resolve_dispatch_workflow(...).run_no_wait(...)` |
 | Step (stage) | `backend/workflow_steps/open_change_request/` | renders → branch → commit → push → diff → `ChangeRequest`; captures the `devices` snapshot |

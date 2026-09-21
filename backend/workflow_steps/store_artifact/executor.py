@@ -1,4 +1,11 @@
-"""Executor for the store-artifact step."""
+"""Executor for the store-artifact step.
+
+The git destination holds a per-repository advisory lock
+(``services.git.repo_lock``) across the whole prepare -> per-device write ->
+finalize sequence, so two concurrent callers against the same
+``GitRepository`` -- fan-out children, independent sibling branches, or
+separate runs -- never race on the shared working tree.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +32,7 @@ from services.artifacts.sinks import (
     StoredExport,
 )
 from services.general.general_settings_service import GeneralSettingsService
+from services.git.repo_lock import acquire_git_repo_lock, release_git_repo_lock
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
@@ -387,41 +395,54 @@ async def execute(
         sink.destination,
     )
 
-    prepare_failure = await _prepare_git_sink_or_fail(
-        git_sink=git_sink,
-        context=context,
-        node_id=node_id,
-        run_id=run.id,
-    )
-    if prepare_failure is not None:
-        return prepare_failure
+    # Held across prepare -> per-device writes -> finalize, not just one
+    # GitService call -- two concurrent callers (fan-out children, independent
+    # sibling branches, or separate runs) against the same repository must
+    # not interleave their clone/pull/write/commit/push sequences.
+    git_repository_id = git_sink.repository_id if git_sink is not None else None
+    lock_acquired = False
+    if git_repository_id is not None:
+        lock_acquired = await asyncio.to_thread(acquire_git_repo_lock, git_repository_id)
 
-    results = await asyncio.gather(
-        *[
-            _store_for_device(
-                device_id=device_id,
-                device=device,
-                parsed=parsed,
-                sink=sink,
-                config=config,
-                node_id=node_id,
-                context=context,
-                artifact_service=artifact_service,
-            )
-            for device_id, device in context.devices.items()
-        ]
-    )
-    success_devices, failed_devices, all_stored = _partition_store_results(results)
-    await _finalize_git_sink(
-        git_sink=git_sink,
-        config=config,
-        context=context,
-        node_id=node_id,
-        run_id=run.id,
-        metadata=metadata,
-        success_devices=success_devices,
-        failed_devices=failed_devices,
-    )
+    try:
+        prepare_failure = await _prepare_git_sink_or_fail(
+            git_sink=git_sink,
+            context=context,
+            node_id=node_id,
+            run_id=run.id,
+        )
+        if prepare_failure is not None:
+            return prepare_failure
+
+        results = await asyncio.gather(
+            *[
+                _store_for_device(
+                    device_id=device_id,
+                    device=device,
+                    parsed=parsed,
+                    sink=sink,
+                    config=config,
+                    node_id=node_id,
+                    context=context,
+                    artifact_service=artifact_service,
+                )
+                for device_id, device in context.devices.items()
+            ]
+        )
+        success_devices, failed_devices, all_stored = _partition_store_results(results)
+        await _finalize_git_sink(
+            git_sink=git_sink,
+            config=config,
+            context=context,
+            node_id=node_id,
+            run_id=run.id,
+            metadata=metadata,
+            success_devices=success_devices,
+            failed_devices=failed_devices,
+        )
+    finally:
+        if git_repository_id is not None:
+            await asyncio.to_thread(release_git_repo_lock, git_repository_id, lock_acquired)
     if all_stored:
         metadata[f"{node_id}.stored_artifacts"] = all_stored
     logger.info(

@@ -61,6 +61,18 @@ class GitArtifactSink(ArtifactSink):
         return str(self._repository.get("source_id") or self._repository.get("id") or "")
 
     @property
+    def repository_id(self) -> int | None:
+        """The GitRepository row's primary key -- for the caller to hold a
+        per-repository advisory lock (services.git.repo_lock) across this
+        sink's whole prepare -> write* -> finalize lifecycle, not just one
+        GitService call."""
+        raw = self._repository.get("id")
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @property
     def has_writes(self) -> bool:
         return bool(self._written_paths)
 

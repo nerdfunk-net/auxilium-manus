@@ -63,12 +63,13 @@ export function FanInHelpPanel() {
 
       <HelpWarning title="Place git and store steps after Fan In">
         <p>
-          Git working trees and shared git sinks are not concurrency-safe. Concurrent
-          children race on clone, pull, commit, and push — and so do two independent
-          (non-fan-out) branches in the same run that both target the same git
-          repository. Always merge with Fan In (or an explicit dependency between the
-          branches) before Store Artifact (git) or Git Push so exports and publishes
-          happen once.
+          A per-repository lock keeps concurrent git callers from corrupting the
+          working tree, but it doesn&apos;t make them one operation: children still race
+          to clone, pull, commit, and push — and so do two independent (non-fan-out)
+          branches in the same run that both target the same git repository — each
+          serialised in turn, producing its own commit. Always merge with Fan In (or
+          an explicit dependency between the branches) before Store Artifact (git) or
+          Git Push so exports and publishes happen exactly once, not once per caller.
         </p>
         <p>
           For filesystem Store Artifact on fan-out branches, use unique per-device

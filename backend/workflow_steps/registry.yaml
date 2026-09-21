@@ -3896,9 +3896,13 @@ plugins:
     overview: Persist backups, reports, or logs.
     description: >
       Persist generated content such as backups, reports, or logs.
-      Fan-out note: filesystem and git sinks write shared destinations; concurrent
-      child workflows can race on the same path or git working tree. Prefer
-      per-device path templates or disable fan-out when using a shared sink.
+      Fan-out note: the filesystem sink writes a shared destination; concurrent
+      child workflows can still race on the same path -- prefer per-device path
+      templates or disable fan-out when using it. The git sink holds a per-repo
+      advisory lock (services/git/repo_lock.py) across concurrent callers --
+      fan-out children or independent sibling branches in one run -- so the
+      working tree is not corrupted, but each caller still opens its own commit;
+      place it after a Fan In node (or other join point) for one commit, not N.
     artifact_type: persistent_artifact
     directory: store_artifact
     enabled: true
@@ -4003,8 +4007,11 @@ plugins:
     overview: Clone a git source to the local working tree.
     description: >
       Clone or re-clone a configured git source into the local working tree.
-      Fan-out note: mutates a shared local working tree for the git source; not
-      safe to run concurrently across fan-out children for the same source.
+      Fan-out note: a per-repo advisory lock (services/git/repo_lock.py)
+      serialises concurrent callers -- fan-out children or independent sibling
+      branches in one run -- against the same source, so the working tree is
+      not corrupted; place it after a join point if you want exactly one clone,
+      not one per caller.
     artifact_type: persistent_artifact
     directory: git_clone
     enabled: true
@@ -4034,8 +4041,10 @@ plugins:
     overview: Pull latest changes for a git source.
     description: >
       Pull the latest changes for a configured git source.
-      Fan-out note: mutates a shared local working tree for the git source; not
-      safe to run concurrently across fan-out children for the same source.
+      Fan-out note: a per-repo advisory lock (services/git/repo_lock.py)
+      serialises concurrent callers -- fan-out children or independent sibling
+      branches in one run -- against the same source, so the working tree is
+      not corrupted.
     artifact_type: persistent_artifact
     directory: git_pull
     enabled: true
@@ -4065,9 +4074,12 @@ plugins:
     overview: Commit and push changes to git remote.
     description: >
       Commit exported changes and push them to the configured git source remote.
-      Fan-out note: commits/pushes against a shared remote working tree; concurrent
-      fan-out children for the same source can conflict. Prefer a single push after
-      fan-in, or unique branches/paths per child.
+      Fan-out note: a per-repo advisory lock (services/git/repo_lock.py)
+      serialises concurrent callers -- fan-out children or independent sibling
+      branches in one run -- against the same source, so the working tree is
+      not corrupted. Each caller still produces its own commit/push though;
+      prefer a single push after a Fan In node, or unique branches/paths per
+      caller, if you want exactly one.
     artifact_type: persistent_artifact
     directory: git_push
     enabled: true
@@ -4104,7 +4116,7 @@ plugins:
       push it, store a unified diff, and record a Change Request awaiting review.
       Approving the change request (UI or a signed git webhook) dispatches a
       separate deploy run. See doc/CICD_PIPELINE.md.
-      A per-repo Redis lock (services/change_requests/repo_lock.py) serialises
+      A per-repo Redis lock (services/git/repo_lock.py) serialises
       concurrent callers against the same repository so the working tree is
       never corrupted, but each caller still opens its own branch/commit/change
       request. Place it after any Fan In node (or other join point) so exactly

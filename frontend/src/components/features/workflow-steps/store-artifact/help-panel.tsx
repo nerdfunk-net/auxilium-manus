@@ -302,18 +302,19 @@ export function StoreArtifactHelpPanel() {
         </HelpExample>
       </HelpSection>
 
-      <HelpWarning title="Not concurrency-safe — use Fan In first">
+      <HelpWarning title="Still wants a Fan In first">
         <ul className="list-disc space-y-0.5 pl-4">
           <li>
-            Do not place Store Artifact (<HelpCode>git</HelpCode>) on a fanned-out
-            branch — concurrent child workflows race on the same working tree and
-            may corrupt commits.
+            A per-repository lock keeps concurrent callers from corrupting the working
+            tree or racing on commits, but it doesn&apos;t merge them: each caller still
+            produces its own commit. Placing Store Artifact (<HelpCode>git</HelpCode>)
+            on a fanned-out branch still means N commits, one per child, not one.
           </li>
           <li>
-            Same race if two independent (non-fan-out) branches in one run both run
+            Same if two independent (non-fan-out) branches in one run both run
             Store Artifact (<HelpCode>git</HelpCode>) against the same repository —
-            give them a real dependency edge or a shared join point, not just
-            separate canvas branches.
+            give them a real dependency edge or a shared join point if you want a
+            single commit, not just separate canvas branches.
           </li>
           <li>
             Pattern: inventory (fan-out on) → per-device steps →{" "}

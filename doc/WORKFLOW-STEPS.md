@@ -1034,16 +1034,15 @@ A step is concurrency-safe when it:
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `merge-config`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent callers overwrite/race. |
-| `store-artifact` → `destination: git`, and `git-clone` / `git-pull` / `git-push` | ❌ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`), with **no locking anywhere in the git service layer**. Two concurrent callers targeting the *same* `GitRepository` — whether fan-out children or two independent branches in one run — race on `index.lock`, produce N single-file commits instead of one, and reject non-fast-forward pushes. See `doc/OPEN_TODOS.md` → "No lock protects concurrent writers to the same git working tree". |
-| `open-change-request` | ⚠️ | Different from the row above: `repo_stage_lock` (`services/change_requests/repo_lock.py`, Redis `SET NX EX`, fail-soft if Redis is down) already serialises concurrent callers against the same repo — whether two runs, fan-out children, or two sibling branches in one run — so it does **not** corrupt the working tree. It still creates a *separate* branch/commit/change-request row per caller, though, which is rarely what you want — place it after a join point so exactly one change request comes out, not N. |
+| `store-artifact` → `destination: git`, `git-clone`, `git-pull`, `git-push`, `open-change-request` | ⚠️ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). A per-repository advisory lock (`services/git/repo_lock.py`, Redis `SET NX EX`, fail-soft if Redis is down) serialises concurrent callers against the *same* `GitRepository` — whether two runs, fan-out children (cross-process), or two independent sibling branches in one run (same process) — so the working tree itself is **not** corrupted. It does **not** make two concurrent callers collapse into one logical operation, though: each still opens its own commit (and, for `open-change-request`, its own branch/change-request row), which is rarely what you want. Place git-touching steps after a **Fan In** node (fan-out) or wire an explicit dependency edge (independent branches) so exactly one export/commit/change-request comes out, not N. |
 
 **Guidance for git-backed exports:** place a **Fan In** node between per-device fan-out
-branches and the git/store steps (one pull, one commit, one push, no `index.lock` races;
-`max_concurrency: 1` only serialises children and still produces N commits, so it is not a
-substitute). For two independent *non-fan-out* branches that both need to touch the same
-git repository in one run, wire an explicit dependency edge between them (or route both
-through a shared step first) instead of letting the canvas leave them as true siblings —
-nothing in the engine serializes that case for you.
+branches and the git/store steps (one pull, one commit, one push; `max_concurrency: 1`
+only serialises children and still produces N commits, so it is not a substitute). For two
+independent *non-fan-out* branches that both need to touch the same git repository in one
+run, wire an explicit dependency edge between them (or route both through a shared step
+first) instead of letting the canvas leave them as true siblings — the lock stops
+corruption either way, but still produces N commits/change-requests if you don't.
 
 > If you add a step that mutates a shared external resource, either require it to sit after
 > a join point / explicit dependency, document its concurrency behaviour in `registry.yaml`,

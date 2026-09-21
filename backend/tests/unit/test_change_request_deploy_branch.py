@@ -6,6 +6,7 @@ See doc/CICD_PIPELINE.md.
 
 from __future__ import annotations
 
+import contextlib
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -80,6 +81,10 @@ class GitWorkflowStepBranchOverrideTests(unittest.IsolatedAsyncioTestCase):
                 return_value={"id": 1, "name": "r", "url": "x", "branch": "main"},
             ),
             patch("service_factory.build_git_service", return_value=MagicMock()),
+            patch(
+                "workflow_steps.common.git_workflow_step.git_repo_lock",
+                lambda *_a, **_k: contextlib.nullcontext(),
+            ),
         ):
             await run_git_workflow_step(
                 config=config,

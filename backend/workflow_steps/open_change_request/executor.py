@@ -8,11 +8,12 @@ deploy run. See ``doc/CICD_PIPELINE.md``.
 
 Concurrent callers against the same repository — separate stage runs, fan-out
 children, or independent sibling branches in one run — are serialised by a
-per-repo Redis lock (``repo_lock.py``), so the working tree itself is never
-corrupted. That lock doesn't make the step fan-out/branch-safe in the useful
-sense, though: each caller still opens its own branch/commit/change request.
-Place it after any Fan In node (or other join point) so exactly one change
-request comes out, not one per fan-out child or sibling branch.
+per-repo Redis lock (``services/git/repo_lock.py``), so the working tree
+itself is never corrupted. That lock doesn't make the step fan-out/branch-safe
+in the useful sense, though: each caller still opens its own branch/commit/
+change request. Place it after any Fan In node (or other join point) so
+exactly one change request comes out, not one per fan-out child or sibling
+branch.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.change_requests.repo_lock import repo_stage_lock
+from services.git.repo_lock import git_repo_lock
 from services.workflow_context.device_template import (
     TemplateRenderOptions,
     parse_strict_templates,
@@ -210,7 +211,7 @@ def _stage_to_git(
     run inside a per-repo advisory lock. Raises RuntimeError on any git failure.
     """
     repository_id = _as_int(repository.get("id"))
-    with repo_stage_lock(repository_id if repository_id is not None else -1):
+    with git_repo_lock(repository_id if repository_id is not None else -1):
         repo = git_service.open_or_clone(repository)
         base_ref = str(repository.get("branch") or "main")
         git_service.checkout_new_branch(repo, branch, base_ref)

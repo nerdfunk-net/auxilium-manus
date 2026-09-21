@@ -190,14 +190,15 @@ export function GetNautobotDevicesHelpPanel() {
           {"  "}max_concurrency: 5
         </HelpExample>
 
-        <HelpWarning title="Git and shared stores are not concurrency-safe">
+        <HelpWarning title="Git and shared stores still want a Fan In">
           <ul className="list-disc space-y-0.5 pl-4">
             <li>
-              Do not put <HelpCode>store-artifact</HelpCode> (git) or{" "}
-              <HelpCode>git-push</HelpCode> on the fanned-out branch — concurrent
-              children race on the same working tree. The same race happens if two
-              independent (non-fan-out) branches in one run both target the same
-              git repository.
+              A per-repository lock keeps concurrent callers from corrupting the git
+              working tree, but each caller — a fanned-out child, or an independent
+              (non-fan-out) branch targeting the same repository — still produces
+              its own commit. Do not put <HelpCode>store-artifact</HelpCode> (git) or{" "}
+              <HelpCode>git-push</HelpCode> on the fanned-out branch if you want one
+              commit, not N.
             </li>
             <li>
               Pattern: inventory (fan-out on) → per-device steps → Fan In →

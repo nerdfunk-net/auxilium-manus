@@ -384,6 +384,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         mock_sink = create_autospec(GitArtifactSink, instance=True)
         mock_sink.destination = "git"
+        mock_sink.repository_id = 7
         mock_sink.prepare = AsyncMock(side_effect=RuntimeError("pull failed"))
         mock_sink.has_writes = False
 
@@ -391,6 +392,10 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "workflow_steps.store_artifact.executor._build_sink",
                 return_value=mock_sink,
+            ),
+            patch(
+                "workflow_steps.store_artifact.executor.acquire_git_repo_lock",
+                return_value=False,
             ),
             _mock_export_directory(Path("/unused")),
         ):
@@ -431,6 +436,7 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         mock_sink = create_autospec(GitArtifactSink, instance=True)
         mock_sink.destination = "git"
+        mock_sink.repository_id = 7
         mock_sink.prepare = AsyncMock()
         mock_sink.finalize = AsyncMock(return_value=None)
         mock_sink.has_writes = True
@@ -452,6 +458,10 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
                 artifact_service,
                 "resolve",
                 new=AsyncMock(return_value="hostname lab"),
+            ),
+            patch(
+                "workflow_steps.store_artifact.executor.acquire_git_repo_lock",
+                return_value=False,
             ),
             _mock_export_directory(Path("/unused")),
         ):
@@ -476,6 +486,90 @@ class StoreArtifactExecutorTests(unittest.IsolatedAsyncioTestCase):
         mock_sink.finalize.assert_awaited_once()
         self.assertEqual(len(outcomes), 1)
         self.assertNotIn("store-artifact-4.git_export", outcomes[0].context.metadata)
+
+    async def test_git_destination_holds_repo_lock_across_prepare_to_finalize(self) -> None:
+        """The per-repository advisory lock must be acquired before prepare()
+        and released after finalize() -- even when finalize() fails (caught
+        internally and turned into a failed-device outcome, not re-raised) --
+        so two concurrent callers against the same GitRepository never
+        interleave."""
+        run = MagicMock()
+        run.id = 42
+        device = _device_with_running_config()
+        artifact_service = InMemoryArtifactService()
+        await artifact_service.store(
+            content="hostname lab",
+            kind="running_config",
+            device_id="device-1",
+            run_id="run-uuid-1",
+        )
+
+        mock_sink = create_autospec(GitArtifactSink, instance=True)
+        mock_sink.destination = "git"
+        mock_sink.repository_id = 7
+        mock_sink.prepare = AsyncMock()
+        mock_sink.has_writes = True
+        mock_sink.finalize = AsyncMock(side_effect=RuntimeError("push rejected"))
+        mock_sink.write_text = AsyncMock(
+            return_value=MagicMock(
+                destination="git",
+                path="/tmp/repo/lab.cfg",
+                size_bytes=12,
+                sha256="abc",
+            )
+        )
+
+        calls: list[str] = []
+
+        def _acquire(repository_id: int) -> bool:
+            calls.append(f"acquire:{repository_id}")
+            return True
+
+        def _release(repository_id: int, acquired: bool) -> None:
+            calls.append(f"release:{repository_id}:{acquired}")
+
+        with (
+            patch(
+                "workflow_steps.store_artifact.executor._build_sink",
+                return_value=mock_sink,
+            ),
+            patch.object(
+                artifact_service,
+                "resolve",
+                new=AsyncMock(return_value="hostname lab"),
+            ),
+            patch(
+                "workflow_steps.store_artifact.executor.acquire_git_repo_lock",
+                side_effect=_acquire,
+            ),
+            patch(
+                "workflow_steps.store_artifact.executor.release_git_repo_lock",
+                side_effect=_release,
+            ),
+            _mock_export_directory(Path("/unused")),
+        ):
+            outcomes = await execute(
+                config={
+                    "destination": "git",
+                    "git_repository_id": 7,
+                    "content_source": "running_config",
+                    "filename_template": "{device.name}.cfg",
+                },
+                context=WorkflowContext(
+                    run_id="run-uuid-1",
+                    workflow_id="wf-1",
+                    devices={"device-1": device},
+                ),
+                run=run,
+                artifact_service=artifact_service,
+                node_id="store-artifact-4",
+                device_sessions=MagicMock(),
+            )
+
+        self.assertEqual(calls, ["acquire:7", "release:7:True"])
+        # finalize's failure is caught internally and turned into a failed device.
+        self.assertEqual(outcomes[1].name, "failure")
+        self.assertIn("push rejected", outcomes[1].context.devices["device-1"].errors[-1].message)
 
     async def test_rejects_escaping_output_subdirectory(self) -> None:
         run = MagicMock()

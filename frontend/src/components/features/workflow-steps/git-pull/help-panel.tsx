@@ -52,13 +52,13 @@ export function GitPullHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
-      <HelpWarning title="Not concurrency-safe">
+      <HelpWarning title="Still wants a Fan In">
         <p>
-          Do not run Git Pull on a fanned-out branch for the same{" "}
-          <HelpCode>git_repository_id</HelpCode> — parallel children pull and write
-          concurrently and can corrupt the shared working tree. Two independent
-          (non-fan-out) branches in one run that both pull the same repository race
-          the same way.
+          A per-repository lock keeps concurrent pulls against the same{" "}
+          <HelpCode>git_repository_id</HelpCode> from corrupting the shared working
+          tree — whether from fan-out children or two independent (non-fan-out)
+          branches in one run — but each caller is only serialised, not merged:
+          running Git Pull on every child still means N pulls back-to-back.
         </p>
         <p>
           Pattern: per-device steps on fan-out branches →{" "}
