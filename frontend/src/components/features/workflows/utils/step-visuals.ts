@@ -160,6 +160,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "secret-set": KeySquare,
   "secret-generate": RefreshCw,
   "generate-password": Dices,
+  "store-in-db": Database,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

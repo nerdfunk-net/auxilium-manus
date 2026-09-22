@@ -4075,6 +4075,72 @@ plugins:
           default: standard-90-days
           example: standard-90-days
 
+  - id: store-in-db
+    name: Store in DB
+    overview: Persist device data to the application database for later retrieval.
+    description: >
+      Store all device data, attribute bags, a single attribute, or a rendered
+      template in the application database under a storage key, keyed by device
+      name. A later "Read from DB" step retrieves it and overwrites device data
+      with it. Concurrency-safe: rows are keyed by (device_name, storage_key), so
+      fan-out children and independent sibling branches never collide; a
+      concurrent writer to the same device+key is resolved via a safe upsert, no
+      Fan In node required.
+    artifact_type: persistent_artifact
+    directory: store_in_db
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: storage_key
+          description: >
+            Key this device's data is stored under. A later "Read from DB" step
+            reads by this key.
+          data_type: string
+          required: true
+          example: site_backup
+        - name: content_source
+          description: >
+            What to store: device_data (attribute bags + parsed), attribute_bags,
+            single_attribute, or rendered_template.
+          data_type: string
+          required: true
+          default: device_data
+          example: attribute_bags
+        - name: attribute_path
+          description: Dotted attribute path to resolve when content_source is single_attribute.
+          data_type: string
+          required: false
+          example: nautobot.role.name
+        - name: allow_secret_storage
+          description: >
+            When true, a single_attribute path resolving to a secret-valued
+            attribute (e.g. a device password) is decrypted and stored instead
+            of failing the device. Off by default -- the database is not a
+            protected secret store the way sealed in-run attribute bags are;
+            enabling this is an explicit, operator-accepted risk.
+          data_type: boolean
+          required: false
+          default: false
+        - name: source_step_node_id
+          description: >
+            Canvas node id of the upstream Render Jinja Template step, when
+            content_source is rendered_template.
+          data_type: string
+          required: false
+        - name: parsed_output_key
+          description: >
+            Optional output_key from the render step when content_source is
+            rendered_template. When omitted, all rendered templates from the
+            selected step are stored together.
+          data_type: string
+          required: false
+          example: device_config
+
   - id: git-clone
     name: Git Clone
     overview: Clone a git source to the local working tree.

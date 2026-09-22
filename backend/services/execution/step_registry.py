@@ -88,6 +88,7 @@ from workflow_steps.set_default_attributes.executor import execute as set_defaul
 from workflow_steps.show_summary.executor import execute as show_summary
 from workflow_steps.stop_here.executor import execute as stop_here
 from workflow_steps.store_artifact.executor import execute as store_artifact
+from workflow_steps.store_in_db.executor import execute as store_in_db
 from workflow_steps.undefined_and_unused.executor import execute as undefined_and_unused
 from workflow_steps.update_attribute.executor import execute as update_attribute
 from workflow_steps.update_config_context.executor import execute as update_config_context
@@ -148,6 +149,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "compare-pyats-snapshot": compare_pyats_snapshot,
     "configure-replace-config": configure_replace_config,
     "store-artifact": store_artifact,
+    "store-in-db": store_in_db,
     "open-change-request": open_change_request,
     "git-clone": git_clone,
     "git-pull": git_pull,

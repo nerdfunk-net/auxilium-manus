@@ -59,6 +59,7 @@ import { LabelPlugin } from "@/components/features/workflow-steps/label";
 import { BackgroundPlugin } from "@/components/features/workflow-steps/background";
 import { FunnelPlugin } from "@/components/features/workflow-steps/funnel";
 import { StoreArtifactPlugin } from "@/components/features/workflow-steps/store-artifact";
+import { StoreInDbPlugin } from "@/components/features/workflow-steps/store-in-db";
 import { OpenChangeRequestPlugin } from "@/components/features/workflow-steps/open-change-request";
 import { FromChangeRequestPlugin } from "@/components/features/workflow-steps/from-change-request";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
@@ -122,6 +123,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "configure-replace-config": ConfigureReplaceConfigPlugin,
   "render-jinja-template": RenderJinjaTemplatePlugin,
   "store-artifact": StoreArtifactPlugin,
+  "store-in-db": StoreInDbPlugin,
   "open-change-request": OpenChangeRequestPlugin,
   "git-clone": GitClonePlugin,
   "git-pull": GitPullPlugin,
