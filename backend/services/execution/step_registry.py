@@ -38,6 +38,7 @@ from workflow_steps.batfish_path_check.executor import execute as batfish_path_c
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
 from workflow_steps.batfish_start_run.executor import execute as batfish_start_run
 from workflow_steps.batfish_validate_facts.executor import execute as batfish_validate_facts
+from workflow_steps.collect_statistics.executor import execute as collect_statistics
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
 from workflow_steps.config_to_attributes.executor import execute as config_to_attributes
@@ -145,6 +146,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "merge-config": merge_config,
     "merge-content": merge_content,
     "filter-output": filter_output,
+    "collect-statistics": collect_statistics,
     "compare-data": compare_data,
     "compare-pyats-snapshot": compare_pyats_snapshot,
     "configure-replace-config": configure_replace_config,

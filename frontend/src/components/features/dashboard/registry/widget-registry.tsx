@@ -1,5 +1,6 @@
-import { Bell, CalendarClock, History } from "lucide-react";
+import { Bell, CalendarClock, History, PieChart } from "lucide-react";
 
+import { JobStatisticsWidget } from "@/components/features/dashboard/widgets/job-statistics-widget";
 import { NotificationsWidget } from "@/components/features/dashboard/widgets/notifications-widget";
 import { RecentRunsWidget } from "@/components/features/dashboard/widgets/recent-runs-widget";
 import { SchedulesWidget } from "@/components/features/dashboard/widgets/schedules-widget";
@@ -29,5 +30,13 @@ export const WIDGET_REGISTRY: Record<WidgetId, WidgetDefinition> = {
     icon: Bell,
     defaultSize: { w: 5, h: 6, minW: 3, minH: 4 },
     component: NotificationsWidget,
+  },
+  "job-statistics": {
+    id: "job-statistics",
+    title: "Job Statistics",
+    description: "Per-job device success/failure breakdown for the latest run",
+    icon: PieChart,
+    defaultSize: { w: 5, h: 6, minW: 3, minH: 4 },
+    component: JobStatisticsWidget,
   },
 };

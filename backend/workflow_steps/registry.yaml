@@ -3451,6 +3451,37 @@ plugins:
     outcomes:
       - name: success
 
+  - id: collect-statistics
+    name: Collect Statistics
+    overview: Record a per-device pass/fail outcome for this job, for dashboard reporting.
+    description: >
+      Records one row per device reaching this node, tagged with the result
+      configured below (success or failed) — job name/id and run id are
+      resolved automatically from the containing workflow and run. Wire one
+      instance to an upstream step's success handle with result=success and a
+      second instance to its failure handle with result=failed to capture
+      both outcomes. Powers the dashboard's per-job success/failure pie chart.
+    artifact_type: control_flow
+    palette_category: debug
+    directory: collect_statistics
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+    metadata:
+      configuration_input:
+        - name: result
+          description: >
+            Result recorded for every device reaching this node — success or
+            failed. Does not inspect device status; the node's wiring (which
+            upstream outcome handle feeds it) determines what devices reach
+            it, and this value is recorded verbatim for all of them.
+          data_type: string
+          required: true
+          default: success
+          example: failed
+
   - id: notify
     name: Notify Local
     overview: Write a notification for every device in the workflow context.

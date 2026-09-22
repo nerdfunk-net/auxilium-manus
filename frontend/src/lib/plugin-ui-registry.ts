@@ -1,6 +1,7 @@
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
 import { AddToIsePlugin } from "@/components/features/workflow-steps/add-to-ise";
 import { AddToNautobotPlugin } from "@/components/features/workflow-steps/add-to-nautobot";
+import { CollectStatisticsPlugin } from "@/components/features/workflow-steps/collect-statistics";
 import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-data";
 import { ComparePyatsSnapshotPlugin } from "@/components/features/workflow-steps/compare-pyats-snapshot";
 import { FanInPlugin } from "@/components/features/workflow-steps/fan-in";
@@ -118,6 +119,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "merge-config": MergeConfigPlugin,
   "merge-content": MergeContentPlugin,
   "filter-output": FilterOutputPlugin,
+  "collect-statistics": CollectStatisticsPlugin,
   "compare-data": CompareDataPlugin,
   "compare-pyats-snapshot": ComparePyatsSnapshotPlugin,
   "configure-replace-config": ConfigureReplaceConfigPlugin,

@@ -5,6 +5,7 @@ from core.models.credentials import Credential
 from core.models.device_data_records import DeviceDataRecord
 from core.models.git import GitRepository
 from core.models.inventories import Inventory
+from core.models.job_statistics import JobStatistic
 from core.models.notifications import Notification
 from core.models.rbac import Permission, Role, RolePermission, UserPermission, UserRole
 from core.models.runs import WorkflowRun, WorkflowStepResult
@@ -24,6 +25,7 @@ __all__ = [
     "DeviceDataRecord",
     "GitRepository",
     "Inventory",
+    "JobStatistic",
     "Notification",
     "Permission",
     "Role",

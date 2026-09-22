@@ -153,3 +153,59 @@ describe("computeOutcomeProvides — failure-class outcomes", () => {
     ]);
   });
 });
+
+describe("computeOutcomeProvides — zero-outcome nodes (funnel)", () => {
+  const selector = step("sel", {
+    kind: "get-nautobot-devices",
+    requires: [],
+    produces: ["identity"],
+    outcomes: [{ name: "success" }],
+  });
+  const getConfigs = step("cfg", {
+    kind: "get-device-configs",
+    requires: ["identity"],
+    produces: [],
+    outcomes: [{ name: "success" }, { name: "failure" }],
+  });
+  // Mirrors the real `funnel` canvas decoration: empty outcomes, and its
+  // rendered source Handle uses id="output" (FunnelNode), not "success".
+  const funnel = step("fun", {
+    kind: "funnel",
+    requires: [],
+    produces: [],
+    outcomes: [],
+  });
+  const consumer = step("notif", {
+    kind: "notify-on-error",
+    requires: ["identity"],
+    produces: [],
+    outcomes: [{ name: "success" }],
+  });
+
+  it("stores capability state under the handle id the funnel's real outgoing edge uses", () => {
+    const map = computeOutcomeProvides(
+      [selector, getConfigs, funnel, consumer],
+      [
+        edge("e1", "sel", "cfg"),
+        edge("e2", "cfg", "fun", "failure"),
+        edge("e3", "fun", "notif", "output"),
+      ],
+    );
+
+    // Looking up the funnel's state under the wrong ("success") key must not
+    // silently leak the correct state where it doesn't belong.
+    expect(caps(getOutcomeProvides(map, "fun", "success"))).toEqual([]);
+    // The funnel's actual outgoing handle ("output") carries identity through.
+    expect(caps(getOutcomeProvides(map, "fun", "output"))).toEqual(["identity"]);
+    // A step downstream of the funnel must see that capability too.
+    expect(caps(getOutcomeProvides(map, "notif", "success"))).toEqual(["identity"]);
+  });
+
+  it("falls back to the success key when the zero-outcome node has no outgoing edge yet", () => {
+    const map = computeOutcomeProvides(
+      [selector, getConfigs, funnel],
+      [edge("e1", "sel", "cfg"), edge("e2", "cfg", "fun", "failure")],
+    );
+    expect(caps(getOutcomeProvides(map, "fun", "success"))).toEqual(["identity"]);
+  });
+});

@@ -12,6 +12,11 @@ export const queryKeys = {
         ? ([...queryKeys.dashboard.all, "notifications", limit] as const)
         : ([...queryKeys.dashboard.all, "notifications"] as const),
   },
+  statistics: {
+    all: ["statistics"] as const,
+    jobs: () => [...queryKeys.statistics.all, "jobs"] as const,
+    pie: (workflowId: number) => [...queryKeys.statistics.all, "pie", workflowId] as const,
+  },
   workflowSteps: {
     all: ["workflow-steps"] as const,
     list: () => [...queryKeys.workflowSteps.all, "list"] as const,

@@ -165,7 +165,22 @@ export function computeOutcomeProvides(
 
     const outcomes = node.data.outcomes ?? [];
     if (outcomes.length === 0) {
-      outcomeProvides.set(`${nodeId}:success`, outputProvides);
+      // Zero-outcome nodes have no registry-declared outcome name to key on
+      // (e.g. the `funnel` canvas decoration, whose rendered source Handle
+      // uses id="output", not "success"). Store under every handle id its
+      // real outgoing edges actually use, falling back to "success" only
+      // when it has no outgoing edge yet (nothing to look up regardless).
+      const outgoingHandles = new Set(
+        edges
+          .filter((edge) => edge.source === nodeId)
+          .map((edge) => edge.sourceHandle ?? "success"),
+      );
+      if (outgoingHandles.size === 0) {
+        outgoingHandles.add("success");
+      }
+      for (const handle of outgoingHandles) {
+        outcomeProvides.set(`${nodeId}:${handle}`, outputProvides);
+      }
       continue;
     }
 

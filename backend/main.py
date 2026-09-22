@@ -51,6 +51,7 @@ from routers.sources.nautobot import (
     nautobot_source_ops_router,
 )
 from routers.sources.pyats import pyats_source_crud_router, pyats_source_ops_router
+from routers.statistics import router as statistics_router
 from routers.system import router as system_router
 from routers.templates import router as templates_router
 from routers.users import router as users_router
@@ -185,6 +186,7 @@ app.include_router(change_requests_router, prefix=settings.api_prefix)
 app.include_router(webhooks_router, prefix=settings.api_prefix)
 app.include_router(workflow_background_tier_router, prefix=settings.api_prefix)
 app.include_router(dashboard_router, prefix=settings.api_prefix)
+app.include_router(statistics_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)
 app.include_router(credentials_router, prefix=settings.api_prefix)
 app.include_router(secret_manager_router, prefix=settings.api_prefix)
