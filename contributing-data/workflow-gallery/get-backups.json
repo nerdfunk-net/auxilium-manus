@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-21T20:18:25.846Z",
+  "exported_at": "2026-09-22T21:51:36.991Z",
   "name": "Get Backups",
   "description": "Get Backups",
   "folder": "Gallery",
@@ -138,7 +138,7 @@
       "type": "workflowNode",
       "position": {
         "x": 157.71242910864737,
-        "y": 396.5625
+        "y": 397.32706533999567
       },
       "zIndex": 1,
       "data": {
@@ -380,7 +380,7 @@
       "id": "git-push-8",
       "type": "workflowNode",
       "position": {
-        "x": 1224.0341426961968,
+        "x": 1224.0982492859162,
         "y": 72.6588922744728
       },
       "data": {
@@ -424,8 +424,8 @@
       "id": "notify-mattermost-9",
       "type": "workflowNode",
       "position": {
-        "x": 915.1601933196825,
-        "y": 1172.3258981230347
+        "x": 920.5795817382398,
+        "y": 1244.502032583567
       },
       "zIndex": 1,
       "data": {
@@ -451,7 +451,7 @@
           }
         ],
         "incomeHandleSide": "top",
-        "outcomeHandleSide": "right",
+        "outcomeHandleSide": "bottom",
         "pluginConfig": {
           "mattermost_source_id": "mattermost",
           "team_name": "Manus",
@@ -470,8 +470,8 @@
       "id": "notify-mattermost-10",
       "type": "workflowNode",
       "position": {
-        "x": 588.5,
-        "y": 396.5625
+        "x": 941.5549762967531,
+        "y": 397.32706533999567
       },
       "zIndex": 1,
       "data": {
@@ -514,8 +514,8 @@
       "id": "notify-on-error-11",
       "type": "workflowNode",
       "position": {
-        "x": 407.7971297845663,
-        "y": 1172.3258981230347
+        "x": 406.678257363787,
+        "y": 1367.5494549579164
       },
       "zIndex": 1,
       "data": {
@@ -713,6 +713,124 @@
       },
       "selected": false,
       "dragging": false
+    },
+    {
+      "id": "collect-statistics-16",
+      "type": "workflowNode",
+      "position": {
+        "x": 555.3764248872594,
+        "y": 397.32706533999567
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "collect-statistics",
+        "stepUuid": "543c45a8-b1ee-4b9c-9c07-632f0554a8c3",
+        "title": "Collect Statistics",
+        "overview": "Record a per-device pass/fail outcome for this job, for dashboard reporting.",
+        "description": "Records one row per device reaching this node, tagged with the result configured below (success or failed) — job name/id and run id are resolved automatically from the containing workflow and run. Wire one instance to an upstream step's success handle with result=success and a second instance to its failure handle with result=failed to capture both outcomes. Powers the dashboard's per-job success/failure pie chart.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "result": "failed"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "collect-statistics-17",
+      "type": "workflowNode",
+      "position": {
+        "x": 920.5795817382398,
+        "y": 1072.409166919967
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "collect-statistics",
+        "stepUuid": "d307c344-54b0-45b0-96b0-dcfce95c437a",
+        "title": "Collect Statistics",
+        "overview": "Record a per-device pass/fail outcome for this job, for dashboard reporting.",
+        "description": "Records one row per device reaching this node, tagged with the result configured below (success or failed) — job name/id and run id are resolved automatically from the containing workflow and run. Wire one instance to an upstream step's success handle with result=success and a second instance to its failure handle with result=failed to capture both outcomes. Powers the dashboard's per-job success/failure pie chart.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "result": "success"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "collect-statistics-18",
+      "type": "workflowNode",
+      "position": {
+        "x": 406.678257363787,
+        "y": 1189.0010162917833
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "collect-statistics",
+        "stepUuid": "96f28b42-627f-4685-a69a-4e95bd06534f",
+        "title": "Collect Statistics",
+        "overview": "Record a per-device pass/fail outcome for this job, for dashboard reporting.",
+        "description": "Records one row per device reaching this node, tagged with the result configured below (success or failed) — job name/id and run id are resolved automatically from the containing workflow and run. Wire one instance to an upstream step's success handle with result=success and a second instance to its failure handle with result=failed to capture both outcomes. Powers the dashboard's per-job success/failure pie chart.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "bottom",
+        "pluginConfig": {
+          "result": "failed"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
     }
   ],
   "canvas_edges": [
@@ -811,32 +929,6 @@
       "type": "waypoint",
       "zIndex": 0,
       "data": {
-        "edgeStyle": "smoothstep"
-      },
-      "source": "git-push-8",
-      "sourceHandle": "success",
-      "target": "notify-mattermost-9",
-      "targetHandle": "input",
-      "id": "xy-edge__git-push-8success-notify-mattermost-9input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "smoothstep"
-      },
-      "source": "get-device-configs-3",
-      "sourceHandle": "failure",
-      "target": "notify-mattermost-10",
-      "targetHandle": "input",
-      "id": "xy-edge__get-device-configs-3failure-notify-mattermost-10input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
         "edgeStyle": "straight",
         "waypoints": [
           {
@@ -850,19 +942,6 @@
       "target": "funnel-12",
       "targetHandle": "input",
       "id": "xy-edge__store-artifact-5failure-funnel-12input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "smoothstep"
-      },
-      "source": "funnel-12",
-      "sourceHandle": "output",
-      "target": "notify-on-error-11",
-      "targetHandle": "input",
-      "id": "xy-edge__funnel-12output-notify-on-error-11input",
       "selected": false
     },
     {
@@ -908,6 +987,106 @@
       "target": "funnel-12",
       "targetHandle": "input",
       "id": "xy-edge__git-pull-7failure-funnel-12input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "get-device-configs-3",
+      "sourceHandle": "failure",
+      "target": "collect-statistics-16",
+      "targetHandle": "input",
+      "id": "xy-edge__get-device-configs-3failure-collect-statistics-16input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "collect-statistics-16",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-10",
+      "targetHandle": "input",
+      "id": "xy-edge__collect-statistics-16success-notify-mattermost-10input"
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "straight",
+        "waypoints": [
+          {
+            "x": 394.0164158181802,
+            "y": 378.0462733191854
+          },
+          {
+            "x": 542.39703042266,
+            "y": 378.8440185589944
+          }
+        ]
+      },
+      "source": "get-nautobot-attributes-2",
+      "sourceHandle": "failure",
+      "target": "collect-statistics-16",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-2failure-collect-statistics-16input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "git-push-8",
+      "sourceHandle": "success",
+      "target": "collect-statistics-17",
+      "targetHandle": "input",
+      "id": "xy-edge__git-push-8success-collect-statistics-17input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "collect-statistics-17",
+      "sourceHandle": "success",
+      "target": "notify-mattermost-9",
+      "targetHandle": "input",
+      "id": "xy-edge__collect-statistics-17success-notify-mattermost-9input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "funnel-12",
+      "sourceHandle": "output",
+      "target": "collect-statistics-18",
+      "targetHandle": "input",
+      "id": "xy-edge__funnel-12output-collect-statistics-18input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "collect-statistics-18",
+      "sourceHandle": "success",
+      "target": "notify-on-error-11",
+      "targetHandle": "input",
+      "id": "xy-edge__collect-statistics-18success-notify-on-error-11input",
       "selected": false
     }
   ],
