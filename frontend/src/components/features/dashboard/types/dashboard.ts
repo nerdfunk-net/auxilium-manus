@@ -10,13 +10,20 @@ export interface WidgetDefaultSize {
   minH: number;
 }
 
+export type WidgetSettings = Record<string, unknown>;
+
+export interface WidgetComponentProps {
+  settings?: WidgetSettings;
+  onSettingsChange?: (patch: WidgetSettings) => void;
+}
+
 export interface WidgetDefinition {
   id: WidgetId;
   title: string;
   description: string;
   icon: LucideIcon;
   defaultSize: WidgetDefaultSize;
-  component: ComponentType;
+  component: ComponentType<WidgetComponentProps>;
 }
 
 export interface DashboardLayoutItem {
@@ -38,6 +45,11 @@ export interface DashboardLayoutDoc {
     xs?: DashboardLayoutItem[];
     xxs?: DashboardLayoutItem[];
   };
+  // Per-widget-instance settings (custom title, widget-specific config like a
+  // selected job) — keyed by WidgetId, opaque per-widget shape. Independent of
+  // grid geometry so it never needs per-breakpoint duplication. Stored as part
+  // of the same opaque `dashboard_layout` JSONB blob the backend already owns.
+  widgetSettings?: Partial<Record<WidgetId, WidgetSettings>>;
 }
 
 export type DashboardBreakpoint = keyof DashboardLayoutDoc["layouts"];

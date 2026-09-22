@@ -12,6 +12,7 @@ import type {
   DashboardBreakpoint,
   DashboardLayoutDoc,
   WidgetId,
+  WidgetSettings,
 } from "@/components/features/dashboard/types/dashboard";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -35,6 +36,7 @@ interface DashboardGridProps {
   isEditing: boolean;
   onLayoutChange: (breakpoint: DashboardBreakpoint, items: Layout) => void;
   onRemoveWidget: (id: WidgetId) => void;
+  onWidgetSettingsChange: (id: WidgetId, patch: WidgetSettings) => void;
 }
 
 export function DashboardGrid({
@@ -42,6 +44,7 @@ export function DashboardGrid({
   isEditing,
   onLayoutChange,
   onRemoveWidget,
+  onWidgetSettingsChange,
 }: DashboardGridProps) {
   const [currentBreakpoint, setCurrentBreakpoint] = useState<DashboardBreakpoint>("lg");
 
@@ -69,14 +72,18 @@ export function DashboardGrid({
       {activeIds.map((id) => {
         const definition = WIDGET_REGISTRY[id];
         if (!definition) return null;
+        const settings = layout.widgetSettings?.[id];
+        const handleSettingsChange = (patch: WidgetSettings) => onWidgetSettingsChange(id, patch);
         return (
           <div key={id}>
             <WidgetShell
               definition={definition}
               isEditing={isEditing}
               onRemove={() => onRemoveWidget(id)}
+              onSettingsChange={handleSettingsChange}
+              settings={settings}
             >
-              <definition.component />
+              <definition.component onSettingsChange={handleSettingsChange} settings={settings} />
             </WidgetShell>
           </div>
         );

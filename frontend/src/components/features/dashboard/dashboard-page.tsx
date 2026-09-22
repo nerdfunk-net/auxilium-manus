@@ -14,6 +14,7 @@ import type {
   DashboardLayoutDoc,
   DashboardLayoutItem,
   WidgetId,
+  WidgetSettings,
 } from "@/components/features/dashboard/types/dashboard";
 import { useDashboardLayoutMutations } from "@/hooks/queries/use-dashboard-layout-mutations";
 import { useDashboardLayoutQuery } from "@/hooks/queries/use-dashboard-layout-query";
@@ -94,6 +95,24 @@ export function DashboardPage() {
     setDraftLayout((current) => (current ? removeWidgetFromLayout(current, id) : current));
   };
 
+  const handleWidgetSettingsChange = (id: WidgetId, patch: WidgetSettings) => {
+    const merged: DashboardLayoutDoc = {
+      ...displayedLayout,
+      widgetSettings: {
+        ...displayedLayout.widgetSettings,
+        [id]: { ...displayedLayout.widgetSettings?.[id], ...patch },
+      },
+    };
+    // Widget-instance settings (title, selected job) save immediately —
+    // unlike grid position/size, they're not part of the "rearrange" edit
+    // flow. If a layout edit is in progress, keep the draft in sync too so
+    // a later explicit Save doesn't overwrite this with stale settings.
+    if (isEditing) {
+      setDraftLayout(merged);
+    }
+    saveLayout.mutate({ layout: merged });
+  };
+
   const handleAddWidget = (id: WidgetId) => {
     setDraftLayout((current) => (current ? addWidgetToLayout(current, id) : current));
   };
@@ -126,6 +145,7 @@ export function DashboardPage() {
         layout={displayedLayout}
         onLayoutChange={handleLayoutChange}
         onRemoveWidget={handleRemoveWidget}
+        onWidgetSettingsChange={handleWidgetSettingsChange}
       />
       <AddWidgetDialog
         activeWidgetIds={activeWidgetIds}

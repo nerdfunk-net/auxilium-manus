@@ -11,18 +11,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { WidgetComponentProps } from "@/components/features/dashboard/types/dashboard";
 import { useJobStatisticsJobsQuery } from "@/hooks/queries/use-job-statistics-jobs-query";
 import { useJobStatisticsPieQuery } from "@/hooks/queries/use-job-statistics-pie-query";
 
 const SUCCESS_COLOR = "var(--success-foreground)";
 const FAILED_COLOR = "var(--error-foreground)";
 
-export function JobStatisticsWidget() {
+export function JobStatisticsWidget({ settings, onSettingsChange }: WidgetComponentProps) {
   const { data: jobsData, isLoading: jobsLoading, error: jobsError } = useJobStatisticsJobsQuery();
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<number | null>(null);
+
+  const persistedWorkflowId =
+    typeof settings?.workflowId === "number" ? settings.workflowId : null;
+  // Local override lets a fresh pick feel instant instead of waiting on the
+  // save round-trip; persistedWorkflowId still wins once it catches up.
+  const [localWorkflowId, setLocalWorkflowId] = useState<number | null>(null);
 
   const jobs = jobsData?.jobs ?? [];
-  const effectiveWorkflowId = selectedWorkflowId ?? jobs[0]?.workflow_id ?? null;
+  const effectiveWorkflowId = localWorkflowId ?? persistedWorkflowId ?? jobs[0]?.workflow_id ?? null;
+
+  const handleWorkflowIdChange = (workflowId: number) => {
+    setLocalWorkflowId(workflowId);
+    onSettingsChange?.({ workflowId });
+  };
 
   const {
     data: pieData,
@@ -69,7 +80,7 @@ export function JobStatisticsWidget() {
       {jobs.length > 1 ? (
         <Select
           value={effectiveWorkflowId ? String(effectiveWorkflowId) : undefined}
-          onValueChange={(value) => setSelectedWorkflowId(Number(value))}
+          onValueChange={(value) => handleWorkflowIdChange(Number(value))}
         >
           <SelectTrigger className="h-8 shrink-0 text-xs">
             <SelectValue placeholder="Choose a job…" />
