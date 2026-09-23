@@ -538,9 +538,17 @@ before assuming anything works from inspection alone.
   separate from the human's own edits (verified: workflow 23's history alternates
   `admin`/`ai-assistant` rows correctly across multiple real saves from both sides).
 - `WorkflowValidationService` Tiers 1–2 ran against all 7 real gallery workflows:
-  2 pass clean, 5 correctly flag real, previously-invisible gaps (e.g.
-  `parse-cisco-config`'s `output_key`, confirmed genuinely missing against
-  `registry.yaml` — not a checker bug).
+  2 pass clean, 5 correctly flag real, previously-invisible gaps. **Correction
+  (2026-09-23, later session):** this bullet originally cited `parse-cisco-config`'s
+  `output_key` finding here as a confirmed genuine gap, "not a checker bug" — that
+  was wrong, it was in fact the exact false positive fixed in the "real live usage"
+  update above. **Re-verified against the real gallery + real registry.yaml after
+  that fix landed**: all 7 now pass Tier 1 cleanly (zero findings) — the false
+  positive wasn't isolated to this one reported case, it affected other gallery
+  workflows' Tier 1 results too. The only findings left on any of the 7 are Tier 2
+  `credential_reference_not_found` (5 of 7 reference a credential name — "cisco -
+  noc", "noc", "shared-secret" — that doesn't exist under that name in this dev DB;
+  a correct finding for this environment, not a bug in either tier).
 - Full loop, three sequential AI-authored steps added to workflow 23
   (`get-nautobot-devices` → `get-nautobot-attributes` → `get-device-configs`, later
   reset and retried clean), with the live banner→reload→clear cycle confirmed
