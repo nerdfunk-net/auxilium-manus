@@ -130,16 +130,63 @@ decoration graph handling. **Not yet manually verified live in a browser** — s
 
 ---
 
-## Tier 4 — Named attribute-path wiring (advisory)
+## Tier 4 — Named attribute-path wiring (advisory) — ✅ built 2026-09-23
 
-Lower priority, ship last. Best-effort static check that a Jinja
-`{{ device.attribute_bags.<node-id>.<key> }}` / dot-path config value references a
-node that is actually an ancestor on that branch, and — if that node's `output_key`
-(or similar) is itself known at generation time — that the key name matches. Flag as
-a **warning**, never a hard error: dynamic keys and runtime-only branches make this
-provably incomplete. This is the same class of bug the `device.parsed` flat-key nesting
-fix (see memory) was really about — a plausible-looking reference that silently
-resolves to nothing.
+Best-effort static check that a `parsed.<node-id>...` config value (bare dot-path,
+e.g. route-on-attribute's `attribute_path`, update-attribute's `source_path`, or
+inside a `{{ }}` Jinja placeholder — both namespaces expose `parsed` at the top
+level, no `device.` prefix; see `services/workflow_context/device_template.py`'s
+`build_template_context` and `workflow_steps/common/jinja_render.py`'s
+`build_jinja_context`) references a node that is actually upstream of the
+referencing step. This is the same class of bug the `device.parsed` flat-key
+nesting fix (see memory) was really about — a plausible-looking reference that
+silently resolves to nothing.
+
+**What was actually built** (`WorkflowValidationService._tier4_attribute_path_wiring`):
+narrower in scope than this section originally sketched, and deliberately so:
+
+- **Only checks `parsed.<node-id>` references**, not the
+  `device.attribute_bags.<node-id>.<key>` shape this section originally described.
+  In the real addressing scheme (`services/workflow_context/attribute_path.py`), a
+  bag name is a free-form string the *author* chooses (an inventory-source name
+  like `nautobot`/`git`, or update-attribute's own `destination_path` bag) — it has
+  no structural relationship to a canvas node id, so there is nothing to check an
+  "ancestor" against. `parsed.<node-id>.<key>` is different: it's the one addressing
+  convention where the first segment IS always a specific node's own canvas id (see
+  `services/workflow_context/node_result.py`), which is exactly what makes a
+  structural ancestry check meaningful.
+- **Only flags a candidate that matches BOTH a real node id in the canvas AND a step
+  kind confirmed (by grepping which executors call `set_node_result`) to use
+  node-id-keyed storage** — 11 kinds, hardcoded in `_NODE_SCOPED_PARSED_STEP_KINDS`
+  (`update-content`, `route-on-content`, `list-contains`, `reachable`,
+  `login-successful`, `merge-content`, `filter-output`, `compare-data`,
+  `compare-pyats-snapshot`, `configure-replace-config`, `batfish-validate-facts`).
+  A candidate matching a node id of any OTHER kind is never flagged — it's
+  ambiguous (could easily be an ordinary user-chosen `output_key` namespace that
+  happens to collide with a node id string) and Tier 4 is explicitly allowed to
+  under-report rather than risk a false positive.
+- **Does NOT implement the "key name matches" sub-check** this section originally
+  proposed. Whether the segment after `parsed.<node-id>.` is user-configurable
+  (registry.yaml's `output_key`/`parsed_output_key` fields) or a fixed literal the
+  executor always writes (e.g. `login-successful` always writes `"login"`,
+  `compare-pyats-snapshot` always writes `"comparison"`/`"comparison_diff"`) varies
+  per step with no single generic rule — verifying it would mean hardcoding each of
+  the 11 kinds' actual key convention individually, which contradicts the
+  registry-driven, no-per-step-special-casing approach Tiers 1–3 follow. Left for a
+  future pass if false negatives here turn out to matter in practice.
+- Uses the **raw** canvas graph (no funnel/disabled-step/stop-here resolution, unlike
+  Tier 3) — a reference from inside a currently-disabled step is still worth
+  flagging, and "ancestor on the graph as drawn" is what a human editing by hand
+  actually sees.
+
+7 unit tests cover: a real upstream reference (no finding), a sibling-branch stale
+reference (the motivating case), a self-reference, a candidate matching a
+non-node-scoped step kind (never guessed), an ordinary `output_key` namespace
+(never guessed), a reference nested inside a list-of-dicts config shape
+(update-attribute's `attributes` list), and a reference inside a Jinja placeholder.
+Findings are `severity="warning"`, which the existing Validate UI (dialog + node
+badges) already surfaces generically — no frontend changes were needed. **Not yet
+manually verified live in a browser** — see `PROCESS.md`.
 
 ---
 
@@ -199,8 +246,9 @@ the reused resolvers, and the graph utilities above. Three call sites:
    `pre_step_guard`'s runtime "vacuous when no devices yet" shortcut is deliberately
    NOT replicated here. **Not yet manually verified live in a browser.**
 4. **Pre-run gate** — wire the same service into `RunService.trigger_run`.
-5. **Tier 4 (advisory)** — lowest priority, ship once the loop has real usage and
-   you can see which false positives/negatives actually matter in practice.
+5. ✅ **Tier 4 (advisory)** — built 2026-09-23, narrower than originally scoped (see
+   the Tier 4 section above for exactly what shipped vs. what was deliberately cut).
+   **Not yet manually verified live in a browser.**
 
 ## Testing
 

@@ -56,11 +56,34 @@ workflow with unreachable capability requirements (e.g. wire a step needing
 `attributes` directly off an inventory step's `success` outcome with nothing in
 between) and confirming Validate reports it.
 
+**Update 2026-09-23 (same session, continued further):** Tier 4 (advisory
+attribute-path wiring) is now built — `WorkflowValidationService._tier4_attribute_path_wiring`
+flags a `parsed.<node-id>...` config reference (bare dot-path fields like
+route-on-attribute's `attribute_path`, or inside a `{{ }}` Jinja placeholder) whose
+`<node-id>` is a real canvas node id belonging to one of 11 step kinds confirmed (by
+grep, not the registry) to nest their own result under their own node id
+(`services/workflow_context/node_result.py`), but which is NOT actually upstream of
+the referencing step — the exact class of bug the `device.parsed` flat-key nesting
+fix (see memory) was about. Findings are `severity="warning"` (never an error, per
+`VALIDATION_PLAN.md`), and the existing Validate dialog/node badges already surface
+warnings generically — no frontend changes were needed for this tier. **Deliberately
+narrower than `VALIDATION_PLAN.md`'s original Tier 4 sketch** — see that doc's Tier 4
+section for exactly what shipped vs. what was cut and why (the `device.attribute_bags`
+shape from the original sketch isn't structurally checkable the same way; the "key
+name matches" sub-check was dropped as too per-step-specific to generalize). 7 new
+unit tests. **Not yet manually verified live in a browser** — do that before trusting
+it; consider wiring, e.g., a List Contains node whose result is referenced by an
+unrelated sibling branch's Route on Attribute step and confirming Validate flags it.
+
+All four validation tiers from `VALIDATION_PLAN.md` are now built. What's left of the
+original validation work is the pre-run gate (blocking Run on unresolved Tier 1–3
+errors) — see "Open items" below.
+
 **Not built yet** (see "Open items" at the end): the `AI_DEFAULTS.md` drift-checker
 inside the apply script (names were resolved by hand every time this session), an
-auto-layout helper (node positions were hardcoded by hand), Tier 4 (advisory
-attribute-path wiring) validation, and a pre-run validation gate. None of these
-blocked what's proven working; they're the next slice, not a blocker to resuming.
+auto-layout helper (node positions were hardcoded by hand), and a pre-run validation
+gate. None of these blocked what's proven working; they're the next slice, not a
+blocker to resuming.
 
 **Live test artifact**: workflow id `23`, name "AI Assistent", owned by `admin`
 (user id 1), currently has two connected steps (`get-nautobot-devices-1` →
@@ -311,16 +334,20 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `backend/services/workflow/workflow_validation_service.py` — Tier 3
   (`_tier3_capability_flow`): static DAG walk, `_CapabilityState`,
   `_intersect_capability_states`, `_is_executable_node`; `validate()` now also
-  takes `canvas_edges`
+  takes `canvas_edges`. Tier 4 (`_tier4_attribute_path_wiring`):
+  `_PARSED_PATH_CANDIDATE_RE`, `_NODE_SCOPED_PARSED_STEP_KINDS`,
+  `_iter_config_strings`
 
 **Backend — new tests:**
 - `backend/tests/unit/test_workflows_router_validate.py` — draft-vs-saved
   `canvas_nodes`/`canvas_edges` selection on the validate endpoint, plus an
   end-to-end Tier 3 case through the router
-- 12 new cases in `backend/tests/unit/test_workflow_validation_service.py`'s
-  `Tier3CapabilityFlowTests` — joins (intersection), failure-outcome branches,
+- 19 new cases in `backend/tests/unit/test_workflow_validation_service.py`:
+  `Tier3CapabilityFlowTests` (12 — joins/intersection, failure-outcome branches,
   consumes, config-aware `effective_produces`, `requires_parsed`, disabled
-  steps, cycles, canvas decorations
+  steps, cycles, canvas decorations) and `Tier4AttributePathWiringTests` (7 —
+  upstream/stale/self references, non-node-scoped and ordinary-namespace
+  candidates never guessed, nested-config and Jinja-placeholder scanning)
 
 **Frontend — new files:**
 - `frontend/src/components/features/workflows/types/workflow-ai-session.ts`
@@ -484,9 +511,10 @@ before assuming anything works from inspection alone.
   (`{x: 0}`, `{x: 400}`, `{x: 800}`, ...). Reuse
   `services/execution/graph.py::topological_generations` for x-ordering by
   dependency layer.
-- **Tier 4 (attribute-path) validation** — see `VALIDATION_PLAN.md`'s build order.
-  Tier 3 (capability-flow) is now built (see "Update 2026-09-23, same session,
-  continued" above) and **not yet manually verified live in a browser**.
+- **All four validation tiers are now built** (see the two "Update 2026-09-23"
+  entries above) and **neither Tier 3 nor Tier 4 has been manually verified live in
+  a browser yet** — only Tiers 1–2 and the UI shell have been. Do that before
+  trusting the Validate button's output fully.
 - **Pre-run validation gate** on `RunService.trigger_run`. `VALIDATION_PLAN.md`'s
   "Frontend surfacing" also calls for disabling/confirming the Run button when
   unresolved Tier 1–3 errors exist on the saved state — not wired yet; the new

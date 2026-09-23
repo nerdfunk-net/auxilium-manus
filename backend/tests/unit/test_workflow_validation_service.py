@@ -638,5 +638,154 @@ class Tier3CapabilityFlowTests(unittest.TestCase):
         self.assertEqual([f for f in result.findings if f.tier == 3], [])
 
 
+class Tier4AttributePathWiringTests(unittest.TestCase):
+    def test_reference_to_upstream_node_scoped_step_produces_no_findings(self) -> None:
+        registry = _registry(
+            _plugin("list-contains", outcomes=["success", "failure"]),
+            _plugin("route-on-attribute", outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("check", "list-contains"),
+            _node("route", "route-on-attribute", {"attribute_path": "parsed.check.contains"}),
+        ]
+        edges = [_edge("check", "route")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        self.assertEqual([f for f in result.findings if f.tier == 4], [])
+
+    def test_reference_to_non_ancestor_node_scoped_step_is_a_warning(self) -> None:
+        """The exact class of bug the device.parsed flat-key nesting fix was
+        about: a plausible-looking reference that silently resolves to
+        nothing because the referenced node isn't actually upstream."""
+        registry = _registry(
+            _plugin("list-contains", outcomes=["success"]),
+            _plugin("route-on-attribute", outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        # "check" and "route" are siblings off a common root — "check" is not
+        # an ancestor of "route".
+        nodes = [
+            _node("root", "route-on-attribute"),
+            _node("check", "list-contains"),
+            _node("route", "route-on-attribute", {"attribute_path": "parsed.check.contains"}),
+        ]
+        edges = [_edge("root", "check"), _edge("root", "route")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier4 = [f for f in result.findings if f.tier == 4]
+        self.assertEqual(len(tier4), 1)
+        self.assertEqual(tier4[0].severity, "warning")
+        self.assertEqual(tier4[0].code, "stale_node_output_reference")
+        self.assertEqual(tier4[0].node_id, "route")
+
+    def test_self_reference_produces_no_findings(self) -> None:
+        registry = _registry(_plugin("list-contains", outcomes=["success"]))
+        svc = _service(registry)
+
+        result = svc.validate(
+            [_node("check", "list-contains", {"note": "parsed.check.contains"})],
+            [],
+            acting_user_id=None,
+        )
+
+        self.assertEqual([f for f in result.findings if f.tier == 4], [])
+
+    def test_candidate_matching_a_non_node_scoped_step_is_never_guessed(self) -> None:
+        """A candidate matching a real node id whose step kind does NOT use
+        node_result.py (e.g. run-command) is ambiguous — never flagged."""
+        registry = _registry(
+            _plugin("run-command", outcomes=["success"]),
+            _plugin("route-on-attribute", outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("cmd", "run-command"),
+            _node("route", "route-on-attribute", {"attribute_path": "parsed.cmd.output"}),
+        ]
+        edges = [_edge("cmd", "route")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        self.assertEqual([f for f in result.findings if f.tier == 4], [])
+
+    def test_ordinary_output_key_namespace_is_never_flagged(self) -> None:
+        """A candidate not matching any node id at all is an ordinary
+        parsed.<output_key> namespace (e.g. parse-cisco-config) — not a
+        node-id reference, so there is nothing to check."""
+        registry = _registry(_plugin("route-on-attribute", outcomes=["success"]))
+        svc = _service(registry)
+
+        result = svc.validate(
+            [
+                _node(
+                    "route",
+                    "route-on-attribute",
+                    {"attribute_path": "parsed.cisco_config.running.hostname"},
+                )
+            ],
+            [],
+            acting_user_id=None,
+        )
+
+        self.assertEqual([f for f in result.findings if f.tier == 4], [])
+
+    def test_reference_nested_inside_a_list_of_dicts_is_found(self) -> None:
+        """update-attribute's `attributes: [{...}, {...}]` shape — string
+        scanning must recurse into nested lists/dicts, not just top-level
+        config values."""
+        registry = _registry(
+            _plugin("list-contains", outcomes=["success"]),
+            _plugin("update-attribute", outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("root", "update-attribute"),
+            _node("check", "list-contains"),
+            _node(
+                "upd",
+                "update-attribute",
+                {"attributes": [{"mode": "regex", "source_path": "parsed.check.contains"}]},
+            ),
+        ]
+        edges = [_edge("root", "check"), _edge("root", "upd")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier4 = [f for f in result.findings if f.tier == 4]
+        self.assertEqual(len(tier4), 1)
+        self.assertEqual(tier4[0].node_id, "upd")
+
+    def test_reference_inside_a_jinja_placeholder_is_found(self) -> None:
+        registry = _registry(
+            _plugin("list-contains", outcomes=["success"]),
+            _plugin("render-jinja-template", outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("root", "render-jinja-template"),
+            _node("check", "list-contains"),
+            _node(
+                "tmpl",
+                "render-jinja-template",
+                {"template": "Result: {{ parsed.check.contains }}"},
+            ),
+        ]
+        edges = [_edge("root", "check"), _edge("root", "tmpl")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier4 = [f for f in result.findings if f.tier == 4]
+        self.assertEqual(len(tier4), 1)
+        self.assertEqual(tier4[0].node_id, "tmpl")
+
+
 if __name__ == "__main__":
     unittest.main()

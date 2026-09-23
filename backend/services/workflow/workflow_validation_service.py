@@ -1,6 +1,6 @@
 """Validates a workflow's canvas beyond the structural checks WorkflowService
 already runs (cycle detection, stop-here placement, static attributes) — see
-doc/ai_workflows/VALIDATION_PLAN.md. Tiers 1-3 in this pass:
+doc/ai_workflows/VALIDATION_PLAN.md. Tiers 1-4 in this pass:
 
 - Tier 1 (schema conformance): a step's pluginConfig has every field its registry
   entry marks required.
@@ -15,12 +15,18 @@ doc/ai_workflows/VALIDATION_PLAN.md. Tiers 1-3 in this pass:
   (services/execution/step_runner/graph_resolution.py: funnels, author-disabled
   steps, stop-here truncation, canvas-decoration filtering) so the walked graph
   matches exactly what StepRunner would execute.
-
-Tier 4 (named attribute-path wiring) is a deliberate follow-up, not built here.
+- Tier 4 (named attribute-path wiring, advisory): a best-effort scan for
+  `parsed.<node-id>...` references (services/workflow_context/node_result.py's
+  addressing scheme) whose `<node-id>` is a real canvas node that is NOT
+  upstream of the referencing step — the flat-key/stale-reference class of bug
+  described in that module's docstring. Warnings only, never errors: dynamic
+  keys and a coincidental output_key match make this provably incomplete.
 """
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -31,7 +37,7 @@ from models.workflow_context import Capability
 from models.workflow_validation import ValidationFinding, WorkflowValidationResult
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
-from services.execution.graph import GraphCycleError, topological_order
+from services.execution.graph import GraphCycleError, downstream_node_ids, topological_order
 from services.execution.step_runner import graph_resolution as _gr
 from services.git.repository_service import GitRepositoryService
 from services.workflow_context.guards import StepCapabilitySpec, effective_produces
@@ -74,6 +80,60 @@ def _intersect_capability_states(states: list[_CapabilityState]) -> _CapabilityS
         capabilities = capabilities & state.capabilities
         parsed_keys = parsed_keys & state.parsed_keys
     return _CapabilityState(capabilities, parsed_keys)
+
+
+# Matches "parsed.<candidate>" wherever it appears in a config string —
+# standalone (route-on-attribute's attribute_path, update-attribute's
+# source_path/destination_path, list-contains, ...) or inside a Jinja
+# placeholder (render-jinja-template, run-command's command template: both
+# expose "parsed" as a top-level namespace — see
+# services/workflow_context/device_template.py::build_template_context and
+# workflow_steps/common/jinja_render.py::build_jinja_context, neither of
+# which nests it under "device."). `\b` matches equally after a space, "{",
+# or "." (e.g. inside "device.parsed.x", if that spelling is ever used), so
+# this needs no separate Jinja-aware branch.
+_PARSED_PATH_CANDIDATE_RE = re.compile(r"\bparsed\.([A-Za-z0-9_-]+)")
+
+# Step kinds whose executor nests its own per-run result under its own canvas
+# node id via services.workflow_context.node_result.set_node_result — i.e.
+# `parsed.<node_id>.<key>` only resolves to something real when `<node_id>`
+# is THAT step's own id. Built from `grep -rl set_node_result
+# workflow_steps/*/executor.py`, not the registry (registry.yaml's
+# `output_key` field is reused, ambiguously, for both this node-id-keyed
+# convention and a plain user-chosen `parsed.<output_key>` namespace with no
+# node-id prefix — e.g. parse-cisco-config — so it can't tell the two apart;
+# the executor import is the one unambiguous, current signal). Keep this in
+# sync if a new step starts/stops calling set_node_result.
+_NODE_SCOPED_PARSED_STEP_KINDS = frozenset(
+    {
+        "batfish-validate-facts",
+        "compare-data",
+        "compare-pyats-snapshot",
+        "configure-replace-config",
+        "filter-output",
+        "list-contains",
+        "login-successful",
+        "merge-content",
+        "reachable",
+        "route-on-content",
+        "update-content",
+    }
+)
+
+
+def _iter_config_strings(value: Any) -> Iterator[str]:
+    """Recursively yield every string leaf in a pluginConfig-shaped value
+    (dicts, lists, and nested combinations thereof — e.g. update-attribute's
+    `attributes: [{...}, {...}]`)."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_config_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_config_strings(item)
+
 
 # Mirrors frontend/.../workflow-import.ts's SHARED_SECRET_STEP_KINDS/GENERIC_STEP_KINDS —
 # which Credential.type a step's credential_reference resolves against. Unlisted
@@ -162,6 +222,7 @@ class WorkflowValidationService:
             )
 
         findings.extend(self._tier3_capability_flow(canvas_nodes, canvas_edges or []))
+        findings.extend(self._tier4_attribute_path_wiring(canvas_nodes, canvas_edges or []))
 
         return WorkflowValidationResult(
             findings=findings, has_errors=any(f.severity == "error" for f in findings)
@@ -453,5 +514,64 @@ class WorkflowValidationService:
                 outcome_state[(node_id, handle)] = (
                     input_state if _is_failure_class_outcome(handle) else success_state
                 )
+
+        return findings
+
+    def _tier4_attribute_path_wiring(
+        self, canvas_nodes: list[dict[str, Any]], canvas_edges: list[dict[str, Any]]
+    ) -> list[ValidationFinding]:
+        """Best-effort, advisory only (see module docstring). Deliberately
+        does NOT resolve funnels/disabled-steps/stop-here first, unlike Tier
+        3 — a reference from inside a currently-disabled step is still worth
+        flagging, and "ancestor on the raw canvas" is what a human editing by
+        hand actually sees. Only checks `parsed.<node-id>` references (the
+        node_result.py addressing scheme); attribute_bags bag names are
+        free-form user strings unrelated to node ids, so there is no
+        equivalent structural check for those — see the module docstring's
+        Tier 4 scoping note."""
+        node_kind_by_id: dict[str, str] = {}
+        for node in canvas_nodes:
+            node_id = node.get("id")
+            kind = (node.get("data") or {}).get("kind")
+            if isinstance(node_id, str) and isinstance(kind, str):
+                node_kind_by_id[node_id] = kind
+
+        findings: list[ValidationFinding] = []
+        for node in canvas_nodes:
+            node_id = node.get("id")
+            if not isinstance(node_id, str):
+                continue
+            plugin_config = (node.get("data") or {}).get("pluginConfig")
+            if not isinstance(plugin_config, dict):
+                continue
+
+            candidates: set[str] = set()
+            for text in _iter_config_strings(plugin_config):
+                candidates.update(_PARSED_PATH_CANDIDATE_RE.findall(text))
+
+            for candidate in sorted(candidates):
+                if candidate == node_id:
+                    continue  # a step reading its own node-scoped result is fine
+                referenced_kind = node_kind_by_id.get(candidate)
+                if referenced_kind is None or referenced_kind not in _NODE_SCOPED_PARSED_STEP_KINDS:
+                    # Not a node-id reference at all (an ordinary output_key
+                    # namespace, e.g. parse-cisco-config) — never guess.
+                    continue
+
+                if node_id not in downstream_node_ids(candidate, canvas_nodes, canvas_edges):
+                    findings.append(
+                        ValidationFinding(
+                            node_id=node_id,
+                            tier=4,
+                            severity="warning",
+                            code="stale_node_output_reference",
+                            message=(
+                                f"References 'parsed.{candidate}…', which is step "
+                                f"'{candidate}''s own result, but that step is not "
+                                f"upstream of this one on any path — this reference "
+                                f"will resolve to nothing at run time."
+                            ),
+                        )
+                    )
 
         return findings
