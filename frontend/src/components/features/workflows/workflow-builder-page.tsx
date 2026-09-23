@@ -70,6 +70,7 @@ export function WorkflowBuilderPage() {
   const validation = useWorkflowValidation({
     workflowId: persistence.workflowId,
     allNodes: canvas.allNodes,
+    allEdges: canvas.allEdges,
   });
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);

@@ -299,12 +299,17 @@ def validate_workflow(
     service: WorkflowService = Depends(_service),
     plugin_service: PluginRegistryService = Depends(get_plugin_service),
 ) -> WorkflowValidationResult:
-    """Validates a workflow — Tiers 1-2 only, see doc/ai_workflows/VALIDATION_PLAN.md.
+    """Validates a workflow — Tiers 1-3, see doc/ai_workflows/VALIDATION_PLAN.md.
     Read-only: never mutates the workflow. `workflow_id` must be a real, visible
     workflow (used for the permission/ownership check), but when `body.canvas_nodes`
-    is given that draft is validated instead of the workflow's last-saved state."""
+    is given that draft (plus `body.canvas_edges`) is validated instead of the
+    workflow's last-saved state."""
     workflow = service.get_workflow(workflow_id=workflow_id, user_id=current_user.id)
     draft_nodes = body.canvas_nodes if body is not None else None
     canvas_nodes = draft_nodes if draft_nodes is not None else workflow.canvas_nodes
+    draft_edges = body.canvas_edges if body is not None else None
+    canvas_edges = draft_edges if draft_nodes is not None else workflow.canvas_edges
     validator = WorkflowValidationService(service.db, plugin_service.get_registry())
-    return validator.validate(canvas_nodes or [], acting_user_id=current_user.id)
+    return validator.validate(
+        canvas_nodes or [], canvas_edges or [], acting_user_id=current_user.id
+    )

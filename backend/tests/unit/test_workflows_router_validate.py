@@ -48,7 +48,8 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
 def test_validate_workflow_uses_saved_canvas_nodes_by_default(app: FastAPI) -> None:
     mock_service = MagicMock()
     mock_service.get_workflow.return_value = SimpleNamespace(
-        canvas_nodes=[{"id": "n1", "data": {"kind": "unknown-step"}}]
+        canvas_nodes=[{"id": "n1", "data": {"kind": "unknown-step"}}],
+        canvas_edges=[],
     )
     app.dependency_overrides[_service] = lambda: mock_service
 
@@ -66,7 +67,8 @@ def test_validate_workflow_uses_saved_canvas_nodes_by_default(app: FastAPI) -> N
 def test_validate_workflow_prefers_draft_canvas_nodes_from_body(app: FastAPI) -> None:
     mock_service = MagicMock()
     mock_service.get_workflow.return_value = SimpleNamespace(
-        canvas_nodes=[{"id": "saved", "data": {"kind": "unknown-step"}}]
+        canvas_nodes=[{"id": "saved", "data": {"kind": "unknown-step"}}],
+        canvas_edges=[],
     )
     app.dependency_overrides[_service] = lambda: mock_service
 
@@ -83,7 +85,7 @@ def test_validate_workflow_prefers_draft_canvas_nodes_from_body(app: FastAPI) ->
 
 def test_validate_workflow_returns_no_findings_for_clean_canvas(app: FastAPI) -> None:
     mock_service = MagicMock()
-    mock_service.get_workflow.return_value = SimpleNamespace(canvas_nodes=[])
+    mock_service.get_workflow.return_value = SimpleNamespace(canvas_nodes=[], canvas_edges=[])
     app.dependency_overrides[_service] = lambda: mock_service
 
     with TestClient(app) as client:
@@ -91,3 +93,45 @@ def test_validate_workflow_returns_no_findings_for_clean_canvas(app: FastAPI) ->
 
     assert response.status_code == 200
     assert response.json() == {"findings": [], "has_errors": False}
+
+
+def test_validate_workflow_prefers_draft_canvas_edges_from_body(app: FastAPI) -> None:
+    """Tier 3 needs edges: a step requiring a capability nothing upstream
+    produces must be flagged even when the draft is unsaved."""
+    mock_service = MagicMock()
+    mock_service.get_workflow.return_value = SimpleNamespace(canvas_nodes=[], canvas_edges=[])
+    app.dependency_overrides[_service] = lambda: mock_service
+    app.dependency_overrides[get_plugin_service] = lambda: SimpleNamespace(
+        get_registry=lambda: PluginRegistry(
+            schema_version=1,
+            plugins=[
+                {
+                    "id": "needs-identity",
+                    "name": "Needs Identity",
+                    "overview": "o",
+                    "description": "d",
+                    "artifact_type": "command_execution",
+                    "directory": "needs_identity",
+                    "requires": ["identity"],
+                    "produces": [],
+                    "outcomes": [{"name": "success"}],
+                }
+            ],
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/workflows/1/validate",
+            json={
+                "canvas_nodes": [{"id": "n1", "data": {"kind": "needs-identity"}}],
+                "canvas_edges": [],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    tier3 = [f for f in body["findings"] if f["tier"] == 3]
+    assert len(tier3) == 1
+    assert tier3[0]["code"] == "missing_capability"
+    assert tier3[0]["node_id"] == "n1"

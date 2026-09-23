@@ -28,11 +28,39 @@ been built" for the file list. **Verified live in a browser by the user**: an
 intentionally-introduced config error was correctly caught and surfaced by the
 Validate button.
 
+**Update 2026-09-23 (same session, continued):** Tier 3 (capability-flow) validation
+is now built — `WorkflowValidationService._tier3_capability_flow` does a static DAG
+walk reusing the real runtime rules from `services/workflow_context/guards.py`
+(`effective_produces`, `StepCapabilitySpec.consumes`) and the same graph-resolution
+pipeline `StepRunner` walks at execution time
+(`services/execution/step_runner/graph_resolution.py`: funnel splicing,
+author-disabled steps, stop-here truncation, canvas-decoration filtering) — so the
+walked graph matches exactly what would actually execute. Joins (multiple parent
+edges) use **intersection**: a capability guaranteed on only one incoming branch is
+not counted, since a device could have arrived via the other one — this is a
+deliberate, documented departure from a literal port of the frontend's
+`capability-graph.ts` (which the same reasoning already uses) and from
+`pre_step_guard`'s runtime "vacuous when no devices selected yet" shortcut, which
+is intentionally NOT replicated: a step requiring a capability with nothing upstream
+to produce it is exactly the AI-authored wiring bug this tier exists to catch, and a
+hand-built canvas can never reach that state (`WorkflowCanvas`'s `isValidConnection`
+already blocks the edge) — only a script-authored patch can. `POST
+/workflows/{id}/validate` and `WorkflowValidationService.validate()` now also take
+`canvas_edges` (previously nodes-only, which made Tier 3 impossible); the frontend's
+Validate button now sends both. 12 new unit tests in
+`test_workflow_validation_service.py` cover joins, failure-outcome branches, consumes,
+`effective_produces`' config-awareness (get-device-configs), `requires_parsed`, and
+disabled/cyclic/decoration graph handling. **Not yet manually verified live in a
+browser** — do that before trusting it fully; consider deliberately misconfiguring a
+workflow with unreachable capability requirements (e.g. wire a step needing
+`attributes` directly off an inventory step's `success` outcome with nothing in
+between) and confirming Validate reports it.
+
 **Not built yet** (see "Open items" at the end): the `AI_DEFAULTS.md` drift-checker
 inside the apply script (names were resolved by hand every time this session), an
-auto-layout helper (node positions were hardcoded by hand), Tier 3/4 validation, and a
-pre-run validation gate. None of these blocked what's proven working; they're the next
-slice, not a blocker to resuming.
+auto-layout helper (node positions were hardcoded by hand), Tier 4 (advisory
+attribute-path wiring) validation, and a pre-run validation gate. None of these
+blocked what's proven working; they're the next slice, not a blocker to resuming.
 
 **Live test artifact**: workflow id `23`, name "AI Assistent", owned by `admin`
 (user id 1), currently has two connected steps (`get-nautobot-devices-1` →
@@ -275,15 +303,24 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `backend/models/workflow_validation.py` — `WorkflowValidateRequest` (optional
   unsaved-draft body for the validate endpoint)
 - `backend/routers/workflows.py` — `POST /workflows/{id}/validate` endpoint; now
-  accepts an optional body so it can validate unsaved canvas edits, not just the
-  last-saved state
+  accepts an optional body (`canvas_nodes` + `canvas_edges`) so it can validate
+  unsaved canvas edits, not just the last-saved state
 - `backend/services/auth/rbac_seed.py` — `AI_ASSISTANT_PERMISSIONS`, `ensure_ai_assistant_user`
 - `backend/services/workflow/workflow_service.py` — `update_workflow_for_ai_session` +
   `_apply_update` refactor
+- `backend/services/workflow/workflow_validation_service.py` — Tier 3
+  (`_tier3_capability_flow`): static DAG walk, `_CapabilityState`,
+  `_intersect_capability_states`, `_is_executable_node`; `validate()` now also
+  takes `canvas_edges`
 
 **Backend — new tests:**
 - `backend/tests/unit/test_workflows_router_validate.py` — draft-vs-saved
-  `canvas_nodes` selection on the validate endpoint
+  `canvas_nodes`/`canvas_edges` selection on the validate endpoint, plus an
+  end-to-end Tier 3 case through the router
+- 12 new cases in `backend/tests/unit/test_workflow_validation_service.py`'s
+  `Tier3CapabilityFlowTests` — joins (intersection), failure-outcome branches,
+  consumes, config-aware `effective_produces`, `requires_parsed`, disabled
+  steps, cycles, canvas decorations
 
 **Frontend — new files:**
 - `frontend/src/components/features/workflows/types/workflow-ai-session.ts`
@@ -293,11 +330,12 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `frontend/src/components/features/workflows/components/ai-session-update-banner.tsx`
 - `frontend/src/components/features/workflows/types/workflow-validation.ts` —
   `ValidationFinding`/`WorkflowValidationResult` mirroring the backend models
-- `frontend/src/hooks/queries/use-workflow-validate-mutation.ts`
+- `frontend/src/hooks/queries/use-workflow-validate-mutation.ts` — now sends
+  `canvas_edges` alongside `canvas_nodes` (needed for Tier 3)
 - `frontend/src/components/features/workflows/hooks/use-workflow-validation.ts` —
   drives the Validate button: mutation, dialog open state, per-node
   error/warning counts (workflowId-keyed so a workflow switch can't show stale
-  findings)
+  findings); now also takes `allEdges`
 - `frontend/src/components/features/workflows/dialogs/workflow-validation-dialog.tsx`
   — findings grouped by node; clicking a group selects that node and opens its
   config modal
@@ -446,8 +484,9 @@ before assuming anything works from inspection alone.
   (`{x: 0}`, `{x: 400}`, `{x: 800}`, ...). Reuse
   `services/execution/graph.py::topological_generations` for x-ordering by
   dependency layer.
-- **Tier 3 (capability-flow) and Tier 4 (attribute-path) validation** — see
-  `VALIDATION_PLAN.md`'s build order.
+- **Tier 4 (attribute-path) validation** — see `VALIDATION_PLAN.md`'s build order.
+  Tier 3 (capability-flow) is now built (see "Update 2026-09-23, same session,
+  continued" above) and **not yet manually verified live in a browser**.
 - **Pre-run validation gate** on `RunService.trigger_run`. `VALIDATION_PLAN.md`'s
   "Frontend surfacing" also calls for disabling/confirming the Run button when
   unresolved Tier 1–3 errors exist on the saved state — not wired yet; the new

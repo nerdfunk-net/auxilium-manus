@@ -80,7 +80,7 @@ same distinction `workflow-import.ts`'s remap logic already makes).
 
 ---
 
-## Tier 3 — Capability flow (the good news)
+## Tier 3 — Capability flow (the good news) — ✅ built 2026-09-23
 
 **This already exists as a runtime mechanism.** `services/workflow_context/guards.py`
 has `StepCapabilitySpec`, `effective_produces(spec, step_type, config)`, and
@@ -90,22 +90,43 @@ I/O required to evaluate `effective_produces`. Today they only run inside
 `StepRunner` during an actual execution, raising `RuntimeError` (which aborts the run)
 on mismatch.
 
-**Work:** a static walker, not a new guard:
-1. Build the DAG's `topological_generations` (`services/execution/graph.py` — already
-   used by `StepRunner`).
-2. Walk layer by layer. For each node, compute a synthetic "capabilities available on
-   this path" set = union of `effective_produces(...)` over every ancestor path
-   reaching it (a node with multiple parents needs the *intersection* across
-   incoming branches that must all have run — fan-in semantics need a look at
-   `fan_in`'s executor to get this right, since a capability only "produced" on one
-   branch of an unresolved OR doesn't count as guaranteed downstream of a join).
-3. At each node, call the same missing-capability check `pre_step_guard` does,
-   without a `WorkflowContext` — just spec vs. accumulated set — and collect findings
-   instead of raising.
+**What was actually built** (`WorkflowValidationService._tier3_capability_flow`,
+`backend/services/workflow/workflow_validation_service.py`):
+1. Resolve the graph exactly like `StepRunner` does before walking it — reusing
+   `services/execution/step_runner/graph_resolution.py`'s `resolve_funnels`,
+   `resolve_disabled_steps`, `resolve_stop_here`, and a local
+   executable-node filter (same rule as `is_executable_node`, without needing a
+   `PluginRegistryService`) — then `services/execution/graph.py::topological_order`.
+2. Walk in topological order, tracking `(capabilities, parsed_keys)` per node.
+   A node with multiple parents takes the **intersection** across incoming branches
+   (`_intersect_capability_states`): a capability produced on only one branch of an
+   unresolved fork isn't guaranteed for a device that could have taken the other one.
+   This turned out to already be a settled question, not a new one to answer from
+   scratch — it's exactly what the frontend's `capability-graph.ts` (used for
+   canvas connection validation) already does at edge-draw time; the backend walker
+   ports that same join rule rather than inventing a second one, while getting
+   `effective_produces`' config-awareness (something the frontend's naive
+   `node.data.produces` doesn't have — e.g. `get-device-configs` only truly
+   guarantees `startup_config` when `config_format == "startup"`) as a bonus from
+   reusing the real backend function.
+3. `pre_step_guard`'s runtime "vacuous when no devices selected yet" shortcut is
+   **deliberately not replicated**: a step requiring a capability with nothing
+   upstream to produce it is exactly the AI-authored wiring bug this tier exists to
+   catch, and a hand-built canvas can never reach that state (`WorkflowCanvas`'s
+   `isValidConnection` already blocks the edge) — only a script-authored
+   `canvas_nodes`/`canvas_edges` patch can, which is precisely the audience Tier 3
+   serves.
+4. A step's `produces`/`produces_parsed` are only counted on outcomes other than
+   `failure`/`fail`/`error` (same `FAILURE_CLASS_OUTCOMES` set as
+   `capability-graph.ts`, deliberately excluding `mismatch`) — a step wired off its
+   failure branch inherits its *input* state, not what it would have produced on
+   success.
 
 This reuses real, already-tested logic instead of building a parallel capability
-model. The main new code is the DAG walk + fan-in join semantics, not the capability
-rules themselves.
+model. 12 unit tests cover joins, failure-outcome branches, `consumes`,
+`effective_produces`' config-awareness, `requires_parsed`, and disabled/cyclic/
+decoration graph handling. **Not yet manually verified live in a browser** — see
+`PROCESS.md`.
 
 ---
 
@@ -162,13 +183,21 @@ the reused resolvers, and the graph utilities above. Three call sites:
 
 ## Build order
 
-1. **Tier 1 + Tier 2 + validate endpoint (no UI yet)** — the mechanical, highest
+1. ✅ **Tier 1 + Tier 2 + validate endpoint (no UI yet)** — the mechanical, highest
    -value chunk. Catches the large majority of "AI guessed a config field wrong" bugs.
-2. **Minimal UI** (Validate button, findings panel, node badges) — needed for the
+2. ✅ **Minimal UI** (Validate button, findings panel, node badges) — needed for the
    human side of the collaboration loop; can ship right after step 1 since it only
-   needs the endpoint to exist.
-3. **Tier 3 (capability-flow walker)** — moderate effort, mostly a DAG walk over
-   existing pure functions; get fan-in join semantics right.
+   needs the endpoint to exist. Verified live in a browser (2026-09-23).
+3. ✅ **Tier 3 (capability-flow walker)** — built 2026-09-23. Reuses
+   `services/workflow_context/guards.py` (`effective_produces`,
+   `StepCapabilitySpec.consumes`) and `services/execution/step_runner/graph_resolution.py`
+   (funnels, disabled steps, stop-here, decoration filtering) — the graph it walks
+   matches exactly what `StepRunner` would execute. Joins use **intersection** (a
+   capability on only one incoming branch doesn't count), which also settles the
+   "fan-in join semantics" question this bullet originally flagged as open — see
+   `PROCESS.md`'s corresponding update entry for the full reasoning, including why
+   `pre_step_guard`'s runtime "vacuous when no devices yet" shortcut is deliberately
+   NOT replicated here. **Not yet manually verified live in a browser.**
 4. **Pre-run gate** — wire the same service into `RunService.trigger_run`.
 5. **Tier 4 (advisory)** — lowest priority, ship once the loop has real usage and
    you can see which false positives/negatives actually matter in practice.

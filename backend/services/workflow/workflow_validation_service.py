@@ -1,28 +1,79 @@
 """Validates a workflow's canvas beyond the structural checks WorkflowService
 already runs (cycle detection, stop-here placement, static attributes) — see
-doc/ai_workflows/VALIDATION_PLAN.md. Tiers 1-2 only in this pass:
+doc/ai_workflows/VALIDATION_PLAN.md. Tiers 1-3 in this pass:
 
 - Tier 1 (schema conformance): a step's pluginConfig has every field its registry
   entry marks required.
 - Tier 2 (reference existence): credential_reference/git_repository_id/*_source_id
   values resolve for the acting user. Existing resolvers are reused, never
   re-implemented — CredentialsService, git_repository_loader, SettingsRepository.
+- Tier 3 (capability flow): a static DAG walk checking every step's declared
+  `requires`/`requires_parsed` is satisfiable from some upstream path, reusing
+  the same rules the runtime guards enforce (services/workflow_context/guards.py)
+  — `effective_produces` (config-aware, e.g. get-device-configs' produces
+  depends on `config_format`), `consumes`, and graph resolution
+  (services/execution/step_runner/graph_resolution.py: funnels, author-disabled
+  steps, stop-here truncation, canvas-decoration filtering) so the walked graph
+  matches exactly what StepRunner would execute.
 
-Tiers 3-4 (capability-flow, named attribute-path wiring) are a deliberate
-follow-up, not built here.
+Tier 4 (named attribute-path wiring) is a deliberate follow-up, not built here.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from models.plugins import PluginDefinition, PluginRegistry
+from models.workflow_context import Capability
 from models.workflow_validation import ValidationFinding, WorkflowValidationResult
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
+from services.execution.graph import GraphCycleError, topological_order
+from services.execution.step_runner import graph_resolution as _gr
 from services.git.repository_service import GitRepositoryService
+from services.workflow_context.guards import StepCapabilitySpec, effective_produces
+from services.workflow_context.registry import capability_spec_from_plugin
+
+# Outcome names whose branch only ever carries devices a step could NOT
+# process — mirrors frontend/.../utils/capability-graph.ts's
+# FAILURE_CLASS_OUTCOMES exactly (same reasoning: "mismatch" is deliberately
+# excluded, it's a normal successful result like compare-data's
+# comparison_diff, not a per-device failure). A finding on such an outcome's
+# downstream path must not be silenced by capabilities the step only
+# guarantees on its success path.
+_FAILURE_CLASS_OUTCOMES = frozenset({"failure", "fail", "error"})
+
+
+@dataclass(frozen=True)
+class _CapabilityState:
+    capabilities: frozenset[Capability]
+    parsed_keys: frozenset[str]
+
+
+_EMPTY_CAPABILITY_STATE = _CapabilityState(frozenset(), frozenset())
+
+
+def _is_failure_class_outcome(name: str) -> bool:
+    return name.strip().lower() in _FAILURE_CLASS_OUTCOMES
+
+
+def _intersect_capability_states(states: list[_CapabilityState]) -> _CapabilityState:
+    """Meet operation at a join (multiple parents): only what EVERY incoming
+    branch guarantees survives. Deliberately conservative — a capability
+    produced on only one branch of an unresolved fork isn't guaranteed for a
+    device that could have arrived via the other one. See
+    doc/ai_workflows/VALIDATION_PLAN.md's Tier 3 section."""
+    if not states:
+        return _EMPTY_CAPABILITY_STATE
+    capabilities = states[0].capabilities
+    parsed_keys = states[0].parsed_keys
+    for state in states[1:]:
+        capabilities = capabilities & state.capabilities
+        parsed_keys = parsed_keys & state.parsed_keys
+    return _CapabilityState(capabilities, parsed_keys)
 
 # Mirrors frontend/.../workflow-import.ts's SHARED_SECRET_STEP_KINDS/GENERIC_STEP_KINDS —
 # which Credential.type a step's credential_reference resolves against. Unlisted
@@ -74,6 +125,7 @@ class WorkflowValidationService:
     def validate(
         self,
         canvas_nodes: list[dict[str, Any]],
+        canvas_edges: list[dict[str, Any]] | None = None,
         *,
         acting_user_id: int | None,
     ) -> WorkflowValidationResult:
@@ -108,6 +160,8 @@ class WorkflowValidationService:
             findings.extend(
                 self._tier2_references(node_id, kind, plugin_config, acting_user_id)
             )
+
+        findings.extend(self._tier3_capability_flow(canvas_nodes, canvas_edges or []))
 
         return WorkflowValidationResult(
             findings=findings, has_errors=any(f.severity == "error" for f in findings)
@@ -260,3 +314,144 @@ class WorkflowValidationService:
                 )
             ]
         return []
+
+    def _is_executable_node(self, node: dict[str, Any]) -> bool:
+        """Mirrors graph_resolution.is_executable_node without constructing a
+        PluginRegistryService — this class already indexes plugins by id.
+        Unknown kinds stay executable (Tier 1 already flags them separately;
+        dropping them here would just hide the node from the Tier 3 walk)."""
+        data = node.get("data") or {}
+        kind = data.get("kind")
+        if not isinstance(kind, str) or not kind:
+            return True
+        plugin = self._plugins_by_id.get(kind)
+        if plugin is None:
+            return True
+        return plugin.executable
+
+    def _tier3_capability_flow(
+        self, canvas_nodes: list[dict[str, Any]], canvas_edges: list[dict[str, Any]]
+    ) -> list[ValidationFinding]:
+        try:
+            nodes, edges = _gr.resolve_funnels(canvas_nodes, canvas_edges)
+            nodes, edges = _gr.resolve_disabled_steps(nodes, edges)
+            nodes, edges = _gr.resolve_stop_here(nodes, edges)
+        except ValueError as exc:
+            # Malformed funnel wiring (wrong outgoing-edge count, funnel
+            # chaining) — a real problem, but structural, not a capability
+            # one; report it rather than silently dropping Tier 3 entirely.
+            return [
+                ValidationFinding(
+                    node_id=None, tier=3, severity="error", code="graph_resolution_failed",
+                    message=str(exc),
+                )
+            ]
+
+        executable_nodes = [n for n in nodes if self._is_executable_node(n)]
+        executable_ids = {n["id"] for n in executable_nodes if "id" in n}
+        executable_edges = [
+            e
+            for e in edges
+            if e.get("source") in executable_ids and e.get("target") in executable_ids
+        ]
+
+        try:
+            order = topological_order(executable_nodes, executable_edges)
+        except GraphCycleError:
+            # Cycles are a save-time hard error (WorkflowService._validate_no_cycle)
+            # for anything actually saved; an unsaved draft sent straight to
+            # this endpoint could still contain one. Capability flow is
+            # undefined over a cycle, so report it plainly instead of
+            # attempting a walk that can't terminate meaningfully.
+            return [
+                ValidationFinding(
+                    node_id=None, tier=3, severity="error", code="graph_cycle",
+                    message="Workflow graph contains a cycle — capability-flow validation skipped.",
+                )
+            ]
+
+        incoming_by_target: dict[str, list[dict[str, Any]]] = {}
+        for edge in executable_edges:
+            incoming_by_target.setdefault(edge.get("target", ""), []).append(edge)
+
+        # (node_id, outcome_handle) -> capability state guaranteed on that
+        # outgoing edge, filled in as the walk proceeds in dependency order.
+        outcome_state: dict[tuple[str, str], _CapabilityState] = {}
+        findings: list[ValidationFinding] = []
+
+        for node in order:
+            node_id = node.get("id", "")
+            data = node.get("data") or {}
+            kind = data.get("kind")
+            plugin = self._plugins_by_id.get(kind) if isinstance(kind, str) else None
+            if plugin is None:
+                continue  # unknown kind — Tier 1 already flags this node
+
+            parent_edges = incoming_by_target.get(node_id, [])
+            if parent_edges:
+                parent_states = [
+                    outcome_state.get(
+                        (edge.get("source", ""), edge.get("sourceHandle") or "success"),
+                        _EMPTY_CAPABILITY_STATE,
+                    )
+                    for edge in parent_edges
+                ]
+                input_state = _intersect_capability_states(parent_states)
+            else:
+                input_state = _EMPTY_CAPABILITY_STATE
+
+            spec: StepCapabilitySpec = capability_spec_from_plugin(plugin)
+            plugin_config = data.get("pluginConfig")
+            plugin_config = plugin_config if isinstance(plugin_config, dict) else {}
+
+            missing_capabilities = set(spec.requires) - input_state.capabilities
+            if missing_capabilities:
+                findings.append(
+                    ValidationFinding(
+                        node_id=node_id,
+                        tier=3,
+                        severity="error",
+                        code="missing_capability",
+                        message=(
+                            f"Step '{plugin.name}' requires "
+                            f"{sorted(c.value for c in missing_capabilities)}, but no upstream "
+                            f"step on every path reaching it guarantees that."
+                        ),
+                    )
+                )
+            missing_parsed = set(spec.requires_parsed) - input_state.parsed_keys
+            if missing_parsed:
+                findings.append(
+                    ValidationFinding(
+                        node_id=node_id,
+                        tier=3,
+                        severity="error",
+                        code="missing_parsed_key",
+                        message=(
+                            f"Step '{plugin.name}' requires parsed key(s) "
+                            f"{sorted(missing_parsed)}, but no upstream step on every path "
+                            f"reaching it guarantees producing them."
+                        ),
+                    )
+                )
+
+            produces = effective_produces(spec=spec, step_type=plugin.id, config=plugin_config)
+            success_state = _CapabilityState(
+                (input_state.capabilities - spec.consumes) | produces,
+                input_state.parsed_keys | frozenset(plugin.produces_parsed),
+            )
+
+            outgoing_handles = {
+                edge.get("sourceHandle") or "success"
+                for edge in executable_edges
+                if edge.get("source") == node_id
+            }
+            handle_names = {outcome.name for outcome in plugin.outcomes} | outgoing_handles
+            if not handle_names:
+                handle_names = {"success"}
+            for handle in handle_names:
+                outcome_state[(node_id, handle)] = (
+                    input_state if _is_failure_class_outcome(handle) else success_state
+                )
+
+        return findings

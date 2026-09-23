@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useWorkflowValidateMutation } from "@/hooks/queries/use-workflow-validate-mutation";
 
-import type { PersistedCanvasNode } from "../types/workflow-canvas";
+import type { PersistedCanvasNode, WorkflowCanvasEdge } from "../types/workflow-canvas";
 import type { WorkflowValidationResult } from "../types/workflow-validation";
 
 export interface NodeValidationSummary {
@@ -15,6 +15,7 @@ export interface NodeValidationSummary {
 interface UseWorkflowValidationOptions {
   workflowId: number | null;
   allNodes: PersistedCanvasNode[];
+  allEdges: WorkflowCanvasEdge[];
 }
 
 interface ValidationState {
@@ -22,7 +23,11 @@ interface ValidationState {
   result: WorkflowValidationResult;
 }
 
-export function useWorkflowValidation({ workflowId, allNodes }: UseWorkflowValidationOptions) {
+export function useWorkflowValidation({
+  workflowId,
+  allNodes,
+  allEdges,
+}: UseWorkflowValidationOptions) {
   const [validationState, setValidationState] = useState<ValidationState | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const validateMutation = useWorkflowValidateMutation(workflowId);
@@ -34,13 +39,19 @@ export function useWorkflowValidation({ workflowId, allNodes }: UseWorkflowValid
 
   const handleValidate = useCallback(() => {
     if (workflowId == null) return;
-    validateMutation.mutate(allNodes as unknown as Record<string, unknown>[], {
-      onSuccess: (data) => {
-        setValidationState({ workflowId, result: data });
-        setIsDialogOpen(true);
+    validateMutation.mutate(
+      {
+        canvasNodes: allNodes as unknown as Record<string, unknown>[],
+        canvasEdges: allEdges as unknown as Record<string, unknown>[],
       },
-    });
-  }, [workflowId, allNodes, validateMutation]);
+      {
+        onSuccess: (data) => {
+          setValidationState({ workflowId, result: data });
+          setIsDialogOpen(true);
+        },
+      },
+    );
+  }, [workflowId, allNodes, allEdges, validateMutation]);
 
   const validationByNodeId = useMemo(() => {
     const map: Record<string, NodeValidationSummary> = {};

@@ -1,5 +1,5 @@
-"""Tests for services/workflow/workflow_validation_service.py — Tiers 1-2 only,
-see doc/ai_workflows/VALIDATION_PLAN.md. Tier 2's external resolvers
+"""Tests for services/workflow/workflow_validation_service.py — Tiers 1-3, see
+doc/ai_workflows/VALIDATION_PLAN.md. Tier 2's external resolvers
 (CredentialManager, load_git_repository) are mocked at the module boundary —
 they have their own test coverage elsewhere; this file only tests that this
 service calls them correctly and turns a failure into a finding."""
@@ -9,7 +9,13 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from models.plugins import PluginDefinition, PluginIOField, PluginMetadata, PluginRegistry
+from models.plugins import (
+    PluginDefinition,
+    PluginIOField,
+    PluginMetadata,
+    PluginRegistry,
+    PluginStepOutcome,
+)
 from services.workflow.workflow_validation_service import WorkflowValidationService
 
 
@@ -20,12 +26,19 @@ def _registry(*plugins: PluginDefinition) -> PluginRegistry:
 def _plugin(
     plugin_id: str,
     *,
-    required_fields: list[str],
+    required_fields: list[str] | None = None,
     optional_fields: list[str] | None = None,
+    artifact_type: str = "generic",
+    requires: list[str] | None = None,
+    produces: list[str] | None = None,
+    consumes: list[str] | None = None,
+    requires_parsed: list[str] | None = None,
+    produces_parsed: list[str] | None = None,
+    outcomes: list[str] | None = None,
 ) -> PluginDefinition:
     fields = [
         PluginIOField(name=name, description=name, data_type="string", required=True)
-        for name in required_fields
+        for name in required_fields or []
     ] + [
         PluginIOField(name=name, description=name, data_type="string", required=False)
         for name in optional_fields or []
@@ -35,15 +48,30 @@ def _plugin(
         name=plugin_id,
         overview="test",
         description="test",
-        artifact_type="generic",
+        artifact_type=artifact_type,
         directory=plugin_id,
-        outcomes=[],
+        requires=requires or [],
+        produces=produces or [],
+        consumes=consumes or [],
+        requires_parsed=requires_parsed or [],
+        produces_parsed=produces_parsed or [],
+        outcomes=[PluginStepOutcome(name=name) for name in outcomes or []],
         metadata=PluginMetadata(configuration_input=fields),
     )
 
 
-def _node(node_id: str, kind: str, plugin_config: dict) -> dict:
-    return {"id": node_id, "data": {"kind": kind, "pluginConfig": plugin_config}}
+def _node(node_id: str, kind: str, plugin_config: dict | None = None) -> dict:
+    return {"id": node_id, "data": {"kind": kind, "pluginConfig": plugin_config or {}}}
+
+
+def _edge(source: str, target: str, source_handle: str = "success") -> dict:
+    return {
+        "id": f"{source}->{target}",
+        "source": source,
+        "target": target,
+        "sourceHandle": source_handle,
+        "targetHandle": "input",
+    }
 
 
 def _service(registry: PluginRegistry) -> WorkflowValidationService:
@@ -302,6 +330,312 @@ class Tier2ReferenceTests(unittest.TestCase):
         )
 
         self.assertEqual(result.findings, [])
+
+
+class Tier3CapabilityFlowTests(unittest.TestCase):
+    def test_missing_capability_with_no_upstream_is_an_error(self) -> None:
+        registry = _registry(_plugin("run-command", requires=["identity"], outcomes=["success"]))
+        svc = _service(registry)
+
+        result = svc.validate([_node("n1", "run-command")], acting_user_id=None)
+
+        tier3 = [f for f in result.findings if f.tier == 3]
+        self.assertEqual(len(tier3), 1)
+        self.assertEqual(tier3[0].code, "missing_capability")
+        self.assertEqual(tier3[0].node_id, "n1")
+
+    def test_capability_satisfied_by_upstream_inventory_step_produces_no_findings(self) -> None:
+        registry = _registry(
+            _plugin(
+                "get-nautobot-devices",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success", "failure"],
+            ),
+            _plugin("run-command", requires=["identity"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        result = svc.validate(
+            [_node("inv", "get-nautobot-devices"), _node("cmd", "run-command")],
+            [_edge("inv", "cmd")],
+            acting_user_id=None,
+        )
+
+        self.assertEqual([f for f in result.findings if f.tier == 3], [])
+
+    def test_capability_only_on_one_branch_of_a_join_is_still_missing(self) -> None:
+        """A join needs EVERY incoming branch to guarantee a capability — one
+        branch producing it is not enough, since a device could have arrived
+        via the other (VALIDATION_PLAN.md's intersection-at-joins rule)."""
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success"],
+            ),
+            _plugin("adds-attributes", produces=["attributes"], outcomes=["success"]),
+            _plugin("passthrough", outcomes=["success"]),
+            _plugin("needs-attributes", requires=["attributes"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("inv", "inv"),
+            _node("a", "adds-attributes"),
+            _node("b", "passthrough"),
+            _node("join", "needs-attributes"),
+        ]
+        edges = [
+            _edge("inv", "a"),
+            _edge("inv", "b"),
+            _edge("a", "join"),
+            _edge("b", "join"),
+        ]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier3 = [f for f in result.findings if f.tier == 3]
+        self.assertEqual(len(tier3), 1)
+        self.assertEqual(tier3[0].node_id, "join")
+        self.assertEqual(tier3[0].code, "missing_capability")
+
+    def test_capability_on_every_branch_of_a_join_produces_no_findings(self) -> None:
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success"],
+            ),
+            _plugin("adds-attributes-1", produces=["attributes"], outcomes=["success"]),
+            _plugin("adds-attributes-2", produces=["attributes"], outcomes=["success"]),
+            _plugin("needs-attributes", requires=["attributes"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("inv", "inv"),
+            _node("a", "adds-attributes-1"),
+            _node("b", "adds-attributes-2"),
+            _node("join", "needs-attributes"),
+        ]
+        edges = [
+            _edge("inv", "a"),
+            _edge("inv", "b"),
+            _edge("a", "join"),
+            _edge("b", "join"),
+        ]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        self.assertEqual([f for f in result.findings if f.tier == 3], [])
+
+    def test_failure_outcome_does_not_carry_success_only_capability(self) -> None:
+        """A step's `produces` is only guaranteed on its success outcome — a
+        step wired off the failure branch must not inherit it."""
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success", "failure"],
+            ),
+            _plugin("adds-attributes", produces=["attributes"], outcomes=["success", "failure"]),
+            _plugin("needs-attributes", requires=["attributes"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("inv", "inv"),
+            _node("a", "adds-attributes"),
+            _node("next", "needs-attributes"),
+        ]
+        edges = [
+            _edge("inv", "a"),
+            _edge("a", "next", source_handle="failure"),
+        ]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier3 = [f for f in result.findings if f.tier == 3]
+        self.assertEqual(len(tier3), 1)
+        self.assertEqual(tier3[0].node_id, "next")
+
+    def test_consumed_capability_is_no_longer_available_downstream(self) -> None:
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity", "attributes"],
+                outcomes=["success"],
+            ),
+            _plugin("consumes-attributes", consumes=["attributes"], outcomes=["success"]),
+            _plugin("needs-attributes", requires=["attributes"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("inv", "inv"),
+            _node("consumer", "consumes-attributes"),
+            _node("next", "needs-attributes"),
+        ]
+        edges = [_edge("inv", "consumer"), _edge("consumer", "next")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier3 = [f for f in result.findings if f.tier == 3]
+        self.assertEqual(len(tier3), 1)
+        self.assertEqual(tier3[0].node_id, "next")
+
+    def test_effective_produces_is_config_aware_for_get_device_configs(self) -> None:
+        """effective_produces (guards.py) is reused, not node.data.produces —
+        get-device-configs only guarantees startup_config when config_format
+        is 'startup', regardless of what the registry's static produces list
+        says."""
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success"],
+            ),
+            _plugin(
+                "get-device-configs",
+                produces=["running_config", "startup_config"],
+                outcomes=["success"],
+            ),
+            _plugin("needs-running", requires=["running_config"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("inv", "inv"),
+            _node("configs", "get-device-configs", {"config_format": "startup"}),
+            _node("next", "needs-running"),
+        ]
+        edges = [_edge("inv", "configs"), _edge("configs", "next")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier3 = [f for f in result.findings if f.tier == 3]
+        self.assertEqual(len(tier3), 1)
+        self.assertEqual(tier3[0].node_id, "next")
+
+    def test_missing_parsed_key_is_an_error(self) -> None:
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success"],
+            ),
+            _plugin("run-command", outcomes=["success"]),
+            _plugin("needs-parsed", requires_parsed=["interfaces"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("inv", "inv"),
+            _node("cmd", "run-command"),
+            _node("next", "needs-parsed"),
+        ]
+        edges = [_edge("inv", "cmd"), _edge("cmd", "next")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier3 = [f for f in result.findings if f.tier == 3]
+        self.assertEqual(len(tier3), 1)
+        self.assertEqual(tier3[0].code, "missing_parsed_key")
+
+    def test_produces_parsed_satisfies_downstream_requires_parsed(self) -> None:
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success"],
+            ),
+            _plugin(
+                "run-command",
+                produces_parsed=["interfaces"],
+                outcomes=["success"],
+            ),
+            _plugin("needs-parsed", requires_parsed=["interfaces"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        nodes = [
+            _node("inv", "inv"),
+            _node("cmd", "run-command"),
+            _node("next", "needs-parsed"),
+        ]
+        edges = [_edge("inv", "cmd"), _edge("cmd", "next")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        self.assertEqual([f for f in result.findings if f.tier == 3], [])
+
+    def test_disabled_step_is_spliced_out_of_the_walk(self) -> None:
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity", "attributes"],
+                outcomes=["success"],
+            ),
+            _plugin("adds-attributes", produces=["attributes"], outcomes=["success"]),
+            _plugin("needs-attributes", requires=["attributes"], outcomes=["success"]),
+        )
+        svc = _service(registry)
+
+        disabled_node = _node("a", "adds-attributes")
+        disabled_node["data"]["disabled"] = True
+        nodes = [_node("inv", "inv"), disabled_node, _node("next", "needs-attributes")]
+        edges = [_edge("inv", "a"), _edge("a", "next")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        # Still satisfied: inv already produces "attributes" directly, and the
+        # disabled step being spliced out (rather than crashing the walk) is
+        # exactly the point of this test.
+        self.assertEqual([f for f in result.findings if f.tier == 3], [])
+
+    def test_cycle_is_reported_as_a_single_finding_not_an_exception(self) -> None:
+        registry = _registry(_plugin("run-command", outcomes=["success"]))
+        svc = _service(registry)
+
+        nodes = [_node("a", "run-command"), _node("b", "run-command")]
+        edges = [_edge("a", "b"), _edge("b", "a")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        tier3 = [f for f in result.findings if f.tier == 3]
+        self.assertEqual(len(tier3), 1)
+        self.assertEqual(tier3[0].code, "graph_cycle")
+
+    def test_canvas_decoration_nodes_are_excluded_from_the_walk(self) -> None:
+        registry = _registry(
+            _plugin(
+                "inv",
+                artifact_type="inventory_selector",
+                produces=["identity"],
+                outcomes=["success"],
+            ),
+            _plugin("label", artifact_type="canvas_decoration", outcomes=[]),
+        )
+        # PluginDefinition has no `executable` override helper above; set it
+        # directly since canvas decorations are marked non-executable.
+        registry.plugins[1] = registry.plugins[1].model_copy(update={"executable": False})
+        svc = _service(registry)
+
+        nodes = [_node("inv", "inv"), _node("lbl", "label")]
+        edges = [_edge("inv", "lbl")]
+
+        result = svc.validate(nodes, edges, acting_user_id=None)
+
+        self.assertEqual([f for f in result.findings if f.tier == 3], [])
 
 
 if __name__ == "__main__":
