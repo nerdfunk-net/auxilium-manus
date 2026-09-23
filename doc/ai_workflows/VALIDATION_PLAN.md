@@ -55,6 +55,32 @@ Each `PluginDefinition.metadata.configuration_input` is a `list[PluginIOField]` 
     (b) only for steps where that's not expressive enough (check as each step is
     ported — don't pre-build the hook for steps that don't need it).
 
+**Fixed 2026-09-23: "required" must be default-aware, not just presence-aware.**
+Two real false positives were reported live: `get-nautobot-attributes`'s
+`list_of_attributes` (marked `required: true`, but an empty selection is a
+first-class valid choice — Nautobot's core fields are always fetched regardless;
+this was simply wrong registry data, fixed to `required: false`) and
+`parse-cisco-config`'s `output_key` (genuinely needs *some* value at runtime, but
+`config.py`'s `get_config()` already supplies `"cisco_config"` as a real fallback
+default when the user leaves it blank — the field was never actually "missing").
+A scan across the whole registry found **37** `required: true` fields with this
+exact shape (a non-blank `config.py` default, no matching registry `default:`) —
+`WorkflowValidationService._tier1_schema` now checks both the registry's own
+`PluginIOField.default` and the step's `config.py::get_config()` default (memoized
+per plugin id per `validate()` call — `get_plugin_config` dynamically imports a
+Python module, so this matters for a workflow with many nodes of the same kind)
+before flagging a blank required field, which resolves all 37 without having to
+hand-mirror each one into `registry.yaml`. `output_key`/`config_source` also got
+an explicit registry `default:` added (belt-and-suspenders, not load-bearing) since
+they were touched anyway; the other 35 are unaffected registry data, resolved
+purely by the new service-level check. See `PROCESS.md`'s corresponding update for
+the full file list.
+
+**This is orthogonal to the conditional-requirements gap above** — a field can be
+unconditionally required-with-a-default (this fix) or conditionally required based
+on another field's value (still open, see (a)/(b) above) — a future
+`required_if` implementation should still consult the default-aware check first.
+
 ---
 
 ## Tier 2 — Reference existence

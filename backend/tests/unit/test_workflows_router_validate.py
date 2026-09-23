@@ -40,7 +40,8 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     app.dependency_overrides[get_current_user] = lambda: _make_user(1)
     app.dependency_overrides[get_db] = _override_db
     app.dependency_overrides[get_plugin_service] = lambda: SimpleNamespace(
-        get_registry=lambda: PluginRegistry(schema_version=1, plugins=[])
+        get_registry=lambda: PluginRegistry(schema_version=1, plugins=[]),
+        get_plugin_config=lambda _plugin_id: {},
     )
     return app
 
@@ -117,7 +118,8 @@ def test_validate_workflow_prefers_draft_canvas_edges_from_body(app: FastAPI) ->
                     "outcomes": [{"name": "success"}],
                 }
             ],
-        )
+        ),
+        get_plugin_config=lambda _plugin_id: {},
     )
 
     with TestClient(app) as client:

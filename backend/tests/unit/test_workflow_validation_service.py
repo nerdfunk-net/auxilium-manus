@@ -7,6 +7,7 @@ service calls them correctly and turns a failure into a finding."""
 from __future__ import annotations
 
 import unittest
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from models.plugins import (
@@ -28,6 +29,7 @@ def _plugin(
     *,
     required_fields: list[str] | None = None,
     optional_fields: list[str] | None = None,
+    field_defaults: dict[str, Any] | None = None,
     artifact_type: str = "generic",
     requires: list[str] | None = None,
     produces: list[str] | None = None,
@@ -36,11 +38,24 @@ def _plugin(
     produces_parsed: list[str] | None = None,
     outcomes: list[str] | None = None,
 ) -> PluginDefinition:
+    defaults = field_defaults or {}
     fields = [
-        PluginIOField(name=name, description=name, data_type="string", required=True)
+        PluginIOField(
+            name=name,
+            description=name,
+            data_type="string",
+            required=True,
+            default=defaults.get(name),
+        )
         for name in required_fields or []
     ] + [
-        PluginIOField(name=name, description=name, data_type="string", required=False)
+        PluginIOField(
+            name=name,
+            description=name,
+            data_type="string",
+            required=False,
+            default=defaults.get(name),
+        )
         for name in optional_fields or []
     ]
     return PluginDefinition(
@@ -74,8 +89,29 @@ def _edge(source: str, target: str, source_handle: str = "success") -> dict:
     }
 
 
-def _service(registry: PluginRegistry) -> WorkflowValidationService:
-    svc = WorkflowValidationService(MagicMock(), registry)
+class _FakePluginRegistryService:
+    """Duck-types the two PluginRegistryService methods WorkflowValidationService
+    actually calls — no PluginRepository/on-disk registry.yaml needed for tests."""
+
+    def __init__(
+        self, registry: PluginRegistry, config_by_plugin_id: dict[str, dict[str, Any]] | None = None
+    ) -> None:
+        self._registry = registry
+        self._config_by_plugin_id = config_by_plugin_id or {}
+
+    def get_registry(self) -> PluginRegistry:
+        return self._registry
+
+    def get_plugin_config(self, plugin_id: str) -> dict[str, Any]:
+        return self._config_by_plugin_id.get(plugin_id, {})
+
+
+def _service(
+    registry: PluginRegistry, config_by_plugin_id: dict[str, dict[str, Any]] | None = None
+) -> WorkflowValidationService:
+    svc = WorkflowValidationService(
+        MagicMock(), _FakePluginRegistryService(registry, config_by_plugin_id)
+    )
     svc._settings_repo = MagicMock()
     return svc
 
@@ -128,6 +164,60 @@ class Tier1SchemaTests(unittest.TestCase):
         result = svc.validate([_node("n1", "run-command", {})], acting_user_id=None)
 
         self.assertEqual(result.findings, [])
+
+    def test_required_field_with_registry_default_is_not_an_error(self) -> None:
+        """A required field the registry itself declares a non-blank
+        `default:` for is never 'missing' — the step falls back to it."""
+        registry = _registry(
+            _plugin(
+                "parse-cisco-config",
+                required_fields=["output_key"],
+                field_defaults={"output_key": "cisco_config"},
+            )
+        )
+        svc = _service(registry)
+
+        result = svc.validate([_node("n1", "parse-cisco-config", {})], acting_user_id=None)
+
+        self.assertEqual(result.findings, [])
+
+    def test_required_field_with_config_py_default_is_not_an_error(self) -> None:
+        """Same as above, but the default lives in the step's config.py
+        get_config() rather than registry.yaml's `default:` — this is how
+        most steps' defaults are actually declared today."""
+        registry = _registry(_plugin("parse-cisco-config", required_fields=["output_key"]))
+        svc = _service(registry, {"parse-cisco-config": {"output_key": "cisco_config"}})
+
+        result = svc.validate([_node("n1", "parse-cisco-config", {})], acting_user_id=None)
+
+        self.assertEqual(result.findings, [])
+
+    def test_required_field_with_blank_config_py_default_is_still_an_error(self) -> None:
+        """A config.py default of "" or None doesn't actually provide a
+        fallback value — the field is genuinely still missing."""
+        registry = _registry(_plugin("run-command", required_fields=["command"]))
+        svc = _service(registry, {"run-command": {"command": ""}})
+
+        result = svc.validate([_node("n1", "run-command", {})], acting_user_id=None)
+
+        self.assertTrue(result.has_errors)
+        self.assertEqual(result.findings[0].code, "missing_required_field")
+
+    def test_config_py_default_lookup_is_memoized_per_plugin_id(self) -> None:
+        """get_plugin_config dynamically imports a config.py module — don't
+        pay that cost once per node for a workflow with many nodes of the
+        same kind."""
+        registry = _registry(_plugin("run-command", required_fields=["command"]))
+        get_plugin_config = MagicMock(return_value={"command": "show version"})
+        svc = _service(registry)
+        svc._plugin_registry_service.get_plugin_config = get_plugin_config
+
+        svc.validate(
+            [_node("n1", "run-command", {}), _node("n2", "run-command", {})],
+            acting_user_id=None,
+        )
+
+        get_plugin_config.assert_called_once_with("run-command")
 
 
 def _credential(name: str, cred_type: str, *, visibility: str = "global", status: str = "active"):
@@ -785,6 +875,78 @@ class Tier4AttributePathWiringTests(unittest.TestCase):
         tier4 = [f for f in result.findings if f.tier == 4]
         self.assertEqual(len(tier4), 1)
         self.assertEqual(tier4[0].node_id, "tmpl")
+
+
+class RealRegistryDefaultRegressionTests(unittest.TestCase):
+    """Regression tests against the real registry.yaml + config.py for two
+    reported false positives — see the "default keys" discussion in
+    doc/ai_workflows/VALIDATION_PLAN.md. Uses the real PluginRegistryService
+    (unlike every other test class here, which builds an in-memory fake
+    registry), so a real registry.yaml/config.py edit that reintroduces
+    either bug fails this test, not just a hand-built fixture."""
+
+    def setUp(self) -> None:
+        from pathlib import Path
+
+        from repositories.plugin_repository import PluginRepository
+        from services.plugin_registry.plugin_registry_service import PluginRegistryService
+
+        registry_path = Path(__file__).resolve().parents[2] / "workflow_steps" / "registry.yaml"
+        self.service = PluginRegistryService(PluginRepository(registry_path))
+
+    def _service(self) -> WorkflowValidationService:
+        svc = WorkflowValidationService(MagicMock(), self.service)
+        svc._settings_repo = MagicMock()
+        return svc
+
+    def test_get_nautobot_attributes_with_no_optional_groups_is_valid(self) -> None:
+        svc = self._service()
+
+        result = svc.validate(
+            [
+                _node(
+                    "n1",
+                    "get-nautobot-attributes",
+                    {"nautobot_source_id": "prod-lab", "list_of_attributes": []},
+                )
+            ],
+            acting_user_id=None,
+        )
+
+        self.assertEqual([f for f in result.findings if f.tier == 1], [])
+
+    def test_get_nautobot_attributes_with_missing_list_key_is_valid(self) -> None:
+        """The exact shape of the originally reported bug: an older-saved
+        node where list_of_attributes is entirely absent from pluginConfig,
+        not merely an empty list."""
+        svc = self._service()
+
+        result = svc.validate(
+            [_node("n1", "get-nautobot-attributes", {"nautobot_source_id": "prod-lab"})],
+            acting_user_id=None,
+        )
+
+        self.assertEqual([f for f in result.findings if f.tier == 1], [])
+
+    def test_parse_cisco_config_with_missing_output_key_is_valid(self) -> None:
+        svc = self._service()
+
+        result = svc.validate(
+            [_node("n1", "parse-cisco-config", {"config_source": "both"})],
+            acting_user_id=None,
+        )
+
+        self.assertEqual([f for f in result.findings if f.tier == 1], [])
+
+    def test_parse_cisco_config_with_missing_config_source_is_also_valid(self) -> None:
+        svc = self._service()
+
+        result = svc.validate(
+            [_node("n1", "parse-cisco-config", {"output_key": "cisco_config"})],
+            acting_user_id=None,
+        )
+
+        self.assertEqual([f for f in result.findings if f.tier == 1], [])
 
 
 if __name__ == "__main__":

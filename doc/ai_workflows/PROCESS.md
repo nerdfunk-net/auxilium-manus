@@ -79,6 +79,31 @@ All four validation tiers from `VALIDATION_PLAN.md` are now built. What's left o
 original validation work is the pre-run gate (blocking Run on unresolved Tier 1–3
 errors) — see "Open items" below.
 
+**Update 2026-09-23 (real live usage, two real bugs found and fixed):** the first
+real use of the Validate button against real workflows found two Tier 1 false
+positives, reported by the user: `get-nautobot-attributes`'s `list_of_attributes`
+flagged as missing when left empty (empty is correct — Nautobot's core fields are
+fetched regardless, the field only adds optional groups) and `parse-cisco-config`'s
+`output_key` flagged as missing despite the step having a real, applied fallback
+default (`config.py`'s `"cisco_config"`). Root causes were different — the first was
+simply wrong registry data (`required: true` on a field that's legitimately always
+optional); the second exposed a real gap in Tier 1's design, that a "required" field
+can still have a genuine fallback default, which isn't the same as being missing.
+Fixed generally: `WorkflowValidationService._tier1_schema` now checks both
+`PluginIOField.default` and the step's `config.py::get_config()` default before
+flagging a blank required field — a registry-wide scan found **37** required fields
+across the registry with exactly this shape (config.py default, no matching
+registry `default:`), all now resolved by this one change. `list_of_attributes` was
+additionally corrected to `required: false` with a clearer description (registry
+data can't be fixed by a defaulting mechanism — it was never actually required).
+The frontend's Select Attribute Groups dialog, config panel, and Help tab for
+`get-nautobot-attributes` were also rewritten to make "empty is valid, core fields
+are always fetched" explicit, and to remove a stale Help tab claim that an empty
+list causes a failure outcome (it never did). See `VALIDATION_PLAN.md`'s Tier 1
+section for the full reasoning and `PluginRegistryService`-injection detail
+(`WorkflowValidationService`'s constructor now takes the service, not the raw
+registry, so Tier 1 can call `get_plugin_config`).
+
 **Not built yet** (see "Open items" at the end): the `AI_DEFAULTS.md` drift-checker
 inside the apply script (names were resolved by hand every time this session), an
 auto-layout helper (node positions were hardcoded by hand), and a pre-run validation
@@ -336,18 +361,33 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   `_intersect_capability_states`, `_is_executable_node`; `validate()` now also
   takes `canvas_edges`. Tier 4 (`_tier4_attribute_path_wiring`):
   `_PARSED_PATH_CANDIDATE_RE`, `_NODE_SCOPED_PARSED_STEP_KINDS`,
-  `_iter_config_strings`
+  `_iter_config_strings`. Constructor now takes `PluginRegistryService` (was
+  the raw `PluginRegistry`) so Tier 1 can call `get_plugin_config` for
+  default-aware required-field checking (`_config_default`,
+  `_config_defaults_cache`) — see the "default keys" fix in `VALIDATION_PLAN.md`.
+- `backend/workflow_steps/registry.yaml` — `get-nautobot-attributes.list_of_attributes`
+  corrected to `required: false` (was always a valid empty selection, never
+  actually required) with a clearer description and a correct example (the old
+  example listed `location`/`role`, which aren't even valid group keys — they're
+  core fields, always fetched); `parse-cisco-config`'s `output_key`/`config_source`
+  gained an explicit `default:` (belt-and-suspenders; not load-bearing for the
+  fix, which is in the service, not the registry)
 
 **Backend — new tests:**
 - `backend/tests/unit/test_workflows_router_validate.py` — draft-vs-saved
   `canvas_nodes`/`canvas_edges` selection on the validate endpoint, plus an
   end-to-end Tier 3 case through the router
-- 19 new cases in `backend/tests/unit/test_workflow_validation_service.py`:
+- 23 new cases in `backend/tests/unit/test_workflow_validation_service.py`:
   `Tier3CapabilityFlowTests` (12 — joins/intersection, failure-outcome branches,
   consumes, config-aware `effective_produces`, `requires_parsed`, disabled
-  steps, cycles, canvas decorations) and `Tier4AttributePathWiringTests` (7 —
+  steps, cycles, canvas decorations), `Tier4AttributePathWiringTests` (7 —
   upstream/stale/self references, non-node-scoped and ordinary-namespace
-  candidates never guessed, nested-config and Jinja-placeholder scanning)
+  candidates never guessed, nested-config and Jinja-placeholder scanning), 4
+  default-aware Tier 1 cases (registry default, config.py default, a blank
+  config.py default still errors, memoization), and
+  `RealRegistryDefaultRegressionTests` (4 — loads the real registry.yaml +
+  config.py, not an in-memory fixture, and regression-locks the two exact
+  reported bugs)
 
 **Frontend — new files:**
 - `frontend/src/components/features/workflows/types/workflow-ai-session.ts`
@@ -393,9 +433,14 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `frontend/src/components/features/workflows/components/workflow-topbar.tsx` —
   "Validate" button, disabled until the workflow has an id (same rule as Version
   Control)
+- `frontend/src/components/features/workflow-steps/get-nautobot-attributes/index.tsx`,
+  `attributes-dialog.tsx`, `help-panel.tsx` — "Select Optional Attribute Groups"
+  wording throughout (was "Select Attribute Groups"), explaining that core
+  Nautobot fields are always fetched and an empty selection is valid; removed a
+  stale Help tab claim that an empty selection causes a failure outcome
 
 **Related docs**: `AI_DEFAULTS.md` (defaults/policy), `VALIDATION_PLAN.md` (the
-four-tier validator design, Tiers 1–2 implemented here).
+four-tier validator design — all four tiers are now built).
 
 ## Bugs found and fixed during live testing
 

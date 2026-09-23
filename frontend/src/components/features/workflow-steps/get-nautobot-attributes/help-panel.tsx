@@ -56,13 +56,24 @@ export function GetNautobotAttributesHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
-      <HelpSection title="Attribute groups">
+      <HelpSection title="Core fields (always fetched)">
         <p>
-          <HelpCode>list_of_attributes</HelpCode> selects which Nautobot data
-          to pull for each device. Click{" "}
+          Regardless of <HelpCode>list_of_attributes</HelpCode>, every device gets
+          these Nautobot fields for free: ID, name, hostname, asset tag, serial,
+          position, role, device type, platform, location, and status. There is
+          no way to opt out of these, and leaving{" "}
+          <HelpCode>list_of_attributes</HelpCode> empty is a completely valid
+          configuration if that&apos;s all you need.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="Optional attribute groups">
+        <p>
+          <HelpCode>list_of_attributes</HelpCode> selects which <em>additional</em>{" "}
+          Nautobot data to pull for each device, on top of the core fields above.
+          Click{" "}
           <span className="font-medium text-foreground">Edit Attributes</span>{" "}
-          to open the picker and toggle groups on or off. At least one group
-          should be selected.
+          to open the picker and toggle groups on or off — none are required.
         </p>
 
         <p className="font-medium text-foreground">Available groups:</p>
@@ -152,9 +163,11 @@ export function GetNautobotAttributesHelpPanel() {
             Devices not found in Nautobot may be marked failed per device.
           </li>
           <li>
-            <span className="font-medium text-foreground">failure</span> — the
-            step could not run (missing source, bad credentials, no attribute
-            groups selected, or an unexpected error).
+            <span className="font-medium text-foreground">failure</span> — a
+            device could not be enriched (not found in Nautobot, bad
+            credentials, or an unexpected error). An empty{" "}
+            <HelpCode>list_of_attributes</HelpCode> never causes a failure by
+            itself.
           </li>
         </ul>
       </HelpSection>

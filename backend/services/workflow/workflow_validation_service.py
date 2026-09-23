@@ -3,7 +3,10 @@ already runs (cycle detection, stop-here placement, static attributes) — see
 doc/ai_workflows/VALIDATION_PLAN.md. Tiers 1-4 in this pass:
 
 - Tier 1 (schema conformance): a step's pluginConfig has every field its registry
-  entry marks required.
+  entry marks required — unless that field has a real default (registry
+  `default:`, or the step's own `config.py::get_config()`), in which case
+  leaving it blank is not an error: the step falls back to that default at
+  save/run time. Never re-declares those defaults a third time here.
 - Tier 2 (reference existence): credential_reference/git_repository_id/*_source_id
   values resolve for the acting user. Existing resolvers are reused, never
   re-implemented — CredentialsService, git_repository_loader, SettingsRepository.
@@ -32,7 +35,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from models.plugins import PluginDefinition, PluginRegistry
+from models.plugins import PluginDefinition
 from models.workflow_context import Capability
 from models.workflow_validation import ValidationFinding, WorkflowValidationResult
 from repositories.settings_repository import SettingsRepository
@@ -40,6 +43,7 @@ from services.credentials.credentials_service import CredentialsService
 from services.execution.graph import GraphCycleError, downstream_node_ids, topological_order
 from services.execution.step_runner import graph_resolution as _gr
 from services.git.repository_service import GitRepositoryService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow_context.guards import StepCapabilitySpec, effective_produces
 from services.workflow_context.registry import capability_spec_from_plugin
 
@@ -175,12 +179,28 @@ def _is_blank(value: Any) -> bool:
 
 
 class WorkflowValidationService:
-    def __init__(self, db: Session, plugin_registry: PluginRegistry) -> None:
+    def __init__(self, db: Session, plugin_registry_service: PluginRegistryService) -> None:
         self.db = db
+        self._plugin_registry_service = plugin_registry_service
         self._plugins_by_id: dict[str, PluginDefinition] = {
-            plugin.id: plugin for plugin in plugin_registry.plugins
+            plugin.id: plugin for plugin in plugin_registry_service.get_registry().plugins
         }
         self._settings_repo = SettingsRepository(db)
+        # get_plugin_config() dynamically imports each step's config.py on
+        # every call — memoize per plugin id so a workflow with many nodes of
+        # the same kind (e.g. several run-command steps) only pays that cost
+        # once per validate() call, not once per node.
+        self._config_defaults_cache: dict[str, dict[str, Any]] = {}
+
+    def _config_default(self, plugin_id: str, field_name: str) -> Any:
+        if plugin_id not in self._config_defaults_cache:
+            # None means "unknown plugin id" (never true here — the caller
+            # already resolved `plugin` from the same registry); {} means "no
+            # config.py / no get_config() default", equally fine to cache.
+            self._config_defaults_cache[plugin_id] = (
+                self._plugin_registry_service.get_plugin_config(plugin_id) or {}
+            )
+        return self._config_defaults_cache[plugin_id].get(field_name)
 
     def validate(
         self,
@@ -235,19 +255,24 @@ class WorkflowValidationService:
         for field in plugin.metadata.configuration_input:
             if not field.required:
                 continue
-            if _is_blank(plugin_config.get(field.name)):
-                findings.append(
-                    ValidationFinding(
-                        node_id=node_id,
-                        tier=1,
-                        severity="error",
-                        code="missing_required_field",
-                        message=(
-                            f"'{field.name}' is required for step '{plugin.name}' "
-                            f"but is missing or empty."
-                        ),
-                    )
+            if not _is_blank(plugin_config.get(field.name)):
+                continue
+            if not _is_blank(field.default):
+                continue  # registry-declared default — the step falls back to it
+            if not _is_blank(self._config_default(plugin.id, field.name)):
+                continue  # config.py's get_config() default — same reasoning
+            findings.append(
+                ValidationFinding(
+                    node_id=node_id,
+                    tier=1,
+                    severity="error",
+                    code="missing_required_field",
+                    message=(
+                        f"'{field.name}' is required for step '{plugin.name}' "
+                        f"but is missing or empty."
+                    ),
                 )
+            )
         return findings
 
     def _tier2_references(

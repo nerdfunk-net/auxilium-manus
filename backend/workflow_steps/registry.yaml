@@ -361,6 +361,7 @@ plugins:
           description: Which config to parse — running, startup, or both.
           data_type: string
           required: true
+          default: both
           example: both
         - name: output_key
           description: >
@@ -372,6 +373,7 @@ plugins:
             look like parsed.<output_key>.running.<field>.
           data_type: string
           required: true
+          default: cisco_config
           example: cisco_config
 
   - id: add-pyats-testbed
@@ -1786,7 +1788,10 @@ plugins:
   - id: get-nautobot-attributes
     name: Get Nautobot Attributes
     overview: Retrieve Nautobot attributes for selected devices.
-    description: Retrieve attributes from Nautobot for selected devices.
+    description: >
+      Retrieve attributes from Nautobot for selected devices. Core fields (ID,
+      name, role, device type, platform, location, status, …) are always
+      fetched; list_of_attributes only adds optional groups on top of those.
     artifact_type: inventory_selector
     palette_category: nautobot
     directory: get_nautobot_attributes
@@ -1804,12 +1809,17 @@ plugins:
           required: true
           example: prod-lab
         - name: list_of_attributes
-          description: List of Nautobot attributes to retrieve for each device.
+          description: >
+            Optional additional Nautobot attribute groups to retrieve for each
+            device, on top of the core fields (ID, name, role, device type,
+            platform, location, status, …) that are always fetched. An empty
+            list is valid — it means "core fields only".
           data_type: string_list
-          required: true
+          required: false
+          default: []
           example:
-            - location
-            - role
+            - interfaces
+            - custom_fields
 
   - id: set-default-attributes
     name: Set Default Attributes

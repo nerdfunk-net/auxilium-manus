@@ -309,7 +309,7 @@ def validate_workflow(
     canvas_nodes = draft_nodes if draft_nodes is not None else workflow.canvas_nodes
     draft_edges = body.canvas_edges if body is not None else None
     canvas_edges = draft_edges if draft_nodes is not None else workflow.canvas_edges
-    validator = WorkflowValidationService(service.db, plugin_service.get_registry())
+    validator = WorkflowValidationService(service.db, plugin_service)
     return validator.validate(
         canvas_nodes or [], canvas_edges or [], acting_user_id=current_user.id
     )
