@@ -26,6 +26,11 @@ export const queryKeys = {
     list: () => [...queryKeys.workflows.all, "list"] as const,
     detail: (id: number) => [...queryKeys.workflows.all, "detail", id] as const,
     backgroundTier: (id: number) => [...queryKeys.workflows.all, "background-tier", id] as const,
+    // Deliberately distinct from `detail` — the canvas's one-shot rehydration
+    // query shares that key at staleTime: Infinity, so any refetch under it
+    // would flow straight into the open canvas and clobber in-progress edits.
+    // This key is only ever polled, never used to hydrate canvas state.
+    aiSession: (id: number) => [...queryKeys.workflows.all, "ai-session", id] as const,
     changes: (id: number) => [...queryKeys.workflows.all, "changes", id] as const,
     gallery: () => [...queryKeys.workflows.all, "gallery"] as const,
   },

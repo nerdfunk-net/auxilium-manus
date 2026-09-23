@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import { AiSessionUpdateBanner } from "./components/ai-session-update-banner";
 import { CanvasErrorBoundary } from "./components/canvas-error-boundary";
 import { CanvasGroupBreadcrumb } from "./components/canvas-group-breadcrumb";
 import { NodeConfigModal } from "./components/node-config-modal";
@@ -126,6 +127,15 @@ export function WorkflowBuilderPage() {
       <main className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
           <CanvasGroupBreadcrumb groups={canvas.groups} />
+          <AiSessionUpdateBanner
+            workflowId={persistence.workflowId}
+            baselineUpdatedAt={persistence.baselineUpdatedAt}
+            onReload={() => {
+              if (persistence.workflowId != null) {
+                persistence.handleLoadWorkflow({ id: persistence.workflowId });
+              }
+            }}
+          />
           <div className="min-h-0 flex-1">
             <CanvasErrorBoundary onReset={resetToNew}>
               <WorkflowCanvas

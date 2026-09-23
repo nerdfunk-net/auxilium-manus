@@ -258,27 +258,9 @@ class WorkflowService:
             workflow, creator_username = result
             if workflow.creator_id != user_id:
                 raise AccessDeniedError("Access denied")
-            updated_fields = data.model_dump(exclude_unset=True)
-            if "canvas_nodes" in updated_fields or "canvas_edges" in updated_fields:
-                new_nodes = updated_fields.get("canvas_nodes", workflow.canvas_nodes)
-                new_edges = updated_fields.get("canvas_edges", workflow.canvas_edges)
-                _validate_no_cycle(new_nodes, new_edges)
-                _validate_stop_here_not_in_fan_out(new_nodes, new_edges)
-            if "static_attributes" in updated_fields:
-                _validate_static_attributes(updated_fields["static_attributes"] or [])
-            workflow = self.repo.update(workflow, updated_fields)
-            logger.info("Workflow updated id=%s user_id=%s", workflow_id, user_id)
-            git_result = self.git.sync_workflow_to_git(
-                workflow, action="update", actor_username=actor_username
+            return self._apply_update(
+                workflow, creator_username, data, actor_id=user_id, actor_username=actor_username
             )
-            self.changes.record_change(
-                workflow_id,
-                action="updated",
-                actor_id=user_id,
-                actor_username=actor_username,
-                git_result=git_result,
-            )
-            return _to_response(workflow, creator_username, git_result)
         except DomainError:
             raise
         except Exception:
@@ -286,6 +268,77 @@ class WorkflowService:
                 "Failed to update workflow id=%s user_id=%s", workflow_id, user_id, exc_info=True
             )
             raise
+
+    def update_workflow_for_ai_session(
+        self,
+        workflow_id: int,
+        data: WorkflowUpdate,
+        ai_user_id: int,
+        actor_username: str,
+    ) -> WorkflowResponse:
+        """Same as update_workflow but skips the creator_id ownership check.
+
+        Used only by backend/scripts/ai_workflow_apply.py. The caller must have
+        already verified an active workflow_ai_sessions row for this workflow
+        (see doc/ai_workflows/PROCESS.md) — that time-boxed, human-granted
+        consent row IS the authorization for this path. Ownership isn't checked
+        here because the whole point of the feature is the AI actor editing a
+        workflow it doesn't own, on the human owner's explicit say-so.
+        """
+        logger.info("Updating workflow (AI session) id=%s ai_user_id=%s", workflow_id, ai_user_id)
+        try:
+            result = self.repo.get_by_id(workflow_id)
+            if result is None:
+                raise NotFoundError("Workflow not found")
+            workflow, creator_username = result
+            return self._apply_update(
+                workflow,
+                creator_username,
+                data,
+                actor_id=ai_user_id,
+                actor_username=actor_username,
+            )
+        except DomainError:
+            raise
+        except Exception:
+            logger.info(
+                "Failed to update workflow (AI session) id=%s ai_user_id=%s",
+                workflow_id,
+                ai_user_id,
+                exc_info=True,
+            )
+            raise
+
+    def _apply_update(
+        self,
+        workflow: Workflow,
+        creator_username: str | None,
+        data: WorkflowUpdate,
+        *,
+        actor_id: int,
+        actor_username: str | None,
+    ) -> WorkflowResponse:
+        updated_fields = data.model_dump(exclude_unset=True)
+        if "canvas_nodes" in updated_fields or "canvas_edges" in updated_fields:
+            new_nodes = updated_fields.get("canvas_nodes", workflow.canvas_nodes)
+            new_edges = updated_fields.get("canvas_edges", workflow.canvas_edges)
+            _validate_no_cycle(new_nodes, new_edges)
+            _validate_stop_here_not_in_fan_out(new_nodes, new_edges)
+        if "static_attributes" in updated_fields:
+            _validate_static_attributes(updated_fields["static_attributes"] or [])
+        workflow = self.repo.update(workflow, updated_fields)
+        logger.info("Workflow updated id=%s actor_id=%s", workflow.id, actor_id)
+        git_result = self.git.sync_workflow_to_git(
+            workflow, action="update", actor_username=actor_username
+        )
+        self.changes.record_change(
+            workflow.id,
+            action="updated",
+            actor_id=actor_id,
+            actor_username=actor_username,
+            git_result=git_result,
+        )
+        return _to_response(workflow, creator_username, git_result)
 
     def restore_workflow_version(
         self,

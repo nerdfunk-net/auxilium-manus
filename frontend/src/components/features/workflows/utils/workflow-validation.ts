@@ -43,6 +43,12 @@ export function validateCanvasWorkflow(
   edges: WorkflowCanvasEdge[],
   groups: CanvasGroup[] = EMPTY_GROUPS,
   staticAttributes: StaticAttributeDef[] = EMPTY_STATIC_ATTRIBUTES,
+  // Save must allow a genuinely empty draft (e.g. a blank canvas created so
+  // an AI-updates session can be enabled on it before any steps exist — see
+  // doc/ai_workflows/PROCESS.md) while Run must still refuse an empty
+  // workflow, since there is nothing to execute. Default true preserves
+  // existing behavior for every call site that doesn't opt out.
+  { requireSteps = true }: { requireSteps?: boolean } = {},
 ) {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const danglingEdges = edges.filter(
@@ -54,6 +60,7 @@ export function validateCanvasWorkflow(
       !isFunnelKind(node.data.kind) &&
       node.data.disabled !== true,
   );
+  const missingSteps = requireSteps && !hasExecutableStep;
 
   const funnelIssues = nodes
     .filter((node) => isFunnelKind(node.data.kind))
@@ -78,7 +85,7 @@ export function validateCanvasWorkflow(
   const getFromUserIssues = validateGetFromUserNodes(nodes);
 
   const issues = [
-    ...(hasExecutableStep ? [] : ["Workflow has no steps."]),
+    ...(missingSteps ? ["Workflow has no steps."] : []),
     ...danglingEdges.map(
       (edge) => `Edge ${edge.id} references a missing workflow step.`,
     ),
@@ -90,7 +97,7 @@ export function validateCanvasWorkflow(
 
   return {
     isValid:
-      hasExecutableStep &&
+      !missingSteps &&
       danglingEdges.length === 0 &&
       groupIssues.length === 0 &&
       staticAttributeIssues.length === 0 &&

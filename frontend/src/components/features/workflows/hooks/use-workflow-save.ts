@@ -81,7 +81,9 @@ export function useWorkflowSave({
       visibility: WorkflowVisibility;
       is_version_controlled?: boolean;
     }) => {
-      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
+      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes, {
+        requireSteps: false,
+      });
       if (!validation.isValid) {
         markError(`Cannot save: ${validation.issues[0]}`);
         return;
@@ -152,7 +154,9 @@ export function useWorkflowSave({
       },
       existingId: number,
     ) => {
-      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
+      const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes, {
+        requireSteps: false,
+      });
       if (!validation.isValid) {
         markError(`Cannot save: ${validation.issues[0]}`);
         return;
@@ -206,7 +210,9 @@ export function useWorkflowSave({
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes, {
+        requireSteps: false,
+      });
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;
@@ -245,7 +251,9 @@ export function useWorkflowSave({
       setIsSaveAsOpen(true);
       return;
     }
-    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes);
+    const validation = validateCanvasWorkflow(allNodes, allEdges, groups, staticAttributes, {
+        requireSteps: false,
+      });
     if (!validation.isValid) {
       markError(`Cannot save: ${validation.issues[0]}`);
       return;

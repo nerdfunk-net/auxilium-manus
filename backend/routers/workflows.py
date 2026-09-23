@@ -12,6 +12,7 @@ from core.domain_exceptions import DomainError
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.workflow_changes import WorkflowChangeListResponse
+from models.workflow_validation import WorkflowValidationResult
 from models.workflows import (
     WorkflowCreate,
     WorkflowGalleryListResponse,
@@ -26,8 +27,11 @@ from models.workflows import (
     WorkflowResponse,
     WorkflowUpdate,
 )
+from routers.workflow_steps import get_plugin_service
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow.workflow_gallery_service import WorkflowGalleryService
 from services.workflow.workflow_service import WorkflowService
+from services.workflow.workflow_validation_service import WorkflowValidationService
 
 logger = logging.getLogger(__name__)
 
@@ -281,3 +285,23 @@ def delete_workflow(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to delete workflow", exc)
+
+
+@router.post(
+    "/{workflow_id}/validate",
+    response_model=WorkflowValidationResult,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
+def validate_workflow(
+    workflow_id: int,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+    plugin_service: PluginRegistryService = Depends(get_plugin_service),
+) -> WorkflowValidationResult:
+    """Validates the currently saved workflow — Tiers 1-2 only, see
+    doc/ai_workflows/VALIDATION_PLAN.md. Read-only: never mutates the workflow."""
+    workflow = service.get_workflow(workflow_id=workflow_id, user_id=current_user.id)
+    validator = WorkflowValidationService(service.db, plugin_service.get_registry())
+    return validator.validate(
+        workflow.canvas_nodes or [], acting_user_id=current_user.id
+    )
