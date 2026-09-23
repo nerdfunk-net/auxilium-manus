@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-22T21:51:36.991Z",
+  "exported_at": "2026-09-22T21:53:46.985Z",
   "name": "Get Backups",
   "description": "Get Backups",
   "folder": "Gallery",
@@ -698,7 +698,7 @@
         "consumes": [],
         "outcomes": [],
         "pluginConfig": {
-          "text": "Always use Fan In before GIT",
+          "text": "Always use Fan In before Git",
           "font_size": 22,
           "font_family": "sans",
           "bold": true,
