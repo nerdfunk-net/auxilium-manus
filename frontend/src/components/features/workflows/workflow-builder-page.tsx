@@ -28,6 +28,7 @@ import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
 import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
 import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
 import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
+import { WorkflowValidationDialog } from "./dialogs/workflow-validation-dialog";
 import { WorkflowWikiDialog } from "./dialogs/workflow-wiki-dialog";
 import { computeDeviceParamConfigs } from "./utils/device-param-hints";
 import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
@@ -36,6 +37,7 @@ import { useWorkflowCanvas } from "./hooks/use-workflow-canvas";
 import { useWorkflowKeyboardShortcuts } from "./hooks/use-workflow-keyboard-shortcuts";
 import { useWorkflowPersistence } from "./hooks/use-workflow-persistence";
 import { useWorkflowRunActions } from "./hooks/use-workflow-run-actions";
+import { useWorkflowValidation } from "./hooks/use-workflow-validation";
 
 export function WorkflowBuilderPage() {
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
@@ -65,6 +67,12 @@ export function WorkflowBuilderPage() {
     requestRunRef,
   });
   const run = useWorkflowRunActions({ canvas, persistence });
+  const validation = useWorkflowValidation({
+    workflowId: persistence.workflowId,
+    allNodes: canvas.allNodes,
+  });
+  const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
+  const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
   const { requestRun } = run;
   useEffect(() => {
     requestRunRef.current = (id) => {
@@ -123,6 +131,8 @@ export function WorkflowBuilderPage() {
         onSave={persistence.handleSave}
         onSaveAs={() => persistence.setIsSaveAsOpen(true)}
         onVersionControl={() => persistence.setIsHistoryOpen(true)}
+        onValidate={validation.handleValidate}
+        isValidating={validation.isValidating}
       />
       <main className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
@@ -148,6 +158,7 @@ export function WorkflowBuilderPage() {
                 plugins={plugins}
                 initialViewport={canvas.initialCanvasDraft?.viewport}
                 onViewportChange={canvas.handleViewportChange}
+                validationByNodeId={validation.validationByNodeId}
               />
             </CanvasErrorBoundary>
           </div>
@@ -238,6 +249,18 @@ export function WorkflowBuilderPage() {
         workflowId={persistence.workflowId}
         workflowName={persistence.workflowName}
         onClose={() => persistence.setIsWikiOpen(false)}
+      />
+
+      <WorkflowValidationDialog
+        open={validation.isDialogOpen}
+        onOpenChange={validation.setIsDialogOpen}
+        result={validation.result}
+        allNodes={canvas.allNodes}
+        onSelectNode={(nodeId) => {
+          selectNode(nodeId);
+          openConfigModal(nodeId);
+          validation.setIsDialogOpen(false);
+        }}
       />
 
       <Dialog

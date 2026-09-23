@@ -20,11 +20,19 @@ a non-owner being able to grant AI consent on a public workflow — plus one sec
 issue, validation decrypting credential secrets it should only check for existence).
 All four are fixed and verified — see items 7–10 in "Bugs found and fixed" below.
 
+**Update 2026-09-23 (later session):** the minimal in-canvas "Validate" UI (one of
+the two motivations for building validation at all — see `VALIDATION_PLAN.md`'s
+"Frontend surfacing") is now built: a topbar "Validate" button, a findings dialog
+grouped by node, and red/yellow per-node badges on the canvas. See "What's actually
+been built" for the file list. **Verified live in a browser by the user**: an
+intentionally-introduced config error was correctly caught and surfaced by the
+Validate button.
+
 **Not built yet** (see "Open items" at the end): the `AI_DEFAULTS.md` drift-checker
 inside the apply script (names were resolved by hand every time this session), an
-auto-layout helper (node positions were hardcoded by hand), a minimal in-canvas
-"Validate" UI, Tier 3/4 validation, and a pre-run validation gate. None of these
-blocked what's proven working; they're the next slice, not a blocker to resuming.
+auto-layout helper (node positions were hardcoded by hand), Tier 3/4 validation, and a
+pre-run validation gate. None of these blocked what's proven working; they're the next
+slice, not a blocker to resuming.
 
 **Live test artifact**: workflow id `23`, name "AI Assistent", owned by `admin`
 (user id 1), currently has two connected steps (`get-nautobot-devices-1` →
@@ -264,10 +272,18 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 **Backend — modified files:**
 - `backend/core/models/__init__.py` — export `WorkflowAiSession`
 - `backend/main.py` — seed `ai-assistant` in lifespan; register the new router
-- `backend/routers/workflows.py` — `POST /workflows/{id}/validate` endpoint
+- `backend/models/workflow_validation.py` — `WorkflowValidateRequest` (optional
+  unsaved-draft body for the validate endpoint)
+- `backend/routers/workflows.py` — `POST /workflows/{id}/validate` endpoint; now
+  accepts an optional body so it can validate unsaved canvas edits, not just the
+  last-saved state
 - `backend/services/auth/rbac_seed.py` — `AI_ASSISTANT_PERMISSIONS`, `ensure_ai_assistant_user`
 - `backend/services/workflow/workflow_service.py` — `update_workflow_for_ai_session` +
   `_apply_update` refactor
+
+**Backend — new tests:**
+- `backend/tests/unit/test_workflows_router_validate.py` — draft-vs-saved
+  `canvas_nodes` selection on the validate endpoint
 
 **Frontend — new files:**
 - `frontend/src/components/features/workflows/types/workflow-ai-session.ts`
@@ -275,20 +291,43 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `frontend/src/hooks/queries/use-workflow-ai-session-mutations.ts`
 - `frontend/src/components/features/workflows/components/workflow-ai-session-panel.tsx`
 - `frontend/src/components/features/workflows/components/ai-session-update-banner.tsx`
+- `frontend/src/components/features/workflows/types/workflow-validation.ts` —
+  `ValidationFinding`/`WorkflowValidationResult` mirroring the backend models
+- `frontend/src/hooks/queries/use-workflow-validate-mutation.ts`
+- `frontend/src/components/features/workflows/hooks/use-workflow-validation.ts` —
+  drives the Validate button: mutation, dialog open state, per-node
+  error/warning counts (workflowId-keyed so a workflow switch can't show stale
+  findings)
+- `frontend/src/components/features/workflows/dialogs/workflow-validation-dialog.tsx`
+  — findings grouped by node; clicking a group selects that node and opens its
+  config modal
 
 **Frontend — modified files:**
 - `frontend/src/lib/query-keys.ts` — `workflows.aiSession(id)` key
 - `frontend/src/components/features/workflows/components/workflow-properties-panel.tsx`
   — slots in `WorkflowAiSessionPanel`
 - `frontend/src/components/features/workflows/workflow-builder-page.tsx` — renders
-  `AiSessionUpdateBanner`, wires `onReload`
+  `AiSessionUpdateBanner`, wires `onReload`; wires `useWorkflowValidation` +
+  `WorkflowValidationDialog` + the topbar Validate button
 - `frontend/src/components/features/workflows/hooks/use-workflow-persistence.ts` —
   `baselineUpdatedAt` tracking (see bugs below)
 - `frontend/src/components/features/workflows/hooks/use-canvas-node-changes.ts` —
   dirty-flag fix (see bugs below)
 - `frontend/src/components/features/workflows/hooks/use-workflow-save.ts` — `requireSteps: false`
 - `frontend/src/components/features/workflows/utils/workflow-validation.ts` —
-  `requireSteps` option
+  `requireSteps` option (client-side save-block checks; unrelated to the new
+  server-side `WorkflowValidationService` beyond the shared name)
+- `frontend/src/components/features/workflows/types/workflow-canvas.ts` — `validation?`
+  field on `WorkflowNodeData`, a view-only annotation (never persisted) merged in
+  from the last Validate run, same pattern as `isGroupEntryPoint`
+- `frontend/src/components/features/workflows/components/workflow-canvas.tsx` —
+  `validationByNodeId` prop, merged into each `workflowNode`'s data before handing
+  nodes to React Flow
+- `frontend/src/components/features/workflows/components/nodes/workflow-node.tsx` —
+  red/yellow error-count badge, only for `data.validation`, no per-step branch
+- `frontend/src/components/features/workflows/components/workflow-topbar.tsx` —
+  "Validate" button, disabled until the workflow has an id (same rule as Version
+  Control)
 
 **Related docs**: `AI_DEFAULTS.md` (defaults/policy), `VALIDATION_PLAN.md` (the
 four-tier validator design, Tiers 1–2 implemented here).
@@ -407,12 +446,12 @@ before assuming anything works from inspection alone.
   (`{x: 0}`, `{x: 400}`, `{x: 800}`, ...). Reuse
   `services/execution/graph.py::topological_generations` for x-ordering by
   dependency layer.
-- **Minimal in-canvas "Validate" UI.** Findings are currently only visible in the
-  apply script's stdout JSON — nothing surfaces them for a human editing by hand,
-  which was explicitly one of the two motivations for building validation at all.
 - **Tier 3 (capability-flow) and Tier 4 (attribute-path) validation** — see
   `VALIDATION_PLAN.md`'s build order.
-- **Pre-run validation gate** on `RunService.trigger_run`.
+- **Pre-run validation gate** on `RunService.trigger_run`. `VALIDATION_PLAN.md`'s
+  "Frontend surfacing" also calls for disabling/confirming the Run button when
+  unresolved Tier 1–3 errors exist on the saved state — not wired yet; the new
+  Validate button is purely informational today, it doesn't block Run.
 - **Automated regression tests for bugs 2–5 above** — only manually verified live in
   a browser this session, not codified as frontend tests (no existing test
   convention for these specific hooks/components was found to extend).

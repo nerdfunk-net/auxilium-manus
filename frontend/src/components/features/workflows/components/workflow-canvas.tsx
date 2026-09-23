@@ -45,6 +45,7 @@ import {
   type StepPayload,
   type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
+import type { NodeValidationSummary } from "../hooks/use-workflow-validation";
 import { WaypointEdge } from "./edges/waypoint-edge";
 import { CollapsibleMiniMap } from "./collapsible-minimap";
 import { GroupNode } from "./nodes/group-node";
@@ -76,6 +77,8 @@ const FUNNEL_DROP_OFFSET = { x: 20, y: 20 };
 // "Show grid" toggle is on a snapped position lands exactly on a grid dot.
 const SNAP_GRID: [number, number] = [22, 22];
 
+const EMPTY_VALIDATION_BY_NODE_ID: Record<string, NodeValidationSummary> = {};
+
 interface WorkflowCanvasProps {
   nodes: ProjectedCanvasNode[];
   edges: WorkflowCanvasEdge[];
@@ -88,6 +91,8 @@ interface WorkflowCanvasProps {
   initialViewport?: Viewport | null;
   /** Fired once per pan/zoom gesture (not per frame) so the caller can remember it for the next mount. */
   onViewportChange?: (viewport: Viewport) => void;
+  /** Error/warning counts from the last Validate run, keyed by node id — merged into each node's `data.validation` as a view-only annotation (see WorkflowNodeData). */
+  validationByNodeId?: Record<string, NodeValidationSummary>;
 }
 
 function WorkflowCanvasInner({
@@ -100,6 +105,7 @@ function WorkflowCanvasInner({
   onAddStepAtPosition,
   initialViewport,
   onViewportChange,
+  validationByNodeId = EMPTY_VALIDATION_BY_NODE_ID,
 }: WorkflowCanvasProps) {
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
   const selectEdge = useWorkflowBuilderStore((state) => state.selectEdge);
@@ -283,19 +289,23 @@ function WorkflowCanvasInner({
   const layeredNodes = useMemo(
     () =>
       sortNodesForContainment(nodes).map((node) => {
-        if (node.type === "backgroundNode") {
-          return node.zIndex === BACKGROUND_Z_INDEX
-            ? node
-            : { ...node, zIndex: BACKGROUND_Z_INDEX };
+        const withValidation: ProjectedCanvasNode =
+          node.type === "workflowNode" && validationByNodeId[node.id]
+            ? { ...node, data: { ...node.data, validation: validationByNodeId[node.id] } }
+            : node;
+        if (withValidation.type === "backgroundNode") {
+          return withValidation.zIndex === BACKGROUND_Z_INDEX
+            ? withValidation
+            : { ...withValidation, zIndex: BACKGROUND_Z_INDEX };
         }
-        if (node.type === "labelNode" || node.type === "workflowNode") {
-          return node.zIndex === FOREGROUND_Z_INDEX
-            ? node
-            : { ...node, zIndex: FOREGROUND_Z_INDEX };
+        if (withValidation.type === "labelNode" || withValidation.type === "workflowNode") {
+          return withValidation.zIndex === FOREGROUND_Z_INDEX
+            ? withValidation
+            : { ...withValidation, zIndex: FOREGROUND_Z_INDEX };
         }
-        return node;
+        return withValidation;
       }),
-    [nodes],
+    [nodes, validationByNodeId],
   );
 
   const handleMoveEnd: OnMoveEnd = useCallback(

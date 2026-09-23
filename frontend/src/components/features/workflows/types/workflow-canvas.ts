@@ -51,6 +51,13 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   isGroupExitPoint?: boolean;
   /** The outcome handle name of the exit step's edge that leaves the group. */
   groupExitHandle?: string;
+  /**
+   * View-only annotation merged in by WorkflowCanvas from the last Validate
+   * run's findings, keyed by node id — never present on allNodes/persisted
+   * canvas_nodes, only on the projected copy passed to React Flow. See
+   * doc/ai_workflows/VALIDATION_PLAN.md.
+   */
+  validation?: { errorCount: number; warningCount: number };
 }
 
 export interface Waypoint {

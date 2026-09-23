@@ -12,7 +12,7 @@ from core.domain_exceptions import DomainError
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.workflow_changes import WorkflowChangeListResponse
-from models.workflow_validation import WorkflowValidationResult
+from models.workflow_validation import WorkflowValidateRequest, WorkflowValidationResult
 from models.workflows import (
     WorkflowCreate,
     WorkflowGalleryListResponse,
@@ -294,14 +294,17 @@ def delete_workflow(
 )
 def validate_workflow(
     workflow_id: int,
+    body: WorkflowValidateRequest | None = None,
     current_user: User = Depends(get_current_user),
     service: WorkflowService = Depends(_service),
     plugin_service: PluginRegistryService = Depends(get_plugin_service),
 ) -> WorkflowValidationResult:
-    """Validates the currently saved workflow — Tiers 1-2 only, see
-    doc/ai_workflows/VALIDATION_PLAN.md. Read-only: never mutates the workflow."""
+    """Validates a workflow — Tiers 1-2 only, see doc/ai_workflows/VALIDATION_PLAN.md.
+    Read-only: never mutates the workflow. `workflow_id` must be a real, visible
+    workflow (used for the permission/ownership check), but when `body.canvas_nodes`
+    is given that draft is validated instead of the workflow's last-saved state."""
     workflow = service.get_workflow(workflow_id=workflow_id, user_id=current_user.id)
+    draft_nodes = body.canvas_nodes if body is not None else None
+    canvas_nodes = draft_nodes if draft_nodes is not None else workflow.canvas_nodes
     validator = WorkflowValidationService(service.db, plugin_service.get_registry())
-    return validator.validate(
-        workflow.canvas_nodes or [], acting_user_id=current_user.id
-    )
+    return validator.validate(canvas_nodes or [], acting_user_id=current_user.id)

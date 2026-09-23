@@ -7,7 +7,7 @@ import {
   useUpdateNodeInternals,
   type NodeProps,
 } from "@xyflow/react";
-import { Ban, FlaskConical, Info, Settings2, Split } from "lucide-react";
+import { AlertTriangle, Ban, FlaskConical, Info, Settings2, Split } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -90,6 +90,8 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
   const dryRunEnabled = data.pluginConfig?.dry_run === true;
   const showOutcomeLabels = outcomes.length > 1;
   const isDisabled = data.disabled === true;
+  const errorCount = data.validation?.errorCount ?? 0;
+  const warningCount = data.validation?.warningCount ?? 0;
 
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
@@ -211,6 +213,37 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
               >
                 Group output
               </Badge>
+            ) : null}
+            {errorCount > 0 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    className="shrink-0 gap-1 border-error-border bg-error text-error-foreground"
+                    variant="outline"
+                  >
+                    <AlertTriangle className="size-3" aria-hidden />
+                    {errorCount}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {errorCount} validation error{errorCount === 1 ? "" : "s"} on this step
+                </TooltipContent>
+              </Tooltip>
+            ) : warningCount > 0 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    className="shrink-0 gap-1 border-warning-border bg-warning text-warning-foreground"
+                    variant="outline"
+                  >
+                    <AlertTriangle className="size-3" aria-hidden />
+                    {warningCount}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {warningCount} validation warning{warningCount === 1 ? "" : "s"} on this step
+                </TooltipContent>
+              </Tooltip>
             ) : null}
           </div>
           <p className="mt-1 line-clamp-2 overflow-hidden text-xs leading-5 text-muted-foreground">
