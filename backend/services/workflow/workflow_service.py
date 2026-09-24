@@ -105,10 +105,18 @@ def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttri
         if attr.default is None:
             continue
         is_number = isinstance(attr.default, (int, float)) and not isinstance(attr.default, bool)
+        is_int = isinstance(attr.default, int) and not isinstance(attr.default, bool)
         type_ok = (
             (attr.type == "string" and isinstance(attr.default, str))
             or (attr.type == "number" and is_number)
             or (attr.type == "boolean" and isinstance(attr.default, bool))
+            or (
+                attr.type == "reference"
+                and (
+                    (attr.ref_kind == "inventory" and is_int)
+                    or (attr.ref_kind == "credential" and isinstance(attr.default, str))
+                )
+            )
         )
         if not type_ok:
             raise ValidationFailedError(

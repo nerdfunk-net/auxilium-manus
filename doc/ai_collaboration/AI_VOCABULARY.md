@@ -110,47 +110,81 @@ script using
 
 1. `nautobot_source_id` — resolve via `AI_DEFAULTS.md`'s Sources table (`nautobot`),
    same as any other Nautobot step.
-2. `get_inventory_by_name(name, username)` for its `id` and `inventory_type`
-   (`filter`/`static`) — mainly to confirm the name actually exists (fail loudly,
-   don't guess, if it doesn't) and to get the id for step 4.
-3. **Target it via `inventory_source: "run_param"`, not `"fixed"` — regardless of
-   `inventory_type`.** This resolves the named inventory's *live* definition at
-   run time (`NautobotSourceService.resolve_saved_inventory_devices_by_id`, which
-   internally calls `utils/inventory_converter.py::convert_saved_inventory_to_operations`
-   for a `"filter"`-type inventory, or reads `device_ids` directly for
-   `"static"`) — a real, full, **backend-native** resolution path, not a
-   workaround. It is arguably the more correct reading of "use the inventory named
-   `LAB`" than `"fixed"` mode would be: `"fixed"` mode freezes a canvas-format
-   snapshot of the filter at authoring time (only ever produced by the frontend's
-   condition-builder UI — there is no backend equivalent that produces that
-   specific snapshot shape), so it can silently drift from `LAB`'s current
-   definition if `LAB` is edited later; `"run_param"` always reflects the
-   inventory's current, live database state.
-4. Add a `reference`/`inventory`-type `static_attribute` to the workflow (full
-   replacement of `static_attributes`, per `PROCESS.md`'s patch-shape rules — merge
-   with whatever the workflow already has, never drop existing entries):
+2. `get_inventory_by_name(name, username)` for its `id`, `inventory_type`
+   (`filter`/`static`), and `conditions` — a live lookup, never a guess.
+3. **Default: `inventory_source: "fixed"`** (corrected 2026-09-24 — an earlier
+   version of this recipe defaulted to `"run_param"` for every case; that's now
+   the exception, not the default — see below). Most workflows run live against
+   a named inventory, not on a schedule, so a canvas-time snapshot is what the
+   user actually means by "use the inventory named X":
+   - `inventory_type == "static"`: set `inventory_id`, `inventory_name`,
+     `inventory_type: "static"`, and `device_ids` to the lookup result's
+     `device_ids` list verbatim — a plain UUID list, no conversion needed.
+   - `inventory_type == "filter"`: set `inventory_id`, `inventory_name`,
+     `inventory_type: "filter"`, and `device_filter` to
+     `scripts/ai_inventory_filter.py::saved_conditions_to_device_filter(conditions)`
+     — a Python port of the frontend's `tree-format-converters.ts` (the piece
+     that actually matters is ~25 lines, not the ~180 the whole file suggested;
+     verified byte-identical to the real runtime converter's output for the
+     real `LAB` inventory, see that module's tests). This *is* a snapshot,
+     same caveat as a human picking the inventory in the UI: it won't notice if
+     `LAB`'s definition changes later. That's expected "fixed" semantics, not a
+     bug — say so in the proposed plan so the user can ask for `"run_param"`
+     instead if they'd rather it stay live.
+4. **Use `inventory_source: "run_param"` instead when the request says (or
+   implies) the workflow will be scheduled, or needs the inventory chosen
+   per-run/per-schedule** — that's what it's for. In that case: leave
+   `inventory_id`/`inventory_name`/`inventory_type`/`device_filter`/`device_ids`
+   at their config defaults, set `inventory_param` to a run-parameter name (the
+   registry's own example is `target_inventory`; use a step-specific name if a
+   workflow needs more than one), and add a matching `reference`/`inventory`
+   `static_attribute` (full replacement of `static_attributes` — merge with
+   whatever the workflow already has, never drop existing entries):
    `{"name": "target_inventory", "type": "reference", "ref_kind": "inventory",
-   "default": <the resolved id>, "required": false}` — `"target_inventory"` is the
-   registry's own example name for this pattern; use a step-specific name
-   (`target_inventory_devices`, `target_inventory_backups`, …) if the workflow
-   needs more than one. Set the node's `inventory_param` to that same name and
-   `inventory_source` to `"run_param"`.
-5. Leave `inventory_id`/`inventory_name`/`inventory_type`/`device_filter`/
-   `device_ids` at their config defaults (unused by the executor in `run_param`
-   mode) and `fan_out` unset unless the request implies per-device parallel
-   processing.
-
-With the `default` set, a manual trigger that supplies no override resolves to
-`LAB` automatically (`resolve_run_inputs` fills declared defaults) — in practice
-this behaves exactly like "always target `LAB`," while remaining live and,
-unlike `"fixed"` mode, overridable per-run/per-schedule without editing the
-canvas. Say this explicitly in the proposed plan (per `PROCESS.md`'s
-propose-before-apply step) so the user can object if they specifically want a
-frozen, non-overridable snapshot instead — that narrower case genuinely has no
-safe backend-only path today (it would need the frontend's
-`savedConditionsToFilterTree` tree-format conversion, `frontend/.../inventory/
-utils/tree-format-converters.ts`, ported to Python; not done, out of scope unless
-requested).
+   "default": <the resolved id>, "required": false}`. With `default` set, an
+   unqualified trigger still resolves to the named inventory
+   (`resolve_run_inputs` fills declared defaults) while staying live and
+   overridable per-run/per-schedule — this is the right tradeoff specifically
+   when scheduling is in view, not as a general-purpose default.
+5. **Fan-out threshold — check the live device count, don't guess.** Before
+   finalizing the node, call
+   `scripts/ai_inventory_filter.py::count_inventory_devices(db, inventory_id=...,
+   username=..., nautobot_source_id=...)` — this hits the real Nautobot API via
+   the same path the step's own executor uses
+   (`NautobotSourceService.analyze_inventory`), since a filter-type inventory's
+   true count can only be known by evaluating it live, not by reading the DB.
+   - **`device_count <= 10`** (`FAN_OUT_DEVICE_THRESHOLD`): leave `fan_out`
+     unset — a single run looping over the device list is fine.
+   - **`device_count > 10`**: **stop and ask** whether to enable fan-out, before
+     applying anything — don't silently pick either way. If the user says yes,
+     use `DEFAULT_FAN_OUT_CONFIG`:
+     `{"enabled": true, "mode": "per_device", "chunk_size": 1,
+     "max_concurrency": 10}` (the user's own stated default, 2026-09-24 — not a
+     per-use-case guess). If they say no, leave `fan_out` unset as above.
+6. **Enabling fan-out means re-checking every downstream step for a shared
+   sink, not just adding the config block.** Once `fan_out.enabled: true` is on
+   the inventory step, everything downstream up to the next `fan-in` node runs
+   once *per device*, in parallel, potentially cross-process
+   (`doc/WORKFLOW-STEPS.md`'s "Writing concurrency-safe steps"). Per-device
+   compute steps (`get-device-configs`, `get-nautobot-attributes`, `run-command`,
+   `render-jinja-template`, …) are fine as-is. But `store-artifact` with
+   `destination: "git"`, `git-clone`, `git-pull`, `git-push`, and
+   `open-change-request` all open **one shared on-disk working tree per git
+   repository** — a per-repo lock stops the tree from being *corrupted*, but
+   each fanned-out caller still opens its **own commit**, so N devices means N
+   commits/pushes, not one. (`store-artifact` with `destination: "filesystem"`
+   is the one exception that doesn't strictly need this — it's safe as long as
+   `filename_template` is device-unique, which it always is in this recipe.)
+   **Rule: insert a `fan-in` node ("Fan In") immediately before the first
+   git-touching step in the chain**, wiring per-device steps before it and
+   git/store steps after it — exactly the shape `fan-in`'s own registry entry
+   documents: *"Place git / store-artifact steps after Fan In for safe,
+   single-commit exports."* For the backup workflow's shape (devices →
+   attributes → configs → git-pull → store-artifact → git-push), that means
+   Fan In goes right after "Get Configs" and before "Git Pull" — so pull,
+   write, and push each happen exactly once, over the merged device set, not
+   once per device. State this explicitly in the proposed plan whenever
+   fan-out is enabled; don't let the extra node be a surprise.
 
 `AI_DEFAULTS.md`'s Inventories table only names the **safe default for an
 unspecified first run** (`LAB`) — it is not a general inventory-name-to-id cache. A
@@ -170,26 +204,26 @@ so it cannot be the first node in a branch).
 
 ### Worked example — the seed for this file
 
-Request: *"Get the devicelist LAB and the attributes from nautobot."*
+Request: *"Get the devicelist LAB and the attributes from nautobot."* (Live run,
+not scheduled — the default case per step 3 above.)
 
 1. `get-nautobot-devices` ("Get from Nautobot"): `nautobot_source_id` resolved from
-   `AI_DEFAULTS.md`. Look up the inventory named `LAB` — confirmed live, `id: 1`
-   (this is that inventory's own row data; `AI_DEFAULTS.md` separately happens to
-   name `LAB` as the *safe default for an unspecified run*, but that's a
-   coincidence here, not why it was looked up). Config:
-   `inventory_source: "run_param"`, `inventory_param: "target_inventory"`.
-2. Add `static_attribute`: `{"name": "target_inventory", "type": "reference",
-   "ref_kind": "inventory", "default": 1, "required": false}` (merged with any
-   existing `static_attributes` on the workflow).
-3. `get-nautobot-attributes` ("Get Nautobot Attributes"): same resolved
+   `AI_DEFAULTS.md`. Look up the inventory named `LAB` — confirmed live: `id: 1`,
+   `inventory_type: "filter"`, with real `conditions`. Config: `inventory_id: 1`,
+   `inventory_name: "LAB"`, `inventory_type: "filter"`, `device_filter` from
+   `saved_conditions_to_device_filter(conditions)` — verified live to produce the
+   exact same device set as the runtime converter (see `ai_inventory_filter.py`'s
+   tests).
+2. `get-nautobot-attributes` ("Get Nautobot Attributes"): same resolved
    `nautobot_source_id`; `list_of_attributes: []` (nothing beyond "attributes" was
    specified).
-4. One edge: node 1's `success` outcome → node 2's input.
+3. One edge: node 1's `success` outcome → node 2's input.
 
-State step 2 explicitly in the proposed plan — it's the one piece of workflow
-structure ("a `target_inventory` run parameter, defaulting to `LAB`") that isn't
-obviously implied by the sentence, even though it behaves as a hardcoded target
-unless someone deliberately overrides it at trigger/schedule time.
+No `static_attribute` needed for this one — `"fixed"` mode doesn't add a run
+parameter. If the request had instead said "...and run this on a schedule" (or
+similar), step 1 would use `inventory_source: "run_param"` per step 4 above, and
+a `target_inventory` static_attribute would be added and stated explicitly in the
+proposed plan.
 
 ---
 

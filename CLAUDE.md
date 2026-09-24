@@ -680,6 +680,8 @@ ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboa
 
 Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`. Timed runs live at `/schedules` (the **Schedules** app) — many parameterized schedules per workflow; see `doc/SCHEDULES.md`. Staged config changes awaiting review live at `/change-requests` (the **Change Requests** app) — see `doc/CICD_PIPELINE.md`.
 
+An AI collaborator can write directly into a workflow from outside the browser: a seeded, restricted `ai-assistant` RBAC principal plus a per-workflow, time-boxed `WorkflowAiSession` consent flag (canvas properties panel → "AI Collaboration") gate `backend/scripts/ai_workflow_apply.py`, the only script that may write on its behalf. `WorkflowValidationService` (Tiers 1–4) and a pre-run gate (`RunService._assert_no_blocking_validation_errors`) both run against every AI-authored patch. Full design, status, and the resolver scripts (`scripts/ai_defaults.py`, `scripts/ai_layout.py`, `scripts/ai_inventory_filter.py`) are in `doc/ai_collaboration/` — read `PROCESS.md` first.
+
 ### Adding New Permission
 1. UI: `/settings/users` → Permissions tab lists the catalog; create a permission from
    the Roles tab's "Manage permissions" dialog (or `POST /api/rbac/permissions`), then

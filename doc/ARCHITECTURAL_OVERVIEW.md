@@ -550,6 +550,70 @@ uses — full validation, then a *new* mirrored commit. Restore never runs
 forward, and a "bad" restore is itself just one more commit to restore away
 from.
 
+## Device selection: three representations of "which devices"
+
+**Question:** A saved inventory, a `get-nautobot-devices` canvas node, and an
+actual Nautobot query each seem to describe device selection differently. Are
+these the same format, and if not, what converts between them?
+
+**Answer:** No — there are three genuinely different shapes, and only two
+converters exist between them, one per direction actually needed. Getting this
+wrong (assuming a converter exists where it doesn't, or that two of these
+shapes are interchangeable) is an easy mistake — a real one, corrected in
+`doc/ai_collaboration/PROCESS.md`'s 2026-09-24 updates.
+
+1. **Saved format** — `Inventory.conditions` (`core/models/inventories.py`), a
+   JSON string decoded by `InventoryService`/`_model_to_dict`
+   (`services/sources/nautobot/persistence_service.py`) to
+   `[{"version": 2, "tree": {"type": "root", "internalLogic": "AND"|"OR",
+   "items": [...]}}]`. This is what a saved inventory actually stores in the
+   database.
+2. **Canvas format** — `device_filter` on a `get-nautobot-devices` node's
+   `pluginConfig` (`"fixed"` mode only): `{"id": "root", "logic": "AND"|"OR",
+   "negate": bool, "items": [...]}`. A frozen, editable snapshot captured at
+   configuration time — the shape the canvas's filter-condition-builder UI
+   reads and writes.
+3. **Runtime query format** — `LogicalOperation`/`LogicalCondition`
+   (`models/sources_nautobot.py`), what actually gets sent to Nautobot.
+
+Two independent converters exist, each solving a different problem — neither
+is a drop-in replacement for the other:
+
+- **Saved → runtime**, directly: `utils/inventory_converter.py::
+  convert_saved_inventory_to_operations` (backend, Python). Used whenever a
+  saved inventory's devices are resolved without ever materializing a canvas
+  snapshot — `NautobotSourceService.resolve_saved_inventory_devices_by_id`
+  (a `get-nautobot-devices` node in `inventory_source: "run_param"` mode) and
+  `analyze_inventory` (inventory preview/analysis) both go through this path.
+- **Canvas → runtime**: `get_nautobot_devices/executor.py::
+  _filter_tree_to_operations` (backend, Python). Used only by `"fixed"` mode,
+  reading the node's own `device_filter`.
+- **Saved → canvas**: the one direction with no long-standing backend
+  converter — only the frontend's condition-builder UI produced this
+  (`savedConditionsToFilterTree` in
+  `frontend/.../inventory/utils/tree-format-converters.ts` +
+  `condition-builder/saved-conditions.ts`, invoked when a human picks "Load
+  Inventory" while configuring a `"fixed"`-mode node by hand). A Python port
+  now exists for the AI-authoring path —
+  `backend/scripts/ai_inventory_filter.py::saved_conditions_to_device_filter`
+  — verified to produce byte-identical `LogicalOperation` output to the
+  saved→runtime converter above for a real inventory (see that module's
+  tests). It is deliberately scoped to the AI-authoring flow, not wired into
+  any request path a human's own UI action would take (the frontend still
+  owns that).
+
+**Why "fixed" mode needs its own snapshot at all, rather than always
+resolving live:** `"fixed"` mode intentionally freezes the filter logic into
+the node at configuration time, independent of the saved inventory's current
+state — editing or deleting the saved inventory later doesn't change what an
+already-configured `"fixed"`-mode node does. `"run_param"` mode is the
+opposite tradeoff: no snapshot, always reflects the referenced inventory's
+live definition, at the cost of needing a `reference`-type `static_attribute`
+on the workflow. Neither is strictly "more correct" — they're different
+answers to "should this step notice if the inventory changes later."
+
+---
+
 ## Change requests: a review gate as two decoupled runs
 
 A config change that must be reviewed before it reaches devices is **not** a

@@ -118,10 +118,9 @@ def main() -> int:
         plugin_service = PluginRegistryService(
             PluginRepository(plugins_file=settings.plugins_file)
         )
-        registry = plugin_service.load_registry()
         merged_canvas_nodes = patch.get("canvas_nodes", current_workflow.canvas_nodes)
         merged_canvas_edges = patch.get("canvas_edges", current_workflow.canvas_edges)
-        validator = WorkflowValidationService(db, registry)
+        validator = WorkflowValidationService(db, plugin_service)
         validation = validator.validate(
             merged_canvas_nodes, merged_canvas_edges, acting_user_id=ai_user.id
         )

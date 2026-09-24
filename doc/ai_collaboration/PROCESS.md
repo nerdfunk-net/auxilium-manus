@@ -232,10 +232,96 @@ point-in-time copy. The narrower `"fixed"`-mode snapshot case is still a real,
 undone gap (would need the frontend converter ported to Python) but is no longer
 the default path, so it rarely comes up.
 
-**Live test artifact**: workflow id `23`, name "AI Assistent", owned by `admin`
-(user id 1), currently has two connected steps (`get-nautobot-devices-1` →
-`get-nautobot-attributes-1` on the `success` outcome). Safe to keep, reuse, or delete
-when picking this back up.
+**Update 2026-09-24 (first real end-to-end workflow, three more real bugs found
+and fixed by actually running it):** built and ran a 6-step "get backups"
+workflow (Get from Nautobot → Get Nautobot Attributes → Get Configs → Git Pull →
+Store Artifact → Git Push) on workflow 23 end to end — the first AI-authored
+workflow in this feature's history to actually **run** to completion, not just
+validate cleanly. Two bugs surfaced immediately on apply, before it ever ran:
+
+1. `ai_workflow_apply.py` passed the raw `PluginRegistry` (from
+   `plugin_service.load_registry()`) into `WorkflowValidationService`, which
+   expects the `PluginRegistryService` wrapper — a stale call site from before
+   that constructor's signature changed (see the 2026-09-23 Tier 1 update
+   above), never caught because this script had never actually been run
+   end-to-end since. Crashed on every invocation. Fixed: pass `plugin_service`
+   directly.
+2. `WorkflowService._validate_static_attributes` (and its frontend twin,
+   `workflow-validation.ts`) had no branch for `type == "reference"` at all —
+   any non-null default on a reference-type static attribute was
+   unconditionally rejected, making the `run_param` + defaulted-reference
+   pattern this very doc recommends impossible to actually save. Fixed on both
+   sides, matching `StaticAttributeDef`'s own documented contract
+   (`ref_kind: "inventory"` → int default, `ref_kind: "credential"` → string
+   default). 7 new backend tests, 5 new frontend tests. The frontend fix also
+   added a "used by \"<node title>\"" hint to the error message, at the user's
+   request, by scanning node configs for the known `*_param` reference fields
+   (`inventory_param`, `credential_param`).
+
+**Then a design correction, not a bug**: the user pointed out that for a
+workflow meant to run *live* (the common case), `"fixed"` mode with the
+inventory's real name is what they actually want — `"run_param"` should be the
+exception for a workflow that will be scheduled, not the default for everything.
+This reopened the `"fixed"`-mode snapshot gap the correction above had marked as
+"undone, out of scope unless requested" — now requested. Re-reading the frontend
+converter in full (not just skimming it, as the first pass had) found the
+actually-relevant logic is ~25 lines (`conditionTreeToFilterTree` +
+`convertConditionItems`/`convertConditionGroup`), not the ~180-line whole file —
+most of that file is the unneeded opposite direction. Ported it faithfully to
+`backend/scripts/ai_inventory_filter.py::saved_conditions_to_device_filter`,
+covering flat conditions, arbitrary nesting, and the single-top-level-NOT-group
+unwrap special case. **Verified live**: cross-checked that converting `LAB`'s
+real `conditions` through this new function, then through the real
+`get-nautobot-devices` "fixed"-mode executor logic
+(`_filter_tree_to_operations`), produces **byte-identical** `LogicalOperation`
+output to the existing runtime converter
+(`convert_saved_inventory_to_operations`) for the same inventory — not just a
+structural match. 9 new tests, including one that re-runs this exact live
+cross-check against the real dev DB (skips gracefully if unreachable).
+`AI_VOCABULARY.md`'s recipe now defaults to `"fixed"` mode; `"run_param"` is used
+specifically when the request says or implies scheduling.
+
+**Update 2026-09-24 (fan-out threshold + Fan In wiring rule):** two more
+`AI_VOCABULARY.md` additions from the same live-testing conversation. First,
+`get-nautobot-devices`'s `fan_out` now has a real, checked default instead of a
+static number: `scripts/ai_inventory_filter.py::count_inventory_devices` gets
+the target inventory's *live* device count (via
+`NautobotSourceService.analyze_inventory` — a filter-type inventory's true count
+can only be known by evaluating it against Nautobot, not by reading the DB) and
+stops to ask whether to enable fan-out when it's above 10 — never silently
+picks either way. Verified live: `LAB` is 3 devices (`count_inventory_devices`
+returned 3 against the real dev Nautobot), correctly below the threshold. Doing
+this required starting `NautobotService` by hand
+(`NautobotService().startup()` + `service_factory.set_nautobot_app_service`) —
+normally done once in `main.py`'s app lifespan, which a standalone script never
+runs through; a real gap, same shape as the `NautobotService is not
+initialized` `RuntimeError` this surfaced on first attempt. 3 new unit tests
+(mocked Nautobot boundary). The `fan_out.max_concurrency: 5` policy default
+this replaces was never actually applied by any rule — corrected to the user's
+stated real default (`enabled: true, mode: per_device, chunk_size: 1,
+max_concurrency: 10`), used only when fan-out is actually turned on.
+
+Second, the user caught that enabling fan-out isn't just a config block on the
+inventory step — it changes what "safe" wiring means for everything downstream,
+specifically the backup workflow's own git-pull/store-artifact/git-push chain.
+This was already fully documented (`fan-in`'s own registry description: *"Place
+git / store-artifact steps after Fan In for safe, single-commit exports"*;
+`doc/WORKFLOW-STEPS.md`'s "Writing concurrency-safe steps" table lists exactly
+which step kinds need it — `store-artifact`→git, `git-clone`, `git-pull`,
+`git-push`, `open-change-request`, all because they share one on-disk working
+tree per git repository and each fanned-out caller opens its own commit
+otherwise) — it just hadn't been carried into `AI_VOCABULARY.md` as an
+authoring rule. Now it has: whenever fan-out is enabled, insert a `fan-in`
+node before the first git-touching step, with per-device compute before it and
+git/store steps after. No code changed here, only documentation — the
+underlying mechanism (the per-repo advisory lock, the fan-in join semantics)
+was already built and correct.
+
+**Live test artifact**: workflow id `23`, name "AI Assistent", now holds the real
+6-step backup workflow described above (applied via `ai_workflow_apply.py`,
+**verified to actually run successfully** by the user). No longer the old
+two-step read-only test — update this note again before assuming its contents
+if picking this back up later.
 
 ---
 
@@ -442,10 +528,12 @@ straight into the open canvas and clobber in-progress edits.
    until satisfied.
 8. **Explicit Validate pass** before any run — currently only available via the apply
    script's JSON output (no in-canvas "Validate" button yet — see "Open items").
-9. **Safety routing for config-mutating steps**: route the first run through
-   `open-change-request` rather than a direct run, per `AI_DEFAULTS.md`'s policy
-   defaults — not yet exercised in any live test (every test this session was
-   deliberately read-only: Nautobot inventory/attribute lookups).
+9. **Change-request routing is opt-in, not default** (corrected 2026-09-24 — an
+   earlier version of this doc had it backwards): a config-mutating step
+   (`configure-replace-config`, `deploy-rendered-template`, any `store-artifact`/
+   `git-push` writing to a tracked repo) still routes through `open-change-request`
+   when the user explicitly asks for that in the same turn, but the default for an
+   unqualified request is a direct run — see `AI_DEFAULTS.md`'s policy defaults.
 10. **You click Run** (or approve the change request) — the AI actor's RBAC grant
     makes this structurally impossible for it to do itself, not just a self-imposed
     rule.
@@ -472,11 +560,21 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   `REFERENCE_DRIFT_CODES`, shared with `ai_workflow_apply.py`'s refuse-to-write gate
 - `backend/scripts/ai_layout.py` — `compute_layer_layout`/`apply_layout`: the
   auto-layout helper, see "Auto-layout helper" in Open items below
+- `backend/scripts/ai_inventory_filter.py` — `saved_conditions_to_device_filter`:
+  Python port of the frontend's saved-conditions → canvas `device_filter`
+  converter, for defaulting `get-nautobot-devices` to `"fixed"` mode with a real
+  inventory name — see the 2026-09-24 update above. Also
+  `count_inventory_devices`/`FAN_OUT_DEVICE_THRESHOLD`/`DEFAULT_FAN_OUT_CONFIG`:
+  the live device-count check behind the fan-out threshold rule (see the
+  second 2026-09-24 update below).
 - `backend/tests/unit/test_rbac_seed_ai_assistant.py`
 - `backend/tests/unit/test_workflow_ai_session_service.py`
 - `backend/tests/unit/test_workflow_validation_service.py`
 - `backend/tests/unit/test_ai_defaults.py`
 - `backend/tests/unit/test_ai_layout.py`
+- `backend/tests/unit/test_ai_inventory_filter.py`
+- `backend/tests/unit/test_ai_inventory_filter_device_count.py`
+- `backend/tests/unit/test_workflow_service_static_attributes.py`
 
 **Backend — modified files:**
 - `backend/core/models/__init__.py` — export `WorkflowAiSession`
@@ -522,6 +620,15 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   validation check inline (own fresh `PluginRegistryService`, no `RunService`
   involved — see the 2026-09-24 update above for why), same
   create-run-then-mark-failed shape as its existing run-input validation.
+- `backend/scripts/ai_workflow_apply.py` — fixed a real bug (see the 2026-09-24
+  "first real end-to-end workflow" update above): was passing the raw
+  `PluginRegistry` into `WorkflowValidationService` instead of the
+  `PluginRegistryService` wrapper it actually expects, crashing on every
+  invocation.
+- `backend/services/workflow/workflow_service.py` —
+  `_validate_static_attributes` fixed to actually check `type == "reference"`
+  defaults (was unconditionally rejecting them; see the 2026-09-24 update
+  above).
 
 **Backend — new tests:**
 - `backend/tests/unit/test_workflows_router_validate.py` — draft-vs-saved
@@ -560,6 +667,9 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `frontend/src/components/features/workflows/dialogs/workflow-validation-dialog.tsx`
   — findings grouped by node; clicking a group selects that node and opens its
   config modal
+- `frontend/src/components/features/workflows/utils/workflow-validation.test.ts`
+  — the client-side `type: "reference"` fix and its "used by" hint (see the
+  2026-09-24 update above)
 
 **Frontend — modified files:**
 - `frontend/src/lib/query-keys.ts` — `workflows.aiSession(id)` key
@@ -575,7 +685,12 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `frontend/src/components/features/workflows/hooks/use-workflow-save.ts` — `requireSteps: false`
 - `frontend/src/components/features/workflows/utils/workflow-validation.ts` —
   `requireSteps` option (client-side save-block checks; unrelated to the new
-  server-side `WorkflowValidationService` beyond the shared name)
+  server-side `WorkflowValidationService` beyond the shared name). Fixed
+  2026-09-24: `validateStaticAttributes` had no branch for `type: "reference"`
+  at all (mirrors the backend bug fixed in `workflow_service.py` the same day);
+  now also names the referencing node(s) in the error via
+  `describeReferencingNodes` (scans `inventory_param`/`credential_param`
+  config fields).
 - `frontend/src/components/features/workflows/types/workflow-canvas.ts` — `validation?`
   field on `WorkflowNodeData`, a view-only annotation (never persisted) merged in
   from the last Validate run, same pattern as `isGroupEntryPoint`
@@ -756,3 +871,27 @@ before assuming anything works from inspection alone.
 - **Nothing config-mutating has been tried.** Every live test was deliberately
   read-only (Nautobot lookups). The change-request safety routing in step 9 of "The
   loop" is designed but unexercised.
+- **New validation tier: fan-out + unguarded shared-sink step.** Not built —
+  discussed 2026-09-24, deliberately deferred. `AI_VOCABULARY.md`'s "fan-out
+  requires re-checking downstream wiring" rule (see the update above) is
+  currently enforced only by *me* remembering to apply it when authoring a
+  patch — nothing catches it if a human (or a future, less careful AI patch)
+  wires it wrong by hand. There's already direct precedent for exactly this
+  class of check: `WorkflowService._validate_stop_here_not_in_fan_out`
+  rejects a `stop-here` node positioned inside a fan-out branch at save time.
+  The new check would be the same shape: walk the graph from a
+  `fan_out.enabled: true` inventory step; if a node of kind `store-artifact`
+  (with `destination: "git"`), `git-clone`, `git-pull`, `git-push`, or
+  `open-change-request` is reachable **before** the nearest `fan-in` node (or
+  no `fan-in` exists on that path at all), flag it — real, structural, not
+  advisory (this produces N commits instead of one, not a crash, so it's easy
+  to ship unnoticed). Open design questions to resolve when this gets picked
+  up: (1) enforce at save time like `_validate_stop_here_not_in_fan_out`
+  (`WorkflowService`), as a new `WorkflowValidationService` tier/finding, or
+  both; (2) whether `store-artifact` with `destination: "filesystem"` needs
+  any check too (currently safe only *if* `filename_template` is
+  device-unique — see `doc/WORKFLOW-STEPS.md`'s concurrency table — a
+  fixed/colliding template there is a real but different bug); (3) reuse
+  Tier 3's existing fan-out-aware graph walk
+  (`WorkflowValidationService._tier3_capability_flow`) rather than writing a
+  second one.

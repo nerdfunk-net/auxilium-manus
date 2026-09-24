@@ -12,7 +12,35 @@ import { validateGetFromUserNodes } from "./run-input-attributes";
 const EMPTY_GROUPS: CanvasGroup[] = [];
 const EMPTY_STATIC_ATTRIBUTES: StaticAttributeDef[] = [];
 
-function validateStaticAttributes(attributes: StaticAttributeDef[]): string[] {
+// Config fields whose value points at a static attribute by name — see
+// backend/workflow_steps/registry.yaml (every field ending in "_param" that
+// isn't get-from-user's own device_param, handled separately in
+// run-input-attributes.ts). Used only to give a validation error a "used by"
+// hint; not exhaustive beyond what the registry currently defines.
+const REFERENCE_PARAM_CONFIG_KEYS = ["inventory_param", "credential_param"] as const;
+
+/** Titles of nodes whose config points at `paramName` via one of
+ * REFERENCE_PARAM_CONFIG_KEYS — so a bad static attribute's error can say
+ * which step(s) on the canvas actually reference it. */
+function describeReferencingNodes(nodes: PersistedCanvasNode[], paramName: string): string {
+  const titles: string[] = [];
+  for (const node of nodes) {
+    const config = node.data?.pluginConfig;
+    if (!config) continue;
+    const references = REFERENCE_PARAM_CONFIG_KEYS.some(
+      (key) => typeof config[key] === "string" && (config[key] as string).trim() === paramName,
+    );
+    if (references) {
+      titles.push(node.data.title || node.id);
+    }
+  }
+  return titles.length > 0 ? ` (used by ${titles.map((t) => `"${t}"`).join(", ")})` : "";
+}
+
+function validateStaticAttributes(
+  attributes: StaticAttributeDef[],
+  nodes: PersistedCanvasNode[],
+): string[] {
   const issues: string[] = [];
   const seen = new Set<string>();
   for (const attr of attributes) {
@@ -27,12 +55,19 @@ function validateStaticAttributes(attributes: StaticAttributeDef[]): string[] {
     }
     seen.add(trimmed);
     if (attr.default === undefined || attr.default === null) continue;
+    const isInt = typeof attr.default === "number" && Number.isInteger(attr.default);
     const typeOk =
       (attr.type === "string" && typeof attr.default === "string") ||
       (attr.type === "number" && typeof attr.default === "number") ||
-      (attr.type === "boolean" && typeof attr.default === "boolean");
+      (attr.type === "boolean" && typeof attr.default === "boolean") ||
+      (attr.type === "reference" &&
+        ((attr.ref_kind === "inventory" && isInt) ||
+          (attr.ref_kind === "credential" && typeof attr.default === "string")));
     if (!typeOk) {
-      issues.push(`Static attribute "${trimmed}": default does not match type "${attr.type}".`);
+      const usedBy = describeReferencingNodes(nodes, trimmed);
+      issues.push(
+        `Static attribute "${trimmed}": default does not match type "${attr.type}"${usedBy}.`,
+      );
     }
   }
   return issues;
@@ -81,7 +116,7 @@ export function validateCanvasWorkflow(
         `Group "${group.title}" no longer has a single entry and exit — fix connections or ungroup before saving.`,
     );
 
-  const staticAttributeIssues = validateStaticAttributes(staticAttributes);
+  const staticAttributeIssues = validateStaticAttributes(staticAttributes, nodes);
   const getFromUserIssues = validateGetFromUserNodes(nodes);
 
   const issues = [

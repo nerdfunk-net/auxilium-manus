@@ -40,8 +40,12 @@ inventories change. Last verified against the dev DB: 2026-09-23.
 | `is_version_controlled` | `true` | Every AI edit gets a git-mirrored commit — free audit trail (see `doc/ARCHITECTURAL_OVERVIEW.md` → "Version-controlled workflows"). |
 | Name prefix | `[AI Draft] ` | Makes AI-originated workflows visually distinct in the workflow list until a human renames it (implies acceptance). |
 | Folder | `/ai-drafts` | Keeps generated workflows out of the main folder tree until promoted. |
-| `fan_out.max_concurrency` | `5` | Conservative default; raise only when the use case explicitly needs higher throughput. |
-| Config-mutating steps (`configure-replace-config`, `deploy-rendered-template`, any `store-artifact`/`git-push` writing to a tracked repo) | Route through `open-change-request`, not a direct run | Turns a wrong guess into a diff a human rejects, not a push that already happened — see `doc/CICD_PIPELINE.md`. |
+| `get-nautobot-devices`'s `fan_out` | Unset (disabled) for ≤10 devices; **ask** the user when the target inventory's live device count is >10 | Corrected 2026-09-24 (was a flat `max_concurrency: 5`, never actually applied by any rule). See `AI_VOCABULARY.md`'s "fan-out threshold" for the check and the exact stop-and-ask wording. |
+| `fan_out` block when the user says yes | `{"enabled": true, "mode": "per_device", "chunk_size": 1, "max_concurrency": 10}` | The user's own stated default (2026-09-24) for when fan-out is actually enabled — not a per-use-case guess. |
+| Config-mutating steps (`configure-replace-config`, `deploy-rendered-template`, any `store-artifact`/`git-push` writing to a tracked repo) | **Direct run, not `open-change-request`** | Corrected 2026-09-24 (was the reverse). Route through `open-change-request` only when the user explicitly asks for change-request handling in that turn — never infer it from the step shape alone. See `doc/CICD_PIPELINE.md` for what `open-change-request` does when it *is* asked for. |
+| `git-push` / `git-pull` / `git-clone` target branch | The git repository's own configured `branch` (Settings → Git Repositories) | Never set an explicit branch override on the step; use whatever the repository row is already configured with unless the user names a different branch in that turn. |
+| `store-artifact`'s `strict_templates` | `true` (the step's own default — leave unset) | Fail the step loudly if a `filename_template` placeholder (e.g. `nautobot.location.name`) resolves empty for some device, rather than silently writing to a wrong/partial path. |
+| `store-artifact`/`git-push`'s `commit_message_template` | `"commit {timestamp}"` (the step's own default — leave unset) | Use the step's built-in default unless the user asks for a specific message (e.g. including the run id or a description). |
 | Target inventory for a first run | The "safe" inventory below | Never default to a production-scope inventory without the user explicitly asking to target it. |
 
 ---
