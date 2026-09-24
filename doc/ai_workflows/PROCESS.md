@@ -197,6 +197,41 @@ All four `VALIDATION_PLAN.md` tiers, plus the pre-run gate, are now built — th
 `AI_DEFAULTS.md` drift-check and the auto-layout helper too (see their own updates
 above). What's left is verification, not construction — see "Open items" below.
 
+**Update 2026-09-24 (`AI_VOCABULARY.md` added):** a third required-reading doc
+alongside `PROCESS.md`/`AI_DEFAULTS.md`, addressing a gap those two don't cover —
+neither says which registry steps and wiring a recurring natural-language request
+actually means (`AI_DEFAULTS.md` is about *values*, not step selection). Scoped
+deliberately small: a glossary of **confirmed** phrase → step mappings, grown from
+actual corrections/confirmations rather than a speculative grammar — see the file
+itself for the seed entry (a two-step Nautobot devices+attributes request) and its
+"how entries get added" rule. Doesn't change `PROCESS.md`'s propose-before-apply
+step; it just makes the first proposal more likely to match intent.
+
+**Correction (same session, right after writing the above):** the first pass at
+the seed entry claimed there was no backend way to resolve a saved "filter"-type
+inventory by name at all — **wrong**, caught by the user questioning it directly.
+`device_filter` (the canvas snapshot format `"fixed"` mode needs) and
+`Inventory.conditions` (what a saved inventory actually stores — confirmed live
+for `LAB`: `[{"version": 2, "tree": {"type": "root", "internalLogic": "OR",
+"items": [...]}}]`) genuinely are different tree formats, and the only converter
+between *those two specific shapes*
+(`frontend/.../inventory/utils/tree-format-converters.ts`) is frontend-only — that
+part was right. But `backend/utils/inventory_converter.py::
+convert_saved_inventory_to_operations` is a full, real, **backend-native** Python
+function that evaluates the same saved `conditions` directly into Nautobot query
+operations, already used at run time whenever `get-nautobot-devices` is configured
+with `inventory_source: "run_param"`
+(`NautobotSourceService.resolve_saved_inventory_devices_by_id`). So resolving a
+named inventory's devices from the backend, with zero frontend involvement, was
+never actually blocked — only the one narrow case of *freezing a `"fixed"`-mode
+canvas snapshot* is. `AI_VOCABULARY.md`'s recipe now targets a named inventory via
+`run_param` (a `reference`/`inventory` static_attribute defaulting to the resolved
+id) instead of a stop-and-ask — arguably the more faithful reading of "use the
+inventory named X" anyway, since it stays live rather than freezing a
+point-in-time copy. The narrower `"fixed"`-mode snapshot case is still a real,
+undone gap (would need the frontend converter ported to Python) but is no longer
+the default path, so it rarely comes up.
+
 **Live test artifact**: workflow id `23`, name "AI Assistent", owned by `admin`
 (user id 1), currently has two connected steps (`get-nautobot-devices-1` →
 `get-nautobot-attributes-1` on the `success` outcome). Safe to keep, reuse, or delete
@@ -384,8 +419,9 @@ straight into the open canvas and clobber in-progress edits.
 - After a change is applied, wait for the "Reload" banner (or reload manually) before
   giving feedback — feedback on stale state produces confusing patches.
 - The AI should describe what it's about to build in chat *before* writing it (steps,
-  in order, with the defaults it's resolving from `AI_DEFAULTS.md`), so you can
-  redirect before there's anything to undo.
+  in order, with the defaults it's resolving from `AI_DEFAULTS.md` and any phrase
+  interpretations from `AI_VOCABULARY.md`), so you can redirect before there's
+  anything to undo.
 
 ---
 
@@ -396,8 +432,9 @@ straight into the open canvas and clobber in-progress edits.
 2. **You enable AI updates** for that workflow (canvas properties panel toggle).
 3. **You describe the use case** in chat.
 4. **The AI proposes a step plan in chat first** — which registry steps, in what
-   order, which `AI_DEFAULTS.md` entries it's resolving, anything it couldn't resolve
-   (stop and ask, never guess a name).
+   order (checking `AI_VOCABULARY.md` for a confirmed phrase mapping first), which
+   `AI_DEFAULTS.md` entries it's resolving, anything it couldn't resolve (stop and
+   ask, never guess a name).
 5. **The AI applies the draft** via `ai_workflow_apply.py`, which runs validation as
    part of the same pass and reports findings.
 6. **You get a "Reload" banner**, click it, give feedback.
@@ -556,8 +593,9 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   Nautobot fields are always fetched and an empty selection is valid; removed a
   stale Help tab claim that an empty selection causes a failure outcome
 
-**Related docs**: `AI_DEFAULTS.md` (defaults/policy), `VALIDATION_PLAN.md` (the
-four-tier validator design — all four tiers are now built).
+**Related docs**: `AI_DEFAULTS.md` (defaults/policy), `AI_VOCABULARY.md` (phrase →
+step/wiring glossary, added 2026-09-24), `VALIDATION_PLAN.md` (the four-tier
+validator design — all four tiers are now built).
 
 ## Bugs found and fixed during live testing
 
