@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Auto-layout helper for AI-authored canvas patches — computes node
 positions from the dependency graph instead of the hand-picked {x, y} values
-used so far (see doc/ai_workflows/PROCESS.md's "Auto-layout helper" open
+used so far (see doc/ai_collaboration/PROCESS.md's "Auto-layout helper" open
 item). Deliberately backend-only: this is for whoever is about to build a
 canvas_nodes patch (the AI collaborator, or a human) to call before writing
 positions into the patch — it is not wired into ai_workflow_apply.py, which

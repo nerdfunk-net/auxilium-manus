@@ -145,7 +145,7 @@ class RunService:
         self, workflow: Workflow, *, acting_user_id: int | None
     ) -> None:
         """Refuse to run a workflow with unresolved Tier 1-3 validation errors
-        — see doc/ai_workflows/VALIDATION_PLAN.md's "pre-run gate" and
+        — see doc/ai_collaboration/VALIDATION_PLAN.md's "pre-run gate" and
         PROCESS.md's "Pre-run validation gate" open item. Unconditional: no
         override, matching the existing convention for a scheduled trigger's
         run-input validation (hatchet/workflows/scheduled_trigger.py), which

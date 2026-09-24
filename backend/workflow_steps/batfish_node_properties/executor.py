@@ -8,7 +8,7 @@ artifact plus a row-count summary in WorkflowContext.metadata, same
 convention batfish-routing-table uses (see doc/BATFISH_INTEGRATION.md
 "Batfish Routing Table" -> "Result storage").
 
-Unlike batfish-start-run's own internal use of this same question (always
+Unlike get-batfish-devices's own internal use of this same question (always
 unfiltered, since it only needs node identity for dedup), this step exposes
 the `properties` NodePropertySpec filter directly -- letting a workflow ask,
 e.g., "does R1 have a TACACS server configured" without needing an upstream

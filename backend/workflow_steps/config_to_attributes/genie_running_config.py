@@ -1,6 +1,6 @@
 """Build the Nautobot-ready interface list from Genie's raw running-config tree.
 
-``get-pyats-config`` stores ``Device.parse("show running-config")``'s result verbatim
+``get-pyats-running-config`` stores ``Device.parse("show running-config")``'s result verbatim
 at ``device.parsed[parsed_key]["running"]`` (see doc/PYATS_INTEGRATION.md). That result
 is a dict keyed by literal, indentation-nested CLI lines (e.g. ``"interface
 Ethernet0/0": {"description xxx": {}, "ip address 10.0.0.1 255.255.255.0": {}}``) —

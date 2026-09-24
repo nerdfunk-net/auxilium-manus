@@ -76,7 +76,7 @@ export const ARTIFACT_TYPE_ORDER = [
 // default even if this list isn't updated immediately.
 export const CATEGORY_STEP_ORDER: Record<string, string[]> = {
   batfish: [
-    "batfish-start-run",
+    "get-batfish-devices",
     "batfish-init-snapshot",
     "batfish-extract-facts",
     "batfish-validate-facts",
@@ -141,7 +141,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   // resolveStepIcon's artifact_type fallback is keyed off palette_category
   // (not the step's real artifact_type) once a custom palette_category is
   // set, so any pyats-category step needs an explicit entry here too.
-  "get-pyats-config": HardDriveDownload,
+  "get-pyats-running-config": HardDriveDownload,
   "get-pyats-snapshot": Camera,
   "compare-pyats-snapshot": Diff,
   "upload-config": HardDriveUpload,
@@ -149,7 +149,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   // Same reason as the pyats entries above: palette_category: batfish means
   // the artifact_type icon fallback doesn't apply, so every batfish step
   // needs its own entry here too.
-  "batfish-start-run": Router,
+  "get-batfish-devices": Router,
   "batfish-init-snapshot": PackagePlus,
   "batfish-routing-table": Route,
   "batfish-path-check": Signpost,

@@ -84,7 +84,7 @@ across devices), `StepCapabilitySpec.requires_parsed` and the parsed-key check i
 
 **In practice, no currently-registered step sets `requires_parsed` or `produces_parsed`**
 (grep `backend/workflow_steps/registry.yaml` for either — zero hits). Every real
-parser-producing step (`parse-cisco-config`, `get-pyats-config`, `get-pyats-snapshot`,
+parser-producing step (`parse-cisco-config`, `get-pyats-running-config`, `get-pyats-snapshot`,
 `render-jinja-template`, ...) instead exposes a **user-configured `output_key`** string
 (e.g. `cisco_config`, `pyats_config`) and writes to `device.parsed[output_key]`.
 Downstream steps read that key via a dotted-path expression
@@ -239,7 +239,7 @@ class DeviceContext(BaseModel):
     # Keyed by a per-step, user-configured output_key (not a fixed parser name —
     # see "Typed parser outputs" above). Document the shape in the producing step:
     #   parsed["cisco_config"]   = {"running": {...} | None, "startup": {...} | None}  ← parse-cisco-config
-    #   parsed["pyats_config"]   = {"running": {...}}                     ← get-pyats-config
+    #   parsed["pyats_config"]   = {"running": {...}}                     ← get-pyats-running-config
 
     command_results: dict[str, list[CommandResult]] = Field(default_factory=dict)
     # Keyed by node_id → the list of CommandResults that node produced for this
@@ -1078,7 +1078,7 @@ Quick reference for step authors, using real steps.
 | `get-device-configs`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].running_config_ref` and/or `startup_config_ref` + `RUNNING_CONFIG`/`STARTUP_CONFIG` (per `config_format`) |
 | `parse-cisco-config`       | `IDENTITY`          | `devices[*].running_config_ref` and/or `startup_config_ref` | `devices[*].parsed[output_key]` + `PARSED`   |
 | `add-pyats-testbed`        | `IDENTITY`          | `devices[*].id`, credential/source config     | `devices[*].attribute_bags["pyats_testbed"]` + `PYATS_TESTBED` |
-| `get-pyats-config`         | `IDENTITY`, `PYATS_TESTBED` | `devices[*].attribute_bags["pyats_testbed"]` | `devices[*].parsed[output_key]` + `PARSED` |
+| `get-pyats-running-config`         | `IDENTITY`, `PYATS_TESTBED` | `devices[*].attribute_bags["pyats_testbed"]` | `devices[*].parsed[output_key]` + `PARSED` |
 | `run-command`              | `IDENTITY`          | `devices[*]` (hostname, credential config)    | `devices[*].command_results[node_id]` (list, `ArtifactRef`-backed) |
 | `filter-output`            | `IDENTITY`          | `devices[*].command_results` or `devices[*].parsed[src_node_id]["merged_content"]` | `devices[*].parsed[node_id]["filtered_output"]` + `PARSED` |
 | `update-attribute`         | `IDENTITY`          | `devices[*]` (any dotted-path source, incl. `parsed.*`) | `devices[*].attribute_bags[bag]` + `ATTRIBUTES` (conditionally — see `effective_produces()`) |
@@ -1194,7 +1194,7 @@ WorkflowContext                                           schema_version: int
 │   │                                                         "pyats_testbed" (add-pyats-testbed),
 │   │                                                         "run_input" (reserved, seeded by engine)
 │   ├── running_config_ref, startup_config_ref            ← get-device-configs  (ArtifactRef)
-│   ├── parsed: { output_key: structured_data }           ← parse-cisco-config, get-pyats-config, ...
+│   ├── parsed: { output_key: structured_data }           ← parse-cisco-config, get-pyats-running-config, ...
 │   │   ├── "{node_id}.merged_content": { artifact_ref, step_node_id, output_key, kind, size_bytes }
 │   │   │                                                 ← merge-content
 │   │   └── "{node_id}.filtered_output": { artifact_ref, step_node_id, output_key, kind, size_bytes }

@@ -66,7 +66,7 @@ class ValidateAndGroupDevicesTests(unittest.TestCase):
         groups, failures = validate_and_group_devices(
             devices={"device-1": _device_without_bag("device-1")},
             node_id="node-1",
-            step_id="get-pyats-config",
+            step_id="get-pyats-running-config",
             source_credentials={},
             source_errors={},
         )
@@ -77,7 +77,7 @@ class ValidateAndGroupDevicesTests(unittest.TestCase):
         groups, failures = validate_and_group_devices(
             devices={"device-1": _device_without_password("device-1")},
             node_id="node-1",
-            step_id="get-pyats-config",
+            step_id="get-pyats-running-config",
             source_credentials={"lab-pyats": _credentials()},
             source_errors={},
         )
@@ -88,7 +88,7 @@ class ValidateAndGroupDevicesTests(unittest.TestCase):
         groups, failures = validate_and_group_devices(
             devices={"device-1": _device_with_testbed("device-1", source_id="bad-source")},
             node_id="node-1",
-            step_id="get-pyats-config",
+            step_id="get-pyats-running-config",
             source_credentials={},
             source_errors={"bad-source": "no credential"},
         )
@@ -104,7 +104,7 @@ class ValidateAndGroupDevicesTests(unittest.TestCase):
         groups, failures = validate_and_group_devices(
             devices=devices,
             node_id="node-1",
-            step_id="get-pyats-config",
+            step_id="get-pyats-running-config",
             source_credentials={"lab-a": _credentials(), "lab-b": _credentials()},
             source_errors={},
         )

@@ -8,11 +8,11 @@ doc/WORKFLOW-STEPS.md. Device connection info and credentials come entirely
 from the ``pyats_testbed`` bag written by an upstream add-pyats-testbed
 step; this step resolves no credentials of its own.
 
-Unlike get-pyats-config (which requires both requested commands to succeed),
+Unlike get-pyats-running-config (which requires both requested commands to succeed),
 feature support varies a lot by platform -- VRF/ISIS/NAT are often simply
 not configured or not supported on a given device, so a per-feature learn
 failure is the *normal* case, not exceptional (the same lesson learned with
-get-pyats-config's ``show startup-config`` ParserNotFound issue). A device
+get-pyats-running-config's ``show startup-config`` ParserNotFound issue). A device
 only fails here if the shim call/connect itself fails, or if literally every
 requested feature failed to learn; partial coverage is a normal success with
 per-feature success/error recorded inside the stored snapshot.

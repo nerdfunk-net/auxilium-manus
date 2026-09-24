@@ -324,7 +324,7 @@ class ConfigToAttributesExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([i["name"] for i in interfaces], ["Ethernet0/0"])
 
     async def test_genie_source_format_builds_interfaces(self) -> None:
-        # Trimmed from a real get-pyats-config output for "show running-config".
+        # Trimmed from a real get-pyats-running-config output for "show running-config".
         running_config = {
             "hostname LAB": {},
             "interface Loopback0": {

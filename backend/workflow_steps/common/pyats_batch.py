@@ -1,7 +1,7 @@
 """Shared pyATS shim batching: group devices by source, chunk, call
 ``run_job()`` once per chunk instead of once per device.
 
-Used by ``get-pyats-config`` and ``get-pyats-snapshot``. Not used by
+Used by ``get-pyats-running-config`` and ``get-pyats-snapshot``. Not used by
 ``compare-pyats-snapshot`` (calls ``/v1/diff``, not ``/v1/jobs`` -- no
 subprocess/testbed involved, so batching gives no benefit) or
 ``configure-replace-config`` (each device already issues up to 3 sequential,

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Structured, live-checkable counterpart to doc/ai_workflows/AI_DEFAULTS.md.
+"""Structured, live-checkable counterpart to doc/ai_collaboration/AI_DEFAULTS.md.
 
 AI_DEFAULTS.md carries the "why" for each default; this module (backed by
 scripts/ai_defaults.yaml) is the source of truth for the actual VALUES and is
 the one place that resolves them against the live database — see
-doc/ai_workflows/PROCESS.md's "AI_DEFAULTS.md resolver/drift-check" item.
+doc/ai_collaboration/PROCESS.md's "AI_DEFAULTS.md resolver/drift-check" item.
 Nothing here is re-derived by hand each session anymore: resolve_and_check()
 either returns every default's current id, or raises AiDefaultsDriftError
 naming exactly which entry no longer resolves (a renamed/deleted credential,

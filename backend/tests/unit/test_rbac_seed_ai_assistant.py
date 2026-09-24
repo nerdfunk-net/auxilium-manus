@@ -1,5 +1,5 @@
 """Tests for the ai-assistant role/permission seed and ensure_ai_assistant_user —
-see doc/ai_workflows/PROCESS.md for why this account exists and why it must be
+see doc/ai_collaboration/PROCESS.md for why this account exists and why it must be
 created inactive with a curated, non-admin permission set."""
 
 from __future__ import annotations

@@ -126,7 +126,7 @@ def _select_parsed_entry(
 ) -> dict[str, Any] | None:
     """Resolve the parsed config model to read L3 interfaces from.
 
-    ``parse-cisco-config``/``get-pyats-config`` always write ``{"running": ...,
+    ``parse-cisco-config``/``get-pyats-running-config`` always write ``{"running": ...,
     "startup": ...}`` at ``parsed[parsed_key]`` (the branch not parsed stays
     ``None``), so read the ``config_source`` sub-key directly. ``batfish-
     extract-facts`` writes a different, non-fatal shape instead — ``{"parsed":

@@ -63,7 +63,7 @@ export function WorkflowAiSessionPanel() {
 
       <p className="text-[11.5px] text-muted-foreground">
         While enabled, the ai-assistant account may apply changes to this workflow&apos;s canvas —
-        see doc/ai_workflows/PROCESS.md. Time-boxed and off by default; your own edits are
+        see doc/ai_collaboration/PROCESS.md. Time-boxed and off by default; your own edits are
         never affected or attributed to it.
       </p>
 

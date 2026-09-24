@@ -1,5 +1,5 @@
 """Tests for scripts/ai_layout.py — the auto-layout helper for AI-authored
-canvas patches, see doc/ai_workflows/PROCESS.md's "Auto-layout helper" open
+canvas patches, see doc/ai_collaboration/PROCESS.md's "Auto-layout helper" open
 item."""
 
 from __future__ import annotations

@@ -108,7 +108,7 @@ SYSTEM_ROLES: dict[str, str] = {
 # Curated allowlist, not derived from DEFAULT_PERMISSIONS like admin ("everything")
 # or viewer ("every read") — this role must never gain workflows:execute/publish/
 # delete, change_requests:approve, credentials:reveal, or anything under
-# rbac.*/users/system.*/secret_manager.* (see doc/ai_workflows/PROCESS.md).
+# rbac.*/users/system.*/secret_manager.* (see doc/ai_collaboration/PROCESS.md).
 AI_ASSISTANT_PERMISSIONS: list[tuple[str, str]] = [
     ("workflows", "read"),
     ("workflows", "write"),
@@ -167,7 +167,7 @@ def ensure_ai_assistant_user(db: Session) -> User:
     Created inactive: this account never logs in interactively (its password is
     random and discarded), and `is_active=False` is the global kill-switch an admin
     must flip on in Settings -> Users before backend/scripts/ai_workflow_apply.py
-    will do anything — see doc/ai_workflows/PROCESS.md. Callers pass their own
+    will do anything — see doc/ai_collaboration/PROCESS.md. Callers pass their own
     UserRepository to keep this in the caller's transaction (mirrors
     AuthService.ensure_initial_admin's get-or-create idiom).
     """

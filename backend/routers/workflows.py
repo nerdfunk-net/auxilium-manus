@@ -299,7 +299,7 @@ def validate_workflow(
     service: WorkflowService = Depends(_service),
     plugin_service: PluginRegistryService = Depends(get_plugin_service),
 ) -> WorkflowValidationResult:
-    """Validates a workflow — Tiers 1-3, see doc/ai_workflows/VALIDATION_PLAN.md.
+    """Validates a workflow — Tiers 1-3, see doc/ai_collaboration/VALIDATION_PLAN.md.
     Read-only: never mutates the workflow. `workflow_id` must be a real, visible
     workflow (used for the permission/ownership check), but when `body.canvas_nodes`
     is given that draft (plus `body.canvas_edges`) is validated instead of the

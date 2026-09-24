@@ -45,7 +45,7 @@ export function validateCanvasWorkflow(
   staticAttributes: StaticAttributeDef[] = EMPTY_STATIC_ATTRIBUTES,
   // Save must allow a genuinely empty draft (e.g. a blank canvas created so
   // an AI-updates session can be enabled on it before any steps exist — see
-  // doc/ai_workflows/PROCESS.md) while Run must still refuse an empty
+  // doc/ai_collaboration/PROCESS.md) while Run must still refuse an empty
   // workflow, since there is nothing to execute. Default true preserves
   // existing behavior for every call site that doesn't opt out.
   { requireSteps = true }: { requireSteps?: boolean } = {},

@@ -1,5 +1,5 @@
 """Tests for scripts/ai_defaults.py — the live resolver/drift-checker for
-doc/ai_workflows/AI_DEFAULTS.md, see doc/ai_workflows/PROCESS.md. External
+doc/ai_collaboration/AI_DEFAULTS.md, see doc/ai_collaboration/PROCESS.md. External
 resolvers (CredentialsService, GitRepositoryService, SettingsRepository,
 InventoryRepository) are mocked at the module boundary, same convention as
 tests/unit/test_workflow_validation_service.py."""

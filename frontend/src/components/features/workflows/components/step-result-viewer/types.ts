@@ -74,7 +74,7 @@ export interface ParsedComparisonDiffEntry {
 }
 
 /**
- * Parsed-config output from get-pyats-config (Genie) or parse-cisco-config
+ * Parsed-config output from get-pyats-running-config (Genie) or parse-cisco-config
  * (cisco-config-parser): `{"running": <parsed dict>|null}` (parse-cisco-config
  * additionally has a `startup` key). Stored inline in `device.parsed` --
  * unlike templates and comparisons, this is small structured JSON, not an

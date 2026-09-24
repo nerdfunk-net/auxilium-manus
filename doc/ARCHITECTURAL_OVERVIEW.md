@@ -40,8 +40,8 @@ call — is a private implementation choice inside that step, invisible to the
 engine and to every other step. Nothing about `StepRunner`, the registry, or
 the canvas/config changes based on that choice.
 
-A concrete example: `get-pyats-config` and `get-pyats-snapshot`
-(`backend/workflow_steps/get_pyats_config/executor.py`,
+A concrete example: `get-pyats-running-config` and `get-pyats-snapshot`
+(`backend/workflow_steps/get_pyats_running_config/executor.py`,
 `get_pyats_snapshot/executor.py`) originally looped over `context.devices`
 and made one HTTP call to the pyATS shim per device. They were later changed
 to group devices by `pyats_source_id` and make one shim call per chunk of up

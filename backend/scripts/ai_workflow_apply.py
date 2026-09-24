@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Apply an AI-authored patch to a workflow's canvas — the only way the
-ai-assistant service account touches the database. See doc/ai_workflows/PROCESS.md.
+ai-assistant service account touches the database. See doc/ai_collaboration/PROCESS.md.
 
 Deliberately dumb infrastructure: identity, gating, persistence, validation,
 reporting. It does not choose steps, resolve AI_DEFAULTS.md names, or lay out

@@ -1,4 +1,4 @@
-# Structured, machine-checkable counterpart to doc/ai_workflows/AI_DEFAULTS.md.
+# Structured, machine-checkable counterpart to doc/ai_collaboration/AI_DEFAULTS.md.
 #
 # This file is the SOURCE OF TRUTH for the actual values (names). The
 # markdown doc carries the "why" for each one and stays human-readable — keep

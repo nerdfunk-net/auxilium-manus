@@ -11,7 +11,7 @@ from core.models.base import Base
 class WorkflowAiSession(Base):
     """A time-boxed consent flag: an active (non-expired) row for a workflow means
     a human has explicitly allowed the ai-assistant service account to write to it —
-    see doc/ai_workflows/PROCESS.md. Not unique on workflow_id: past rows are kept
+    see doc/ai_collaboration/PROCESS.md. Not unique on workflow_id: past rows are kept
     as an audit trail of who enabled AI updates and when; "active" is the latest
     unexpired row, not a singleton."""
 

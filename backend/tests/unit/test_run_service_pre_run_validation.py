@@ -1,6 +1,6 @@
 """Tests for RunService's pre-run validation gate — see
-doc/ai_workflows/PROCESS.md's "Pre-run validation gate" and
-doc/ai_workflows/VALIDATION_PLAN.md's "Frontend surfacing" bullet 3. Refuses
+doc/ai_collaboration/PROCESS.md's "Pre-run validation gate" and
+doc/ai_collaboration/VALIDATION_PLAN.md's "Frontend surfacing" bullet 3. Refuses
 to dispatch a run when WorkflowValidationService reports an unresolved Tier
 1-3 error, unconditionally (no override) — see
 RunService._assert_no_blocking_validation_errors.

@@ -1,5 +1,5 @@
 """Tests for services/workflow/workflow_validation_service.py — Tiers 1-3, see
-doc/ai_workflows/VALIDATION_PLAN.md. Tier 2's external resolvers
+doc/ai_collaboration/VALIDATION_PLAN.md. Tier 2's external resolvers
 (CredentialManager, load_git_repository) are mocked at the module boundary —
 they have their own test coverage elsewhere; this file only tests that this
 service calls them correctly and turns a failure into a finding."""
@@ -880,7 +880,7 @@ class Tier4AttributePathWiringTests(unittest.TestCase):
 class RealRegistryDefaultRegressionTests(unittest.TestCase):
     """Regression tests against the real registry.yaml + config.py for two
     reported false positives — see the "default keys" discussion in
-    doc/ai_workflows/VALIDATION_PLAN.md. Uses the real PluginRegistryService
+    doc/ai_collaboration/VALIDATION_PLAN.md. Uses the real PluginRegistryService
     (unlike every other test class here, which builds an in-memory fake
     registry), so a real registry.yaml/config.py edit that reintroduces
     either bug fails this test, not just a hand-built fixture."""

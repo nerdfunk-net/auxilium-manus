@@ -117,7 +117,7 @@ class BuildAttributePathTreeTests(unittest.TestCase):
         self.assertEqual(child_names, {"batfish", "other_key"})
 
     def test_raw_config_line_tree_collapses_to_opaque_scalar(self) -> None:
-        # Shape produced by get-pyats-config: Device.parse("show running-config")
+        # Shape produced by get-pyats-running-config: Device.parse("show running-config")
         # keyed by literal CLI lines — must never explode into clickable paths.
         devices = {
             "d1": _device(

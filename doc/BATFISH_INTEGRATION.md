@@ -23,7 +23,7 @@ gating" below).
 - [Configuring a source](#configuring-a-source)
 - [Security notes](#security-notes)
 - [Workflow steps](#workflow-steps)
-  - [Get from Batfish](#get-from-batfish-batfish-start-run)
+  - [Get from Batfish](#get-from-batfish-get-batfish-devices)
   - [Init Batfish Snapshot](#init-batfish-snapshot-batfish-init-snapshot)
   - [Extract Facts](#extract-facts-batfish-extract-facts)
   - [Validate Facts](#validate-facts-batfish-validate-facts)
@@ -243,7 +243,7 @@ backend/services/settings/source_keys.py   # "batfish" added to SourceType + BAT
 backend/workflow_steps/common/batfish_context.py   # resolve_batfish_snapshot/store_batfish_snapshot (metadata lookup)
                                                      # + resolve_batfish_snapshot_ref (explicit source/network bypass)
                                                      # + devices_from_nodes (Node column -> DeviceContext dedup, shared by Get from Batfish)
-backend/workflow_steps/batfish_start_run/{__init__.py,executor.py,config.py}       # "Get from Batfish" -- three-way: placeholder / metadata-driven / direct-target device listing
+backend/workflow_steps/get_batfish_devices/{__init__.py,executor.py,config.py}       # "Get from Batfish" -- three-way: placeholder / metadata-driven / direct-target device listing
 backend/workflow_steps/batfish_init_snapshot/{__init__.py,executor.py,config.py}
 backend/workflow_steps/batfish_init_snapshot/git_source.py   # config_source: git -- glob-based file collection
 backend/workflow_steps/batfish_routing_table/{__init__.py,executor.py,config.py}
@@ -273,7 +273,7 @@ backend/workflow_steps/registry.yaml          # 11 entries, palette_category: ba
 backend/tests/unit/test_batfish_{client,source_config_service,router_auth,context_helper}.py
 backend/tests/unit/test_batfish_context_ref_resolver.py
 backend/tests/unit/test_batfish_git_source.py
-backend/tests/unit/test_batfish_start_run_executor.py
+backend/tests/unit/test_get_batfish_devices_executor.py
 backend/tests/unit/test_batfish_{init_snapshot,routing_table,path_check,acl_check}_executor.py
 backend/tests/unit/test_batfish_node_properties_executor.py
 backend/tests/unit/test_batfish_interface_properties_executor.py
@@ -301,7 +301,7 @@ frontend/src/components/features/workflow-steps/shared/batfish-source-config.ts 
 frontend/src/components/features/workflow-steps/shared/batfish-source-select-dialog.tsx
 frontend/src/components/features/workflow-steps/shared/batfish-direct-target-fields.tsx  # shared batfish_source_id/network/snapshot block (8 steps: 7 query/fact steps + Get from Batfish)
 frontend/src/components/features/workflow-steps/shared/batfish-fact-keys.ts  # BATFISH_FACT_KEYS -- shared by Validate/Extract Facts panels+help
-frontend/src/components/features/workflow-steps/batfish-start-run/{index.tsx,help-panel.tsx}  # "Get from Batfish" -- nodes_filter + BatfishDirectTargetFields
+frontend/src/components/features/workflow-steps/get-batfish-devices/{index.tsx,help-panel.tsx}  # "Get from Batfish" -- nodes_filter + BatfishDirectTargetFields
 frontend/src/components/features/workflow-steps/batfish-init-snapshot/{index.tsx,help-panel.tsx}  # config_source toggle, git fields, network_name
 frontend/src/components/features/workflow-steps/batfish-routing-table/{index.tsx,help-panel.tsx}
 frontend/src/components/features/workflow-steps/batfish-node-properties/{index.tsx,help-panel.tsx}
@@ -526,7 +526,7 @@ re-upload regardless of where the configs come from. `config_source` on
   directory structure is safe (see "Building the snapshot directory" above).
 
   This mode never reads `context.devices` — not even to check it's
-  empty — so pair it with an upstream `batfish-start-run` step (see
+  empty — so pair it with an upstream `get-batfish-devices` step (see
   "Get from Batfish" below) rather than a real device-selection step when
   the workflow selects no devices of its own. Left unconfigured with no
   prior snapshot metadata on the run, that step is a pure no-op placeholder
@@ -534,7 +534,7 @@ re-upload regardless of where the configs come from. `config_source` on
   contact Batfish itself.
 
 **The intended production pattern**: a workflow scheduled nightly (via
-`/schedules`) runs `batfish-start-run` → `batfish-init-snapshot`
+`/schedules`) runs `get-batfish-devices` → `batfish-init-snapshot`
 (`config_source: git`, `network_name` set to a stable name such as
 `manus-production`) against the git-mirrored config backups — no live
 device contact, decoupled from any interactive/ad-hoc workflow. Separate,
@@ -650,7 +650,7 @@ All eleven steps live under `palette_category: batfish` (a new palette
 category — see "Frontend: category gating" below for why it's hidden by
 default).
 
-### Get from Batfish (`batfish-start-run`)
+### Get from Batfish (`get-batfish-devices`)
 
 `requires: []`, `produces: [identity]`, single `success` outcome. Started life
 as a pure placeholder (hence the `id`, kept unchanged for backward

@@ -280,7 +280,7 @@ class WorkflowService:
 
         Used only by backend/scripts/ai_workflow_apply.py. The caller must have
         already verified an active workflow_ai_sessions row for this workflow
-        (see doc/ai_workflows/PROCESS.md) — that time-boxed, human-granted
+        (see doc/ai_collaboration/PROCESS.md) — that time-boxed, human-granted
         consent row IS the authorization for this path. Ownership isn't checked
         here because the whole point of the feature is the AI actor editing a
         workflow it doesn't own, on the human owner's explicit say-so.

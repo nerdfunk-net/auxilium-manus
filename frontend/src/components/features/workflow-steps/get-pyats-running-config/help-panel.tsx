@@ -6,7 +6,7 @@ import { HelpCode, HelpExample, HelpSection, HelpWarning } from "../shared/step-
  * Built-in Help tab content for Get & Parse Config.
  * Covers every Configuration control with practical examples.
  */
-export function GetPyatsConfigHelpPanel() {
+export function GetPyatsRunningConfigHelpPanel() {
   return (
     <div className="space-y-6">
       <HelpSection title="What this step does">

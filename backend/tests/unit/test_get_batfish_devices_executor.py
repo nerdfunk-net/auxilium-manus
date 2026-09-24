@@ -1,4 +1,4 @@
-"""Tests for batfish-start-run executor ("Get from Batfish")."""
+"""Tests for get-batfish-devices executor ("Get from Batfish")."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.artifacts import InMemoryArtifactService
 from services.batfish.credentials import BatfishConnection
-from workflow_steps.batfish_start_run.executor import execute
 from workflow_steps.common.batfish_context import store_batfish_snapshot
+from workflow_steps.get_batfish_devices.executor import execute
 
-_SERVICE_FACTORY_TARGET = "workflow_steps.batfish_start_run.executor.service_factory"
+_SERVICE_FACTORY_TARGET = "workflow_steps.get_batfish_devices.executor.service_factory"
 
 
 def _context_with_snapshot(devices: dict[str, DeviceContext] | None = None) -> WorkflowContext:
@@ -24,7 +24,7 @@ def _context_with_snapshot(devices: dict[str, DeviceContext] | None = None) -> W
     )
 
 
-class BatfishStartRunPlaceholderTests(unittest.IsolatedAsyncioTestCase):
+class GetBatfishDevicesPlaceholderTests(unittest.IsolatedAsyncioTestCase):
     async def test_unconfigured_no_metadata_clears_devices_zero_batfish_calls(self) -> None:
         device = DeviceContext(id="d1", name="d1", hostname="d1", status=DeviceStatus.OK)
         context = WorkflowContext(run_id="run-uuid-1", workflow_id="7", devices={"d1": device})
@@ -60,7 +60,7 @@ class BatfishStartRunPlaceholderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcomes[0].context.devices, {})
 
 
-class BatfishStartRunDevicePopulationTests(unittest.IsolatedAsyncioTestCase):
+class GetBatfishDevicesDevicePopulationTests(unittest.IsolatedAsyncioTestCase):
     async def test_metadata_present_queries_node_properties_and_replaces_devices(self) -> None:
         run = MagicMock()
         run.id = 42
@@ -160,7 +160,7 @@ class BatfishStartRunDevicePopulationTests(unittest.IsolatedAsyncioTestCase):
                 )
 
 
-class BatfishStartRunDirectTargetTests(unittest.IsolatedAsyncioTestCase):
+class GetBatfishDevicesDirectTargetTests(unittest.IsolatedAsyncioTestCase):
     async def test_direct_target_bypasses_metadata(self) -> None:
         run = MagicMock()
         run.id = 1

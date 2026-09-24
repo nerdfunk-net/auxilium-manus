@@ -79,7 +79,7 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
         # so a workflow permanently missing a required input doesn't spin.
         schedule_repo.mark_triggered(schedule, disable=(schedule.schedule_type == "once"))
 
-        # Pre-run gate (doc/ai_workflows/PROCESS.md): a scheduled run has no
+        # Pre-run gate (doc/ai_collaboration/PROCESS.md): a scheduled run has no
         # operator to prompt, so an unresolved Tier 1-3 validation error
         # (broken reference, unreachable capability requirement) hard-fails
         # here exactly like the run-input checks below — same shape, same

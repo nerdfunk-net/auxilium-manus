@@ -1,4 +1,4 @@
-"""Executor for the get-pyats-config step.
+"""Executor for the get-pyats-running-config step.
 
 Fetches running-config via the pyATS shim's ``POST /v1/jobs``
 (``operation: "parse"``) and stores Genie's structured result into
@@ -43,14 +43,14 @@ from workflow_steps.common.pyats_batch import (
     run_batched,
     validate_and_group_devices,
 )
-from workflow_steps.get_pyats_config.config import get_config
+from workflow_steps.get_pyats_running_config.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
-_STEP_ID = "get-pyats-config"
+_STEP_ID = "get-pyats-running-config"
 _RUNNING_COMMAND = "show running-config"
 _COMMANDS = [_RUNNING_COMMAND]
 

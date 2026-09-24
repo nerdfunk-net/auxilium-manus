@@ -435,7 +435,7 @@ Reference implementations: `workflow_steps/add_pyats_testbed/executor.py`
 (resolves a credential + pyATS source once for the current device list and
 writes a reusable connection bundle into each device's
 `attribute_bags["pyats_testbed"]`, producing the `pyats_testbed` capability)
-and `workflow_steps/get_pyats_config/executor.py` (a downstream step that
+and `workflow_steps/get_pyats_running_config/executor.py` (a downstream step that
 `requires: [identity, pyats_testbed]` and calls the shim using that bundle —
 no credential/source configuration of its own). Any new pyATS-backed step
 that needs the same device connection info should declare

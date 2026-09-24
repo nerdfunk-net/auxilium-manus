@@ -36,7 +36,6 @@ from workflow_steps.batfish_node_properties.executor import execute as batfish_n
 from workflow_steps.batfish_ospf_facts.executor import execute as batfish_ospf_facts
 from workflow_steps.batfish_path_check.executor import execute as batfish_path_check
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
-from workflow_steps.batfish_start_run.executor import execute as batfish_start_run
 from workflow_steps.batfish_validate_facts.executor import execute as batfish_validate_facts
 from workflow_steps.collect_statistics.executor import execute as collect_statistics
 from workflow_steps.compare_data.executor import execute as compare_data
@@ -50,6 +49,7 @@ from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.from_change_request.executor import execute as from_change_request
 from workflow_steps.generate_password.executor import execute as generate_password
+from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_from_config.executor import execute as get_from_config
 from workflow_steps.get_from_list.executor import execute as get_from_list
@@ -59,7 +59,7 @@ from workflow_steps.get_ise_devices.executor import execute as get_ise_devices
 from workflow_steps.get_ise_tacacs_key.executor import execute as get_ise_tacacs_key
 from workflow_steps.get_nautobot_attributes.executor import execute as get_nautobot_attributes
 from workflow_steps.get_nautobot_devices.executor import execute as get_nautobot_devices
-from workflow_steps.get_pyats_config.executor import execute as get_pyats_config
+from workflow_steps.get_pyats_running_config.executor import execute as get_pyats_running_config
 from workflow_steps.get_pyats_snapshot.executor import execute as get_pyats_snapshot
 from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
@@ -119,9 +119,9 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "read-from-file": read_from_file,
     "parse-cisco-config": parse_cisco_config,
     "add-pyats-testbed": add_pyats_testbed,
-    "get-pyats-config": get_pyats_config,
+    "get-pyats-running-config": get_pyats_running_config,
     "get-pyats-snapshot": get_pyats_snapshot,
-    "batfish-start-run": batfish_start_run,
+    "get-batfish-devices": get_batfish_devices,
     "batfish-init-snapshot": batfish_init_snapshot,
     "batfish-routing-table": batfish_routing_table,
     "batfish-node-properties": batfish_node_properties,

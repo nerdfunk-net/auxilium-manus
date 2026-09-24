@@ -1,7 +1,7 @@
 """Shared, workflow-agnostic helpers for building and running Batfish queries.
 
 Used by the batfish-routing-table/batfish-path-check/batfish-acl-check/
-batfish-start-run workflow-step executors (via
+get-batfish-devices workflow-step executors (via
 workflow_steps.common.batfish_context) AND the ad-hoc BatfishPreviewService,
 so a Template Editor preview query behaves *identically* to what the
 corresponding workflow step would produce -- not just similarly.
@@ -295,7 +295,7 @@ async def query_node_properties(
     nodes: Any = None,
     properties: Any = None,
 ) -> list[dict[str, Any]]:
-    """Run the ``nodeProperties`` question. Shared by batfish-start-run's
+    """Run the ``nodeProperties`` question. Shared by get-batfish-devices's
     executor (as "Get from Batfish") and batfish-node-properties.
 
     Always includes a ``Node`` column (same convention
@@ -308,7 +308,7 @@ async def query_node_properties(
     ``properties`` is a NodePropertySpec (comma-separated property names,
     e.g. ``"TACACS_Servers, TACACS_Source_Interface"``) restricting which
     columns come back, on top of ``Node``. Left blank, Batfish returns its
-    own default column set. batfish-start-run always leaves this unset --
+    own default column set. get-batfish-devices always leaves this unset --
     it only needs node identity for dedup, not fact contents -- so this
     parameter defaulting to ``None`` (omitted, not an empty string) preserves
     that call's existing behavior unchanged.

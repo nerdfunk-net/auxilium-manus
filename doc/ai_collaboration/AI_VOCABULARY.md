@@ -2,7 +2,7 @@
 
 A glossary mapping the user's own recurring shorthand phrases to the exact registry
 steps and wiring they mean, so the AI collaborator's first-draft interpretation of a
-request matches their intent more often — see `doc/ai_workflows/PROCESS.md`'s
+request matches their intent more often — see `doc/ai_collaboration/PROCESS.md`'s
 "Turn-taking discipline" for why this doesn't replace, only supplements, that
 safety net.
 
@@ -14,11 +14,12 @@ Three docs govern an AI collab session, each answering a different question:
 - `AI_DEFAULTS.md` — *which concrete value* to use for a name/category the user
   didn't spell out (which credential, which git repo, which source, the safe
   inventory for a first run). Required reading every session.
-- **This file** — *which steps and wiring* a recurring phrase actually means. Also
-  required reading every session, but deliberately small: it is a glossary of
-  **confirmed** mappings, not an attempt at a general natural-language grammar.
-  Natural language is infinite; this file will never cover everything, and it
-  isn't supposed to try.
+- **This file** — *which steps and wiring* a recurring phrase actually means, and
+  *what else the user calls a given step* beyond its registry `id`/display `name`
+  (aliases). Also required reading every session, but deliberately small: it is a
+  glossary of **confirmed** mappings, not an attempt at a general natural-language
+  grammar. Natural language is infinite; this file will never cover everything,
+  and it isn't supposed to try.
 
 **This does not replace `PROCESS.md`'s propose-before-apply step.** Even when a
 phrase matches an entry below, the AI still states the concrete plan (steps, order,
@@ -30,9 +31,51 @@ more likely to be right, so fewer round-trips are needed to correct it.
 turns out to be wrong (the user corrects it) or right-but-only-confirmed-once (the
 user explicitly confirms an unlisted phrase), add or update an entry here — same
 "record from correction and from confirmation" discipline as any other feedback.
-Don't pre-populate this file with speculative phrase mappings that haven't actually
-been used and confirmed; an unconfirmed phrase gets proposed as a best guess in
-chat per `PROCESS.md`, not silently assumed from a guess written down here.
+The same rule covers step **aliases** (see "Naming" below): the first time the
+user refers to a step by a name that's neither its registry `id` nor its display
+`name`, add it as an alias, don't wait for a second occurrence. Don't pre-populate
+this file with speculative phrase mappings or aliases that haven't actually been
+used and confirmed; an unconfirmed one gets proposed as a best guess in chat per
+`PROCESS.md`, not silently assumed from a guess written down here.
+
+---
+
+## Naming: registry id, display name, and aliases
+
+Every step already has two names that don't always match — its registry `id`
+(e.g. `get-nautobot-devices`, kebab-case, stable, referenced everywhere in code,
+config, and saved workflows) and its frontend display `name` (e.g. "Get from
+Nautobot", editable, shown in the canvas). Talking past each other by using one
+without the other is exactly the "trap" this section exists to prevent — bad
+enough in one real case (`batfish-start-run` for a step whose display name was
+"Get from Batfish") that the id itself was renamed to `get-batfish-devices`
+instead of just documenting the mismatch; `get-pyats-config` → `get-pyats-running-config`
+was the other. Most steps aren't that bad, but the id and the display name are
+still two different strings, and citing only one of them is how this confusion
+starts.
+
+**The canonical id ↔ display-name mapping is `registry.yaml` itself** (`id:`/
+`name:` per entry) — look it up fresh, never assume it or duplicate it here as a
+full table. With ~140 steps, a copied table would go stale the moment one is added
+or renamed, exactly the staleness risk this whole file exists to avoid elsewhere.
+
+**Always cite both together** when a step comes up in a proposed plan or in chat —
+"Get from Nautobot (`get-nautobot-devices`)", never the id or the display name
+alone. This isn't just politeness: it's what makes a third name — an alias —
+visible in the first place. If the user's own wording matches neither half of that
+pair, it's an alias, and gets recorded below.
+
+### Confirmed aliases
+
+A user may have their own personal shorthand for a step — a nickname, an
+abbreviation, a term carried over from another tool — that matches neither its
+`id` nor its display `name`. Record it here the first time it comes up, same
+discipline as the rest of this file: confirmed usage only, never pre-populated
+speculatively. One step can have more than one alias; add a row per alias.
+
+| Alias | Registry `id` | Display name |
+|---|---|---|
+| *(none recorded yet)* | | |
 
 ---
 

@@ -103,7 +103,7 @@ def devices_from_nodes(rows: list[dict[str, Any]]) -> dict[str, DeviceContext]:
     batfish-routing-table's own ``devices`` outcome already builds (kept as
     an independent inline copy there, not refactored onto this helper, so
     this addition carries zero behavior risk for that step). Used by
-    batfish-start-run's executor ("Get from Batfish") to populate real
+    get-batfish-devices's executor ("Get from Batfish") to populate real
     devices from a snapshot's node list.
     """
     device_nodes: dict[str, DeviceContext] = {}

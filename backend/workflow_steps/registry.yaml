@@ -429,7 +429,7 @@ plugins:
           required: false
           example: iosxe
 
-  - id: get-pyats-config
+  - id: get-pyats-running-config
     name: Get & Parse Config
     overview: Get running config via pyATS and parse it with Genie.
     description: >
@@ -437,7 +437,7 @@ plugins:
       into structured data. Requires an upstream Add Testbed step.
     artifact_type: configuration_management
     palette_category: pyats
-    directory: get_pyats_config
+    directory: get_pyats_running_config
     enabled: true
     requires: [identity, pyats_testbed]
     produces: [parsed]
@@ -583,7 +583,7 @@ plugins:
           data_type: string
           required: false
 
-  - id: batfish-start-run
+  - id: get-batfish-devices
     name: Get from Batfish
     overview: List Batfish snapshot nodes as devices, or seed an empty placeholder context.
     description: >
@@ -603,7 +603,7 @@ plugins:
       after it (real device population).
     artifact_type: inventory_selector
     palette_category: batfish
-    directory: batfish_start_run
+    directory: get_batfish_devices
     enabled: true
     requires: []
     produces: [identity]

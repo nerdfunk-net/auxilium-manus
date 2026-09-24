@@ -1,6 +1,6 @@
 """Validates a workflow's canvas beyond the structural checks WorkflowService
 already runs (cycle detection, stop-here placement, static attributes) — see
-doc/ai_workflows/VALIDATION_PLAN.md. Tiers 1-4 in this pass:
+doc/ai_collaboration/VALIDATION_PLAN.md. Tiers 1-4 in this pass:
 
 - Tier 1 (schema conformance): a step's pluginConfig has every field its registry
   entry marks required — unless that field has a real default (registry
@@ -75,7 +75,7 @@ def _intersect_capability_states(states: list[_CapabilityState]) -> _CapabilityS
     branch guarantees survives. Deliberately conservative — a capability
     produced on only one branch of an unresolved fork isn't guaranteed for a
     device that could have arrived via the other one. See
-    doc/ai_workflows/VALIDATION_PLAN.md's Tier 3 section."""
+    doc/ai_collaboration/VALIDATION_PLAN.md's Tier 3 section."""
     if not states:
         return _EMPTY_CAPABILITY_STATE
     capabilities = states[0].capabilities
