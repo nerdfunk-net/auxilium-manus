@@ -104,11 +104,41 @@ section for the full reasoning and `PluginRegistryService`-injection detail
 (`WorkflowValidationService`'s constructor now takes the service, not the raw
 registry, so Tier 1 can call `get_plugin_config`).
 
-**Not built yet** (see "Open items" at the end): the `AI_DEFAULTS.md` drift-checker
-inside the apply script (names were resolved by hand every time this session), an
-auto-layout helper (node positions were hardcoded by hand), and a pre-run validation
-gate. None of these blocked what's proven working; they're the next slice, not a
-blocker to resuming.
+**Update 2026-09-24:** the `AI_DEFAULTS.md` resolver/drift-check is now built —
+`backend/scripts/ai_defaults.yaml` is a structured, machine-checkable counterpart to
+this doc's tables (source of truth for values; the doc keeps the "why"), and
+`backend/scripts/ai_defaults.py::resolve_and_check` live-resolves every entry
+(credentials via `CredentialsService`, git repos via `GitRepositoryService`,
+sources via `SettingsRepository`, inventory via `InventoryRepository`) against the
+current DB, raising `AiDefaultsDriftError` naming the exact stale entry instead of
+ever falling back to a guess — run `python scripts/ai_defaults.py` before drafting a
+patch to get current ids. Separately, `ai_workflow_apply.py` had a real gap closed:
+it computed Tier 1-4 validation findings but always persisted the patch regardless,
+so a dangling `credential_reference`/`git_repository_id`/`*_source_id` would apply
+silently and only show up as a reported (non-blocking) finding. It now passes
+`canvas_edges` into `validate()` too (previously omitted, which meant Tier 3 never
+actually ran from this script) and **refuses to write** if any Tier 2
+reference-existence finding comes back (`REFERENCE_DRIFT_CODES` in
+`scripts/ai_defaults.py`) — this is the enforcement half of AI_DEFAULTS.md's
+"resolve live or fail loudly" rule; `scripts/ai_defaults.py` is the other half, for
+resolving names *before* a patch exists. Every other finding (Tier 1/3/4) is still
+only reported, not blocking — that's the separate, still-open "pre-run validation
+gate" item below, deliberately not conflated with this one. **Verified live against
+the real dev DB**: `python scripts/ai_defaults.py` resolved all 20 real
+AI_DEFAULTS.md entries to their current ids; a deliberately-corrupted entry (renamed
+credential) correctly failed loudly with a clear per-entry message and exit code 1.
+8 new unit tests in `backend/tests/unit/test_ai_defaults.py` (including one that
+loads the real `ai_defaults.yaml`, not a fixture, to catch a malformed real file).
+The apply-script's new refuse-to-write gate is verified by code inspection plus the
+existing Tier 2 test coverage in `test_workflow_validation_service.py` (which
+already exercises every code in `REFERENCE_DRIFT_CODES`), not yet exercised as a
+full live `ai_workflow_apply.py` run — that would need a live AI session enabled on
+a real workflow, deliberately not done without asking first (see "Turn-taking
+discipline").
+
+**Not built yet** (see "Open items" at the end): an auto-layout helper (node
+positions were hardcoded by hand) and a pre-run validation gate. Neither blocks
+what's proven working; they're the next slice, not a blocker to resuming.
 
 **Live test artifact**: workflow id `23`, name "AI Assistent", owned by `admin`
 (user id 1), currently has two connected steps (`get-nautobot-devices-1` →
@@ -341,9 +371,15 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `backend/services/workflow/workflow_validation_service.py` — Tiers 1–2
 - `backend/routers/workflow_ai_session.py` — GET/PUT/DELETE `/workflows/{id}/ai-session`
 - `backend/scripts/ai_workflow_apply.py` — the apply mechanism
+- `backend/scripts/ai_defaults.yaml` — structured, machine-checkable counterpart to
+  `AI_DEFAULTS.md`'s tables (source of truth for values)
+- `backend/scripts/ai_defaults.py` — `resolve_and_check`: live-resolves every
+  `ai_defaults.yaml` entry against the DB, raising `AiDefaultsDriftError` on drift;
+  `REFERENCE_DRIFT_CODES`, shared with `ai_workflow_apply.py`'s refuse-to-write gate
 - `backend/tests/unit/test_rbac_seed_ai_assistant.py`
 - `backend/tests/unit/test_workflow_ai_session_service.py`
 - `backend/tests/unit/test_workflow_validation_service.py`
+- `backend/tests/unit/test_ai_defaults.py`
 
 **Backend — modified files:**
 - `backend/core/models/__init__.py` — export `WorkflowAiSession`
@@ -365,6 +401,11 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   the raw `PluginRegistry`) so Tier 1 can call `get_plugin_config` for
   default-aware required-field checking (`_config_default`,
   `_config_defaults_cache`) — see the "default keys" fix in `VALIDATION_PLAN.md`.
+- `backend/scripts/ai_workflow_apply.py` — now passes `canvas_edges` into
+  `validate()` (previously omitted, so Tier 3 never actually ran from this
+  script); refuses to write (returns an error, does not call
+  `update_workflow_for_ai_session`) when any Tier 2 reference-existence finding
+  is in `REFERENCE_DRIFT_CODES` — the AI_DEFAULTS.md drift enforcement gate.
 - `backend/workflow_steps/registry.yaml` — `get-nautobot-attributes.list_of_attributes`
   corrected to `required: false` (was always a valid empty selection, never
   actually required) with a clearer description and a correct example (the old
@@ -532,8 +573,12 @@ before assuming anything works from inspection alone.
 
 ## Verified end-to-end (this session, against the real dev DB)
 
-- Both apply-script gates (`is_active=False`, no active session) refuse correctly
-  with clear error messages.
+- Both original apply-script gates (`is_active=False`, no active session) refuse
+  correctly with clear error messages. The third gate added 2026-09-24
+  (reference-drift refusal) is verified via `scripts/ai_defaults.py` run live
+  against the dev DB and via `test_workflow_validation_service.py`'s existing Tier 2
+  coverage — see the 2026-09-24 update above for exactly what was and wasn't
+  exercised live.
 - A successful apply is attributed to `ai-assistant` in `workflow_changes`, cleanly
   separate from the human's own edits (verified: workflow 23's history alternates
   `admin`/`ai-assistant` rows correctly across multiple real saves from both sides).
@@ -556,10 +601,11 @@ before assuming anything works from inspection alone.
 
 ## Open items (not built this session)
 
-- **`AI_DEFAULTS.md` resolver/drift-check inside the apply script.** Every live test
-  resolved names (`nautobot_source_id`, inventory, credential) by hand. The script
-  should cross-check every name it's given still resolves and fail loudly, not
-  silently, per `AI_DEFAULTS.md`'s own stated rule.
+- **`AI_DEFAULTS.md` resolver/drift-check — built 2026-09-24, see the update above.**
+  Left for a future session: the apply-script gate only refuses on Tier 2
+  reference-existence findings — a real live `ai_workflow_apply.py` run exercising
+  that refusal (requires enabling an AI session on a real workflow) hasn't been done,
+  only the equivalent logic via `scripts/ai_defaults.py` and existing Tier 2 tests.
 - **Auto-layout helper.** Node `position` was hardcoded by hand each time
   (`{x: 0}`, `{x: 400}`, `{x: 800}`, ...). Reuse
   `services/execution/graph.py::topological_generations` for x-ordering by

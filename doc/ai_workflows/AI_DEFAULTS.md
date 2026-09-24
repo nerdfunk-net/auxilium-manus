@@ -4,6 +4,19 @@ Defaults an AI collaborator (or the `ai_workflow_apply.py` tooling described in
 `PROCESS.md`) resolves against when generating or editing a workflow, so it
 doesn't have to ask "which credential/repo/inventory" for every use case.
 
+**`backend/scripts/ai_defaults.yaml` is the source of truth for the values**
+below — this doc carries the "why" and stays human-readable, but the tables
+must match that file (small, changes rarely; keep both in sync by hand).
+`backend/scripts/ai_defaults.py` loads it and live-resolves every name
+against the current database (`python scripts/ai_defaults.py` from `backend/`,
+with the project venv) — run it before drafting a patch to get current ids
+and to catch a stale entry (renamed/deleted credential, git repo, source, or
+inventory) with a clear error instead of guessing. `ai_workflow_apply.py`
+also calls the same reference-existence check (via
+`WorkflowValidationService` Tier 2) on whatever a patch actually contains,
+and **refuses to write** if any credential/git-repository/source reference in
+the patch no longer resolves — see that script's docstring.
+
 ## Rule: names are resolved live, IDs are never cached here
 
 Everything below is a **name or category**, never a database ID. `credential_reference`

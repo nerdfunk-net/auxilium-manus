@@ -22,8 +22,18 @@ Two gates must both pass before anything is written:
    workflow (the human enables this from the canvas toolbar — the
    per-workflow, time-boxed consent flag).
 
+A third gate runs after those two: the merged canvas is validated
+(WorkflowValidationService, Tiers 1-4) and if any Tier 2 reference-existence
+finding comes back (a credential_reference/git_repository_id/*_source_id that
+doesn't resolve — see scripts/ai_defaults.py's REFERENCE_DRIFT_CODES), the
+patch is REFUSED, not applied-with-a-warning. This is the enforcement side of
+AI_DEFAULTS.md's "resolve live or fail loudly" rule — scripts/ai_defaults.py
+is the other side, for resolving names to ids *before* a patch is drafted.
+Every other finding (Tier 1/3/4) is still only reported, not blocking — see
+PROCESS.md's separate, not-yet-built "pre-run validation gate" open item.
+
 Prints a JSON report to stdout: the resulting workflow id/updated_at and the
-Tier 1-2 validation findings for the applied state.
+full Tier 1-4 validation findings for the applied state.
 """
 
 from __future__ import annotations
@@ -73,6 +83,7 @@ def main() -> int:
     from repositories.user_repository import UserRepository
     from repositories.workflow_ai_session_repository import WorkflowAiSessionRepository
     from repositories.workflow_repository import WorkflowRepository
+    from scripts.ai_defaults import REFERENCE_DRIFT_CODES
     from services.auth.rbac_seed import AI_ASSISTANT_USERNAME
     from services.plugin_registry.plugin_registry_service import PluginRegistryService
     from services.workflow.workflow_service import WorkflowService
@@ -109,8 +120,21 @@ def main() -> int:
         )
         registry = plugin_service.load_registry()
         merged_canvas_nodes = patch.get("canvas_nodes", current_workflow.canvas_nodes)
+        merged_canvas_edges = patch.get("canvas_edges", current_workflow.canvas_edges)
         validator = WorkflowValidationService(db, registry)
-        validation = validator.validate(merged_canvas_nodes, acting_user_id=ai_user.id)
+        validation = validator.validate(
+            merged_canvas_nodes, merged_canvas_edges, acting_user_id=ai_user.id
+        )
+
+        drift_findings = [f for f in validation.findings if f.code in REFERENCE_DRIFT_CODES]
+        if drift_findings:
+            return _fail(
+                "Refusing to apply: the patch references "
+                f"{len(drift_findings)} credential/git-repository/source name(s) that "
+                "no longer resolve (see AI_DEFAULTS.md — re-run scripts/ai_defaults.py "
+                "to get current values). Findings: "
+                + json.dumps([f.model_dump() for f in drift_findings])
+            )
 
         try:
             data = WorkflowUpdate(**patch)
