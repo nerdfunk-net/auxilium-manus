@@ -31,10 +31,12 @@ workflow = hatchet.workflow(name="ScheduledWorkflowTrigger", input_validator=Sch
 
 @workflow.task(name="dispatch", execution_timeout=timedelta(seconds=30))
 async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
+    from core.config import settings
     from core.database import SessionLocal
     from hatchet.workflows.dispatch import resolve_dispatch_workflow
     from hatchet.workflows.workflow_run import WorkflowRunInput
     from hatchet.workflows.workflow_run import workflow as workflow_execution
+    from repositories.plugin_repository import PluginRepository
     from repositories.run_repository import RunRepository
     from repositories.schedule_repository import ScheduleRepository
     from repositories.workflow_repository import WorkflowRepository
@@ -46,6 +48,8 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
         RunInputValidationError,
         resolve_run_inputs,
     )
+    from services.plugin_registry.plugin_registry_service import PluginRegistryService
+    from services.workflow.workflow_validation_service import WorkflowValidationService
 
     with SessionLocal() as db:
         schedule_repo = ScheduleRepository(db)
@@ -74,6 +78,45 @@ async def dispatch(input: ScheduledTriggerInput, ctx: Context) -> dict:
         # mark it triggered regardless of whether dispatch below succeeds,
         # so a workflow permanently missing a required input doesn't spin.
         schedule_repo.mark_triggered(schedule, disable=(schedule.schedule_type == "once"))
+
+        # Pre-run gate (doc/ai_workflows/PROCESS.md): a scheduled run has no
+        # operator to prompt, so an unresolved Tier 1-3 validation error
+        # (broken reference, unreachable capability requirement) hard-fails
+        # here exactly like the run-input checks below — same shape, same
+        # error_category, no override. This mirrors
+        # RunService._assert_no_blocking_validation_errors (the interactive
+        # trigger paths' equivalent check) rather than calling it directly:
+        # this task runs in a separate Hatchet worker process with no FastAPI
+        # app.state, so it builds its own PluginRegistryService fresh, the
+        # same one-off construction ai_workflow_apply.py/ai_defaults.py use.
+        if wf_result is not None:
+            plugin_registry_service = PluginRegistryService(
+                PluginRepository(plugins_file=settings.plugins_file)
+            )
+            validation = WorkflowValidationService(db, plugin_registry_service).validate(
+                wf_result[0].canvas_nodes or [],
+                wf_result[0].canvas_edges or [],
+                acting_user_id=schedule.created_by_id,
+            )
+            if validation.has_errors:
+                error_summary = "; ".join(
+                    f"{f.code}: {f.message}" for f in validation.findings if f.severity == "error"
+                )
+                run_repo.update_run_status(
+                    run,
+                    status="failed",
+                    error_message=f"Blocked by pre-run validation: {error_summary}",
+                    error_category="configuration",
+                )
+                logger.info(
+                    "Scheduled trigger blocked by pre-run validation run_id=%s workflow_id=%s "
+                    "schedule_id=%s error=%s",
+                    run.id,
+                    input.workflow_id,
+                    input.schedule_id,
+                    error_summary,
+                )
+                return {"run_id": run.id, "status": "failed"}
 
         # A scheduled run has no operator to prompt: values come from the
         # schedule's own run_inputs merged with the workflow's declared

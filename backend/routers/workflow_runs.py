@@ -17,7 +17,9 @@ from models.attribute_path import (
     AttributePathTreeResponse,
 )
 from models.runs import WorkflowRunCreate, WorkflowRunListResponse, WorkflowRunResponse
+from routers.workflow_steps import get_plugin_service
 from services.execution.run_service import RunService
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,17 @@ def _service(db: Session = Depends(get_db)) -> RunService:
     return RunService(db)
 
 
+def _service_for_trigger(
+    db: Session = Depends(get_db),
+    plugin_service: PluginRegistryService = Depends(get_plugin_service),
+) -> RunService:
+    # Only trigger_run needs the pre-run validation gate (which needs a
+    # PluginRegistryService) — every other endpoint on this router uses
+    # _service above, so a plugin-registry hiccup can't take down read-only
+    # run history/status endpoints too.
+    return RunService(db, plugin_service)
+
+
 @router.post(
     "/workflows/{workflow_id}/runs",
     response_model=WorkflowRunResponse,
@@ -41,7 +54,7 @@ def trigger_run(
     workflow_id: int,
     body: WorkflowRunCreate,
     current_user: User = Depends(get_current_user),
-    service: RunService = Depends(_service),
+    service: RunService = Depends(_service_for_trigger),
 ) -> WorkflowRunResponse:
     return service.trigger_run(workflow_id=workflow_id, data=body, user_id=current_user.id)
 

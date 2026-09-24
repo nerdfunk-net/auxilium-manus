@@ -249,8 +249,13 @@ the reused resolvers, and the graph utilities above. Three call sites:
   convention (`doc/WORKFLOW-STEPS-STYLE_GUIDE.md`) — red badge for hard errors,
   yellow for Tier 4 warnings. No new node layout, just a badge overlay — the style
   guide's "never fork the node layout" rule applies here too.
-- `Run` button disabled (or requires confirmation) when unresolved Tier 1–3 errors
-  exist on the current saved state.
+- ✅ **Backend enforced (2026-09-24), frontend not yet touched**: unresolved Tier
+  1–3 errors now hard-block a run server-side — see "Build order" item 4 below.
+  There is no override, so "disabled (or requires confirmation)" only describes
+  the eventual frontend UX (deliberately deferred — a blocked run currently
+  surfaces through `useTriggerRunMutation`'s existing error toast, not a
+  pre-flight disabled button). Add the frontend piece as a follow-up if the
+  generic error toast proves confusing in practice.
 
 ---
 
@@ -271,7 +276,18 @@ the reused resolvers, and the graph utilities above. Three call sites:
    `PROCESS.md`'s corresponding update entry for the full reasoning, including why
    `pre_step_guard`'s runtime "vacuous when no devices yet" shortcut is deliberately
    NOT replicated here. **Not yet manually verified live in a browser.**
-4. **Pre-run gate** — wire the same service into `RunService.trigger_run`.
+4. ✅ **Pre-run gate** — built 2026-09-24. Turned out to need three call sites, not
+   one: `RunService.trigger_run` (manual) and `ChangeRequestService._dispatch_deploy`
+   (webhook/approval) both share `RunService._create_and_dispatch_run`, which now
+   calls `_assert_no_blocking_validation_errors` and raises `ValidationFailedError`
+   (400, no run row created) before either path can create one; the third path,
+   `hatchet/workflows/scheduled_trigger.py`'s cron dispatch, does NOT call
+   `_create_and_dispatch_run` (its docstring's old claim that it did was wrong — see
+   `PROCESS.md`'s update) and got its own mirrored check instead, matching the
+   file's existing convention for its run-input validation (create the run row
+   first, then mark it `failed` with `error_category="configuration"` — no
+   interactive caller to raise an exception at). No override on any path — see
+   `PROCESS.md`'s update for the full reasoning.
 5. ✅ **Tier 4 (advisory)** — built 2026-09-23, narrower than originally scoped (see
    the Tier 4 section above for exactly what shipped vs. what was deliberately cut).
    **Not yet manually verified live in a browser.**

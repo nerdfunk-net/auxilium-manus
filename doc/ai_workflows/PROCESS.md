@@ -136,9 +136,66 @@ full live `ai_workflow_apply.py` run — that would need a live AI session enabl
 a real workflow, deliberately not done without asking first (see "Turn-taking
 discipline").
 
-**Not built yet** (see "Open items" at the end): an auto-layout helper (node
-positions were hardcoded by hand) and a pre-run validation gate. Neither blocks
-what's proven working; they're the next slice, not a blocker to resuming.
+**Update 2026-09-24 (pre-run validation gate — the last open item is now built):**
+`RunService._assert_no_blocking_validation_errors` refuses to dispatch a run
+(`ValidationFailedError`, 400, no run row created) when `WorkflowValidationService`
+reports any Tier 1–3 error on the workflow's current saved canvas. Unconditional —
+no override, matching the existing no-bypass convention `scheduled_trigger.py`
+already uses for its run-input validation. Turned out to need more than the one
+call site the open item named:
+
+- Investigation found **three** independent run-dispatch code paths, not one.
+  `RunService.trigger_run` (manual) and `ChangeRequestService._dispatch_deploy`
+  (webhook/change-request approval) both go through the shared
+  `RunService._create_and_dispatch_run`, so gating there covers both at once — the
+  check runs before `run_repo.create_run`, so a blocked run leaves no row behind.
+  `_create_and_dispatch_run`'s own docstring previously claimed scheduled triggers
+  shared it too; that was **stale/wrong** — `hatchet/workflows/scheduled_trigger.py`
+  has always had its own independent run-creation code (it runs in a separate
+  Hatchet worker process, calling `SessionLocal()` directly, not through
+  `RunService` at all). Fixed the docstring and gave that file its own mirrored
+  check instead, matching its existing convention exactly: create the run row
+  first (so a blocked cron fire is still visible in run history — there's no
+  interactive caller to raise an exception at), then mark it `failed` with
+  `error_category="configuration"`, same shape as its existing
+  `resolve_run_inputs`/`validate_reference_inputs` failure branch right next to it.
+- `RunService.__init__` gained an optional `plugin_registry_service` param
+  (`WorkflowValidationService` needs one). The router's `trigger_run` endpoint gets
+  the app-wide cached instance via `Depends(get_plugin_service)` — but only through
+  a *new*, trigger-only dependency function (`_service_for_trigger`), deliberately
+  not folded into the `_service` dependency every other endpoint on this router
+  uses, so a plugin-registry hiccup can't take down read-only run-history endpoints
+  too. `ChangeRequestService` never threads one through (unchanged), so its call
+  falls back to `RunService`'s own lazy construction (a fresh
+  `PluginRegistryService(PluginRepository(plugins_file=settings.plugins_file))`,
+  same one-off pattern `ai_workflow_apply.py`/`ai_defaults.py` already use).
+  `scheduled_trigger.py` builds its own fresh one too, for the same reason (no
+  FastAPI `app.state` inside a Hatchet worker).
+- **Deliberately no frontend change** — see `VALIDATION_PLAN.md`'s "Frontend
+  surfacing" update. A blocked run surfaces via the existing
+  `useTriggerRunMutation` error toast; disabling/confirming the Run button
+  pre-flight is a follow-up if that toast proves confusing in practice.
+- 6 new unit tests (`tests/unit/test_run_service_pre_run_validation.py`):
+  blocking-error refusal creates no run row, clean validation still dispatches,
+  Tier 4 warnings never block, the triggering user's id is what gets passed as
+  `acting_user_id`, and both branches of the registry-service fallback. Full
+  existing `RunService`/`ChangeRequestService`/`WorkflowValidationService` suites
+  (155 tests) re-run clean — no regressions. **Verified live against the real dev
+  DB**: workflow 23 (this doc's live test artifact) re-validated clean
+  (`has_errors: False`) through the exact same `WorkflowValidationService` call the
+  gate now makes, confirming it won't false-block a legitimately clean workflow.
+  **Not verified live**: actually calling `trigger_run`/the scheduled-trigger task
+  end-to-end against a real broken workflow — that would dispatch a real
+  background run, so it was deliberately not done without asking first (same
+  "Turn-taking discipline" reasoning as the AI_DEFAULTS.md gate). `scheduled_trigger.py`
+  has no dedicated unit test at all, before or after this change — `hatchet_sdk`'s
+  `Task.fn` (the only way to call the wrapped function directly) is marked
+  internal/deprecated, and this file had zero prior test coverage for the exact
+  same reason; not a gap introduced by this change.
+
+All four `VALIDATION_PLAN.md` tiers, plus the pre-run gate, are now built — the
+`AI_DEFAULTS.md` drift-check and the auto-layout helper too (see their own updates
+above). What's left is verification, not construction — see "Open items" below.
 
 **Live test artifact**: workflow id `23`, name "AI Assistent", owned by `admin`
 (user id 1), currently has two connected steps (`get-nautobot-devices-1` →
@@ -376,10 +433,13 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `backend/scripts/ai_defaults.py` — `resolve_and_check`: live-resolves every
   `ai_defaults.yaml` entry against the DB, raising `AiDefaultsDriftError` on drift;
   `REFERENCE_DRIFT_CODES`, shared with `ai_workflow_apply.py`'s refuse-to-write gate
+- `backend/scripts/ai_layout.py` — `compute_layer_layout`/`apply_layout`: the
+  auto-layout helper, see "Auto-layout helper" in Open items below
 - `backend/tests/unit/test_rbac_seed_ai_assistant.py`
 - `backend/tests/unit/test_workflow_ai_session_service.py`
 - `backend/tests/unit/test_workflow_validation_service.py`
 - `backend/tests/unit/test_ai_defaults.py`
+- `backend/tests/unit/test_ai_layout.py`
 
 **Backend — modified files:**
 - `backend/core/models/__init__.py` — export `WorkflowAiSession`
@@ -413,6 +473,18 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   core fields, always fetched); `parse-cisco-config`'s `output_key`/`config_source`
   gained an explicit `default:` (belt-and-suspenders; not load-bearing for the
   fix, which is in the service, not the registry)
+- `backend/services/execution/run_service.py` — the pre-run validation gate:
+  `RunService.__init__` gained an optional `plugin_registry_service` param and a
+  `_validator()`/`_assert_no_blocking_validation_errors` pair;
+  `_create_and_dispatch_run` now calls the latter before creating a run row, and
+  its docstring's stale "shared by scheduled triggers too" claim is corrected.
+- `backend/routers/workflow_runs.py` — new `_service_for_trigger` dependency
+  (only `trigger_run` uses it) injects the cached `PluginRegistryService` via
+  `Depends(get_plugin_service)`; every other endpoint keeps the plain `_service`.
+- `backend/hatchet/workflows/scheduled_trigger.py` — mirrors the same pre-run
+  validation check inline (own fresh `PluginRegistryService`, no `RunService`
+  involved — see the 2026-09-24 update above for why), same
+  create-run-then-mark-failed shape as its existing run-input validation.
 
 **Backend — new tests:**
 - `backend/tests/unit/test_workflows_router_validate.py` — draft-vs-saved
@@ -429,6 +501,10 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   `RealRegistryDefaultRegressionTests` (4 — loads the real registry.yaml +
   config.py, not an in-memory fixture, and regression-locks the two exact
   reported bugs)
+- `backend/tests/unit/test_run_service_pre_run_validation.py` — 6 cases: blocking
+  error refuses before any run row exists, clean validation still dispatches,
+  Tier 4 warnings never block, `acting_user_id` is the triggering user, and both
+  branches of the injected-vs-fresh `PluginRegistryService` fallback
 
 **Frontend — new files:**
 - `frontend/src/components/features/workflows/types/workflow-ai-session.ts`
@@ -606,18 +682,34 @@ before assuming anything works from inspection alone.
   reference-existence findings — a real live `ai_workflow_apply.py` run exercising
   that refusal (requires enabling an AI session on a real workflow) hasn't been done,
   only the equivalent logic via `scripts/ai_defaults.py` and existing Tier 2 tests.
-- **Auto-layout helper.** Node `position` was hardcoded by hand each time
-  (`{x: 0}`, `{x: 400}`, `{x: 800}`, ...). Reuse
-  `services/execution/graph.py::topological_generations` for x-ordering by
-  dependency layer.
+- **Auto-layout helper — built 2026-09-24.** `backend/scripts/ai_layout.py`:
+  `compute_layer_layout`/`apply_layout` replace the hand-picked `{x: 0}`,
+  `{x: 400}`, `{x: 800}`, ... with a layered grid — columns from
+  `services/execution/graph.py::topological_generations` (dependency waves),
+  rows stacked within a column, pitch matching the fixed 320x128 node size from
+  `WORKFLOW-STEPS-STYLE_GUIDE.md`. Decoration nodes (label/background) and
+  author-disabled steps are skipped (reuses
+  `graph_resolution.filter_executable_graph`, same check StepRunner uses) — their
+  position is left untouched, never invented. Deliberately backend-only and NOT
+  wired into `ai_workflow_apply.py` (which still never lays out nodes itself, per
+  its docstring) — call it yourself before building a patch. A user-facing
+  "Auto Layout" canvas button was explicitly descoped (would need a separate JS
+  implementation, e.g. dagre, since layout there runs client-side). 11 new unit
+  tests (`tests/unit/test_ai_layout.py`: linear chains, parallel branches,
+  joins, cycles, decoration/disabled exclusion). **Verified live**: ran against
+  workflow 23's real canvas (`get-nautobot-devices-1` → `get-nautobot-attributes-1`)
+  with the real plugin registry — correctly produced a two-column layout.
 - **All four validation tiers are now built** (see the two "Update 2026-09-23"
   entries above) and **neither Tier 3 nor Tier 4 has been manually verified live in
   a browser yet** — only Tiers 1–2 and the UI shell have been. Do that before
   trusting the Validate button's output fully.
-- **Pre-run validation gate** on `RunService.trigger_run`. `VALIDATION_PLAN.md`'s
-  "Frontend surfacing" also calls for disabling/confirming the Run button when
-  unresolved Tier 1–3 errors exist on the saved state — not wired yet; the new
-  Validate button is purely informational today, it doesn't block Run.
+- **Pre-run validation gate — built 2026-09-24, see the update above.** Left for a
+  future session: not exercised live end-to-end (would need to actually dispatch a
+  blocked run against a real broken workflow — deliberately not done without
+  asking first); the frontend Run button still isn't disabled/confirmed
+  pre-flight, a blocked run only surfaces via the existing generic error toast;
+  and `scheduled_trigger.py`'s check has no dedicated unit test (matching that
+  file's pre-existing, unrelated lack of test coverage, not a new gap).
 - **Automated regression tests for bugs 2–5 above** — only manually verified live in
   a browser this session, not codified as frontend tests (no existing test
   convention for these specific hooks/components was found to extend).
