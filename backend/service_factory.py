@@ -207,9 +207,18 @@ def credentials_from_connection(
     timeout: float = 30.0,
     verify_ssl: bool = True,
 ) -> NautobotCredentials:
+    """Build NautobotCredentials, normalizing url/token once for every caller.
+
+    NautobotCredentials.cache_scope hashes the raw url+token to key the Redis
+    bulk device cache. Callers resolve the same stored config with inconsistent
+    whitespace handling (some .strip(), some don't); normalizing here — the one
+    place every call site already routes through — keeps the hash (and thus the
+    cache key) identical regardless of caller, even when the stored token has
+    accidental leading/trailing whitespace.
+    """
     return NautobotCredentials(
-        url=nautobot_url.rstrip("/"),
-        token=nautobot_token,
+        url=nautobot_url.strip().rstrip("/"),
+        token=nautobot_token.strip(),
         timeout=timeout,
         verify_ssl=verify_ssl,
     )

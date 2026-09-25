@@ -17,7 +17,10 @@ Cache strategy (Option A — cache-first):
     • ip_prefix      — requires server-side CIDR containment logic
     • primary_prefix — requires server-side CIDR containment logic, restricted
                         to each device's primary_ip4
-    • custom_field   — fields are dynamic and not stored in the cache
+
+  Custom field values (Nautobot's ``_custom_field_data``) are fetched and
+  cached alongside the other device attributes, so custom-field filters are
+  cache-first too — see ``_query_devices_by_custom_field`` below.
 """
 
 from __future__ import annotations
@@ -38,6 +41,17 @@ logger = logging.getLogger(__name__)
 _BULK_CACHE_KEY_PREFIX = "nautobot:devices:all"
 
 
+def _custom_field_value_matches(stored: Any, target: str, use_contains: bool) -> bool:
+    """Compare a cached custom field value (scalar or multi-select list) to ``target``."""
+    if stored is None:
+        return False
+    values = stored if isinstance(stored, list) else [stored]
+    if use_contains:
+        needle = target.lower()
+        return any(needle in str(value).lower() for value in values)
+    return any(str(value) == target for value in values)
+
+
 class NautobotSourceQueryService(NautobotLiveQueryMixin):
     """Handles all Nautobot GraphQL queries for inventory device lookups."""
 
@@ -55,7 +69,6 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         self._bulk_cache_key = f"{_BULK_CACHE_KEY_PREFIX}:{credentials.cache_scope}"
         self._bulk_ttl = bulk_ttl
         self._devices_cache: list[DeviceInfo] | None = None
-        self._custom_field_types_cache: dict[str, str] | None = None
 
     # ------------------------------------------------------------------
     # Cache helpers
@@ -77,6 +90,7 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
             platform_network_driver=raw.get("platform_network_driver"),
             tags=tags,
             manufacturer=raw.get("manufacturer"),
+            custom_fields=raw.get("custom_fields") or {},
         )
 
     async def _get_all_devices_cached(self) -> list[DeviceInfo]:
@@ -136,49 +150,6 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         return len(payload)
 
     # ------------------------------------------------------------------
-    # Custom field metadata
-    # ------------------------------------------------------------------
-
-    async def _get_custom_field_types(self) -> dict[str, str]:
-        """
-        Fetch custom field types from Nautobot API and cache them.
-
-        Returns:
-            Dictionary mapping custom field keys to their types
-            (e.g., {"checkmk_site": "select", "freifeld": "text"})
-        """
-        if self._custom_field_types_cache is not None:
-            return self._custom_field_types_cache
-
-        try:
-            from services.nautobot.metadata_service import NautobotMetadataService
-
-            metadata = NautobotMetadataService(self._nautobot, self._credentials)
-            logger.info("Fetching custom field types from Nautobot")
-            custom_fields = await metadata.get_device_custom_fields()
-
-            type_mapping = {}
-            for field in custom_fields:
-                field_key = field.get("key")
-                field_type_dict = field.get("type", {})
-                field_type_value = (
-                    field_type_dict.get("value") if isinstance(field_type_dict, dict) else None
-                )
-
-                if field_key and field_type_value:
-                    type_mapping[field_key] = field_type_value
-                    logger.info("Custom field '%s' has type '%s'", field_key, field_type_value)
-
-            logger.info("Loaded %s custom field types: %s", len(type_mapping), type_mapping)
-
-            self._custom_field_types_cache = type_mapping
-            return type_mapping
-
-        except Exception as e:
-            logger.error("Error fetching custom field types: %s", e, exc_info=True)
-            return {}
-
-    # ------------------------------------------------------------------
     # Live Nautobot GraphQL helpers (used as fallback or for uncacheable queries)
     # ------------------------------------------------------------------
 
@@ -190,6 +161,7 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
                 id
                 name
                 serial
+                _custom_field_data
                 primary_ip4 {
                     address
                 }
@@ -372,6 +344,46 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         logger.info("Cache filter has_primary=%s: %s devices", has_primary_bool, len(result))
         return result
 
+    async def _query_devices_by_custom_field(
+        self,
+        custom_field_name: str,
+        custom_field_value: str,
+        use_contains: bool = False,
+    ) -> list[DeviceInfo]:
+        """Filter devices by custom field value using the bulk cache.
+
+        Args:
+            custom_field_name: Name of the custom field (with cf_ prefix)
+            custom_field_value: Value to search for
+            use_contains: Whether to use contains (case-insensitive) or exact match
+        """
+        if (
+            not custom_field_name
+            or not custom_field_value
+            or (isinstance(custom_field_value, str) and custom_field_value.strip() == "")
+        ):
+            logger.warning(
+                "Empty custom_field_name or custom_field_value provided, returning empty result"
+            )
+            return []
+
+        cf_key = custom_field_name.removeprefix("cf_")
+        all_devices = await self._get_all_devices_cached()
+        result = [
+            d
+            for d in all_devices
+            if _custom_field_value_matches(
+                d.custom_fields.get(cf_key), custom_field_value, use_contains
+            )
+        ]
+        logger.info(
+            "Cache filter custom_field='%s' (contains=%s): %s devices",
+            cf_key,
+            use_contains,
+            len(result),
+        )
+        return result
+
     # ------------------------------------------------------------------
     # Shared parser
     # ------------------------------------------------------------------
@@ -432,6 +444,7 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
                 platform_network_driver=platform_network_driver,
                 tags=tags,
                 manufacturer=manufacturer,
+                custom_fields=device_data.get("_custom_field_data") or {},
             )
 
             devices.append(device)
