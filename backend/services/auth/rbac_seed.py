@@ -118,6 +118,11 @@ AI_ASSISTANT_PERMISSIONS: list[tuple[str, str]] = [
     ("sources.mattermost", "read"),
     ("sources.batfish", "read"),
     ("sources.pyats", "read"),
+    ("templates", "read"),
+    ("templates", "write"),
+    # No templates:delete -- ai_template_apply.py never exposes a delete verb;
+    # AI drafts/edits templates but a human must remove one, same convention
+    # as workflows:write without workflows:delete above.
 ]
 
 

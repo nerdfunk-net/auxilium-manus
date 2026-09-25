@@ -95,6 +95,7 @@ class AiAssistantSeedTests(unittest.TestCase):
             ("credentials", "write"),
             ("rbac.roles", "write"),
             ("users", "write"),
+            ("templates", "delete"),
         }
         self.assertEqual(granted & forbidden, set())
 

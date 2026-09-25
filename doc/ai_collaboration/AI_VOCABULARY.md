@@ -227,6 +227,52 @@ proposed plan.
 
 ---
 
+## Confirmed phrase → template mappings
+
+Same discipline as the step mappings above, but for `ai_template_apply.py`
+(`PROCESS.md`'s "The template apply mechanism") instead of a workflow canvas.
+
+### "add a new template" / "add a template named `<NAME>`"
+
+→ Create via `ai_template_apply.py` with no `--template-id`.
+
+- Use the user's exact given name verbatim — **no `[AI Draft] ` prefix.** That
+  convention (`AI_DEFAULTS.md`'s "Name prefix" row) is for a name the AI itself
+  invents on an unprompted draft; it doesn't apply when the user names the
+  template explicitly in the same request.
+- `category`/`template_type` default to `netmiko`/`jinja2` (the app's only
+  real-world values today) unless the request says otherwise.
+- If content isn't fully specified (e.g. "a one-liner"), state the concrete
+  content you're about to write as part of the proposed plan in chat before
+  applying — same propose-before-apply discipline as everything else in
+  `PROCESS.md`, just for a template instead of a canvas patch.
+
+### "edit it" / "edit the template and add `<X>`"
+
+→ Update via `ai_template_apply.py --template-id <id>` with a full new
+`content` string — there is no append operation, `content` always replaces the
+whole field (see "Critical rule" in `PROCESS.md`'s template apply section).
+Re-fetch the template's current `content` first, don't trust what you wrote in
+a previous turn.
+
+### Worked example — the seed for this section
+
+Request: *"Add a new template (a one liner) to the templates. Name it
+at-collab-test."* then, next turn: *"edit it and add a second line."*
+
+1. Create: `name: "at-collab-test"` (verbatim, no prefix — explicitly named),
+   `category: "netmiko"`, `template_type: "jinja2"`, `content: "hostname {{
+   hostname }}"` (a one-line Jinja config line, stated in chat before
+   applying). Result: template id 7, `created_by: "ai-assistant"`.
+2. Edit: re-used the just-created content from the same turn's own output
+   (acceptable here since nothing else could have changed it in between) and
+   sent the full two-line replacement: `"hostname {{ hostname
+   }}\ndescription {{ description }}"`. **In general, prefer a fresh fetch over
+   reusing remembered content** — this step happened to be safe only because no
+   turn had elapsed where a human could have edited the template via the UI.
+
+---
+
 ## Not yet covered
 
 Any phrase not listed above gets the normal `PROCESS.md` treatment: the AI states

@@ -323,6 +323,21 @@ was already built and correct.
 two-step read-only test — update this note again before assuming its contents
 if picking this back up later.
 
+**Update 2026-09-25 (AI can now author templates too, not just workflows):** the
+AI collaborator can now create and edit rows in the `templates` table via a new
+`backend/scripts/ai_template_apply.py`, mirroring `ai_workflow_apply.py`'s
+patch-file-driven design. This is deliberately a smaller mechanism than the
+workflow feature: `Template` has no ownership/folder/visibility columns to scope
+a per-item consent session to, so the gate is just `ai-assistant.is_active` (the
+same global kill-switch, no new `template_ai_sessions` table). `AI_ASSISTANT_PERMISSIONS`
+gained `templates:read`/`templates:write` (not `delete`). See "The template apply
+mechanism" below for the full design. **Verified live against the real dev DB**:
+the running dev server's `--reload` picked up the new `AI_ASSISTANT_PERMISSIONS`
+grant automatically (no manual restart needed); created a template
+(`created_by: "ai-assistant"` confirmed), edited its `content` in place
+(`created_by` unchanged, `updated_at` advanced), and confirmed the `is_active`
+gate refuses with exit code 1 when `ai-assistant` is deactivated.
+
 ---
 
 ## Goal
@@ -369,13 +384,16 @@ every boot like the existing `SYSTEM_ROLES`/`DEFAULT_PERMISSIONS` seed.
 1. A system role, `ai-assistant` (`is_system=True`), granted exactly (constant
    `AI_ASSISTANT_PERMISSIONS` in `rbac_seed.py`):
    - `workflows:read`, `workflows:write`
+   - `templates:read`, `templates:write` (added 2026-09-25, see "The template apply
+     mechanism" below)
    - `credentials:read` (metadata existence only — **never** `credentials:reveal`)
    - `git.repositories:read`
    - `sources.nautobot:read`, `sources.mattermost:read`, `sources.batfish:read`,
      `sources.pyats:read`
    - No `workflows:execute`, `workflows:publish`, `workflows:delete`,
-     `change_requests:approve` — the AI actor never triggers a run, publishes to the
-     background tier, deletes a workflow, or approves a change request.
+     `change_requests:approve`, `templates:delete` — the AI actor never triggers a
+     run, publishes to the background tier, deletes a workflow or template, or
+     approves a change request.
    - Nothing touching `rbac.*`, `users`, `system.*`, `secret_manager.*` (P3 already
      forces these to require `admin` regardless of role).
 2. A seeded user `ai-assistant` (`ensure_ai_assistant_user` in `rbac_seed.py`),
@@ -481,6 +499,63 @@ with `update_workflow` via a new private `_apply_update` helper and skips only t
 ownership check — its only precondition is the caller having already verified an
 active `workflow_ai_sessions` row (the `ai_workflow_apply.py` gate above).
 
+## The template apply mechanism
+
+`backend/scripts/ai_template_apply.py` (added 2026-09-25) is the equivalent
+mechanism for the `templates` table — the AI collaborator can both **create new
+templates and edit existing ones**. It:
+1. Parses `--patch-file` (required) and `--template-id` (optional int). Omitting
+   `--template-id` creates a new template (the patch is validated as
+   `TemplateCreate`); passing it updates that template (validated as
+   `TemplateUpdate` — a partial update, only fields present in the patch change).
+   Allowed patch fields: `name`, `description`, `notes`, `template_type`,
+   `category`, `content`, `variables`, `pre_run_commands`, `pre_run_use_textfsm`,
+   `nautobot_attributes`, `credential_id`, `batfish_config`.
+2. Resolves the `ai-assistant` user; refuses if `is_active` is not `True` — **the
+   same and only gate**. Unlike `ai_workflow_apply.py`, there is deliberately no
+   second, per-item consent/session row here: a `Template` row has no
+   `creator_id`, `folder`, or `visibility` column at all (unlike `Workflow`), so
+   there is no single "open canvas" or ownership scope to time-box a session
+   against. Templates are a shared library resource, not a live-edited document
+   with staleness/dirty-state concerns — the global `ai-assistant.is_active`
+   switch is the right-sized gate for that shape, per an explicit design
+   decision (favor the smaller mechanism over mirroring the workflow session
+   table for a resource that doesn't need it).
+3. Calls `TemplatesService(db).create_template(...)`/`.update_template(...)`
+   directly — no `_for_ai_session` bypass-ownership variant was needed (none
+   exists to bypass; `TemplatesService` has no ownership check at all).
+   `created_by` is script-supplied as `"ai-assistant"` on create, never trusted
+   from the patch; an existing template's `created_by` never changes on update.
+4. Prints a JSON report to stdout: the resulting template row plus an
+   `"operation"` field (`"created"`/`"updated"`).
+
+**Independent of any workflow's AI session.** Enabling AI Collaboration on a
+specific workflow (the `workflow_ai_sessions` consent flag above) has no bearing
+on this gate — template writes work purely off `ai-assistant.is_active`,
+regardless of which workflow (if any) you have open or whether it has an active
+session. Don't read "I enabled AI updates on workflow X" as also being required
+for a template edit; it isn't.
+
+**Critical rule, same as the workflow script: always re-fetch a template's
+current state immediately before constructing an update patch, never trust
+memory of what a previous invocation wrote.** `content` (and every other field)
+is a full replacement, not an append/diff — there is no "add a line" operation,
+only "here is the complete new content." If you're appending, you must know the
+current full content first; if a human edited it in the Templates UI between
+your turns, building the patch from stale memory would silently discard their
+edit.
+
+**No `[AI Draft] ` prefix or `/ai-drafts` folder equivalent** — see
+`AI_DEFAULTS.md`'s "Policy defaults" table: `Template` has no `folder`/
+`visibility` columns, so only the name-prefix half of that convention applies,
+and it's on the calling AI collaborator to include it in the patch's `name`
+field, same as `ai_template_apply.py`'s own "deliberately dumb infrastructure"
+stance for workflows.
+
+**Verified live against the real dev DB** (2026-09-25): create, edit, and the
+`is_active` gate refusal all confirmed — see the "Update 2026-09-25" note above
+for specifics.
+
 ## Near-live view via polling, not websockets
 
 No websocket/SSE infrastructure exists anywhere in this app. Instead, reuse the
@@ -553,6 +628,9 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `backend/services/workflow/workflow_validation_service.py` — Tiers 1–2
 - `backend/routers/workflow_ai_session.py` — GET/PUT/DELETE `/workflows/{id}/ai-session`
 - `backend/scripts/ai_workflow_apply.py` — the apply mechanism
+- `backend/scripts/ai_template_apply.py` — the template apply mechanism (added
+  2026-09-25, see "The template apply mechanism" above): create/update a
+  `templates` row, gated only on `ai-assistant.is_active` (no session table)
 - `backend/scripts/ai_defaults.yaml` — structured, machine-checkable counterpart to
   `AI_DEFAULTS.md`'s tables (source of truth for values)
 - `backend/scripts/ai_defaults.py` — `resolve_and_check`: live-resolves every
@@ -568,6 +646,8 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   the live device-count check behind the fan-out threshold rule (see the
   second 2026-09-24 update below).
 - `backend/tests/unit/test_rbac_seed_ai_assistant.py`
+- `backend/tests/unit/test_ai_template_apply.py` — `_load_patch` only (added
+  2026-09-25), same "no `main()` test" precedent as `ai_workflow_apply.py`
 - `backend/tests/unit/test_workflow_ai_session_service.py`
 - `backend/tests/unit/test_workflow_validation_service.py`
 - `backend/tests/unit/test_ai_defaults.py`
@@ -584,7 +664,10 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `backend/routers/workflows.py` — `POST /workflows/{id}/validate` endpoint; now
   accepts an optional body (`canvas_nodes` + `canvas_edges`) so it can validate
   unsaved canvas edits, not just the last-saved state
-- `backend/services/auth/rbac_seed.py` — `AI_ASSISTANT_PERMISSIONS`, `ensure_ai_assistant_user`
+- `backend/services/auth/rbac_seed.py` — `AI_ASSISTANT_PERMISSIONS`, `ensure_ai_assistant_user`;
+  `AI_ASSISTANT_PERMISSIONS` gained `templates:read`/`templates:write` (added
+  2026-09-25, not `templates:delete`); `test_rbac_seed_ai_assistant.py`'s
+  forbidden-permissions assertion updated to match
 - `backend/services/workflow/workflow_service.py` — `update_workflow_for_ai_session` +
   `_apply_update` refactor
 - `backend/services/workflow/workflow_validation_service.py` — Tier 3
@@ -830,6 +913,12 @@ before assuming anything works from inspection alone.
 
 ## Open items (not built this session)
 
+- **Template apply mechanism — built and live-verified 2026-09-25**, see "The
+  template apply mechanism" above. First real create+edit request confirmed the
+  same session (`at-collab-test`, template id 7) — see `AI_VOCABULARY.md`'s new
+  "Confirmed phrase → template mappings" section for the resulting entry. Only
+  one worked example so far; broader phrasing (e.g. naming attached credentials,
+  Nautobot-attribute pre-run commands, batfish_config) is still unconfirmed.
 - **`AI_DEFAULTS.md` resolver/drift-check — built 2026-09-24, see the update above.**
   Left for a future session: the apply-script gate only refuses on Tier 2
   reference-existence findings — a real live `ai_workflow_apply.py` run exercising
