@@ -134,6 +134,7 @@ class DeviceInfo(BaseModel):
     platform_network_driver: str | None = None
     primary_ip4: str | None = None
     status: str | None = None
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
 
 
 class InventoryPreviewResponse(BaseModel):

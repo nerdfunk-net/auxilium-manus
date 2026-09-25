@@ -7,7 +7,6 @@ the project file-size limit. Mixed into NautobotSourceQueryService.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from models.sources_nautobot import DeviceInfo
 
@@ -17,6 +16,7 @@ _DEVICE_SELECTION_FIELDS = """
                     id
                     name
                     serial
+                    _custom_field_data
                     role {
                         name
                     }
@@ -61,39 +61,6 @@ def _location_devices_query(filter_arg: str) -> str:
                 }}
             }}
             """
-
-
-def _custom_field_graphql_var_type(cf_type: str | None, use_contains: bool) -> str:
-    if cf_type == "select":
-        return "[String]"
-    if use_contains:
-        return "[String]"
-    return "String"
-
-
-def _build_custom_field_devices_query(
-    filter_field: str,
-    graphql_var_type: str,
-    *,
-    use_contains: bool,
-) -> str:
-    if use_contains:
-        filter_arg = f"{filter_field}__ic: $field_value"
-    else:
-        filter_arg = f"{filter_field}: $field_value"
-    return f"""
-                query devices_by_custom_field($field_value: {graphql_var_type}) {{
-                  devices({filter_arg}) {{
-                    {_DEVICE_SELECTION_FIELDS}
-                  }}
-                }}
-                """
-
-
-def _custom_field_query_variables(graphql_var_type: str, value: str) -> dict[str, Any]:
-    if graphql_var_type == "[String]":
-        return {"field_value": [value]}
-    return {"field_value": value}
 
 
 class NautobotLiveQueryMixin:
@@ -191,6 +158,7 @@ class NautobotLiveQueryMixin:
                                 id
                                 name
                                 serial
+                                _custom_field_data
                                 primary_ip4 {{ address }}
                                 status {{ name }}
                                 device_type {{ model manufacturer {{ name }} }}
@@ -282,6 +250,7 @@ class NautobotLiveQueryMixin:
                     id
                     name
                     serial
+                    _custom_field_data
                     primary_ip4 {{ address }}
                     status {{ name }}
                     device_type {{ model manufacturer {{ name }} }}
@@ -320,75 +289,3 @@ class NautobotLiveQueryMixin:
             len(devices),
         )
         return devices
-
-    async def _query_devices_by_custom_field(
-        self,
-        custom_field_name: str,
-        custom_field_value: str,
-        use_contains: bool = False,
-    ) -> list[DeviceInfo]:
-        """
-        Query devices by custom field value.
-
-        Intentionally kept as a live Nautobot call: custom fields are dynamic
-        and not stored in the bulk device cache.
-
-        Args:
-            custom_field_name: Name of the custom field (with cf_ prefix)
-            custom_field_value: Value to search for
-            use_contains: Whether to use contains (icontains) or exact match
-
-        Returns:
-            List of matching devices
-        """
-        try:
-            if (
-                not custom_field_name
-                or not custom_field_value
-                or (isinstance(custom_field_value, str) and custom_field_value.strip() == "")
-            ):
-                logger.warning(
-                    "Empty custom_field_name or custom_field_value provided, returning empty result"
-                )
-                return []
-
-            custom_field_types = await self._get_custom_field_types()
-
-            cf_key = custom_field_name.replace("cf_", "")
-            cf_type = custom_field_types.get(cf_key)
-            graphql_var_type = _custom_field_graphql_var_type(cf_type, use_contains)
-
-            logger.info(
-                "Custom field '%s' type='%s', use_contains=%s, GraphQL type='%s'",
-                cf_key,
-                cf_type,
-                use_contains,
-                graphql_var_type,
-            )
-
-            query = _build_custom_field_devices_query(
-                custom_field_name, graphql_var_type, use_contains=use_contains
-            )
-            variables = _custom_field_query_variables(graphql_var_type, custom_field_value)
-
-            logger.debug("Custom field '%s' GraphQL query:\n%s", cf_key, query)
-            logger.debug("Custom field '%s' variables: %s", cf_key, variables)
-            logger.info(
-                "Custom field '%s' filter: %s, type: %s, graphql_var_type: %s",
-                cf_key,
-                custom_field_name,
-                cf_type,
-                graphql_var_type,
-            )
-
-            result = await self._nautobot.graphql_query(query, variables, self._credentials)
-
-            if "errors" in result:
-                logger.error("GraphQL errors in custom field query: %s", result["errors"])
-                return []
-
-            return self._parse_device_data(result.get("data", {}).get("devices", []))
-
-        except Exception as e:
-            logger.error("Error querying devices by custom field '%s': %s", custom_field_name, e)
-            return []
