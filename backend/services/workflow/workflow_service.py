@@ -403,6 +403,31 @@ class WorkflowService:
         workflow, _creator_username = result
         if workflow.creator_id != user_id:
             raise AccessDeniedError("Access denied")
+        return self._apply_notes_update(workflow, notes)
+
+    def update_notes_for_ai_session(
+        self, workflow_id: int, notes: str | None, ai_user_id: int
+    ) -> WorkflowNotesResponse:
+        """Same as update_notes but skips the creator_id ownership check.
+
+        Used only by backend/scripts/ai_workflow_apply.py, under the same active
+        workflow_ai_sessions gate as update_workflow_for_ai_session (see
+        doc/ai_collaboration/PROCESS.md). Unlike a canvas edit, a notes edit has
+        no actor/attribution tracking at all -- update_notes doesn't record one
+        for a human either (no WorkflowChange row, no git-mirror sync; notes are
+        explicitly never synced to git), so ai_user_id exists only for logging
+        symmetry with the canvas path, not because anything downstream reads it.
+        """
+        logger.info(
+            "Updating workflow notes (AI session) id=%s ai_user_id=%s", workflow_id, ai_user_id
+        )
+        result = self.repo.get_by_id(workflow_id)
+        if result is None:
+            raise NotFoundError("Workflow not found")
+        workflow, _creator_username = result
+        return self._apply_notes_update(workflow, notes)
+
+    def _apply_notes_update(self, workflow: Workflow, notes: str | None) -> WorkflowNotesResponse:
         workflow = self.repo.update(workflow, {"notes": notes})
         return WorkflowNotesResponse(notes=workflow.notes, updated_at=workflow.updated_at)
 

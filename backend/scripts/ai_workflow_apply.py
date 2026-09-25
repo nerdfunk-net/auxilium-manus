@@ -11,9 +11,19 @@ Usage (from backend/, with the project venv)::
     python scripts/ai_workflow_apply.py --workflow-id 42 --patch-file patch.json
 
 patch.json is a JSON object with any of "canvas_nodes", "canvas_edges",
-"canvas_groups", "static_attributes" — each a full replacement of that field
-(not a diff). Build it from a FRESH read of the workflow (this script always
-re-fetches before applying; never trust a previous invocation's output).
+"canvas_groups", "static_attributes", "notes" — each a full replacement of
+that field (not a diff). Build it from a FRESH read of the workflow (this
+script always re-fetches before applying; never trust a previous invocation's
+output).
+
+"notes" (the Wiki tab's Markdown field) is handled on its own, separate path
+(WorkflowService.update_notes_for_ai_session) — it is not part of the
+canvas/WorkflowUpdate model at all, has no validation of its own (free text),
+and is never synced to git. A notes-only patch (no canvas_nodes/canvas_edges/
+canvas_groups/static_attributes) skips Tier 1-4 validation and the canvas
+update entirely — there is nothing to validate and nothing would actually
+change, so this deliberately avoids a spurious git-mirror commit/WorkflowChange
+row for a patch that only touched the wiki.
 
 Two gates must both pass before anything is written:
 1. The ai-assistant user must be active (an admin flips this on in
@@ -49,11 +59,14 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 
+_CANVAS_FIELDS = {"canvas_nodes", "canvas_edges", "canvas_groups", "static_attributes"}
+
+
 def _load_patch(patch_file: Path) -> dict[str, Any]:
     data = json.loads(patch_file.read_text())
     if not isinstance(data, dict):
         raise ValueError("Patch file must contain a JSON object")
-    allowed = {"canvas_nodes", "canvas_edges", "canvas_groups", "static_attributes"}
+    allowed = _CANVAS_FIELDS | {"notes"}
     unknown = set(data) - allowed
     if unknown:
         raise ValueError(f"Patch file has unsupported field(s): {sorted(unknown)}")
@@ -75,6 +88,8 @@ def main() -> int:
         patch = _load_patch(args.patch_file)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return _fail(f"Could not read patch file: {exc}")
+    if not patch:
+        return _fail("Patch file is empty — nothing to apply.")
 
     from core.config import settings
     from core.database import SessionLocal
@@ -115,50 +130,67 @@ def main() -> int:
             return _fail(f"Workflow {args.workflow_id} not found.")
         current_workflow, _ = wf_result
 
-        plugin_service = PluginRegistryService(
-            PluginRepository(plugins_file=settings.plugins_file)
-        )
-        merged_canvas_nodes = patch.get("canvas_nodes", current_workflow.canvas_nodes)
-        merged_canvas_edges = patch.get("canvas_edges", current_workflow.canvas_edges)
-        validator = WorkflowValidationService(db, plugin_service)
-        validation = validator.validate(
-            merged_canvas_nodes, merged_canvas_edges, acting_user_id=ai_user.id
-        )
+        notes_provided = "notes" in patch
+        notes_value = patch.pop("notes", None)
+        canvas_patch = patch  # whatever's left after popping notes
 
-        drift_findings = [f for f in validation.findings if f.code in REFERENCE_DRIFT_CODES]
-        if drift_findings:
-            return _fail(
-                "Refusing to apply: the patch references "
-                f"{len(drift_findings)} credential/git-repository/source name(s) that "
-                "no longer resolve (see AI_DEFAULTS.md — re-run scripts/ai_defaults.py "
-                "to get current values). Findings: "
-                + json.dumps([f.model_dump() for f in drift_findings])
+        report: dict[str, Any] = {"workflow_id": args.workflow_id}
+
+        if canvas_patch:
+            plugin_service = PluginRegistryService(
+                PluginRepository(plugins_file=settings.plugins_file)
+            )
+            merged_canvas_nodes = canvas_patch.get("canvas_nodes", current_workflow.canvas_nodes)
+            merged_canvas_edges = canvas_patch.get("canvas_edges", current_workflow.canvas_edges)
+            validator = WorkflowValidationService(db, plugin_service)
+            validation = validator.validate(
+                merged_canvas_nodes, merged_canvas_edges, acting_user_id=ai_user.id
             )
 
-        try:
-            data = WorkflowUpdate(**patch)
-            updated = WorkflowService(db).update_workflow_for_ai_session(
-                args.workflow_id,
-                data,
-                ai_user_id=ai_user.id,
-                actor_username=AI_ASSISTANT_USERNAME,
-            )
-        except Exception as exc:
-            return _fail(f"Failed to apply patch: {exc}")
+            drift_findings = [f for f in validation.findings if f.code in REFERENCE_DRIFT_CODES]
+            if drift_findings:
+                return _fail(
+                    "Refusing to apply: the patch references "
+                    f"{len(drift_findings)} credential/git-repository/source name(s) that "
+                    "no longer resolve (see AI_DEFAULTS.md — re-run scripts/ai_defaults.py "
+                    "to get current values). Findings: "
+                    + json.dumps([f.model_dump() for f in drift_findings])
+                )
 
-        print(
-            json.dumps(
-                {
-                    "workflow_id": updated.id,
-                    "updated_at": updated.updated_at.isoformat(),
-                    "validation": {
-                        "has_errors": validation.has_errors,
-                        "findings": [f.model_dump() for f in validation.findings],
-                    },
-                },
-                indent=2,
-            )
-        )
+            try:
+                data = WorkflowUpdate(**canvas_patch)
+                updated = WorkflowService(db).update_workflow_for_ai_session(
+                    args.workflow_id,
+                    data,
+                    ai_user_id=ai_user.id,
+                    actor_username=AI_ASSISTANT_USERNAME,
+                )
+            except Exception as exc:
+                return _fail(f"Failed to apply patch: {exc}")
+
+            report["updated_at"] = updated.updated_at.isoformat()
+            report["validation"] = {
+                "has_errors": validation.has_errors,
+                "findings": [f.model_dump() for f in validation.findings],
+            }
+        else:
+            report["updated_at"] = current_workflow.updated_at.isoformat()
+
+        if notes_provided:
+            try:
+                notes_result = WorkflowService(db).update_notes_for_ai_session(
+                    args.workflow_id, notes=notes_value, ai_user_id=ai_user.id
+                )
+            except Exception as exc:
+                return _fail(f"Failed to apply notes: {exc}")
+
+            report["notes"] = {
+                "notes": notes_result.notes,
+                "updated_at": notes_result.updated_at.isoformat(),
+            }
+            report["updated_at"] = notes_result.updated_at.isoformat()
+
+        print(json.dumps(report, indent=2))
         return 0
 
 

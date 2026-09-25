@@ -338,6 +338,22 @@ grant automatically (no manual restart needed); created a template
 (`created_by` unchanged, `updated_at` advanced), and confirmed the `is_active`
 gate refuses with exit code 1 when `ai-assistant` is deactivated.
 
+**Update 2026-09-25 (AI can now write a workflow's wiki notes too):**
+`ai_workflow_apply.py` accepts an optional `notes` field alongside the existing
+canvas fields — a genuinely separate save path
+(`WorkflowService.update_notes_for_ai_session`, new, mirrors
+`update_workflow_for_ai_session`'s ownership-bypass shape), since `notes` was
+never part of `WorkflowUpdate`/the canvas model to begin with. A notes-only
+patch skips Tier 1-4 validation and the canvas update entirely rather than
+making a spurious no-op write — see "Writing wiki notes" and "The apply
+mechanism" below for the full design. This closes the loop `doc/HOWTO_BUILD_WORKFLOWS.md`'s
+"Documenting the workflow: wiki notes" section opened: the AI is now expected
+to compose Purpose/Assumptions/Gotchas/Example notes when it creates a
+workflow, not just read existing ones from the gallery. **Verified live**
+against workflow 23 (`AI Assistent`): notes written and confirmed persisted,
+canvas (6 nodes) and `workflow_changes` count (18) both unchanged by the
+notes-only patch.
+
 ---
 
 ## Goal
@@ -439,8 +455,8 @@ a row-existence flag, the same pattern `workflow_background_tier` already uses
 `backend/scripts/ai_workflow_apply.py` is the **only** way the AI collaborator
 touches the database. It:
 1. Parses `--workflow-id` (int) and `--patch-file` (path to a JSON object with any of
-   `canvas_nodes`/`canvas_edges`/`canvas_groups`/`static_attributes` — each a full
-   replacement of that field, not a diff).
+   `canvas_nodes`/`canvas_edges`/`canvas_groups`/`static_attributes`/`notes` — each a
+   full replacement of that field, not a diff).
 2. Resolves the `ai-assistant` user; refuses if `is_active` is not `True`.
 3. Resolves the active `workflow_ai_sessions` row for `--workflow-id`; refuses if
    none/expired.
@@ -455,11 +471,37 @@ touches the database. It:
    the same validation/git-mirror/change-tracking logic via a private
    `_apply_update` helper, skipping only the ownership check.
 7. Prints a JSON report to stdout: `{workflow_id, updated_at, validation:
-   {has_errors, findings}}`.
+   {has_errors, findings}}`, plus a `notes: {notes, updated_at}` key when the patch
+   included one.
 
 This is deliberately not a raw SQL write and not a second persistence code path — it
 is the existing service layer, called from a script instead of a router, exactly like
 `scripts/init_test_db.py` already does for seeding.
+
+**`notes` is a separate save path, added 2026-09-25.** The Wiki tab's Markdown
+`notes` field is not part of `WorkflowUpdate`/the canvas model at all — it's its own
+column, saved via a completely different method
+(`WorkflowService.update_notes`/`PATCH /{id}/notes`), with its own **new**
+AI-session variant, `update_notes_for_ai_session` (same shared-logic-minus-
+ownership-check shape as `update_workflow_for_ai_session`, factored through a small
+`_apply_notes_update` helper both now call). Because of that split:
+- A patch containing only `notes` (no canvas fields) skips Tier 1-4 validation and
+  the canvas update call **entirely** — there's nothing to validate and nothing
+  canvas-side would change, so this deliberately avoids a spurious git-mirror
+  commit/`WorkflowChange` row for a wiki-only edit. **Verified live**: applying a
+  notes-only patch to workflow 23 left its canvas (6 nodes) and `workflow_changes`
+  row count (18) unchanged, while `notes` and `updated_at` both updated correctly.
+- A patch can contain both canvas fields and `notes` in one call — the canvas
+  branch runs its full existing validation/drift-gate/update sequence, then the
+  notes branch runs independently.
+- Notes have **no attribution tracking at all**, for AI or human — `update_notes`
+  never wrote a `WorkflowChange` row and notes are explicitly never synced to git
+  (per the model's own comment), so this is an existing characteristic being
+  carried over, not something the AI-session variant is missing.
+- An empty patch (`{}`, or a JSON object with none of the five allowed fields)
+  now fails fast with a clear error before touching the database, instead of the
+  previous behavior of silently making a no-op `WorkflowUpdate` call that still
+  produced a spurious git-mirror commit and `WorkflowChange` row.
 
 **Critical rule for whoever calls this script: always re-fetch the current
 `canvas_nodes`/`canvas_edges` immediately before constructing a patch, never trust
@@ -498,6 +540,38 @@ permanently blocked the entire feature. Fixed by adding
 with `update_workflow` via a new private `_apply_update` helper and skips only the
 ownership check — its only precondition is the caller having already verified an
 active `workflow_ai_sessions` row (the `ai_workflow_apply.py` gate above).
+
+## Writing wiki notes
+
+When creating a new workflow (or substantially extending an existing one),
+include a `notes` field in the same patch — write the wiki, don't leave it for
+the human to backfill. Use the structure and discipline from
+[`doc/HOWTO_BUILD_WORKFLOWS.md`](../HOWTO_BUILD_WORKFLOWS.md) → "Documenting
+the workflow: wiki notes" (`Purpose`/`Assumptions-prerequisites`/`Gotchas`/
+`Example`; omit empty sections; consistency across workflows matters more than
+depth in any one).
+
+What's realistically knowable at creation time varies by section:
+- **Purpose** — always knowable; it's what you were asked to build.
+- **Assumptions / prerequisites** — knowable from the exact `AI_DEFAULTS.md`
+  names resolved while drafting the plan (credential, inventory, git repo,
+  source) — cite the resolved name, not a paraphrase.
+- **Gotchas** — knowable when fan-out/fan-in, a destructive step, or a
+  non-obvious wiring choice is genuinely part of the design. Don't invent one
+  where there isn't a real gotcha — an empty section is worse than none (see
+  HOWTO_BUILD_WORKFLOWS.md).
+- **Example** — often knowable even before the workflow has run: a resolved
+  artifact path/filename can be stated from the config alone (the
+  `get-backups.json` worked example did this), but don't guess a device-
+  specific value you haven't actually checked against real config (the
+  `output_subdirectory`-vs-`repository_subdirectory` mistake caught in this
+  session is exactly the failure mode to avoid — verify against the executor
+  or a real run, don't assume).
+
+Since `notes` is always a full replacement, not a diff, adding to existing
+notes later means re-fetching the current text first and sending the full
+combined content — same fetch-then-patch discipline as everything else in this
+doc.
 
 ## The template apply mechanism
 
@@ -584,6 +658,30 @@ straight into the open canvas and clobber in-progress edits.
   interpretations from `AI_VOCABULARY.md`), so you can redirect before there's
   anything to undo.
 
+## The workflow gallery
+
+`contributing-data/workflow-gallery/*.json` are real, exported workflows — already
+the canonical reference for canvas/node shape ("Building a patch by hand" above
+points at `get-backups.json` specifically) and the known-good corpus
+`WorkflowValidationService` was checked against (see "Verified end-to-end"). Each
+export carries `name`, `description`, and a free-form Markdown `notes` field — the
+same Wiki field `WorkflowService.update_notes` maintains on a live workflow, never
+synced to git — increasingly annotated with purpose, worked examples, and gotchas
+(e.g. `set-credentials.json`'s notes warn that it removes all other users from the
+config).
+
+**Skim it at the start of a session, before proposing a plan.** Read every gallery
+file's `name`/`description`/`notes` (cheap, scales fine as the gallery grows) to
+catch an existing workflow that already does something like the request, or a
+documented gotcha that should shape the plan. **Only read a specific file's full
+`canvas_nodes`/`canvas_edges`** when it's actually similar to what's being built or
+asked to be extended — reading every file's full canvas JSON every session doesn't
+scale the same way once the gallery grows past a handful of workflows.
+
+This is a growing, live reference — the user adds workflows and notes to it over
+time, so re-skim it fresh each session rather than relying on what a past session
+found there.
+
 ---
 
 ## The loop
@@ -593,9 +691,10 @@ straight into the open canvas and clobber in-progress edits.
 2. **You enable AI updates** for that workflow (canvas properties panel toggle).
 3. **You describe the use case** in chat.
 4. **The AI proposes a step plan in chat first** — which registry steps, in what
-   order (checking `AI_VOCABULARY.md` for a confirmed phrase mapping first), which
-   `AI_DEFAULTS.md` entries it's resolving, anything it couldn't resolve (stop and
-   ask, never guess a name).
+   order (checking `AI_VOCABULARY.md` for a confirmed phrase mapping first and
+   skimming "The workflow gallery" for a similar existing workflow or a relevant
+   gotcha), which `AI_DEFAULTS.md` entries it's resolving, anything it couldn't
+   resolve (stop and ask, never guess a name).
 5. **The AI applies the draft** via `ai_workflow_apply.py`, which runs validation as
    part of the same pass and reports findings.
 6. **You get a "Reload" banner**, click it, give feedback.
@@ -648,6 +747,9 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
 - `backend/tests/unit/test_rbac_seed_ai_assistant.py`
 - `backend/tests/unit/test_ai_template_apply.py` — `_load_patch` only (added
   2026-09-25), same "no `main()` test" precedent as `ai_workflow_apply.py`
+- `backend/tests/unit/test_workflow_service_notes.py` — `update_notes`/
+  `update_notes_for_ai_session` ownership-bypass and clear-with-`None` cases
+  (added 2026-09-25)
 - `backend/tests/unit/test_workflow_ai_session_service.py`
 - `backend/tests/unit/test_workflow_validation_service.py`
 - `backend/tests/unit/test_ai_defaults.py`
@@ -669,7 +771,9 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   2026-09-25, not `templates:delete`); `test_rbac_seed_ai_assistant.py`'s
   forbidden-permissions assertion updated to match
 - `backend/services/workflow/workflow_service.py` — `update_workflow_for_ai_session` +
-  `_apply_update` refactor
+  `_apply_update` refactor; `update_notes_for_ai_session` + `_apply_notes_update`
+  refactor (added 2026-09-25 — same ownership-bypass shape, for the separate
+  notes/Wiki save path)
 - `backend/services/workflow/workflow_validation_service.py` — Tier 3
   (`_tier3_capability_flow`): static DAG walk, `_CapabilityState`,
   `_intersect_capability_states`, `_is_executable_node`; `validate()` now also
@@ -684,6 +788,13 @@ Everything below is uncommitted on branch `feature/ai-assistent`.
   script); refuses to write (returns an error, does not call
   `update_workflow_for_ai_session`) when any Tier 2 reference-existence finding
   is in `REFERENCE_DRIFT_CODES` — the AI_DEFAULTS.md drift enforcement gate.
+  Added 2026-09-25: accepts an optional `notes` patch field, applied via
+  `update_notes_for_ai_session` on its own path (skips canvas validation
+  entirely for a notes-only patch — see "Writing wiki notes" above); an empty
+  patch (no allowed fields present) now fails fast instead of making a spurious
+  no-op canvas update. **Verified live** against workflow 23: a notes-only
+  patch updated `notes`/`updated_at` while leaving the canvas (6 nodes) and
+  `workflow_changes` row count (18) unchanged.
 - `backend/workflow_steps/registry.yaml` — `get-nautobot-attributes.list_of_attributes`
   corrected to `required: false` (was always a valid empty selection, never
   actually required) with a clearer description and a correct example (the old
