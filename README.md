@@ -157,6 +157,12 @@ notifications on success or failure):
 
 ![Set SNMP config workflow: configures SNMPv3, removes old SNMPv1 config via a Jinja template, and deploys the changes to selected devices](screenshots/set-snmp-config.png)
 
+**Check VTY workflow** — selects devices from Nautobot, reads and parses their Cisco
+config, and branches on whether the VTY lines are missing an access-class or otherwise
+unsecured, posting a Mattermost notification for whichever condition matches:
+
+![Check VTY workflow: parses device config, checks VTY lines for a missing access-class or unsecured configuration, and notifies Mattermost on a match](screenshots/check-vty.png)
+
 ## AI collaboration
 
 Most workflow builders stop at letting an AI assistant suggest a script in a chat

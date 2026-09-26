@@ -1,19 +1,24 @@
 # Plan: Fix SM4 — Hatchet workers never see connection changes
 
 Source: `doc/analysis/FABLE_BACKEND_20260916.md` §2.2 SM4, §6 item 6.
-Status: **Ready to implement.** Still **open** as of the 2026-09-26
-revalidation: `get_or_create` still returns a cached client without reading
-the row, and `get_generation` / `get_by_id_fresh` do not exist. Analysis was
-against the post-SM1/SM2/SM3 tree. A plan review folded three corrections
-into D2, D5, §4, §5.1, and §6.2 (see §0.1). The 2026-09-26 pass, after
-parallel step execution and later secret-manager edits, folded four more
-into D2, D5, D5b, §1, §4, §6.2, and §7 (see §0.3). Implement this file.
-Smaller nits that did not change the implementation are parked in **§0.2 for
-later review** (N1–N4).
+Status: **Implemented** on `main` in `b46bc5d` (2026-09-26). `get_or_create`
+re-reads `(name, is_active, updated_at)` via `get_generation` /
+`get_by_id_fresh` (`populate_existing=True`) and rebuilds or refuses when the
+row moved, is inactive, or is gone. A tree check the same day confirmed §2–§6
+match this plan (see the implementation record at the end of §7). N1–N4 in
+§0.2 stay parked for later review.
+
+The 2026-09-26 revalidation, before that commit, still found SM4 open:
+`get_or_create` returned a cached client without reading the row, and
+`get_generation` / `get_by_id_fresh` did not exist. Analysis was against the
+post-SM1/SM2/SM3 tree. A plan review folded three corrections into D2, D5,
+§4, §5.1, and §6.2 (see §0.1). That same day's pass, after parallel step
+execution and later secret-manager edits, folded four more into D2, D5, D5b,
+§1, §4, §6.2, and §7 (see §0.3).
 
 | # | Sev | Issue | Decision | Status |
 |---|---|---|---|---|
-| SM4 | M | `SecretManagerClientRegistry` caches one client per connection id for the process lifetime; `registry.invalidate()` runs only in the API process, so Hatchet workers keep using an edited, deactivated, or deleted connection until restart | On every `get_or_create`, PK-read `(name, is_active, updated_at)` with `populate_existing=True` and rebuild/refuse when the row moved, is inactive, or is gone (D1) | **Open** |
+| SM4 | M | `SecretManagerClientRegistry` caches one client per connection id for the process lifetime; `registry.invalidate()` runs only in the API process, so Hatchet workers keep using an edited, deactivated, or deleted connection until restart | On every `get_or_create`, PK-read `(name, is_active, updated_at)` with `populate_existing=True` and rebuild/refuse when the row moved, is inactive, or is gone (D1) | **Implemented** (`b46bc5d`) |
 
 Every section ends with the tests that must exist before it is considered done. Run from
 `backend/` with the project venv: `source ../.venv/bin/activate`.
@@ -171,9 +176,10 @@ Three defects found against the pre-review draft; they are already applied above
 ### 0.3 Revalidation 2026-09-26 (folded in)
 
 Checked against the tree after parallel step execution (2026-09-21) and the
-later secret-manager RBAC/transport edits. SM4 is still **open**. The registry
-source in §4 is unchanged. Passages marked **(2026-09-26)** are the edits from
-this pass.
+later secret-manager RBAC/transport edits, **before** `b46bc5d`. At that
+moment SM4 was still **open**. The registry source in §4 was unchanged.
+Passages marked **(2026-09-26)** are the edits from this pass. The fix landed
+later the same day; see the status line and the record at the end of §7.
 
 | # | What changed | Where |
 |---|---|---|
@@ -1211,3 +1217,37 @@ split (file-backed SQLite, two sessions, one commit, held instance). A manual ch
 desired: start API + worker, run a workflow that `secret-get`s once (caches the client),
 deactivate the connection in Settings, run the workflow again — the second run must fail
 with `Secret manager connection '<name>' is not active` without restarting the worker.
+
+### Implementation record — 2026-09-26
+
+Implemented on `main` in `b46bc5d`
+(`feat(secret-manager): implement fresh lookup and generation tracking for connections`).
+A tree check the same day confirmed the plan's changes are present:
+
+- `get_by_id_fresh` is on `SecretManagerConnectionRepository` only.
+  `BaseRepository.get_by_id` is unchanged.
+- `SecretManagerConnectionGeneration` and `get_generation` match §3, including
+  the unwrapped `updated_at` assignment (N4 still open).
+- `SecretManagerClientRegistry.get_or_create` matches §4: compare-only first
+  lock, re-read, pop only against the fresh generation, rebuild inside the
+  lock. `load_connection_config` is unchanged. The rebuild-path comment says
+  "fresh snapshot" where this plan's listing says "fresh generation"; the
+  control flow is the same.
+- `doc/SECRET_MANAGER_INTEGRATION.md` architecture paragraph and Redis bullet
+  match §5.1 and §5.2. The three router `invalidate()` calls remain, and
+  `test_update_invalidates_registry` is still present.
+- §6.1 (nine registry tests) and §6.2 (generation, dirty identity map, and
+  the two-session file-backed tests) are present.
+
+Verification from `backend/` with the project venv, 2026-09-26:
+
+- `ruff check` on the five files in the checklist: all checks passed.
+- `check_asyncio_run.py`, `check_http_500_leaks.py`, `check_router_repositories.py`,
+  and `check_text_sql.py`: all `[OK]`.
+- `pytest` on `test_secret_manager_registry.py`,
+  `test_secret_manager_connection_service.py`, and
+  `test_secret_manager_router.py` with `--no-cov`: 38 passed.
+
+The full `tests/unit` coverage ratchet (`--cov-fail-under=81`) was not re-run
+in this check. N1–N4 remain open for later review. A live API + Hatchet worker
+smoke test was not run.
