@@ -49,6 +49,12 @@ with a visual, repeatable workflow model:
   applying them to devices. The long review lives as a database row, not a suspended
   workflow, so approval can take arbitrarily long. See
   [doc/CICD_PIPELINE.md](doc/CICD_PIPELINE.md).
+- **Collaborate with an AI directly on a workflow** — enable AI Collaboration on an open
+  workflow (a time-boxed consent flag, not a shared login) and describe what you want in
+  chat; the AI writes steps directly into that same workflow through the real service
+  layer, validates the result before you run it, and can draft reusable templates and
+  write the workflow's wiki notes along the way. See
+  [doc/ai_collaboration/PROCESS.md](doc/ai_collaboration/PROCESS.md).
 
 Under the hood, a workflow definition is a backend-owned JSON graph (distinct from the
 React Flow canvas/UI state), validated and compiled into executable steps by the backend.
@@ -92,6 +98,10 @@ trigger specific workflows and settings.
 - Secret Manager: generate, rotate, and read operational secrets (TACACS+ keys, SNMP
   community strings/SNMPv3 credentials, …) from a workflow at run time, stored in an
   external OpenBao or Infisical backend chosen per connection
+- AI workflow collaboration: a restricted, RBAC-scoped `ai-assistant` identity, per-workflow
+  time-boxed consent sessions, four-tier static validation (schema, reference existence,
+  capability flow, attribute-path wiring) gating both an explicit Validate action and run
+  dispatch itself, near-live canvas sync via polling, and AI-authored templates and wiki notes
 
 ## Tech stack
 
@@ -146,6 +156,49 @@ SNMPv1 settings, and deploys the result back to the devices (with Mattermost
 notifications on success or failure):
 
 ![Set SNMP config workflow: configures SNMPv3, removes old SNMPv1 config via a Jinja template, and deploys the changes to selected devices](screenshots/set-snmp-config.png)
+
+## AI collaboration
+
+Most workflow builders stop at letting an AI assistant suggest a script in a chat
+window that you then copy in by hand. Auxilium Manus goes further: an AI collaborator
+can write directly into an open workflow, in place, through the same code path the
+UI itself uses — a rare capability among NetDevOps tools.
+
+- **A real, audited actor — not a shared login.** The AI acts as its own RBAC-scoped
+  user (`ai-assistant`), seeded inactive by default and deliberately permission-limited
+  (no `workflows:execute`, no `credentials:reveal`, nothing touching RBAC, users, or
+  system settings — it can draft a workflow but structurally cannot run it or grant
+  itself more access). You stay logged in as yourself the entire time; every AI-made
+  change is attributed to `ai-assistant` in the audit trail and the version-control
+  mirror, never blended with your own edits.
+- **Consent is a time-boxed flag, not a standing switch.** Turning on "AI
+  Collaboration" for a workflow opens a short-lived session (60 minutes by default).
+  Writes are refused outside an active session, and enabling it never requires logging
+  in as the AI to watch it work.
+- **It writes through the real service layer — no second persistence path.** Canvas
+  nodes/edges, static attributes, and wiki notes are saved via the same
+  `WorkflowService` the browser uses, so version control, run history, and change
+  tracking all behave exactly as if you had made the edit by hand.
+- **Four tiers of static validation before anything runs.** Schema conformance,
+  reference existence (do the referenced credentials, git repos, sources, and
+  inventories actually exist?), capability-flow analysis (can a step's declared
+  inputs actually be satisfied by something upstream, walking the same graph the
+  execution engine would?), and advisory attribute-path wiring checks. The same
+  validator blocks a run server-side when hard errors remain — whether the workflow
+  was AI-authored or hand-built.
+- **Near-live sync, without clobbering your work.** The open canvas polls while a
+  session is active and shows a "Reload" banner when the AI has made a change, instead
+  of silently overwriting whatever you're mid-edit on.
+- **Not limited to canvases.** The same actor and consent model extend to authoring
+  reusable templates and a workflow's wiki notes (Purpose/Assumptions/Gotchas/Example),
+  so the AI documents what it built as it builds it.
+
+See [doc/ai_collaboration/PROCESS.md](doc/ai_collaboration/PROCESS.md) for the full
+design, [doc/ai_collaboration/AI_DEFAULTS.md](doc/ai_collaboration/AI_DEFAULTS.md) for
+the value defaults it resolves (credentials, git repos, inventories, sources), and
+[doc/ai_collaboration/AI_VOCABULARY.md](doc/ai_collaboration/AI_VOCABULARY.md) for the
+confirmed phrase-to-step mappings that make its first draft more likely to match
+intent.
 
 ## Installation
 
