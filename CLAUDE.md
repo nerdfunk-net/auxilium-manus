@@ -1,14 +1,23 @@
 # Auxilium Manus - Technical Reference
 
 ## Overview
-Auxilium Manus means "helping hand". The application is a NetDevOps workflow builder that lets users select network devices from an inventory, design simple or complex workflows in a visual canvas, and execute those workflows either manually or in the background.
+Auxilium Manus means "helping hand". The application is a NetDevOps workflow builder that
+lets users select network devices from an inventory, design simple or complex workflows in
+a visual canvas, and execute those workflows either manually or in the background.
 
-Workflows consist of ordered and dependency-aware steps. The output of one step can become the input of another step. Runtime data must distinguish between metadata (status, timestamps, device identifiers, execution context) and content data (command output, configuration backups, generated artifacts).
+Workflows consist of ordered and dependency-aware steps. The output of one step can become
+the input of another step. Runtime data must distinguish between metadata (status,
+timestamps, device identifiers, execution context) and content data (command output,
+configuration backups, generated artifacts).
 
 ## Tech Stack
 
-**Frontend:** Next.js 16.2.12 (App Router), React 19, React Flow, TypeScript 5, Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
-**Backend:** FastAPI, Python 3.14, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet, Netmiko, GitPython
+**Frontend:** Next.js 16.2.12 (App Router), React 19, React Flow, TypeScript 5,
+Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Lucide Icons
+
+**Backend:** FastAPI, Python 3.14, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet,
+Netmiko, GitPython
+
 **Integrations:** Nautobot API
 
 ## Architecture
@@ -16,60 +25,47 @@ Workflows consist of ordered and dependency-aware steps. The output of one step 
 ### Core Principles
 - **Complete separation**: Frontend (port 3000) ↔ Backend (port 8000)
 - **API proxy pattern**: Frontend → Next.js `/api/proxy/*` → Backend (NEVER direct backend calls)
-- **PostgreSQL single database** with 15 tables (10 domain tables + 5 RBAC tables, defined in `/backend/core/models/`)
+- **PostgreSQL single database** with 15 tables (10 domain + 5 RBAC), defined in `/backend/core/models/`
 - **Layered backend**: Model → Repository → Service → Router
 - **Feature-based organization**: Group by domain, not by technical role
 - **Server Components default**: Use `'use client'` only when necessary
 
 ### Workflow Builder Product Direction
-- **Primary UI**: Keep the frontend simple: a top menu bar and a large React Flow canvas where users design workflows.
-- **Device-first flow**: Users first select one or more inventory devices, then compose the workflow steps that should run against those devices.
-- **Visual workflow model**: Use React Flow for canvas state, node rendering, edges, connection validation, custom nodes, and drag-and-drop editing.
-- **Executable workflow model**: Store a backend-owned JSON workflow definition separate from React Flow UI state. The backend validates the graph and converts it into executable steps.
-- **Run model**: Persist every workflow run separately from the workflow definition, including status, logs, step results, metadata, and content data.
-- **Background execution**: Use Hatchet for long-running workflow orchestration, retries, step state, and background execution. Use Redis for caching, locks, and short-lived runtime coordination.
-- **Network execution**: Start with Netmiko for SSH/CLI operations against network devices. Consider Nornir later for parallel multi-device execution, NAPALM for vendor-neutral abstractions, or scrapli as a modern alternative to Netmiko.
-- **Optional editor**: Add Monaco Editor only when workflow steps need advanced command templates, expressions, or script-like configuration.
+- **Primary UI**: Top menu bar and a large React Flow canvas where users design workflows
+- **Device-first flow**: Users select inventory devices, then compose workflow steps for those devices
+- **Visual workflow model**: React Flow for canvas state, node rendering, edges, connection validation
+- **Executable workflow model**: Backend-owned JSON workflow definition separate from React Flow UI state
+- **Run model**: Persist every workflow run separately (status, logs, step results, metadata, content data)
+- **Background execution**: Hatchet for long-running orchestration, retries, step state; Redis for caching
+- **Network execution**: Netmiko for SSH/CLI operations; Nornir/NAPALM/scrapli only when justified
 
 ### Workflow Domain Model
 
 Keep these concepts separate in both frontend and backend code:
 
-- **Canvas model**: React Flow nodes, edges, positions, viewport, selection state, and editor-only UI metadata.
-- **Workflow definition**: Persisted business definition with steps, dependencies, input/output mappings, validations, and device targeting rules.
-- **Workflow run**: One concrete execution of a workflow with status, trigger source, user context, timestamps, logs, and step states.
-- **Step result**: The result of one step, split into metadata and content data.
-- **Artifact**: Durable content produced by a run, such as device configuration backups or generated reports.
+- **Canvas model**: React Flow nodes, edges, positions, viewport, selection state
+- **Workflow definition**: Persisted business definition with steps, dependencies, input/output mappings
+- **Workflow run**: One concrete execution with status, trigger source, user context, timestamps, logs
+- **Step result**: Result of one step, split into metadata and content data
+- **Artifact**: Durable content produced by a run (device config backups, reports)
 
-### Recommended Workflow Libraries
+### Recommended Libraries
 
-**Frontend workflow editor:**
-- React Flow for visual node/edge editing.
-- Zustand for local editor state that is not server data.
-- TanStack Query for inventory, workflow definitions, workflow runs, logs, and execution status.
-- React Hook Form with Zod for node configuration forms and validation.
-- Shadcn UI and Tailwind CSS for all controls, dialogs, menus, panels, and forms.
-- Monaco Editor only for advanced templates or expressions.
+**Frontend:** React Flow, Zustand (editor state), TanStack Query (server data), React Hook Form
++ Zod (forms), Shadcn UI + Tailwind, Monaco Editor (advanced templates only)
 
-**Backend workflow execution:**
-- Hatchet for durable workflow orchestration, background execution, retries, and step lifecycle.
-- PostgreSQL for workflow definitions, workflow versions, runs, step results, and artifacts metadata.
-- Redis for cache, locks, transient state, and runtime coordination.
-- Pydantic for strict validation of workflow definitions, step inputs, step outputs, and run payloads.
-- Netmiko as the initial network device execution library.
-- Nornir, NAPALM, or scrapli only when the use case justifies them.
+**Backend:** Hatchet (orchestration), PostgreSQL (definitions/runs/artifacts), Redis (cache/locks),
+Pydantic (validation), Netmiko (network execution)
 
 ## CRITICAL: Architectural Standards
 
-**MANDATORY for all new features:**
-
 ### Backend Layer Pattern
 ```
-1. SQLAlchemy Model    → /backend/core/models/{domain}.py (tables, indexes, relationships)
-2. Pydantic Models     → /backend/models/{domain}.py (request/response schemas)
-3. Repository          → /backend/repositories/{domain}_repository.py (data access)
-4. Service             → /backend/services/{domain}/{domain}_service.py (business logic)
-5. Router              → /backend/routers/{domain}.py (HTTP endpoints)
+1. SQLAlchemy Model    → /backend/core/models/{domain}.py
+2. Pydantic Models     → /backend/models/{domain}.py
+3. Repository          → /backend/repositories/{domain}_repository.py
+4. Service             → /backend/services/{domain}/{domain}_service.py
+5. Router              → /backend/routers/{domain}.py
 6. Register in main.py → app.include_router({domain}_router)
 ```
 
@@ -84,29 +80,24 @@ Keep these concepts separate in both frontend and backend code:
   ├── types/          # TypeScript types
   └── utils/          # Utility functions
 
-/app/(dashboard)/{feature}/page.tsx  # Route pages — stubs only (see rule below)
+/app/(dashboard)/{feature}/page.tsx  # Route stubs only
 ```
 
 ### Route File Rule — Stubs Only
 
-`/app/(dashboard)/*/page.tsx` files MUST be pure route stubs.
+`/app/(dashboard)/*/page.tsx` files MUST be pure route stubs:
 
-**CORRECT:**
 ```tsx
+// CORRECT
 import { MyFeaturePage } from '@/components/features/domain/my-feature-page'
-
 export default function MyFeatureRoute() {
   return <MyFeaturePage />
 }
 ```
-
-**Rules:**
 - ❌ No logic, state, or hooks in route files
-- ❌ No `'use client'` directive on route files (add it to the feature component instead)
+- ❌ No `'use client'` directive (add it to the feature component)
 - ❌ No `components/` or `dialogs/` subdirectories inside route directories
-- ✅ Optional: `export const metadata: Metadata = { title: '...' }` is allowed
-- ✅ Optional: `export const dynamic = 'force-dynamic'` and similar Next.js segment config is allowed
-- ✅ All feature logic lives in `components/features/{domain}/`
+- ✅ `export const metadata: Metadata` and Next.js segment config are allowed
 
 ### Naming Conventions
 - **Database**: `snake_case` (tables: `job_templates`, columns: `created_at`)
@@ -115,965 +106,39 @@ export default function MyFeatureRoute() {
 - **Models**: `PascalCase` (`JobTemplate`, `UserProfile`)
 
 ### Database Requirements
-- ✅ Define tables as SQLAlchemy models in `/backend/core/models/` (one file per domain)
-- ✅ Export all models from `/backend/core/models/__init__.py`
-- ✅ Add indexes, foreign keys, timestamps (`created_at`, `updated_at`)
-- ✅ Use repository pattern (BaseRepository in `/backend/repositories/base.py`)
-- ✅ Production database is PostgreSQL with SQLAlchemy ORM/Core (`./doc/MIGRATION_SYSTEM.md`). In-memory SQLite in **unit** tests is acceptable when queries do not rely on PostgreSQL-only features.
-- ✅ Startup schema sync (`core/database.py::init_db` → `AutoSchemaMigration`) runs under a Postgres `pg_advisory_xact_lock`, so concurrent replica boots serialize instead of racing on `CREATE TABLE`/`ADD COLUMN`/`CREATE INDEX`. This is a safety net, not a substitute for explicit migrations (Alembic) once you scale out.
-- ✅ Prefer SQLAlchemy ORM/Core for all runtime application data access. Repository-layer `sqlalchemy.text()` is allowed only under the rules in `doc/refactoring/REFACTORING_RAW_SQL.md` §3 (bound parameters, named constants for non-trivial SQL, no string composition of values, PostgreSQL integration coverage for dialect-specific behaviour). Health checks (`SELECT 1` in `core/database.py`) and migration/schema tooling are exempt.
-- ❌ Never call `text()` from routers, services, or Hatchet workers.
-- ❌ Never compose runtime values into raw SQL via f-strings or string concatenation.
-- ❌ NEVER bypass repository layer
+- ✅ SQLAlchemy models in `/backend/core/models/` (one file per domain), all exported from `__init__.py`
+- ✅ Indexes, foreign keys, timestamps (`created_at`, `updated_at`)
+- ✅ Repository pattern (`BaseRepository` in `/backend/repositories/base.py`)
+- ✅ Use the full migration framework for schema changes: `doc/MIGRATION_SYSTEM.md`
+- ✅ `AutoSchemaMigration` (startup schema sync) runs under a `pg_advisory_xact_lock` — safety net only
+- ✅ Prefer SQLAlchemy ORM/Core for all runtime data access
+- ✅ Repository-layer `sqlalchemy.text()` only as documented in `doc/refactoring/REFACTORING_RAW_SQL.md` §3
+- ❌ Never call `text()` from routers, services, or Hatchet workers
+- ❌ Never compose runtime values into SQL via f-strings or string concatenation
+- ❌ Never bypass repository layer
 
 ## Key File Locations
 
 **Backend Core:**
-- `/backend/core/models/` - SQLAlchemy table definitions (one file per domain)
-  - `base.py` - `Base` (declarative base)
-  - `change_requests.py` - `ChangeRequest`
-  - `credentials.py` - `Credential`
-  - `git.py` - `GitRepository`
-  - `inventories.py` - `Inventory`
-  - `rbac.py` - `Permission`, `Role`, `RolePermission`, `UserPermission`, `UserRole`
-  - `runs.py` - `WorkflowRun`, `WorkflowStepResult`
-  - `settings.py` - `Setting`
-  - `templates.py` - `Template`
-  - `users.py` - `User`
-  - `workflows.py` - `Workflow`
-  - `__init__.py` - Re-exports all models
-- `/backend/core/database.py` - DB session, get_db() dependency
-- `/backend/core/auth.py` - verify_token, get_current_user, require_permission, require_any_permission, require_all_permissions, require_role
-- `/backend/main.py` - FastAPI app, router registration
+- `/backend/core/models/` — SQLAlchemy table definitions (one file per domain)
+- `/backend/core/database.py` — DB session, `get_db()` dependency
+- `/backend/core/auth.py` — `verify_token`, `get_current_user`, `require_permission`,
+  `require_any_permission`, `require_all_permissions`, `require_role`
+- `/backend/main.py` — FastAPI app, router registration
 
 **Frontend Core:**
-- `/frontend/src/lib/auth-store.ts` - Zustand auth state
-- `/frontend/src/lib/query-client.ts` - TanStack Query configuration
-- `/frontend/src/lib/query-keys.ts` - Query key factory (hierarchical)
-- `/frontend/src/hooks/use-api.ts` - API calling hook
-- `/frontend/src/hooks/queries/*` - TanStack Query hooks
-- `/frontend/src/app/api/proxy/[...path]/route.ts` - Backend proxy
-- `/frontend/src/components/ui/*` - Shadcn UI primitives
-
-## Authentication & Authorization
-
-### JWT Token Structure
-```python
-{
-  "sub": "username",
-  "user_id": 123,
-  "iat": 1234567890,      # mint time (Unix seconds)
-  "sid_iat": 1234567890,  # original login time; carried UNCHANGED through every refresh
-  "jti": "…",             # random per-token id (minted, not yet consumed)
-  "tv": 0,                # user.token_version at mint time
-  "exp": 1234567890,      # clamped so it never outlives sid_iat + SESSION_MAX_AGE_HOURS
-}
-```
-Permissions are **not** embedded in the JWT. Authorization is evaluated per-request
-against the database via `RBACService.has_permission(user_id, resource, action)` — there
-is no caching and no JWT permission claim to keep in sync.
-
-**Revocation (`token_version`).** `users.token_version` is an int column embedded in every
-access token as `tv`. Bumping it invalidates every outstanding token for that user. It is
-bumped by: `AuthService.bump_token_version` (`POST /auth/logout`), `AuthService.change_password`
-(self-service change — folded into the same write), and `UserService.update_user` /
-`set_active` on an admin password change, username change, or deactivation.
-`core/auth.py::_load_active_user` rejects a token whose `tv` mismatches the row (both sides
-isinstance-guarded, matching the `must_change_password is True` test-double tolerance);
-`AuthService.refresh_access_token` is strict and additionally requires a numeric `sid_iat`,
-so a pre-`tv` token cannot be refreshed. Legacy pre-`tv`/`sid_iat` tokens are not
-proactively 401'd on a plain request but die at their own `exp` (≤ 60 min) since they
-cannot be renewed.
-
-**Absolute session lifetime (`SESSION_MAX_AGE_HOURS`, default 12, floor 1).** Measured from
-`sid_iat`, which `create_access_token` preserves across refreshes. `_load_active_user` and
-`refresh_access_token` both reject a session older than this regardless of per-token `exp`.
-A successful `POST /auth/change-password` returns a fresh `SessionResponse` (new token,
-`sid_iat = now` — a password change deliberately restarts the clock); the Next.js
-`app/api/auth/change-password/route.ts` re-sets the auth cookie from it so the
-forced-change flow does not bounce the user back to login.
-
-**Login rate limiting (T1).** `POST /auth/login` is limited on two independent
-*failure* budgets: per client IP (20 failures/60s) and per username (100
-failures/15min); a success clears only the username bucket. The client IP comes
-from `core/client_ip.py::resolve_client_host` — the rightmost `X-Forwarded-For`
-hop that is not itself a trusted proxy, honoured only when the direct peer is in
-`TRUSTED_PROXY_IPS` (IPs or CIDRs; required outside development). See
-`docker/DOCKER.md` "Client IP and login rate limiting".
-
-### RBAC Data Model
-Five tables in `/backend/core/models/rbac.py`: `roles`, `permissions`, `role_permissions`,
-`user_roles`, `user_permissions`. `user_permissions` holds per-user overrides (an explicit
-allow or deny for one `resource:action`) that sit above role-derived grants.
-
-Precedence: **user-level override (allow or deny) > role-derived grant > default-deny.**
-See `backend/services/auth/rbac_service.py::RBACService.has_permission`.
-
-### RBAC Grant Policy (P1–P7)
-
-Beyond the precedence rule above, `RBACService` enforces who may change whose roles and
-permissions — the delegation-bound model (no privilege amplification):
-
-| # | Rule |
-|---|---|
-| P1 | An actor may never change their own roles/overrides, or delete/deactivate themselves. |
-| P2 | An actor may grant (via override or role) only permissions they currently hold. `admin` bypasses. |
-| P3 | Any grant, override, or removal touching `rbac.*`, `users`, `system.*`, or `secret_manager.*` requires `admin`. |
-| P4 | Any change to a user who currently holds `admin` requires `admin`. |
-| P5 | System roles (`is_system=True`) cannot be renamed, deleted, or have `is_system` changed. |
-| P6 | The last **active** user holding `admin` cannot lose it (role removal, deactivation, deletion) — an invariant, not actor-gated: it also blocks an `actor_user_id=None` internal caller. Deactivated admins do not count toward the count of remaining admins. |
-| P7 | Internal callers (seed, lifespan) pass `actor_user_id=None` and bypass P1–P4. |
-| P8 | A password reset or username change of another user is allowed only when the target's effective permissions are a subset of the actor's and contain no protected permission (else requires `admin`). |
-
-Every mutating `RBACService`/`UserService` method takes `actor_user_id: int | None`; routers
-pass `current_user.id` and map `AccessDeniedError` (a `DomainError`) to 403. See
-`backend/services/auth/rbac_service.py` (`assert_not_self`, `may_touch_target`,
-`assert_actor_holds`, `assert_not_last_admin`, `assert_may_take_over`) and
-`backend/services/users/user_service.py`.
-
-### Permission Pattern
-Format: `{resource}:{action}` (e.g., `users:read`, `settings:write`, `credentials:delete`)
-
-### Backend Auth Dependencies
-```python
-from core.auth import verify_token, require_permission, require_role
-
-# Basic auth
-@router.get("/data")
-async def get_data(user: dict = Depends(verify_token)):
-    pass
-
-# Permission required (format: "resource" or "resource.subresource", action)
-@router.post("/users", dependencies=[Depends(require_permission("users", "write"))])
-async def create_user():
-    pass
-
-@router.get("/workflows", dependencies=[Depends(require_permission("workflows", "read"))])
-async def get_workflows():
-    pass
-
-# Role required
-@router.delete("/critical")
-async def delete_critical(user: dict = Depends(require_role("admin"))):
-    pass
-```
-
-### Frontend Auth
-```typescript
-import { useAuthStore } from '@/lib/auth-store'
-const user = useAuthStore(state => state.user)
-
-// API calls always go through the Next.js proxy on the same origin.
-fetch('/api/proxy/users')
-```
-
-**Proxy-only auth rule:** Browsers must never call the FastAPI backend directly
-and the backend must not rely on CORS for frontend access. Frontend requests go
-to `/api/proxy/*`; the Next.js server forwards them to `BACKEND_URL` and attaches
-the HTTP-only auth cookie as a backend `Authorization` header.
-
-### OIDC Identity Binding
-
-An OIDC login is matched to a local user by `(oidc_provider, oidc_subject)` **only** —
-never by username. `oidc_subject` stores the IdP's `sub` claim (mandatory in OIDC Core §2;
-`OIDCService.extract_user_data` refuses a token without one). `(oidc_provider, oidc_subject)`
-has a unique partial index (`postgresql_where=text("oidc_subject IS NOT NULL")`) on `users`.
-
-If an IdP-presented username collides with a row this identity isn't already bound to (a
-local account, another provider, or the same provider with a different subject),
-`provision_or_get_user` raises `OIDCIdentityConflictError` (403) rather than taking the row
-over — an IdP-controlled claim must never be able to select an existing local account. An
-admin binds an identity to a pre-existing account explicitly (`oidc_provider`/`oidc_subject`
-on `UserUpdate`); a brand-new IdP user still self-provisions inactive, pending admin
-approval, as before. See `backend/services/auth/oidc_service.py::provision_or_get_user`.
-
-**Auth-request hardening.** The authorization request carries a `nonce` and PKCE
-(`code_challenge`/`code_challenge_method=S256`). `routers/oidc.py` stores
-`{redirect_uri, nonce, code_verifier}` as the Redis state value (fail-closed, like the
-rest of OIDC login) and the callback verifies the `code_verifier` at the token endpoint
-and the `nonce` claim in the ID token (`verify_id_token(..., nonce=…)`, constant-time
-compare, missing/mismatch → `OIDCError`). Only confidential clients are supported:
-`client_secret` resolves from `OIDC_<PROVIDER_ID>_CLIENT_SECRET` (provider id upper-cased,
-non-alnum → `_`) with the YAML `client_secret` as fallback; an empty resolved secret
-raises before the HTTP call.
-
-### Password Policy and Forced Change
-
-`backend/services/auth/password_policy.py::validate_password` (NIST 800-63B style: length,
-not composition) — 12–128 characters, a small common-password denylist, must not equal the
-username. Enforced in `UserService.create_user`/`update_user` and
-`AuthService.change_password`; `UserCreate`/`UserUpdate`/`PasswordChangeRequest` mirror the
-length bounds at the Pydantic layer for a fast 422. Outside development,
-`core/production_guards.py` also rejects a `SECRET_KEY` under 32 characters or an
-`INITIAL_PASSWORD` under the policy minimum at startup.
-
-Every user has a `must_change_password: bool` column. It is set on the seeded admin
-(`AuthService.ensure_initial_admin`) and whenever an admin sets someone's password
-(`UserService.create_user`/`update_user`); it is cleared by a successful
-`POST /auth/change-password` (rate-limited via the existing `LoginRateLimiter`, keyed
-`change-password:<user_id>`). Enforcement is server-side and unconditional:
-`core/auth.py::get_current_user` and `_require_active_user_id` (used by every
-`require_permission`/`require_role`/etc. dependency) both 403 with
-`{"code": "password_change_required"}` when the flag is `True` (checked via `is True`, not
-truthy, so a badly-mocked test double never trips it by accident). Only
-`get_current_user_allow_password_change` — used by `/auth/me`, `/auth/change-password`, and
-`/auth/refresh` — skips the check, so a blocked user can still read their own state and fix
-it. Frontend: `useApi`'s `buildApiErrorMessage` recognizes that 403 code and flips
-`useAuthStore`'s `must_change_password`, which opens a forced, non-dismissable
-`ChangePasswordDialog` in `DashboardShell`.
-
-## Database Schema (Key Tables)
-
-**Domain tables:** `users`, `credentials`, `git_repositories`, `inventories`, `settings`, `templates`, `workflows`, `workflow_runs`, `workflow_step_results`, `change_requests`
-**RBAC tables:** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
-
-## UI/UX Standards
-
-### MUST Use Shadcn UI
-```bash
-npx shadcn@latest add {component}  # button, dialog, table, form, etc.
-```
-
-**DO:**
-- ✅ Use Shadcn components for ALL UI primitives
-- ✅ Use Tailwind utility classes (`bg-background`, `text-foreground`, NOT `bg-blue-500`)
-- ✅ Use Lucide React icons (`import { Check, X } from "lucide-react"`)
-- ✅ Forms with react-hook-form + zod validation
-- ✅ Toast notifications (`useToast()` hook)
-- ✅ Mobile-first responsive design
-- ✅ Proper ARIA labels and accessibility
-
-**DON'T:**
-- ❌ Build UI from scratch when Shadcn exists
-- ❌ Use arbitrary colors or inline styles
-- ❌ Mix other UI libraries
-- ❌ Use `alert()` or `confirm()` (use Dialog/AlertDialog)
-
-### Common Patterns
-```typescript
-// Button variants
-<Button variant="default|secondary|destructive|outline|ghost|link">
-
-// Dialog
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-
-// Form
-import { Form, FormField, FormItem, FormLabel, FormControl } from "@/components/ui/form"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-
-// Toast
-import { useToast } from "@/hooks/use-toast"
-const { toast } = useToast()
-toast({ title: "Success", description: "Done!" })
-```
-
-## Nautobot / Source Data Fetching
-
-Nautobot and other source data is fetched through backend REST endpoints under `/api/proxy/sources/nautobot/*`
-(and `/api/proxy/sources/{ise,pyats,mattermost}/*` for other integrations) — there is no client-side GraphQL
-client, and none should be added (see "API proxy pattern" above). Add new source data needs as backend endpoints
-per the "Adding New Backend Endpoint" section, then call them from a TanStack Query hook under
-`/frontend/src/hooks/queries/`.
-
-❌ DON'T create inline GraphQL queries, a client-side GraphQL client, or dedicated backend endpoints for each query
-
-## TanStack Query (Data Fetching & Caching)
-
-**MANDATORY for all data fetching:** Use TanStack Query instead of manual state management
-
-### Core Principles
-- **Declarative data fetching**: Query hooks replace manual useState/useEffect
-- **Automatic caching**: Data persists across navigation, reduces API calls
-- **Background refetch**: Fresh data on window focus/reconnect
-- **Centralized keys**: Use query key factory for type-safe invalidation
-- **Smart polling**: Auto-start/stop based on data state
-
-### Query Hook Pattern
-
-```typescript
-// 1. Add query keys to /frontend/src/lib/query-keys.ts
-export const queryKeys = {
-  myFeature: {
-    all: ['myFeature'] as const,
-    list: (filters?: { status?: string }) =>
-      filters
-        ? ([...queryKeys.myFeature.all, 'list', filters] as const)
-        : ([...queryKeys.myFeature.all, 'list'] as const),
-    detail: (id: string) => [...queryKeys.myFeature.all, 'detail', id] as const,
-  },
-}
-
-// 2. Create hook in /frontend/src/hooks/queries/use-my-feature-query.ts
-import { useQuery } from '@tanstack/react-query'
-import { useApi } from '@/hooks/use-api'
-import { queryKeys } from '@/lib/query-keys'
-
-interface UseMyFeatureQueryOptions {
-  filters?: { status?: string }
-  enabled?: boolean
-}
-
-const DEFAULT_OPTIONS: UseMyFeatureQueryOptions = {}
-
-export function useMyFeatureQuery(options: UseMyFeatureQueryOptions = DEFAULT_OPTIONS) {
-  const { apiCall } = useApi()
-  const { filters, enabled = true } = options
-
-  return useQuery({
-    queryKey: queryKeys.myFeature.list(filters),
-    queryFn: async () => apiCall('my-feature', { method: 'GET' }),
-    enabled,
-    staleTime: 30 * 1000,  // Cache for 30s
-  })
-}
-
-// 3. Use in component
-const { data, isLoading, error, refetch } = useMyFeatureQuery({
-  filters: { status: 'active' }
-})
-const items = data?.items || []
-```
-
-### Mutation Hook Pattern
-
-```typescript
-// Create mutations in /frontend/src/hooks/queries/use-my-feature-mutations.ts
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useApi } from '@/hooks/use-api'
-import { queryKeys } from '@/lib/query-keys'
-import { useToast } from '@/hooks/use-toast'
-
-export function useMyFeatureMutations() {
-  const { apiCall } = useApi()
-  const queryClient = useQueryClient()
-  const { toast } = useToast()
-
-  const createItem = useMutation({
-    mutationFn: async (data: CreateItemInput) => {
-      return apiCall('my-feature', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      })
-    },
-    onSuccess: () => {
-      // Automatic cache invalidation → triggers refetch
-      queryClient.invalidateQueries({ queryKey: queryKeys.myFeature.list() })
-      toast({
-        title: 'Success',
-        description: 'Item created!',
-      })
-    },
-    onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive'
-      })
-    }
-  })
-
-  return { createItem, updateItem, deleteItem }
-}
-```
-
-### Polling Pattern (Jobs/Tasks)
-
-```typescript
-export function useJobQuery(taskId: string) {
-  return useQuery({
-    queryKey: queryKeys.jobs.detail(taskId),
-    queryFn: () => fetchJob(taskId),
-    enabled: !!taskId,
-    refetchInterval: (query) => {
-      const data = query.state.data
-      if (!data) return 2000  // Keep polling
-
-      // Auto-stop when job completes
-      if (['SUCCESS', 'FAILURE', 'REVOKED'].includes(data.status)) {
-        return false
-      }
-
-      return 2000  // Continue polling every 2s
-    },
-    staleTime: 0,  // Always fetch fresh
-  })
-}
-```
-
-### Optimistic Updates (Instant UI Feedback)
-
-```typescript
-const syncRepository = useMutation({
-  mutationFn: async (id) => apiCall(`git/${id}/sync`, { method: 'POST' }),
-
-  // Run BEFORE API call
-  onMutate: async (id) => {
-    await queryClient.cancelQueries({ queryKey: queryKeys.git.repositories() })
-    const previous = queryClient.getQueryData(queryKeys.git.repositories())
-
-    // Update UI immediately
-    queryClient.setQueryData(queryKeys.git.repositories(), (old) => ({
-      ...old,
-      repositories: old.repositories.map((r) =>
-        r.id === id ? { ...r, sync_status: 'syncing' } : r
-      )
-    }))
-
-    return { previous }  // For rollback
-  },
-
-  // Rollback on error
-  onError: (err, id, context) => {
-    queryClient.setQueryData(queryKeys.git.repositories(), context?.previous)
-  },
-
-  onSettled: () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.git.repositories() })
-  }
-})
-```
-
-### DO:
-- ✅ Use centralized query key factory (`queryKeys`)
-- ✅ Create dedicated hooks for each resource
-- ✅ Use `DEFAULT_OPTIONS = {}` constant for default params
-- ✅ Invalidate affected queries after mutations
-- ✅ Match `staleTime` to data volatility (5min for static, 30s for semi-static, 0 for polling)
-- ✅ Use `useMemo` for derived state (not `useState`)
-- ✅ Enable `refetchOnWindowFocus` for network monitoring
-
-### DON'T:
-- ❌ Use manual `useState + useEffect` for server data
-- ❌ Use inline query keys (always use `queryKeys` factory)
-- ❌ Store query data in `useState` (use `useMemo` for derived state)
-- ❌ Forget to invalidate cache after mutations
-- ❌ Use inline object literals as default params (`= {}` creates new object every render)
-
-## React Best Practices (CRITICAL - Prevents Infinite Loops)
-
-### MUST Follow to Prevent Re-render Loops
-
-**1. Default Parameters - Use Constants**
-```typescript
-// ❌ WRONG - Creates new array every render
-function Component({ items = [] }) { }
-
-// ✅ CORRECT
-const EMPTY_ARRAY: string[] = []
-function Component({ items = EMPTY_ARRAY }) { }
-```
-
-**2. Custom Hooks - Memoize Returns**
-```typescript
-// ❌ WRONG - New object every render
-export function useMyHook() {
-  const [state, setState] = useState()
-  return { state, setState }  // New object!
-}
-
-// ✅ CORRECT
-export function useMyHook() {
-  const [state, setState] = useState()
-  return useMemo(() => ({ state, setState }), [state])
-}
-```
-
-**3. useEffect Dependencies - MUST Be Stable**
-```typescript
-// ❌ WRONG
-const config = { key: 'value' }
-useEffect(() => doSomething(config), [config])  // Runs every render!
-
-// ✅ CORRECT
-const DEFAULT_CONFIG = { key: 'value' }  // Outside component
-useEffect(() => doSomething(DEFAULT_CONFIG), [])
-
-// OR for dynamic values
-const config = useMemo(() => ({ key: someValue }), [someValue])
-useEffect(() => doSomething(config), [config])
-```
-
-**4. Callbacks to Hooks - ALWAYS useCallback**
-```typescript
-// ❌ WRONG
-const { data } = useMyHook({
-  onChange: () => doSomething()  // New function every render!
-})
-
-// ✅ CORRECT
-const handleChange = useCallback(() => doSomething(), [])
-const { data } = useMyHook({ onChange: handleChange })
-```
-
-**5. Exhaustive Dependencies - ALWAYS Include All**
-```typescript
-// ❌ WRONG
-useEffect(() => {
-  if (isReady) loadData(userId)
-}, [])  // Missing dependencies!
-
-// ✅ CORRECT
-useEffect(() => {
-  if (isReady) loadData(userId)
-}, [isReady, userId, loadData])
-```
-
-**Enforcement:** ESLint rules + pre-commit hooks block non-compliant code
-
-## Environment Variables
-
-**Backend** (`.env`):
-```bash
-SECRET_KEY=change-in-production  # JWT signing
-BACKEND_SERVER_HOST=localhost
-BACKEND_SERVER_PORT=8000
-DATABASE_HOST=localhost
-DATABASE_PORT=5432
-DATABASE_NAME=manus
-DATABASE_USERNAME=postgres
-DATABASE_PASSWORD=password
-INITIAL_USERNAME=admin
-INITIAL_PASSWORD=admin
-ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboard)
-VAULT_ENABLED=false    # optional OpenBao secret storage; see doc/VAULT_INTEGRATION.md
-```
-
-**OpenBao (Vault) — optional.** When `VAULT_ENABLED=true`, a credential can be stored
-in OpenBao instead of the encrypted PostgreSQL columns; the choice is per-credential
-in the credential-manager UI. The app runs unchanged with it disabled (default).
-Auth is AppRole (primary), cert/mTLS, or a dev-only static token; a periodic client
-token is held in memory and renewed automatically. Two OpenBao roles: a read-only
-`manus-app` runtime role and a write-capable `manus-manage` role used only by the
-credential-manager write endpoints. All config is env-based (`VAULT_*`), validated at
-startup by `core/production_guards.py`. Resolution is fail-closed: a `vault`-backed
-credential whose OpenBao is unreachable fails loudly while `local` credentials keep
-working. Full architecture, KV layout, and the ops runbook (mount, policies, AppRole
-bootstrap, SecretID rotation) are in `doc/VAULT_INTEGRATION.md`.
-
-**Frontend** (`.env.local`):
-```bash
-BACKEND_URL=http://localhost:8000  # Used by Next.js proxy
-PORT=3000
-ENABLE_DEV_TOOLS=true  # development-only; omit in production (OIDC test dashboard)
-```
-
-## Common Tasks
-
-### Adding New Backend Endpoint
-1. Define SQLAlchemy model in `/backend/core/models/{domain}.py` and export it from `/backend/core/models/__init__.py`
-2. Create Pydantic models in `/backend/models/{domain}.py`
-3. Create repository in `/backend/repositories/{domain}_repository.py`
-4. Create service in `/backend/services/{domain}/{domain}_service.py`
-5. Create router in `/backend/routers/{domain}.py` (flat, for simple domains) or as a
-   `/backend/routers/{domain}/` package (for domains with multiple route groups, e.g.
-   `routers/git/`, `routers/rbac/`), with auth dependencies
-6. Register router in `/backend/main.py`
-
-### Adding New Frontend Page
-1. Create route stub in `/app/(dashboard)/{path}/page.tsx` (no logic, no `'use client'`)
-2. Create feature page component in `/components/features/{domain}/`
-3. Add query keys to `/lib/query-keys.ts`
-4. Create TanStack Query hooks in `/hooks/queries/use-{domain}-query.ts`
-5. Add sidebar link in `/components/layout/app-sidebar.tsx`
-6. Use query hooks in components (NOT manual `useState + useEffect`)
-
-Dashboard routes share `DashboardShell` (`/components/layout/dashboard-shell.tsx`) with `AppSidebar` for navigation. Settings sections use `/settings/[section]` (e.g. `/settings/sources`). Workflow runs live at `/workflows/runs`. Timed runs live at `/schedules` (the **Schedules** app) — many parameterized schedules per workflow; see `doc/SCHEDULES.md`. Staged config changes awaiting review live at `/change-requests` (the **Change Requests** app) — see `doc/CICD_PIPELINE.md`.
-
-An AI collaborator can write directly into a workflow from outside the browser: a seeded, restricted `ai-assistant` RBAC principal plus a per-workflow, time-boxed `WorkflowAiSession` consent flag (canvas properties panel → "AI Collaboration") gate `backend/scripts/ai_workflow_apply.py`, the only script that may write on its behalf. `WorkflowValidationService` (Tiers 1–4) and a pre-run gate (`RunService._assert_no_blocking_validation_errors`) both run against every AI-authored patch. Full design, status, and the resolver scripts (`scripts/ai_defaults.py`, `scripts/ai_layout.py`, `scripts/ai_inventory_filter.py`) are in `doc/ai_collaboration/` — read `PROCESS.md` first.
-
-### Adding New Permission
-1. UI: `/settings/users` → Permissions tab lists the catalog; create a permission from
-   the Roles tab's "Manage permissions" dialog (or `POST /api/rbac/permissions`), then
-   grant it to a role
-2. Code: Use `require_permission("resource", "action")` in routers
-
-### Adding a New Workflow Step
-
-> **Read BOTH documents before implementing or changing any step/artifact:**
-> - `doc/WORKFLOW-STEPS.md` — full specification: contracts, registry, execution path,
->   **fan-out** behaviour (per-device child workflows), and **branch-level concurrency**
->   (independent canvas branches with no dependency edge run concurrently by default, no
->   toggle — see "Writing concurrency-safe steps"). Git steps are lock-protected against
->   corruption either way but still produce one commit per concurrent caller, so
->   git/filesystem sinks are not automatically safe to place on a fanned-out or
->   independent-sibling branch without a join point.
-> - `doc/WORKFLOW-STEPS-STYLE_GUIDE.md` — frontend styling: shared **canvas node**
->   (`w-80` × `h-32`, full title, light-gray input handle, green/red output handles),
->   `ConfigPanel`/dialog rules (teal palette, card anatomy, fan-out config block).
-
-Each workflow step is a self-contained Python package under `backend/workflow_steps/{step_id}/`.
-The execution path is: `StepRunner → STEP_REGISTRY → workflow_steps/{step}/executor.py`.
-
-**Backend (5 files/entries):**
-1. `backend/workflow_steps/{step_id}/__init__.py` — empty
-2. `backend/workflow_steps/{step_id}/executor.py` — business logic:
-   ```python
-   async def execute(*, config: dict, context: WorkflowContext, run: WorkflowRun, artifact_service, node_id, device_sessions) -> list[StepOutcome]: ...
-   ```
-   `device_sessions` is a run-segment-scoped `DeviceSessionPool` (see
-   `doc/DURABLE_SSH_SESSION.md`); non-SSH steps accept it but never use it
-   (import `DeviceSessionPool` under `TYPE_CHECKING`).
-3. `backend/workflow_steps/{step_id}/config.py` — `def get_config() -> dict` (if step has config)
-4. `backend/services/execution/step_registry.py` — add one import + one dict entry
-5. `backend/workflow_steps/registry.yaml` — add registry entry
-
-**Frontend (2–3 files):**
-6. `frontend/src/components/features/workflow-steps/{step-id}/index.tsx` — `ConfigPanel` only (`PluginUIComponent`); canvas rendering is shared in `workflow-node.tsx`
-7. `frontend/src/lib/plugin-ui-registry.ts` — add entry to `PLUGIN_UI_REGISTRY`
-8. (Optional) `workflow-node.tsx` — one `nodeIconsByKind` entry if the default icon is wrong; never add a custom node render branch
-
-**Rules:**
-- ❌ No business logic in `step_registry.py` — dispatch table only
-- ❌ No custom canvas render branch per step in `workflow-node.tsx` — equal size, registry-driven title/description, standard outcome colours
-- ❌ External code must never import `workflow_steps` packages directly; only `StepRunner` calls executors
-- ✅ Raise `ValueError` for config/input errors, `RuntimeError` for execution failures
-- ✅ If the step needs a git repository, store `git_repository_id: int` in its config and resolve it via `workflow_steps.common.git_repository_loader.load_git_repository` — see Git Repository Architecture below
-- ✅ If the step writes its own per-run result into `device.parsed` (not a user-chosen `output_key`), nest it under its own node id via `services.workflow_context.node_result.set_node_result(device.parsed, node_id, key, value)` (reads: `get_node_result`) — never a flat `f"{node_id}.{key}"` string key. `resolve_device_attribute`/`resolve_device_value` (used by Route on Attribute, List Contains, Update Attribute, and the attribute-path picker) split every `.` in a path as a nesting separator, so a flat key with an embedded literal dot can never be addressed by a downstream step — it silently resolves to nothing.
-
-## Security Checklist
-- ✅ Change `SECRET_KEY` and default admin password
-- ✅ All backend endpoints use JWT auth
-- ✅ Frontend always uses `/api/proxy/*` (never direct backend)
-- ✅ Validate inputs with Pydantic models
-- ✅ Check permissions with `require_permission()`
-- ✅ Use HTTPS in production
-- ✅ Never commit `.env` files
-- ✅ **5xx errors:** Never put raw exception text (`str(e)`, `{exc}`, etc.) in `HTTPException(detail=…)` for server errors. Use `core.safe_http_errors.raise_internal_server_error` (and optional `status_code` for sanitized non-500 5xx such as 502) so clients only see `{message, error_id}`; correlate via logs.
-
-## Development Workflow
-```bash
-# IMPORTANT: Always use the project virtual environment for Python commands.
-# The venv is at /.venv/ (project root, not backend/), using Python 3.14.
-# Wrong: python start.py  →  Right: ../.venv/bin/python start.py  (or activate first)
-source ../.venv/bin/activate  # run once to activate, then use `python` normally
-
-# Terminal 1 - Backend
-cd backend && python start.py
-
-# Terminal 2 - Hatchet worker (auto-restarts on backend .py changes, like uvicorn --reload)
-cd backend && python scripts/run_worker_dev.py
-
-# Terminal 3 - Frontend
-cd frontend && npm run dev
-
-# Default credentials: admin/admin
-# Frontend: http://localhost:3001
-# Backend: http://localhost:8001
-
-# Ruff (Python lint rules in backend/pyproject.toml — E/F/I/UP/B/S/ASYNC, target py314) —
-# run before larger backend changes; from backend/: `ruff check .` (optionally `--fix`).
-# `S` (flake8-bandit) is our security linter; suppress a vetted finding with `# noqa: Sxxx`
-# plus a one-line reason. There is NO project-wide `ruff format` gate (the tree is not
-# format-clean); do not run `ruff format .` repo-wide.
-ruff check .
-
-# Dev test deps (once): pip install -r requirements-dev.txt  (ruff, pip-audit, pyright)
-# Tests (unittest or pytest):
-python -m pytest
-# or: python -m unittest discover -s tests
-
-# CI (.github/workflows/backend-ci.yml) runs, on every backend PR: ruff check, pyright
-# (basic mode — advisory until its backlog clears), pip-audit, the four guard scripts
-# below, and the test suite with the coverage ratchet. Run them locally before pushing:
-pip-audit -r requirements.txt -r requirements-dev.txt --ignore-vuln PYSEC-2026-2858
-pyright
-
-# Integration tests (opt-in; real Nautobot / Gitea / Postgres / Cisco device).
-# NOT part of the default run or the coverage ratchet. Needs backend/.env.test
-# (gitignored) — see backend/tests/integration/README.md.
-python scripts/init_test_db.py                                  # once: create+seed manus_test
-python -m pytest tests/integration -m "not mutations" --no-cov  # name the path: testpaths=unit
-python -m pytest tests/integration -m mutations --no-cov --run-mutations
-
-# Regression guards (AST/heuristic checkers; run from backend/):
-python scripts/check_asyncio_run.py
-python scripts/check_http_500_leaks.py
-python scripts/check_router_repositories.py
-python scripts/check_text_sql.py
-```
-
-When implementing configuration changes, include verification steps that confirm the change works (e.g., run a quick test, check logs, or validate config loads)
-
-## Nautobot Services Architecture
-
-**IMPORTANT:** Nautobot services follow a specialized pattern for external API integration.
-
-### Architecture Overview
-Nautobot services wrap an **external API client** (not local database), so the traditional Repository pattern doesn't apply. Instead, use a modular service layer with dependency injection.
-
-### Directory Structure
-```
-backend/services/nautobot/
-├── client.py                  # NautobotService API client (GraphQL + REST)
-├── common/                    # Pure functions (no dependencies)
-│   ├── validators.py          # is_valid_uuid, validate_ip_address, etc.
-│   ├── utils.py               # flatten_nested_fields, normalize_tags, etc.
-│   └── exceptions.py          # Custom exception hierarchy
-│
-├── resolvers/                 # ID/UUID resolution (read-only)
-│   ├── base_resolver.py       # Shared GraphQL query logic
-│   ├── device_resolver.py     # Device & device-type resolution
-│   ├── metadata_resolver.py   # Status, role, platform, location
-│   └── network_resolver.py    # IP, interface, namespace, prefix
-│
-├── managers/                  # Resource lifecycle (create/update)
-│   ├── ip_manager.py          # IP address operations
-│   ├── interface_manager.py   # Interface operations
-│   ├── prefix_manager.py      # Prefix operations
-│   └── device_manager.py      # Device-specific operations
-│
-└── devices/
-    ├── common.py              # Unified facade (recommended for device operations)
-    ├── query.py               # Device query/lookup workflows
-    ├── attribute_bag.py        # Device attribute-bag assembly
-    ├── types.py                # Shared request/result dataclasses
-    ├── creation.py              # Device creation workflows
-    ├── update.py                # Device update workflows
-    └── interface_workflow.py    # Interface create/update workflows
-```
-
-### Usage Pattern
-
-**✅ RECOMMENDED - Use Facade for Device Operations:**
-```python
-from services.nautobot import NautobotService
-from services.nautobot.devices.common import DeviceCommonService
-
-class MyDeviceService:
-    def __init__(self, nautobot_service: NautobotService):
-        self.nautobot = nautobot_service
-        self.common = DeviceCommonService(nautobot_service)
-
-    async def my_operation(self):
-        # All device operations available through facade
-        device_id = await self.common.resolve_device_by_name("router1")
-        status_id = await self.common.resolve_status_id("active")
-
-        ip_id = await self.common.ensure_ip_address_exists(
-            ip_address="10.0.0.1/24",
-            namespace_id="...",
-            status_name="active"
-        )
-```
-
-**✅ ALTERNATIVE - Direct Injection (for specialized use cases):**
-
-Use this when you only need specific components or want fine-grained control:
-
-```python
-from services.nautobot import NautobotService
-from services.nautobot.resolvers import DeviceResolver, MetadataResolver
-from services.nautobot.managers import IPManager
-
-class MySpecializedService:
-    def __init__(self, nautobot_service: NautobotService):
-        self.nautobot = nautobot_service
-        # Only inject what you need
-        self.device_resolver = DeviceResolver(nautobot_service)
-        self.metadata_resolver = MetadataResolver(nautobot_service)
-```
-
-### Pure Functions vs. Services
-
-**Pure Functions** (no dependencies, stateless):
-```python
-from services.nautobot.common import is_valid_uuid, validate_ip_address, normalize_tags
-
-# Can be called directly - no service instance needed
-if is_valid_uuid(some_id):
-    tags = normalize_tags("tag1,tag2,tag3")
-```
-
-**Resolvers** (read-only, injected with NautobotService):
-```python
-from services.nautobot.resolvers import DeviceResolver
-
-resolver = DeviceResolver(nautobot_service)
-device_id = await resolver.resolve_device_by_name("router1")
-```
-
-**Managers** (create/update, injected with dependencies):
-```python
-from services.nautobot.managers import IPManager
-from services.nautobot.resolvers import NetworkResolver, MetadataResolver
-
-network_resolver = NetworkResolver(nautobot_service)
-metadata_resolver = MetadataResolver(nautobot_service)
-
-ip_manager = IPManager(nautobot_service, network_resolver, metadata_resolver)
-ip_id = await ip_manager.ensure_ip_address_exists(...)
-```
-
-### When to Create New Nautobot Services
-
-1. **Add to existing resolver** if it's a simple ID/name lookup
-2. **Add to existing manager** if it's CRUD for an existing resource type
-3. **Create new resolver** if you need a new domain of lookups (e.g., `VLANResolver`)
-4. **Create new manager** if you need lifecycle management for a new resource type
-5. **Update `devices/common.py`** to expose new resolver/manager methods through the facade
-
-### DO:
-- ✅ Use `DeviceCommonService` facade for device operations (simplifies dependency management)
-- ✅ Use pure functions from `common/` for validation/transformation
-- ✅ Follow Single Responsibility Principle in resolvers/managers
-- ✅ Use BaseResolver for common GraphQL patterns
-- ✅ Add type hints to all functions
-- ✅ Use direct injection when you need only 1-2 specific components
-- ✅ Always use type hints in constructor; All manager constructors use the `TYPE_CHECKING` pattern:
-
-### DON'T:
-- ❌ Put business logic in resolvers (read-only only)
-- ❌ Bypass managers for create/update operations
-- ❌ Create monolithic service classes
-- ❌ Mix validation logic with API calls
-
-## Git Repository Architecture
-
-**IMPORTANT:** There is exactly **one** git configuration system in this codebase: the
-`GitRepository` DB model. A second, Settings-KV-backed git config system
-(`sources.git.*`) existed until 2026-08-28 and was fully removed — never re-add a
-KV-based or ad-hoc-string git config path. Any feature that needs to talk to a git
-remote creates/uses a `GitRepository` row.
-
-### Core Pieces
-- `backend/core/models/git.py` — `GitRepository` SQLAlchemy model: `name` (unique),
-  `category`, `url`, `branch`, `auth_type` (`none`/`token`/`ssh_key`/`generic`),
-  `credential_name`, `path` (on-disk clone-dir override), `verify_ssl`,
-  `git_author_name`/`git_author_email`, `is_active`, `sync_status`.
-- `backend/models/git_repositories.py` — Pydantic request/response models,
-  `GitCategory` enum (`device_configs`, `cockpit_configs`, `templates`, `agent`,
-  `csv_imports`, `csv_exports`, `workflows`, `workflow_steps`, `cicd_pipeline`,
-  `batfish`), `GitAuthType` enum.
-- `backend/services/git/repository_service.py` — `GitRepositoryService`: CRUD for the
-  `git_repositories` table only (no git operations). `_to_dict()` is the canonical
-  "repository dict" shape every git operation below consumes.
-- `backend/services/git/service.py` — `GitService` (via
-  `service_factory.build_git_service()`): the one engine for clone/pull/push/commit/
-  fetch. Takes a plain `repository: dict`, not a `GitRepository` ORM object.
-- `backend/services/git/auth.py` — `GitAuthenticationService`: resolves
-  `credential_name` → username/token/ssh_key_path from the shared `Credential` table.
-  Background jobs have no acting user, so **only `visibility="global"` credentials
-  resolve** — private credentials are silently treated as not found.
-- `backend/services/git/sync.py` — `clone_or_pull`/`remove_and_clone`: "ensure the
-  local working tree exists" helpers for callers that just need to read files.
-- `backend/services/git/repo_lock.py` — `git_repo_lock(git_repository_id)` (or the split
-  `acquire_git_repo_lock`/`release_git_repo_lock` for a critical section spanning
-  multiple `await` points): a per-repository Redis advisory lock (fail-soft) every
-  git-mutating workflow step must hold across its GitService calls — see
-  `doc/ARCHITECTURAL_OVERVIEW.md` → "Branch-level concurrency" for why.
-- `backend/services/git/device_service.py`, `content_search_service.py` —
-  device-YAML discovery and text search over an already-cloned repo.
-- `backend/workflow_steps/common/git_repository_loader.py` — `load_git_repository
-  (repository_id: int)`: the **one** resolver every workflow step must use to turn a
-  `git_repository_id` config value into a `GitService`-ready repository dict.
-- `backend/routers/git/*` — `repositories.py` (CRUD + test-connection),
-  `operations.py` (`/api/git/{repo_id}/sync`, `/remove-and-sync`, `/status`, `/info`),
-  `version_control.py` (branches/commits/diff), `files.py` (browsing/history),
-  `devices.py` (`/preview-devices`, `/content-search-preview`), `debug.py`.
-- Frontend: Settings → **Git Repositories**
-  (`frontend/src/components/features/settings/components/git-repositories-settings-canvas.tsx`)
-  is the only UI for creating/editing repositories, backed by
-  `hooks/queries/use-git-repositories-{query,mutations}.ts`.
-  `workflow-steps/shared/git-repository-select-dialog.tsx` (`GitRepositorySelectDialog`)
-  is the only picker workflow steps use to choose a repository.
-
-### Workflow Steps
-Every git-consuming step (`git-clone`, `git-pull`, `git-push`, `get-git-devices`,
-`store-artifact`, `open-change-request`, `get-from-config`, `read-config`, `compare-data`,
-`compare-pyats-snapshot`, `set-default-attributes`) stores `git_repository_id: int`
-(FK to `git_repositories.id`) in its plugin config — never a string source id.
-Resolve it via `workflow_steps.common.git_repository_loader.load_git_repository`,
-never by re-implementing a lookup inline in the executor.
-
-`git-clone` / `git-pull` also accept `use_change_request_branch: bool` — when the run
-was dispatched by a change-request approval (`WorkflowRun.change_request_id`), the step
-targets the change request's `manus/cr-{id}` branch. See `doc/CICD_PIPELINE.md`.
-
-### DO:
-- ✅ Add a `GitRepository` row (via the CRUD API/Settings UI) for any new git-backed
-  feature; reuse an existing `GitCategory` or extend the enum if genuinely new
-- ✅ Reuse `GitService` / `GitRepositoryService` / `git_repository_loader` — one
-  resolution path, no parallel implementations
-- ✅ Hold `services/git/repo_lock.py`'s per-repository lock across any sequence of
-  `GitService` calls that mutates the working tree (clone/pull/write/commit/push) —
-  concurrent callers against the same repo are otherwise possible today (fan-out
-  children, independent sibling branches — see "Branch-level concurrency" in
-  `doc/ARCHITECTURAL_OVERVIEW.md`), not just a hypothetical
-- ✅ Reference credentials by name via `credential_name` on the `GitRepository` row
-
-### DON'T:
-- ❌ Add a `sources.<type>.*`-style Settings KV entry for git configuration
-- ❌ Store a git source as a bare string id/URL in workflow step config —
-  always `git_repository_id: int`
-- ❌ Write a second "resolve git config" helper — extend
-  `git_repository_loader.py` instead
-
-## Key Patterns Summary
-
-**Backend:**
-- Repository pattern for data access (local PostgreSQL)
-- Resolver + Manager pattern for external APIs (Nautobot, CheckMK)
-- Service layer for business logic
-- Thin routers that delegate to services
-- Dependency injection for auth/permissions
-- SQLAlchemy ORM/Core for runtime data access; repository `text()` only as documented in `doc/refactoring/REFACTORING_RAW_SQL.md` §3
-
-**Frontend:**
-- Feature-based organization
-- Server Components by default
-- API calls via `/api/proxy/*`
-- TanStack Query for server state (data fetching, caching, mutations)
-- Zustand for client-only state (UI state, preferences)
-- Shadcn UI for all components
-- react-hook-form + zod for forms
-
-**Database:**
-- Single PostgreSQL database
-- use complete migration framework to migrate database (./doc/MIGRATION_SYSTEM.md)
-- Models split by domain in `/backend/core/models/` (all exported from `__init__.py`)
-- Connection pooling + health checks
-
-**Authentication:**
-- JWT tokens in cookies
-- Permission format: `resource:action`
-- Backend: `Depends(require_permission("resource", "action"))`
-- Frontend: Check `hasPermission(user, "resource", "action")` from `lib/permissions.ts`
-
-## INCORRECT Practices (NEVER DO)
-
-**Backend:**
-- ❌ Creating SQLite databases for **production** (in-memory SQLite in unit tests is allowed; see Database Requirements above)
-- ❌ Calling `sqlalchemy.text()` from routers, services, or Hatchet workers, or composing runtime values into SQL via string concatenation / f-strings (repository policy: `doc/refactoring/REFACTORING_RAW_SQL.md` §3)
-- ❌ Bypassing repository pattern for local database access
-- ❌ Business logic in routers
-- ❌ Creating monolithic God Object services (note: DeviceCommonService is a facade, not a God Object)
-- ❌ Mixing validation/transformation logic with API calls
-- ❌ using f-string in Logging
-- ❌ Embedding raw exception text (`str(e)`, `{exc}`, f-strings interpolating exceptions, etc.) in `HTTPException(detail=…)` for any **5xx** response. Use `core.safe_http_errors.raise_internal_server_error` and let the client see only `{message, error_id}` (optionally pass `status_code` for sanitized 502/503 responses).
-- ❌ Creating a second git-configuration storage path (Settings KV, ad-hoc string source ids) instead of a `GitRepository` row — see Git Repository Architecture above.
-
-**Frontend:**
-- ❌ Placing components at `/components/` root without feature grouping
-- ❌ Direct backend API calls from frontend
-- ❌ Inline GraphQL queries in components
-- ❌ Building UI from scratch instead of using Shadcn
-- ❌ Using inline array/object literals in default params
-- ❌ Custom hooks without memoized returns
-- ❌ Missing or incomplete useEffect dependencies
-- ❌ Manual `useState + useEffect` for server data (use TanStack Query)
-- ❌ Inline query keys (always use `queryKeys` factory)
-- ❌ Storing query data in `useState` (use `useMemo` for derived state)
-- ❌ Forgetting to invalidate cache after mutations
-
-## Suggested CLAUDE.md Additions
-
-## Task Completion
-
-When removing features or debugging issues, always complete the full removal/fix cycle including: 1) Remove all related code, 2) Update configuration files, 3) Clean up imports/dependencies, 4) Verify no references remain with grep
-
-## Python Conventions
-
-For Hatchet workflows and workers: Always add inline documentation comments when modifying queue configurations, workflow decorators, or worker settings.
-
-
+- `/frontend/src/lib/auth-store.ts` — Zustand auth state
+- `/frontend/src/lib/query-client.ts` — TanStack Query configuration
+- `/frontend/src/lib/query-keys.ts` — Query key factory (hierarchical)
+- `/frontend/src/hooks/use-api.ts` — API calling hook
+- `/frontend/src/hooks/queries/*` — TanStack Query hooks
+- `/frontend/src/app/api/proxy/[...path]/route.ts` — Backend proxy
+- `/frontend/src/components/ui/*` — Shadcn UI primitives
+
+---
+
+@doc/claude/auth.md
+@doc/claude/database.md
+@doc/claude/frontend.md
+@doc/claude/backend.md
+@doc/claude/development.md
