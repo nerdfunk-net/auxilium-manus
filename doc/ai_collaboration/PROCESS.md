@@ -462,8 +462,10 @@ touches the database. It:
    none/expired.
 4. Fetches the workflow fresh via `WorkflowRepository.get_by_id` — **never** trust a
    previous invocation's cached state.
-5. Runs `WorkflowValidationService` (Tiers 1–2) against the proposed merged state and
-   includes findings in the output regardless of outcome.
+5. Runs `WorkflowValidationService` (all four tiers — `validate()` always runs
+   Tiers 1–4 together) against the proposed merged state and includes findings in
+   the output regardless of outcome; refuses to write on a Tier 2 reference-drift
+   finding specifically (see the `AI_DEFAULTS.md` update below).
 6. Calls `WorkflowService(db).update_workflow_for_ai_session(workflow_id, data,
    ai_user_id, actor_username="ai-assistant")` — a variant of the normal
    `update_workflow` added specifically for this (see "A real gap found during
@@ -1022,55 +1024,48 @@ before assuming anything works from inspection alone.
   reset and retried clean), with the live banner→reload→clear cycle confirmed
   working on the final attempt after bugs 2–5 above were fixed.
 
-## Open items (not built this session)
+## Status update (2026-09-26) — everything below is committed and merged
 
-- **Template apply mechanism — built and live-verified 2026-09-25**, see "The
-  template apply mechanism" above. First real create+edit request confirmed the
-  same session (`at-collab-test`, template id 7) — see `AI_VOCABULARY.md`'s new
-  "Confirmed phrase → template mappings" section for the resulting entry. Only
-  one worked example so far; broader phrasing (e.g. naming attached credentials,
-  Nautobot-attribute pre-run commands, batfish_config) is still unconfirmed.
-- **`AI_DEFAULTS.md` resolver/drift-check — built 2026-09-24, see the update above.**
-  Left for a future session: the apply-script gate only refuses on Tier 2
-  reference-existence findings — a real live `ai_workflow_apply.py` run exercising
-  that refusal (requires enabling an AI session on a real workflow) hasn't been done,
-  only the equivalent logic via `scripts/ai_defaults.py` and existing Tier 2 tests.
-- **Auto-layout helper — built 2026-09-24.** `backend/scripts/ai_layout.py`:
-  `compute_layer_layout`/`apply_layout` replace the hand-picked `{x: 0}`,
-  `{x: 400}`, `{x: 800}`, ... with a layered grid — columns from
-  `services/execution/graph.py::topological_generations` (dependency waves),
-  rows stacked within a column, pitch matching the fixed 320x128 node size from
-  `WORKFLOW-STEPS-STYLE_GUIDE.md`. Decoration nodes (label/background) and
-  author-disabled steps are skipped (reuses
-  `graph_resolution.filter_executable_graph`, same check StepRunner uses) — their
-  position is left untouched, never invented. Deliberately backend-only and NOT
-  wired into `ai_workflow_apply.py` (which still never lays out nodes itself, per
-  its docstring) — call it yourself before building a patch. A user-facing
-  "Auto Layout" canvas button was explicitly descoped (would need a separate JS
-  implementation, e.g. dagre, since layout there runs client-side). 11 new unit
-  tests (`tests/unit/test_ai_layout.py`: linear chains, parallel branches,
-  joins, cycles, decoration/disabled exclusion). **Verified live**: ran against
-  workflow 23's real canvas (`get-nautobot-devices-1` → `get-nautobot-attributes-1`)
-  with the real plugin registry — correctly produced a two-column layout.
-- **All four validation tiers are now built** (see the two "Update 2026-09-23"
-  entries above) and **neither Tier 3 nor Tier 4 has been manually verified live in
-  a browser yet** — only Tiers 1–2 and the UI shell have been. Do that before
-  trusting the Validate button's output fully.
-- **Pre-run validation gate — built 2026-09-24, see the update above.** Left for a
-  future session: not exercised live end-to-end (would need to actually dispatch a
-  blocked run against a real broken workflow — deliberately not done without
-  asking first); the frontend Run button still isn't disabled/confirmed
-  pre-flight, a blocked run only surfaces via the existing generic error toast;
-  and `scheduled_trigger.py`'s check has no dedicated unit test (matching that
-  file's pre-existing, unrelated lack of test coverage, not a new gap).
-- **Automated regression tests for bugs 2–5 above** — only manually verified live in
-  a browser this session, not codified as frontend tests (no existing test
-  convention for these specific hooks/components was found to extend).
-- **Nothing committed.** All work described above is uncommitted on
-  `feature/ai-assistent`.
-- **Nothing config-mutating has been tried.** Every live test was deliberately
-  read-only (Nautobot lookups). The change-request safety routing in step 9 of "The
-  loop" is designed but unexercised.
+Everything this doc describes has landed on `main` (branch `feature/ai-assistent`
+merged via `3cf11ac`; the AI-can-write-notes follow-up, `29351b7`, and later fixes
+landed directly on `main` after the merge). The rest of this section is kept as a
+historical record of what "Open items" looked like while the feature was still on
+its branch — the "not built this session"/"uncommitted" framing below predates the
+merge and should be read as superseded on that point specifically. What follows is
+what's genuinely still open, now that everything is on `main`:
+
+- **Automated regression tests for bugs 2–5** (the live-testing bugs in
+  "Bugs found and fixed during live testing" above, in
+  `use-canvas-node-changes.ts`/`use-workflow-persistence.ts`) — still not codified
+  as frontend tests. Still open.
+- **Pre-run validation gate frontend polish** — the backend gate itself is built and
+  merged, but the Run button still isn't disabled/confirmed pre-flight; a blocked
+  run only surfaces via the existing generic error toast. `scheduled_trigger.py`'s
+  check still has no dedicated unit test (pre-existing, unrelated lack of coverage
+  for that file, not a new gap). Still open.
+- **Deliberate live-browser exercise of Tier 3/Tier 4 findings** — both tiers run
+  automatically as part of every `validate()` call (there's no way to invoke only a
+  subset), so they've executed without incident against all 7 real gallery
+  workflows, the real end-to-end 6-step "get backups" workflow (which uses fan-out),
+  and every live Validate-button click since — but no one has deliberately
+  misconfigured a workflow specifically to confirm a Tier 3 or Tier 4 finding
+  surfaces correctly in the browser UI (as opposed to Tier 1/2, which have a
+  confirmed live catch — see the "real live usage" update above). Worth doing once,
+  low priority since the unit test coverage for both tiers is solid.
+- **`AI_DEFAULTS.md` drift-refusal gate, live end-to-end** — the refusal logic
+  itself is built and covered by `scripts/ai_defaults.py` plus Tier 2 unit tests,
+  but a real `ai_workflow_apply.py` invocation that actually trips the refusal
+  (a patch referencing a since-renamed credential/repo, run against a live AI
+  session) hasn't been done. Low priority for the same reason as above.
+- **Broader template-mechanism phrasing** — only one worked example exists
+  (`at-collab-test`, template id 7; see `AI_VOCABULARY.md`'s "Confirmed phrase →
+  template mappings"). Naming attached credentials, Nautobot-attribute pre-run
+  commands, or `batfish_config` in a request is unconfirmed — add entries as they
+  come up, same discipline as the rest of `AI_VOCABULARY.md`.
+- **Nothing config-mutating has been tried yet.** Every live test so far has been
+  either read-only (Nautobot lookups) or a non-destructive write (git-backed
+  backups). The change-request safety routing in step 9 of "The loop" is designed
+  but still unexercised — no config-deploying step has been run through the AI loop.
 - **New validation tier: fan-out + unguarded shared-sink step.** Not built —
   discussed 2026-09-24, deliberately deferred. `AI_VOCABULARY.md`'s "fan-out
   requires re-checking downstream wiring" rule (see the update above) is
