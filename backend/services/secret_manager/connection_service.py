@@ -9,6 +9,7 @@ database records, mirroring ``GitRepositoryService``.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,18 @@ _REQUIRED_BACKEND_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "infisical": ("site_url", "project_id", "environment"),
 }
 _TRANSPORT_FIELDS = frozenset({"backend", "backend_config", "verify_ssl"})
+
+
+@dataclass(frozen=True)
+class SecretManagerConnectionGeneration:
+    """Cache key for ``SecretManagerClientRegistry`` (SM4).
+
+    ``updated_at`` is the ORM datetime, not the ISO string ``_to_dict`` emits.
+    """
+
+    name: str
+    is_active: bool
+    updated_at: datetime
 
 
 def _validate_backend_config(backend: str, backend_config: dict[str, Any]) -> None:
@@ -101,6 +114,22 @@ class SecretManagerConnectionService:
         except Exception as e:
             logger.error("Error getting secret manager connection %s: %s", connection_id, e)
             raise
+
+    def get_generation(self, connection_id: int) -> SecretManagerConnectionGeneration | None:
+        """Return the cache-key columns for *connection_id*, always from the DB.
+
+        ``None`` means the row is gone (deleted). Used by
+        ``SecretManagerClientRegistry.get_or_create`` so worker processes notice
+        edits, deactivations, and deletes without a cross-process invalidate.
+        """
+        connection = self._repo.get_by_id_fresh(connection_id, db=self._db)
+        if connection is None:
+            return None
+        return SecretManagerConnectionGeneration(
+            name=str(connection.name),
+            is_active=bool(connection.is_active),
+            updated_at=connection.updated_at,
+        )
 
     def get_connections(self, active_only: bool = False) -> list[dict[str, Any]]:
         try:

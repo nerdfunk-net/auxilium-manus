@@ -97,11 +97,21 @@ workflow step (secret-get/set/generate) ──resolve(conn_id)──▶ SecretMa
 Each configured connection gets its **own live client instance** — new
 infrastructure, not a reuse of the existing two-singleton `core/vault.py`
 pattern, because that pattern is hardcoded to exactly one OpenBao connection
-read from env vars. `SecretManagerClientRegistry` is a `dict[int,
-SecretManagerClient]` keyed by `secret_manager_connections.id`, built lazily
-on first use per connection, with an `invalidate(id)` call from the
-connection update/delete router so an edited connection doesn't keep serving
-a stale client.
+read from env vars. `SecretManagerClientRegistry` is a process-local
+`dict[int, (client, updated_at)]` keyed by `secret_manager_connections.id`,
+built lazily on first use per connection. The connection update/delete/test
+router calls `invalidate(id)` in the **API** process (eagerly stops that
+process's OpenBao renew loop and forces `/test` to log in again). Each
+Hatchet worker has its own registry and never receives that call; instead
+`get_or_create` re-reads `(is_active, updated_at)` from PostgreSQL on every
+use (PK lookup, `populate_existing`) and rebuilds or refuses when the row
+moved, is inactive, or is gone. Deactivating or deleting a connection is
+therefore a kill-switch for the *next* `secret-get`/`secret-set`/
+`secret-generate` call in every process, without restarting the worker.
+A live client already inside `get_field`/`set_field` may error: `invalidate`
+and a generation mismatch both call `shutdown()`, which closes the httpx
+client (OpenBao also cancels its renew task). In-flight calls are not
+cancelled by a cooperative abort; they fail because the transport is gone.
 
 ## File map
 
@@ -513,5 +523,10 @@ development](#local-development).
   (`docker/infisical/` makes this possible now) before any workflow relies
   on "retrieve the previous secret" for Infisical-backed connections.
 - **Redis-backed shared client/token cache** across API + worker processes
-  — v1 keeps the existing in-process pattern, same acceptable-for-now status
-  as `VAULT_INTEGRATION.md`'s own deferred Redis cache.
+  — still deferred. SM4 closed the "workers never see connection changes"
+  gap with a PK re-read of `(is_active, updated_at)` on every `get_or_create`;
+  Redis pub/sub would only remove that SELECT. Same acceptable-for-now status
+  as `VAULT_INTEGRATION.md`'s own deferred Redis cache. Rotating the
+  *credential row* behind a connection (same `credential_name`, new password)
+  still does not bump `secret_manager_connections.updated_at`; re-save the
+  connection, or accept fail-closed at the next OpenBao re-login.

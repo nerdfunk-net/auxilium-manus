@@ -41,3 +41,17 @@ class SecretManagerConnectionRepository(BaseRepository[SecretManagerConnection])
                 .count()
                 > 0
             )
+
+    def get_by_id_fresh(
+        self, connection_id: int, db: Session | None = None
+    ) -> SecretManagerConnection | None:
+        """PK lookup that always hits the database and overwrites the identity
+        map (``populate_existing``). A worker session that already loaded this
+        row must still see commits from the API process (SM4)."""
+        with self._db_session(db or self._db) as s:
+            return (
+                s.query(SecretManagerConnection)
+                .filter(SecretManagerConnection.id == connection_id)
+                .execution_options(populate_existing=True)
+                .first()
+            )
