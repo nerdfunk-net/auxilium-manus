@@ -1,11 +1,11 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-21T13:07:19.347Z",
+  "exported_at": "2026-09-26T19:50:30.886Z",
   "name": "Check VTY",
   "description": "Check if line vty 0 4 is secured",
   "folder": "Gallery",
   "visibility": "private",
-  "notes": "# This workflow checks if the VTY line is secured:\n\nThis config is valid and **passes** the test:\n\n```\nip access-list extended MGMT_in\n 10 permit tcp w.x.y.z any eq 22\n\nline vty 0 4\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\n```\n\nIt does the following:\n1. Check if we find the string \"access-class\"\n2. Get the name of the access class\n3. Check if the access class exists in the config",
+  "notes": "# Check VTY\n\n## Purpose\nThis workflow is checking if an access-class is configured and bound to an existing access list\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' credentials (to test the encryption; The credential isn't actually needed for a normal run.)\n* inventory: 'LAB' (that is the correct name of the inventory, not only the device named LAB)\n* nautobot: the default nautobot source\n\n## Gotchas\nIt does the following:\n1. It reads the device configs from the configured git repo\n2. Check if we find the string \"access-class\" in the config\n3. Get the name of the access class by using update attribute\n4. Check if the access class exists in the config by using 'List Contains'\n\n## Example\n\nThis config is valid and **passes** the test:\n\n```\nip access-list extended MGMT_in\n 10 permit tcp w.x.y.z any eq 22\n\nline vty 0 4\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\n```\n",
   "canvas_nodes": [
     {
       "id": "get-device-configs-2",

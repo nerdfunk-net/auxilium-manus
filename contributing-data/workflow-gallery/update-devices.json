@@ -1,11 +1,11 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-19T20:22:23.332Z",
+  "exported_at": "2026-09-26T19:48:39.968Z",
   "name": "Update Devices",
   "description": "Update Devices in Nautobot",
-  "folder": "/Nautobot",
+  "folder": "Gallery",
   "visibility": "private",
-  "notes": null,
+  "notes": "# Update Devices\n\n## Purpose\nThis workflow checks get the device list from nautobot and uses the \"Extract Facts\" step of batfish to get update the devices.\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' credentials\n* inventory: 'LAB' (that is the correct name of the inventory, not only the device named LAB)\n* nautobot: the default nautobot source\n* batfish: the default batfish source\n* mattermost; the default mattermost source; team_name is 'Manus'; channel _name is 'manus' \n\n## Gotchas\n* batfish is required\n* Fan out is used in \"Get from Nautoot\" and after the workflow has all running configs, a Fan In is is used; batfish requires all devices at once\n* Interfaces are updated as well\n\n",
   "canvas_nodes": [
     {
       "id": "batfish-init-snapshot-4",
@@ -351,7 +351,7 @@
             }
           }
         },
-        "disabled": true
+        "disabled": false
       },
       "measured": {
         "width": 320,
@@ -395,64 +395,6 @@
       },
       "selected": false,
       "dragging": false
-    },
-    {
-      "id": "get-from-list-10",
-      "type": "workflowNode",
-      "position": {
-        "x": -1068,
-        "y": -348
-      },
-      "zIndex": 1,
-      "data": {
-        "kind": "get-from-list",
-        "stepUuid": "3c28e9de-196f-4ddb-9009-bd11243f63ee",
-        "title": "Get from List",
-        "overview": "Configure a static list of devices.",
-        "description": "Enter one or more device names and/or IP addresses to use as workflow targets.\n",
-        "artifactType": "inventory_selector",
-        "requires": [],
-        "requiresParsed": [],
-        "produces": [
-          "identity"
-        ],
-        "producesParsed": [],
-        "consumes": [],
-        "outcomes": [
-          {
-            "name": "success"
-          },
-          {
-            "name": "failure"
-          }
-        ],
-        "pluginConfig": {
-          "devices": [
-            {
-              "name": "switch",
-              "ip_address": "192.168.178.242/24"
-            }
-          ],
-          "fan_out": {
-            "enabled": true,
-            "mode": "per_device",
-            "chunk_size": 1,
-            "max_concurrency": 10,
-            "approval": {
-              "enabled": false,
-              "batch_size": 1,
-              "first_batch_auto": true
-            }
-          }
-        },
-        "disabled": false
-      },
-      "measured": {
-        "width": 320,
-        "height": 128
-      },
-      "dragging": false,
-      "selected": false
     },
     {
       "id": "update-nautobot-device-10",
@@ -561,19 +503,6 @@
       "target": "get-nautobot-attributes-8",
       "targetHandle": "input",
       "id": "xy-edge__get-nautobot-devices-8success-get-nautobot-attributes-8input",
-      "selected": false
-    },
-    {
-      "type": "waypoint",
-      "zIndex": 0,
-      "data": {
-        "edgeStyle": "bezier"
-      },
-      "source": "get-from-list-10",
-      "sourceHandle": "success",
-      "target": "get-nautobot-attributes-8",
-      "targetHandle": "input",
-      "id": "xy-edge__get-from-list-10success-get-nautobot-attributes-8input",
       "selected": false
     },
     {
