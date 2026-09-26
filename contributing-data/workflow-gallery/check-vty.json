@@ -1,11 +1,11 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-26T19:50:30.886Z",
+  "exported_at": "2026-09-26T20:30:36.885Z",
   "name": "Check VTY",
   "description": "Check if line vty 0 4 is secured",
   "folder": "Gallery",
   "visibility": "private",
-  "notes": "# Check VTY\n\n## Purpose\nThis workflow is checking if an access-class is configured and bound to an existing access list\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' credentials (to test the encryption; The credential isn't actually needed for a normal run.)\n* inventory: 'LAB' (that is the correct name of the inventory, not only the device named LAB)\n* nautobot: the default nautobot source\n\n## Gotchas\nIt does the following:\n1. It reads the device configs from the configured git repo\n2. Check if we find the string \"access-class\" in the config\n3. Get the name of the access class by using update attribute\n4. Check if the access class exists in the config by using 'List Contains'\n\n## Example\n\nThis config is valid and **passes** the test:\n\n```\nip access-list extended MGMT_in\n 10 permit tcp w.x.y.z any eq 22\n\nline vty 0 4\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\n```\n",
+  "notes": "# Check VTY\n\n## Purpose\nThis workflow is checking if an access-class is configured and bound to an existing access list\n\n## Assumptions / prerequisites\n* credentials: 'cisco - noc' credentials (to test the encryption; The credential isn't actually needed for a normal run.)\n* inventory: 'LAB' (that is the correct name of the inventory, not only the device named LAB)\n* nautobot: the default nautobot source\n\n## Gotchas\nIt does the following:\n1. It reads the device configs from the configured git repo\n2. Checks that every `line vty` stanza has an `access-class ... in` configured — independent of how many stanzas exist or how the VTY range is split (e.g. one `line vty 0 4`, or split into `line vty 0 2` / `line vty 3 5` / `line vty 6 10`). If even one stanza is missing it, the device is reported as not secured.\n3. Get the name of the access class by using update attribute (from the first secured stanza found)\n4. Check if the access class exists in the config by using 'List Contains'\n\n**Design note:** step 2 uses two \"Route on Content\" nodes because a single regex search can't both find one good example and prove none are missing at the same time. `check \"unsecured vty\"` runs first and searches for *any* `line vty` stanza lacking `access-class` — a pattern that is count- and position-independent. Only when it finds none does the workflow fall through to `check \"access class\"`, which extracts the ACL name from the first secured stanza. This does **not** verify that every stanza references the *same* ACL — if different stanzas reference different ACLs that both happen to exist, this workflow still reports the device as secured.\n\n## Example\n\nThis config is valid and **passes** the test:\n\n```\nip access-list extended MGMT_in\n 10 permit tcp w.x.y.z any eq 22\n\nline vty 0 2\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\nline vty 3 5\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\nline vty 6 10\n access-class MGMT_in in\n exec-timeout 0 0\n transport input ssh\n```\n",
   "canvas_nodes": [
     {
       "id": "get-device-configs-2",
@@ -57,8 +57,8 @@
       "id": "route-on-content-3",
       "type": "workflowNode",
       "position": {
-        "x": -304.6628988028212,
-        "y": 49.75071805564468
+        "x": -307.4821452939383,
+        "y": 50.76399912055322
       },
       "zIndex": 1,
       "data": {
@@ -93,11 +93,11 @@
           "source_step_node_id": "",
           "parsed_output_key": "",
           "match_mode": "regex",
-          "pattern": "line vty 0 4\\r?\\n(?:\\s+\\S.*\\r?\\n)*?\\s*access-class\\s+(\\S+)\\s+in\\b",
+          "pattern": "line vty\\s+\\d+\\s+\\d+\\r?\\n(?:\\s+\\S.*\\r?\\n)*?\\s*access-class\\s+(\\S+)\\s+in\\b",
           "case_sensitive": false,
           "multiline": true
         },
-        "incomeHandleSide": "top",
+        "incomeHandleSide": "left",
         "outcomeHandleSide": "right"
       },
       "measured": {
@@ -112,7 +112,7 @@
       "type": "workflowNode",
       "position": {
         "x": 60.10455396513768,
-        "y": 49.75071805564468
+        "y": 50.76399912055322
       },
       "zIndex": 1,
       "data": {
@@ -168,7 +168,7 @@
       "type": "workflowNode",
       "position": {
         "x": 423.2436204601971,
-        "y": 49.75071805564468
+        "y": 50.76399912055322
       },
       "zIndex": 1,
       "data": {
@@ -213,7 +213,7 @@
       "type": "workflowNode",
       "position": {
         "x": 809.6390182899584,
-        "y": 49.75071805564468
+        "y": 50.76399912055322
       },
       "zIndex": 1,
       "data": {
@@ -307,8 +307,8 @@
       "id": "notify-mattermost-8",
       "type": "workflowNode",
       "position": {
-        "x": 60.10455396513768,
-        "y": 222.42939422106338
+        "x": -307.4821452939383,
+        "y": 266.3382403670999
       },
       "zIndex": 1,
       "data": {
@@ -397,7 +397,7 @@
       "id": "get-nautobot-devices-9",
       "type": "workflowNode",
       "position": {
-        "x": 21.797232157918927,
+        "x": 18.97798566680183,
         "y": 66.4653325333054
       },
       "data": {
@@ -650,6 +650,60 @@
       "dragging": false,
       "selected": false,
       "resizing": false
+    },
+    {
+      "id": "route-on-content-14",
+      "type": "workflowNode",
+      "position": {
+        "x": -704.6628988028212,
+        "y": 50.76399912055322
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "route-on-content",
+        "stepUuid": "9b6a1c2d-4e5f-4a1b-8c3d-7f2e6a9b1d05",
+        "title": "check \"unsecured vty\"",
+        "overview": "Branch workflow paths by searching content for text or a pattern.",
+        "description": "Search device content for fixed text or a regular expression and branch on whether it was found.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "parsed"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "match"
+          },
+          {
+            "name": "mismatch"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "content_source": "running_config",
+          "source_step_node_id": "",
+          "parsed_output_key": "",
+          "match_mode": "regex",
+          "pattern": "line vty\\s+\\d+\\s+\\d+(?:\\r?\\n|\\Z)(?:[ \\t](?!access-class\\b)[^\\r\\n]*(?:\\r?\\n|\\Z))*(?=\\S|\\Z)",
+          "case_sensitive": false,
+          "multiline": true
+        },
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "right"
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
     }
   ],
   "canvas_edges": [
@@ -696,7 +750,7 @@
       "type": "waypoint",
       "zIndex": 0,
       "data": {
-        "edgeStyle": "bezier"
+        "edgeStyle": "smoothstep"
       },
       "source": "route-on-content-3",
       "sourceHandle": "mismatch",
@@ -752,9 +806,35 @@
       },
       "source": "read-config-10",
       "sourceHandle": "success",
+      "target": "route-on-content-14",
+      "targetHandle": "input",
+      "id": "xy-edge__read-config-10success-route-on-content-14input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "route-on-content-14",
+      "sourceHandle": "mismatch",
       "target": "route-on-content-3",
       "targetHandle": "input",
-      "id": "xy-edge__read-config-10success-route-on-content-3input",
+      "id": "xy-edge__route-on-content-14mismatch-route-on-content-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "smoothstep"
+      },
+      "source": "route-on-content-14",
+      "sourceHandle": "match",
+      "target": "notify-mattermost-8",
+      "targetHandle": "input",
+      "id": "xy-edge__route-on-content-14match-notify-mattermost-8input",
       "selected": false
     }
   ],

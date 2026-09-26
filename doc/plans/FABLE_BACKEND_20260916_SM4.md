@@ -1,11 +1,15 @@
 # Plan: Fix SM4 — Hatchet workers never see connection changes
 
 Source: `doc/analysis/FABLE_BACKEND_20260916.md` §2.2 SM4, §6 item 6.
-Status: **Ready to implement.** Analysis is against the current tree (post
-SM1/SM2/SM3). A plan review folded three corrections into D2, D5, §4, §5.1,
-and §6.2 (see §0.1); implement this file, not the pre-review draft. Smaller
-nits that did not change the implementation are parked in **§0.2 for later
-review** (N1–N4).
+Status: **Ready to implement.** Still **open** as of the 2026-09-26
+revalidation: `get_or_create` still returns a cached client without reading
+the row, and `get_generation` / `get_by_id_fresh` do not exist. Analysis was
+against the post-SM1/SM2/SM3 tree. A plan review folded three corrections
+into D2, D5, §4, §5.1, and §6.2 (see §0.1). The 2026-09-26 pass, after
+parallel step execution and later secret-manager edits, folded four more
+into D2, D5, D5b, §1, §4, §6.2, and §7 (see §0.3). Implement this file.
+Smaller nits that did not change the implementation are parked in **§0.2 for
+later review** (N1–N4).
 
 | # | Sev | Issue | Decision | Status |
 |---|---|---|---|---|
@@ -30,9 +34,16 @@ on use.
 
 **D2 — The freshness read must *apply* the SELECT (`populate_existing`), not skip SQL.**
 Worker tasks hold one `SessionLocal()` for the whole `StepRunner.execute_all` /
-`execute_subgraph` call (`hatchet/workflows/workflow_run/phase1.py` lines 220–245,
-`hatchet/workflows/device_group_execution.py` lines 53–79). Secret steps take that session
-via `object_session(run)`. `BaseRepository.get_by_id` is
+`execute_subgraph` call (`hatchet/workflows/workflow_run/phase1.py` lines 69–95,
+`hatchet/workflows/device_group_execution.py` lines 53–79). **(2026-09-26)**
+`phase1.py` was shortened on 2026-09-21 when the walk moved into `StepRunner`;
+the session still wraps the whole `execute_all`. The same day, independent
+canvas branches started running concurrently (`doc/plans/PARALLEL_EXEC.md`):
+`StepRunner._run_wave` (`execute_all`, `resume_after_join`) and `run_subgraph`
+(fan-out children) `asyncio.gather` one topological wave on that same session.
+`_db_lock` brackets `update_step_result` only, so two secret steps in one wave
+share the session and call `get_or_create` concurrently. Secret steps take that
+session via `object_session(run)`. `BaseRepository.get_by_id` is
 `s.query(Model).filter(id==).first()`. That **does emit SQL** every time; it is not
 `Session.get()`. If the instance is already in the identity map and not expired,
 SQLAlchemy **discards** the loaded columns and returns the cached Python object. The
@@ -44,7 +55,11 @@ drops the ORM instance, so the next lookup often *does* see the other session's 
 across the device loop, or still reachable on the rebuild path in the same
 `get_or_create`) will hide an API `UPDATE`/`DELETE` without it. `SessionLocal` is
 `autoflush=False`. Between steps `RunRepository.update_step_result` commits
-(`expire_on_commit=True`), so the gap is mainly **within** one step.
+(`expire_on_commit=True`). **(2026-09-26)** A sibling commit expires every
+instance in the shared session, including a connection row another in-flight
+step already loaded. `populate_existing` still has to cover the case where
+the instance is live and has not been expired — mainly the device loop inside
+one secret step.
 
 The new lookup uses `.execution_options(populate_existing=True)` so that SELECT
 overwrites the live instance. `load_connection_config` → `get_connection` → `get_by_id`
@@ -78,6 +93,15 @@ PK read *before* acquiring the lock so a cache-hit on connection A is not queued
 connection B's login, and so the lock is not held across the new SELECT. After a stale
 pop, shut the old client down outside the lock (same shape as today's `invalidate`).
 
+**(2026-09-26)** The PK read outside the lock now overlaps sibling steps that
+share one `Session` (D2). That is acceptable because the SELECT is synchronous
+and `get_generation` copies `name` / `is_active` / `updated_at` into the frozen
+dataclass before the next `await`. Do not insert an `await` between the
+`get_generation` call and that copy. `load_connection_config` stays inside the
+lock, after the re-read (D5b). Do not move it out: today the lock also
+serializes the cache-miss query, and the rebuild must keep using the worker
+session whose identity map `get_generation` just refreshed.
+
 **D5b — Re-read generation on the rebuild path; never evict a newer cache.** A Hatchet
 worker runs concurrent tasks. Two `get_or_create` calls on the same connection, with the
 row updated between their PK reads, is enough to leak a client:
@@ -92,7 +116,10 @@ On miss/mismatch, re-read generation outside the lock, then pop only against tha
 snapshot. If the cache already matches the re-read, return it. If a different generation
 appears while we held no lock, loop instead of overwriting. Compare with `==` only
 (same rule as D3 — mixed aware/naive `<` raises `TypeError`). `secret-get` is sequential
-per device; this race is concurrent Hatchet tasks, not the device loop.
+per device. **(2026-09-26)** The race is concurrent `get_or_create` calls: two
+Hatchet tasks, or two secret steps in the same topological wave (one process,
+one session). It is not the device loop inside one step. The registry
+algorithm below already covers both.
 
 **D6 — Residual, accepted.** Rotating the *credential row's* password while leaving the
 connection row untouched does not bump `secret_manager_connections.updated_at`. Workers keep
@@ -136,17 +163,33 @@ Three defects found against the pre-review draft; they are already applied above
 
 | ID | Status | Nit | Notes |
 |---|---|---|---|
-| N1 | **Open — review later** | Pre-review draft cited `hatchet/worker_services.py` `start_all`, line 75 as where the worker registry lives | Line 75 is `await service_factory.stop_secret_manager_services()` in `start_all`'s `finally`, not construction. The registry is lazy in `service_factory.get_secret_manager_registry()` (lines 303–315). §1 already uses the corrected wording; this row is the original citation error so it is not silently lost. |
+| N1 | **Open — review later** | Pre-review draft cited `hatchet/worker_services.py` `start_all`, line 75 as where the worker registry lives | Line 75 is `await service_factory.stop_secret_manager_services()` in `start_all`'s `finally`, not construction. The registry is lazy in `service_factory.get_secret_manager_registry()` (lines 312–324; **2026-09-26**, was 303–315). §1 already uses the corrected wording; this row is the original citation error so it is not silently lost. |
 | N2 | **Open — review later** | `test_get_generation_tracks_update` / `assertGreater` on `updated_at` | Safe **only** because `updated_at` is copied into the frozen dataclass *before* the update (datetime is immutable). Comparing the ORM object to itself after `update_connection` is always `False` (`>`). §6.2 already warns the implementer; worth a glance when reading the test so nobody "simplifies" it to `row.updated_at`. |
 | N3 | **Open — review later** | No registry test for missing/inactive with an **empty** cache | §6.1 only covers drop-cached-client. `_require_generation` raises before any cache lookup, so empty-cache missing/inactive is the same `ValueError` path, but there is no test that `load_connection_config` / `_build_client` are not called and `_clients` stays `{}`. Easy add if you want it. |
 | N4 | **Open — review later** | `get_generation` assigns `updated_at=connection.updated_at` unwrapped | `name=str(...)` and `is_active=bool(...)` already paper over classic `Column` vs Python types. Bare `updated_at` will add another `Column[datetime]` vs `datetime` pyright error in `connection_service.py` (same class as the four existing ones the SM1–SM3 audit called cosmetic). Wrap it (`updated_at=connection.updated_at` → a `datetime` cast) if you care; do not block SM4 on pyright. |
+
+### 0.3 Revalidation 2026-09-26 (folded in)
+
+Checked against the tree after parallel step execution (2026-09-21) and the
+later secret-manager RBAC/transport edits. SM4 is still **open**. The registry
+source in §4 is unchanged. Passages marked **(2026-09-26)** are the edits from
+this pass.
+
+| # | What changed | Where |
+|---|---|---|
+| 1 | Line citations. `phase1.py` is 114 lines; the `SessionLocal()` around `execute_all` is lines 69–95 (was 220–245). `device_group_execution.py` 53–79 still matches. `get_secret_manager_registry()` is lines 312–324 (was 303–315), including the N1 note. The `PUT` invalidate call is line 126 (the old 125–126 range included the comment above it). Delete and `/test` citations still match. | D2, §1, N1 |
+| 2 | Sibling steps share the worker session. `doc/plans/PARALLEL_EXEC.md` runs one topological wave with `asyncio.gather` on that same `SessionLocal()`. `_db_lock` covers `update_step_result` only. D5b's race is those siblings as well as concurrent Hatchet tasks. A sibling commit expires the shared identity map. The registry algorithm already covers the cache race. Added the constraint: no `await` between `get_generation` and copying the frozen dataclass; `load_connection_config` stays inside the lock. | D2, D5, D5b, §4 |
+| 3 | Same-session freshness test must disable autoflush. Existing `setUp` is `sessionmaker(bind=engine)()` (`autoflush=True`). Production `SessionLocal` is `autoflush=False`. Left on, the dirty `is_active=False` is flushed before the SELECT and `assertTrue(fresh.is_active)` fails. The test now sets `self.db.autoflush = False`. | §6.2 |
+| 4 | Subset pytest passes `--no-cov`. `backend/pyproject.toml` `addopts` already sets `--cov-fail-under=81`, so the three-file command fails the ratchet without `--no-cov`. The full `tests/unit` command remains the ratchet check. | §7 |
+
+Unchanged, and re-checked: D1, D3, D4, D6; the §4 registry module; §2 `get_by_id_fresh`; §3 `get_generation`; §5 doc edits; §6.1 registry tests; §6.3 router test. `BaseRepository.get_by_id` is still `query().filter().first()`. `updated_at` is still bumped in `update_connection` (line 154). SQLAlchemy is still 2.0.51. The four registry tests and `test_update_invalidates_registry` are still the ones this plan expects.
 
 ---
 
 ## 1. Why the current code is wrong (grounded in the tree)
 
 Three processes each hold a `SecretManagerClientRegistry` singleton via
-`service_factory.get_secret_manager_registry()` (`service_factory.py` lines 303–315):
+`service_factory.get_secret_manager_registry()` (`service_factory.py` lines 312–324):
 
 - FastAPI (`main.py` lifespan calls `stop_secret_manager_services` on shutdown)
 - live Hatchet worker (`hatchet/worker_services.py` `start_all`; the registry is
@@ -160,7 +203,7 @@ registry is a `dict[int, SecretManagerClient]` (`registry.py` line 40) filled on
 
 The only callers of `invalidate` are in the API process:
 
-```125:126:backend/routers/secret_manager.py
+```126:126:backend/routers/secret_manager.py
         await service_factory.get_secret_manager_registry().invalidate(connection_id)
 ```
 
@@ -615,6 +658,11 @@ Notes the implementer must not "simplify" away:
 - `ensure_started` still runs *before* the insert and *inside* the lock, so a failed
   login is still not cached (SM1 invariant, `test_failed_ensure_started_is_not_cached`)
   and two coroutines cannot both construct (D5).
+- **(2026-09-26)** `get_generation` copies `name` / `is_active` / `updated_at` into
+  the frozen dataclass before any `await`. Sibling steps in one wave share the
+  worker `Session` (D2); an `await` in that gap would let another step's
+  `populate_existing` mutate the row this call is about to snapshot. Do not
+  move `load_connection_config` out of the lock.
 - Compare `updated_at` with `==`, never `<` / timestamps. Both values come from the same
   column in the same dialect. Mixed aware/naive equality is `False` (rebuild every call) —
   that cannot happen on PostgreSQL (`DateTime(timezone=True)` + `datetime.now(UTC)` on
@@ -968,6 +1016,14 @@ flushing*, then show `get_by_id` still returns the dirty value while `get_by_id_
 overwrites it from the SELECT (DB still has the committed value). Same mechanism the
 worker needs against PostgreSQL READ COMMITTED.
 
+**(2026-09-26)** That `setUp` is `sessionmaker(bind=engine)()`, and SQLAlchemy's
+default is `autoflush=True`. Production `SessionLocal` is `autoflush=False`.
+With autoflush left on, the SELECT flushes the dirty `is_active=False` into
+the open transaction first, the fresh read also sees `False`, and
+`assertTrue(fresh.is_active)` fails. `test_get_by_id_fresh_overwrites_dirty_identity_map`
+must set `self.db.autoflush = False` before dirtying the row. The other two
+same-session tests can keep the `setUp` session as-is.
+
 The two-session "API committed, worker session already had the row" analog is still
 worth having, but **only if the worker holds a strong reference to the ORM instance**.
 SQLAlchemy 2's identity map is a `WeakInstanceDict`. `get_connection` returns a dict and
@@ -998,6 +1054,11 @@ Append to the existing file (before `if __name__ == "__main__"`):
         self.assertGreater(after.updated_at, before.updated_at)
 
     def test_get_by_id_fresh_overwrites_dirty_identity_map(self) -> None:
+        # setUp's sessionmaker() defaults to autoflush=True. Production
+        # SessionLocal is autoflush=False. With autoflush on, the SELECT
+        # flushes is_active=False into the open transaction and the fresh
+        # read also sees False (2026-09-26).
+        self.db.autoflush = False
         connection_id = self._create()
         row = self.service._repo.get_by_id(connection_id, db=self.db)
         self.assertTrue(row.is_active)
@@ -1124,9 +1185,14 @@ python scripts/check_router_repositories.py
 python scripts/check_text_sql.py
 python -m pytest tests/unit/test_secret_manager_registry.py \
                  tests/unit/test_secret_manager_connection_service.py \
-                 tests/unit/test_secret_manager_router.py -q
+                 tests/unit/test_secret_manager_router.py -q --no-cov
 python -m pytest tests/unit -q --cov-fail-under=81
 ```
+
+**(2026-09-26)** The three-file run passes `--no-cov`. `backend/pyproject.toml`
+`addopts` already sets `--cov-fail-under=81` for the whole tree, so a subset
+without `--no-cov` fails the ratchet even when these tests pass. The
+`tests/unit` command is the ratchet check.
 
 Done when:
 
