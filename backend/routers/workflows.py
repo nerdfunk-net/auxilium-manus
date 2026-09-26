@@ -12,6 +12,7 @@ from core.domain_exceptions import DomainError
 from core.models.users import User
 from core.safe_http_errors import raise_internal_server_error
 from models.workflow_changes import WorkflowChangeListResponse
+from models.workflow_validation import WorkflowValidateRequest, WorkflowValidationResult
 from models.workflows import (
     WorkflowCreate,
     WorkflowGalleryListResponse,
@@ -26,8 +27,11 @@ from models.workflows import (
     WorkflowResponse,
     WorkflowUpdate,
 )
+from routers.workflow_steps import get_plugin_service
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow.workflow_gallery_service import WorkflowGalleryService
 from services.workflow.workflow_service import WorkflowService
+from services.workflow.workflow_validation_service import WorkflowValidationService
 
 logger = logging.getLogger(__name__)
 
@@ -281,3 +285,31 @@ def delete_workflow(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to delete workflow", exc)
+
+
+@router.post(
+    "/{workflow_id}/validate",
+    response_model=WorkflowValidationResult,
+    dependencies=[Depends(require_permission("workflows", "read"))],
+)
+def validate_workflow(
+    workflow_id: int,
+    body: WorkflowValidateRequest | None = None,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(_service),
+    plugin_service: PluginRegistryService = Depends(get_plugin_service),
+) -> WorkflowValidationResult:
+    """Validates a workflow — Tiers 1-3, see doc/ai_collaboration/VALIDATION_PLAN.md.
+    Read-only: never mutates the workflow. `workflow_id` must be a real, visible
+    workflow (used for the permission/ownership check), but when `body.canvas_nodes`
+    is given that draft (plus `body.canvas_edges`) is validated instead of the
+    workflow's last-saved state."""
+    workflow = service.get_workflow(workflow_id=workflow_id, user_id=current_user.id)
+    draft_nodes = body.canvas_nodes if body is not None else None
+    canvas_nodes = draft_nodes if draft_nodes is not None else workflow.canvas_nodes
+    draft_edges = body.canvas_edges if body is not None else None
+    canvas_edges = draft_edges if draft_nodes is not None else workflow.canvas_edges
+    validator = WorkflowValidationService(service.db, plugin_service)
+    return validator.validate(
+        canvas_nodes or [], canvas_edges or [], acting_user_id=current_user.id
+    )

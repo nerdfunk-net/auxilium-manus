@@ -1,0 +1,61 @@
+# Structured, machine-checkable counterpart to doc/ai_collaboration/AI_DEFAULTS.md.
+#
+# This file is the SOURCE OF TRUTH for the actual values (names). The
+# markdown doc carries the "why" for each one and stays human-readable — keep
+# the two in sync by hand when either changes (small file, changes rarely).
+#
+# Loaded by scripts/ai_defaults.py, which cross-checks every name below
+# against a live database lookup and raises AiDefaultsDriftError, naming the
+# exact stale entry, rather than ever silently falling back to a cached id.
+#
+# Last verified against the dev DB: 2026-09-23 (see AI_DEFAULTS.md).
+
+policy:
+  visibility: private
+  is_version_controlled: true
+  name_prefix: "[AI Draft] "
+  folder: /ai-drafts
+  fan_out_max_concurrency: 5
+
+credentials:
+  ssh_default:
+    name: "cisco - noc"
+    type: ssh
+  git_token:
+    name: gitea
+    type: token
+  mattermost:
+    name: mattermost
+    type: token
+  nautobot:
+    name: nautobot
+    type: token
+  vault_generic:
+    name: openbao
+    type: generic
+  pyats:
+    name: pyats
+    type: token
+  shared_secret:
+    name: shared-secret
+    type: shared_secret
+
+# category -> default repository name. Categories with no configured default
+# yet (templates, agent, csv_imports, csv_exports, workflows, workflow_steps)
+# are deliberately omitted — the AI must ask/flag as blocked, never guess.
+git_repositories:
+  batfish: batfish
+  cicd_pipeline: cicd-pipeline
+  device_configs: device-configs
+
+# config field -> source name (sources are name-keyed at runtime, no numeric
+# id to resolve — see WorkflowValidationService._check_source_id). Fields
+# with no configured default (ise_source_id) are omitted on purpose.
+sources:
+  nautobot_source_id: nautobot
+  mattermost_source_id: mattermost
+  batfish_source_id: batfish
+  pyats_source_id: pyats
+
+inventories:
+  safe_default: LAB

@@ -68,9 +68,9 @@ services:
       # Dev mode only: fixed root token so hvac/CLI can authenticate immediately.
       BAO_DEV_ROOT_TOKEN_ID: "${OPENBAO_DEV_ROOT_TOKEN:?Set OPENBAO_DEV_ROOT_TOKEN in docker/openbao/.env}"
       # Used by the `bao` CLI inside the container (healthcheck, exec).
-      BAO_ADDR: "http://127.0.0.1:8200"
+      BAO_ADDR: "http://0.0.0.0:8200"
     ports:
-      - "127.0.0.1:8200:8200"
+      - "8200:8200"
     # volumes:                              # persistent mode only — keep unmounted in dev
     #   - ./config:/openbao/config:ro
     #   - bao_data:/openbao/data

@@ -9,7 +9,7 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
-import { GetPyatsConfigHelpPanel } from "./help-panel";
+import { GetPyatsRunningConfigHelpPanel } from "./help-panel";
 
 const OUTPUT_KEY = "output_key";
 
@@ -17,7 +17,7 @@ function outputKeyFromConfig(config: Record<string, unknown>): string {
   return typeof config[OUTPUT_KEY] === "string" ? (config[OUTPUT_KEY] as string) : "";
 }
 
-function GetPyatsConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+function GetPyatsRunningConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const outputKey = outputKeyFromConfig(config);
 
   const handleOutputKeyChange = useCallback(
@@ -52,7 +52,7 @@ function GetPyatsConfigConfigPanel({ config, onChange }: PluginConfigPanelProps)
   );
 }
 
-export const GetPyatsConfigPlugin: PluginUIComponent = {
-  ConfigPanel: GetPyatsConfigConfigPanel,
-  HelpPanel: GetPyatsConfigHelpPanel,
+export const GetPyatsRunningConfigPlugin: PluginUIComponent = {
+  ConfigPanel: GetPyatsRunningConfigConfigPanel,
+  HelpPanel: GetPyatsRunningConfigHelpPanel,
 };

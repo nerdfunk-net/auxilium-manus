@@ -14,9 +14,9 @@ import { ReadConfigPlugin } from "@/components/features/workflow-steps/read-conf
 import { ReadFromFilePlugin } from "@/components/features/workflow-steps/read-from-file";
 import { ParseCiscoConfigPlugin } from "@/components/features/workflow-steps/parse-cisco-config";
 import { AddPyatsTestbedPlugin } from "@/components/features/workflow-steps/add-pyats-testbed";
-import { GetPyatsConfigPlugin } from "@/components/features/workflow-steps/get-pyats-config";
+import { GetPyatsRunningConfigPlugin } from "@/components/features/workflow-steps/get-pyats-running-config";
 import { GetPyatsSnapshotPlugin } from "@/components/features/workflow-steps/get-pyats-snapshot";
-import { BatfishStartRunPlugin } from "@/components/features/workflow-steps/batfish-start-run";
+import { GetBatfishDevicesPlugin } from "@/components/features/workflow-steps/get-batfish-devices";
 import { BatfishInitSnapshotPlugin } from "@/components/features/workflow-steps/batfish-init-snapshot";
 import { BatfishRoutingTablePlugin } from "@/components/features/workflow-steps/batfish-routing-table";
 import { BatfishNodePropertiesPlugin } from "@/components/features/workflow-steps/batfish-node-properties";
@@ -93,9 +93,9 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "read-from-file": ReadFromFilePlugin,
   "parse-cisco-config": ParseCiscoConfigPlugin,
   "add-pyats-testbed": AddPyatsTestbedPlugin,
-  "get-pyats-config": GetPyatsConfigPlugin,
+  "get-pyats-running-config": GetPyatsRunningConfigPlugin,
   "get-pyats-snapshot": GetPyatsSnapshotPlugin,
-  "batfish-start-run": BatfishStartRunPlugin,
+  "get-batfish-devices": GetBatfishDevicesPlugin,
   "batfish-init-snapshot": BatfishInitSnapshotPlugin,
   "batfish-routing-table": BatfishRoutingTablePlugin,
   "batfish-node-properties": BatfishNodePropertiesPlugin,

@@ -10,14 +10,14 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 import { BatfishDirectTargetFields } from "../shared/batfish-direct-target-fields";
-import { BatfishStartRunHelpPanel } from "./help-panel";
+import { GetBatfishDevicesHelpPanel } from "./help-panel";
 
 function stringFromConfig(config: Record<string, unknown>, key: string): string {
   const raw = config[key];
   return typeof raw === "string" ? raw : "";
 }
 
-function BatfishStartRunConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+function GetBatfishDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const nodesFilter = stringFromConfig(config, "nodes_filter");
 
   const handleFieldChange = useCallback(
@@ -61,7 +61,7 @@ function BatfishStartRunConfigPanel({ config, onChange }: PluginConfigPanelProps
   );
 }
 
-export const BatfishStartRunPlugin: PluginUIComponent = {
-  ConfigPanel: BatfishStartRunConfigPanel,
-  HelpPanel: BatfishStartRunHelpPanel,
+export const GetBatfishDevicesPlugin: PluginUIComponent = {
+  ConfigPanel: GetBatfishDevicesConfigPanel,
+  HelpPanel: GetBatfishDevicesHelpPanel,
 };

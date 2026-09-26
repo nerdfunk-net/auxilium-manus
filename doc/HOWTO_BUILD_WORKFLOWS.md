@@ -657,3 +657,79 @@ Worth doing for any workflow that runs unattended on a schedule (the whole
 point is a safety net for triggers you don't control in the moment); lower
 value for a workflow only ever run manually by one operator who watches it
 finish before running it again.
+
+---
+
+## Documenting the workflow: wiki notes
+
+Every workflow has two text fields beyond its canvas: a short `description` and
+a free-form Markdown `notes` field — the **Wiki** tab in the workflow builder
+(`WorkflowService.update_notes`, edited independently of the canvas save, never
+synced to git). `description` is a one-line label for the workflow list;
+`notes` is where the *why*, the *assumptions*, and the *gotchas* actually
+belong — none of which the canvas itself can express. The same field is what
+gets exported as `notes` in `contributing-data/workflow-gallery/*.json` — a
+gallery entry's notes are this exact Wiki content, just serialized to a file.
+
+### Why this matters
+
+A workflow's canvas tells you *what* runs; it doesn't tell you *why it's built
+that way*, *what it assumes exists*, or *what happens if you reuse it
+carelessly*. Fan-out settings, a Fan In placement, a specific credential name —
+all of that is visible in the config panels, but only if you already know
+which node to open and what question to ask. Good notes answer that up front,
+for two audiences at once:
+
+- **A human** picking a workflow to clone or extend, who shouldn't have to
+  reverse-engineer 10 nodes to learn that, say, this workflow removes every
+  other user from the device's config.
+- **The AI collaborator** (`doc/ai_collaboration/PROCESS.md` → "The workflow
+  gallery"), which is instructed to skim every gallery workflow's
+  `name`/`description`/`notes` before proposing a plan for a new one, precisely
+  so it can reuse an existing pattern or avoid stepping on a documented
+  gotcha instead of guessing from the canvas alone. Notes that are missing,
+  generic, or out of date are worse than useless here — they cost a skim-pass
+  read for zero information, or worse, feed a wrong assumption into a proposed
+  plan.
+
+In other words: this isn't documentation for its own sake. A well-written
+`notes` field is live input into future workflow-building decisions, human or
+AI — it's worth the same care as the canvas itself.
+
+### A structure to reuse
+
+Not every workflow needs every section below — include only what's actually
+true for that workflow:
+
+```markdown
+# <Workflow Name>
+
+## Purpose
+One or two sentences: what problem this solves, when you'd reach for this
+workflow over a different one.
+
+## Assumptions / prerequisites
+Named credentials, inventories, git repos, or Nautobot data shape this
+workflow expects to exist. Skip if there's nothing beyond the obvious.
+
+## Gotchas
+Anything destructive, irreversible, or order-dependent that isn't obvious
+from the canvas alone — a config that gets removed, a non-fast-forward push
+that will be rejected, a step that must run before another for a reason the
+wiring alone doesn't explain.
+
+## Example
+A worked input/output or pass/fail case, if there is a natural one — most
+useful for verification/check-style workflows, less so for pure ETL ones.
+```
+
+### Two things that matter more than the exact headers
+
+1. **Omit empty sections.** A `## Gotchas` header with nothing under it is
+   worse than no header at all — it costs a skim-pass read for zero
+   information. Only write a section when there's something real to say.
+2. **Consistency across workflows matters more than depth in any one
+   workflow.** Every workflow reliably having a one-line `## Purpose` is more
+   valuable than one workflow having an exhaustive wiki while the rest have
+   nothing — a skim pass across many workflows depends on knowing where to
+   look, not on any single file being thorough.

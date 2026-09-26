@@ -14,7 +14,7 @@ git"):
   context.devices -- no live device contact at all, suitable for refreshing
   a production-scale network on a schedule (see
   workflow_steps.batfish_init_snapshot.git_source). Ignores context.devices
-  entirely; pair with an upstream batfish-start-run step to satisfy the
+  entirely; pair with an upstream get-batfish-devices step to satisfy the
   canvas's requires: [identity] connection rule without a real
   device-selection step.
 

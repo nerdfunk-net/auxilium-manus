@@ -11,7 +11,7 @@ import type { ParsedConfigEntry } from "./types";
 
 /**
  * Detail-dialog "Device configs" section. Shows raw running/startup config and,
- * when a parse step (parse-cisco-config / get-pyats-config) also ran, exposes the
+ * when a parse step (parse-cisco-config / get-pyats-running-config) also ran, exposes the
  * parsed structure behind a Raw / Parsed tab switch.
  */
 export function DeviceConfigSection({

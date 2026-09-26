@@ -1,11 +1,11 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-22T21:53:46.985Z",
+  "exported_at": "2026-09-25T21:33:28.967Z",
   "name": "Get Backups",
   "description": "Get Backups",
   "folder": "Gallery",
   "visibility": "private",
-  "notes": null,
+  "notes": "# Get Backups\n\n## Purpose\nThis workflow downloads the running and startup configs from the devices, pulls the repository, writes the configs to the repo and pushes the configs to the git. It collects statistical data and sends notifications if a backup fails or at the end of the workflow.\n\n## Assumptions / prerequisites\n* credentials: noc credentials\n* inventory: 'Full lab env' \n* git repository: the configured git repo for device configs\n* nautobot: the default nautobot source\n\n## Gotchas\nnothing destructive; fan out is used in the \"Get from Nautobot\" step. Fan-in is used before pulling the git repo.\n\n## Example\n\nFor a device named `LAB` at Nautobot location `Hamburg`, this workflow\nwrites:\n\n    configs/Hamburg/LAB.running.cfg\n    configs/Hamburg/LAB.startup.cfg\n\ninto git repository 'device-configs', one commit per run (`git-push`'s\n`commit_message_template`: `\"Backup of {timestamp}\"`) — `git-pull` first\nfast-forwards the local working tree to the remote tip. For N devices, that's\n2×N files touched but exactly one commit/push (both `store-artifact` nodes have\n`commit_after_write`/`push_after_write: false` — only the trailing `Git Push`\nstep commits, over the whole merged set of files).\n",
   "canvas_nodes": [
     {
       "id": "get-nautobot-devices-1",

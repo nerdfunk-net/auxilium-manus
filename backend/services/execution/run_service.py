@@ -33,10 +33,13 @@ from models.runs import (
     WorkflowStepResultResponse,
 )
 from models.workflow_context import DeviceContext
+from repositories.plugin_repository import PluginRepository
 from repositories.run_repository import RunRepository
 from repositories.workflow_repository import WorkflowRepository
 from services.artifacts import ArtifactNotFoundError, FilesystemArtifactService
 from services.execution.run_input_validation import RunInputValidationError, resolve_run_inputs
+from services.plugin_registry.plugin_registry_service import PluginRegistryService
+from services.workflow.workflow_validation_service import WorkflowValidationService
 from services.workflow_context.attribute_path import resolve_device_attribute_state
 from services.workflow_context.attribute_path_discovery import (
     build_attribute_path_tree,
@@ -117,11 +120,51 @@ def _run_to_response(
 
 
 class RunService:
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self, db: Session, plugin_registry_service: PluginRegistryService | None = None
+    ) -> None:
         self.db = db
         self.run_repo = RunRepository(db)
         self.wf_repo = WorkflowRepository(db)
         self.artifact_service = FilesystemArtifactService(settings.data_directory)
+        self._plugin_registry_service = plugin_registry_service
+
+    def _validator(self) -> WorkflowValidationService:
+        # Callers that already have the app-wide cached PluginRegistryService
+        # (routers, via Depends(get_plugin_service)) should pass it in; anyone
+        # else (ChangeRequestService, which never threads one through) gets a
+        # freshly-built one here — same one-file-parse-per-call construction
+        # ai_workflow_apply.py/ai_defaults.py already use, cheap enough for an
+        # infrequent gate check.
+        registry_service = self._plugin_registry_service or PluginRegistryService(
+            PluginRepository(plugins_file=settings.plugins_file)
+        )
+        return WorkflowValidationService(self.db, registry_service)
+
+    def _assert_no_blocking_validation_errors(
+        self, workflow: Workflow, *, acting_user_id: int | None
+    ) -> None:
+        """Refuse to run a workflow with unresolved Tier 1-3 validation errors
+        — see doc/ai_collaboration/VALIDATION_PLAN.md's "pre-run gate" and
+        PROCESS.md's "Pre-run validation gate" open item. Unconditional: no
+        override, matching the existing convention for a scheduled trigger's
+        run-input validation (hatchet/workflows/scheduled_trigger.py), which
+        already hard-fails the same way with no bypass. Tier 4 findings are
+        advisory-only (severity="warning") and never block, per
+        WorkflowValidationResult.has_errors' own definition."""
+        validation = self._validator().validate(
+            workflow.canvas_nodes or [],
+            workflow.canvas_edges or [],
+            acting_user_id=acting_user_id,
+        )
+        if not validation.has_errors:
+            return
+        error_summary = "; ".join(
+            f"{f.code}: {f.message}" for f in validation.findings if f.severity == "error"
+        )
+        raise ValidationFailedError(
+            f"Cannot run: workflow has unresolved validation errors — {error_summary}"
+        )
 
     def _assert_workflow_access(self, workflow_id: int, user_id: int) -> Workflow:
         wf_result = self.wf_repo.get_by_id(workflow_id)
@@ -144,13 +187,23 @@ class RunService:
     ) -> WorkflowRun:
         """Create a WorkflowRun and dispatch it into the Hatchet engine.
 
-        The single blessed run-creation path — shared by manual triggers
-        (``trigger_run``), scheduled triggers, and change-request approvals.
-        ``run_inputs`` must already be resolved/validated by the caller (the
-        approval path replays captured inputs verbatim and must NOT re-resolve
-        ``reference`` values the approver cannot see). On a dispatch failure the
-        run is marked ``failed`` and a 500 is raised.
+        The blessed run-creation path for interactive triggers — shared by
+        manual triggers (``trigger_run``) and change-request approvals
+        (``ChangeRequestService._dispatch_deploy``). NOT shared by scheduled
+        triggers despite what an earlier version of this docstring claimed —
+        ``hatchet/workflows/scheduled_trigger.py`` has its own independent
+        run-creation code (no interactive caller to raise an exception at, so
+        it creates the run row unconditionally and marks it ``failed`` on any
+        precondition failure instead); that file's own pre-run validation
+        check mirrors the one below. ``run_inputs`` must already be
+        resolved/validated by the caller (the approval path replays captured
+        inputs verbatim and must NOT re-resolve ``reference`` values the
+        approver cannot see). Refuses (``ValidationFailedError``, before any
+        run row is created) if the workflow has unresolved Tier 1-3 validation
+        errors — see ``_assert_no_blocking_validation_errors``. On a dispatch
+        failure the run is marked ``failed`` and a 500 is raised.
         """
+        self._assert_no_blocking_validation_errors(workflow, acting_user_id=triggered_by_id)
         run = self.run_repo.create_run(
             workflow_id=workflow.id,
             triggered_by_id=triggered_by_id,

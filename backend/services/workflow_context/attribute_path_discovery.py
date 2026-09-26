@@ -47,7 +47,7 @@ _RAW_CONFIG_PLACEHOLDER = "(raw config — not browsable)"
 def _looks_like_raw_config(value: Any) -> bool:
     """True when a dict's own keys look like literal CLI config lines rather
     than field names — e.g. Genie's raw ``show running-config`` parse result
-    (``get-pyats-config``), keyed by lines such as ``"interface Ethernet0/0"``
+    (``get-pyats-running-config``), keyed by lines such as ``"interface Ethernet0/0"``
     or ``"ip address ... secondary"`` (see doc/PYATS_INTEGRATION.md).
 
     Real structured data — device fields, a parsed-config *model* (Cisco

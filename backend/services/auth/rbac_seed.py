@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from dataclasses import dataclass
 
+from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
 
+from core.models.users import User
 from repositories.rbac_repository import RBACRepository
+from repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
+
+_password_hash = PasswordHash.recommended()
+
+AI_ASSISTANT_USERNAME = "ai-assistant"
 
 DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("git.repositories", "read", "View git repository configurations"),
@@ -94,7 +102,28 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
 SYSTEM_ROLES: dict[str, str] = {
     "admin": "Full access to every resource and action",
     "viewer": "Read-only access to every resource",
+    "ai-assistant": "Restricted role for the AI workflow-building assistant",
 }
+
+# Curated allowlist, not derived from DEFAULT_PERMISSIONS like admin ("everything")
+# or viewer ("every read") — this role must never gain workflows:execute/publish/
+# delete, change_requests:approve, credentials:reveal, or anything under
+# rbac.*/users/system.*/secret_manager.* (see doc/ai_collaboration/PROCESS.md).
+AI_ASSISTANT_PERMISSIONS: list[tuple[str, str]] = [
+    ("workflows", "read"),
+    ("workflows", "write"),
+    ("credentials", "read"),
+    ("git.repositories", "read"),
+    ("sources.nautobot", "read"),
+    ("sources.mattermost", "read"),
+    ("sources.batfish", "read"),
+    ("sources.pyats", "read"),
+    ("templates", "read"),
+    ("templates", "write"),
+    # No templates:delete -- ai_template_apply.py never exposes a delete verb;
+    # AI drafts/edits templates but a human must remove one, same convention
+    # as workflows:write without workflows:delete above.
+]
 
 
 def seed_rbac(db: Session) -> None:
@@ -123,10 +152,39 @@ def seed_rbac(db: Session) -> None:
         if viewer_role is not None and action == "read":
             repo.assign_permission_to_role(viewer_role.id, permission.id, granted=True)
 
+    ai_assistant_role = repo.get_role_by_name("ai-assistant")
+    if ai_assistant_role is not None:
+        for resource, action in AI_ASSISTANT_PERMISSIONS:
+            permission = repo.get_permission(resource, action)
+            if permission is not None:
+                repo.assign_permission_to_role(ai_assistant_role.id, permission.id, granted=True)
+
     logger.info(
         "RBAC seed complete: %s permissions, %s system roles",
         len(DEFAULT_PERMISSIONS),
         len(SYSTEM_ROLES),
+    )
+
+
+def ensure_ai_assistant_user(db: Session) -> User:
+    """Idempotently seed the restricted `ai-assistant` service account.
+
+    Created inactive: this account never logs in interactively (its password is
+    random and discarded), and `is_active=False` is the global kill-switch an admin
+    must flip on in Settings -> Users before backend/scripts/ai_workflow_apply.py
+    will do anything — see doc/ai_collaboration/PROCESS.md. Callers pass their own
+    UserRepository to keep this in the caller's transaction (mirrors
+    AuthService.ensure_initial_admin's get-or-create idiom).
+    """
+    users = UserRepository(db)
+    existing_user = users.get_by_username(AI_ASSISTANT_USERNAME)
+    if existing_user is not None:
+        return existing_user
+
+    return users.create_user(
+        username=AI_ASSISTANT_USERNAME,
+        password_hash=_password_hash.hash(secrets.token_urlsafe(32)),
+        is_active=False,
     )
 
 

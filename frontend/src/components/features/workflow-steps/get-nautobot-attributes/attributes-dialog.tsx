@@ -54,9 +54,12 @@ export function AttributesDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Select Attribute Groups</DialogTitle>
+          <DialogTitle>Select Optional Attribute Groups</DialogTitle>
           <DialogDescription>
-            Choose which Nautobot attribute groups to retrieve for each device.
+            Choose which additional Nautobot attribute groups to retrieve for each
+            device. Core fields (ID, name, role, device type, platform, location,
+            status) are always fetched regardless of what you select here — leaving
+            everything unchecked is a valid choice if you only need those.
           </DialogDescription>
         </DialogHeader>
 

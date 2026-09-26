@@ -3,7 +3,7 @@
 Pure local computation -- no network I/O. Resolves the configured credential
 once, computes each device's pyATS os/host, and writes a sealed connection
 bundle into every device's ``attribute_bags["pyats_testbed"]`` bag so
-downstream pyATS-backed steps (e.g. get-pyats-config) don't need their own
+downstream pyATS-backed steps (e.g. get-pyats-running-config) don't need their own
 credential/source configuration. See "Calling pyATS from a step" in
 doc/WORKFLOW-STEPS.md.
 """

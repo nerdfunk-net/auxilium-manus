@@ -159,7 +159,18 @@ export function useCanvasNodeChanges({
       if (nextAllEdges !== allEdges) setAllEdges(nextAllEdges);
       if (nextGroups !== groups) setGroups(nextGroups);
 
-      const hasContentChange = changes.some((c) => c.type !== "select");
+      // "select" is UI-only. "dimensions" without `resizing` is React Flow's
+      // own passive auto-measurement report on first mount (fires for any
+      // node loaded without a pre-baked `measured` size — e.g. one created
+      // through backend/scripts/ai_workflow_apply.py, which can't know the
+      // real rendered pixel size ahead of time) — not a user edit, so it must
+      // not mark the canvas dirty. An actual drag-resize (labelNode/
+      // backgroundNode) sets `resizing: true`/`false` and still counts.
+      const hasContentChange = changes.some((c) => {
+        if (c.type === "select") return false;
+        if (c.type === "dimensions" && c.resizing === undefined) return false;
+        return true;
+      });
       if (hasContentChange) markDirty();
     },
     [

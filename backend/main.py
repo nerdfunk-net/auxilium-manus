@@ -56,6 +56,7 @@ from routers.system import router as system_router
 from routers.templates import router as templates_router
 from routers.users import router as users_router
 from routers.webhooks import router as webhooks_router
+from routers.workflow_ai_session import router as workflow_ai_session_router
 from routers.workflow_background_tier import router as workflow_background_tier_router
 from routers.workflow_crypto_attribute import router as workflow_crypto_attribute_router
 from routers.workflow_runs import router as workflow_runs_router
@@ -65,7 +66,7 @@ from routers.workflow_update_attribute import router as workflow_update_attribut
 from routers.workflow_update_content import router as workflow_update_content_router
 from routers.workflows import router as workflows_router
 from services.auth.auth_service import AuthService
-from services.auth.rbac_seed import seed_rbac
+from services.auth.rbac_seed import ensure_ai_assistant_user, seed_rbac
 from services.auth.rbac_service import RBACService
 from services.batfish.client import BatfishService
 from services.health.ready import build_ready_response
@@ -99,6 +100,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 admin_user.username,
             )
             rbac.assign_role_to_user_by_name(admin_user.id, "admin")
+
+        ai_assistant_user = ensure_ai_assistant_user(db)
+        rbac.assign_role_to_user_by_name(ai_assistant_user.id, "ai-assistant")
+
         LoggingSettingsService(db).apply_to_current_process("app")
 
     plugin_service = PluginRegistryService(
@@ -185,6 +190,7 @@ app.include_router(workflow_schedules_router, prefix=settings.api_prefix)
 app.include_router(change_requests_router, prefix=settings.api_prefix)
 app.include_router(webhooks_router, prefix=settings.api_prefix)
 app.include_router(workflow_background_tier_router, prefix=settings.api_prefix)
+app.include_router(workflow_ai_session_router, prefix=settings.api_prefix)
 app.include_router(dashboard_router, prefix=settings.api_prefix)
 app.include_router(statistics_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)

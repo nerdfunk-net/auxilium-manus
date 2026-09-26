@@ -15,6 +15,7 @@ import { MultiSelectPanel } from "./multi-select-panel";
 import { SelectedEdgePanel } from "./selected-edge-panel";
 import { SelectedStepPanel } from "./selected-step-panel";
 import { StepCatalog } from "./step-catalog";
+import { WorkflowAiSessionPanel } from "./workflow-ai-session-panel";
 import { WorkflowBackgroundTierPanel } from "./workflow-background-tier-panel";
 import { WorkflowStaticAttributesPanel } from "./workflow-static-attributes-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
@@ -252,6 +253,7 @@ export function WorkflowPropertiesPanel({
                 onChange={onStaticAttributesChange}
               />
               <WorkflowBackgroundTierPanel />
+              <WorkflowAiSessionPanel />
             </div>
           )}
         </div>

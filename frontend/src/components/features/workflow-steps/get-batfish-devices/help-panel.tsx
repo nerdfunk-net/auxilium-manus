@@ -3,10 +3,10 @@
 import { HelpCode, HelpExample, HelpSection, HelpWarning } from "../shared/step-help";
 
 /**
- * Built-in Help tab content for Get from Batfish (batfish-start-run).
+ * Built-in Help tab content for Get from Batfish (get-batfish-devices).
  * Covers the three auto-detected behaviors and the config that drives them.
  */
-export function BatfishStartRunHelpPanel() {
+export function GetBatfishDevicesHelpPanel() {
   return (
     <div className="space-y-6">
       <HelpSection title="What this step does">

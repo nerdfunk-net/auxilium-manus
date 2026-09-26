@@ -121,15 +121,16 @@ function GetNautobotAttributesConfigPanel({
           <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
             string_list
           </Badge>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="outline">
+            optional
+          </Badge>
         </div>
 
-        {selected.length > 0 ? (
-          <p className="text-[11px] text-muted-foreground">
-            {selected.length} group{selected.length !== 1 ? "s" : ""} selected
-          </p>
-        ) : (
-          <p className="text-[11px] text-warning-foreground">No attributes selected</p>
-        )}
+        <p className="text-[11px] text-muted-foreground">
+          {selected.length > 0
+            ? `${selected.length} optional group${selected.length !== 1 ? "s" : ""} selected`
+            : "No optional groups selected — core fields (role, device type, location, status, …) are still fetched"}
+        </p>
 
         <Button
           className="h-7 w-full text-xs"

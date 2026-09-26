@@ -1,4 +1,4 @@
-"""Tests for get-pyats-config executor."""
+"""Tests for get-pyats-running-config executor."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from models.workflow_context import Capability, DeviceContext, DeviceStatus, Wor
 from services.artifacts import InMemoryArtifactService
 from services.pyats.common.exceptions import PyATSAPIError, PyATSValidationError
 from services.workflow_context.secret_fields import seal_secret
-from workflow_steps.get_pyats_config.executor import execute
+from workflow_steps.get_pyats_running_config.executor import execute
 
 _CONFIG_SERVICE_TARGET = "workflow_steps.common.pyats_batch.PyATSSourceConfigService"
-_SERVICE_FACTORY_TARGET = "workflow_steps.get_pyats_config.executor.service_factory"
+_SERVICE_FACTORY_TARGET = "workflow_steps.get_pyats_running_config.executor.service_factory"
+_OBJECT_SESSION_TARGET = "workflow_steps.get_pyats_running_config.executor.object_session"
 
 
 def _device_with_testbed(
@@ -53,13 +54,13 @@ def _shim_success_response(device_ids: list[str]) -> dict:
     }
 
 
-class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
+class GetPyatsRunningConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_stores_parsed_config_on_success(self) -> None:
         run = MagicMock()
         run.id = 1
         db = MagicMock()
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -100,7 +101,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         db = MagicMock()
         device = DeviceContext(id="device-1", name="r1", hostname="r1", status=DeviceStatus.OK)
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
             shim = MagicMock()
@@ -130,7 +131,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
         run.id = 1
         db = MagicMock()
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -179,7 +180,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             }
         }
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -227,7 +228,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             "device-2": _device_with_testbed("device-2"),
         }
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -266,7 +267,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             "device-2": _device_with_testbed("device-2", source_id="lab-b"),
         }
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -302,7 +303,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             f"device-{i}": _device_with_testbed(f"device-{i}") for i in range(6)
         }
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):
@@ -339,7 +340,7 @@ class GetPyatsConfigExecutorTests(unittest.IsolatedAsyncioTestCase):
             "device-2": _device_with_testbed("device-2"),
         }
         with (
-            patch("workflow_steps.get_pyats_config.executor.object_session", return_value=db),
+            patch(_OBJECT_SESSION_TARGET, return_value=db),
             patch(_CONFIG_SERVICE_TARGET) as config_service_cls,
             patch(_SERVICE_FACTORY_TARGET) as service_factory_mock,
         ):

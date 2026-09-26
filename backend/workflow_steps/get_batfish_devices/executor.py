@@ -1,4 +1,4 @@
-"""Executor for the batfish-start-run step ("Get from Batfish").
+"""Executor for the get-batfish-devices step ("Get from Batfish").
 
 Three-way auto-detected behavior, no mode/toggle config field -- see
 doc/BATFISH_INTEGRATION.md "Get from Batfish" for the full explanation:
@@ -44,15 +44,15 @@ from core.models.runs import WorkflowRun
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.batfish.query_helpers import query_node_properties
-from workflow_steps.batfish_start_run.config import get_config
 from workflow_steps.common.batfish_context import devices_from_nodes, resolve_batfish_snapshot_ref
+from workflow_steps.get_batfish_devices.config import get_config
 
 if TYPE_CHECKING:
     from services.network.netmiko.session_pool import DeviceSessionPool
 
 logger = logging.getLogger(__name__)
 
-_STEP_ID = "batfish-start-run"
+_STEP_ID = "get-batfish-devices"
 
 
 async def execute(

@@ -15,6 +15,7 @@ from core.models.settings import Setting
 from core.models.templates import Template
 from core.models.user_preferences import UserPreference
 from core.models.users import User
+from core.models.workflow_ai_session import WorkflowAiSession
 from core.models.workflow_changes import WorkflowChange
 from core.models.workflows import Workflow
 
@@ -38,6 +39,7 @@ __all__ = [
     "UserPreference",
     "UserRole",
     "Workflow",
+    "WorkflowAiSession",
     "WorkflowBackgroundTier",
     "WorkflowChange",
     "WorkflowRun",

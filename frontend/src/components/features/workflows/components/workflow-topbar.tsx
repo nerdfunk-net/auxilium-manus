@@ -10,6 +10,7 @@ import {
   Play,
   Save,
   SaveAll,
+  ShieldCheck,
   StepForward,
 } from "lucide-react";
 
@@ -39,6 +40,8 @@ interface WorkflowTopbarProps {
   onSaveAs: () => void;
   onVersionControl: () => void;
   onRun: () => void;
+  onValidate: () => void;
+  isValidating: boolean;
 }
 
 export function WorkflowTopbar({
@@ -49,6 +52,8 @@ export function WorkflowTopbar({
   onSaveAs,
   onVersionControl,
   onRun,
+  onValidate,
+  isValidating,
 }: WorkflowTopbarProps) {
   const workflowId = useWorkflowBuilderStore((state) => state.workflowId);
   const workflowName = useWorkflowBuilderStore((state) => state.workflowName);
@@ -143,6 +148,15 @@ export function WorkflowTopbar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <Button
+          variant="outline"
+          disabled={!workflowId || isValidating}
+          onClick={onValidate}
+        >
+          <ShieldCheck className="size-4" />
+          {isValidating ? "Validating…" : "Validate"}
+        </Button>
 
         <Button onClick={onRun}>
           <Play className="size-4" />

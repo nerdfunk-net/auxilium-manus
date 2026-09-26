@@ -93,9 +93,9 @@ backend/hatchet/worker_services.py         # PyATSShimService lifespan startup/s
 backend/services/auth/rbac_seed.py         # sources.pyats read/write/delete permissions
 
 backend/workflow_steps/common/pyats_batch.py # shared: group devices by pyats_source_id, chunk, one
-                                              # run_job() per chunk -- used by get-pyats-config and
+                                              # run_job() per chunk -- used by get-pyats-running-config and
                                               # get-pyats-snapshot (see "Get & Parse Config" below)
-backend/workflow_steps/get_pyats_config/
+backend/workflow_steps/get_pyats_running_config/
 ├── executor.py                            # POST /v1/jobs (operation="parse"), batched via pyats_batch
 └── config.py
 backend/workflow_steps/get_pyats_snapshot/
@@ -109,7 +109,7 @@ backend/tests/unit/test_pyats_source_config_service.py
 backend/tests/unit/test_pyats_router_auth.py
 backend/tests/unit/test_pyats_client.py
 backend/tests/unit/test_pyats_batch.py
-backend/tests/unit/test_get_pyats_config_executor.py
+backend/tests/unit/test_get_pyats_running_config_executor.py
 backend/tests/unit/test_get_pyats_snapshot_executor.py
 backend/tests/unit/test_compare_pyats_snapshot_executor.py
 pyats-shim/tests/test_diff.py                # genie-gated -- see "Genie-native snapshot comparison" below
@@ -309,7 +309,7 @@ Downstream pyATS steps declare `requires: [pyats_testbed]` and read this
 bag instead of asking for their own credential/source — define once, reuse
 across every pyATS step in the workflow.
 
-### Get & Parse Config (`get-pyats-config`)
+### Get & Parse Config (`get-pyats-running-config`)
 
 `requires: [identity, pyats_testbed]`, `produces: [parsed]`. For every
 device, reads its `pyats_testbed` bag and `unwrap_secret()`s the password
@@ -525,7 +525,7 @@ timer is device-side, not tied to the CLI session that issued it.
 auto-revert on its own timer -- whenever the post-change snapshot can't be
 captured at all (the strongest signal the replace broke connectivity) or
 when it differs from the pre-change baseline; both cases are reported as a
-step failure. Like `get-pyats-config`/`get-pyats-snapshot`, this step reads
+step failure. Like `get-pyats-running-config`/`get-pyats-snapshot`, this step reads
 credentials and device connection info entirely from the `pyats_testbed`
 bag written by an upstream Add Testbed step. See
 `workflow_steps/configure_replace_config/executor.py`.
@@ -537,7 +537,7 @@ bag written by an upstream Add Testbed step. See
   taking well over 90 seconds against an unreachable address in testing.
   The outer `JobRunner` timeout bounds worst-case latency, but hitting it
   fails the **entire batch**, not just the unreachable device. This item's
-  priority went up once `get-pyats-config`/`get-pyats-snapshot` started
+  priority went up once `get-pyats-running-config`/`get-pyats-snapshot` started
   batching multiple devices into one `run_job()` call (see "Get & Parse
   Config" above): device connects run sequentially inside a job, so a
   hung/unreachable device now serially delays every other device queued
