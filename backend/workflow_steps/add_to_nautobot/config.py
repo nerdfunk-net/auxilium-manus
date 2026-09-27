@@ -24,4 +24,5 @@ def get_config() -> dict:
         "default_prefix_length": "/24",
         "virtual_chassis": {"mode": "none", "id": "", "name": ""},
         "dry_run": False,
+        "refresh_attributes_after_create": True,
     }

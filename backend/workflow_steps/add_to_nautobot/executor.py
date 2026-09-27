@@ -51,6 +51,7 @@ class _ParsedConfig:
     interfaces_source: str
     default_prefix_length: str
     manual_interfaces: list[dict[str, Any]]
+    refresh_attributes_after_create: bool
 
 
 def _all_custom_fields_from_bag(device: DeviceContext) -> dict[str, str] | None:
@@ -153,6 +154,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         interfaces_source=interfaces_source,
         default_prefix_length=default_prefix_length,
         manual_interfaces=manual_interfaces,
+        refresh_attributes_after_create=bool(config.get("refresh_attributes_after_create", True)),
     )
 
 
@@ -255,19 +257,27 @@ async def _create_one_device(
             )
             return device_key, enriched, True
 
-        enriched = device.model_copy(
-            update={
-                "id": str(result["device_id"]),
-                "name": result.get("device_name") or device.name,
-                "source": "nautobot",
-                "status": DeviceStatus.OK,
-                "attribute_bags": {
-                    **device.attribute_bags,
-                    "nautobot": result.get("device") or {},
-                },
-                "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+        update_fields: dict[str, Any] = {
+            "name": result.get("device_name") or device.name,
+            "status": DeviceStatus.OK,
+            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+        }
+        if parsed.refresh_attributes_after_create:
+            # Merge (never replace) the freshly created device's REST response into
+            # the existing bag: it has no `interfaces` key (device interfaces are a
+            # separate Nautobot resource), so a wholesale replace here silently wiped
+            # out `interfaces`/anything else an upstream step (e.g.
+            # config-to-attributes) had already written into `attribute_bags.nautobot`
+            # for a later `update-nautobot-device` step to push.
+            existing_bag = device.attribute_bags.get("nautobot") or {}
+            update_fields["id"] = str(result["device_id"])
+            update_fields["source"] = "nautobot"
+            update_fields["attribute_bags"] = {
+                **device.attribute_bags,
+                "nautobot": {**existing_bag, **(result.get("device") or {})},
             }
-        )
+
+        enriched = device.model_copy(update=update_fields)
         return device_key, enriched, True
     except Exception as exc:
         code = "device_already_exists" if _is_already_exists(exc) else type(exc).__name__.lower()

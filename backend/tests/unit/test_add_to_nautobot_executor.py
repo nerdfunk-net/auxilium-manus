@@ -502,6 +502,98 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         failed = failure_outcome.context.devices["dev-1"]
         self.assertEqual(failed.errors[-1].code, "device_already_exists")
 
+    async def test_refresh_attributes_merges_bag_and_keeps_upstream_interfaces(self) -> None:
+        """Regression test: creating a device must not wipe out `interfaces` (or any
+        other key) an upstream step like config-to-attributes already wrote into the
+        device's `nautobot` attribute bag — the create response has no `interfaces`
+        key of its own (it's a separate Nautobot resource), so overwriting the whole
+        bag with it silently dropped them before update-nautobot-device ever ran."""
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-device-uuid-7",
+                "device_name": "LAB",
+                "device": {
+                    "id": "nb-device-uuid-7",
+                    "name": "LAB",
+                    "location": {"id": "loc-uuid-1"},
+                },
+                "interfaces_created": 0,
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": [],
+            }
+        )
+        device = _device(
+            "dev-1",
+            name="LAB",
+            nautobot_bag={"interfaces": [{"name": "Ethernet0/1"}]},
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        bag = updated.attribute_bags["nautobot"]
+        self.assertEqual(bag["interfaces"], [{"name": "Ethernet0/1"}])
+        self.assertEqual(bag["id"], "nb-device-uuid-7")
+        self.assertEqual(bag["location"], {"id": "loc-uuid-1"})
+
+    async def test_refresh_attributes_after_create_disabled_leaves_device_untouched(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-device-uuid-8",
+                "device_name": "LAB",
+                "device": {"id": "nb-device-uuid-8", "name": "LAB"},
+                "interfaces_created": 0,
+                "interfaces_failed": 0,
+                "warnings": [],
+                "errors": [],
+            }
+        )
+        config = {**_BASE_CONFIG, "refresh_attributes_after_create": False}
+        device = _device(
+            "dev-1",
+            name="LAB",
+            nautobot_bag={"interfaces": [{"name": "Ethernet0/1"}]},
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=config,
+                context=_context({"dev-1": device}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        updated = outcomes[0].context.devices["dev-1"]
+        # id/source untouched (still the pre-create workflow identity) ...
+        self.assertEqual(updated.id, "dev-1")
+        self.assertEqual(updated.source, "list")
+        # ... and the bag is exactly what it was before create-device ran.
+        self.assertEqual(
+            updated.attribute_bags["nautobot"], {"interfaces": [{"name": "Ethernet0/1"}]}
+        )
+        self.assertIs(updated.status, DeviceStatus.OK)
+
     async def test_unrelated_api_error_keeps_generic_code(self) -> None:
         create_device = AsyncMock(
             side_effect=NautobotAPIError("REST request failed with status 400: bad request")

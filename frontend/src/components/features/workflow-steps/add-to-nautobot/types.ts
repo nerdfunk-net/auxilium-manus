@@ -61,6 +61,9 @@ export interface AddToNautobotConfig {
   default_prefix_length?: string;
   virtual_chassis?: VirtualChassisConfig;
   dry_run?: boolean;
+  /** Refresh the device's `id`/`source`/`attribute_bags.nautobot` from the create
+   * response (merged into the existing bag, never replacing it). Default true. */
+  refresh_attributes_after_create?: boolean;
 }
 
 interface FieldDefinition {

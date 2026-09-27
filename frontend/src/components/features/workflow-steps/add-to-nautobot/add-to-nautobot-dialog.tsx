@@ -126,6 +126,7 @@ function AddToNautobotDialogForm({
       default_prefix_length: draft.default_prefix_length ?? "/24",
       virtual_chassis: virtualChassis,
       dry_run: draft.dry_run ?? false,
+      refresh_attributes_after_create: draft.refresh_attributes_after_create ?? true,
     });
     onClose();
   };
@@ -266,6 +267,26 @@ function AddToNautobotDialogForm({
         </section>
 
         <VirtualChassisSection virtualChassis={virtualChassis} onPatch={patchVirtualChassis} />
+
+        <section className="space-y-2 border-t pt-3">
+          <div className="flex items-center justify-between">
+            <Label className="font-mono text-xs font-medium">refresh_attributes_after_create</Label>
+            <Switch
+              checked={draft.refresh_attributes_after_create ?? true}
+              onCheckedChange={(checked) =>
+                setDraft((current) => ({ ...current, refresh_attributes_after_create: checked }))
+              }
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            After creating the device, merge its real Nautobot UUID and resolved fields
+            (role/status/location/…) back into this device — recommended, so later steps can
+            reference it unambiguously by ID. Existing attribute bag values (e.g. interfaces
+            staged by an earlier step) are kept, never replaced. Turn off only if you don&apos;t
+            want this step to touch the device&apos;s ID/attribute bag at all — a later step can
+            still resolve the device by name or IP.
+          </p>
+        </section>
 
         <section className="space-y-2 border-t pt-3">
           <div className="flex items-center justify-between">
