@@ -409,6 +409,43 @@ All three are covered by new unit tests (`test_attribute_path_discovery.py`,
 `route-on-attribute` description and the `Update Attribute` step's frontend
 Help tab, in addition to this log entry.
 
+**Update 2026-09-27 (continued — `canvas_groups` had no backend consistency
+check at all):** found while reviewing the `onboarding` workflow's newly
+added `Set Nautobot Attributes` canvas group for a wiki-notes update. The
+canvas UI's own node-deletion path (`use-canvas-node-changes.ts`'s
+`removeRealNodes`) already keeps a group's `nodeIds` in sync when a human
+deletes a member node through it, and the frontend additionally repairs any
+orphaned reference on load (`canvas-group-projection.ts`'s
+`repairOrphanGroups`) — but neither of those ran anywhere on the backend.
+`ai_workflow_apply.py` (or any other caller writing `canvas_nodes`/
+`canvas_groups` directly) could silently persist a group referencing a node
+that no longer exists, since `WorkflowService._apply_update`/`create_workflow`
+validated cycles, `stop-here`-in-fan-out, and static attributes, but never
+touched `canvas_groups` at all. Fixed:
+`WorkflowService._repair_orphan_groups` (new) ports the same repair the
+frontend already does — drop dangling member ids, dissolve any group left
+with fewer than 2 members — and now runs in both `create_workflow` and
+`_apply_update` (so it covers `update_workflow`/`update_workflow_for_ai_session`,
+and therefore every `ai_workflow_apply.py` canvas patch) whenever
+`canvas_nodes` or `canvas_groups` is part of the write. `entryNodeId`/
+`exitNodeId` are deliberately left unrepaired, matching `CanvasGroup`'s own
+documented contract (a best-effort cache, re-checked strictly at save/run
+time, not synchronously on every member change) — same scope as the
+frontend's own repair. 11 new unit tests
+(`test_workflow_service_canvas_groups.py`): the pure repair function
+(valid group untouched, dangling member dropped, group dissolved at 1 or 0
+members, entry/exit left alone) plus wiring tests confirming
+`update_workflow`/`create_workflow` actually call it and that an unrelated
+patch (e.g. a bare name change) never touches `canvas_groups` at all.
+
+Practical effect for this doc's "The workflow gallery"/"Building a patch by
+hand" guidance: an AI-authored canvas patch that removes or renames a group
+member no longer needs to also hand-edit `canvas_groups` to stay
+consistent — the backend now repairs it automatically, same as the canvas UI
+already did. It's still good practice to update `canvas_groups` explicitly
+in the same patch when you know a group is affected, rather than relying on
+this as a silent safety net.
+
 ---
 
 ## Goal

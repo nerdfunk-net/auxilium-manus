@@ -124,6 +124,33 @@ def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttri
             )
 
 
+def _repair_orphan_groups(
+    canvas_nodes: list[dict], canvas_groups: list[dict]
+) -> list[dict]:
+    """Drop dangling member ids and dissolve groups left with fewer than 2 members.
+
+    Mirrors the frontend's client-side repair (frontend/.../utils/
+    canvas-group-projection.ts::repairOrphanGroups), which only runs when a
+    human deletes a node through the canvas UI (use-canvas-node-changes.ts's
+    removeRealNodes already keeps canvas_groups in sync at that point). An
+    AI-authored patch (backend/scripts/ai_workflow_apply.py) — or any other
+    caller writing canvas_nodes/canvas_groups directly — bypasses that path
+    entirely, so this backend-side repair is the only thing that catches a
+    group left referencing a node that no longer exists. entryNodeId/
+    exitNodeId are deliberately left unrepaired here too, matching
+    CanvasGroup's own documented contract: a best-effort cache, re-checked
+    strictly at save/run time, not synchronously on every member change.
+    """
+    node_ids = {n["id"] for n in canvas_nodes if "id" in n}
+    repaired: list[dict] = []
+    for group in canvas_groups:
+        surviving_ids = [nid for nid in group.get("nodeIds", []) if nid in node_ids]
+        if len(surviving_ids) < 2:
+            continue
+        repaired.append({**group, "nodeIds": surviving_ids})
+    return repaired
+
+
 def _to_summary(workflow: Workflow, creator_username: str | None) -> WorkflowSummary:
     return WorkflowSummary(
         id=workflow.id,
@@ -209,6 +236,7 @@ class WorkflowService:
         _validate_no_cycle(data.canvas_nodes, data.canvas_edges)
         _validate_stop_here_not_in_fan_out(data.canvas_nodes, data.canvas_edges)
         _validate_static_attributes(data.static_attributes)
+        repaired_groups = _repair_orphan_groups(data.canvas_nodes, data.canvas_groups)
         try:
             workflow = self.repo.create(
                 name=data.name,
@@ -218,7 +246,7 @@ class WorkflowService:
                 visibility=data.visibility,
                 canvas_nodes=data.canvas_nodes,
                 canvas_edges=data.canvas_edges,
-                canvas_groups=data.canvas_groups,
+                canvas_groups=repaired_groups,
                 static_attributes=[attr.model_dump() for attr in data.static_attributes],
                 is_version_controlled=data.is_version_controlled,
             )
@@ -334,6 +362,11 @@ class WorkflowService:
             _validate_stop_here_not_in_fan_out(new_nodes, new_edges)
         if "static_attributes" in updated_fields:
             _validate_static_attributes(updated_fields["static_attributes"] or [])
+        if "canvas_nodes" in updated_fields or "canvas_groups" in updated_fields:
+            updated_fields["canvas_groups"] = _repair_orphan_groups(
+                updated_fields.get("canvas_nodes", workflow.canvas_nodes),
+                updated_fields.get("canvas_groups", workflow.canvas_groups),
+            )
         workflow = self.repo.update(workflow, updated_fields)
         logger.info("Workflow updated id=%s actor_id=%s", workflow.id, actor_id)
         git_result = self.git.sync_workflow_to_git(
