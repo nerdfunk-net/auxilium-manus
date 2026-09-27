@@ -2201,6 +2201,100 @@ plugins:
           required: false
           default: false
 
+  - id: start-nautobot-job
+    name: Start Job
+    overview: Start a Nautobot job and record its job result ID for status checks.
+    description: >
+      Start a Nautobot job for each selected device, resolving required and optional
+      parameters (literal values or {path} attribute expressions), and record the
+      returned job result ID on each device for a downstream status-check step.
+    artifact_type: command_execution
+    palette_category: nautobot
+    directory: start_nautobot_job
+    enabled: true
+    requires: [identity]
+    produces: [nautobot_job]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: job_id
+          description: UUID of the Nautobot job to run, selected via the config panel.
+          data_type: string
+          required: true
+        - name: job_name
+          description: Cached display name of the selected job (for the canvas/config panel).
+          data_type: string
+          required: false
+        - name: job_variables_schema
+          description: >
+            Snapshot of the job's parameter schema (name, type, label, required, default,
+            choices, …), fetched from Nautobot when the job was selected. Refresh via the
+            config panel if the job's variables changed in Nautobot.
+          data_type: object
+          required: false
+        - name: parameters
+          description: >
+            Resolved parameter values keyed by "required" (name → value expression) and
+            "optional" (name → {enabled, value}). A value may be a literal or a {path}
+            attribute expression, resolved per device.
+          data_type: object
+          required: false
+        - name: task_queue
+          description: Optional Celery task queue name to run the job on.
+          data_type: string
+          required: false
+
+  - id: check-nautobot-job
+    name: Check Job
+    overview: Poll a Nautobot job result until it succeeds, fails, or the check budget runs out.
+    description: >
+      Poll a Nautobot job's result status per device, waiting between checks, up to a maximum
+      number of checks. Routes to success only if the job's own result status is SUCCESS —
+      everything else (job failure, still running after the last check, or a check's REST call
+      erroring) routes to failure.
+    artifact_type: command_execution
+    palette_category: nautobot
+    directory: check_nautobot_job
+    enabled: true
+    requires: [identity]
+    produces: [nautobot_job]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: job_uuid
+          description: >
+            UUID of the Nautobot job result to check. A literal UUID or a {path} attribute
+            expression, resolved per device — defaults to {nautobot_job.job_result_id}, the bag
+            Start Job writes.
+          data_type: string
+          required: true
+          default: "{nautobot_job.job_result_id}"
+        - name: max_checks
+          description: Maximum number of status checks before giving up.
+          data_type: integer
+          required: true
+          default: 10
+        - name: interval_seconds
+          description: >
+            Seconds to wait between checks. max_checks × interval_seconds must not exceed 120s.
+          data_type: integer
+          required: true
+          default: 5
+
   - id: update-config-context
     name: Update Config Context
     overview: Add or update a Nautobot device's local config context.

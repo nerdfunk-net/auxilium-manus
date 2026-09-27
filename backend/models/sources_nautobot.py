@@ -193,3 +193,37 @@ class DeviceAttributesRequest(NautobotSourceRef):
 
     device_id: str = Field(..., min_length=1)
     list_of_attributes: list[str] = Field(default_factory=list)
+
+
+class NautobotJobSummary(BaseModel):
+    id: str
+    name: str
+    module_name: str | None = None
+    grouping: str | None = None
+    enabled: bool = True
+    description: str | None = None
+
+
+class NautobotJobListResponse(BaseModel):
+    jobs: list[NautobotJobSummary]
+
+
+class NautobotJobVariable(BaseModel):
+    """Mirrors Nautobot's ``JobVariableSerializer`` (GET .../jobs/{id}/variables/)."""
+
+    name: str
+    type: str
+    label: str | None = None
+    help_text: str | None = None
+    default: Any | None = None
+    required: bool = False
+    min_length: int | None = None
+    max_length: int | None = None
+    min_value: int | None = None
+    max_value: int | None = None
+    choices: Any | None = None
+    model: str | None = None
+
+
+class NautobotJobVariablesResponse(BaseModel):
+    variables: list[NautobotJobVariable]

@@ -37,6 +37,7 @@ from workflow_steps.batfish_ospf_facts.executor import execute as batfish_ospf_f
 from workflow_steps.batfish_path_check.executor import execute as batfish_path_check
 from workflow_steps.batfish_routing_table.executor import execute as batfish_routing_table
 from workflow_steps.batfish_validate_facts.executor import execute as batfish_validate_facts
+from workflow_steps.check_nautobot_job.executor import execute as check_nautobot_job
 from workflow_steps.collect_statistics.executor import execute as collect_statistics
 from workflow_steps.compare_data.executor import execute as compare_data
 from workflow_steps.compare_pyats_snapshot.executor import execute as compare_pyats_snapshot
@@ -87,6 +88,7 @@ from workflow_steps.secret_get.executor import execute as secret_get
 from workflow_steps.secret_set.executor import execute as secret_set
 from workflow_steps.set_default_attributes.executor import execute as set_default_attributes
 from workflow_steps.show_summary.executor import execute as show_summary
+from workflow_steps.start_nautobot_job.executor import execute as start_nautobot_job
 from workflow_steps.stop_here.executor import execute as stop_here
 from workflow_steps.store_artifact.executor import execute as store_artifact
 from workflow_steps.store_in_db.executor import execute as store_in_db
@@ -161,6 +163,8 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "decrypt-attribute": decrypt_attribute,
     "update-content": update_content,
     "update-ise-tacacs-key": update_ise_tacacs_key,
+    "start-nautobot-job": start_nautobot_job,
+    "check-nautobot-job": check_nautobot_job,
     "update-nautobot-device": update_nautobot_device,
     "update-config-context": update_config_context,
     "upload-config": upload_config,

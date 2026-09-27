@@ -2,6 +2,7 @@
 
 import { Search, Trash2 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,11 +18,17 @@ export function NautobotRequiredFieldRow({
   placeholder,
   value,
   onChange,
+  badge,
+  onBrowse,
 }: {
   label: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
+  /** Optional type badge next to the label, e.g. a job parameter's declared type. */
+  badge?: string;
+  /** Renders a "Browse attributes" icon button next to the value input when provided. */
+  onBrowse?: () => void;
 }) {
   const isEmpty = !value.trim();
   return (
@@ -30,15 +37,36 @@ export function NautobotRequiredFieldRow({
         isEmpty ? "border-warning-border bg-warning" : "border-border bg-muted"
       }`}
     >
-      <Label className="text-[11px] font-medium text-muted-foreground">
-        {label} <span className="text-warning-foreground">*</span>
-      </Label>
-      <Input
-        className="h-8 text-xs focus-visible:ring-step/40"
-        placeholder={placeholder}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <div className="flex items-center gap-1.5">
+        <Label className="text-[11px] font-medium text-muted-foreground">
+          {label} <span className="text-warning-foreground">*</span>
+        </Label>
+        {badge ? (
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            {badge}
+          </Badge>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Input
+          className="h-8 text-xs focus-visible:ring-step/40"
+          placeholder={placeholder}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {onBrowse ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-8 shrink-0"
+            onClick={onBrowse}
+            title="Browse attributes"
+          >
+            <Search className="size-3.5" />
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -109,6 +109,10 @@ export const queryKeys = {
       [...queryKeys.sourcesNautobot.all, "custom-fields", sourceId] as const,
     deviceSearch: (sourceId: string, term: string) =>
       [...queryKeys.sourcesNautobot.all, "device-search", sourceId, term] as const,
+    jobs: (sourceId: string, enabledOnly: boolean) =>
+      [...queryKeys.sourcesNautobot.all, "jobs", sourceId, enabledOnly] as const,
+    jobVariables: (sourceId: string, jobId: string) =>
+      [...queryKeys.sourcesNautobot.all, "job-variables", sourceId, jobId] as const,
   },
   sourcesIse: {
     all: ["sources-ise"] as const,

@@ -64,6 +64,8 @@ import { StoreInDbPlugin } from "@/components/features/workflow-steps/store-in-d
 import { OpenChangeRequestPlugin } from "@/components/features/workflow-steps/open-change-request";
 import { FromChangeRequestPlugin } from "@/components/features/workflow-steps/from-change-request";
 import { UpdateNautobotDevicePlugin } from "@/components/features/workflow-steps/update-nautobot-device";
+import { StartNautobotJobPlugin } from "@/components/features/workflow-steps/start-nautobot-job";
+import { CheckNautobotJobPlugin } from "@/components/features/workflow-steps/check-nautobot-job";
 import { UpdateConfigContextPlugin } from "@/components/features/workflow-steps/update-config-context";
 import { UpdateAttributePlugin } from "@/components/features/workflow-steps/update-attribute";
 import { EncryptAttributePlugin } from "@/components/features/workflow-steps/encrypt-attribute";
@@ -131,6 +133,8 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-pull": GitPullPlugin,
   "git-push": GitPushPlugin,
   "update-nautobot-device": UpdateNautobotDevicePlugin,
+  "start-nautobot-job": StartNautobotJobPlugin,
+  "check-nautobot-job": CheckNautobotJobPlugin,
   "update-config-context": UpdateConfigContextPlugin,
   "update-attribute": UpdateAttributePlugin,
   "encrypt-attribute": EncryptAttributePlugin,

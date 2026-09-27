@@ -7,7 +7,8 @@ export type Capability =
   | "startup_config"
   | "parsed"
   | "pending_commands"
-  | "pyats_testbed";
+  | "pyats_testbed"
+  | "nautobot_job";
 
 export const ALL_CAPABILITIES: Capability[] = [
   "identity",
@@ -17,6 +18,7 @@ export const ALL_CAPABILITIES: Capability[] = [
   "parsed",
   "pending_commands",
   "pyats_testbed",
+  "nautobot_job",
 ];
 
 export interface Provided {

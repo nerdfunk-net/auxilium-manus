@@ -23,6 +23,7 @@ class Capability(StrEnum):
     PARSED = "parsed"
     PENDING_COMMANDS = "pending_commands"
     PYATS_TESTBED = "pyats_testbed"
+    NAUTOBOT_JOB = "nautobot_job"
 
 
 class DeviceStatus(StrEnum):

@@ -29,6 +29,10 @@ from models.sources_nautobot import (
     GroupsResponse,
     InventoryPreviewRequest,
     InventoryPreviewResponse,
+    NautobotJobListResponse,
+    NautobotJobSummary,
+    NautobotJobVariable,
+    NautobotJobVariablesResponse,
     NautobotTestConnectionRequest,
     NautobotTestConnectionResponse,
     RenameGroupRequest,
@@ -39,6 +43,8 @@ from services.nautobot.common.exceptions import (
     NautobotValidationError,
 )
 from services.nautobot.credentials import NautobotCredentials
+from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
+from services.nautobot.jobs import NautobotJobsService
 from services.sources.nautobot.connection import test_nautobot_connection
 from services.sources.nautobot.persistence_service import InventoryService
 from services.sources.nautobot.source_service import NautobotSourceService
@@ -61,6 +67,11 @@ def _build_source_service(
         cache_service=service_factory.build_cache_service(),
         persistence_service=persistence,
     )
+
+
+def _build_jobs_service(credentials: NautobotCredentials) -> NautobotJobsService:
+    client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
+    return NautobotJobsService(client)
 
 
 @router.post(
@@ -299,6 +310,46 @@ async def get_field_values(
         }
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to get field values: ", exc)
+
+
+@router.get("/jobs", response_model=NautobotJobListResponse)
+async def list_jobs(
+    enabled_only: bool = True,
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
+    _: User = Depends(get_current_user),
+) -> NautobotJobListResponse:
+    try:
+        jobs = await _build_jobs_service(credentials).list_jobs(enabled_only=enabled_only)
+        return NautobotJobListResponse(
+            jobs=[
+                NautobotJobSummary(
+                    id=str(job.get("id")),
+                    name=str(job.get("name") or job.get("module_name") or job.get("id")),
+                    module_name=job.get("module_name"),
+                    grouping=job.get("grouping"),
+                    enabled=bool(job.get("enabled", True)),
+                    description=job.get("description") or None,
+                )
+                for job in jobs
+            ]
+        )
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to list Nautobot jobs: ", exc)
+
+
+@router.get("/jobs/{job_id}/variables", response_model=NautobotJobVariablesResponse)
+async def get_job_variables(
+    job_id: uuid.UUID,
+    credentials: NautobotCredentials = Depends(nautobot_credentials_from_source_id),
+    _: User = Depends(get_current_user),
+) -> NautobotJobVariablesResponse:
+    try:
+        variables = await _build_jobs_service(credentials).get_job_variables(str(job_id))
+        return NautobotJobVariablesResponse(
+            variables=[NautobotJobVariable(**variable) for variable in variables]
+        )
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to get Nautobot job variables: ", exc)
 
 
 @router.get("/resolve-devices/{inventory_id}")
