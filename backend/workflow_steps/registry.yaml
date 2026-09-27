@@ -2107,6 +2107,20 @@ plugins:
           data_type: boolean
           required: false
           default: false
+        - name: refresh_attributes_after_create
+          description: >
+            After creating the device, merge its real Nautobot UUID and resolved
+            fields (role/status/location/device_type/...) into the device's
+            `attribute_bags.nautobot` — merged into whatever's already there,
+            never replacing it wholesale, so an upstream step's contribution
+            (e.g. config-to-attributes's interfaces) survives. Turn off to leave
+            the device's id/source/attribute_bags completely untouched after
+            creation; a later step (e.g. update-nautobot-device with
+            device_identifier.mode: from_context) still resolves the device by
+            name/IP on its own, so this is safe to disable.
+          data_type: boolean
+          required: false
+          default: true
 
   - id: update-nautobot-device
     name: Update Device

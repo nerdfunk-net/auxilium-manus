@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-27T18:19:58.043Z",
+  "exported_at": "2026-09-27T19:04:55.492Z",
   "name": "Onboarding",
   "description": "Onboarding",
   "folder": "/",
@@ -11,10 +11,9 @@
       "id": "batfish-init-snapshot-4",
       "type": "workflowNode",
       "position": {
-        "x": 73.04585567601441,
-        "y": -0.07644882177621071
+        "x": 768.1285296441854,
+        "y": 48.943315615732786
       },
-      "zIndex": 1,
       "data": {
         "kind": "batfish-init-snapshot",
         "stepUuid": "f8427a16-b579-4d3c-adb7-fd3cb14a2ce9",
@@ -46,13 +45,14 @@
         "height": 128
       },
       "dragging": false,
-      "selected": false
+      "selected": false,
+      "parentId": "background-16"
     },
     {
       "id": "get-device-configs-5",
       "type": "workflowNode",
       "position": {
-        "x": -301.28928781814955,
+        "x": -297.786562593537,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -100,10 +100,9 @@
       "id": "batfish-extract-facts-6",
       "type": "workflowNode",
       "position": {
-        "x": -301.28928781814955,
-        "y": -0.07644882177621071
+        "x": 396.332121066346,
+        "y": 48.943315615732786
       },
-      "zIndex": 1,
       "data": {
         "kind": "batfish-extract-facts",
         "stepUuid": "70d8ebff-2479-4cc5-b438-cdecd86813f3",
@@ -138,16 +137,16 @@
         "height": 128
       },
       "dragging": false,
-      "selected": false
+      "selected": false,
+      "parentId": "background-16"
     },
     {
       "id": "config-to-attributes-10",
       "type": "workflowNode",
       "position": {
-        "x": -684.7985926267552,
-        "y": -0.07644882177621071
+        "x": 26.775207369967234,
+        "y": 48.943315615732786
       },
-      "zIndex": 1,
       "data": {
         "kind": "config-to-attributes",
         "stepUuid": "639b48d5-6b93-450a-aef0-d0b004290378",
@@ -188,14 +187,15 @@
         "height": 128
       },
       "selected": false,
-      "dragging": false
+      "dragging": false,
+      "parentId": "background-16"
     },
     {
       "id": "fan-in-9",
       "type": "workflowNode",
       "position": {
-        "x": 479.11726952745596,
-        "y": -0.07644882177621071
+        "x": 507.4920836571753,
+        "y": 24.92355117822379
       },
       "zIndex": 1,
       "data": {
@@ -231,8 +231,8 @@
       "id": "get-from-user-8",
       "type": "workflowNode",
       "position": {
-        "x": -684.7985926267552,
-        "y": -177.7763023589177
+        "x": -667.3434762899158,
+        "y": -271.7962565137673
       },
       "zIndex": 1,
       "data": {
@@ -280,10 +280,9 @@
       "id": "add-to-nautobot-7",
       "type": "workflowNode",
       "position": {
-        "x": -684.7985926267552,
-        "y": 193.73433818278943
+        "x": 24.72411875451303,
+        "y": 54.69265405973363
       },
-      "zIndex": 1,
       "data": {
         "kind": "add-to-nautobot",
         "stepUuid": "22642053-35f5-4bdf-919a-75de0758108e",
@@ -373,13 +372,15 @@
         "width": 320,
         "height": 128
       },
-      "selected": false
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-19"
     },
     {
       "id": "parse-cisco-config-8",
       "type": "workflowNode",
       "position": {
-        "x": 73.04585567601441,
+        "x": 74.00984598430239,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -494,10 +495,9 @@
       "id": "route-on-attribute-10",
       "type": "workflowNode",
       "position": {
-        "x": -301.28928781814955,
-        "y": 339.4646156746719
+        "x": 394.2810324508918,
+        "y": 140.4229315516161
       },
-      "zIndex": 1,
       "data": {
         "kind": "route-on-attribute",
         "stepUuid": "4f22ff66-02a4-4a3b-b308-11a9bb948cba",
@@ -541,16 +541,16 @@
         "height": 128
       },
       "dragging": false,
-      "selected": false
+      "selected": false,
+      "parentId": "background-19"
     },
     {
       "id": "update-nautobot-device-11",
       "type": "workflowNode",
       "position": {
-        "x": 73.04585567601441,
-        "y": 193.73433818278943
+        "x": 766.0774410287312,
+        "y": 34.69265405973363
       },
-      "zIndex": 1,
       "data": {
         "kind": "update-nautobot-device",
         "stepUuid": "f63e3743-89e1-4b21-a162-2305c6b29a8a",
@@ -602,13 +602,14 @@
         "height": 128
       },
       "dragging": false,
-      "selected": false
+      "selected": false,
+      "parentId": "background-19"
     },
     {
       "id": "run-command-12",
       "type": "workflowNode",
       "position": {
-        "x": -301.28928781814955,
+        "x": -297.786562593537,
         "y": -357.845245184248
       },
       "zIndex": 1,
@@ -724,8 +725,8 @@
       "id": "funnel-14",
       "type": "funnelNode",
       "position": {
-        "x": 412.90537004290553,
-        "y": -248.32646988511274
+        "x": 416.15574178346685,
+        "y": -227.79625651376728
       },
       "zIndex": 1,
       "data": {
@@ -842,6 +843,176 @@
       },
       "selected": false,
       "dragging": false
+    },
+    {
+      "id": "background-16",
+      "type": "backgroundNode",
+      "position": {
+        "x": -694.118683659883,
+        "y": -24.019764437509
+      },
+      "zIndex": -1,
+      "width": 1158,
+      "height": 200,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "a1c28731-fa92-47aa-b545-e5d719f9d145",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1158,
+          "height": 200
+        }
+      },
+      "measured": {
+        "width": 1158,
+        "height": 200
+      },
+      "selected": false,
+      "dragging": false,
+      "resizing": false
+    },
+    {
+      "id": "label-17",
+      "type": "labelNode",
+      "position": {
+        "x": -38.10315648056883,
+        "y": -1.1802757944909104
+      },
+      "width": 200,
+      "height": 40,
+      "style": {
+        "width": 200,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "bf9c8e63-cbc2-42f9-b02e-7cbaf09cca25",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Nautobot",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 200,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 200,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-19"
+    },
+    {
+      "id": "label-18",
+      "type": "labelNode",
+      "position": {
+        "x": -51.99022215878176,
+        "y": -0.8709519872696418
+      },
+      "width": 200,
+      "height": 40,
+      "style": {
+        "width": 200,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "c33a0ed5-51ff-446a-b170-1d3e61a63da0",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Batfish",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 200,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 200,
+        "height": 40
+      },
+      "selected": false,
+      "dragging": false,
+      "parentId": "background-16"
+    },
+    {
+      "id": "background-19",
+      "type": "backgroundNode",
+      "position": {
+        "x": -692.0675950444288,
+        "y": 195.57139701327912
+      },
+      "zIndex": -1,
+      "width": 1154,
+      "height": 296,
+      "style": {
+        "width": 480,
+        "height": 320
+      },
+      "data": {
+        "kind": "background",
+        "stepUuid": "34986d7e-f34c-4fcb-a3b7-4e065fdf9aab",
+        "title": "Background",
+        "overview": "Place a colored rectangle behind other canvas steps.",
+        "description": "Canvas decoration — a colored rectangle always drawn behind other steps. Configure size and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "color": "#e2e8f0",
+          "width": 1154,
+          "height": 296
+        }
+      },
+      "measured": {
+        "width": 1154,
+        "height": 296
+      },
+      "selected": false,
+      "dragging": false,
+      "resizing": false
     }
   ],
   "canvas_edges": [
@@ -1066,8 +1237,8 @@
       "entryNodeId": "set-default-attributes-15",
       "exitNodeId": "update-attribute-13",
       "position": {
-        "x": 479.11726952745596,
-        "y": -178.96875384007615
+        "x": 507.4920836571753,
+        "y": -271.7962565137673
       },
       "parentGroupId": null,
       "selected": false

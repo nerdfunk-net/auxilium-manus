@@ -183,6 +183,30 @@ export function AddToNautobotHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Refresh attributes after create">
+        <p>
+          On by default. After creating the device, merges its real Nautobot UUID and resolved
+          fields (role, status, location, device type, …) back into the device&apos;s{" "}
+          <HelpCode>nautobot</HelpCode> attribute bag — merged into whatever&apos;s already
+          there, never replacing it wholesale, so an upstream step&apos;s contribution (e.g.
+          interfaces staged by Config to Attributes) survives. Turn it off to leave the
+          device&apos;s id, source, and attribute bag completely untouched after creation — a
+          later step like Update Device with <HelpCode>device_identifier.mode:
+          from_context</HelpCode> still resolves the device by name or IP on its own, so this is
+          safe to disable.
+        </p>
+        <HelpWarning title="A wholesale overwrite here used to silently drop interfaces">
+          <p>
+            Before this toggle existed, a successful create always replaced the entire{" "}
+            <HelpCode>nautobot</HelpCode> bag with the bare Nautobot API response — which has no{" "}
+            <HelpCode>interfaces</HelpCode> key of its own (interfaces are a separate Nautobot
+            resource) — wiping out any interfaces an earlier step had already written there.
+            Now it merges instead of replacing, so this is safe left on; turning it off is an
+            extra safeguard, not a requirement.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Virtual chassis">
         <p>
           Optionally join an existing virtual chassis (by UUID) or create a new one (the new

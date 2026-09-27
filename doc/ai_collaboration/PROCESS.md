@@ -625,6 +625,53 @@ easy to get wrong by hand:
   target, targetHandle: "input", selected: false}`. `sourceHandle` is the upstream
   step's outcome name (`"success"`/`"failure"`).
 
+**Building a patch by hand — grouping nodes (`canvas_groups`).** Optional; a
+workflow with no groups just has `canvas_groups: []`. A real, working example
+(the `Set Nautobot Attributes` group) is in
+`contributing-data/workflow-gallery/onboarding.json`. One entry per group:
+```json
+{
+  "id": "group-<uuid>",
+  "title": "Set Nautobot Attributes",
+  "nodeIds": ["set-default-attributes-15", "update-attribute-9", "update-attribute-13"],
+  "entryNodeId": "set-default-attributes-15",
+  "exitNodeId": "update-attribute-13",
+  "position": {"x": 0, "y": 0},
+  "parentGroupId": null,
+  "selected": false
+}
+```
+- `nodeIds` is every member's real node id (from that same patch's `canvas_nodes`),
+  **in no particular order** — `entryNodeId`/`exitNodeId` are what carry the "which
+  one connects to the outside world" information, not list order.
+- `entryNodeId`/`exitNodeId` must be members of `nodeIds` — the member whose
+  incoming/outgoing edges (respectively) cross the group boundary. Wire the real
+  edges in `canvas_edges` exactly as if the group didn't exist (node-to-node, not
+  node-to-group) — the collapsed group box and its edge rerouting are purely a
+  frontend projection (`canvas-group-projection.ts`), never persisted.
+- `position` is the collapsed group box's canvas position — same coordinate space
+  as an ordinary node's `position`, unrelated to any member's own position.
+- `incomeHandleSide`/`outcomeHandleSide` (optional, default `"left"`/`"right"`) set
+  which side of the collapsed box the connecting handles attach to, same as a
+  step node's own fields of the same name — omit unless you need a specific layout.
+- `parentGroupId` is reserved for nested groups (always `null` today) and
+  `selected` is UI-only — always `false` in an authored patch.
+- A group needs **at least 2 members** — `WorkflowService._repair_orphan_groups`
+  (backend) silently dissolves any group left with fewer than 2 (or referencing a
+  node that doesn't exist in the same patch's `canvas_nodes`) before persisting,
+  mirroring the frontend's own `repairOrphanGroups`. That's a safety net for a
+  patch that also *deletes* a member node, not license to skip getting `nodeIds`
+  right. `entryNodeId`/`exitNodeId` are **not** repaired the same way and are
+  never read by validation or execution at all (checked: neither
+  `WorkflowValidationService` nor `StepRunner` reference `canvas_groups` in any
+  form — a group is purely a canvas/frontend presentation concept). A stale
+  entry/exit id has no effect on what actually runs; it only degrades the
+  frontend's own presentation of the collapsed group node — the entry/exit
+  highlight and the denormalized `requires`/`produces` badges it copies from
+  that member (`synthesizeGroupNode` in `canvas-group-projection.ts`) just
+  silently don't show, rather than erroring. Still worth getting right so the
+  canvas *looks* correct, just not something to lose sleep over.
+
 **A real gap found during implementation, now fixed:** `WorkflowService.update_workflow`
 has a strict ownership check (`workflow.creator_id != user_id → AccessDeniedError`).
 Since `ai-assistant` is never the creator of a workflow you made, this would have
