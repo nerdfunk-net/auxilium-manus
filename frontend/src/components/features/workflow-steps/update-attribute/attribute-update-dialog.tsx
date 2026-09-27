@@ -41,7 +41,10 @@ function AttributePathHelp() {
     <p className="text-[11px] leading-4 text-muted-foreground">
       Use <span className="font-mono">device.name</span> for core device fields,{" "}
       <span className="font-mono">nautobot.location.name</span> for Nautobot attributes, or{" "}
-      <span className="font-mono">custom.field</span> for user-defined attribute bags.
+      <span className="font-mono">custom.field</span> for user-defined attribute bags. Index into
+      a list with <span className="font-mono">field[key=value]</span> (matches a field) or{" "}
+      <span className="font-mono">field[0]</span> (a literal position, e.g. a single-row Run
+      Command output).
     </p>
   );
 }
@@ -110,6 +113,8 @@ export interface AttributeUpdateEditorProps {
   fieldId?: string;
   /** Renders a "Browse attributes" icon button next to destination_path when provided. */
   onBrowseDestination?: () => void;
+  /** Renders a "Browse attributes" icon button next to source_path when provided. */
+  onBrowseSource?: () => void;
 }
 
 export function AttributeUpdateEditor({
@@ -117,6 +122,7 @@ export function AttributeUpdateEditor({
   onChange,
   fieldId = "attribute-editor",
   onBrowseDestination,
+  onBrowseSource,
 }: AttributeUpdateEditorProps) {
   const handleModeChange = useCallback(
     (mode: UpdateAttributeMode) => {
@@ -225,12 +231,26 @@ export function AttributeUpdateEditor({
                 string
               </Badge>
             </div>
-            <Input
-              value={value.source_path}
-              onChange={(event) => onChange({ ...value, source_path: event.target.value })}
-              placeholder="device.name"
-              className="h-8 font-mono text-xs"
-            />
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={value.source_path}
+                onChange={(event) => onChange({ ...value, source_path: event.target.value })}
+                placeholder="device.name"
+                className="h-8 font-mono text-xs"
+              />
+              {onBrowseSource ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={onBrowseSource}
+                  title="Browse attributes"
+                >
+                  <Search className="size-3.5" />
+                </Button>
+              ) : null}
+            </div>
             <AttributePathHelp />
           </div>
 
@@ -327,7 +347,7 @@ function AttributeUpdateDialogForm({
     () => initialValue ?? createAttributeUpdate(),
   );
   const [error, setError] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<"destination" | "source" | null>(null);
 
   const handleSave = useCallback(() => {
     const validationError = validateAttributeDraft(draft);
@@ -367,7 +387,8 @@ function AttributeUpdateDialogForm({
               setError(null);
             }}
             fieldId="attribute-dialog"
-            onBrowseDestination={() => setPickerOpen(true)}
+            onBrowseDestination={() => setPickerTarget("destination")}
+            onBrowseSource={draft.mode === "regex" ? () => setPickerTarget("source") : undefined}
           />
           {error ? (
             <p className="mt-3 rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
@@ -392,10 +413,15 @@ function AttributeUpdateDialogForm({
       </DialogContent>
 
       <AttributePathPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
+        open={pickerTarget !== null}
+        onClose={() => setPickerTarget(null)}
         onSelect={(path) => {
-          setDraft((current) => ({ ...current, destination_path: path }));
+          setDraft((current) => ({
+            ...current,
+            ...(pickerTarget === "source"
+              ? { source_path: path }
+              : { destination_path: path }),
+          }));
           setError(null);
         }}
         nodeId={nodeId}

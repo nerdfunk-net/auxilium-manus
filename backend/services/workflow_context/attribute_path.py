@@ -94,6 +94,14 @@ def _namespace_bag(
 # check membership within one ACL's entries instead of across all ACLs.
 _FILTER_SEGMENT_RE = re.compile(r"^(?P<key>[^\[\]]+)\[(?P<field>[^\[\]=]+)=(?P<value>[^\[\]]*)\]$")
 
+# A path segment like "parsed[0]" — a literal position into a list, for the
+# case there's no field/value to filter on at all (e.g. run-command's
+# TextFSM output for a single-row command like "show version" is always a
+# one-item list of records; there's no per-device field known ahead of time
+# to build a "field[key=value]" filter from). Requires only digits inside
+# the brackets, so it can never collide with the "=" filter form above.
+_INDEX_SEGMENT_RE = re.compile(r"^(?P<key>[^\[\]]+)\[(?P<index>\d+)\]$")
+
 
 def _split_path_segments(path: str) -> list[str]:
     """Split on "." but not inside a "[...]" filter segment, so a filter
@@ -133,18 +141,37 @@ def _find_filtered_item(items: Any, field: str, value: str) -> Any | None:
     return None
 
 
+def _index_into_list(items: Any, index: int) -> Any:
+    """Return ``items[index]``, or ``_MISSING`` when ``items`` isn't a list
+    or ``index`` is out of range."""
+    if not isinstance(items, list) or index >= len(items):
+        return _MISSING
+    return items[index]
+
+
 def _traverse_path(root: Any, path: str) -> Any:
     current = root
     for segment in _split_path_segments(path):
         if current is None:
             return None
-        match = _FILTER_SEGMENT_RE.match(segment)
-        if match:
+        filter_match = _FILTER_SEGMENT_RE.match(segment)
+        if filter_match:
             if not isinstance(current, dict):
                 return None
             current = _find_filtered_item(
-                current.get(match.group("key")), match.group("field"), match.group("value")
+                current.get(filter_match.group("key")),
+                filter_match.group("field"),
+                filter_match.group("value"),
             )
+            continue
+        index_match = _INDEX_SEGMENT_RE.match(segment)
+        if index_match:
+            if not isinstance(current, dict):
+                return None
+            indexed = _index_into_list(
+                current.get(index_match.group("key")), int(index_match.group("index"))
+            )
+            current = None if indexed is _MISSING else indexed
             continue
         if isinstance(current, dict):
             current = current.get(segment)
@@ -158,16 +185,29 @@ def _traverse_path_raw(root: Any, path: str) -> Any:
     path doesn't exist, instead of collapsing that case into ``None``."""
     current = root
     for segment in _split_path_segments(path):
-        match = _FILTER_SEGMENT_RE.match(segment)
-        if match:
-            if not isinstance(current, dict) or match.group("key") not in current:
+        filter_match = _FILTER_SEGMENT_RE.match(segment)
+        if filter_match:
+            if not isinstance(current, dict) or filter_match.group("key") not in current:
                 return _MISSING
             found = _find_filtered_item(
-                current[match.group("key")], match.group("field"), match.group("value")
+                current[filter_match.group("key")],
+                filter_match.group("field"),
+                filter_match.group("value"),
             )
             if found is None:
                 return _MISSING
             current = found
+            continue
+        index_match = _INDEX_SEGMENT_RE.match(segment)
+        if index_match:
+            if not isinstance(current, dict) or index_match.group("key") not in current:
+                return _MISSING
+            indexed = _index_into_list(
+                current[index_match.group("key")], int(index_match.group("index"))
+            )
+            if indexed is _MISSING:
+                return _MISSING
+            current = indexed
             continue
         if not isinstance(current, dict) or segment not in current:
             return _MISSING
@@ -175,7 +215,29 @@ def _traverse_path_raw(root: Any, path: str) -> Any:
     return current
 
 
+def unwrap_singleton_list(value: Any) -> Any:
+    """Unwrap a length-1 list of a genuine scalar to that scalar; anything
+    else (multi-item, empty, or a list of dicts/lists) passes through
+    unchanged.
+
+    Several ntc-templates TextFSM fields (e.g. cisco_ios_show_version's
+    SERIAL, HARDWARE, MAC_ADDRESS) are declared ``Value List`` — meaning they
+    always come back as a list even for a single-chassis device with exactly
+    one value. A multi-item list is genuinely ambiguous (which one?) and is
+    deliberately left alone; a length-1 list of a scalar has only one
+    possible reading, so callers that need a literal value (resolving an
+    attribute path, classifying its state, building the picker's tree) can
+    treat it as that scalar instead of an opaque, unreadable list. Shared by
+    ``attribute_path_discovery.py`` so the picker and the resolver agree on
+    exactly which list shapes count as "really a scalar".
+    """
+    if isinstance(value, list) and len(value) == 1 and not isinstance(value[0], (dict, list)):
+        return value[0]
+    return value
+
+
 def _classify_value(value: Any) -> tuple[AttributeState, str | None]:
+    value = unwrap_singleton_list(value)
     if value is None:
         return AttributeState.NULL, None
     if isinstance(value, (dict, list)):
@@ -187,6 +249,7 @@ def _classify_value(value: Any) -> tuple[AttributeState, str | None]:
 
 
 def _stringify(value: Any) -> str | None:
+    value = unwrap_singleton_list(value)
     if value is None:
         return None
     if isinstance(value, (dict, list)):
@@ -323,7 +386,7 @@ def resolve_device_attribute(
 
 
 def resolve_device_attribute_state(
-    device: DeviceContext, attribute_path: str
+    device: DeviceContext, attribute_path: str, *, error: DeviceError | None = None
 ) -> tuple[AttributeState, str | None]:
     """Resolve a dot path and classify it as absent/null/empty/present.
 
@@ -340,6 +403,12 @@ def resolve_device_attribute_state(
     for a parsed list/dict value (e.g. ``parsed.cisco_config.running.aaa_servers.servers``)
     even though the literal contents of that list can't be matched as a single
     string value.
+
+    A leading ``error.`` segment reads the caller-supplied ``error`` param,
+    same convention as ``resolve_device_attribute`` — e.g. ``route-on-attribute``
+    passes the device's most recent accumulated error so a failure outcome can
+    be routed by ``error.code``. Resolves to ``ABSENT`` when ``error`` isn't
+    passed, same as any other unset namespace.
     """
     path = attribute_path.strip()
     if not path:
@@ -356,7 +425,7 @@ def resolve_device_attribute_state(
 
     if "." in path:
         bag_name, remainder = path.split(".", 1)
-        bag = _namespace_bag(device, bag_name)
+        bag = _namespace_bag(device, bag_name, error=error)
         if bag is None:
             return AttributeState.ABSENT, None
         raw = _traverse_path_raw(bag, remainder)
@@ -364,7 +433,7 @@ def resolve_device_attribute_state(
             return AttributeState.ABSENT, None
         return _classify_value(raw)
 
-    bag = _namespace_bag(device, path)
+    bag = _namespace_bag(device, path, error=error)
     if bag is None:
         return AttributeState.ABSENT, None
     if isinstance(bag, dict):

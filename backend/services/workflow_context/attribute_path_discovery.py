@@ -18,7 +18,8 @@ from typing import Any
 from core.models.runs import WorkflowStepResult
 from models.attribute_path import AttributePathNode
 from models.workflow_context import DeviceContext, WorkflowContext
-from services.workflow_context.attribute_path import DEVICE_SCALAR_FIELDS
+from services.workflow_context.attribute_path import DEVICE_SCALAR_FIELDS, unwrap_singleton_list
+from services.workflow_context.merge import merge_device_contexts
 
 # Caps how many discriminated branches a single list-of-dicts node expands
 # into, so a large inventory-style list doesn't blow up the tree response.
@@ -57,10 +58,34 @@ def _looks_like_raw_config(value: Any) -> bool:
     hundreds of raw (and sometimes secret-bearing, e.g. a `username ...
     secret ...` line) CLI lines never turn into clickable "attribute paths"
     in the picker.
+
+    Checked together with ``_looks_like_command_output_bag`` below — a
+    multi-word command string (e.g. ``"show version"``) also has whitespace
+    in the key, so on its own this heuristic would misfire on run-command's
+    own per-command output too; the caller must exclude that case first.
     """
     if not isinstance(value, dict) or not value:
         return False
     return any(isinstance(key, str) and " " in key for key in value)
+
+
+def _looks_like_command_output_bag(value: Any) -> bool:
+    """True when every value in this dict is the normalized ``{"parsed",
+    "error"}`` command-result shape (see doc/WORKFLOW-STEPS.md's "Normalized
+    command-output parsing") that ``run-command`` (textfsm/genie) and
+    ``render-jinja-template`` write at ``parsed.<parsed_output_key>``, keyed
+    by the literal command string — e.g. ``{"show version": {"parsed": ...,
+    "error": None}}``. A real command string almost always contains a space,
+    which would otherwise make ``_looks_like_raw_config`` mistake this for a
+    raw CLI config dict and hide it from the picker entirely. Checked first
+    so a command-keyed dict is never collapsed to the opaque placeholder.
+    """
+    if not isinstance(value, dict) or not value:
+        return False
+    return all(
+        isinstance(entry, dict) and "parsed" in entry and set(entry) <= {"parsed", "error"}
+        for entry in value.values()
+    )
 
 
 def merge_ancestor_devices(
@@ -70,11 +95,19 @@ def merge_ancestor_devices(
     """Fold every outcome's devices from ancestor step results into one view.
 
     ``step_results`` is assumed to already be in ascending ``id`` (execution)
-    order — see ``RunRepository.get_step_results_for_run``. Later step
-    results overwrite earlier ones per device id, an intentional
-    last-writer-wins simplification (no per-branch/outcome reconciliation).
-    Malformed or missing ``output`` is tolerated silently rather than raising,
-    since this only powers a best-effort browsing/preview feature.
+    order — see ``RunRepository.get_step_results_for_run``. When two ancestor
+    steps are independent parallel branches that both touch the same device
+    (a join, e.g. Run Command and Parse Cisco Config both feeding Update
+    Attribute), a later step result is merged with an earlier one for the
+    same device id via ``merge_device_contexts`` — the same real merge logic
+    ``StepRunner`` uses at a join node at runtime — instead of blindly
+    replacing it, so the picker doesn't silently lose one branch's fields
+    just because the other branch's step happened to persist second. A
+    genuine merge conflict (the same key holding two different values —
+    e.g. the same node re-run with different config) falls back to
+    last-writer-wins rather than raising, since this only powers a
+    best-effort browsing/preview feature. Malformed or missing ``output`` is
+    tolerated silently for the same reason.
     """
     merged: dict[str, DeviceContext] = {}
     matched_node_ids: dict[str, None] = {}
@@ -101,7 +134,14 @@ def merge_ancestor_devices(
                 continue
             matched_node_ids[step_result.step_node_id] = None
             for device_id, device in context.devices.items():
-                merged[device_id] = device
+                existing = merged.get(device_id)
+                if existing is None:
+                    merged[device_id] = device
+                    continue
+                try:
+                    merged[device_id] = merge_device_contexts([existing, device])
+                except ValueError:
+                    merged[device_id] = device
 
     return merged, list(matched_node_ids)
 
@@ -174,7 +214,10 @@ def _build_node(name: str, path: str, values: list[Any]) -> AttributePathNode:
     # A key observed as different shapes across devices/ancestors is rare;
     # dict > list > scalar is an arbitrary but deterministic tie-break.
     if dict_values:
-        if any(_looks_like_raw_config(value) for value in dict_values):
+        if any(
+            _looks_like_raw_config(value) and not _looks_like_command_output_bag(value)
+            for value in dict_values
+        ):
             return AttributePathNode(
                 name=name,
                 path=path,
@@ -206,6 +249,22 @@ def _build_dict_node(name: str, path: str, dicts: list[dict[str, Any]]) -> Attri
 
 
 def _build_list_node(name: str, path: str, lists: list[list[Any]]) -> AttributePathNode:
+    # A singleton-scalar list (e.g. ntc-templates' SERIAL/HARDWARE/MAC_ADDRESS
+    # "Value List" fields, always one item for a single-chassis device) has
+    # only one possible reading — surface it as a clickable scalar leaf
+    # instead of a dead-end list node, same shape the resolver now accepts
+    # for a real source_path (see unwrap_singleton_list's docstring). Only
+    # when *every* device's own list for this key is that exact shape —
+    # otherwise fall through to the generic list handling below.
+    unwrapped = [unwrap_singleton_list(lst) for lst in lists]
+    if lists and all(isinstance(value, _SCALAR_TYPES) for value in unwrapped):
+        return AttributePathNode(
+            name=name,
+            path=path,
+            kind="scalar",
+            example_value=_first_example(unwrapped),
+        )
+
     items: list[Any] = [item for lst in lists for item in lst]
 
     if items and all(isinstance(item, dict) for item in items):

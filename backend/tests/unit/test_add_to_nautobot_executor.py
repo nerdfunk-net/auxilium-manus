@@ -11,6 +11,7 @@ from models.workflow_context import (
     DeviceStatus,
     WorkflowContext,
 )
+from services.nautobot.common.exceptions import NautobotAPIError
 from workflow_steps.add_to_nautobot.config import get_config
 from workflow_steps.add_to_nautobot.executor import execute
 
@@ -473,6 +474,55 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(failure_outcome.context.devices), 2)
         for device in failure_outcome.context.devices.values():
             self.assertIs(device.status, DeviceStatus.FAILED)
+
+    async def test_duplicate_device_error_gets_stable_code(self) -> None:
+        create_device = AsyncMock(
+            side_effect=NautobotAPIError(
+                "REST request failed with status 400: "
+                '{"__all__":["A device named \'LAB\' with no tenant already exists in this '
+                "location: City A. Device names must be unique when tenant is None and "
+                "DEVICE_UNIQUENESS='location_tenant_name'.\"]}"
+            )
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="LAB")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        failed = failure_outcome.context.devices["dev-1"]
+        self.assertEqual(failed.errors[-1].code, "device_already_exists")
+
+    async def test_unrelated_api_error_keeps_generic_code(self) -> None:
+        create_device = AsyncMock(
+            side_effect=NautobotAPIError("REST request failed with status 400: bad request")
+        )
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        failure_outcome = next(o for o in outcomes if o.name == "failure")
+        failed = failure_outcome.context.devices["dev-1"]
+        self.assertEqual(failed.errors[-1].code, "nautobotapierror")
 
 
 if __name__ == "__main__":

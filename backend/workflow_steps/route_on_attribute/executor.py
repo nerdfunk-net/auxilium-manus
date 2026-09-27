@@ -133,7 +133,10 @@ def _route_devices(
     missing_attribute_device_ids: list[str] = []
 
     for device_id, device in devices.items():
-        state, resolved = resolve_device_attribute_state(device, attribute_path)
+        latest_error = device.errors[-1] if device.errors else None
+        state, resolved = resolve_device_attribute_state(
+            device, attribute_path, error=latest_error
+        )
         if state == AttributeState.ABSENT:
             missing_attribute_device_ids.append(device_id)
 

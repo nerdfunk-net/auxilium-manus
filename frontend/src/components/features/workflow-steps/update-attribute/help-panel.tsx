@@ -144,6 +144,24 @@ export function UpdateAttributeHelpPanel() {
             → router1-lab → DC-router1 at custom.datacenter
           </span>
         </HelpExample>
+        <p>
+          <HelpCode>source_path</HelpCode> can index into a list with{" "}
+          <HelpCode>field[key=value]</HelpCode> (matches an item by field) or{" "}
+          <HelpCode>field[0]</HelpCode> (a literal position) — useful for Run
+          Command&apos;s TextFSM output, which is always a list even for a single-row
+          command like <HelpCode>show version</HelpCode>:
+        </p>
+        <HelpExample>
+          mode: regex
+          <br />
+          source_path: parsed.parsed.show version.parsed[0].serial
+          <br />
+          pattern: ^(.*)$
+          <br />
+          destination_template: \1
+          <br />
+          destination_path: device.serial
+        </HelpExample>
       </HelpSection>
 
       <HelpSection title="Regex flags">

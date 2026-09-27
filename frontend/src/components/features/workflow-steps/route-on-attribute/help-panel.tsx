@@ -108,6 +108,64 @@ export function RouteOnAttributeHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Catching why a step failed (error.*)">
+        <p>
+          Wire a step&apos;s <HelpCode>failure</HelpCode> outcome straight into this
+          node and set <HelpCode>attribute_path</HelpCode> to{" "}
+          <HelpCode>error.code</HelpCode> (or <HelpCode>error.message</HelpCode>,{" "}
+          <HelpCode>error.step_id</HelpCode>, <HelpCode>error.node_id</HelpCode>,{" "}
+          <HelpCode>error.occurred_at</HelpCode>) to branch on{" "}
+          <span className="font-medium text-foreground">why</span> it failed,
+          instead of only knowing that it did. This reads the device&apos;s most
+          recently accumulated error — the one the upstream step just added — so
+          it only resolves to something when placed right after that step&apos;s
+          failure handle.
+        </p>
+        <p>
+          Worked example: <HelpCode>Add to Nautobot</HelpCode> fails with
+          <HelpCode>device_already_exists</HelpCode> when the device it tried to
+          create already exists there (Nautobot&apos;s own uniqueness-violation
+          400 response, e.g. &ldquo;A device named &apos;LAB&apos; ... already
+          exists in this location ...&rdquo;) — every other failure (a missing
+          required field, an unreachable Nautobot source, a permissions error)
+          keeps its own distinct code instead. Route the known, recoverable
+          case to an update path and send everything else to a default
+          &ldquo;stop the workflow&rdquo; path:
+        </p>
+        <HelpExample>
+          attribute_path: error.code
+          <br />
+          routes:
+          <br />
+          {"  "}- outcome: update_existing
+          <br />
+          {"    "}values: device_already_exists
+          <br />
+          default_outcome: stop_workflow
+        </HelpExample>
+        <p>
+          Connect <HelpCode>update_existing</HelpCode> to whatever updates the
+          device instead of creating it (e.g. <HelpCode>Update Nautobot Device</HelpCode>
+          ), and <HelpCode>stop_workflow</HelpCode> to{" "}
+          <HelpCode>Notify On Error</HelpCode> or nothing further — an unhandled
+          error (missing attribute, source down, permissions) should stop the
+          run, not be treated as &ldquo;already exists.&rdquo;
+        </p>
+        <HelpWarning title="Only the most recent error is visible here">
+          <p>
+            A device can accumulate more than one error across a run (see{" "}
+            <HelpCode>Notify On Error</HelpCode>, which reports every one of
+            them), but <HelpCode>error.*</HelpCode> here only ever resolves the{" "}
+            <span className="font-medium text-foreground">latest</span> one.
+            That is exactly right when this node sits directly on one step&apos;s
+            failure handle (the common case), but if devices could reach this
+            node after failing at more than one earlier step, an older failure
+            reason won&apos;t be visible — route those cases before the errors
+            pile up, or use <HelpCode>Notify On Error</HelpCode> instead.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Routes">
         <p>
           <HelpCode>routes</HelpCode> is an ordered list of rules. Each rule has:

@@ -6,7 +6,13 @@ import unittest
 from unittest.mock import MagicMock
 
 from core.crypto import EncryptionService
-from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
+from models.workflow_context import (
+    Capability,
+    DeviceContext,
+    DeviceError,
+    DeviceStatus,
+    WorkflowContext,
+)
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.route_on_attribute.executor import execute
 
@@ -19,6 +25,7 @@ def _device(
     network_driver: str | None = None,
     attribute_bags: dict | None = None,
     parsed: dict | None = None,
+    errors: list[DeviceError] | None = None,
 ) -> DeviceContext:
     return DeviceContext(
         id=device_id,
@@ -29,6 +36,7 @@ def _device(
         parsed=parsed or {},
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
+        errors=errors or [],
     )
 
 
@@ -398,6 +406,87 @@ class RouteOnAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
         by_name = {outcome.name: outcome for outcome in outcomes}
         self.assertEqual(list(by_name["has-tacacs"].context.devices), ["has-tacacs"])
         self.assertEqual(set(by_name["no-tacacs"].context.devices), {"no-tacacs", "not-parsed"})
+
+    async def test_routes_by_error_code_from_most_recent_accumulated_error(self) -> None:
+        """A failure outcome wired into this step should be routable by why the
+        upstream step failed (e.g. add-to-nautobot's device_already_exists),
+        not just whether it failed."""
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={
+                "dup-1": _device(
+                    "dup-1",
+                    errors=[
+                        DeviceError(
+                            node_id="add-1",
+                            step_id="add-to-nautobot",
+                            code="device_already_exists",
+                            message="A device named 'dup-1' already exists",
+                        )
+                    ],
+                ),
+                "other-1": _device(
+                    "other-1",
+                    errors=[
+                        DeviceError(
+                            node_id="add-1",
+                            step_id="add-to-nautobot",
+                            code="missing_required_field",
+                            message="Required field(s) could not be resolved: role",
+                        )
+                    ],
+                ),
+                "no-error-1": _device("no-error-1"),
+            },
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "error.code",
+                "routes": [
+                    {"outcome": "update-existing", "values": ["device_already_exists"]},
+                ],
+                "default_outcome": "stop",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-11",
+            device_sessions=MagicMock(),
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(list(by_name["update-existing"].context.devices), ["dup-1"])
+        self.assertEqual(
+            set(by_name["stop"].context.devices), {"other-1", "no-error-1"}
+        )
+
+    async def test_error_namespace_resolves_absent_with_no_accumulated_errors(self) -> None:
+        run = MagicMock()
+        context = WorkflowContext(
+            run_id="run-1",
+            workflow_id="wf-1",
+            devices={"clean-1": _device("clean-1")},
+        )
+
+        outcomes = await execute(
+            config={
+                "attribute_path": "error.code",
+                "routes": [{"outcome": "matched", "values": ["{exists}"]}],
+                "default_outcome": "no-error",
+            },
+            context=context,
+            run=run,
+            artifact_service=MagicMock(),
+            node_id="route-12",
+            device_sessions=MagicMock(),
+        )
+
+        by_name = {outcome.name: outcome for outcome in outcomes}
+        self.assertEqual(by_name["matched"].context.devices, {})
+        self.assertEqual(list(by_name["no-error"].context.devices), ["clean-1"])
 
 
 if __name__ == "__main__":

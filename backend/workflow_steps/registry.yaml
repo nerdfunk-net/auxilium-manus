@@ -2763,8 +2763,17 @@ plugins:
             usable here. A parsed.* leaf holding a list or dict (e.g.
             parsed.cisco_config.running.aaa_servers.servers) can't be matched as
             a literal value, but {exists}/{empty}/{absent} still work to route
-            on whether it's populated. A list can only be indexed with the
-            field[key=value] filter form, not a numeric index.
+            on whether it's populated. A list can be indexed with the
+            field[key=value] filter form (selects the item whose field
+            resolves to value) or a literal position, field[N] (e.g.
+            parsed.<parsed_output_key>.<command>.parsed[0] for a single-row
+            TextFSM command like "show version", where there's no per-device
+            field known ahead of time to filter on). error.* reads
+            the device's most recent accumulated error (error.code,
+            error.message, error.step_id, error.node_id, error.occurred_at) —
+            use it right after a step's failure outcome to route by why it
+            failed, e.g. error.code with values like device_already_exists
+            (Add to Nautobot) vs. anything else.
           data_type: string
           required: true
           example: device.network_driver

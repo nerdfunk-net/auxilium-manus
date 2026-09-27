@@ -20,6 +20,7 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.nautobot.common.exceptions import NautobotAPIError, is_duplicate_error
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.creation import DeviceCreationService
 from services.nautobot.devices.types import AddDeviceRequest
@@ -164,6 +165,16 @@ def _bind_creation_service(
     return DeviceCreationService(bound_client)
 
 
+def _is_already_exists(exc: Exception) -> bool:
+    """Distinguish Nautobot's uniqueness-violation 400 from any other API
+    failure, so a workflow can route the failure outcome by ``error.code``
+    (device_already_exists -> update instead of create) rather than treat
+    every rejection the same way. Reuses the shared classifier already used
+    by ``services.nautobot.devices.common`` for the same distinction.
+    """
+    return isinstance(exc, NautobotAPIError) and is_duplicate_error(exc)
+
+
 def _fail_device(
     *,
     device: DeviceContext,
@@ -259,11 +270,12 @@ async def _create_one_device(
         )
         return device_key, enriched, True
     except Exception as exc:
+        code = "device_already_exists" if _is_already_exists(exc) else type(exc).__name__.lower()
         return _fail_device(
             device=device,
             device_key=device_key,
             node_id=node_id,
-            code=type(exc).__name__.lower(),
+            code=code,
             message=str(exc),
         )
 

@@ -10,6 +10,7 @@ from services.workflow_context.attribute_path import (
     resolve_device_attribute,
     resolve_device_attribute_state,
     resolve_device_value,
+    unwrap_singleton_list,
 )
 
 
@@ -317,6 +318,80 @@ class FilterSegmentTests(unittest.TestCase):
         )
 
 
+class IndexSegmentTests(unittest.TestCase):
+    """Tests for the "key[N]" path segment — a literal position into a list,
+    for when there's no per-device field to filter on ahead of time (e.g.
+    run-command's TextFSM output for "show version" is always a one-item
+    list of records, and the device's own hostname isn't known at canvas-
+    authoring time)."""
+
+    def _device(self) -> DeviceContext:
+        return DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "parsed": {
+                    "show version": {
+                        "parsed": [{"hostname": "lab", "serial": ["FCW2148XXXX"]}],
+                        "error": None,
+                    }
+                }
+            },
+        )
+
+    def test_resolves_scalar_leaf_after_index(self) -> None:
+        device = self._device()
+        self.assertEqual(
+            resolve_device_attribute(device, "parsed.parsed.show version.parsed[0].serial"),
+            "FCW2148XXXX",
+        )
+
+    def test_index_out_of_range_returns_none(self) -> None:
+        device = self._device()
+        self.assertIsNone(
+            resolve_device_attribute(device, "parsed.parsed.show version.parsed[1].serial")
+        )
+
+    def test_index_on_non_list_value_returns_none(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"cisco_config": {"running": {"hostname": "router1"}, "startup": None}},
+        )
+        self.assertIsNone(
+            resolve_device_value(device, "parsed.cisco_config.running.hostname[0].y")
+        )
+
+    def test_state_absent_when_index_out_of_range(self) -> None:
+        device = self._device()
+        state, value = resolve_device_attribute_state(
+            device, "parsed.parsed.show version.parsed[1].serial"
+        )
+        self.assertEqual(state, AttributeState.ABSENT)
+        self.assertIsNone(value)
+
+    def test_state_present_when_index_resolves(self) -> None:
+        device = self._device()
+        state, value = resolve_device_attribute_state(
+            device, "parsed.parsed.show version.parsed[0].hostname"
+        )
+        self.assertEqual(state, AttributeState.PRESENT)
+        self.assertEqual(value, "lab")
+
+    def test_filter_segment_and_index_segment_do_not_collide(self) -> None:
+        # "[hostname=lab]" (the existing filter form) must keep working
+        # exactly as before now that "[0]" is also a recognized shape.
+        device = self._device()
+        self.assertEqual(
+            resolve_device_attribute(
+                device, "parsed.parsed.show version.parsed[hostname=lab].serial"
+            ),
+            "FCW2148XXXX",
+        )
+
+
 class AttributeStateTests(unittest.TestCase):
     def test_absent_when_bag_missing(self) -> None:
         device = DeviceContext(id="device-1", name="lab", hostname="lab")
@@ -413,6 +488,96 @@ class AttributeStateTests(unittest.TestCase):
             device, "parsed.cisco_config.running.hostname"
         )
         self.assertEqual(state, AttributeState.ABSENT)
+        self.assertIsNone(value)
+
+    def test_state_resolves_error_namespace_when_error_passed(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        error = DeviceError(
+            node_id="add-1",
+            step_id="add-to-nautobot",
+            code="device_already_exists",
+            message="A device named 'lab' already exists",
+        )
+        state, value = resolve_device_attribute_state(device, "error.code", error=error)
+        self.assertEqual(state, AttributeState.PRESENT)
+        self.assertEqual(value, "device_already_exists")
+
+    def test_state_error_namespace_absent_when_no_error_passed(self) -> None:
+        device = DeviceContext(id="device-1", name="lab", hostname="lab")
+        state, value = resolve_device_attribute_state(device, "error.code")
+        self.assertEqual(state, AttributeState.ABSENT)
+        self.assertIsNone(value)
+
+    def test_unwrap_singleton_list_unwraps_lone_scalar(self) -> None:
+        self.assertEqual(unwrap_singleton_list(["FCW2148XXXX"]), "FCW2148XXXX")
+
+    def test_unwrap_singleton_list_leaves_multi_item_list_alone(self) -> None:
+        self.assertEqual(unwrap_singleton_list(["a", "b"]), ["a", "b"])
+
+    def test_unwrap_singleton_list_leaves_empty_list_alone(self) -> None:
+        self.assertEqual(unwrap_singleton_list([]), [])
+
+    def test_unwrap_singleton_list_leaves_singleton_dict_list_alone(self) -> None:
+        value = [{"name": "x"}]
+        self.assertEqual(unwrap_singleton_list(value), value)
+
+    def test_unwrap_singleton_list_leaves_non_list_alone(self) -> None:
+        self.assertEqual(unwrap_singleton_list("already-a-scalar"), "already-a-scalar")
+
+    def test_resolves_textfsm_style_singleton_serial_list(self) -> None:
+        """ntc-templates declares SERIAL/HARDWARE/MAC_ADDRESS as 'Value List'
+        fields — always a list, even for a single-chassis device with one
+        value. A source_path like update-attribute's must still resolve it
+        to a plain string."""
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={
+                "parsed": {
+                    "show version": {
+                        "parsed": [{"HOSTNAME": "lab", "SERIAL": ["FCW2148XXXX"]}],
+                        "error": None,
+                    }
+                }
+            },
+        )
+        self.assertEqual(
+            resolve_device_attribute(
+                device, "parsed.parsed.show version.parsed[HOSTNAME=lab].SERIAL"
+            ),
+            "FCW2148XXXX",
+        )
+
+    def test_multi_item_serial_list_still_does_not_resolve_to_a_literal(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"stack": {"SERIAL": ["FCW1", "FCW2"]}},
+        )
+        self.assertIsNone(resolve_device_attribute(device, "parsed.stack.SERIAL"))
+
+    def test_state_present_with_value_for_singleton_scalar_list(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"stack": {"SERIAL": ["FCW2148XXXX"]}},
+        )
+        state, value = resolve_device_attribute_state(device, "parsed.stack.SERIAL")
+        self.assertEqual(state, AttributeState.PRESENT)
+        self.assertEqual(value, "FCW2148XXXX")
+
+    def test_state_null_for_singleton_none_list(self) -> None:
+        device = DeviceContext(
+            id="device-1",
+            name="lab",
+            hostname="lab",
+            parsed={"stack": {"SERIAL": [None]}},
+        )
+        state, value = resolve_device_attribute_state(device, "parsed.stack.SERIAL")
+        self.assertEqual(state, AttributeState.NULL)
         self.assertIsNone(value)
 
 

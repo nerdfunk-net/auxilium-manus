@@ -79,18 +79,59 @@ speculatively. One step can have more than one alias; add a row per alias.
 
 ---
 
-## General wiring convention
+## General wiring conventions
 
-Confirmed from the seed example below: when a request names two or more Nautobot/
-inventory-style actions **in sequence** (e.g. "get the devicelist X **and** the
-attributes"), the default interpretation is a **chain**, not parallel branches — an
-edge from the first step's `success` outcome to the second step's input, in the
-order mentioned. This also happens to be the only wiring the registry allows here:
+**1. Sequence in the sentence = chain in the canvas.** Confirmed from the seed
+example below: when a request names two or more Nautobot/inventory-style actions
+**in sequence** (e.g. "get the devicelist X **and** the attributes"), the default
+interpretation is a **chain**, not parallel branches — an edge from the first
+step's `success` outcome to the second step's input, in the order mentioned. This
+also happens to be the only wiring the registry allows here:
 `get-nautobot-attributes` declares `requires: [identity]`, which only
 `get-nautobot-devices`' `produces: [identity]` satisfies, so there is no ambiguity
 to resolve for this specific pair — but the "sequence in the sentence = chain in
 the canvas" default extends to other same-shaped requests too, absent a signal like
 "also", "separately", or "in parallel" suggesting independent branches instead.
+
+**2. Rename `device.name` to the real hostname before any Batfish step, whenever
+identity didn't come from Nautobot.** Confirmed 2026-09-27 building the
+`onboarding` gallery workflow (see `contributing-data/workflow-gallery/onboarding.json`'s
+own notes for the full write-up). `get-from-user`/`get-from-list` set
+`device.name` to whatever was typed — often just an IP address, since there's no
+inventory system backing either step to supply a real name. But
+`batfish-extract-facts` defaults its node filter to `device.name.lower()` *and*
+attributes facts back to devices by that same lowercased name, while Batfish's
+own node name always comes from the `hostname` line inside the actual parsed
+config — never from anything Manus knows beforehand. A bare IP isn't even valid
+Batfish node-specifier syntax (a literal 400 from the Batfish API on
+`batfish-extract-facts`), and even a name-shaped `device.name` wouldn't
+necessarily match. Fix: an `update-attribute` node, `mode: regex`,
+`source_path: "parsed.<parse-cisco-config's output_key>.running.hostname"` (or
+the equivalent for whichever step parsed the config), `destination_path:
+"device.name"`, placed *before* `fan-in`/`batfish-init-snapshot` in the chain —
+never after. This also happens to be what lets a later `update-nautobot-device`
+(`device_identifier: {mode: from_context}`) correctly resolve an
+already-existing device by name, if the workflow has a create-or-update step
+downstream (see the "onboard `<device>`" mapping below) — one rename, two
+independent payoffs.
+
+**3. A Run Command/Genie scalar field often needs a list index, not just a dot
+path.** Also confirmed 2026-09-27, same workflow. TextFSM's output is always a
+list of rows, even for a single-row command like `show version` — and several
+common ntc-templates fields (`serial`, `hardware`, `mac_address`) are declared
+`Value List`, so they're a list *inside* that one row too. Reaching a scalar like
+the chassis serial number needs `attribute_path.py`'s numeric-index segment,
+`field[N]` (e.g. `parsed.<parsed_output_key>.show version.parsed[0].serial`) —
+`field[key=value]` doesn't help here, since there's no per-device field known
+ahead of time to filter on, and a multi-item list would be genuinely ambiguous
+anyway. Two syntax traps to avoid when writing this by hand instead of using the
+attribute picker: a multi-word command like `show version` is a perfectly
+ordinary path segment as-is — don't quote or bracket it
+(`parsed["show version"]` is wrong; it's treated as one literal, nonexistent
+dict key and silently resolves to nothing, no error); and the index form is
+`[0]` (a bare digit), not `[]` — an empty bracket isn't recognized at all. A
+wrong path here fails **silently** (`update-attribute` just skips that device
+for that attribute), so a missing value downstream is the only symptom.
 
 ---
 
@@ -190,6 +231,71 @@ script using
 unspecified first run** (`LAB`) — it is not a general inventory-name-to-id cache. A
 request that names an inventory explicitly (as in this example) always gets a
 fresh lookup by that name, whether or not it happens to be `LAB`.
+
+### "ask the user for the name or IP address of a device" / "ask the user for a device"
+
+→ One `get-from-user` node ("Get from User"). `requires: []`, so — unlike
+`get-nautobot-attributes` — this one *can* be the first node in a branch; it
+`produces: [identity]`, same as `get-nautobot-devices`, so the wiring
+convention above still applies if the request chains a Nautobot-attributes
+step after it.
+
+This step has no Nautobot dependency at all: it reads a plain delimited-text
+run input the operator fills in via the Run Inputs dialog when starting the
+run (one device per line — hostname, IP address, or `name,ip_address`; see
+`workflow_steps/get_from_user/executor.py`), not a live or saved inventory.
+
+1. `device_param` (**required**) — name a run-parameter (the step's own
+   registry example is `target_devices`; use a step-specific name if a
+   workflow needs more than one prompt-for-device step). Add a matching
+   `static_attribute` (full replacement of `static_attributes` — merge with
+   whatever the workflow already has, never drop existing entries):
+   `{"name": "<device_param>", "type": "string", "required": true}` — required
+   because the executor raises if the run input is absent, not optional like
+   the reference-type `static_attribute` used for `inventory_param` above.
+2. `lookup_mode` — leave unset/`"manual"` (plain multi-line box) unless the
+   request implies a Nautobot-backed typeahead (e.g. "let them search for it"),
+   in which case use `"nautobot_search"` with `nautobot_source_id` resolved
+   from `AI_DEFAULTS.md`'s Sources table — both are UI hints only, never read
+   by the executor itself.
+
+### "onboard `<device>`" / "add it to Nautobot, or update it if it's already there"
+
+→ `add-to-nautobot`'s `failure` outcome, routed by `error.code` through a
+`route-on-attribute` node, not a plain success/failure branch. Confirmed
+2026-09-27 building `contributing-data/workflow-gallery/onboarding.json` — see
+its own wiki notes for the full worked recipe (Get from User → parallel
+Get Configs+Parse Cisco Config / Run Command → Update Attribute (rename +
+extract) → Batfish-for-interfaces → Add to Nautobot → this routing → Update
+Nautobot Device).
+
+1. `add-to-nautobot`'s `failure` outcome → one `route-on-attribute` node,
+   `attribute_path: "error.code"`. `add-to-nautobot` sets a specific,
+   stable code — `device_already_exists` — when the failure is Nautobot's own
+   uniqueness-violation 400 (a device with that name already exists at that
+   location); every other failure (a missing required field, an unreachable
+   source, a permissions error) keeps a different code, so it's
+   distinguishable from "already exists" (see `attribute_path.py`'s
+   `error.*` namespace and `add_to_nautobot/executor.py::_is_already_exists`).
+2. Route `device_already_exists` to an `update-nautobot-device` node
+   (`device_identifier: {mode: from_context}` — resolves the existing device
+   by name, which is why "General wiring conventions" #2 above, renaming
+   `device.name` to the real hostname, matters even more here). Wire
+   `add-to-nautobot`'s own `success` outcome to the **same**
+   `update-nautobot-device` node too if the workflow
+   needs a second write pass after creation (e.g. pushing interfaces
+   `add-to-nautobot` didn't set at creation time) — both paths converging on
+   one shared node is the pattern the gallery workflow uses, not a
+   coincidence.
+3. **Leave every other error code an unwired `default_outcome`** (e.g.
+   `STOP`) rather than routing it anywhere — an unrelated, unrecoverable
+   failure should end the run, not be silently treated as "already exists."
+   Say this explicitly in the proposed plan so the user knows a bare
+   `default_outcome` name with nothing connected to it is deliberate, not a
+   forgotten wire.
+4. This `error.code` classification currently exists only on
+   `add-to-nautobot` — don't assume another create-oriented step has the same
+   `device_already_exists` code without checking its executor first.
 
 ### "get the attributes (from nautobot)" / "get nautobot attributes"
 

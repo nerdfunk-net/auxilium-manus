@@ -354,6 +354,61 @@ against workflow 23 (`AI Assistent`): notes written and confirmed persisted,
 canvas (6 nodes) and `workflow_changes` count (18) both unchanged by the
 notes-only patch.
 
+**Update 2026-09-27 (second live test artifact — `onboarding`, three real
+infrastructure bugs found and fixed while building it):** workflow 29
+("Onboarding") — onboard a device from nothing but an IP address, typed at run
+start, into Nautobot — is now a second real, live-verified artifact alongside
+workflow 23, and the first built through a longer, iterative human+AI session
+(diagnose a live run failure, propose a fix, human builds part of it by hand,
+AI implements the rest) rather than a single apply pass. Now in
+`contributing-data/workflow-gallery/onboarding.json` with full wiki notes —
+see `AI_VOCABULARY.md`'s new "General wiring conventions" #2/#3 and its new
+"onboard `<device>`" phrase mapping for the reusable patterns it confirmed.
+
+Three real bugs in shared infrastructure were found and fixed along the way —
+none of them specific to this one workflow, all likely to affect any future
+AI-authored (or human-authored) workflow with a similar shape:
+1. `services/workflow_context/attribute_path_discovery.py::merge_ancestor_devices`
+   (backs the canvas's attribute-path picker) did a raw per-device overwrite
+   while walking ancestor step results, so at a join fed by two independent
+   parallel branches (e.g. Run Command and Parse Cisco Config both enriching
+   the same device before Update Attribute), whichever branch's step result
+   happened to persist last completely discarded the other's contribution
+   from the picker's tree — the picker showed only one branch's parsed data,
+   never both. Fixed to merge via `merge_device_contexts` (the same real
+   merge logic `StepRunner` already uses at an actual runtime join), falling
+   back to last-writer-wins only on a genuine conflict. This was a
+   picker/discovery-time bug only — the real run's own `StepRunner` already
+   merged the join correctly; only what the picker displayed was wrong.
+2. The same file's `_looks_like_raw_config` heuristic (hides Genie's raw
+   `show running-config` dict from the picker, detected by whitespace in its
+   keys) false-positived on `run-command`'s own per-command output dict,
+   since a real command string like `"show version"` also has a space in it
+   — collapsing Run Command's entire parsed output to an opaque
+   "(raw config — not browsable)" placeholder for any multi-word command,
+   which is nearly always. Fixed by recognizing the normalized `{"parsed",
+   "error"}` command-result shape first (`_looks_like_command_output_bag`)
+   and excluding it from the raw-config check.
+3. `services/workflow_context/attribute_path.py`'s dot-path grammar had no
+   way to index a list by literal position — only `field[key=value]` (an
+   exact-match filter). TextFSM's output is always a list even for a
+   single-row command, and several ntc-templates fields (`serial`,
+   `hardware`, `mac_address`) are lists even within one row, with no
+   per-device field available to filter on. Added a second segment form,
+   `field[N]`, alongside the existing filter — unambiguous with it (digits
+   only, no `=`, so the two can never collide). Also added
+   `unwrap_singleton_list` (a length-1 list of a genuine scalar resolves as
+   that scalar) so the common "TextFSM always wraps a single result in a
+   list" case doesn't need `[0]` explicitly written into every 1-item read —
+   though the fields above still needed the explicit index too, since the
+   *outer* list (TextFSM's rows) and the field's own list are two separate
+   list layers.
+
+All three are covered by new unit tests (`test_attribute_path_discovery.py`,
+`test_attribute_path.py`) and documented in `registry.yaml`'s
+`route-on-attribute` description and the `Update Attribute` step's frontend
+Help tab, in addition to this log entry.
+
 ---
 
 ## Goal

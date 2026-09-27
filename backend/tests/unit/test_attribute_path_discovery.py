@@ -232,6 +232,65 @@ class BuildAttributePathTreeTests(unittest.TestCase):
         self.assertEqual(entries.kind, "list")
         self.assertEqual(entries.children, [])
 
+    def test_command_output_bag_is_not_mistaken_for_raw_config(self) -> None:
+        """A run-command dict keyed by command strings (e.g. "show version")
+        has whitespace in its keys just like a raw CLI config line does, but
+        every value is the normalized {"parsed", "error"} shape -- it must
+        stay browsable, not collapse to the raw-config placeholder."""
+        devices = {
+            "d1": _device(
+                "d1",
+                parsed={
+                    "parsed": {
+                        "show ip interface brief": {"parsed": [{"INTF": "Gi0/0"}], "error": None},
+                    }
+                },
+            )
+        }
+        tree = build_attribute_path_tree(devices)
+        parsed_node = self._find(tree, "parsed")
+        run_command = self._find(parsed_node.children, "parsed")
+        self.assertEqual(run_command.kind, "dict")
+        command_node = self._find(run_command.children, "show ip interface brief")
+        self.assertEqual(command_node.kind, "dict")
+
+    def test_singleton_scalar_list_is_a_clickable_scalar_leaf(self) -> None:
+        """ntc-templates declares SERIAL/HARDWARE/MAC_ADDRESS as 'Value List'
+        fields -- always a list, even for a single-chassis device with one
+        value. The picker should surface that as a scalar, not a dead-end
+        list node."""
+        devices = {
+            "d1": _device(
+                "d1",
+                parsed={
+                    "parsed": {
+                        "show version": {
+                            "parsed": [{"HOSTNAME": "lab", "SERIAL": ["FCW2148XXXX"]}]
+                        }
+                    }
+                },
+            )
+        }
+        tree = build_attribute_path_tree(devices)
+        parsed_node = self._find(tree, "parsed")
+        run_command = self._find(parsed_node.children, "parsed")
+        show_version = self._find(run_command.children, "show version")
+        inner_parsed = self._find(show_version.children, "parsed")
+        row = inner_parsed.children[0]
+        serial = self._find(row.children, "SERIAL")
+
+        self.assertEqual(serial.kind, "scalar")
+        self.assertEqual(serial.example_value, "FCW2148XXXX")
+
+    def test_multi_item_scalar_list_stays_a_list_leaf(self) -> None:
+        devices = {"d1": _device("d1", parsed={"stack": {"SERIAL": ["FCW1", "FCW2"]}})}
+        tree = build_attribute_path_tree(devices)
+        parsed_node = self._find(tree, "parsed")
+        stack = self._find(parsed_node.children, "stack")
+        serial = self._find(stack.children, "SERIAL")
+
+        self.assertEqual(serial.kind, "list")
+
     def test_list_branches_capped(self) -> None:
         items = [{"address": f"10.0.0.{i}"} for i in range(MAX_LIST_ITEM_BRANCHES + 10)]
         devices = {"d1": _device("d1", parsed={"servers": items})}
@@ -252,7 +311,9 @@ class MergeAncestorDevicesTests(unittest.TestCase):
         self.assertEqual(set(merged), {"d1"})
         self.assertEqual(matched, ["a"])
 
-    def test_later_step_result_overwrites_earlier_for_same_device(self) -> None:
+    def test_later_step_result_overwrites_earlier_on_genuine_conflict(self) -> None:
+        # Same parsed key, two different values -- a real conflict merge_device_contexts
+        # can't reconcile, so this falls back to last-writer-wins rather than raising.
         step_a = _step_result(
             id_=1, step_node_id="a", devices={"d1": _device("d1", parsed={"x": 1})}
         )
@@ -263,6 +324,29 @@ class MergeAncestorDevicesTests(unittest.TestCase):
         merged, _matched = merge_ancestor_devices([step_a, step_b], {"a", "b"})
 
         self.assertEqual(merged["d1"].parsed["x"], 2)
+
+    def test_independent_parallel_branches_are_merged_not_overwritten(self) -> None:
+        """Two independent branches (e.g. Run Command and Parse Cisco Config)
+        both enriching the same device, joined at a downstream step (e.g.
+        Update Attribute) -- the picker must see both branches' parsed keys,
+        not just whichever branch's step happened to persist last."""
+        run_command = _step_result(
+            id_=1,
+            step_node_id="run-command-12",
+            devices={"d1": _device("d1", parsed={"parsed": {"show version": {}}})},
+        )
+        parse_cisco_config = _step_result(
+            id_=2,
+            step_node_id="parse-cisco-config-8",
+            devices={"d1": _device("d1", parsed={"cisco_config": {"running": {}}})},
+        )
+
+        merged, matched = merge_ancestor_devices(
+            [run_command, parse_cisco_config], {"run-command-12", "parse-cisco-config-8"}
+        )
+
+        self.assertEqual(set(merged["d1"].parsed), {"parsed", "cisco_config"})
+        self.assertEqual(set(matched), {"run-command-12", "parse-cisco-config-8"})
 
     def test_malformed_output_is_tolerated(self) -> None:
         step = WorkflowStepResult(
