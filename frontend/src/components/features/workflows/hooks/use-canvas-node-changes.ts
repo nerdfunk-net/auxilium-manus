@@ -86,14 +86,25 @@ export function useCanvasNodeChanges({
         const groupId = groupIdFromNodeId(node.id);
         if (groupId) {
           const currentGroup = nextGroups.find((g) => g.id === groupId);
-          if (
-            currentGroup &&
-            (currentGroup.position.x !== node.position.x ||
-              currentGroup.position.y !== node.position.y)
-          ) {
-            nextGroups = nextGroups.map((g) =>
-              g.id === groupId ? { ...g, position: node.position } : g,
-            );
+          if (currentGroup) {
+            const positionChanged =
+              currentGroup.position.x !== node.position.x ||
+              currentGroup.position.y !== node.position.y;
+            // Persist "select" NodeChanges too — the synthetic Group node is
+            // rebuilt from scratch every projection, so its `selected` state
+            // only survives a re-render if it round-trips through the
+            // authoritative CanvasGroup, same as position already does. Without
+            // this, a group node can never join `selectedCanvasNodes`, which
+            // blocks aligning/auto-laying-out/deleting a group together with
+            // other selected steps.
+            const selectedChanged = Boolean(currentGroup.selected) !== Boolean(node.selected);
+            if (positionChanged || selectedChanged) {
+              nextGroups = nextGroups.map((g) =>
+                g.id === groupId
+                  ? { ...g, position: node.position, selected: node.selected }
+                  : g,
+              );
+            }
           }
           continue;
         }

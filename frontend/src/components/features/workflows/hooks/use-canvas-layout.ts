@@ -8,7 +8,7 @@ import {
   type WorkflowEdgeData,
 } from "../types/workflow-canvas";
 import { resolveContainment } from "../utils/canvas-containment";
-import { groupNodeId } from "../utils/canvas-group-projection";
+import { groupIdFromNodeId, groupNodeId } from "../utils/canvas-group-projection";
 import { alignCanvasNodes, type NodeAlignment } from "../utils/node-alignment";
 import { runAutoLayout, type AutoLayoutDirection } from "../utils/auto-layout";
 import type { UseWorkflowCanvasCoreResult } from "./use-workflow-canvas-core";
@@ -108,6 +108,26 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
 
   const handleIncomeHandleSideChange = useCallback(
     (nodeId: string, side: HandleSide) => {
+      // The synthetic Group node isn't in `allNodes` — its handle sides live
+      // on the CanvasGroup instead, same as position/selected above.
+      const groupId = groupIdFromNodeId(nodeId);
+      if (groupId) {
+        setGroups((current) =>
+          current.map((g) => {
+            if (g.id !== groupId) return g;
+            const previousIncomeSide = g.incomeHandleSide ?? "left";
+            const outcomeSide = g.outcomeHandleSide ?? "right";
+            return {
+              ...g,
+              incomeHandleSide: side,
+              outcomeHandleSide: outcomeSide === side ? previousIncomeSide : outcomeSide,
+            };
+          }),
+        );
+        markDirty();
+        return;
+      }
+
       setAllNodes((current) =>
         current.map((n) => {
           if (n.id !== nodeId) return n;
@@ -125,11 +145,20 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
       );
       markDirty();
     },
-    [setAllNodes, markDirty],
+    [setAllNodes, setGroups, markDirty],
   );
 
   const handleOutcomeHandleSideChange = useCallback(
     (nodeId: string, side: HandleSide) => {
+      const groupId = groupIdFromNodeId(nodeId);
+      if (groupId) {
+        setGroups((current) =>
+          current.map((g) => (g.id !== groupId ? g : { ...g, outcomeHandleSide: side })),
+        );
+        markDirty();
+        return;
+      }
+
       setAllNodes((current) =>
         current.map((n) =>
           n.id !== nodeId ? n : { ...n, data: { ...n.data, outcomeHandleSide: side } },
@@ -137,7 +166,7 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
       );
       markDirty();
     },
-    [setAllNodes, markDirty],
+    [setAllNodes, setGroups, markDirty],
   );
 
   const handleAlignNodes = useCallback(

@@ -1,12 +1,14 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { FolderOpen } from "lucide-react";
+import { useEffect } from "react";
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
+import { FolderOpen, Settings2 } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { useWorkflowBuilderStore } from "../../hooks/use-workflow-builder-store";
-import type { GroupCanvasNode } from "../../types/workflow-canvas";
+import type { GroupCanvasNode, HandleSide } from "../../types/workflow-canvas";
 
 const NODE_WIDTH_CLASS = "w-80";
 const NODE_HEIGHT_CLASS = "h-32";
@@ -14,9 +16,29 @@ const NODE_HEIGHT_CLASS = "h-32";
 const TARGET_HANDLE_CLASS = "!size-3 !border-2 !bg-muted-foreground/40 !border-muted-foreground";
 const SOURCE_HANDLE_CLASS = "!size-3 !border-2 !bg-step !border-step-hover";
 
-export function GroupNode({ data, selected }: NodeProps<GroupCanvasNode>) {
+const HANDLE_SIDE_TO_POSITION: Record<HandleSide, Position> = {
+  top: Position.Top,
+  bottom: Position.Bottom,
+  left: Position.Left,
+  right: Position.Right,
+};
+
+/** Centers a handle along the axis perpendicular to the side it attaches to. */
+function centeringStyle(side: HandleSide) {
+  return side === "top" || side === "bottom" ? { left: "50%" } : { top: "50%" };
+}
+
+export function GroupNode({ id, data, selected }: NodeProps<GroupCanvasNode>) {
   const enterGroup = useWorkflowBuilderStore((state) => state.enterGroup);
+  const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
   const hasTargetHandle = (data.requires?.length ?? 0) > 0 || (data.requiresParsed?.length ?? 0) > 0;
+  const incomeSide = data.incomeHandleSide ?? "left";
+  const outcomeSide = data.outcomeHandleSide ?? "right";
+
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, updateNodeInternals, incomeSide, outcomeSide, hasTargetHandle]);
 
   return (
     <div
@@ -32,11 +54,23 @@ export function GroupNode({ data, selected }: NodeProps<GroupCanvasNode>) {
         <Handle
           className={TARGET_HANDLE_CLASS}
           id="input"
-          position={Position.Left}
-          style={{ top: "50%" }}
+          position={HANDLE_SIDE_TO_POSITION[incomeSide]}
+          style={centeringStyle(incomeSide)}
           type="target"
         />
       ) : null}
+      <Button
+        aria-label="Open configuration"
+        className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
+        onClick={(event) => {
+          event.stopPropagation();
+          openConfigModal(id);
+        }}
+        size="icon"
+        variant="ghost"
+      >
+        <Settings2 className="size-3.5" />
+      </Button>
       <div className="flex h-full items-start gap-3 p-4 pr-10">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-step-surface text-step-muted-foreground">
           <FolderOpen className="size-5" aria-hidden />
@@ -54,8 +88,8 @@ export function GroupNode({ data, selected }: NodeProps<GroupCanvasNode>) {
       <Handle
         className={SOURCE_HANDLE_CLASS}
         id="success"
-        position={Position.Right}
-        style={{ top: "50%" }}
+        position={HANDLE_SIDE_TO_POSITION[outcomeSide]}
+        style={centeringStyle(outcomeSide)}
         type="source"
       />
     </div>

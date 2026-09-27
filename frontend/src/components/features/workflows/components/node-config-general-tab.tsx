@@ -15,10 +15,11 @@ import { Switch } from "@/components/ui/switch";
 import { TabsContent } from "@/components/ui/tabs";
 
 import type { PluginDefinition } from "../types/plugin-registry";
+import { isGroupCanvasNode } from "../utils/canvas-group-projection";
 import {
   isDisableableStepKind,
   type HandleSide,
-  type PersistedCanvasNode,
+  type ProjectedCanvasNode,
 } from "../types/workflow-canvas";
 
 const MODAL_TAB_CONTENT_CLASS = "mt-0 min-h-0 flex-1 overflow-y-auto p-6";
@@ -30,16 +31,106 @@ const HANDLE_SIDE_OPTIONS: { value: HandleSide; label: string }[] = [
   { value: "right", label: "Right" },
 ];
 
-/** Node types whose canvas handles attach to a configurable side. */
-const HANDLE_SIDE_CONFIGURABLE_NODE_TYPES = new Set(["workflowNode", "funnelNode"]);
+interface HandleSideSelectsProps {
+  incomeSide: HandleSide;
+  outcomeSide: HandleSide;
+  onIncomeChange?: (side: HandleSide) => void;
+  onOutcomeChange?: (side: HandleSide) => void;
+}
+
+function HandleSideSelects({
+  incomeSide,
+  outcomeSide,
+  onIncomeChange,
+  onOutcomeChange,
+}: HandleSideSelectsProps) {
+  return (
+    <>
+      <div className="mt-4 flex max-w-xl gap-3">
+        <div className="flex-1 space-y-1.5">
+          <Label className="text-xs font-medium" htmlFor="modal-step-income-side">
+            Income position
+          </Label>
+          <Select value={incomeSide} onValueChange={(value) => onIncomeChange?.(value as HandleSide)}>
+            <SelectTrigger className="h-8 text-sm" id="modal-step-income-side">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {HANDLE_SIDE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex-1 space-y-1.5">
+          <Label className="text-xs font-medium" htmlFor="modal-step-outcome-side">
+            Outcome position
+          </Label>
+          <Select value={outcomeSide} onValueChange={(value) => onOutcomeChange?.(value as HandleSide)}>
+            <SelectTrigger className="h-8 text-sm" id="modal-step-outcome-side">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {HANDLE_SIDE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} disabled={option.value === incomeSide} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <p className="mt-1.5 max-w-xl text-[11px] leading-4 text-muted-foreground">
+        Which sides the input and outcome handles attach to. Income takes priority — outcome
+        cannot use the same side.
+      </p>
+    </>
+  );
+}
+
+function NodeIdRow({ nodeId }: { nodeId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(nodeId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [nodeId]);
+
+  return (
+    <div className="mt-8 max-w-xl space-y-1.5 border-t pt-4">
+      <Label className="text-xs font-medium">Node ID</Label>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 truncate rounded-md border bg-muted/40 px-2 py-1.5 font-mono text-xs">
+          {nodeId}
+        </code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="shrink-0 text-[11px] text-muted-foreground underline hover:text-foreground"
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+      </div>
+      <p className="text-[11px] leading-4 text-muted-foreground">
+        Stable canvas id for this step. Reference it from another step&apos;s config (e.g.
+        source_step_node_id) or when reading run metadata keys.
+      </p>
+    </div>
+  );
+}
 
 interface NodeConfigGeneralTabProps {
-  activeNode: PersistedCanvasNode;
+  activeNode: ProjectedCanvasNode;
   plugin: PluginDefinition | undefined;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
   onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
   onNodeIncomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
   onNodeOutcomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
+  onRenameGroup?: (groupId: string, title: string) => void;
 }
 
 export function NodeConfigGeneralTab({
@@ -49,15 +140,45 @@ export function NodeConfigGeneralTab({
   onNodeDisabledChange,
   onNodeIncomeHandleSideChange,
   onNodeOutcomeHandleSideChange,
+  onRenameGroup,
 }: NodeConfigGeneralTabProps) {
-  const [copied, setCopied] = useState(false);
+  if (isGroupCanvasNode(activeNode)) {
+    const incomeSide = activeNode.data.incomeHandleSide ?? "left";
+    const outcomeSide = activeNode.data.outcomeHandleSide ?? "right";
 
-  const handleCopyNodeId = useCallback(() => {
-    void navigator.clipboard.writeText(activeNode.id).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [activeNode.id]);
+    return (
+      <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="general">
+        <div className="max-w-xl space-y-1.5">
+          <Label className="text-xs font-medium" htmlFor="modal-group-name">
+            Group name
+          </Label>
+          <Input
+            id="modal-group-name"
+            value={activeNode.data.title}
+            onChange={(event) => onRenameGroup?.(activeNode.data.groupId, event.target.value)}
+            className="h-8 text-sm"
+          />
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Shown on the collapsed group node on the canvas.
+          </p>
+        </div>
+
+        <HandleSideSelects
+          incomeSide={incomeSide}
+          outcomeSide={outcomeSide}
+          onIncomeChange={(side) => onNodeIncomeHandleSideChange?.(activeNode.id, side)}
+          onOutcomeChange={(side) => onNodeOutcomeHandleSideChange?.(activeNode.id, side)}
+        />
+
+        <NodeIdRow nodeId={activeNode.id} />
+      </TabsContent>
+    );
+  }
+
+  const incomeSide = activeNode.data.incomeHandleSide ?? "left";
+  const outcomeSide = activeNode.data.outcomeHandleSide ?? "right";
+  const isHandleSideConfigurable =
+    activeNode.type === "workflowNode" || activeNode.type === "funnelNode";
 
   return (
     <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="general">
@@ -97,63 +218,13 @@ export function NodeConfigGeneralTab({
         </p>
       </div>
 
-      {HANDLE_SIDE_CONFIGURABLE_NODE_TYPES.has(activeNode.type ?? "") ? (
-        <div className="mt-4 flex max-w-xl gap-3">
-          <div className="flex-1 space-y-1.5">
-            <Label className="text-xs font-medium" htmlFor="modal-step-income-side">
-              Income position
-            </Label>
-            <Select
-              value={activeNode.data.incomeHandleSide ?? "left"}
-              onValueChange={(value) =>
-                onNodeIncomeHandleSideChange?.(activeNode.id, value as HandleSide)
-              }
-            >
-              <SelectTrigger className="h-8 text-sm" id="modal-step-income-side">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {HANDLE_SIDE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex-1 space-y-1.5">
-            <Label className="text-xs font-medium" htmlFor="modal-step-outcome-side">
-              Outcome position
-            </Label>
-            <Select
-              value={activeNode.data.outcomeHandleSide ?? "right"}
-              onValueChange={(value) =>
-                onNodeOutcomeHandleSideChange?.(activeNode.id, value as HandleSide)
-              }
-            >
-              <SelectTrigger className="h-8 text-sm" id="modal-step-outcome-side">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {HANDLE_SIDE_OPTIONS.map((option) => (
-                  <SelectItem
-                    key={option.value}
-                    disabled={option.value === (activeNode.data.incomeHandleSide ?? "left")}
-                    value={option.value}
-                  >
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      ) : null}
-      {HANDLE_SIDE_CONFIGURABLE_NODE_TYPES.has(activeNode.type ?? "") ? (
-        <p className="mt-1.5 max-w-xl text-[11px] leading-4 text-muted-foreground">
-          Which sides this step&apos;s input and outcome handles attach to. Income takes priority
-          — outcome cannot use the same side.
-        </p>
+      {isHandleSideConfigurable ? (
+        <HandleSideSelects
+          incomeSide={incomeSide}
+          outcomeSide={outcomeSide}
+          onIncomeChange={(side) => onNodeIncomeHandleSideChange?.(activeNode.id, side)}
+          onOutcomeChange={(side) => onNodeOutcomeHandleSideChange?.(activeNode.id, side)}
+        />
       ) : null}
 
       {onNodeDisabledChange && isDisableableStepKind(activeNode.data.kind) ? (
@@ -178,25 +249,7 @@ export function NodeConfigGeneralTab({
         </div>
       ) : null}
 
-      <div className="mt-8 max-w-xl space-y-1.5 border-t pt-4">
-        <Label className="text-xs font-medium">Node ID</Label>
-        <div className="flex items-center gap-2">
-          <code className="flex-1 truncate rounded-md border bg-muted/40 px-2 py-1.5 font-mono text-xs">
-            {activeNode.id}
-          </code>
-          <button
-            type="button"
-            onClick={handleCopyNodeId}
-            className="shrink-0 text-[11px] text-muted-foreground underline hover:text-foreground"
-          >
-            {copied ? "Copied!" : "Copy"}
-          </button>
-        </div>
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          Stable canvas id for this step. Reference it from another step&apos;s config (e.g.
-          source_step_node_id) or when reading run metadata keys.
-        </p>
-      </div>
+      <NodeIdRow nodeId={activeNode.id} />
     </TabsContent>
   );
 }

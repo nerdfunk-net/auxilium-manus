@@ -93,6 +93,10 @@ export function SelectedStepPanel({
           <FolderOpen className="size-4" aria-hidden />
           Open group
         </Button>
+        <Button className="mt-2 w-full gap-1.5" onClick={onOpenConfig} variant="outline">
+          <Settings2 className="size-3.5" aria-hidden />
+          Open configuration
+        </Button>
         <Button
           className="mt-2 w-full gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
           onClick={() => onUngroupGroup?.(node.data.groupId)}

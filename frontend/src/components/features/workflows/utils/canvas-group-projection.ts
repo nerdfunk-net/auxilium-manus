@@ -71,6 +71,7 @@ function synthesizeGroupNode(
     width: GROUP_NODE_WIDTH,
     height: GROUP_NODE_HEIGHT,
     measured: { width: GROUP_NODE_WIDTH, height: GROUP_NODE_HEIGHT },
+    selected: group.selected,
     data: {
       kind: "__canvas-group__",
       title: group.title,
@@ -81,6 +82,8 @@ function synthesizeGroupNode(
       outcomes: [{ name: "success" }],
       produces: exitNode?.data.produces,
       producesParsed: exitNode?.data.producesParsed,
+      incomeHandleSide: group.incomeHandleSide,
+      outcomeHandleSide: group.outcomeHandleSide,
     },
   };
 }

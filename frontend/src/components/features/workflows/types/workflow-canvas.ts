@@ -142,6 +142,18 @@ export interface CanvasGroup {
   position: { x: number; y: number };
   /** Reserved for v2 nested groups. Always null in v1. */
   parentGroupId: string | null;
+  /**
+   * Mirrors the synthetic Group node's React Flow `selected` state. The
+   * synthetic node is rebuilt from scratch on every projection (see
+   * `synthesizeGroupNode`), so without this it can never carry a "select"
+   * NodeChange across a re-render — the group could never join a multi-select
+   * alongside ordinary step nodes.
+   */
+  selected?: boolean;
+  /** Side the collapsed Group node's input handle attaches to. Default "left". */
+  incomeHandleSide?: HandleSide;
+  /** Side the collapsed Group node's outcome handle attaches to. Default "right". */
+  outcomeHandleSide?: HandleSide;
 }
 
 export interface GroupNodeData extends Record<string, unknown> {
@@ -155,6 +167,10 @@ export interface GroupNodeData extends Record<string, unknown> {
   produces?: Capability[];
   producesParsed?: string[];
   consumes?: Capability[];
+  /** Mirrors CanvasGroup.incomeHandleSide — see there. */
+  incomeHandleSide?: HandleSide;
+  /** Mirrors CanvasGroup.outcomeHandleSide — see there. */
+  outcomeHandleSide?: HandleSide;
 }
 
 export type GroupCanvasNode = Node<GroupNodeData, "groupNode">;

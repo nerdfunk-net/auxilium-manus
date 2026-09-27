@@ -30,6 +30,7 @@ import { WorkflowRunInputsDialog } from "./dialogs/workflow-run-inputs-dialog";
 import { WorkflowSaveAsDialog } from "./dialogs/workflow-save-as-dialog";
 import { WorkflowValidationDialog } from "./dialogs/workflow-validation-dialog";
 import { WorkflowWikiDialog } from "./dialogs/workflow-wiki-dialog";
+import { isGroupCanvasNode } from "./utils/canvas-group-projection";
 import { computeDeviceParamConfigs } from "./utils/device-param-hints";
 import { useUnsavedChangesWarning } from "./hooks/use-unsaved-changes-warning";
 import { useWorkflowBuilderStore } from "./hooks/use-workflow-builder-store";
@@ -59,6 +60,14 @@ export function WorkflowBuilderPage() {
   const deviceParamConfigs = useMemo(
     () => computeDeviceParamConfigs(canvas.allNodes),
     [canvas.allNodes],
+  );
+  // The config modal needs both every real node (so a validation-dialog click on a
+  // node currently hidden inside a collapsed group can still open it) and the
+  // synthetic group nodes (only present in the current projection, never in
+  // allNodes) so a Group's own "Open configuration" can resolve too.
+  const nodesForConfigModal = useMemo(
+    () => [...canvas.allNodes, ...canvas.projected.nodes.filter(isGroupCanvasNode)],
+    [canvas.allNodes, canvas.projected.nodes],
   );
   const persistence = useWorkflowPersistence({
     canvas,
@@ -196,7 +205,7 @@ export function WorkflowBuilderPage() {
           onStaticAttributesChange={canvas.handleStaticAttributesChange}
         />
         <NodeConfigModal
-          nodes={canvas.allNodes}
+          nodes={nodesForConfigModal}
           edges={canvas.allEdges}
           plugins={plugins}
           onNodeConfigChange={canvas.handleNodeConfigChange}
@@ -204,6 +213,7 @@ export function WorkflowBuilderPage() {
           onNodeDisabledChange={canvas.handleNodeDisabledChange}
           onNodeIncomeHandleSideChange={canvas.handleIncomeHandleSideChange}
           onNodeOutcomeHandleSideChange={canvas.handleOutcomeHandleSideChange}
+          onRenameGroup={canvas.handleRenameGroup}
           workflowNodes={canvas.allNodes}
         />
       </main>

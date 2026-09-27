@@ -22,11 +22,13 @@ import {
 } from "./node-config-description-tab";
 import { NodeConfigGeneralTab } from "./node-config-general-tab";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+import { isGroupCanvasNode } from "../utils/canvas-group-projection";
 import type { PluginDefinition } from "../types/plugin-registry";
 import type {
   HandleSide,
   WorkflowCanvasEdge,
   PersistedCanvasNode,
+  ProjectedCanvasNode,
 } from "../types/workflow-canvas";
 
 import {
@@ -41,7 +43,7 @@ const MODAL_TAB_TRIGGER_CLASS =
 const MODAL_TAB_CONTENT_CLASS = "mt-0 min-h-0 flex-1 overflow-y-auto p-6";
 
 interface NodeConfigModalProps {
-  nodes: PersistedCanvasNode[];
+  nodes: ProjectedCanvasNode[];
   edges?: WorkflowCanvasEdge[];
   plugins?: PluginDefinition[];
   onNodeConfigChange?: (nodeId: string, config: Record<string, unknown>) => void;
@@ -49,6 +51,7 @@ interface NodeConfigModalProps {
   onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
   onNodeIncomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
   onNodeOutcomeHandleSideChange?: (nodeId: string, side: HandleSide) => void;
+  onRenameGroup?: (groupId: string, title: string) => void;
   workflowNodes?: PersistedCanvasNode[];
 }
 
@@ -61,6 +64,7 @@ export function NodeConfigModal({
   onNodeDisabledChange,
   onNodeIncomeHandleSideChange,
   onNodeOutcomeHandleSideChange,
+  onRenameGroup,
   workflowNodes = EMPTY_NODES,
 }: NodeConfigModalProps) {
   const configModalNodeId = useWorkflowBuilderStore(
@@ -90,8 +94,10 @@ export function NodeConfigModal({
     [activeNode?.data.pluginConfig],
   );
 
+  const isGroup = activeNode ? isGroupCanvasNode(activeNode) : false;
+
   const hasConfigTab =
-    !!pluginUI || (plugin?.metadata.configuration_input.length ?? 0) > 0;
+    !isGroup && (!!pluginUI || (plugin?.metadata.configuration_input.length ?? 0) > 0);
 
   const visibleModalTabs = useMemo(
     () =>
@@ -141,12 +147,16 @@ export function NodeConfigModal({
                   {tab.label}
                 </TabsTrigger>
               ))}
-              <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="description">
-                Description
-              </TabsTrigger>
-              <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="help">
-                Help
-              </TabsTrigger>
+              {!isGroup ? (
+                <>
+                  <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="description">
+                    Description
+                  </TabsTrigger>
+                  <TabsTrigger className={MODAL_TAB_TRIGGER_CLASS} value="help">
+                    Help
+                  </TabsTrigger>
+                </>
+              ) : null}
             </TabsList>
 
             <NodeConfigGeneralTab
@@ -156,6 +166,7 @@ export function NodeConfigModal({
               onNodeDisabledChange={onNodeDisabledChange}
               onNodeIncomeHandleSideChange={onNodeIncomeHandleSideChange}
               onNodeOutcomeHandleSideChange={onNodeOutcomeHandleSideChange}
+              onRenameGroup={onRenameGroup}
             />
 
             {hasConfigTab ? (
@@ -199,23 +210,27 @@ export function NodeConfigModal({
               </TabsContent>
             ))}
 
-            <NodeConfigDescriptionTab activeNode={activeNode} plugin={plugin} />
+            {!isGroupCanvasNode(activeNode) ? (
+              <NodeConfigDescriptionTab activeNode={activeNode} plugin={plugin} />
+            ) : null}
 
-            <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="help">
-              {pluginUI?.HelpPanel ? (
-                <pluginUI.HelpPanel
-                  config={pluginConfig}
-                  nodeId={activeNode.id}
-                  workflowNodes={workflowNodes}
-                  workflowEdges={edges}
-                  plugins={plugins}
-                  onChange={(config) => onNodeConfigChange?.(activeNode.id, config)}
-                  onPreview={() => undefined}
-                />
-              ) : (
-                <HelpUnavailable />
-              )}
-            </TabsContent>
+            {!isGroup ? (
+              <TabsContent className={MODAL_TAB_CONTENT_CLASS} value="help">
+                {pluginUI?.HelpPanel ? (
+                  <pluginUI.HelpPanel
+                    config={pluginConfig}
+                    nodeId={activeNode.id}
+                    workflowNodes={workflowNodes}
+                    workflowEdges={edges}
+                    plugins={plugins}
+                    onChange={(config) => onNodeConfigChange?.(activeNode.id, config)}
+                    onPreview={() => undefined}
+                  />
+                ) : (
+                  <HelpUnavailable />
+                )}
+              </TabsContent>
+            ) : null}
           </Tabs>
         ) : null}
 
