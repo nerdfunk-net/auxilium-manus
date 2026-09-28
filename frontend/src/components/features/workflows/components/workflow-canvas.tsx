@@ -77,6 +77,11 @@ const FUNNEL_DROP_OFFSET = { x: 20, y: 20 };
 // "Show grid" toggle is on a snapped position lands exactly on a grid dot.
 const SNAP_GRID: [number, number] = [22, 22];
 
+// xyflow's own default is the single key "Backspace". Add "Delete" so
+// forward-delete keys (macOS fn+delete, the German "Entf" key) also work —
+// both report KeyboardEvent.key === "Delete" regardless of keyboard layout.
+const DELETE_KEY_CODES = ["Backspace", "Delete"];
+
 const EMPTY_VALIDATION_BY_NODE_ID: Record<string, NodeValidationSummary> = {};
 
 interface WorkflowCanvasProps {
@@ -341,6 +346,7 @@ function WorkflowCanvasInner({
         onMoveEnd={handleMoveEnd}
         snapToGrid={snapToGrid}
         snapGrid={SNAP_GRID}
+        deleteKeyCode={DELETE_KEY_CODES}
         {...(initialViewport
           ? { defaultViewport: initialViewport }
           : { fitView: true, fitViewOptions: { padding: 0.2 } })}
