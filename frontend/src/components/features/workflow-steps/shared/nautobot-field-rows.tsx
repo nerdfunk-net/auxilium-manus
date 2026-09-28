@@ -1,16 +1,196 @@
 "use client";
 
-import { Search, Trash2 } from "lucide-react";
+import { Fingerprint, Loader2, Search, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
-export interface EnabledValueSpec {
-  enabled: boolean;
+export type NautobotUuidResourceType =
+  | "location"
+  | "role"
+  | "status"
+  | "platform"
+  | "device"
+  | "device_type"
+  | "namespace"
+  | "rack";
+
+export interface NautobotUuidResolution {
+  resource_type: NautobotUuidResourceType;
+  content_type?: string;
+}
+
+export interface ValueSpec {
   value: string;
+  uuid_resolution?: NautobotUuidResolution;
+}
+
+export interface EnabledValueSpec extends ValueSpec {
+  enabled: boolean;
+}
+
+export const UUID_RESOURCE_TYPE_OPTIONS: { value: NautobotUuidResourceType; label: string }[] = [
+  { value: "location", label: "Location" },
+  { value: "role", label: "Role" },
+  { value: "status", label: "Status" },
+  { value: "platform", label: "Platform" },
+  { value: "device", label: "Device" },
+  { value: "device_type", label: "Device type" },
+  { value: "namespace", label: "Namespace" },
+  { value: "rack", label: "Rack" },
+];
+
+// Content types this codebase's resolvers are already exercised against — extend as needed.
+export const UUID_CONTENT_TYPE_OPTIONS = [
+  { value: "dcim.device", label: "dcim.device" },
+  { value: "dcim.interface", label: "dcim.interface" },
+];
+
+const CONTENT_TYPE_SCOPED_RESOURCE_TYPES = new Set<NautobotUuidResourceType>(["role", "status"]);
+
+export function isAttributeExpression(value: string): boolean {
+  return /^\{.*\}$/.test(value.trim());
+}
+
+export interface TestResolveState {
+  status: "idle" | "pending" | "success" | "error";
+  id?: string;
+  error?: string;
+}
+
+interface UuidResolutionControlsProps {
+  value: string;
+  uuidResolution?: NautobotUuidResolution;
+  onUuidResolutionChange?: (next: NautobotUuidResolution | undefined) => void;
+  uuidAutoDetect?: NautobotUuidResolution;
+  onTestResolve?: (resolution: NautobotUuidResolution) => void;
+  testResolve?: TestResolveState;
+  disabled?: boolean;
+}
+
+function UuidToggleButton({
+  active,
+  disabled,
+  onClick,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "default" : "outline"}
+      size="icon"
+      className="size-8 shrink-0"
+      disabled={disabled}
+      aria-pressed={active}
+      onClick={onClick}
+      title="Convert to UUID"
+    >
+      <Fingerprint className="size-3.5" />
+    </Button>
+  );
+}
+
+function UuidResolutionSubRow({
+  value,
+  uuidResolution,
+  onUuidResolutionChange,
+  onTestResolve,
+  testResolve,
+  disabled,
+}: UuidResolutionControlsProps) {
+  if (!uuidResolution || !onUuidResolutionChange) return null;
+
+  const needsContentType = CONTENT_TYPE_SCOPED_RESOURCE_TYPES.has(uuidResolution.resource_type);
+  const canTestResolve = Boolean(onTestResolve) && !isAttributeExpression(value) && Boolean(value.trim());
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pl-1">
+      <Select
+        value={uuidResolution.resource_type}
+        onValueChange={(next) =>
+          onUuidResolutionChange({
+            resource_type: next as NautobotUuidResourceType,
+            content_type: uuidResolution.content_type,
+          })
+        }
+      >
+        <SelectTrigger className="h-7 w-[9.5rem] text-xs" disabled={disabled}>
+          <SelectValue placeholder="Resolve as…" />
+        </SelectTrigger>
+        <SelectContent>
+          {UUID_RESOURCE_TYPE_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value} className="text-xs">
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {needsContentType ? (
+        <Select
+          value={uuidResolution.content_type ?? "dcim.device"}
+          onValueChange={(next) =>
+            onUuidResolutionChange({ ...uuidResolution, content_type: next })
+          }
+        >
+          <SelectTrigger className="h-7 w-[9.5rem] font-mono text-[11px]" disabled={disabled}>
+            <SelectValue placeholder="Content type…" />
+          </SelectTrigger>
+          <SelectContent>
+            {UUID_CONTENT_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value} className="font-mono text-[11px]">
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+
+      {onTestResolve ? (
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px]"
+            disabled={disabled || !canTestResolve || testResolve?.status === "pending"}
+            title={
+              isAttributeExpression(value)
+                ? "Attribute expressions resolve per device at run time"
+                : undefined
+            }
+            onClick={() => onTestResolve(uuidResolution)}
+          >
+            {testResolve?.status === "pending" ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : null}
+            Test resolve
+          </Button>
+          {testResolve?.status === "success" ? (
+            <span className="truncate font-mono text-[10px] text-success-foreground">
+              {testResolve.id}
+            </span>
+          ) : null}
+          {testResolve?.status === "error" ? (
+            <span className="text-[10px] text-destructive">{testResolve.error ?? "Not found"}</span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function NautobotRequiredFieldRow({
@@ -20,6 +200,11 @@ export function NautobotRequiredFieldRow({
   onChange,
   badge,
   onBrowse,
+  uuidResolution,
+  onUuidResolutionChange,
+  uuidAutoDetect,
+  onTestResolve,
+  testResolve,
 }: {
   label: string;
   placeholder: string;
@@ -29,6 +214,15 @@ export function NautobotRequiredFieldRow({
   badge?: string;
   /** Renders a "Browse attributes" icon button next to the value input when provided. */
   onBrowse?: () => void;
+  /** Current UUID-conversion setting for this field, if enabled. */
+  uuidResolution?: NautobotUuidResolution;
+  /** Renders the "Convert to UUID" toggle when provided. */
+  onUuidResolutionChange?: (next: NautobotUuidResolution | undefined) => void;
+  /** Suggested resolution (from the job schema or a name heuristic) seeded on first toggle-on. */
+  uuidAutoDetect?: NautobotUuidResolution;
+  /** Renders the "Test resolve" control when provided. */
+  onTestResolve?: (resolution: NautobotUuidResolution) => void;
+  testResolve?: TestResolveState;
 }) {
   const isEmpty = !value.trim();
   return (
@@ -54,6 +248,16 @@ export function NautobotRequiredFieldRow({
           value={value}
           onChange={(event) => onChange(event.target.value)}
         />
+        {onUuidResolutionChange ? (
+          <UuidToggleButton
+            active={Boolean(uuidResolution)}
+            onClick={() =>
+              onUuidResolutionChange(
+                uuidResolution ? undefined : (uuidAutoDetect ?? { resource_type: "location" }),
+              )
+            }
+          />
+        ) : null}
         {onBrowse ? (
           <Button
             type="button"
@@ -67,6 +271,13 @@ export function NautobotRequiredFieldRow({
           </Button>
         ) : null}
       </div>
+      <UuidResolutionSubRow
+        value={value}
+        uuidResolution={uuidResolution}
+        onUuidResolutionChange={onUuidResolutionChange}
+        onTestResolve={onTestResolve}
+        testResolve={testResolve}
+      />
     </div>
   );
 }
@@ -77,6 +288,10 @@ export function NautobotOptionalFieldRow({
   spec,
   onChange,
   onBrowse,
+  enableUuidResolution = false,
+  uuidAutoDetect,
+  onTestResolve,
+  testResolve,
 }: {
   label: string;
   placeholder: string;
@@ -84,6 +299,13 @@ export function NautobotOptionalFieldRow({
   onChange: (patch: Partial<EnabledValueSpec>) => void;
   /** Renders a "Browse attributes" icon button next to the value input when provided. */
   onBrowse?: () => void;
+  /** Renders the "Convert to UUID" toggle when true. Off by default for existing callers. */
+  enableUuidResolution?: boolean;
+  /** Suggested resolution (from the job schema or a name heuristic) seeded on first toggle-on. */
+  uuidAutoDetect?: NautobotUuidResolution;
+  /** Renders the "Test resolve" control when provided. */
+  onTestResolve?: (resolution: NautobotUuidResolution) => void;
+  testResolve?: TestResolveState;
 }) {
   return (
     <div className="space-y-1 rounded-lg border border-border bg-muted p-2.5">
@@ -105,6 +327,19 @@ export function NautobotOptionalFieldRow({
           value={spec.value}
           onChange={(event) => onChange({ value: event.target.value })}
         />
+        {enableUuidResolution ? (
+          <UuidToggleButton
+            active={Boolean(spec.uuid_resolution)}
+            disabled={!spec.enabled}
+            onClick={() =>
+              onChange({
+                uuid_resolution: spec.uuid_resolution
+                  ? undefined
+                  : (uuidAutoDetect ?? { resource_type: "location" }),
+              })
+            }
+          />
+        ) : null}
         {onBrowse ? (
           <Button
             type="button"
@@ -119,6 +354,16 @@ export function NautobotOptionalFieldRow({
           </Button>
         ) : null}
       </div>
+      {enableUuidResolution ? (
+        <UuidResolutionSubRow
+          value={spec.value}
+          uuidResolution={spec.uuid_resolution}
+          onUuidResolutionChange={(next) => onChange({ uuid_resolution: next })}
+          onTestResolve={onTestResolve}
+          testResolve={testResolve}
+          disabled={!spec.enabled}
+        />
+      ) : null}
     </div>
   );
 }

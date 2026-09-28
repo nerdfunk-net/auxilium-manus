@@ -18,6 +18,9 @@ import {
   NautobotOptionalFieldRow,
   NautobotRequiredFieldRow,
   type EnabledValueSpec,
+  type NautobotUuidResolution,
+  type TestResolveState,
+  type ValueSpec,
 } from "@/components/features/workflow-steps/shared/nautobot-field-rows";
 import type {
   PersistedCanvasNode,
@@ -25,6 +28,7 @@ import type {
 } from "@/components/features/workflows/types/workflow-canvas";
 import type { NautobotJobSummary } from "@/hooks/queries/use-nautobot-jobs-query";
 import { useNautobotJobVariablesQuery } from "@/hooks/queries/use-nautobot-job-variables-query";
+import { useNautobotResolveObjectMutation } from "@/hooks/queries/use-nautobot-resolve-object-mutation";
 
 import { SelectJobDialog } from "./select-job-dialog";
 import {
@@ -32,6 +36,7 @@ import {
   type NautobotJobVariable,
   type StartNautobotJobConfig,
 } from "./types";
+import { detectUuidResolution } from "./uuid-resolution";
 
 interface ConfigureJobDialogProps {
   open: boolean;
@@ -47,13 +52,13 @@ interface ConfigureJobDialogProps {
 type PickerTarget = { kind: "required" | "optional"; name: string };
 
 function reconcileRequired(
-  previous: Record<string, string>,
+  previous: Record<string, ValueSpec>,
   variables: NautobotJobVariable[],
-): Record<string, string> {
-  const next: Record<string, string> = {};
+): Record<string, ValueSpec> {
+  const next: Record<string, ValueSpec> = {};
   for (const variable of variables) {
     if (!variable.required) continue;
-    next[variable.name] = previous[variable.name] ?? "";
+    next[variable.name] = previous[variable.name] ?? { value: "" };
   }
   return next;
 }
@@ -82,7 +87,7 @@ function ConfigureJobDialogForm({
   const [jobId, setJobId] = useState(value.job_id ?? "");
   const [jobName, setJobName] = useState(value.job_name ?? "");
   const [schema, setSchema] = useState<NautobotJobVariable[]>(value.job_variables_schema ?? []);
-  const [requiredValues, setRequiredValues] = useState<Record<string, string>>(
+  const [requiredValues, setRequiredValues] = useState<Record<string, ValueSpec>>(
     value.parameters?.required ?? EMPTY_PARAMETERS.required,
   );
   const [optionalSpecs, setOptionalSpecs] = useState<Record<string, EnabledValueSpec>>(
@@ -92,8 +97,10 @@ function ConfigureJobDialogForm({
   const [selectJobOpen, setSelectJobOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
   const [loadedVariablesKey, setLoadedVariablesKey] = useState<string | null>(null);
+  const [testResolveState, setTestResolveState] = useState<Record<string, TestResolveState>>({});
 
   const variablesQuery = useNautobotJobVariablesQuery({ sourceId, jobId });
+  const resolveObjectMutation = useNautobotResolveObjectMutation();
 
   // Reconcile draft parameter values whenever a new job's schema arrives — adjusting state
   // directly during render (rather than in an effect) per
@@ -129,13 +136,49 @@ function ConfigureJobDialogForm({
 
   const handlePickerSelect = (path: string) => {
     if (!pickerTarget) return;
+    const attributeExpression = `{${path}}`;
     if (pickerTarget.kind === "required") {
-      setRequiredValues((current) => ({ ...current, [pickerTarget.name]: path }));
+      setRequiredValues((current) => ({
+        ...current,
+        [pickerTarget.name]: {
+          ...(current[pickerTarget.name] ?? { value: "" }),
+          value: attributeExpression,
+        },
+      }));
     } else {
       setOptionalSpecs((current) => ({
         ...current,
-        [pickerTarget.name]: { enabled: true, value: path },
+        [pickerTarget.name]: {
+          ...(current[pickerTarget.name] ?? { enabled: false, value: "" }),
+          enabled: true,
+          value: attributeExpression,
+        },
       }));
+    }
+  };
+
+  const handleTestResolve = async (
+    key: string,
+    resolution: NautobotUuidResolution,
+    currentValue: string,
+  ) => {
+    setTestResolveState((current) => ({ ...current, [key]: { status: "pending" } }));
+    try {
+      const result = await resolveObjectMutation.mutateAsync({
+        source_id: sourceId,
+        resource_type: resolution.resource_type,
+        value: currentValue,
+        content_type: resolution.content_type,
+      });
+      setTestResolveState((current) => ({
+        ...current,
+        [key]: result.resolved && result.id
+          ? { status: "success", id: result.id }
+          : { status: "error", error: "Not found" },
+      }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Resolve failed";
+      setTestResolveState((current) => ({ ...current, [key]: { status: "error", error: message } }));
     }
   };
 
@@ -196,19 +239,41 @@ function ConfigureJobDialogForm({
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {requiredVariables.map((variable) => (
-                      <NautobotRequiredFieldRow
-                        key={variable.name}
-                        label={variable.name}
-                        placeholder="{path} or a literal value"
-                        badge={variable.type}
-                        value={requiredValues[variable.name] ?? ""}
-                        onChange={(v) =>
-                          setRequiredValues((current) => ({ ...current, [variable.name]: v }))
-                        }
-                        onBrowse={() => setPickerTarget({ kind: "required", name: variable.name })}
-                      />
-                    ))}
+                    {requiredVariables.map((variable) => {
+                      const spec = requiredValues[variable.name] ?? { value: "" };
+                      const key = `required:${variable.name}`;
+                      return (
+                        <NautobotRequiredFieldRow
+                          key={variable.name}
+                          label={variable.name}
+                          placeholder="{path} or a literal value"
+                          badge={variable.type}
+                          value={spec.value}
+                          onChange={(v) =>
+                            setRequiredValues((current) => ({
+                              ...current,
+                              [variable.name]: { ...(current[variable.name] ?? { value: "" }), value: v },
+                            }))
+                          }
+                          onBrowse={() => setPickerTarget({ kind: "required", name: variable.name })}
+                          uuidResolution={spec.uuid_resolution}
+                          onUuidResolutionChange={(next) =>
+                            setRequiredValues((current) => ({
+                              ...current,
+                              [variable.name]: {
+                                ...(current[variable.name] ?? { value: "" }),
+                                uuid_resolution: next,
+                              },
+                            }))
+                          }
+                          uuidAutoDetect={detectUuidResolution(variable)}
+                          onTestResolve={(resolution) =>
+                            handleTestResolve(key, resolution, spec.value)
+                          }
+                          testResolve={testResolveState[key]}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -223,26 +288,34 @@ function ConfigureJobDialogForm({
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {optionalVariables.map((variable) => (
-                      <NautobotOptionalFieldRow
-                        key={variable.name}
-                        label={variable.name}
-                        placeholder="{path} or a literal value"
-                        spec={
-                          optionalSpecs[variable.name] ?? { enabled: false, value: "" }
-                        }
-                        onChange={(patch) =>
-                          setOptionalSpecs((current) => ({
-                            ...current,
-                            [variable.name]: {
-                              ...(current[variable.name] ?? { enabled: false, value: "" }),
-                              ...patch,
-                            },
-                          }))
-                        }
-                        onBrowse={() => setPickerTarget({ kind: "optional", name: variable.name })}
-                      />
-                    ))}
+                    {optionalVariables.map((variable) => {
+                      const spec = optionalSpecs[variable.name] ?? { enabled: false, value: "" };
+                      const key = `optional:${variable.name}`;
+                      return (
+                        <NautobotOptionalFieldRow
+                          key={variable.name}
+                          label={variable.name}
+                          placeholder="{path} or a literal value"
+                          spec={spec}
+                          onChange={(patch) =>
+                            setOptionalSpecs((current) => ({
+                              ...current,
+                              [variable.name]: {
+                                ...(current[variable.name] ?? { enabled: false, value: "" }),
+                                ...patch,
+                              },
+                            }))
+                          }
+                          onBrowse={() => setPickerTarget({ kind: "optional", name: variable.name })}
+                          enableUuidResolution
+                          uuidAutoDetect={detectUuidResolution(variable)}
+                          onTestResolve={(resolution) =>
+                            handleTestResolve(key, resolution, spec.value)
+                          }
+                          testResolve={testResolveState[key]}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </section>

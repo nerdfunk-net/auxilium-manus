@@ -1,10 +1,17 @@
-import type { EnabledValueSpec } from "@/components/features/workflow-steps/shared/nautobot-field-rows";
+import type {
+  EnabledValueSpec,
+  ValueSpec,
+} from "@/components/features/workflow-steps/shared/nautobot-field-rows";
 import type { NautobotJobVariable } from "@/hooks/queries/use-nautobot-job-variables-query";
 
 export type { NautobotJobVariable };
+export type {
+  NautobotUuidResolution,
+  NautobotUuidResourceType,
+} from "@/components/features/workflow-steps/shared/nautobot-field-rows";
 
 export interface StartNautobotJobParameters {
-  required: Record<string, string>;
+  required: Record<string, ValueSpec>;
   optional: Record<string, EnabledValueSpec>;
 }
 

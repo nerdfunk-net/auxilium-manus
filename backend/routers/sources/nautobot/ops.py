@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -33,17 +34,22 @@ from models.sources_nautobot import (
     NautobotJobSummary,
     NautobotJobVariable,
     NautobotJobVariablesResponse,
+    NautobotObjectResolveRequest,
+    NautobotObjectResolveResponse,
     NautobotTestConnectionRequest,
     NautobotTestConnectionResponse,
     RenameGroupRequest,
     RenameGroupResponse,
 )
+from services.nautobot.client import NautobotService
 from services.nautobot.common.exceptions import (
     NautobotAPIError,
     NautobotValidationError,
 )
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
+from services.nautobot.devices.common import DeviceCommonService
+from services.nautobot.devices.uuid_resolver import resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
 from services.sources.nautobot.connection import test_nautobot_connection
 from services.sources.nautobot.persistence_service import InventoryService
@@ -72,6 +78,13 @@ def _build_source_service(
 def _build_jobs_service(credentials: NautobotCredentials) -> NautobotJobsService:
     client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
     return NautobotJobsService(client)
+
+
+def _build_device_common_service(credentials: NautobotCredentials) -> DeviceCommonService:
+    client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
+    # CredentialsBoundNautobotClient intentionally duck-types NautobotService (see its
+    # docstring) so cockpit-derived resolver code can run unchanged with per-request creds.
+    return DeviceCommonService(cast(NautobotService, client))
 
 
 @router.post(
@@ -214,6 +227,26 @@ async def search_devices(
         )
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to search Nautobot devices: ", exc)
+
+
+@router.post("/resolve-object", response_model=NautobotObjectResolveResponse)
+async def resolve_object(
+    request: NautobotObjectResolveRequest,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> NautobotObjectResolveResponse:
+    """Resolve a name to its Nautobot UUID — used by the step config UI's "Test resolve"."""
+    credentials = nautobot_credentials_from_source_ref(request, db)
+    common = _build_device_common_service(credentials)
+    try:
+        object_id = await resolve_nautobot_uuid(
+            common, request.resource_type, request.value, content_type=request.content_type
+        )
+        return NautobotObjectResolveResponse(resolved=True, id=object_id)
+    except ValueError:
+        return NautobotObjectResolveResponse(resolved=False)
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to resolve Nautobot object: ", exc)
 
 
 @router.post("/devices/details")

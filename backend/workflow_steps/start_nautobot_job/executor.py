@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy.orm import object_session
 
@@ -31,8 +31,11 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
+from services.nautobot.client import NautobotService
 from services.nautobot.common.exceptions import NautobotAPIError, NautobotValidationError
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
+from services.nautobot.devices.common import DeviceCommonService
+from services.nautobot.devices.uuid_resolver import UUID_RESOURCE_TYPES, resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
@@ -52,14 +55,41 @@ _JSON_LIKE_TYPES = frozenset({"JSONVar", "MultiObjectVar", "MultiChoiceVar"})
 
 
 @dataclass(frozen=True)
+class _ParamSpec:
+    value: str
+    uuid_resolution: dict[str, str] | None
+
+
+@dataclass(frozen=True)
 class _ParsedConfig:
     source_id: str
     job_id: str
     job_name: str
     job_variables_schema: list[dict[str, Any]]
-    required_params: dict[str, str]
-    optional_params: dict[str, tuple[bool, str]]
+    required_params: dict[str, _ParamSpec]
+    optional_params: dict[str, tuple[bool, _ParamSpec]]
     task_queue: str | None
+
+
+def _parse_uuid_resolution(raw: Any) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    resource_type = str(raw.get("resource_type") or "").strip()
+    if resource_type not in UUID_RESOURCE_TYPES:
+        return None
+    content_type = str(raw.get("content_type") or "").strip() or None
+    result = {"resource_type": resource_type}
+    if content_type:
+        result["content_type"] = content_type
+    return result
+
+
+def _parse_required_spec(raw: Any) -> _ParamSpec:
+    if isinstance(raw, dict):
+        value = str(raw.get("value") or "").strip()
+        uuid_resolution = _parse_uuid_resolution(raw.get("uuid_resolution"))
+        return _ParamSpec(value=value, uuid_resolution=uuid_resolution)
+    return _ParamSpec(value=str(raw or "").strip(), uuid_resolution=None)
 
 
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
@@ -81,19 +111,25 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     raw_parameters = raw_parameters if isinstance(raw_parameters, dict) else {}
 
     raw_required = raw_parameters.get("required")
-    required_params: dict[str, str] = {}
+    required_params: dict[str, _ParamSpec] = {}
     if isinstance(raw_required, dict):
         for name, raw_value in raw_required.items():
-            value = str(raw_value or "").strip()
-            if value:
-                required_params[str(name)] = value
+            spec = _parse_required_spec(raw_value)
+            if spec.value:
+                required_params[str(name)] = spec
 
     raw_optional = raw_parameters.get("optional")
-    optional_params: dict[str, tuple[bool, str]] = {}
+    optional_params: dict[str, tuple[bool, _ParamSpec]] = {}
     if isinstance(raw_optional, dict):
         for name, raw_spec in raw_optional.items():
             enabled, value = normalize_field_spec(raw_spec)
-            optional_params[str(name)] = (enabled, value)
+            uuid_resolution = (
+                _parse_uuid_resolution(raw_spec.get("uuid_resolution"))
+                if isinstance(raw_spec, dict)
+                else None
+            )
+            spec = _ParamSpec(value=value, uuid_resolution=uuid_resolution)
+            optional_params[str(name)] = (enabled, spec)
 
     required_names = {
         str(variable.get("name"))
@@ -119,6 +155,19 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     )
 
 
+def _split_multi_value(resolved: str) -> list[Any] | None:
+    """Split a MultiObjectVar/JSON-like resolved string into a list, if it looks like one."""
+    stripped = resolved.strip()
+    if stripped.startswith("[") or stripped.startswith("{"):
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            return None
+    if "," in stripped:
+        return [item.strip() for item in stripped.split(",") if item.strip()]
+    return None
+
+
 def _coerce_value(name: str, resolved: str, var_type: str) -> Any:
     if var_type in _INTEGER_TYPES:
         try:
@@ -135,44 +184,87 @@ def _coerce_value(name: str, resolved: str, var_type: str) -> Any:
         raise ValueError(f"parameter '{name}' must be a boolean, got {resolved!r}")
 
     if var_type in _JSON_LIKE_TYPES:
-        stripped = resolved.strip()
-        if stripped.startswith("[") or stripped.startswith("{"):
-            try:
-                return json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"parameter '{name}' must be valid JSON, got {resolved!r}"
-                ) from exc
-        if var_type == "MultiObjectVar" and "," in stripped:
-            return [item.strip() for item in stripped.split(",") if item.strip()]
+        split = _split_multi_value(resolved)
+        if split is not None:
+            return split
+        if resolved.strip().startswith("[") or resolved.strip().startswith("{"):
+            raise ValueError(f"parameter '{name}' must be valid JSON, got {resolved!r}")
         return resolved
 
     return resolved
 
 
-def _resolve_device_params(
+async def _resolve_uuid_value(
+    *,
+    name: str,
+    resolved: str,
+    var_type: str,
+    uuid_resolution: dict[str, str],
+    device_common: DeviceCommonService,
+) -> Any:
+    resource_type = uuid_resolution["resource_type"]
+    content_type = uuid_resolution.get("content_type")
+
+    if var_type == "MultiObjectVar":
+        names = _split_multi_value(resolved) or [resolved]
+        if not all(isinstance(item, str) for item in names):
+            raise ValueError(f"parameter '{name}' must be a list of names to resolve to UUIDs")
+        return [
+            await resolve_nautobot_uuid(
+                device_common, resource_type, item, content_type=content_type
+            )
+            for item in names
+        ]
+
+    return await resolve_nautobot_uuid(
+        device_common, resource_type, resolved, content_type=content_type
+    )
+
+
+async def _resolve_device_params(
     *,
     device: DeviceContext,
-    required_params: dict[str, str],
-    optional_params: dict[str, tuple[bool, str]],
+    required_params: dict[str, _ParamSpec],
+    optional_params: dict[str, tuple[bool, _ParamSpec]],
     variable_types: dict[str, str],
+    device_common: DeviceCommonService,
     run_id: str | None,
 ) -> dict[str, Any]:
     data: dict[str, Any] = {}
 
-    for name, raw_expr in required_params.items():
-        resolved = resolve_attribute_expression(device, raw_expr, run_id=run_id)
+    for name, spec in required_params.items():
+        resolved = resolve_attribute_expression(device, spec.value, run_id=run_id)
         if resolved is None:
             raise ValueError(f"required parameter '{name}' has no value for this device")
-        data[name] = _coerce_value(name, resolved, variable_types.get(name, ""))
+        var_type = variable_types.get(name, "")
+        if spec.uuid_resolution:
+            data[name] = await _resolve_uuid_value(
+                name=name,
+                resolved=resolved,
+                var_type=var_type,
+                uuid_resolution=spec.uuid_resolution,
+                device_common=device_common,
+            )
+        else:
+            data[name] = _coerce_value(name, resolved, var_type)
 
-    for name, (enabled, raw_expr) in optional_params.items():
+    for name, (enabled, spec) in optional_params.items():
         if not enabled:
             continue
-        resolved = resolve_attribute_expression(device, raw_expr, run_id=run_id)
+        resolved = resolve_attribute_expression(device, spec.value, run_id=run_id)
         if resolved is None:
             continue
-        data[name] = _coerce_value(name, resolved, variable_types.get(name, ""))
+        var_type = variable_types.get(name, "")
+        if spec.uuid_resolution:
+            data[name] = await _resolve_uuid_value(
+                name=name,
+                resolved=resolved,
+                var_type=var_type,
+                uuid_resolution=spec.uuid_resolution,
+                device_common=device_common,
+            )
+        else:
+            data[name] = _coerce_value(name, resolved, var_type)
 
     return data
 
@@ -223,14 +315,16 @@ async def _start_job_for_device(
     jobs_service: NautobotJobsService,
     parsed: _ParsedConfig,
     variable_types: dict[str, str],
+    device_common: DeviceCommonService,
     run_id: str | None,
 ) -> tuple[str, DeviceContext, bool]:
     try:
-        data = _resolve_device_params(
+        data = await _resolve_device_params(
             device=device,
             required_params=parsed.required_params,
             optional_params=parsed.optional_params,
             variable_types=variable_types,
+            device_common=device_common,
             run_id=run_id,
         )
         result = await jobs_service.run_job(
@@ -298,6 +392,9 @@ async def execute(
     credentials = resolve_nautobot_credentials(db, parsed.source_id, step_id=_STEP_ID)
     client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
     jobs_service = NautobotJobsService(client)
+    # CredentialsBoundNautobotClient intentionally duck-types NautobotService (see its
+    # docstring) so cockpit-derived resolver code can run unchanged with per-request creds.
+    device_common = DeviceCommonService(cast(NautobotService, client))
     variable_types = {
         str(variable.get("name")): str(variable.get("type") or "")
         for variable in parsed.job_variables_schema
@@ -323,6 +420,7 @@ async def execute(
                 jobs_service=jobs_service,
                 parsed=parsed,
                 variable_types=variable_types,
+                device_common=device_common,
                 run_id=run_id,
             )
             for device_key, device in context.devices.items()

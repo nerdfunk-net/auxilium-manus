@@ -70,6 +70,28 @@ export function StartNautobotJobHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="Convert to UUID">
+        <p>
+          Parameters that reference a Nautobot object (location, role, status, device,
+          platform, rack, device type, namespace) must be submitted as that object&apos;s
+          UUID. Click the fingerprint icon next to a value to turn on UUID conversion, then
+          pick what kind of object the value names — the step auto-suggests this when
+          Nautobot&apos;s own job schema declares the parameter as an object reference. Role
+          and status also need a content type (e.g. <HelpCode>dcim.device</HelpCode> vs{" "}
+          <HelpCode>dcim.interface</HelpCode>) since the same status name can exist for
+          different object kinds.
+        </p>
+        <p>
+          Conversion runs per device, after the value (literal or <HelpCode>{"{path}"}</HelpCode>
+          ) is resolved — so a <HelpCode>{"{path}"}</HelpCode> expression can resolve to a
+          different name per device and still convert correctly.{" "}
+          <span className="font-medium text-foreground">Test resolve</span> checks a literal
+          value against Nautobot right away; it&apos;s disabled for{" "}
+          <HelpCode>{"{path}"}</HelpCode> expressions since those only resolve per device at
+          run time.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>

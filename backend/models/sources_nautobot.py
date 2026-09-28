@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -227,3 +227,18 @@ class NautobotJobVariable(BaseModel):
 
 class NautobotJobVariablesResponse(BaseModel):
     variables: list[NautobotJobVariable]
+
+
+class NautobotObjectResolveRequest(NautobotSourceRef):
+    """Resolve a human-readable name to its Nautobot UUID (design-time "test resolve")."""
+
+    resource_type: Literal[
+        "location", "role", "status", "platform", "device", "device_type", "namespace", "rack"
+    ]
+    value: str = Field(..., min_length=1)
+    content_type: str | None = None
+
+
+class NautobotObjectResolveResponse(BaseModel):
+    resolved: bool
+    id: str | None = None
