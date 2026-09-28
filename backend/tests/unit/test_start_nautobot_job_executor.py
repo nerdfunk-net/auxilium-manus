@@ -37,7 +37,9 @@ class ParseConfigTests(unittest.TestCase):
             {
                 "nautobot_source_id": "src-1",
                 "job_id": "job-1",
-                "job_variables_schema": [{"name": "location", "required": True, "type": "ObjectVar"}],
+                "job_variables_schema": [
+                    {"name": "location", "required": True, "type": "ObjectVar"}
+                ],
                 "parameters": {
                     "required": {
                         "location": {
@@ -131,7 +133,8 @@ class ResolveDeviceParamsUuidTests(unittest.IsolatedAsyncioTestCase):
     async def test_multiobjectvar_resolves_each_item(self) -> None:
         required = {
             "roles": mod._ParamSpec(
-                value="a, b", uuid_resolution={"resource_type": "role", "content_type": "dcim.device"}
+                value="a, b",
+                uuid_resolution={"resource_type": "role", "content_type": "dcim.device"},
             )
         }
         with patch.object(
@@ -197,6 +200,128 @@ class ResolveDeviceParamsUuidTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(data, {})
         resolve.assert_not_awaited()
+
+
+class ApplyJobResultRequestResponseTests(unittest.TestCase):
+    def test_bag_carries_request_and_response(self) -> None:
+        updated = mod._apply_job_result(
+            _device(),
+            job_result_id="jr-1",
+            job_id="job-1",
+            source_id="src-1",
+            job_name="My Job",
+            request={"location": _UUID},
+            response={"job_result": {"id": "jr-1"}},
+        )
+        bag = updated.attribute_bags["nautobot_job"]
+        self.assertEqual(bag["request"], {"location": _UUID})
+        self.assertEqual(bag["response"], {"job_result": {"id": "jr-1"}})
+
+    def test_secret_like_request_key_is_redacted(self) -> None:
+        updated = mod._apply_job_result(
+            _device(),
+            job_result_id="jr-1",
+            job_id="job-1",
+            source_id="src-1",
+            job_name="My Job",
+            request={"api_key": "sk-supersecret", "location": "loc-1"},
+            response=None,
+        )
+        bag = updated.attribute_bags["nautobot_job"]
+        self.assertEqual(bag["request"]["api_key"], "***REDACTED***")
+        self.assertEqual(bag["request"]["location"], "loc-1")
+
+
+class FailDeviceRequestResponseTests(unittest.TestCase):
+    def test_no_request_or_response_omits_bag(self) -> None:
+        _, failed = mod._fail_device(
+            device_key="d1", device=_device(), node_id="n", exc=ValueError("bad")
+        )
+        self.assertNotIn("nautobot_job", failed.attribute_bags)
+
+    def test_request_only_is_recorded_on_failure(self) -> None:
+        _, failed = mod._fail_device(
+            device_key="d1",
+            device=_device(),
+            node_id="n",
+            exc=ValueError("bad"),
+            request={"location": "NYC-DC1"},
+        )
+        bag = failed.attribute_bags["nautobot_job"]
+        self.assertEqual(bag, {"request": {"location": "NYC-DC1"}})
+
+    def test_secret_like_key_redacted_on_failure(self) -> None:
+        _, failed = mod._fail_device(
+            device_key="d1",
+            device=_device(),
+            node_id="n",
+            exc=ValueError("bad"),
+            request={"password": "hunter2"},
+        )
+        redacted = failed.attribute_bags["nautobot_job"]["request"]["password"]
+        self.assertEqual(redacted, "***REDACTED***")
+
+
+class StartJobForDeviceRequestResponseIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_success_stores_request_and_response(self) -> None:
+        jobs_service = AsyncMock()
+        jobs_service.run_job = AsyncMock(
+            return_value={"job_result": {"id": "jr-1"}}
+        )
+        parsed = mod._parse_config(
+            {
+                "nautobot_source_id": "src-1",
+                "job_id": "job-1",
+                "parameters": {
+                    "required": {"location": {"value": "NYC-DC1"}},
+                    "optional": {},
+                },
+            }
+        )
+        key, updated, ok = await mod._start_job_for_device(
+            device_key="d1",
+            device=_device("d1"),
+            node_id="n",
+            jobs_service=jobs_service,
+            parsed=parsed,
+            variable_types={"location": "StringVar"},
+            device_common="common-stub",
+            run_id=None,
+        )
+        self.assertTrue(ok)
+        bag = updated.attribute_bags["nautobot_job"]
+        self.assertEqual(bag["request"], {"location": "NYC-DC1"})
+        self.assertEqual(bag["response"], {"job_result": {"id": "jr-1"}})
+
+    async def test_rest_call_failure_still_records_request(self) -> None:
+        from services.nautobot.common.exceptions import NautobotAPIError
+
+        jobs_service = AsyncMock()
+        jobs_service.run_job = AsyncMock(side_effect=NautobotAPIError("boom"))
+        parsed = mod._parse_config(
+            {
+                "nautobot_source_id": "src-1",
+                "job_id": "job-1",
+                "parameters": {
+                    "required": {"location": {"value": "NYC-DC1"}},
+                    "optional": {},
+                },
+            }
+        )
+        key, failed, ok = await mod._start_job_for_device(
+            device_key="d1",
+            device=_device("d1"),
+            node_id="n",
+            jobs_service=jobs_service,
+            parsed=parsed,
+            variable_types={"location": "StringVar"},
+            device_common="common-stub",
+            run_id=None,
+        )
+        self.assertFalse(ok)
+        bag = failed.attribute_bags["nautobot_job"]
+        self.assertEqual(bag["request"], {"location": "NYC-DC1"})
+        self.assertNotIn("response", bag)
 
 
 if __name__ == "__main__":

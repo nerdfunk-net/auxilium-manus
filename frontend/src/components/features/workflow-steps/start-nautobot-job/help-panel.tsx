@@ -18,8 +18,9 @@ export function StartNautobotJobHelpPanel() {
         <p>
           Starts a Nautobot job once for each device in the workflow context, resolving the
           job&apos;s required and optional parameters per device, and records the returned job
-          result ID on each device (<HelpCode>attribute_bags.nautobot_job</HelpCode>) for a
-          downstream status-check step to poll.
+          result ID, the exact request sent, and Nautobot&apos;s response on each device (
+          <HelpCode>attribute_bags.nautobot_job</HelpCode>) for a downstream status-check step
+          to poll and for debugging in the run&apos;s device detail view.
         </p>
       </HelpSection>
 
@@ -89,6 +90,31 @@ export function StartNautobotJobHelpPanel() {
           value against Nautobot right away; it&apos;s disabled for{" "}
           <HelpCode>{"{path}"}</HelpCode> expressions since those only resolve per device at
           run time.
+        </p>
+      </HelpSection>
+
+      <HelpSection title="Debugging: request and response">
+        <p>
+          After a run, open the run&apos;s device detail view and check the{" "}
+          <span className="font-medium text-foreground">Attribute bags</span> tab for{" "}
+          <HelpCode>nautobot_job</HelpCode> — it holds the exact{" "}
+          <HelpCode>request</HelpCode> payload sent to Nautobot (after{" "}
+          <HelpCode>{"{path}"}</HelpCode> resolution and any UUID conversion) and Nautobot&apos;s{" "}
+          <HelpCode>response</HelpCode>. This is recorded on both success and failure, so a
+          failed device still shows exactly what was attempted.
+        </p>
+        <HelpWarning title="Not populated by Test resolve">
+          <p>
+            <span className="font-medium text-foreground">Test resolve</span> in the config
+            dialog is a design-time check only — it never runs this step, so it does not write
+            to <HelpCode>attribute_bags.nautobot_job</HelpCode>. You need an actual workflow run
+            to see the request/response here.
+          </p>
+        </HelpWarning>
+        <p>
+          Values that look like a secret (a field named <HelpCode>password</HelpCode>,{" "}
+          <HelpCode>token</HelpCode>, <HelpCode>api_key</HelpCode>, etc.) are replaced with{" "}
+          <HelpCode>***REDACTED***</HelpCode> before this is recorded.
         </p>
       </HelpSection>
 

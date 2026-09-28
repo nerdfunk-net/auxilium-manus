@@ -1,0 +1,610 @@
+{
+  "export_format": "auxilium-workflow-v1",
+  "exported_at": "2026-09-28T18:57:32.017Z",
+  "name": "Start Nautobot Job",
+  "description": "test",
+  "folder": "/",
+  "visibility": "private",
+  "notes": null,
+  "canvas_nodes": [
+    {
+      "id": "get-from-list-1",
+      "type": "workflowNode",
+      "position": {
+        "x": -542.1159638539008,
+        "y": 267.10873978959177
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-from-list",
+        "stepUuid": "4195e817-67e6-492b-aa68-0787b276ca28",
+        "title": "Get from List",
+        "overview": "Configure a static list of devices.",
+        "description": "Enter one or more device names and/or IP addresses to use as workflow targets.\n",
+        "artifactType": "inventory_selector",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [
+          "identity"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "devices": [
+            {
+              "name": "LAB",
+              "ip_address": "192.168.178.240"
+            }
+          ],
+          "fan_out": {
+            "enabled": true,
+            "mode": "per_device",
+            "chunk_size": 1,
+            "max_concurrency": 10,
+            "approval": {
+              "enabled": false,
+              "batch_size": 1,
+              "first_batch_auto": true
+            }
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "start-nautobot-job-2",
+      "type": "workflowNode",
+      "position": {
+        "x": 209.1592799787844,
+        "y": 267.10873978959177
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "start-nautobot-job",
+        "stepUuid": "62131587-1625-41d7-b5a2-cb63fef628a2",
+        "title": "Start Job",
+        "overview": "Start a Nautobot job and record its job result ID for status checks.",
+        "description": "Start a Nautobot job for each selected device, resolving required and optional parameters (literal values or {path} attribute expressions), and record the returned job result ID on each device for a downstream status-check step.\n",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "nautobot_job"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "job_id": "98b1c107-b11d-4e75-8161-e82356deede1",
+          "job_name": "Sync Devices From Network",
+          "job_variables_schema": [
+            {
+              "name": "dryrun",
+              "type": "DryRunVar",
+              "label": null,
+              "help_text": "Perform a dry-run, making no actual changes to Nautobot data.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "memory_profiling",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Perform a memory profiling analysis.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "parallel_loading",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Load source and target adapters in parallel for improved performance.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "debug",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Enable for more verbose logging.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "connectivity_test",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Enable to test connectivity to the device(s) prior to attempting onboarding.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "csv_file",
+              "type": "FileVar",
+              "label": "CSV File",
+              "help_text": "If a file is provided, all the options in the manual input tab will be disabled.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "location",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Assigned Location for all synced device(s)",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.location"
+            },
+            {
+              "name": "namespace",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Namespace ip addresses belong to.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "ipam.namespace"
+            },
+            {
+              "name": "ip_addresses",
+              "type": "StringVar",
+              "label": "IPv4 addresses",
+              "help_text": "IP address or FQDN of the device to sync, specify in a comma separated list for multiple devices.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "port",
+              "type": "IntegerVar",
+              "label": null,
+              "help_text": null,
+              "default": 22,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "timeout",
+              "type": "IntegerVar",
+              "label": null,
+              "help_text": null,
+              "default": 30,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "set_mgmt_only",
+              "type": "BooleanVar",
+              "label": "Set Management Only",
+              "help_text": "If True, new interfaces that are created will be set to management only. If False, new interfaces will be set to not be management only.",
+              "default": true,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "update_devices_without_primary_ip",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "If a device at the specified location already exists in Nautobot, update it with the sync when its primary IP address or its stored serial number does not match what the device reports (e.g. after a stack master role flip, hardware swap, or a previously-standalone device joining a stack).",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "device_role",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Role to be applied to all synced devices.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.role"
+            },
+            {
+              "name": "device_status",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Status to be applied to all synced devices.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "interface_status",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Status to be applied to all new synced device interfaces. This value does not update with additional syncs.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "ip_address_status",
+              "type": "ObjectVar",
+              "label": "IP address status",
+              "help_text": "Status to be applied to all new synced IP addresses. This value does not update with additional syncs.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "secrets_group",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "SecretsGroup for device connection credentials.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.secretsgroup"
+            },
+            {
+              "name": "platform",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Device platform. Define ONLY to override auto-recognition of platform.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.platform"
+            },
+            {
+              "name": "device_tenant",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Tenant to be applied to all synced devices.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "tenancy.tenant"
+            },
+            {
+              "name": "fail_job_on_task_failure",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "If any tasks for any device fails, fail the entire job result.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            }
+          ],
+          "parameters": {
+            "required": {},
+            "optional": {
+              "dryrun": {
+                "enabled": false,
+                "value": ""
+              },
+              "memory_profiling": {
+                "enabled": false,
+                "value": ""
+              },
+              "parallel_loading": {
+                "enabled": false,
+                "value": ""
+              },
+              "debug": {
+                "enabled": false,
+                "value": ""
+              },
+              "connectivity_test": {
+                "enabled": false,
+                "value": ""
+              },
+              "csv_file": {
+                "enabled": false,
+                "value": ""
+              },
+              "location": {
+                "enabled": true,
+                "value": "{custom.location}",
+                "uuid_resolution": {
+                  "resource_type": "location"
+                }
+              },
+              "namespace": {
+                "enabled": true,
+                "value": "Global",
+                "uuid_resolution": {
+                  "resource_type": "namespace"
+                }
+              },
+              "ip_addresses": {
+                "enabled": true,
+                "value": "{list.ip_address}"
+              },
+              "port": {
+                "enabled": true,
+                "value": "22"
+              },
+              "timeout": {
+                "enabled": true,
+                "value": "90"
+              },
+              "set_mgmt_only": {
+                "enabled": false,
+                "value": ""
+              },
+              "update_devices_without_primary_ip": {
+                "enabled": false,
+                "value": ""
+              },
+              "device_role": {
+                "enabled": true,
+                "value": "Network",
+                "uuid_resolution": {
+                  "resource_type": "role",
+                  "content_type": "dcim.device"
+                }
+              },
+              "device_status": {
+                "enabled": true,
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.device"
+                }
+              },
+              "interface_status": {
+                "enabled": true,
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.interface"
+                }
+              },
+              "ip_address_status": {
+                "enabled": true,
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.device"
+                }
+              },
+              "secrets_group": {
+                "enabled": true,
+                "value": "647b0e9d-2647-432a-afff-f654abc16592"
+              },
+              "platform": {
+                "enabled": true,
+                "value": "IOS XE",
+                "uuid_resolution": {
+                  "resource_type": "platform"
+                }
+              },
+              "device_tenant": {
+                "enabled": false,
+                "value": ""
+              },
+              "fail_job_on_task_failure": {
+                "enabled": false,
+                "value": ""
+              }
+            }
+          }
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "update-attribute-3",
+      "type": "workflowNode",
+      "position": {
+        "x": -163.6185822597587,
+        "y": 267.10873978959177
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "update-attribute",
+        "stepUuid": "01ad31d4-f08d-4e63-b961-f8a35d3f31a0",
+        "title": "Update Attribute",
+        "overview": "Set or transform device attributes in the workflow.",
+        "description": "Set or transform one or more in-workflow device attributes using a fixed value or a regular expression with capture groups.\n",
+        "artifactType": "control_flow",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          }
+        ],
+        "pluginConfig": {
+          "attributes": [
+            {
+              "id": "cbfabd94-ff27-4c11-89d1-b5b13db22571",
+              "mode": "fixed",
+              "destination_path": "custom.location",
+              "fixed_value": "City A",
+              "source_path": "device.name",
+              "pattern": "^([^-]+)-",
+              "destination_template": "DC-\\1",
+              "regex_flags": {
+                "case_insensitive": false,
+                "multiline": false,
+                "dotall": false
+              }
+            }
+          ]
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    }
+  ],
+  "canvas_edges": [
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-from-list-1",
+      "sourceHandle": "success",
+      "target": "update-attribute-3",
+      "targetHandle": "input",
+      "id": "xy-edge__get-from-list-1success-update-attribute-3input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "update-attribute-3",
+      "sourceHandle": "success",
+      "target": "start-nautobot-job-2",
+      "targetHandle": "input",
+      "id": "xy-edge__update-attribute-3success-start-nautobot-job-2input",
+      "selected": false
+    }
+  ],
+  "canvas_groups": [],
+  "static_attributes": [],
+  "credential_references": [],
+  "templates": []
+}

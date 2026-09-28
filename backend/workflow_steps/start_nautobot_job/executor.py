@@ -37,6 +37,7 @@ from services.nautobot.credentials_bound_client import CredentialsBoundNautobotC
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.uuid_resolver import UUID_RESOURCE_TYPES, resolve_nautobot_uuid
 from services.nautobot.jobs import NautobotJobsService
+from services.workflow_context.secret_fields import redact_secrets_in_data
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.update_field_expression import normalize_field_spec
@@ -270,7 +271,13 @@ async def _resolve_device_params(
 
 
 def _fail_device(
-    *, device_key: str, device: DeviceContext, node_id: str, exc: Exception
+    *,
+    device_key: str,
+    device: DeviceContext,
+    node_id: str,
+    exc: Exception,
+    request: dict[str, Any] | None = None,
+    response: dict[str, Any] | None = None,
 ) -> tuple[str, DeviceContext]:
     err = DeviceError(
         node_id=node_id,
@@ -278,9 +285,13 @@ def _fail_device(
         code=type(exc).__name__.lower(),
         message=str(exc),
     )
-    failed = device.model_copy(
-        update={"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    )
+    update: dict[str, Any] = {"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
+    if request is not None or response is not None:
+        bag = redact_secrets_in_data(
+            {k: v for k, v in {"request": request, "response": response}.items() if v is not None}
+        )
+        update["attribute_bags"] = {**device.attribute_bags, "nautobot_job": bag}
+    failed = device.model_copy(update=update)
     return device_key, failed
 
 
@@ -291,13 +302,19 @@ def _apply_job_result(
     job_id: str,
     source_id: str,
     job_name: str,
+    request: dict[str, Any],
+    response: dict[str, Any] | None,
 ) -> DeviceContext:
-    bag = {
-        "job_result_id": job_result_id,
-        "job_id": job_id,
-        "nautobot_source_id": source_id,
-        "job_name": job_name,
-    }
+    bag = redact_secrets_in_data(
+        {
+            "job_result_id": job_result_id,
+            "job_id": job_id,
+            "nautobot_source_id": source_id,
+            "job_name": job_name,
+            "request": request,
+            "response": response,
+        }
+    )
     return device.model_copy(
         update={
             "attribute_bags": {**device.attribute_bags, "nautobot_job": bag},
@@ -318,6 +335,8 @@ async def _start_job_for_device(
     device_common: DeviceCommonService,
     run_id: str | None,
 ) -> tuple[str, DeviceContext, bool]:
+    data: dict[str, Any] | None = None
+    result: dict[str, Any] | None = None
     try:
         data = await _resolve_device_params(
             device=device,
@@ -341,10 +360,19 @@ async def _start_job_for_device(
             job_id=parsed.job_id,
             source_id=parsed.source_id,
             job_name=parsed.job_name,
+            request=data,
+            response=result,
         )
         return device_key, updated, True
     except (NautobotAPIError, NautobotValidationError, ValueError, RuntimeError) as exc:
-        key, failed = _fail_device(device_key=device_key, device=device, node_id=node_id, exc=exc)
+        key, failed = _fail_device(
+            device_key=device_key,
+            device=device,
+            node_id=node_id,
+            exc=exc,
+            request=data,
+            response=result,
+        )
         return key, failed, False
 
 
