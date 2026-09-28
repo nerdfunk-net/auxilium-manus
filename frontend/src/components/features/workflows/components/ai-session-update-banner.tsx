@@ -8,8 +8,14 @@ import { useWorkflowAiSessionQuery } from "@/hooks/queries/use-workflow-ai-sessi
 /**
  * "AI updated this — reload to view" strip, styled like run-banners.tsx's
  * inline banners (not the popup toast, which auto-dismisses too fast for
- * this). Purely derived, no dismiss state: visible exactly when the poll's
- * workflow_updated_at is newer than the updated_at this canvas loaded with.
+ * this). Purely derived, no dismiss state: visible exactly when the poll
+ * says a session is `active` AND its workflow_updated_at is newer than the
+ * updated_at this canvas loaded with. The `active` check matters because
+ * this query still does a one-shot fetch (and refetches on window focus,
+ * per the global QueryClient's refetchOnWindowFocus default) regardless of
+ * AI-session state — without it, any non-AI save landing on the server
+ * (e.g. the same workflow open in a second tab) would misattribute the
+ * update to the AI.
  *
  * "Reload" calls onReload (wired to the same handleLoadWorkflow used by the
  * Open dialog) rather than a full page reload — this app has no per-workflow
@@ -28,7 +34,7 @@ export function AiSessionUpdateBanner({
 }) {
   const { data: session } = useWorkflowAiSessionQuery(workflowId);
 
-  if (!baselineUpdatedAt || !session) return null;
+  if (!baselineUpdatedAt || !session?.active) return null;
   const hasNewerVersion = new Date(session.workflow_updated_at) > new Date(baselineUpdatedAt);
   if (!hasNewerVersion) return null;
 
