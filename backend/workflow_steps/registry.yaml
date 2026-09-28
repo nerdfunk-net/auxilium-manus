@@ -2250,6 +2250,14 @@ plugins:
           description: Optional Celery task queue name to run the job on.
           data_type: string
           required: false
+        - name: bag_name
+          description: >
+            attribute_bags key this step writes job_result_id/request/response to.
+            Defaults to "nautobot_job". Give paired start/check-nautobot-job nodes a
+            distinct name to run more than one Nautobot job per device.
+          data_type: string
+          required: false
+          example: onboard_job
 
   - id: check-nautobot-job
     name: Check Job
@@ -2294,6 +2302,14 @@ plugins:
           data_type: integer
           required: true
           default: 5
+        - name: bag_name
+          description: >
+            attribute_bags key this step merges status/checks_performed into. Defaults to
+            "nautobot_job". Must match the paired Start Job node's bag_name when running
+            more than one Nautobot job per device.
+          data_type: string
+          required: false
+          example: onboard_job
 
   - id: update-config-context
     name: Update Config Context

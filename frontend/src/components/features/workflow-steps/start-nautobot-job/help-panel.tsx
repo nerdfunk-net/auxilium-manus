@@ -93,6 +93,26 @@ export function StartNautobotJobHelpPanel() {
         </p>
       </HelpSection>
 
+      <HelpSection title="bag_name">
+        <p>
+          The <HelpCode>attribute_bags</HelpCode> key this step writes its job result
+          (<HelpCode>job_result_id</HelpCode>, <HelpCode>request</HelpCode>,{" "}
+          <HelpCode>response</HelpCode>) to. Defaults to <HelpCode>nautobot_job</HelpCode>.
+        </p>
+        <HelpWarning title="Running more than one job on the same device">
+          <p>
+            Two Start Job nodes on the same device (e.g. an onboarding job and an update
+            job) both default to <HelpCode>nautobot_job</HelpCode> — whichever node runs
+            second overwrites the first node&apos;s result in that bag, and only the last
+            job&apos;s output remains visible in the device detail view. Give each Start
+            Job node a distinct <HelpCode>bag_name</HelpCode> (e.g.{" "}
+            <HelpCode>onboard_job</HelpCode>, <HelpCode>update_job</HelpCode>) and point
+            each paired Check Job node&apos;s <HelpCode>bag_name</HelpCode> and{" "}
+            <HelpCode>job_uuid</HelpCode> at the matching name.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Debugging: request and response">
         <p>
           After a run, open the run&apos;s device detail view and check the{" "}

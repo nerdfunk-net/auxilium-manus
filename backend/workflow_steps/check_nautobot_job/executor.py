@@ -57,6 +57,7 @@ class _ParsedConfig:
     job_uuid_expr: str
     max_checks: int
     interval_seconds: int
+    bag_name: str
 
 
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
@@ -90,11 +91,14 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
             f"{_MAX_TOTAL_WAIT_SECONDS}s ceiling"
         )
 
+    bag_name = str(config.get("bag_name") or defaults["bag_name"]).strip() or "nautobot_job"
+
     return _ParsedConfig(
         source_id=source_id,
         job_uuid_expr=job_uuid_expr,
         max_checks=max_checks,
         interval_seconds=interval_seconds,
+        bag_name=bag_name,
     )
 
 
@@ -119,8 +123,9 @@ def _apply_check_result(
     job_uuid: str,
     status: str | None,
     checks_performed: int,
+    bag_name: str = "nautobot_job",
 ) -> DeviceContext:
-    existing = device.attribute_bags.get("nautobot_job")
+    existing = device.attribute_bags.get(bag_name)
     base = dict(existing) if isinstance(existing, dict) else {}
     bag = {
         **base,
@@ -130,7 +135,7 @@ def _apply_check_result(
     }
     return device.model_copy(
         update={
-            "attribute_bags": {**device.attribute_bags, "nautobot_job": bag},
+            "attribute_bags": {**device.attribute_bags, bag_name: bag},
             "capabilities": device.capabilities | {Capability.NAUTOBOT_JOB},
         }
     )
@@ -163,7 +168,10 @@ async def _check_job_for_device(
         attempts = attempt + 1
         try:
             result = await jobs_service.get_job_result(job_uuid)
-            status = str(result.get("status") or "").upper()
+            raw_status = result.get("status")
+            if isinstance(raw_status, dict):
+                raw_status = raw_status.get("value")
+            status = str(raw_status or "").upper()
             last_error = None
         except (NautobotAPIError, NautobotValidationError) as exc:
             last_error = exc
@@ -176,7 +184,11 @@ async def _check_job_for_device(
             await asyncio.sleep(parsed.interval_seconds)
 
     updated = _apply_check_result(
-        device, job_uuid=job_uuid, status=status, checks_performed=attempts
+        device,
+        job_uuid=job_uuid,
+        status=status,
+        checks_performed=attempts,
+        bag_name=parsed.bag_name,
     )
 
     if status == _SUCCESS_STATE:

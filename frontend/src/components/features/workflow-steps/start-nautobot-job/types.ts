@@ -22,6 +22,7 @@ export interface StartNautobotJobConfig {
   job_variables_schema?: NautobotJobVariable[];
   parameters?: StartNautobotJobParameters;
   task_queue?: string;
+  bag_name?: string;
 }
 
 export const EMPTY_PARAMETERS: StartNautobotJobParameters = {

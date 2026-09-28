@@ -202,10 +202,11 @@ function UpdateDeviceDialogForm({
 
   const handlePickerSelect = (path: string) => {
     if (!pickerTarget) return;
+    const attributeExpression = `{${path}}`;
     if (pickerTarget.kind === "field") {
-      patchField(pickerTarget.key, { value: path, enabled: true });
+      patchField(pickerTarget.key, { value: attributeExpression, enabled: true });
     } else {
-      patchCustomFieldRow(pickerTarget.id, { value: path, enabled: true });
+      patchCustomFieldRow(pickerTarget.id, { value: attributeExpression, enabled: true });
     }
   };
 

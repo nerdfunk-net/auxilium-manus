@@ -53,6 +53,10 @@ _STEP_ID = "start-nautobot-job"
 _INTEGER_TYPES = frozenset({"IntegerVar"})
 _BOOLEAN_TYPES = frozenset({"BooleanVar"})
 _JSON_LIKE_TYPES = frozenset({"JSONVar", "MultiObjectVar", "MultiChoiceVar"})
+# Always list-valued on the Nautobot side — a scalar resolved value (one selected item)
+# must still be submitted as a one-element list, never the bare string (Django REST
+# Framework's many=True relation field iterates a bare string character by character).
+_MULTI_VALUE_TYPES = frozenset({"MultiObjectVar", "MultiChoiceVar"})
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,7 @@ class _ParsedConfig:
     required_params: dict[str, _ParamSpec]
     optional_params: dict[str, tuple[bool, _ParamSpec]]
     task_queue: str | None
+    bag_name: str
 
 
 def _parse_uuid_resolution(raw: Any) -> dict[str, str] | None:
@@ -145,6 +150,8 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
 
     task_queue = str(config.get("task_queue") or "").strip() or None
 
+    bag_name = str(config.get("bag_name") or defaults["bag_name"]).strip() or "nautobot_job"
+
     return _ParsedConfig(
         source_id=source_id,
         job_id=job_id,
@@ -153,6 +160,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         required_params=required_params,
         optional_params=optional_params,
         task_queue=task_queue,
+        bag_name=bag_name,
     )
 
 
@@ -190,6 +198,8 @@ def _coerce_value(name: str, resolved: str, var_type: str) -> Any:
             return split
         if resolved.strip().startswith("[") or resolved.strip().startswith("{"):
             raise ValueError(f"parameter '{name}' must be valid JSON, got {resolved!r}")
+        if var_type in _MULTI_VALUE_TYPES:
+            return [resolved]
         return resolved
 
     return resolved
@@ -276,6 +286,7 @@ def _fail_device(
     device: DeviceContext,
     node_id: str,
     exc: Exception,
+    bag_name: str = "nautobot_job",
     request: dict[str, Any] | None = None,
     response: dict[str, Any] | None = None,
 ) -> tuple[str, DeviceContext]:
@@ -290,7 +301,7 @@ def _fail_device(
         bag = redact_secrets_in_data(
             {k: v for k, v in {"request": request, "response": response}.items() if v is not None}
         )
-        update["attribute_bags"] = {**device.attribute_bags, "nautobot_job": bag}
+        update["attribute_bags"] = {**device.attribute_bags, bag_name: bag}
     failed = device.model_copy(update=update)
     return device_key, failed
 
@@ -304,6 +315,7 @@ def _apply_job_result(
     job_name: str,
     request: dict[str, Any],
     response: dict[str, Any] | None,
+    bag_name: str = "nautobot_job",
 ) -> DeviceContext:
     bag = redact_secrets_in_data(
         {
@@ -317,7 +329,7 @@ def _apply_job_result(
     )
     return device.model_copy(
         update={
-            "attribute_bags": {**device.attribute_bags, "nautobot_job": bag},
+            "attribute_bags": {**device.attribute_bags, bag_name: bag},
             "capabilities": device.capabilities | {Capability.NAUTOBOT_JOB},
             "status": DeviceStatus.OK,
         }
@@ -362,6 +374,7 @@ async def _start_job_for_device(
             job_name=parsed.job_name,
             request=data,
             response=result,
+            bag_name=parsed.bag_name,
         )
         return device_key, updated, True
     except (NautobotAPIError, NautobotValidationError, ValueError, RuntimeError) as exc:
@@ -370,6 +383,7 @@ async def _start_job_for_device(
             device=device,
             node_id=node_id,
             exc=exc,
+            bag_name=parsed.bag_name,
             request=data,
             response=result,
         )

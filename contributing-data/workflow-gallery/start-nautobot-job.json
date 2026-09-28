@@ -1,6 +1,6 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-28T18:57:32.017Z",
+  "exported_at": "2026-09-28T20:27:53.223Z",
   "name": "Start Nautobot Job",
   "description": "test",
   "folder": "/",
@@ -11,7 +11,7 @@
       "id": "get-from-list-1",
       "type": "workflowNode",
       "position": {
-        "x": -542.1159638539008,
+        "x": -541.3469488668352,
         "y": 267.10873978959177
       },
       "zIndex": 1,
@@ -68,7 +68,7 @@
       "id": "start-nautobot-job-2",
       "type": "workflowNode",
       "position": {
-        "x": 209.1592799787844,
+        "x": 208.0818693540732,
         "y": 267.10873978959177
       },
       "zIndex": 1,
@@ -509,8 +509,10 @@
                 "value": ""
               }
             }
-          }
-        }
+          },
+          "bag_name": "onboarding"
+        },
+        "outcomeHandleSide": "bottom"
       },
       "measured": {
         "width": 320,
@@ -523,7 +525,7 @@
       "id": "update-attribute-3",
       "type": "workflowNode",
       "position": {
-        "x": -163.6185822597587,
+        "x": -160.81420934333414,
         "y": 267.10873978959177
       },
       "zIndex": 1,
@@ -573,6 +575,526 @@
       },
       "dragging": false,
       "selected": false
+    },
+    {
+      "id": "check-nautobot-job-4",
+      "type": "workflowNode",
+      "position": {
+        "x": 208.0818693540732,
+        "y": 453.7772755864894
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "check-nautobot-job",
+        "stepUuid": "a215bc2c-b5b4-4a73-8242-68f82f35eaa3",
+        "title": "Check Job",
+        "overview": "Poll a Nautobot job result until it succeeds, fails, or the check budget runs out.",
+        "description": "Poll a Nautobot job's result status per device, waiting between checks, up to a maximum number of checks. Routes to success only if the job's own result status is SUCCESS — everything else (job failure, still running after the last check, or a check's REST call erroring) routes to failure.\n",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "nautobot_job"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "top",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "bag_name": "onboarding_check",
+          "job_uuid": "{onboarding.job_result_id}"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "start-nautobot-job-5",
+      "type": "workflowNode",
+      "position": {
+        "x": -541.3469488668352,
+        "y": 453.7772755864894
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "start-nautobot-job",
+        "stepUuid": "52dee6e8-b4c1-4cb5-be6f-93c0e9369693",
+        "title": "Start Job",
+        "overview": "Start a Nautobot job and record its job result ID for status checks.",
+        "description": "Start a Nautobot job for each selected device, resolving required and optional parameters (literal values or {path} attribute expressions), and record the returned job result ID on each device for a downstream status-check step.\n",
+        "artifactType": "command_execution",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "nautobot_job"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot",
+          "job_id": "c6d1280f-eb9d-4f55-aa50-82e91cc07436",
+          "job_name": "Sync Network Data From Network",
+          "job_variables_schema": [
+            {
+              "name": "dryrun",
+              "type": "DryRunVar",
+              "label": null,
+              "help_text": "Perform a dry-run, making no actual changes to Nautobot data.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "memory_profiling",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Perform a memory profiling analysis.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "parallel_loading",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Load source and target adapters in parallel for improved performance.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "debug",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Enable for more verbose logging.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "connectivity_test",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Enable to test connectivity to the device(s) prior to attempting onboarding.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_vlans",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync VLANs and interface VLAN assignments.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_vrfs",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync VRFs and interface VRF assignments.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_vrf_to_prefix",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Associate each interface's VRF with the parent prefix of the interface's IP addresses. Requires 'Sync VRFs'. Associations are add-only; stale prefix/VRF links are not removed.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_cables",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync cables between interfaces via a LLDP or CDP.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "sync_software_version",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "Sync software version from device.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "update_devices_with_changed_serial",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "If a device at the specified location already exists in Nautobot but the serial number reported by the device differs from the stored serial (e.g. after a stack master role flip or hardware swap), include this device in the sync anyway. Without this flag the device is excluded from `devices_to_load` because the queryset filter requires both name and serial to match.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            },
+            {
+              "name": "namespace",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "The namespace for all IP addresses created or updated in the sync.",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "ipam.namespace"
+            },
+            {
+              "name": "interface_status",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Status to be applied to all synced device interfaces. This will update existing interface statuses.",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "ip_address_status",
+              "type": "ObjectVar",
+              "label": "IP address status",
+              "help_text": "Status to be applied to all synced IP addresses. This will update existing IP address statuses",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "default_prefix_status",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Status to be applied to all new created prefixes. Prefix status does not update with additional syncs.",
+              "default": null,
+              "required": true,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.status"
+            },
+            {
+              "name": "devices",
+              "type": "MultiObjectVar",
+              "label": null,
+              "help_text": "Device(s) to update.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.device"
+            },
+            {
+              "name": "location",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Only update devices at a specific location.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.location"
+            },
+            {
+              "name": "device_role",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Only update devices with the selected role.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "extras.role"
+            },
+            {
+              "name": "platform",
+              "type": "ObjectVar",
+              "label": null,
+              "help_text": "Only update devices with the selected platform.",
+              "default": null,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": "dcim.platform"
+            },
+            {
+              "name": "fail_job_on_task_failure",
+              "type": "BooleanVar",
+              "label": null,
+              "help_text": "If any tasks for any device fails, fail the entire job result.",
+              "default": false,
+              "required": false,
+              "min_length": null,
+              "max_length": null,
+              "min_value": null,
+              "max_value": null,
+              "choices": null,
+              "model": null
+            }
+          ],
+          "parameters": {
+            "required": {
+              "namespace": {
+                "value": "Global",
+                "uuid_resolution": {
+                  "resource_type": "namespace"
+                }
+              },
+              "interface_status": {
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.interface"
+                }
+              },
+              "ip_address_status": {
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.device"
+                }
+              },
+              "default_prefix_status": {
+                "value": "Active",
+                "uuid_resolution": {
+                  "resource_type": "status",
+                  "content_type": "dcim.device"
+                }
+              }
+            },
+            "optional": {
+              "dryrun": {
+                "enabled": false,
+                "value": ""
+              },
+              "memory_profiling": {
+                "enabled": false,
+                "value": ""
+              },
+              "parallel_loading": {
+                "enabled": false,
+                "value": ""
+              },
+              "debug": {
+                "enabled": false,
+                "value": ""
+              },
+              "connectivity_test": {
+                "enabled": false,
+                "value": ""
+              },
+              "sync_vlans": {
+                "enabled": false,
+                "value": ""
+              },
+              "sync_vrfs": {
+                "enabled": false,
+                "value": ""
+              },
+              "sync_vrf_to_prefix": {
+                "enabled": false,
+                "value": ""
+              },
+              "sync_cables": {
+                "enabled": true,
+                "value": "True"
+              },
+              "sync_software_version": {
+                "enabled": false,
+                "value": ""
+              },
+              "update_devices_with_changed_serial": {
+                "enabled": false,
+                "value": ""
+              },
+              "devices": {
+                "enabled": true,
+                "value": "{nautobot.id}"
+              },
+              "location": {
+                "enabled": false,
+                "value": ""
+              },
+              "device_role": {
+                "enabled": false,
+                "value": ""
+              },
+              "platform": {
+                "enabled": false,
+                "value": ""
+              },
+              "fail_job_on_task_failure": {
+                "enabled": false,
+                "value": ""
+              }
+            }
+          },
+          "bag_name": "sync"
+        },
+        "disabled": false
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
+    },
+    {
+      "id": "get-nautobot-attributes-6",
+      "type": "workflowNode",
+      "position": {
+        "x": -160.81420934333414,
+        "y": 453.7772755864894
+      },
+      "zIndex": 1,
+      "data": {
+        "kind": "get-nautobot-attributes",
+        "stepUuid": "a7a971b0-9390-4168-a3d5-ad7651eb374c",
+        "title": "Get Nautobot Attributes",
+        "overview": "Retrieve Nautobot attributes for selected devices.",
+        "description": "Retrieve attributes from Nautobot for selected devices. Core fields (ID, name, role, device type, platform, location, status, …) are always fetched; list_of_attributes only adds optional groups on top of those.\n",
+        "artifactType": "inventory_selector",
+        "requires": [
+          "identity"
+        ],
+        "requiresParsed": [],
+        "produces": [
+          "attributes"
+        ],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [
+          {
+            "name": "success"
+          },
+          {
+            "name": "failure"
+          }
+        ],
+        "incomeHandleSide": "right",
+        "outcomeHandleSide": "left",
+        "pluginConfig": {
+          "nautobot_source_id": "nautobot"
+        }
+      },
+      "measured": {
+        "width": 320,
+        "height": 128
+      },
+      "dragging": false,
+      "selected": false
     }
   ],
   "canvas_edges": [
@@ -600,6 +1122,45 @@
       "target": "start-nautobot-job-2",
       "targetHandle": "input",
       "id": "xy-edge__update-attribute-3success-start-nautobot-job-2input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "start-nautobot-job-2",
+      "sourceHandle": "success",
+      "target": "check-nautobot-job-4",
+      "targetHandle": "input",
+      "id": "xy-edge__start-nautobot-job-2success-check-nautobot-job-4input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "check-nautobot-job-4",
+      "sourceHandle": "success",
+      "target": "get-nautobot-attributes-6",
+      "targetHandle": "input",
+      "id": "xy-edge__check-nautobot-job-4success-get-nautobot-attributes-6input",
+      "selected": false
+    },
+    {
+      "type": "waypoint",
+      "zIndex": 0,
+      "data": {
+        "edgeStyle": "bezier"
+      },
+      "source": "get-nautobot-attributes-6",
+      "sourceHandle": "success",
+      "target": "start-nautobot-job-5",
+      "targetHandle": "input",
+      "id": "xy-edge__get-nautobot-attributes-6success-start-nautobot-job-5input",
       "selected": false
     }
   ],

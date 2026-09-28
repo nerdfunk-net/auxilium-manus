@@ -31,6 +31,34 @@ class SplitMultiValueTests(unittest.TestCase):
         self.assertIsNone(mod._split_multi_value("solo"))
 
 
+class CoerceValueMultiObjectVarTests(unittest.TestCase):
+    def test_single_uuid_is_wrapped_in_a_list(self) -> None:
+        self.assertEqual(
+            mod._coerce_value("devices", _UUID, "MultiObjectVar"),
+            [_UUID],
+        )
+
+    def test_comma_separated_uuids_split_into_a_list(self) -> None:
+        other = "660e8400-e29b-41d4-a716-446655440001"
+        self.assertEqual(
+            mod._coerce_value("devices", f"{_UUID}, {other}", "MultiObjectVar"),
+            [_UUID, other],
+        )
+
+    def test_json_list_string_passes_through(self) -> None:
+        self.assertEqual(
+            mod._coerce_value("devices", f'["{_UUID}"]', "MultiObjectVar"),
+            [_UUID],
+        )
+
+    def test_single_value_multichoicevar_is_wrapped_in_a_list(self) -> None:
+        self.assertEqual(mod._coerce_value("roles", "core", "MultiChoiceVar"), ["core"])
+
+    def test_single_value_jsonvar_is_not_wrapped(self) -> None:
+        # JSONVar is not guaranteed list-valued, unlike MultiObjectVar/MultiChoiceVar.
+        self.assertEqual(mod._coerce_value("payload", "solo", "JSONVar"), "solo")
+
+
 class ParseConfigTests(unittest.TestCase):
     def test_parses_required_value_and_uuid_resolution(self) -> None:
         parsed = mod._parse_config(
@@ -216,6 +244,25 @@ class ApplyJobResultRequestResponseTests(unittest.TestCase):
         bag = updated.attribute_bags["nautobot_job"]
         self.assertEqual(bag["request"], {"location": _UUID})
         self.assertEqual(bag["response"], {"job_result": {"id": "jr-1"}})
+
+    def test_custom_bag_name_keeps_other_job_bags_independent(self) -> None:
+        device = _device(onboard_job={"job_result_id": "jr-onboard"})
+        updated = mod._apply_job_result(
+            device,
+            job_result_id="jr-update",
+            job_id="job-2",
+            source_id="src-1",
+            job_name="Update Job",
+            request={"location": _UUID},
+            response={"job_result": {"id": "jr-update"}},
+            bag_name="update_job",
+        )
+        self.assertEqual(
+            updated.attribute_bags["onboard_job"]["job_result_id"], "jr-onboard"
+        )
+        self.assertEqual(
+            updated.attribute_bags["update_job"]["job_result_id"], "jr-update"
+        )
 
     def test_secret_like_request_key_is_redacted(self) -> None:
         updated = mod._apply_job_result(

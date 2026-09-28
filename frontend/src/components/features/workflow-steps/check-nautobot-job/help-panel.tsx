@@ -75,6 +75,26 @@ export function CheckNautobotJobHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
+      <HelpSection title="bag_name">
+        <p>
+          The <HelpCode>attribute_bags</HelpCode> key this step merges its{" "}
+          <HelpCode>status</HelpCode>/<HelpCode>checks_performed</HelpCode> result into.
+          Defaults to <HelpCode>nautobot_job</HelpCode> — the same bag Start Job writes to
+          by default, so a single job pair works with no configuration.
+        </p>
+        <HelpWarning title="Running more than one job on the same device">
+          <p>
+            Two Start Job/Check Job pairs on the same device (e.g. one onboarding job, one
+            update job) both default to the bag name <HelpCode>nautobot_job</HelpCode> — the
+            second pair&apos;s write overwrites the first pair&apos;s result. Give each pair a
+            distinct <HelpCode>bag_name</HelpCode> (matching the paired Start Job node&apos;s
+            bag_name) and point this step&apos;s <HelpCode>job_uuid</HelpCode> at that same
+            name, e.g. <HelpCode>{"{onboard_job.job_result_id}"}</HelpCode> with{" "}
+            <HelpCode>bag_name: onboard_job</HelpCode>.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>

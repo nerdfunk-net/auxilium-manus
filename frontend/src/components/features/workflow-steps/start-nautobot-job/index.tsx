@@ -4,6 +4,8 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -19,6 +21,8 @@ import { NautobotSourceSelectDialog } from "../shared/nautobot-source-select-dia
 import { ConfigureJobDialog } from "./configure-job-dialog";
 import { StartNautobotJobHelpPanel } from "./help-panel";
 import type { StartNautobotJobConfig } from "./types";
+
+const DEFAULT_BAG_NAME = "nautobot_job";
 
 function countParameters(config: StartNautobotJobConfig): { required: number; optional: number } {
   const required = Object.keys(config.parameters?.required ?? {}).length;
@@ -128,6 +132,21 @@ function StartNautobotJobConfigPanel({
         >
           Configure Job
         </Button>
+      </div>
+
+      <div className="space-y-1 border-t pt-3">
+        <Label className="text-[11px] text-muted-foreground">bag_name</Label>
+        <Input
+          className="h-8 font-mono text-xs"
+          placeholder={DEFAULT_BAG_NAME}
+          value={jobConfig.bag_name ?? ""}
+          onChange={(event) => onChange({ ...config, bag_name: event.target.value })}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          attribute_bags key this job&apos;s result is stored under. Give paired
+          start/check-nautobot-job nodes a unique name to run more than one job per
+          device (e.g. &quot;onboard_job&quot;, &quot;update_job&quot;).
+        </p>
       </div>
 
       <NautobotSourceSelectDialog
