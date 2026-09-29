@@ -5,6 +5,7 @@ import { useGetNautobotDevicesFieldValuesQuery } from "@/hooks/queries/use-get-n
 import { useInventoryCustomFieldsQuery } from "@/hooks/queries/use-inventory-custom-fields-query";
 
 import type { CustomField, FieldOption } from "../types/device-selector";
+import { operatorRuleForField } from "../utils/field-operators";
 
 interface UseDeviceFilterOptions {
   sourceId: string;
@@ -63,40 +64,10 @@ export function useDeviceFilter({
   );
 
   const updateOperatorOptions = useCallback((fieldName: string) => {
-    const restrictedFields = ["platform", "has_primary"];
-    const isCustomField = fieldName.startsWith("cf_");
-
-    if (restrictedFields.includes(fieldName)) {
-      setOperatorOptionsOverride([{ value: "equals", label: "Equals" }]);
-      setCurrentOperator("equals");
-    } else if (
-      ["role", "manufacturer", "device_type", "status", "location", "tag"].includes(
-        fieldName,
-      )
-    ) {
-      setOperatorOptionsOverride([
-        { value: "equals", label: "Equals" },
-        { value: "not_equals", label: "Not Equals" },
-      ]);
-    } else if (fieldName === "ip_prefix") {
-      setOperatorOptionsOverride([
-        { value: "within_include", label: "Within Include" },
-        { value: "within", label: "Within" },
-        { value: "exact", label: "Exact" },
-      ]);
-      setCurrentOperator("within_include");
-    } else if (fieldName === "primary_prefix") {
-      setOperatorOptionsOverride([
-        { value: "within_include", label: "Within Include" },
-      ]);
-      setCurrentOperator("within_include");
-    } else if (isCustomField || fieldName === "name") {
-      setOperatorOptionsOverride([
-        { value: "equals", label: "Equals" },
-        { value: "contains", label: "Contains" },
-      ]);
-    } else {
-      setOperatorOptionsOverride(null);
+    const { options, forcedOperator } = operatorRuleForField(fieldName);
+    setOperatorOptionsOverride(options);
+    if (forcedOperator) {
+      setCurrentOperator(forcedOperator);
     }
   }, []);
 

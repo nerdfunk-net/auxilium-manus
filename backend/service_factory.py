@@ -235,6 +235,7 @@ def build_nautobot_source_service(
     persistence = build_inventory_service(db) if db is not None else None
     cache_svc = build_cache_service()
     device_ttl = 1800
+    location_ttl = 600
 
     if db is not None and cache_svc is not None:
         from services.cache.cache_settings_service import CacheSettingsService
@@ -244,6 +245,7 @@ def build_nautobot_source_service(
             cache_svc = None
         else:
             device_ttl = cfg.device_ttl_seconds
+            location_ttl = cfg.location_ttl_seconds
 
     return NautobotSourceService(
         nautobot=get_nautobot_app_service(),
@@ -251,6 +253,7 @@ def build_nautobot_source_service(
         cache_service=cache_svc,
         persistence_service=persistence,
         device_ttl=device_ttl,
+        location_ttl=location_ttl,
     )
 
 

@@ -96,10 +96,25 @@ class ImportInventoryRequest(BaseModel):
     import_data: dict[str, Any]
 
 
+LOCATION_OPERATORS_MESSAGE = (
+    "The location field only supports the 'equals' and 'not_equals' operators; "
+    "'contains' is not available for locations."
+)
+_CONTAINS_OPERATORS = frozenset({"contains", "not_contains"})
+
+
 class LogicalCondition(BaseModel):
     field: str
     operator: str
     value: str
+
+    @model_validator(mode="after")
+    def _location_is_exact_match_only(self) -> Self:
+        # Nautobot's GraphQL has no location name-contains filter, and a
+        # "contains" match ("City" matching "City A") is not wanted for locations.
+        if self.field == "location" and self.operator in _CONTAINS_OPERATORS:
+            raise ValueError(LOCATION_OPERATORS_MESSAGE)
+        return self
 
 
 class LogicalOperation(BaseModel):

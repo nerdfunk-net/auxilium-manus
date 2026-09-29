@@ -10,11 +10,21 @@ import { queryKeys } from "@/lib/query-keys";
 export interface RedisSettingsInput {
   enabled: boolean;
   device_ttl_seconds: number;
+  location_ttl_seconds: number;
 }
 
 interface CacheClearResponse {
   cleared: number;
 }
+
+interface CacheRebuildResponse {
+  started: boolean;
+  hatchet_run_id: string;
+}
+
+// The rebuild runs on the worker; re-read the stats once it has had time to
+// reload the devices, so "Cached items" reflects the rebuilt cache.
+const REBUILD_STATS_REFRESH_DELAY_MS = 5000;
 
 export function useRedisSettingsMutations() {
   const { apiCall } = useApi();
@@ -50,8 +60,26 @@ export function useRedisSettingsMutations() {
     },
   });
 
+  const rebuildCache = useMutation<CacheRebuildResponse, Error>({
+    mutationFn: () => apiCall("cache/rebuild", { method: "POST" }),
+    onSuccess: () => {
+      toast({
+        title: "Cache rebuild started",
+        description:
+          "All devices are being reloaded from Nautobot in the background. This can take a moment.",
+      });
+      window.setTimeout(
+        () => queryClient.invalidateQueries({ queryKey: queryKeys.redis.stats() }),
+        REBUILD_STATS_REFRESH_DELAY_MS,
+      );
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   return useMemo(
-    () => ({ saveSettings, clearCache }),
-    [saveSettings, clearCache],
+    () => ({ saveSettings, clearCache, rebuildCache }),
+    [saveSettings, clearCache, rebuildCache],
   );
 }

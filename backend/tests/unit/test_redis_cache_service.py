@@ -75,6 +75,19 @@ class RedisCacheServiceTests(unittest.TestCase):
         with patch.object(self.service._redis, "keys", side_effect=RuntimeError("down")):
             self.assertEqual(self.service.clear_namespace("ns"), 0)
 
+    def test_list_keys_returns_user_facing_keys_of_the_namespace_only(self) -> None:
+        self.service.set("ns:a", 1, ttl_seconds=60)
+        self.service.set("ns:b:c", 2, ttl_seconds=60)
+        self.service.set("other:x", 3, ttl_seconds=60)
+        self.service.set("ns", 4, ttl_seconds=60)  # the namespace name itself is not inside it
+
+        self.assertEqual(self.service.list_keys("ns"), ["ns:a", "ns:b:c"])
+
+    def test_list_keys_empty_and_error_paths(self) -> None:
+        self.assertEqual(self.service.list_keys("nothing"), [])
+        with patch.object(self.service._redis, "scan_iter", side_effect=RuntimeError("down")):
+            self.assertEqual(self.service.list_keys("ns"), [])
+
     def test_clear_all_excludes_stats_and_start_time(self) -> None:
         self.service.set("a", 1, ttl_seconds=60)
         self.service.set("b", 2, ttl_seconds=60)

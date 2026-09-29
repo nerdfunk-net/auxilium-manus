@@ -11,7 +11,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
+from models.sources_nautobot import (
+    LOCATION_OPERATORS_MESSAGE,
+    DeviceInfo,
+    LogicalCondition,
+    LogicalOperation,
+)
 
 if TYPE_CHECKING:
     from services.sources.nautobot.query_service import NautobotSourceQueryService
@@ -235,7 +240,7 @@ class NautobotSourceEvaluator:
     ) -> tuple[set[str], int, dict[str, DeviceInfo]] | None:
         handlers: dict[str, Callable[[str], Awaitable[list[DeviceInfo]]]] = {
             "location": lambda v: self.query_service._query_devices_by_location(
-                v, use_contains=False, use_negation=True
+                v, use_negation=True
             ),
             "device_type": lambda v: self.query_service._query_devices_by_devicetype(
                 v, use_negation=True
@@ -266,10 +271,13 @@ class NautobotSourceEvaluator:
     ) -> list[DeviceInfo]:
         query_func = self.field_to_query_map[field]
 
-        if field in ["name", "location"] and use_contains:
-            return await query_func(value, use_contains=True)
-        if field in ["name", "location"]:
-            return await query_func(value, use_contains=False)
+        if field == "location":
+            # Exact match only: "location contains City" must never match "City A".
+            if use_contains:
+                raise ValueError(LOCATION_OPERATORS_MESSAGE)
+            return await query_func(value)
+        if field == "name":
+            return await query_func(value, use_contains=use_contains)
 
         if use_contains:
             logger.warning(

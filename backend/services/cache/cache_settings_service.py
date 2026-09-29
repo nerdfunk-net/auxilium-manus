@@ -6,8 +6,11 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from core.domain_exceptions import ConflictError
+from core.safe_http_errors import raise_internal_server_error
 from models.cache_settings import (
     CacheClearResponse,
+    CacheRebuildResponse,
     CacheSettings,
     CacheSettingsResponse,
     CacheStatsResponse,
@@ -41,6 +44,7 @@ class CacheSettingsService:
         return CacheSettingsResponse(
             enabled=cfg.enabled,
             device_ttl_seconds=cfg.device_ttl_seconds,
+            location_ttl_seconds=cfg.location_ttl_seconds,
             redis_connected=self._cache is not None,
         )
 
@@ -56,6 +60,7 @@ class CacheSettingsService:
         return CacheSettingsResponse(
             enabled=body.enabled,
             device_ttl_seconds=body.device_ttl_seconds,
+            location_ttl_seconds=body.location_ttl_seconds,
             redis_connected=self._cache is not None,
         )
 
@@ -84,3 +89,24 @@ class CacheSettingsService:
         except Exception as exc:
             logger.error("Failed to clear cache: %s", exc)
             return CacheClearResponse(cleared=0)
+
+    def rebuild(self) -> CacheRebuildResponse:
+        """Start a background rebuild of the Nautobot device caches.
+
+        Runs on the Hatchet worker (a large estate can take longer than an HTTP
+        request should), so this only confirms the run was queued.
+        """
+        if self._cache is None:
+            raise ConflictError("Redis is not connected; there is no cache to rebuild.")
+        if not self._load().enabled:
+            raise ConflictError("Device caching is disabled; enable it before rebuilding.")
+        try:
+            from hatchet_sdk import EmptyModel
+
+            from hatchet.workflows.cache_devices import rebuild_workflow
+
+            ref = rebuild_workflow.run_no_wait(EmptyModel())
+        except Exception as exc:
+            raise_internal_server_error(logger, "Failed to start cache rebuild", exc)
+        logger.info("Cache rebuild started hatchet_run_id=%s", ref.workflow_run_id)
+        return CacheRebuildResponse(started=True, hatchet_run_id=str(ref.workflow_run_id or ""))

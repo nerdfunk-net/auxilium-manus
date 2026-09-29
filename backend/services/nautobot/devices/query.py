@@ -55,6 +55,26 @@ class DeviceQueryService:
         self._cache_scope = credentials.cache_scope
         self._device_ttl = device_ttl
 
+    def invalidate_cache(self) -> int:
+        """Drop every cached detail/attribute entry of this Nautobot instance.
+
+        Best-effort (never raises). Returns the number of entries removed.
+        """
+        if self._cache is None:
+            return 0
+        removed = 0
+        for namespace in (
+            f"nautobot:device_details:{self._cache_scope}",
+            f"nautobot:device_attributes:{self._cache_scope}",
+        ):
+            try:
+                removed += self._cache.clear_namespace(namespace)
+            except Exception:
+                logger.warning(
+                    "Could not invalidate cache namespace '%s'", namespace, exc_info=True
+                )
+        return removed
+
     def _details_cache_key(self, device_id: str) -> str:
         return f"nautobot:device_details:{self._cache_scope}:{device_id}"
 

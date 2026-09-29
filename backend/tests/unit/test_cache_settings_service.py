@@ -82,3 +82,32 @@ class CacheSettingsServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LocationTtlSettingTests(unittest.TestCase):
+    def test_defaults_to_ten_minutes(self) -> None:
+        self.assertEqual(CacheSettings().location_ttl_seconds, 600)
+        self.assertEqual(_service(cache=MagicMock()).get_settings().location_ttl_seconds, 600)
+
+    def test_row_saved_before_the_setting_existed_gets_the_default(self) -> None:
+        row = MagicMock(value={"enabled": True, "device_ttl_seconds": 900})
+        self.assertEqual(_service(row=row).get_settings().location_ttl_seconds, 600)
+
+    def test_stored_value_is_returned_and_update_persists_it(self) -> None:
+        row = MagicMock(
+            value={"enabled": True, "device_ttl_seconds": 900, "location_ttl_seconds": 300}
+        )
+        self.assertEqual(_service(row=row).get_settings().location_ttl_seconds, 300)
+
+        svc = _service(row=MagicMock(), cache=MagicMock())
+        resp = svc.update_settings(CacheSettings(location_ttl_seconds=420))
+        self.assertEqual(resp.location_ttl_seconds, 420)
+        saved = svc._repo.update.call_args.args[1]["value"]
+        self.assertEqual(saved["location_ttl_seconds"], 420)
+
+    def test_bounds_are_enforced(self) -> None:
+        from pydantic import ValidationError
+
+        for bad in (59, 86401):
+            with self.assertRaises(ValidationError):
+                CacheSettings(location_ttl_seconds=bad)

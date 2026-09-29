@@ -27,9 +27,14 @@ class NautobotSourceService:
         cache_service=None,
         persistence_service: InventoryService | None = None,
         device_ttl: int = 1800,
+        location_ttl: int = 600,
     ) -> None:
         self.query_service = NautobotSourceQueryService(
-            nautobot, credentials, cache_service, bulk_ttl=device_ttl
+            nautobot,
+            credentials,
+            cache_service,
+            bulk_ttl=device_ttl,
+            location_ttl=location_ttl,
         )
         self.evaluator = NautobotSourceEvaluator(self.query_service)
         self.metadata_service = NautobotSourceMetadataService(nautobot, credentials)
@@ -160,9 +165,17 @@ class NautobotSourceService:
             device_id, list_of_attributes, use_cache=True
         )
 
-    async def refresh_bulk_device_cache(self) -> int:
-        """(Re)populate the Redis bulk device cache. Returns devices written."""
-        return await self.query_service.refresh_bulk_cache()
+    async def refresh_bulk_device_cache(self, *, force: bool = False) -> int:
+        """(Re)populate the Redis bulk device cache. Returns devices written.
+
+        ``force`` is a full rebuild: besides reloading every device from Nautobot
+        it drops all derived entries (location filters, per-device details and
+        attributes) even if nothing changed.
+        """
+        count = await self.query_service.refresh_bulk_cache(force_invalidate=force)
+        if force:
+            self.device_query_service.invalidate_cache()
+        return count
 
     async def get_custom_fields(self) -> list[dict[str, Any]]:
         return await self.metadata_service.get_custom_fields()

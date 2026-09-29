@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, DatabaseZap, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -29,6 +29,7 @@ import {
 const formSchema = z.object({
   enabled: z.boolean(),
   device_ttl_seconds: z.number().int().min(60).max(86400),
+  location_ttl_seconds: z.number().int().min(60).max(86400),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -36,6 +37,7 @@ type FormValues = z.infer<typeof formSchema>;
 const EMPTY_DEFAULTS: FormValues = {
   enabled: true,
   device_ttl_seconds: 1800,
+  location_ttl_seconds: 600,
 };
 
 function StatItem({ label, value }: { label: string; value: string | number }) {
@@ -50,7 +52,7 @@ function StatItem({ label, value }: { label: string; value: string | number }) {
 export function RedisSettingsCanvas() {
   const { data: settingsData, isLoading: settingsLoading } = useRedisSettingsQuery();
   const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useRedisStatsQuery();
-  const { saveSettings, clearCache } = useRedisSettingsMutations();
+  const { saveSettings, clearCache, rebuildCache } = useRedisSettingsMutations();
   const [refreshing, setRefreshing] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -60,6 +62,7 @@ export function RedisSettingsCanvas() {
         ? {
             enabled: settingsData.enabled,
             device_ttl_seconds: settingsData.device_ttl_seconds,
+            location_ttl_seconds: settingsData.location_ttl_seconds,
           }
         : EMPTY_DEFAULTS,
     [settingsData],
@@ -197,6 +200,33 @@ export function RedisSettingsCanvas() {
                     </FormItem>
                   )}
                 />
+
+                <FormField
+                  control={form.control}
+                  name="location_ttl_seconds"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Location filter cache TTL (seconds)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={60}
+                          max={86400}
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        How long the device list for an inventory location filter is cached
+                        (one entry per location filter). Upper bound only: the periodic device
+                        refresh (every 5 min) drops these entries as soon as it sees a device
+                        added, removed or changed, so new devices normally appear within about
+                        5 minutes. Min 60 s, max 86400 s (24 h). Default: 600 s (10 min).
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </CardContent>
             </Card>
 
@@ -214,8 +244,38 @@ export function RedisSettingsCanvas() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Cache Management</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             <div className="space-y-3">
+              <div>
+                <p className="text-sm font-medium">Rebuild device cache</p>
+                <p className="text-sm text-muted-foreground">
+                  Reloads all devices from Nautobot now and discards the cached location
+                  filters and device details, so the next request sees current data. Location
+                  filters that were cached are re-run straight away. Runs in the background;
+                  nothing is removed until the fresh device list is ready.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!connected || !settingsData?.enabled || rebuildCache.isPending}
+                onClick={() => rebuildCache.mutate()}
+              >
+                {rebuildCache.isPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <DatabaseZap className="mr-2 size-4" />
+                )}
+                Rebuild Cache
+              </Button>
+              {connected && settingsData && !settingsData.enabled ? (
+                <p className="text-sm text-muted-foreground">
+                  Device caching is disabled. Enable it above to rebuild the cache.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-3 border-t pt-6">
               <div>
                 <p className="text-sm font-medium">Clear all cached data</p>
                 <p className="text-sm text-muted-foreground">

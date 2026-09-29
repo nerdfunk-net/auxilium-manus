@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from pydantic import ValidationError
+
 from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
 from services.sources.nautobot.evaluator import (
     NautobotSourceEvaluator,
@@ -215,6 +217,97 @@ class EvaluatorOperationTests(unittest.IsolatedAsyncioTestCase):
         )
         result, _, _ = await self.evaluator._execute_operation(op)
         self.assertEqual(result, {"a", "b"})
+
+
+class LocationIsExactMatchOnlyTests(unittest.IsolatedAsyncioTestCase):
+    """Locations support "equals" / "not_equals" only — "Location contains City"
+    must never be possible (and so can never match "City A"). Device names and
+    custom fields keep their "contains" operator."""
+
+    def setUp(self) -> None:
+        self.qs = _query_service()
+        self.evaluator = NautobotSourceEvaluator(self.qs)
+
+    async def test_location_equals_is_an_exact_query(self) -> None:
+        self.qs._query_devices_by_location.return_value = [_dev("a")]
+
+        ids, _, _ = await self.evaluator._execute_condition(
+            LogicalCondition(field="location", operator="equals", value="City")
+        )
+
+        self.assertEqual(ids, {"a"})
+        self.qs._query_devices_by_location.assert_awaited_once_with("City")
+
+    async def test_location_not_equals_uses_native_negation(self) -> None:
+        self.qs._query_devices_by_location.return_value = [_dev("b")]
+
+        ids, _, _ = await self.evaluator._execute_condition(
+            LogicalCondition(field="location", operator="not_equals", value="City")
+        )
+
+        self.assertEqual(ids, {"b"})
+        self.qs._query_devices_by_location.assert_awaited_once_with("City", use_negation=True)
+
+    def test_the_model_rejects_contains_operators_on_location(self) -> None:
+        for operator in ("contains", "not_contains"):
+            with self.subTest(operator=operator):
+                with self.assertRaises(ValidationError) as ctx:
+                    LogicalCondition(field="location", operator=operator, value="City")
+                self.assertIn("equals", str(ctx.exception))
+
+    def test_the_model_rejects_it_inside_nested_operations_too(self) -> None:
+        with self.assertRaises(ValidationError):
+            LogicalOperation.model_validate(
+                {
+                    "operation_type": "AND",
+                    "conditions": [{"field": "role", "operator": "equals", "value": "leaf"}],
+                    "nested_operations": [
+                        {
+                            "operation_type": "OR",
+                            "conditions": [
+                                {"field": "location", "operator": "contains", "value": "City"}
+                            ],
+                        }
+                    ],
+                }
+            )
+
+    def test_equals_and_not_equals_on_location_are_valid(self) -> None:
+        for operator in ("equals", "not_equals"):
+            LogicalCondition(field="location", operator=operator, value="City A")
+
+    def test_contains_is_still_valid_for_names_and_custom_fields(self) -> None:
+        LogicalCondition(field="name", operator="contains", value="rtr")
+        LogicalCondition(field="cf_site_code", operator="not_contains", value="NYC")
+
+    async def test_evaluator_refuses_location_contains_even_if_validation_is_bypassed(
+        self,
+    ) -> None:
+        condition = LogicalCondition.model_construct(
+            field="location", operator="contains", value="City"
+        )
+
+        ids, count, _ = await self.evaluator._execute_condition(condition)
+
+        self.assertEqual((ids, count), (set(), 0))
+        self.qs._query_devices_by_location.assert_not_awaited()
+
+    async def test_name_contains_is_unaffected(self) -> None:
+        self.qs._query_devices_by_name.return_value = [_dev("a")]
+
+        ids, _, _ = await self.evaluator._execute_condition(
+            LogicalCondition(field="name", operator="contains", value="rtr")
+        )
+
+        self.assertEqual(ids, {"a"})
+        self.qs._query_devices_by_name.assert_awaited_with("rtr", use_contains=True)
+
+    async def test_name_equals_is_unaffected(self) -> None:
+        await self.evaluator._execute_condition(
+            LogicalCondition(field="name", operator="equals", value="rtr1")
+        )
+
+        self.qs._query_devices_by_name.assert_awaited_with("rtr1", use_contains=False)
 
 
 if __name__ == "__main__":

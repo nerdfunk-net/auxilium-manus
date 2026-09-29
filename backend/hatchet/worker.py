@@ -28,6 +28,7 @@ from core.logging_config import WORKER_PROCESS_NAME, configure_logging  # noqa: 
 from hatchet import worker_services  # noqa: E402
 from hatchet.client import hatchet  # noqa: E402
 from hatchet.worker_config import WORKER_NAME, WORKER_SLOTS  # noqa: E402
+from hatchet.workflows.cache_devices import rebuild_workflow as cache_rebuild_workflow  # noqa: E402
 from hatchet.workflows.cache_devices import workflow as cache_devices_workflow  # noqa: E402
 from hatchet.workflows.device_group_execution import (  # noqa: E402
     child_workflow as device_group_workflow,
@@ -55,6 +56,7 @@ def main() -> None:
             workflow_execution,
             device_group_workflow,
             cache_devices_workflow,
+            cache_rebuild_workflow,
             scheduled_trigger_workflow,
             purge_retention_workflow,
         ],

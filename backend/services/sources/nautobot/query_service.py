@@ -13,7 +13,16 @@ Cache strategy (Option A — cache-first):
   the same inventory preview only pay the Redis round-trip once.
 
   Exceptions that still go directly to Nautobot GraphQL:
-    • location       — Nautobot resolves child-location hierarchy server-side
+    • location       — exact match only (equals / not equals, never "contains");
+                        Nautobot resolves child-location hierarchy server-side;
+                        each distinct filter's result is cached in Redis for
+                        ``location_ttl`` (default 10 min, key
+                        nautobot:devices:location:<scope>:<mode>:<filter>),
+                        empty/errored results are never cached, and the 5-minute
+                        bulk refresh drops them all (per Nautobot instance) as soon
+                        as it sees any device added, removed, moved or edited — so
+                        changes normally show up on the next cron cycle rather than
+                        after the TTL
     • ip_prefix      — requires server-side CIDR containment logic
     • primary_prefix — requires server-side CIDR containment logic, restricted
                         to each device's primary_ip4
@@ -41,6 +50,21 @@ logger = logging.getLogger(__name__)
 _BULK_CACHE_KEY_PREFIX = "nautobot:devices:all"
 
 
+def _bulk_payload_changed(
+    previous: list[dict[str, Any]] | None, current: list[dict[str, Any]]
+) -> bool:
+    """True when the device data differs from the previous bulk entry.
+
+    An absent/unreadable previous entry counts as changed: we can't tell what
+    moved, so the safe answer is to invalidate. Order is irrelevant.
+    """
+    if not isinstance(previous, list) or any(
+        not isinstance(d, dict) or "id" not in d for d in previous
+    ):
+        return True
+    return {d["id"]: d for d in previous} != {d["id"]: d for d in current}
+
+
 def _custom_field_value_matches(stored: Any, target: str, use_contains: bool) -> bool:
     """Compare a cached custom field value (scalar or multi-select list) to ``target``."""
     if stored is None:
@@ -61,6 +85,7 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         credentials: NautobotCredentials,
         cache_service: RedisCacheService | None = None,
         bulk_ttl: int = 1800,
+        location_ttl: int = 600,
     ):
 
         self._nautobot = nautobot
@@ -68,6 +93,8 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         self._cache_service = cache_service
         self._bulk_cache_key = f"{_BULK_CACHE_KEY_PREFIX}:{credentials.cache_scope}"
         self._bulk_ttl = bulk_ttl
+        # TTL for the per-filter location cache (live_query_mixin).
+        self._location_ttl = location_ttl
         self._devices_cache: list[DeviceInfo] | None = None
 
     # ------------------------------------------------------------------
@@ -127,18 +154,26 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         self._devices_cache = devices
         return devices
 
-    async def refresh_bulk_cache(self) -> int:
+    async def refresh_bulk_cache(self, *, force_invalidate: bool = False) -> int:
         """Fetch all devices live and (re)populate the Redis bulk cache.
 
         Called by the "RefreshNautobotDeviceCache" Hatchet cron workflow. Returns
         the number of devices written, or 0 if caching is disabled (no cache
         service configured).
+
+        Cached location filters are dropped when the device data changed since
+        the previous snapshot, or unconditionally with ``force_invalidate``
+        (the "Rebuild cache" button), which then also re-runs the location filters
+        that were cached, so the ones people actually use are warm again.
         """
         if self._cache_service is None:
             return 0
 
+        # Note the cached location filters before they are dropped (rebuild only).
+        warm_filters = self._cached_location_filters() if force_invalidate else []
         devices = await self._query_all_devices_live()
         payload = [d.model_dump() for d in devices]
+        previous = self._read_bulk_payload()
         self._cache_service.set(self._bulk_cache_key, payload, self._bulk_ttl)
         self._devices_cache = devices
         logger.info(
@@ -147,7 +182,26 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
             len(payload),
             self._bulk_ttl,
         )
+        # Cached location filters hold full device data too, so any change here
+        # (device added/removed/moved, or a detail such as its primary IP edited)
+        # must not keep being served from them until their own TTL runs out.
+        if force_invalidate or _bulk_payload_changed(previous, payload):
+            removed = self._invalidate_location_cache()
+            logger.info("Bulk device data changed; dropped %s cached location filter(s)", removed)
+        if warm_filters:
+            warmed = await self._rewarm_location_filters(warm_filters)
+            logger.info("Re-warmed %s/%s location filter(s)", warmed, len(warm_filters))
         return len(payload)
+
+    def _read_bulk_payload(self) -> list[dict[str, Any]] | None:
+        """The bulk entry currently in Redis, or None if absent/unreadable."""
+        if self._cache_service is None:
+            return None
+        try:
+            return self._cache_service.get(self._bulk_cache_key)
+        except Exception as exc:
+            logger.warning("Redis read failed for '%s': %s", self._bulk_cache_key, exc)
+            return None
 
     # ------------------------------------------------------------------
     # Live Nautobot GraphQL helpers (used as fallback or for uncacheable queries)

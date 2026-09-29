@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 export interface RedisSettingsData {
   enabled: boolean;
   device_ttl_seconds: number;
+  location_ttl_seconds: number;
   redis_connected: boolean;
 }
 

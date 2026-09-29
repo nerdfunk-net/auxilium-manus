@@ -25,9 +25,19 @@ workflow = hatchet.workflow(
     on_crons=["*/5 * * * *"],
 )
 
+# Started on demand by the "Rebuild cache" button (POST /cache/rebuild); never
+# scheduled. Same routine as the cron, but forced — see refresh_nautobot_device_caches.
+rebuild_workflow = hatchet.workflow(name="RebuildNautobotDeviceCache")
 
-@workflow.task(name="refresh_all_sources")
-async def refresh_all_sources(input: EmptyModel, ctx: Context) -> dict:
+
+async def refresh_nautobot_device_caches(*, force: bool) -> dict[str, int]:
+    """Reload the bulk device cache of every configured Nautobot source.
+
+    ``force=False`` (the 5-minute cron) only drops derived entries when the
+    device data changed. ``force=True`` (Rebuild) always drops them — location
+    filters and per-device details/attributes — before repopulating from
+    Nautobot. One failing source never stops the others.
+    """
     import service_factory
     from core.database import SessionLocal
     from repositories.settings_repository import SettingsRepository
@@ -44,6 +54,7 @@ async def refresh_all_sources(input: EmptyModel, ctx: Context) -> dict:
 
     refreshed = 0
     failed = 0
+    devices = 0
 
     for source_id in source_ids:
         key = f"{NAUTOBOT_KEY_PREFIX}{source_id}"
@@ -60,17 +71,36 @@ async def refresh_all_sources(input: EmptyModel, ctx: Context) -> dict:
             credentials = service_factory.credentials_from_connection(url, token)
             with SessionLocal() as db:
                 source_service = service_factory.build_nautobot_source_service(credentials, db)
-                count = await source_service.refresh_bulk_device_cache()
-            logger.info("Refreshed bulk device cache for '%s': %s devices", key, count)
+                count = await source_service.refresh_bulk_device_cache(force=force)
+            logger.info(
+                "Refreshed bulk device cache for '%s': %s devices (force=%s)", key, count, force
+            )
             refreshed += 1
+            devices += count
         except Exception:
             failed += 1
             logger.exception("Failed to refresh bulk device cache for '%s'", key)
 
     logger.info(
-        "RefreshNautobotDeviceCache complete: %s/%s source(s) refreshed, %s failed",
+        "Nautobot device cache refresh complete (force=%s): %s/%s source(s) refreshed, %s failed",
+        force,
         refreshed,
         len(source_ids),
         failed,
     )
-    return {"refreshed": refreshed, "failed": failed, "total": len(source_ids)}
+    return {
+        "sources": len(source_ids),
+        "refreshed": refreshed,
+        "failed": failed,
+        "devices": devices,
+    }
+
+
+@workflow.task(name="refresh_all_sources")
+async def refresh_all_sources(input: EmptyModel, ctx: Context) -> dict[str, int]:
+    return await refresh_nautobot_device_caches(force=False)
+
+
+@rebuild_workflow.task(name="rebuild_all_sources")
+async def rebuild_all_sources(input: EmptyModel, ctx: Context) -> dict[str, int]:
+    return await refresh_nautobot_device_caches(force=True)

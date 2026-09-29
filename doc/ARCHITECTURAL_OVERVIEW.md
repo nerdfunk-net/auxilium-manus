@@ -550,6 +550,55 @@ uses — full validation, then a *new* mirrored commit. Restore never runs
 forward, and a "bad" restore is itself just one more commit to restore away
 from.
 
+## Nautobot device caching: what is cached, when it is refreshed
+
+**Question:** The Redis page shows "Cached items: 1" — is every device cached
+separately, and how does a device added in Nautobot reach a workflow run?
+
+**Answer:** The device list is cached as **one** entry per Nautobot source, and
+a few other entries are derived from it. "Cached items" counts Redis keys, not
+devices.
+
+| Redis key (under `manus-cache:`) | Holds | Written by | TTL |
+|---|---|---|---|
+| `nautobot:devices:all:<scope>` | every device (one JSON list) | `RefreshNautobotDeviceCache` cron (every 5 min) | `device_ttl_seconds` (default 30 min) |
+| `nautobot:devices:location:<scope>:<eq\|not>:<location>` | devices of one location filter (equals / not equals), child locations included | first query of that filter | `location_ttl_seconds` (default 10 min) |
+| `nautobot:device_details:<scope>:<id>`, `nautobot:device_attributes:<scope>:<id>:<groups>` | one device's full details / attribute bag | first per-device lookup | `device_ttl_seconds` |
+
+`<scope>` is a hash of the Nautobot URL and token, so several sources never
+share entries.
+
+- **Most inventory filters** (name, role, status, tag, device type, manufacturer,
+  platform, has-primary, custom field) filter the single bulk list in Python.
+- **Location** can't: Nautobot resolves the child-location hierarchy
+  server-side, and the bulk list only carries each device's own location name.
+  It queries Nautobot, and caches each distinct filter's result. Locations are
+  matched exactly — the operators are **equals** and **not equals** only, never
+  "contains" ("City" must not match "City A"); the API rejects a location
+  `contains`/`not_contains` condition and the UI doesn't offer it. Device names
+  and custom fields keep their "contains" operator. Empty and
+  errored results are never cached, so a just-created location shows up at once.
+  IP-prefix and primary-prefix filters always query Nautobot live.
+- **Freshness:** each cron run compares the fresh device list with the stored
+  one and, if anything differs (device added, removed, moved, or a detail such
+  as its primary IP edited), drops all location entries of that source. A change
+  therefore reaches inventories and runs within about 5 minutes; the TTL is only
+  an upper bound if the cron isn't running.
+- **Rebuild cache** (Settings → Redis → Cache Management, `POST /cache/rebuild`)
+  starts the on-demand `RebuildNautobotDeviceCache` Hatchet workflow: the same
+  routine as the cron, but forced — it reloads every device from Nautobot and
+  drops the location, details and attributes entries even if nothing changed.
+  The location filters that were cached at that moment are then re-run (5 at a
+  time; a failing one is just left uncached), so the ones people actually use are
+  warm again; details/attributes and never-used filters refill on first use.
+  Nothing is dropped if Nautobot can't be reached. Unlike **Clear cache** it
+  never empties the cache first, so runs during a rebuild still hit warm data.
+  It needs the worker running; the request itself returns immediately.
+
+Code: `services/sources/nautobot/query_service.py` (`refresh_bulk_cache`),
+`live_query_mixin.py` (location cache), `services/nautobot/devices/query.py`
+(`invalidate_cache`), `hatchet/workflows/cache_devices.py`.
+
 ## Device selection: three representations of "which devices"
 
 **Question:** A saved inventory, a `get-nautobot-devices` canvas node, and an

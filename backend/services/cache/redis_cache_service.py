@@ -141,6 +141,19 @@ class RedisCacheService:
             logger.error("Cache delete error for key '%s': %s", key, e)
             return False
 
+    def list_keys(self, namespace: str) -> list[str]:
+        """User-facing keys (without the service prefix) inside ``namespace``, sorted.
+
+        Uses SCAN, so it never blocks Redis on a large keyspace. Returns [] on error.
+        """
+        try:
+            pattern = self._make_key(f"{namespace}:*")
+            strip = len(self._prefix) + 1
+            return sorted(key[strip:] for key in self._redis.scan_iter(match=pattern))
+        except Exception as e:
+            logger.error("Cache list_keys error for '%s': %s", namespace, e)
+            return []
+
     def clear_namespace(self, namespace: str) -> int:
         """Clear all entries in a namespace.
 

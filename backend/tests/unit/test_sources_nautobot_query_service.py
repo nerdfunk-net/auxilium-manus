@@ -32,9 +32,14 @@ def _gql_device(did: str, name: str, **over) -> dict:
 
 class LiveQueryPureHelperTests(unittest.TestCase):
     def test_resolve_location_filter_arg(self) -> None:
-        self.assertEqual(_resolve_location_filter_arg(False, True), "location__n: $location_filter")
-        self.assertIn("__name__ic", _resolve_location_filter_arg(True, False))
-        self.assertEqual(_resolve_location_filter_arg(False, False), "location: $location_filter")
+        # Exact match only: Nautobot's devices() has `location` and `location__n`, and
+        # there is deliberately no name-contains variant.
+        self.assertEqual(_resolve_location_filter_arg(True), "location__n: $location_filter")
+        self.assertEqual(_resolve_location_filter_arg(False), "location: $location_filter")
+        for negation in (True, False):
+            arg = _resolve_location_filter_arg(negation)
+            self.assertNotIn("__ic", arg)
+            self.assertNotIn("contains", arg)
 
 
 def _service(graphql=None, cache=None) -> NautobotSourceQueryService:

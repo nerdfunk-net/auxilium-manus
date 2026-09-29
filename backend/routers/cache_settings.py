@@ -10,6 +10,7 @@ from core.auth import get_current_user, require_permission
 from core.database import get_db
 from models.cache_settings import (
     CacheClearResponse,
+    CacheRebuildResponse,
     CacheSettings,
     CacheSettingsResponse,
     CacheStatsResponse,
@@ -70,3 +71,14 @@ def clear_cache(
     service: CacheSettingsService = Depends(_service),
 ) -> CacheClearResponse:
     return service.clear()
+
+
+@router.post(
+    "/rebuild",
+    response_model=CacheRebuildResponse,
+    dependencies=[Depends(require_permission("cache_settings", "write"))],
+)
+def rebuild_cache(
+    service: CacheSettingsService = Depends(_service),
+) -> CacheRebuildResponse:
+    return service.rebuild()
