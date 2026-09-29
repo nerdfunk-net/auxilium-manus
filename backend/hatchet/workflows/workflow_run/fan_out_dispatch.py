@@ -69,6 +69,30 @@ def _parse_fan_out_dispatch(signal: Any) -> _FanOutDispatchPlan:
     )
 
 
+def _precreate_device_groups(parent_run_id: int, plan: _FanOutDispatchPlan) -> None:
+    """Create a ``pending`` progress row per group so the UI can show "0/N started"
+    the moment fan-out begins. Best-effort: never blocks dispatch."""
+    from core.database import SessionLocal
+    from repositories.run_repository import RunRepository
+
+    groups: list[tuple[int, list[str]]] = [
+        (index, _group_device_names(plan, group_ids)) for index, group_ids in enumerate(plan.groups)
+    ]
+    try:
+        with SessionLocal() as db:
+            RunRepository(db).create_device_groups(run_id=parent_run_id, groups=groups)
+    except Exception:
+        logger.warning(
+            "Failed to pre-create device-group progress rows run_id=%s",
+            parent_run_id,
+            exc_info=True,
+        )
+
+
+def _group_device_names(plan: _FanOutDispatchPlan, group_ids: list[str]) -> list[str]:
+    return [str(getattr(plan.all_devices[did], "name", None) or did) for did in group_ids]
+
+
 def _build_child_inputs(
     signal: Any,
     *,
@@ -249,6 +273,8 @@ async def _dispatch_children(
         plan.max_concurrency,
         plan.approval_enabled,
     )
+
+    _precreate_device_groups(parent_run_id, plan)
 
     if not plan.approval_enabled:
         return await _run_groups(

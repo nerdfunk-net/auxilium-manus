@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base
@@ -96,4 +106,66 @@ class WorkflowStepResult(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WorkflowRunDeviceGroup(Base):
+    """Live progress of one fan-out child (``DeviceGroupExecution``).
+
+    Children run the downstream subgraph without writing ``WorkflowStepResult``
+    rows (the parent aggregates them at the end), so this table is what lets the
+    UI show which step each device group is on while the children are running.
+    """
+
+    __tablename__ = "workflow_run_device_groups"
+    __table_args__ = (UniqueConstraint("run_id", "child_index", name="uq_run_device_group"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    child_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    device_names: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # pending | running | success | partial | failed
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    # node_id -> running | success | failed | skipped
+    node_states: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WorkflowRunEvent(Base):
+    """Append-only live event for a run (connect attempts, retries, failures).
+
+    A step is one ``running`` row until it finishes, so per-device attempts that
+    only reached the worker log become visible here. Read incrementally by the
+    UI via ``id`` (``GET /runs/{id}/events?after_id=``). Capped per run — see
+    ``repositories.run_event_repository.MAX_EVENTS_PER_RUN``.
+    """
+
+    __tablename__ = "workflow_run_events"
+    __table_args__ = (Index("ix_workflow_run_events_run_id_id", "run_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    step_node_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    # fan-out child that emitted the event; None for the parent run's own steps
+    child_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    device_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # info | warning | error
+    level: Mapped[str] = mapped_column(String(10), nullable=False, default="info")
+    # connect_attempt | connected | connect_retry | connect_failed | auth_failed | truncated
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

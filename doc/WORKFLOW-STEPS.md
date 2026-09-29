@@ -897,7 +897,8 @@ WorkflowExecution (parent Hatchet task)   hatchet/workflows/workflow_run.py
         └── StepRunner.execute_subgraph()
               → runs the CHILD BRANCH only — nodes downstream of the inventory step
                 MINUS the fan-in node and everything after it (StepRunner._child_node_ids)
-                — for that group's device subset, WITHOUT writing WorkflowStepResult rows.
+                — for that group's device subset, WITHOUT writing WorkflowStepResult rows
+                (progress goes to its WorkflowRunDeviceGroup row instead — see below).
 
   Phase 3: _aggregate_and_persist()
         └── merge_fan_out_contexts() folds each child's per-node outcomes together,
@@ -916,6 +917,40 @@ context. Every step **at or after the fan-in node** runs exactly **once** on the
 context. **Without** a fan-in node, the child branch is the entire downstream subgraph and
 the parent never re-executes anything — so `store-artifact`/git steps would run once per
 child (see the safety table below).
+
+### Live progress while a run executes
+
+The UI polls `GET /runs/{id}` every 2s, and that endpoint only reads committed rows. Two
+things used to be invisible until they finished, and are now persisted as they happen
+(both best-effort — a failing progress write is logged and never fails a device run):
+
+- **Fan-out child progress** — `WorkflowRunDeviceGroup` (`core/models/runs.py`), one row
+  per group, keyed `(run_id, child_index)`. The parent pre-creates them as `pending` in
+  `_dispatch_children` (`fan_out_dispatch.py::_precreate_device_groups`); each child marks
+  its row `running` and, through `DeviceGroupProgressSink`
+  (`services/execution/step_runner/progress.py`, passed to `run_subgraph(progress=…)`),
+  records `node_states` (`node_id → running | success | partial | failed | skipped`).
+  It ends `success`/`partial`/`failed`, or `failed` with `error_message` if the child
+  crashed. Children still write **no** `WorkflowStepResult` rows — the parent aggregates
+  those as before. `RunService` returns the rows as `device_groups` on the run detail, and
+  the frontend overlays them on still-`pending` child-branch step rows
+  (`utils/live-step-progress.ts::deriveLiveStepProgress`, e.g. "3/12 groups done · 2
+  running") and lists them in the **Device groups** panel. A step the parent already
+  persisted is never overridden.
+- **In-step events** — `WorkflowRunEvent`, an append-only log (capped at
+  `MAX_EVENTS_PER_RUN` = 2000 per run, with one `truncated` marker) served incrementally
+  by `GET /runs/{id}/events?after_id=&limit=` (permission `workflow_runs:read`).
+  `StepRunner` binds a `RunEventContext` (`run_id`, `node_id`, `child_index`) around each
+  node (`services/execution/run_events_reporter.py`);
+  `DeviceSessionPool.run_on_device` reads it **before** hopping to its thread executor
+  (contextvars don't cross `run_in_executor`) and passes an explicit `on_event` callback to
+  `NetmikoDeviceSession.connect`, which reports `connect_attempt`, `connect_retry`,
+  `connected`, `connect_failed` and `auth_failed`. Emission uses its own short-lived DB
+  session (it runs on a worker thread). No executor needs to know about it. Auth-failure
+  events deliberately carry no exception text, since it can echo credentials.
+
+To report more from a step, emit through `emit_run_event(current_run_event_context(), …)`
+rather than writing to the run's `Session`.
 
 ### The fan-in (rejoin) node — `fan-in`
 

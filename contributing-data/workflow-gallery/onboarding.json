@@ -1,9 +1,9 @@
 {
   "export_format": "auxilium-workflow-v1",
-  "exported_at": "2026-09-29T18:04:36.710Z",
+  "exported_at": "2026-09-29T19:00:32.915Z",
   "name": "Onboarding",
   "description": "Onboarding",
-  "folder": "/",
+  "folder": "Gallery",
   "visibility": "private",
   "notes": "# Onboarding\n\n## Purpose\n\nOnboard a network device into Nautobot from nothing but an IP address (or\n`name,ip_address`) typed at run start — no saved inventory, no prior Nautobot\nrecord required. Discovers the device's real hostname and serial number live\nfrom the device itself, sets default Nautobot attributes (role, location,\ndevice type, secrets_groups, a serial placeholder) centrally before creation, derives its interfaces via Batfish,\nturns the hostname into an FQDN by appending the device's domain name, then creates it in Nautobot and\nstarts the Nautobot job \"Sync Network Data From Network\".\nReach for this workflow specifically when onboarding a device Nautobot\ndoesn't know about yet; for a device already in Nautobot, a plain\n`Get from Nautobot` → `Update Nautobot Device` workflow is simpler and\ndoesn't need any of the live-discovery machinery below.\n\n## Assumptions / prerequisites\n\n- `Get Configs`/`Run Command` use the `cisco - noc` credential (fixed,\n  `credential_source: \"fixed\"`) — the run fails immediately if that\n  credential no longer resolves.\n- `Init Batfish Snapshot`/`Extract Facts` use the `batfish` source; `Add to\n  Nautobot`/`Start Job` use the `nautobot` source. Both must resolve in\n  Settings → Sources.\n- `Start Job` runs the Nautobot job `Sync Network Data From Network` (a Nautobot\n  onboarding-plugin job) with `namespace: Global`, all three statuses `Active`,\n  and `devices: {nautobot.id}`. That namespace and those status names must\n  exist in Nautobot (they are resolved to UUIDs at run time).\n- The device's domain name must be present in its running config (an `ip domain\n  name ...` line), because `Append domain to Devicename` reads it from\n  `parsed.cisco_config.running.identity.domain_name`.\n- **Nautobot device defaults (role, location, device type, secrets_groups, serial\n  placeholder) live in one place: `Set Default Attributes`'s config, inside\n  the `Set Nautobot Attributes` group — not in `Add to Nautobot` anymore.**\n  `Add to Nautobot`'s `device_fields` (`role`, `status`, `location`,\n  `device_type`, `platform`, `software_version`, `secrets_groups`, `serial`, \n  `asset_tag`, `tags`) are all `{nautobot.origin}` expressions now, reading \n  whatever is in each device's `attribute_bags.nautobot` at that point in the run. \n  Cloning this workflow for a different site/role/model means editing\n  `Set Default Attributes`'s config (currently `role: \"Network\"`,\n  `location: \"City A\"`, `device_type: {model: \"networkA\", manufacturer:\n  \"Cisco\"}`), not hunting through `Add to Nautobot`'s fields.\n- Only Cisco IOS/IOS-XE is exercised (`network_driver_override: \"cisco_ios\"`\n  on both `Parse Cisco Config` and `Run Command`) — `show version`'s TextFSM\n  template and `parse-cisco-config`'s parser are both IOS-specific.\n- `Get from User`'s `lookup_mode` is `\"manual\"` — the operator types the IP\n  (or `name,ip_address`) with no Nautobot-backed suggestions. Fan-out is\n  disabled: this workflow onboards one device per run, not a batch.\n\n## Gotchas\n\n- **The `Funnel` node feeding `Set Default Attributes` is purely cosmetic —\n  it does nothing at run time.** `funnel`'s registry entry\n  (`registry.yaml`) is `executable: false`: \"each incoming edge is resolved\n  directly between its real source and the funnel's one destination before\n  execution.\" So `Set Default Attributes` is the *real* join point for the\n  two parallel branches (`Get Configs`→`Parse Cisco Config`, and\n  `Run Command`) — it receives one device context with both branches'\n  results already merged (same join semantics as any other multi-parent\n  node), the Funnel just tidies up the canvas. Don't read it as a step that\n  runs or changes anything.\n- **`device.name` starts as the raw typed value (often just the IP) and must\n  be renamed to the device's real hostname before Batfish ever runs — this\n  is why `Set device name and serial number` (inside the `Set Nautobot\n  Attributes` group) sits between the join and Fan In, not after.**\n  `Get from User` sets `device.name` to whatever the operator typed (an IP,\n  if no name was given). `Batfish Extract Facts` defaults its node filter to\n  `device.name.lower()` *and* attributes facts back to devices by that same\n  lowercased name — but Batfish's own node name always comes from the\n  `hostname` line inside the actual parsed config, not from anything Manus\n  knows beforehand. A bare IP address isn't even valid Batfish\n  node-specifier syntax (a literal 400 from the Batfish API), and even a\n  valid-looking name wouldn't match. `Set device name and serial number`'s\n  first entry fixes this by copying\n  `parsed.cisco_config.running.hostname` → `device.name` before Fan\n  In/Batfish Init Snapshot run. The rename also means `Add to Nautobot`\n  creates the device under its real name instead of the typed IP (the FQDN\n  suffix is added later, see the next point).\n- **`Append domain to Devicename` (`update-attribute`, `template` mode) must\n  stay *after* `Config to Attributes`, i.e. after Batfish — do not move it up\n  next to `Set device name and serial number`.** It turns `device.name` from\n  the short hostname into `<hostname>.<domain>` (e.g. `LAB` → `LAB.local.zz`).\n  Batfish's node name comes from the `hostname` line of the config (the short\n  name), and `Extract Facts` attributes facts back to devices by that name\n  (see above), so renaming to the FQDN before Batfish would make the facts\n  stop matching the device. It has to be the last rename before `Add to\n  Nautobot`, whose `name` field is `{device.name}`.\n  - It uses `template` mode with `template:\n    \"{device.name}.{parsed.cisco_config.running.identity.domain_name}\"`, not\n    `regex` mode. A regex `destination_template` only understands\n    backreferences (`\\1`) of the *source* value, so `{device.name}` in it\n    would be written literally into the name. `template` mode is the one mode\n    that can combine several attributes, including the destination's own\n    current value.\n  - The domain comes from `Parse Cisco Config`'s output (the running config),\n    not from Batfish, even though it is applied after Batfish runs.\n  - **If the config has no domain name, the step is silently skipped** (a\n    `template` update is skipped for a device when any `{placeholder}` can't\n    be resolved — no exception, no failure outcome), and the device is\n    created in Nautobot with its short hostname. Same \"quiet no-op\" failure\n    mode as the serial extraction below; check the `ip domain name` line in\n    the config first if a device shows up without its FQDN.\n- **`Run Command`'s TextFSM output is always a list, even for a single-row\n  command like `show version` — and ntc-templates declares `serial`,\n  `hardware`, and `mac_address` as `List` fields, so they're a list *inside*\n  that one row too.** The real shape is\n  `parsed.parsed[\"show version\"].parsed` = `[{\"hostname\": \"...\", \"serial\":\n  [\"FCW2148XXXX\"], ...}]`. Reaching the serial number needs a **literal\n  positional index**, not a filter (there's no per-device field known ahead\n  of time to filter on anyway, and a multi-item list would be genuinely\n  ambiguous): `Set device name and serial number`'s second entry uses\n  `source_path: \"parsed.parsed.show version.parsed[0].serial\"`, writing to\n  **`nautobot.serial`** (not `custom.serial` — it has to land in the\n  `nautobot` bag for `Add to Nautobot`'s `{nautobot.origin}` field to pick\n  it up at all). Two syntax traps found live building this: (1) `show\n  version` is a fine plain path segment as-is — only a literal `.` splits\n  segments, spaces don't need quoting or bracketing (`parsed[\"show\n  version\"]` looks natural but is wrong — it's treated as one literal,\n  nonexistent dict key and silently resolves to nothing, no error); (2) the\n  bracket form is `[0]` (a bare digit), not `[]` — an empty bracket isn't\n  recognized at all. A wrong `source_path` here fails **silently** —\n  `Update Attribute` just skips that device for that one attribute (no\n  exception, no failure outcome) — which is exactly why `Set Default\n  Attributes` seeds `nautobot.serial = \"unknown\"` as a placeholder *before*\n  this step runs: if the regex ever stops matching, the device still gets\n  created with a visible, obviously-fake serial instead of a blank/missing\n  one, and it's a cheap tell that this extraction broke — check this path\n  first if a device's serial in Nautobot ever reads \"unknown\".\n- **`Set Location` (the group's exit node) only fires for hostnames matching\n  `^R(\\d+)\\w+.*$`.** For any hostname that doesn't match — including\n  `LAB`, the worked example below — it's a silent no-op (same \"regex\n  doesn't match → skip, no error\" behavior as above), leaving `Set Default\n  Attributes`'s `location: \"City A\"` default untouched. When it *does*\n  match, it overwrites `nautobot.location` with just the captured digit\n  group (e.g. hostname `R42-SW1` → `nautobot.location = \"42\"`) — that's\n  almost certainly not a real Nautobot location name, so if a future device\n  onboarded through this workflow has an `R<digits>...`-shaped hostname,\n  double-check what `Add to Nautobot`'s location resolution actually does\n  with it before trusting the result.\n- **`Add to Nautobot` creates the device including all interfaces\n  (`interfaces_source: \"nautobot_origin\"`, i.e. the `nautobot.interfaces` bag\n  `Config to Attributes` built) and, because `refresh_attributes_after_create`\n  is on, reloads the device from Nautobot to get its real UUID.** `Start Job`\n  passes that UUID (`devices: {nautobot.id}`) to `Sync Network Data From\n  Network`, so the job syncs exactly this one device. Turning the refresh off\n  would leave `{nautobot.id}` empty and the job would have no device to work on.\n- **An already-existing device is not handled by this workflow.** `Add to\n  Nautobot` fails such a device with error code `device_already_exists` on its\n  `failure` outcome, and nothing is wired to that outcome, so `Start Job` never\n  runs for it. The earlier `Update Device` path is gone; use a `Get from\n  Nautobot` → `Update Nautobot Device` workflow for devices Nautobot already\n  knows.\n- **Batfish is used only to derive interfaces here, not for any routing/ACL\n  query** — `Config to Attributes` (`source_format: \"batfish\"`) reads\n  `Extract Facts`' output solely to build the `nautobot.interfaces` bag for\n  the Nautobot write. `network_name` is left at the default\n  (`manus-workflow-29`), and `retain_snapshots` is unset — nothing prunes old\n  snapshots for this workflow, so its Batfish network accumulates one\n  snapshot per run indefinitely.\n\n## Example\n\nOperator enters `192.168.178.240` (no name) when starting the run.\n`Get from User` → `device.name = \"192.168.178.240\"` (the typed value).\nParallel: `Get Configs` fetches the running config → `Parse Cisco Config`\nreads it (config source `running`); `Run Command` runs `show version`\n(TextFSM). Both join at `Set Default Attributes` (the `Funnel` feeding it is\ncosmetic — see Gotchas), which seeds `nautobot.role = \"Network\"`,\n`nautobot.location = \"City A\"`, `nautobot.device_type = {model: \"networkA\",\nmanufacturer: \"Cisco\"}`, and `nautobot.serial = \"unknown\"` (a bag that was\nempty until now, so every enabled default lands). `Set device name and\nserial number` renames `device.name → \"LAB\"` (the device's real configured\nhostname) and overwrites `nautobot.serial = \"FCW2148XXXX\"` (the real\nextracted value, replacing the placeholder). `Set Location` checks `\"LAB\"`\nagainst `^R(\\d+)\\w+.*$` — no match, so it's a no-op and\n`nautobot.location` stays `\"City A\"`. `Fan In` → `Init Batfish Snapshot`\n(network `manus-workflow-29`, snapshot `run-<run id>`) → `Extract Facts` →\n`Config to Attributes` derives interfaces (with `update_primary_ipv4`\nmatching `Ethernet`/`Vlan` interfaces) into `nautobot.interfaces`. The running\nconfig contains `ip domain name local.zz`, so `Append domain to Devicename`\nrenames `device.name` from `\"LAB\"` to `\"LAB.local.zz\"` (Batfish has already\nrun, so the short name it knew is no longer needed). `Add to Nautobot` then\ncreates device `LAB.local.zz` (role `Network`, location `City A`, device type\n`networkA`/Cisco, serial `FCW2148XXXX`, and all interfaces) and reloads it to\nget its Nautobot UUID. Because the device did not exist yet, `Add to Nautobot`\nsucceeds and `Start Job` starts the Nautobot job `Sync Network Data From\nNetwork` for that UUID (`namespace: Global`, statuses `Active`, VLAN/VRF/cable/\nsoftware-version sync enabled). If the device had already existed, `Add to\nNautobot` would fail it with `device_already_exists` and the run would end\nthere without starting the job.\n",
   "canvas_nodes": [
@@ -11,7 +11,7 @@
       "id": "batfish-init-snapshot-4",
       "type": "workflowNode",
       "position": {
-        "x": 768.1285296441854,
+        "x": 765.1899111203682,
         "y": 48.943315615732786
       },
       "data": {
@@ -52,7 +52,7 @@
       "id": "get-device-configs-5",
       "type": "workflowNode",
       "position": {
-        "x": -297.786562593537,
+        "x": -290.94752939028785,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -100,7 +100,7 @@
       "id": "batfish-extract-facts-6",
       "type": "workflowNode",
       "position": {
-        "x": 396.332121066346,
+        "x": 403.17115426959515,
         "y": 48.943315615732786
       },
       "data": {
@@ -144,7 +144,7 @@
       "id": "config-to-attributes-10",
       "type": "workflowNode",
       "position": {
-        "x": 26.775207369967234,
+        "x": 26.12990067101657,
         "y": 48.943315615732786
       },
       "data": {
@@ -231,7 +231,7 @@
       "id": "get-from-user-8",
       "type": "workflowNode",
       "position": {
-        "x": -667.3434762899158,
+        "x": -667.9887829888664,
         "y": -271.7962565137673
       },
       "zIndex": 1,
@@ -280,7 +280,7 @@
       "id": "add-to-nautobot-7",
       "type": "workflowNode",
       "position": {
-        "x": 23.63716526388822,
+        "x": 43.120065654140944,
         "y": 64.03592752856548
       },
       "data": {
@@ -385,7 +385,7 @@
       "id": "parse-cisco-config-8",
       "type": "workflowNode",
       "position": {
-        "x": 74.00984598430239,
+        "x": 71.07122746048512,
         "y": -177.7763023589177
       },
       "zIndex": 1,
@@ -500,7 +500,7 @@
       "id": "run-command-12",
       "type": "workflowNode",
       "position": {
-        "x": -297.786562593537,
+        "x": -290.94752939028785,
         "y": -357.845245184248
       },
       "zIndex": 1,
@@ -913,7 +913,7 @@
       "id": "start-nautobot-job-18",
       "type": "workflowNode",
       "position": {
-        "x": 399.26158545727935,
+        "x": 405.13882250491395,
         "y": 59.42665062277854
       },
       "data": {
@@ -1331,13 +1331,14 @@
         "height": 128
       },
       "dragging": false,
-      "parentId": "background-19"
+      "parentId": "background-19",
+      "selected": false
     },
     {
       "id": "update-attribute-19",
       "type": "workflowNode",
       "position": {
-        "x": -335.2118013423386,
+        "x": -333.92118794443763,
         "y": 66.48666556542332
       },
       "data": {
@@ -1389,6 +1390,50 @@
       },
       "dragging": false,
       "parentId": "background-19",
+      "selected": false
+    },
+    {
+      "id": "label-20",
+      "type": "labelNode",
+      "position": {
+        "x": -681.3381542784186,
+        "y": 391.5969019005624
+      },
+      "zIndex": 1,
+      "width": 350,
+      "height": 40,
+      "style": {
+        "width": 350,
+        "height": 40
+      },
+      "data": {
+        "kind": "label",
+        "stepUuid": "ad88b1e1-9ca0-4a29-bb3c-eedab245b9b8",
+        "title": "Label",
+        "overview": "Place styled text on the workflow canvas.",
+        "description": "Canvas decoration — configurable text with size, font, and color. Not executed at runtime and cannot be connected to other steps.\n",
+        "artifactType": "canvas_decoration",
+        "requires": [],
+        "requiresParsed": [],
+        "produces": [],
+        "producesParsed": [],
+        "consumes": [],
+        "outcomes": [],
+        "pluginConfig": {
+          "text": "Disable to use hostname only",
+          "font_size": 22,
+          "font_family": "sans",
+          "bold": true,
+          "color": "#000000",
+          "width": 350,
+          "height": 40
+        }
+      },
+      "measured": {
+        "width": 350,
+        "height": 40
+      },
+      "dragging": false,
       "selected": false
     }
   ],
@@ -1533,7 +1578,8 @@
       "sourceHandle": "success",
       "target": "start-nautobot-job-18",
       "targetHandle": "input",
-      "id": "xy-edge__add-to-nautobot-7success-start-nautobot-job-18input"
+      "id": "xy-edge__add-to-nautobot-7success-start-nautobot-job-18input",
+      "selected": false
     },
     {
       "type": "waypoint",
@@ -1569,7 +1615,8 @@
       "sourceHandle": "success",
       "target": "update-attribute-19",
       "targetHandle": "input",
-      "id": "xy-edge__config-to-attributes-10success-update-attribute-19input"
+      "id": "xy-edge__config-to-attributes-10success-update-attribute-19input",
+      "selected": false
     },
     {
       "type": "waypoint",
@@ -1581,7 +1628,8 @@
       "sourceHandle": "success",
       "target": "add-to-nautobot-7",
       "targetHandle": "input",
-      "id": "xy-edge__update-attribute-19success-add-to-nautobot-7input"
+      "id": "xy-edge__update-attribute-19success-add-to-nautobot-7input",
+      "selected": false
     }
   ],
   "canvas_groups": [

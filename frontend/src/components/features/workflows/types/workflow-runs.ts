@@ -48,6 +48,42 @@ export interface WorkflowStepResult {
   updated_at: string;
 }
 
+export type DeviceGroupStatus = "pending" | "running" | "success" | "partial" | "failed";
+
+/** Per-node state a fan-out child reports while it runs (children write no step rows). */
+export type DeviceGroupNodeState = "running" | "success" | "partial" | "failed" | "skipped";
+
+/** Live progress of one fan-out child — see backend core/models/runs.py::WorkflowRunDeviceGroup. */
+export interface WorkflowRunDeviceGroup {
+  child_index: number;
+  device_names: string[];
+  status: DeviceGroupStatus;
+  node_states: Record<string, string>;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export type RunEventLevel = "info" | "warning" | "error";
+
+/** Live event within a running step (connect attempts, retries, failures). */
+export interface WorkflowRunEvent {
+  id: number;
+  step_node_id: string;
+  /** Fan-out child that emitted it; null for the parent run's own steps. */
+  child_index: number | null;
+  device_name: string | null;
+  level: RunEventLevel | string;
+  kind: string;
+  message: string;
+  created_at: string;
+}
+
+export interface WorkflowRunEventPage {
+  events: WorkflowRunEvent[];
+  next_after_id: number;
+}
+
 export interface WorkflowRunSummary {
   id: number;
   uuid: string;
@@ -73,6 +109,7 @@ export interface WorkflowRunDetail extends WorkflowRunSummary {
   error_category: ErrorCategory | null;
   error_id: string | null;
   step_results: WorkflowStepResult[];
+  device_groups: WorkflowRunDeviceGroup[];
 }
 
 export interface WorkflowRunListResponse {

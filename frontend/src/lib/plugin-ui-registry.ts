@@ -44,6 +44,7 @@ import { SetDefaultAttributesPlugin } from "@/components/features/workflow-steps
 import { ConfigToAttributesPlugin } from "@/components/features/workflow-steps/config-to-attributes";
 import { RouteOnAttributePlugin } from "@/components/features/workflow-steps/route-on-attribute";
 import { RouteOnContentPlugin } from "@/components/features/workflow-steps/route-on-content";
+import { ExistsInNautobotPlugin } from "@/components/features/workflow-steps/exists-in-nautobot";
 import { ListContainsPlugin } from "@/components/features/workflow-steps/list-contains";
 import { LoginSuccessfulPlugin } from "@/components/features/workflow-steps/login-successful";
 import { ReachablePlugin } from "@/components/features/workflow-steps/reachable";
@@ -114,6 +115,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "route-on-attribute": RouteOnAttributePlugin,
   "route-on-content": RouteOnContentPlugin,
   "list-contains": ListContainsPlugin,
+  "exists-in-nautobot": ExistsInNautobotPlugin,
   reachable: ReachablePlugin,
   "login-successful": LoginSuccessfulPlugin,
   "fan-in": FanInPlugin,

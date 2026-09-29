@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -96,6 +97,22 @@ class RetryPolicy:
         return len(self.backoff_seconds) + 1
 
 
+# (kind, level, message) — reports connect-phase progress for live run events.
+# Invoked on the pool's worker thread; see services/execution/run_events_reporter.py.
+ConnectEventCallback = Callable[[str, str, str], None]
+_EVENT_DETAIL_MAX = 200
+
+
+def _notify(on_event: ConnectEventCallback | None, kind: str, level: str, message: str) -> None:
+    """Report a connect-phase event; a broken callback must never fail a connect."""
+    if on_event is None:
+        return
+    try:
+        on_event(kind, level, message)
+    except Exception:
+        logger.warning("Connect event callback failed kind=%s", kind, exc_info=True)
+
+
 def serialize_command_output(raw: Any) -> str:
     """Normalize Netmiko command output (including TextFSM structures) to text."""
     if isinstance(raw, str):
@@ -177,7 +194,13 @@ class NetmikoDeviceSession:
         self._connection: ConnectHandler | None = None
         self._session_log_buffer: io.BytesIO | None = io.BytesIO() if capture_session_log else None
 
-    def connect(self, *, privileged: bool = True, retry: RetryPolicy | None = None) -> None:
+    def connect(
+        self,
+        *,
+        privileged: bool = True,
+        retry: RetryPolicy | None = None,
+        on_event: ConnectEventCallback | None = None,
+    ) -> None:
         if self._connection is not None:
             return
 
@@ -202,10 +225,17 @@ class NetmikoDeviceSession:
                     attempt,
                     max_attempts,
                 )
+                _notify(
+                    on_event,
+                    "connect_attempt",
+                    "info",
+                    f"Connecting to {self.host} (attempt {attempt}/{max_attempts})",
+                )
                 self._connection = ConnectHandler(**device_params)
                 if privileged:
                     self.enable()
                 logger.info("Connected to %s", self.host)
+                _notify(on_event, "connected", "info", f"Connected to {self.host}")
                 return
             except NetmikoTimeoutException as exc:
                 if retry and attempt < max_attempts:
@@ -217,12 +247,35 @@ class NetmikoDeviceSession:
                         max_attempts,
                         delay,
                     )
+                    _notify(
+                        on_event,
+                        "connect_retry",
+                        "warning",
+                        f"Connection timeout to {self.host} on attempt {attempt}/{max_attempts}, "
+                        f"retrying in {delay}s",
+                    )
                     time.sleep(delay)
                     continue
+                _notify(
+                    on_event,
+                    "connect_failed",
+                    "error",
+                    f"Connection timeout to {self.host} after {attempt} attempt(s): "
+                    f"{str(exc)[:_EVENT_DETAIL_MAX]}",
+                )
                 raise NetmikoConnectionError(f"Connection timeout: {exc}") from exc
             except NetmikoAuthenticationException as exc:
+                # Deliberately no exception text: it can echo credentials.
+                _notify(on_event, "auth_failed", "error", f"Authentication failed for {self.host}")
                 raise NetmikoConnectionError(f"Authentication failed: {exc}") from exc
             except Exception as exc:
+                _notify(
+                    on_event,
+                    "connect_failed",
+                    "error",
+                    f"Connection to {self.host} failed ({type(exc).__name__}): "
+                    f"{str(exc)[:_EVENT_DETAIL_MAX]}",
+                )
                 raise NetmikoConnectionError(f"Connection failed: {exc}") from exc
 
     def disconnect(self) -> None:

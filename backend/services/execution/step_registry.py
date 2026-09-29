@@ -46,6 +46,7 @@ from workflow_steps.configure_replace_config.executor import execute as configur
 from workflow_steps.decrypt_attribute.executor import execute as decrypt_attribute
 from workflow_steps.deploy_rendered_template.executor import execute as deploy_rendered_template
 from workflow_steps.encrypt_attribute.executor import execute as encrypt_attribute
+from workflow_steps.exists_in_nautobot.executor import execute as exists_in_nautobot
 from workflow_steps.fan_in.executor import execute as fan_in
 from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.from_change_request.executor import execute as from_change_request
@@ -141,6 +142,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "route-on-attribute": route_on_attribute,
     "route-on-content": route_on_content,
     "list-contains": list_contains,
+    "exists-in-nautobot": exists_in_nautobot,
     "reachable": reachable,
     "login-successful": login_successful,
     "fan-in": fan_in,

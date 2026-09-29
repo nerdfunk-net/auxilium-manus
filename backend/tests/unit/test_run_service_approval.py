@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.domain_exceptions import DomainError
-from core.models.runs import WorkflowRun, WorkflowStepResult
+from core.models.runs import WorkflowRun, WorkflowRunDeviceGroup, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
 from services.execution.run_events import batch_approval_event_key
@@ -31,6 +31,7 @@ class RunServiceApprovalTests(unittest.TestCase):
                 Workflow.__table__,
                 WorkflowRun.__table__,
                 WorkflowStepResult.__table__,
+                WorkflowRunDeviceGroup.__table__,
             ],
         )
         self.addCleanup(engine.dispose)

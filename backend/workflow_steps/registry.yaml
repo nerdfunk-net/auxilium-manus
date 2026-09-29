@@ -2929,6 +2929,58 @@ plugins:
           required: false
           default: false
 
+  - id: exists-in-nautobot
+    name: Exists in Nautobot
+    overview: Route devices by whether they already exist in Nautobot.
+    description: >
+      Check whether each device already exists in Nautobot — by device name, by
+      an IP address that is a device's primary IPv4, or by an IP address assigned
+      to any interface — and route it to exists or non_existing. The found
+      Nautobot UUID is stored as nautobot.id on devices routed to exists.
+    artifact_type: control_flow
+    palette_category: routing
+    directory: exists_in_nautobot
+    enabled: true
+    requires: [identity]
+    produces: [identity]
+    outcomes:
+      - name: exists
+      - name: non_existing
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: strategy
+          description: >
+            How to look the device up. "name" matches the device name;
+            "primary_ip" matches a device whose primary IPv4 is ip_address;
+            "interface_ip" matches a device that has ip_address assigned to any
+            of its interfaces.
+          data_type: string
+          required: true
+          default: name
+          example: primary_ip
+        - name: ip_address
+          description: >
+            IP address to look up for the primary_ip and interface_ip
+            strategies. Fixed value or a {path} expression resolved per device
+            (e.g. {device.primary_ip4}); any /prefix length is ignored. Not used
+            by the name strategy.
+          data_type: string
+          required: false
+          default: "{device.primary_ip4}"
+          example: "{custom.mgmt_ip}"
+        - name: case_insensitive_lookup
+          description: >
+            Name strategy only: match the device name ignoring letter case.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: list-contains
     name: List Contains
     overview: Check whether a value is present anywhere in a parsed list.

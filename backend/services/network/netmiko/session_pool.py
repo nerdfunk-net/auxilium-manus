@@ -25,9 +25,13 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from core.config import settings
+from services.execution.run_events_reporter import (
+    build_connect_event_callback,
+    current_run_event_context,
+)
 from services.network.netmiko.connection import NetmikoDeviceSession, RetryPolicy
 
 logger = logging.getLogger(__name__)
@@ -89,6 +93,15 @@ class DeviceSessionPool:
         """
         loop = asyncio.get_running_loop()
 
+        # Contextvars don't cross into the thread executor, so resolve the live
+        # run-event callback here and pass it to connect() explicitly. Only pass
+        # it when a run context is bound (keeps connect() calls unchanged for
+        # callers outside a workflow run).
+        connect_kwargs: dict[str, Any] = {"retry": retry}
+        on_event = build_connect_event_callback(current_run_event_context(), device_name=host)
+        if on_event is not None:
+            connect_kwargs["on_event"] = on_event
+
         if not self._enabled:
             session = NetmikoDeviceSession(
                 host=host,
@@ -99,7 +112,7 @@ class DeviceSessionPool:
             )
 
             def _run_disposable() -> T:
-                session.connect(retry=retry)
+                session.connect(**connect_kwargs)
                 try:
                     return op(session)
                 finally:
@@ -119,7 +132,7 @@ class DeviceSessionPool:
                     if entry.ever_connected:
                         entry.session.disconnect()
                         self._reconnects += 1
-                    entry.session.connect(retry=retry)
+                    entry.session.connect(**connect_kwargs)
                     entry.ever_connected = True
                 result = op(entry.session)
                 if debug:

@@ -93,6 +93,8 @@ export const queryKeys = {
       [...queryKeys.workflowRuns.all, "detail", runId] as const,
     artifact: (runId: number, artifactId: string) =>
       [...queryKeys.workflowRuns.all, "artifact", runId, artifactId] as const,
+    events: (runId: number) =>
+      [...queryKeys.workflowRuns.all, "events", runId] as const,
   },
   sourcesNautobot: {
     all: ["sources-nautobot"] as const,

@@ -36,6 +36,46 @@ child_workflow = hatchet.workflow(
 
 @child_workflow.task(name="execute_device_group", execution_timeout=timedelta(hours=1))
 async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[str, Any]:
+    return await run_device_group(input)
+
+
+def _report_group(action: str, **kwargs: Any) -> None:
+    """Best-effort update of this child's ``WorkflowRunDeviceGroup`` row.
+
+    Uses its own short-lived session so a progress write can never disturb (or be
+    disturbed by) the session the step executors run on. Never raises: progress
+    reporting must not fail a device run.
+    """
+    from core.database import SessionLocal
+    from repositories.run_repository import RunRepository
+
+    try:
+        with SessionLocal() as db:
+            getattr(RunRepository(db), action)(**kwargs)
+    except Exception:
+        logger.warning("Failed to record device-group %s %s", action, kwargs, exc_info=True)
+
+
+async def run_device_group(input: DeviceGroupInput) -> dict[str, Any]:
+    _report_group(
+        "mark_device_group_started",
+        run_id=input.parent_run_id,
+        child_index=input.child_index,
+    )
+    try:
+        return await _run_device_group(input)
+    except Exception as exc:
+        _report_group(
+            "finish_device_group",
+            run_id=input.parent_run_id,
+            child_index=input.child_index,
+            status="failed",
+            error_message=f"{type(exc).__name__}: {exc}"[:4000],
+        )
+        raise
+
+
+async def _run_device_group(input: DeviceGroupInput) -> dict[str, Any]:
     logger.info(
         "DeviceGroupExecution starting parent_run_id=%s child_index=%s start_node_id=%s",
         input.parent_run_id,
@@ -49,6 +89,7 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
     from repositories.workflow_repository import WorkflowRepository
     from services.execution.graph import child_node_ids
     from services.execution.step_runner import StepRunner
+    from services.execution.step_runner.progress import DeviceGroupProgressSink
 
     with SessionLocal() as db:
         run_repo = RunRepository(db)
@@ -75,6 +116,9 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
         )
 
         runner = StepRunner(db)
+        progress = DeviceGroupProgressSink(
+            run_repo, run_id=input.parent_run_id, child_index=input.child_index
+        )
         try:
             step_outcomes, step_errors = await runner.execute_subgraph(
                 run=run,
@@ -82,11 +126,20 @@ async def execute_device_group(input: DeviceGroupInput, ctx: Context) -> dict[st
                 initial_context=initial_context,
                 inventory_node_id=input.start_node_id,
                 allowed_node_ids=allowed_ids,
+                progress=progress,
+                child_index=input.child_index,
             )
         finally:
             # This is where session reuse pays off most: a per-device child
             # runs its whole downstream chain over a single SSH login.
             await runner.close_device_sessions()
+
+    _report_group(
+        "finish_device_group",
+        run_id=input.parent_run_id,
+        child_index=input.child_index,
+        status="failed" if step_errors else progress.overall_status(),
+    )
 
     # Serialize outcomes for parent aggregation; exclude the inventory step itself.
     # "__step_errors__" is a reserved key (not a canvas node_id) carrying

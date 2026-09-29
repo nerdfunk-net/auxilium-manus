@@ -16,7 +16,12 @@ from models.attribute_path import (
     AttributePathResolveResponse,
     AttributePathTreeResponse,
 )
-from models.runs import WorkflowRunCreate, WorkflowRunListResponse, WorkflowRunResponse
+from models.runs import (
+    WorkflowRunCreate,
+    WorkflowRunEventListResponse,
+    WorkflowRunListResponse,
+    WorkflowRunResponse,
+)
 from routers.workflow_steps import get_plugin_service
 from services.execution.run_service import RunService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
@@ -104,6 +109,23 @@ def get_run(
     service: RunService = Depends(_service),
 ) -> WorkflowRunResponse:
     return service.get_run(run_id=run_id, user_id=current_user.id)
+
+
+@router.get(
+    "/runs/{run_id}/events",
+    response_model=WorkflowRunEventListResponse,
+    dependencies=[Depends(require_permission("workflow_runs", "read"))],
+)
+def list_run_events(
+    run_id: int,
+    after_id: int = Query(0, ge=0, description="Only return events with a larger id."),
+    limit: int = Query(500, ge=1, le=1000),
+    current_user: User = Depends(get_current_user),
+    service: RunService = Depends(_service),
+) -> WorkflowRunEventListResponse:
+    return service.list_events(
+        run_id=run_id, user_id=current_user.id, after_id=after_id, limit=limit
+    )
 
 
 @router.get(

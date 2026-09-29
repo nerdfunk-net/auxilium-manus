@@ -14,7 +14,7 @@ from core.domain_exceptions import (
     NotFoundError,
     ValidationFailedError,
 )
-from core.models.runs import WorkflowRun, WorkflowStepResult
+from core.models.runs import WorkflowRun, WorkflowRunDeviceGroup, WorkflowStepResult
 from core.models.workflows import Workflow
 from core.safe_http_errors import raise_internal_server_error
 from models.artifacts import ArtifactContentResponse
@@ -27,6 +27,9 @@ from models.runs import (
     RUN_LIST_STATUS_FILTERS,
     TERMINAL_RUN_STATUSES,
     WorkflowRunCreate,
+    WorkflowRunDeviceGroupResponse,
+    WorkflowRunEventListResponse,
+    WorkflowRunEventResponse,
     WorkflowRunListResponse,
     WorkflowRunResponse,
     WorkflowRunSummary,
@@ -34,6 +37,7 @@ from models.runs import (
 )
 from models.workflow_context import DeviceContext
 from repositories.plugin_repository import PluginRepository
+from repositories.run_event_repository import RunEventRepository
 from repositories.run_repository import RunRepository
 from repositories.workflow_repository import WorkflowRepository
 from services.artifacts import ArtifactNotFoundError, FilesystemArtifactService
@@ -93,6 +97,7 @@ def _run_to_response(
     run: WorkflowRun,
     username: str | None,
     step_results: list[WorkflowStepResult],
+    device_groups: list[WorkflowRunDeviceGroup] | None = None,
 ) -> WorkflowRunResponse:
     return WorkflowRunResponse(
         id=run.id,
@@ -116,6 +121,9 @@ def _run_to_response(
         created_at=run.created_at,
         updated_at=run.updated_at,
         step_results=[_step_to_response(s) for s in step_results],
+        device_groups=[
+            WorkflowRunDeviceGroupResponse.model_validate(g) for g in (device_groups or [])
+        ],
     )
 
 
@@ -125,6 +133,7 @@ class RunService:
     ) -> None:
         self.db = db
         self.run_repo = RunRepository(db)
+        self.event_repo = RunEventRepository(db)
         self.wf_repo = WorkflowRepository(db)
         self.artifact_service = FilesystemArtifactService(settings.data_directory)
         self._plugin_registry_service = plugin_registry_service
@@ -296,14 +305,37 @@ class RunService:
         summaries = [_run_to_summary(run, username) for run, username in rows]
         return WorkflowRunListResponse(runs=summaries, total=len(summaries))
 
+    def _response(self, run: WorkflowRun, username: str | None) -> WorkflowRunResponse:
+        """Full run detail: step results plus live fan-out device-group progress."""
+        return _run_to_response(
+            run,
+            username,
+            self.run_repo.get_step_results_for_run(run.id),
+            self.run_repo.list_device_groups(run.id),
+        )
+
     def get_run(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         result = self.run_repo.get_run_by_id(run_id)
         if result is None:
             raise NotFoundError("Run not found")
         run, username = result
         self._assert_workflow_access(run.workflow_id, user_id)
-        step_results = self.run_repo.get_step_results_for_run(run_id)
-        return _run_to_response(run, username, step_results)
+        return self._response(run, username)
+
+    def list_events(
+        self, run_id: int, user_id: int, after_id: int = 0, limit: int = 500
+    ) -> WorkflowRunEventListResponse:
+        """Live run events newer than ``after_id`` (poll with the returned cursor)."""
+        result = self.run_repo.get_run_by_id(run_id)
+        if result is None:
+            raise NotFoundError("Run not found")
+        run, _username = result
+        self._assert_workflow_access(run.workflow_id, user_id)
+        events = self.event_repo.list_events(run_id, after_id=after_id, limit=limit)
+        return WorkflowRunEventListResponse(
+            events=[WorkflowRunEventResponse.model_validate(e) for e in events],
+            next_after_id=events[-1].id if events else after_id,
+        )
 
     def get_run_artifact(
         self, run_id: int, artifact_id: str, user_id: int
@@ -409,8 +441,7 @@ class RunService:
         from services.change_requests.change_request_service import maybe_reconcile_deploy_run
 
         maybe_reconcile_deploy_run(self.db, run)
-        step_results = self.run_repo.get_step_results_for_run(run_id)
-        return _run_to_response(run, username, step_results)
+        return self._response(run, username)
 
     def delete_run(self, run_id: int, user_id: int) -> None:
         result = self.run_repo.get_run_by_id(run_id)
@@ -431,8 +462,7 @@ class RunService:
         """Release the next Wait & Run batch without changing later gates."""
         run, username, state = self._require_awaiting_batch(run_id, user_id)
         self._push_batch_event(run, int(state["next_batch_index"]))
-        step_results = self.run_repo.get_step_results_for_run(run_id)
-        return _run_to_response(run, username, step_results)
+        return self._response(run, username)
 
     def approve_all(self, run_id: int, user_id: int) -> WorkflowRunResponse:
         """Release the next Wait & Run batch and skip all further approval gates."""
@@ -443,8 +473,7 @@ class RunService:
             approval_state={**state, "auto_approve_remaining": True},
         )
         self._push_batch_event(run, int(state["next_batch_index"]))
-        step_results = self.run_repo.get_step_results_for_run(run_id)
-        return _run_to_response(run, username, step_results)
+        return self._response(run, username)
 
     def _require_awaiting_batch(
         self, run_id: int, user_id: int

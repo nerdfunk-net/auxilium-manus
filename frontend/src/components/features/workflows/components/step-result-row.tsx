@@ -8,9 +8,9 @@ import { StepResultViewer } from "./step-result-viewer";
 import { StepSummaryTable } from "./step-summary-table";
 import { StepStatusBadge } from "./step-status-badge";
 import { formatDuration } from "./run-status-icon";
+import { deriveLiveStepProgress } from "../utils/live-step-progress";
 import {
   countOutcomeDevices,
-  deriveStepDisplayStatus,
   summarizeCompareData,
   summarizeFanIn,
   summarizeFanOutInventory,
@@ -19,7 +19,14 @@ import {
   summarizeRenderJinjaTemplate,
   summarizeRouteCounts,
 } from "../utils/step-result-status";
-import type { WorkflowStepResult } from "../types/workflow-runs";
+import { formatRunEvent } from "../utils/run-events";
+import type {
+  WorkflowRunDeviceGroup,
+  WorkflowRunEvent,
+  WorkflowStepResult,
+} from "../types/workflow-runs";
+
+const NO_DEVICE_GROUPS: readonly WorkflowRunDeviceGroup[] = [];
 
 interface StepResultRowProps {
   step: WorkflowStepResult;
@@ -30,6 +37,9 @@ interface StepResultRowProps {
   onOpenModal: () => void;
   onFocusCanvas?: (nodeId: string) => void;
   isFanOutRun?: boolean;
+  deviceGroups?: readonly WorkflowRunDeviceGroup[];
+  /** Most recent live event for this step (shown while it is running). */
+  latestEvent?: WorkflowRunEvent | null;
 }
 
 export function StepResultRow({
@@ -41,8 +51,13 @@ export function StepResultRow({
   onOpenModal,
   onFocusCanvas,
   isFanOutRun = false,
+  deviceGroups = NO_DEVICE_GROUPS,
+  latestEvent = null,
 }: StepResultRowProps) {
-  const displayStatus = deriveStepDisplayStatus(step.status, step.output);
+  const { status: displayStatus, detail: liveDetail } = deriveLiveStepProgress(
+    step,
+    deviceGroups,
+  );
   const counts = countOutcomeDevices(step.output);
   const isInventoryStep =
     step.step_type === "get-nautobot-devices" || step.step_type === "get-git-devices";
@@ -98,6 +113,18 @@ export function StepResultRow({
           <p className="font-mono text-xs text-muted-foreground">{step.step_type}</p>
           <p className="font-mono text-[11px] text-muted-foreground">{step.step_node_id}</p>
           {runHint ? <p className="mt-0.5 text-[11px] text-muted-foreground">{runHint}</p> : null}
+          {liveDetail ? (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{liveDetail}</p>
+          ) : null}
+          {latestEvent && displayStatus === "running" ? (
+            <p
+              className={`mt-0.5 line-clamp-1 text-[11px] ${
+                latestEvent.level === "error" ? "text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              {formatRunEvent(latestEvent)}
+            </p>
+          ) : null}
           {counts.totalOutcomes > 0 ? (
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {counts.success} succeeded

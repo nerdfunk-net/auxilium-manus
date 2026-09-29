@@ -7,19 +7,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RunEventsLog } from "./run-events-log";
 import { StepResultViewer } from "./step-result-viewer";
 import { StepStatusBadge } from "./step-status-badge";
 import { deriveStepDisplayStatus } from "../utils/step-result-status";
-import type { WorkflowStepResult } from "../types/workflow-runs";
+import type { WorkflowRunEvent, WorkflowStepResult } from "../types/workflow-runs";
+
+const NO_EVENTS: readonly WorkflowRunEvent[] = [];
 
 export function StepLogsModal({
   step,
   runId,
   onClose,
+  events = NO_EVENTS,
 }: {
   step: WorkflowStepResult | null;
   runId: number;
   onClose: () => void;
+  /** Live events for this step only. */
+  events?: readonly WorkflowRunEvent[];
 }) {
   return (
     <Dialog open={!!step} onOpenChange={(open) => !open && onClose()}>
@@ -38,7 +44,8 @@ export function StepLogsModal({
             ) : null}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto pr-1">
+        <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-1">
+          <RunEventsLog events={events} />
           <StepResultViewer
             output={step?.output ?? null}
             errorMessage={step?.error_message}

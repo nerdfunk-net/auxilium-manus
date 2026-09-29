@@ -89,18 +89,19 @@ class ResolveNautobotDeviceIdTests(unittest.IsolatedAsyncioTestCase):
                 {"data": {"devices": []}},
                 {
                     "data": {
-                        "devices": [
+                        "ip_addresses": [
                             {
-                                "id": _NAUTOBOT_UUID,
-                                "name": "some-other-name",
-                                "primary_ip4": {"address": "10.0.0.1/32"},
+                                "address": "10.0.0.1/24",
+                                "primary_ip4_for": [
+                                    {"id": _NAUTOBOT_UUID, "name": "some-other-name"}
+                                ],
                             }
                         ]
                     }
                 },
             ]
         )
-        device = _device(id=_ISE_UUID, name="lab", primary_ip4="10.0.0.1", source="ise")
+        device = _device(id=_ISE_UUID, name="lab", primary_ip4="10.0.0.1/24", source="ise")
 
         result = await resolve_nautobot_device_id(
             nautobot_service=nautobot_service,
@@ -110,10 +111,19 @@ class ResolveNautobotDeviceIdTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, _NAUTOBOT_UUID)
         self.assertEqual(nautobot_service.graphql_query.await_count, 2)
+        # Same lookup as exists-in-nautobot's primary-IP strategy: an
+        # `ip_addresses(address:)` query restricted by `primary_ip4_for`, never
+        # the `devices(primary_ip4:)` argument (unknown to Nautobot's GraphQL).
+        query, variables, _ = nautobot_service.graphql_query.call_args.args
+        self.assertIn("primary_ip4_for", query)
+        self.assertNotIn("primary_ip4:", query)
+        self.assertEqual(variables, {"address": ["10.0.0.1"]})
 
     async def test_returns_none_when_neither_name_nor_ip_match(self) -> None:
         nautobot_service = MagicMock()
-        nautobot_service.graphql_query = AsyncMock(return_value={"data": {"devices": []}})
+        nautobot_service.graphql_query = AsyncMock(
+            side_effect=[{"data": {"devices": []}}, {"data": {"ip_addresses": []}}]
+        )
         device = _device(id=_ISE_UUID, name="lab", primary_ip4="10.0.0.1", source="ise")
 
         result = await resolve_nautobot_device_id(

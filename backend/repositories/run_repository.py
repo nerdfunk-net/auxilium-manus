@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import uuid as uuid_mod
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from core.models.runs import WorkflowRun, WorkflowStepResult
+from core.models.runs import WorkflowRun, WorkflowRunDeviceGroup, WorkflowStepResult
 from core.models.users import User
 from core.models.workflows import Workflow
 from models.runs import TERMINAL_RUN_STATUSES
@@ -226,6 +226,78 @@ class RunRepository:
             select(WorkflowStepResult)
             .where(WorkflowStepResult.run_id == run_id)
             .order_by(WorkflowStepResult.id)
+        )
+        return list(self.db.execute(stmt).scalars())
+
+    # ─── WorkflowRunDeviceGroup (fan-out child progress) ─────────────────────
+
+    def _get_device_group(self, run_id: int, child_index: int) -> WorkflowRunDeviceGroup | None:
+        stmt = select(WorkflowRunDeviceGroup).where(
+            WorkflowRunDeviceGroup.run_id == run_id,
+            WorkflowRunDeviceGroup.child_index == child_index,
+        )
+        return self.db.execute(stmt).scalars().first()
+
+    def create_device_groups(self, *, run_id: int, groups: list[tuple[int, list[str]]]) -> None:
+        """Pre-create one ``pending`` row per ``(child_index, device_names)``.
+
+        Idempotent: groups that already exist keep their current progress.
+        """
+        existing = {g.child_index for g in self.list_device_groups(run_id)}
+        for child_index, device_names in groups:
+            if child_index in existing:
+                continue
+            self.db.add(
+                WorkflowRunDeviceGroup(
+                    run_id=run_id,
+                    child_index=child_index,
+                    device_names=list(device_names),
+                    status="pending",
+                    node_states={},
+                )
+            )
+        self.db.commit()
+
+    def mark_device_group_started(self, *, run_id: int, child_index: int) -> None:
+        group = self._get_device_group(run_id, child_index)
+        if group is None:
+            return
+        group.status = "running"
+        group.started_at = datetime.now(UTC)
+        self.db.commit()
+
+    def set_device_group_node_state(
+        self, *, run_id: int, child_index: int, node_id: str, state: str
+    ) -> None:
+        group = self._get_device_group(run_id, child_index)
+        if group is None:
+            return
+        # New dict, not in-place mutation: JSON columns don't track mutations.
+        group.node_states = {**(group.node_states or {}), node_id: state}
+        self.db.commit()
+
+    def finish_device_group(
+        self,
+        *,
+        run_id: int,
+        child_index: int,
+        status: str,
+        error_message: str | None = None,
+    ) -> None:
+        group = self._get_device_group(run_id, child_index)
+        if group is None:
+            return
+        group.status = status
+        if error_message is not None:
+            group.error_message = error_message
+        group.finished_at = datetime.now(UTC)
+        self.db.commit()
+
+    def list_device_groups(self, run_id: int) -> list[WorkflowRunDeviceGroup]:
+        stmt = (
+            select(WorkflowRunDeviceGroup)
+            .where(WorkflowRunDeviceGroup.run_id == run_id)
+            .order_by(WorkflowRunDeviceGroup.child_index)
         )
         return list(self.db.execute(stmt).scalars())
 

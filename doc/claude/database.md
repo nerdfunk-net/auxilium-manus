@@ -3,7 +3,9 @@
 ## Schema (Key Tables)
 
 **Domain tables:** `users`, `credentials`, `git_repositories`, `inventories`, `settings`,
-`templates`, `workflows`, `workflow_runs`, `workflow_step_results`, `change_requests`
+`templates`, `workflows`, `workflow_runs`, `workflow_step_results`,
+`workflow_run_device_groups` (fan-out child progress), `workflow_run_events` (live in-step
+events), `change_requests`
 
 **RBAC tables:** `roles`, `permissions`, `role_permissions`, `user_roles`, `user_permissions`
 
@@ -45,7 +47,7 @@ from `/backend/core/models/__init__.py`:
 | `git.py` | `GitRepository` |
 | `inventories.py` | `Inventory` |
 | `rbac.py` | `Permission`, `Role`, `RolePermission`, `UserPermission`, `UserRole` |
-| `runs.py` | `WorkflowRun`, `WorkflowStepResult` |
+| `runs.py` | `WorkflowRun`, `WorkflowStepResult`, `WorkflowRunDeviceGroup`, `WorkflowRunEvent` |
 | `settings.py` | `Setting` |
 | `templates.py` | `Template` |
 | `users.py` | `User` |

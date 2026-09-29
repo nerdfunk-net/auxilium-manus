@@ -4,15 +4,21 @@ import { useCallback, useMemo, useState } from "react";
 import { Ban, Loader2, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useWorkflowRunEventsQuery } from "@/hooks/queries/use-workflow-run-events-query";
 import { useWorkflowRunQuery } from "@/hooks/queries/use-workflow-run-query";
 import { useCancelRunMutation } from "@/hooks/queries/use-workflow-run-mutations";
 import { RunStatusIcon, formatTime } from "./run-status-icon";
 import { ApprovalBanner, FanOutBanner } from "./run-banners";
+import { DeviceGroupsPanel } from "./device-groups-panel";
 import { StepErrorAlert } from "./step-error-alert";
 import { StepResultRow } from "./step-result-row";
 import { StepLogsModal } from "./step-logs-modal";
+import { eventsForStep, latestEventsByStep } from "../utils/run-events";
 import { detectRunFanOut } from "../utils/step-result-status";
-import type { WorkflowStepResult } from "../types/workflow-runs";
+import type { WorkflowRunEvent, WorkflowStepResult } from "../types/workflow-runs";
+
+const ACTIVE_RUN_STATUSES = new Set(["pending", "running", "paused"]);
+const NO_RUN_EVENTS: readonly WorkflowRunEvent[] = [];
 
 interface RunDetailPaneProps {
   runId: number | null;
@@ -26,6 +32,14 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
 
   const { data, isLoading } = useWorkflowRunQuery(runId);
   const cancelRun = useCancelRunMutation(workflowId);
+  const runIsActive = data ? ACTIVE_RUN_STATUSES.has(data.status) : true;
+  const { data: eventsState } = useWorkflowRunEventsQuery(runId, runIsActive);
+  const runEvents = eventsState?.events ?? NO_RUN_EVENTS;
+  const latestEventByStep = useMemo(() => latestEventsByStep(runEvents), [runEvents]);
+  const logsStepEvents = useMemo(
+    () => (logsStep ? eventsForStep(runEvents, logsStep.step_node_id) : NO_RUN_EVENTS),
+    [runEvents, logsStep],
+  );
 
   const fanOutInfo = useMemo(() => (data ? detectRunFanOut(data.step_results) : null), [data]);
 
@@ -96,6 +110,7 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
           <ApprovalBanner approvalState={data.approval_state} runId={data.id} workflowId={workflowId} />
         ) : null}
         {fanOutInfo ? <FanOutBanner info={fanOutInfo} /> : null}
+        <DeviceGroupsPanel deviceGroups={data.device_groups} stepResults={data.step_results} />
 
         {data.step_results.length === 0 ? (
           <div className="px-6 py-4 text-xs text-muted-foreground">No step results yet.</div>
@@ -112,12 +127,19 @@ export function RunDetailPane({ runId, workflowId, onFocusCanvas }: RunDetailPan
                 onOpenModal={() => setLogsStep(step)}
                 onFocusCanvas={onFocusCanvas}
                 isFanOutRun={fanOutInfo !== null}
+                deviceGroups={data.device_groups}
+                latestEvent={latestEventByStep.get(step.step_node_id) ?? null}
               />
             ))}
           </div>
         )}
       </div>
-      <StepLogsModal step={logsStep} runId={data.id} onClose={() => setLogsStep(null)} />
+      <StepLogsModal
+        step={logsStep}
+        runId={data.id}
+        onClose={() => setLogsStep(null)}
+        events={logsStepEvents}
+      />
     </>
   );
 }

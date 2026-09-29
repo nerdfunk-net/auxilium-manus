@@ -57,6 +57,42 @@ class WorkflowStepResultResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class WorkflowRunDeviceGroupResponse(BaseModel):
+    """Live progress of one fan-out child (see core.models.runs.WorkflowRunDeviceGroup)."""
+
+    child_index: int
+    device_names: list[str]
+    status: str
+    # node_id -> running | success | partial | failed | skipped
+    node_states: dict[str, str]
+    error_message: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class WorkflowRunEventResponse(BaseModel):
+    """One live run event (see core.models.runs.WorkflowRunEvent)."""
+
+    id: int
+    step_node_id: str
+    child_index: int | None = None
+    device_name: str | None = None
+    level: str
+    kind: str
+    message: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class WorkflowRunEventListResponse(BaseModel):
+    events: list[WorkflowRunEventResponse]
+    # Pass back as ``after_id`` to fetch only newer events; unchanged when none arrived.
+    next_after_id: int
+
+
 class WorkflowRunSummary(BaseModel):
     id: int
     uuid: str
@@ -84,6 +120,7 @@ class WorkflowRunResponse(WorkflowRunSummary):
     error_category: ErrorCategory | None = None
     error_id: str | None = None
     step_results: list[WorkflowStepResultResponse] = []
+    device_groups: list[WorkflowRunDeviceGroupResponse] = []
 
 
 class WorkflowRunListResponse(BaseModel):

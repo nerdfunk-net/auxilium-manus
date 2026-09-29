@@ -9,7 +9,8 @@ this subgraph run concurrently (topological generations, see
 ``services.execution.graph.topological_generations``). This walk needs no
 ``asyncio.Lock`` around DB writes the way those two do — it writes zero
 ``WorkflowStepResult`` rows during the walk at all; the parent aggregates and
-persists after every child completes.
+persists after every child completes. Live per-node state goes to an optional
+progress sink instead (``step_runner.progress``), which owns its own write lock.
 """
 
 from __future__ import annotations
@@ -23,6 +24,13 @@ from core.models.runs import WorkflowRun
 from core.models.workflows import Workflow
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.execution.graph import topological_generations
+from services.execution.run_events_reporter import RunEventContext, bound_run_event_context
+from services.execution.step_result_status import derive_step_result_status
+from services.execution.step_runner.progress import (
+    SubgraphProgressSink,
+    report_node_finished,
+    report_node_started,
+)
 from services.execution.step_runner.signals import classify_step_exception
 
 if TYPE_CHECKING:
@@ -66,6 +74,8 @@ async def _execute_one_subgraph_node(
     step_config: dict[str, Any],
     edges: list[dict[str, Any]],
     step_outcomes: dict[str, dict[str, WorkflowContext]],
+    progress: SubgraphProgressSink | None = None,
+    child_index: int | None = None,
 ) -> None:
     logger.info(
         "Subgraph step started node_id=%s type=%s run_id=%s",
@@ -73,6 +83,7 @@ async def _execute_one_subgraph_node(
         step_type,
         run.id,
     )
+    await report_node_started(progress, node_id)
     input_context = runner._assemble_input_context(
         run=run,
         workflow=workflow,
@@ -80,13 +91,16 @@ async def _execute_one_subgraph_node(
         edges=edges,
         step_outcomes=step_outcomes,
     )
-    outcomes = await runner._execute_step(
-        step_type=step_type,
-        config=step_config,
-        context=input_context,
-        run=run,
-        node_id=node_id,
-    )
+    with bound_run_event_context(
+        RunEventContext(run_id=run.id, node_id=node_id, child_index=child_index)
+    ):
+        outcomes = await runner._execute_step(
+            step_type=step_type,
+            config=step_config,
+            context=input_context,
+            run=run,
+            node_id=node_id,
+        )
     outcomes = runner._seed_run_inputs(run, outcomes)
     runner._store_step_outcomes(step_outcomes, node_id, outcomes)
     summaries = "; ".join(f"{o.name}: {o.summary}" for o in outcomes if o.summary)
@@ -95,6 +109,11 @@ async def _execute_one_subgraph_node(
         node_id,
         step_type,
         f" summary={summaries}" if summaries else "",
+    )
+    await report_node_finished(
+        progress,
+        node_id,
+        derive_step_result_status(outcomes=outcomes, input_context=input_context),
     )
 
 
@@ -142,6 +161,8 @@ async def _run_one_subgraph_node(
     step_errors: dict[str, dict[str, str]],
     blocked_nodes: set[str],
     initial_context: WorkflowContext,
+    progress: SubgraphProgressSink | None = None,
+    child_index: int | None = None,
 ) -> None:
     """Run (or block, or record the error for) one subgraph node.
 
@@ -163,6 +184,7 @@ async def _run_one_subgraph_node(
         blocked_nodes=blocked_nodes,
         run_id=run.id,
     ):
+        await report_node_finished(progress, node_id, "skipped")
         return
 
     try:
@@ -175,8 +197,11 @@ async def _run_one_subgraph_node(
             step_config=step_config,
             edges=edges,
             step_outcomes=step_outcomes,
+            progress=progress,
+            child_index=child_index,
         )
     except Exception as exc:
+        await report_node_finished(progress, node_id, "failed")
         _record_subgraph_node_error(
             runner,
             node_id=node_id,
@@ -197,6 +222,8 @@ async def run_subgraph(
     initial_context: WorkflowContext,
     inventory_node_id: str,
     allowed_node_ids: set[str],
+    progress: SubgraphProgressSink | None = None,
+    child_index: int | None = None,
 ) -> tuple[dict[str, dict[str, WorkflowContext]], dict[str, dict[str, str]]]:
     """Run only the downstream subgraph without writing WorkflowStepResult records.
 
@@ -211,6 +238,10 @@ async def run_subgraph(
         initial_context: The WorkflowContext with the device subset for this child.
         inventory_node_id: The node_id of the inventory step that triggered fan-out.
         allowed_node_ids: Set of node IDs this child should execute.
+        progress: Optional sink told when each node starts/finishes (best-effort;
+            a failing sink never affects the walk).
+        child_index: Fan-out child index, attributed to live run events emitted
+            while nodes execute (see ``run_events_reporter``).
 
     Returns:
         A tuple of:
@@ -242,6 +273,8 @@ async def run_subgraph(
                     step_errors=step_errors,
                     blocked_nodes=blocked_nodes,
                     initial_context=initial_context,
+                    progress=progress,
+                    child_index=child_index,
                 )
                 for node in wave
             )

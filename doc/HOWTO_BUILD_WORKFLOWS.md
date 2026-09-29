@@ -360,8 +360,11 @@ own downstream subgraph — including `b1`/`b2` — through the same
 generation-based walk
 (`services/execution/step_runner/subgraph.py::run_subgraph`), just without
 writing `WorkflowStepResult` rows during the walk (the parent persists after
-aggregating every child's result, so this walk needs no `asyncio.Lock` the
-way phase 1/4 do). So with fan-out on:
+aggregating every child's result, so this walk needs no `asyncio.Lock` around
+step rows the way phase 1/4 do). It does report live per-node state to the
+child's `WorkflowRunDeviceGroup` row through a progress sink, which owns its
+own write lock — see "Live progress while a run executes" in
+`doc/WORKFLOW-STEPS.md`. So with fan-out on:
 
 - N devices → N children running concurrently (bounded by `max_concurrency`).
 - Inside **any one** child, `b1` and `b2` also run concurrently with each

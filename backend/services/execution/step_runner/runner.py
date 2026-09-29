@@ -31,7 +31,9 @@ from services.execution.graph import (
     find_join_node_id,
     topological_generations,
 )
+from services.execution.run_events_reporter import RunEventContext, bound_run_event_context
 from services.execution.step_result_status import derive_step_result_status
+from services.execution.step_runner.progress import SubgraphProgressSink
 from services.execution.step_runner.signals import FanOutSignal, classify_step_exception
 from services.network.netmiko.session_pool import DeviceSessionPool
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
@@ -457,13 +459,16 @@ class StepRunner:
                 edges=edges,
                 step_outcomes=step_outcomes,
             )
-            outcomes = await self._execute_step(
-                step_type=step_type,
-                config=step_config,
-                context=input_context,
-                run=run,
-                node_id=node_id,
-            )
+            # Live run events (connect attempts/retries) emitted while this
+            # node executes are attributed to it — see run_events_reporter.
+            with bound_run_event_context(RunEventContext(run_id=run.id, node_id=node_id)):
+                outcomes = await self._execute_step(
+                    step_type=step_type,
+                    config=step_config,
+                    context=input_context,
+                    run=run,
+                    node_id=node_id,
+                )
             outcomes = self._seed_run_inputs(run, outcomes)
             self._store_step_outcomes(step_outcomes, node_id, outcomes)
 
@@ -608,10 +613,13 @@ class StepRunner:
         initial_context: WorkflowContext,
         inventory_node_id: str,
         allowed_node_ids: set[str],
+        progress: SubgraphProgressSink | None = None,
+        child_index: int | None = None,
     ) -> tuple[dict[str, dict[str, WorkflowContext]], dict[str, dict[str, str]]]:
         """Run only the downstream subgraph without writing WorkflowStepResult
         records — see ``subgraph.run_subgraph``. Used by fan-out child workflows;
-        the parent aggregates and persists the returned step outcomes.
+        the parent aggregates and persists the returned step outcomes. ``progress``
+        optionally reports live per-node state (see ``step_runner.progress``).
         """
         return await _subgraph.run_subgraph(
             self,
@@ -620,6 +628,8 @@ class StepRunner:
             initial_context=initial_context,
             inventory_node_id=inventory_node_id,
             allowed_node_ids=allowed_node_ids,
+            progress=progress,
+            child_index=child_index,
         )
 
     def _assemble_input_context(
