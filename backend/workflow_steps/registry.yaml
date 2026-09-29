@@ -27,7 +27,9 @@ plugins:
           example: prod-lab
         - name: inventory_source
           description: >
-            "fixed" (default) resolves the canvas device_filter / device_ids snapshot.
+            "fixed" (default) resolves the saved inventory selected in the workflow
+            builder (inventory_id) live at run time; a step with no inventory_id uses its
+            own device_filter / device_ids.
             "run_param" resolves the inventory id held in the run parameter named by
             inventory_param — a workflow static_attribute of type "reference",
             ref_kind "inventory" — scoped to the user that triggered the run. Lets one
@@ -44,7 +46,11 @@ plugins:
           required: false
           example: target_inventory
         - name: inventory_id
-          description: ID of the saved inventory selected in the workflow builder.
+          description: >
+            ID of the saved inventory selected in the workflow builder. Resolved live on
+            every run (RBAC-scoped to the user that triggered it), so editing the saved
+            inventory changes what the next run targets. Takes precedence over
+            device_filter / device_ids, which are then ignored.
           data_type: integer
           required: false
           example: 42
@@ -55,25 +61,26 @@ plugins:
           example: Core routers
         - name: inventory_type
           description: >
-            Type of the selected saved inventory at configuration time — "filter"
-            (logical expression, resolved via device_filter) or "static" (an explicit,
-            hand-picked device list built with Selection Mode, resolved via device_ids).
-            Missing/omitted is treated as "filter" for backward compatibility.
+            Display hint for the selected inventory's type — "filter" or "static". Only used
+            to pick the ad-hoc resolution path when no inventory_id is set: "filter"
+            resolves device_filter, "static" (an explicit, hand-picked device list)
+            resolves device_ids. Missing/omitted is treated as "filter".
           data_type: string
           required: false
           default: filter
           example: filter
         - name: device_filter
           description: >
-            Filter tree snapshot derived from the selected inventory at configuration time.
-            Used at runtime to resolve devices from Nautobot when inventory_type is "filter".
+            Ad-hoc filter tree for a step with no inventory_id (imported / AI-written
+            workflows). Ignored when inventory_id is set — the saved inventory is resolved
+            live instead. Used at runtime when inventory_type is "filter".
           data_type: object
           required: false
         - name: device_ids
           description: >
-            Explicit Nautobot device UUID list snapshot derived from the selected inventory
-            at configuration time. Used at runtime to resolve devices directly (no logical
-            expression) when inventory_type is "static".
+            Ad-hoc explicit Nautobot device UUID list for a step with no inventory_id.
+            Ignored when inventory_id is set. Used at runtime to resolve devices directly
+            (no logical expression) when inventory_type is "static".
           data_type: array
           required: false
         - name: fan_out

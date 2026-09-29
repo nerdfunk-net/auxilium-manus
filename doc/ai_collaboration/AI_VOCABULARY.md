@@ -153,25 +153,17 @@ script using
    same as any other Nautobot step.
 2. `get_inventory_by_name(name, username)` for its `id`, `inventory_type`
    (`filter`/`static`), and `conditions` — a live lookup, never a guess.
-3. **Default: `inventory_source: "fixed"`** (corrected 2026-09-24 — an earlier
-   version of this recipe defaulted to `"run_param"` for every case; that's now
-   the exception, not the default — see below). Most workflows run live against
-   a named inventory, not on a schedule, so a canvas-time snapshot is what the
-   user actually means by "use the inventory named X":
-   - `inventory_type == "static"`: set `inventory_id`, `inventory_name`,
-     `inventory_type: "static"`, and `device_ids` to the lookup result's
-     `device_ids` list verbatim — a plain UUID list, no conversion needed.
-   - `inventory_type == "filter"`: set `inventory_id`, `inventory_name`,
-     `inventory_type: "filter"`, and `device_filter` to
-     `scripts/ai_inventory_filter.py::saved_conditions_to_device_filter(conditions)`
-     — a Python port of the frontend's `tree-format-converters.ts` (the piece
-     that actually matters is ~25 lines, not the ~180 the whole file suggested;
-     verified byte-identical to the real runtime converter's output for the
-     real `LAB` inventory, see that module's tests). This *is* a snapshot,
-     same caveat as a human picking the inventory in the UI: it won't notice if
-     `LAB`'s definition changes later. That's expected "fixed" semantics, not a
-     bug — say so in the proposed plan so the user can ask for `"run_param"`
-     instead if they'd rather it stay live.
+3. **Default: `inventory_source: "fixed"`** — the step links to the named inventory.
+   Set `inventory_id`, `inventory_name` and `inventory_type` (`"filter"` or
+   `"static"`) from the lookup, and leave `device_filter` / `device_ids` at their
+   config defaults. The executor resolves the saved inventory **live on every run**
+   (`resolve_saved_inventory_devices_by_id`), so the user editing that inventory later
+   changes what the workflow targets — the same as choosing it in the builder. (An
+   earlier version of this recipe copied the inventory's filter/device list into the
+   step as a snapshot; that copy is now ignored when `inventory_id` is set, and writing
+   it only creates a second, stale definition — don't.) Say in the proposed plan that
+   the step follows the inventory, and that a deleted or inaccessible inventory makes
+   the run fail with a message naming it.
 4. **Use `inventory_source: "run_param"` instead when the request says (or
    implies) the workflow will be scheduled, or needs the inventory chosen
    per-run/per-schedule** — that's what it's for. In that case: leave
@@ -184,9 +176,10 @@ script using
    `{"name": "target_inventory", "type": "reference", "ref_kind": "inventory",
    "default": <the resolved id>, "required": false}`. With `default` set, an
    unqualified trigger still resolves to the named inventory
-   (`resolve_run_inputs` fills declared defaults) while staying live and
-   overridable per-run/per-schedule — this is the right tradeoff specifically
-   when scheduling is in view, not as a general-purpose default.
+   (`resolve_run_inputs` fills declared defaults) while staying overridable
+   per-run/per-schedule — use it when scheduling or a per-run choice is in view;
+   otherwise the plain `"fixed"` link above is simpler (both resolve the inventory
+   live).
 5. **Fan-out threshold — check the live device count, don't guess.** Before
    finalizing the node, call
    `scripts/ai_inventory_filter.py::count_inventory_devices(db, inventory_id=...,
@@ -316,10 +309,8 @@ not scheduled — the default case per step 3 above.)
 1. `get-nautobot-devices` ("Get from Nautobot"): `nautobot_source_id` resolved from
    `AI_DEFAULTS.md`. Look up the inventory named `LAB` — confirmed live: `id: 1`,
    `inventory_type: "filter"`, with real `conditions`. Config: `inventory_id: 1`,
-   `inventory_name: "LAB"`, `inventory_type: "filter"`, `device_filter` from
-   `saved_conditions_to_device_filter(conditions)` — verified live to produce the
-   exact same device set as the runtime converter (see `ai_inventory_filter.py`'s
-   tests).
+   `inventory_name: "LAB"`, `inventory_type: "filter"`; `device_filter` / `device_ids`
+   stay at their defaults — the step resolves inventory 1 live on every run.
 2. `get-nautobot-attributes` ("Get Nautobot Attributes"): same resolved
    `nautobot_source_id`; `list_of_attributes: []` (nothing beyond "attributes" was
    specified).

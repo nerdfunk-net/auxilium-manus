@@ -67,12 +67,16 @@ export function GetNautobotDevicesHelpPanel() {
         </p>
         <p>
           In the picker, use the left sidebar to browse inventory groups, then
-          select one inventory on the right. The step stores{" "}
-          <HelpCode>inventory_id</HelpCode>,{" "}
-          <HelpCode>inventory_name</HelpCode>, and a snapshot of the filter tree
-          as <HelpCode>device_filter</HelpCode>. At run time Nautobot is queried
-          with that snapshot — editing the saved inventory later does not change
-          an already-configured step until you select it again.
+          select one inventory on the right. The step stores a{" "}
+          <span className="font-medium text-foreground">link</span> to it —{" "}
+          <HelpCode>inventory_id</HelpCode> and{" "}
+          <HelpCode>inventory_name</HelpCode> — not a copy of its filter. Every
+          run resolves the saved inventory by id at that moment, so editing the
+          inventory changes what the next run targets. If the inventory has been
+          deleted or deactivated, or is private to another user, the run fails
+          with a message naming it; select an inventory again to fix the step.
+          Steps without a selected inventory (imported or AI-written workflows)
+          keep using the filter stored in the step itself.
         </p>
         <p className="font-medium text-foreground">Example inventories:</p>
         <ul className="list-disc space-y-1 pl-4">
@@ -95,8 +99,6 @@ export function GetNautobotDevicesHelpPanel() {
           inventory_id: 42
           <br />
           inventory_name: Core routers
-          <br />
-          device_filter: {"{"} logic: AND, items: […] {"}"}
         </HelpExample>
         <p>
           Use <span className="font-medium text-foreground">Clear</span> to

@@ -201,5 +201,52 @@ class ResolveSavedInventoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.total_count, 0)
 
 
+
+class ResolveSavedInventoryByIdTests(unittest.IsolatedAsyncioTestCase):
+    """The runtime path shared by run-parameter and selected-inventory steps."""
+
+    def _svc(self, inventory: dict | None) -> NautobotSourceService:
+        svc = _service()
+        svc._persistence_service.get_inventory = MagicMock(return_value=inventory)
+        svc.preview_inventory = AsyncMock(return_value=([_dev("a")], 1))
+        svc.resolve_devices_by_ids = AsyncMock(return_value=[_dev("s")])
+        return svc
+
+    async def test_filter_inventory_is_evaluated_from_its_saved_conditions(self) -> None:
+        svc = self._svc({"inventory_type": "filter", "is_active": True, "conditions": _TREE})
+
+        devices = await svc.resolve_saved_inventory_devices_by_id(4, "alice")
+
+        svc._persistence_service.get_inventory.assert_called_once_with(4, username="alice")
+        self.assertEqual([d.id for d in devices], ["a"])
+
+    async def test_static_inventory_resolves_its_device_ids(self) -> None:
+        svc = self._svc({"inventory_type": "static", "is_active": True, "device_ids": ["s"]})
+
+        devices = await svc.resolve_saved_inventory_devices_by_id(4, "alice")
+
+        svc.resolve_devices_by_ids.assert_awaited_once_with(["s"])
+        self.assertEqual([d.id for d in devices], ["s"])
+
+    async def test_missing_inventory_is_a_value_error(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            await self._svc(None).resolve_saved_inventory_devices_by_id(9, "alice")
+
+        self.assertIn("not found", str(ctx.exception))
+
+    async def test_inactive_inventory_is_rejected_like_the_pre_run_validator_does(self) -> None:
+        svc = self._svc({"inventory_type": "filter", "is_active": False, "conditions": _TREE})
+
+        with self.assertRaises(ValueError) as ctx:
+            await svc.resolve_saved_inventory_devices_by_id(4, "alice")
+
+        self.assertIn("inactive", str(ctx.exception))
+        svc.preview_inventory.assert_not_awaited()
+
+    async def test_inventory_without_an_is_active_flag_still_resolves(self) -> None:
+        svc = self._svc({"inventory_type": "filter", "conditions": _TREE})
+
+        self.assertEqual(len(await svc.resolve_saved_inventory_devices_by_id(4, None)), 1)
+
 if __name__ == "__main__":
     unittest.main()

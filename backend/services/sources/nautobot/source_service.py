@@ -122,11 +122,13 @@ class NautobotSourceService:
     ) -> list[DeviceInfo]:
         """Load a saved inventory by id (RBAC-checked against *username*) and
         resolve it to devices — the runtime counterpart of
-        ``analyze_inventory``, used by the ``get-nautobot-devices`` step when
-        its inventory is chosen from a run parameter instead of the canvas.
+        ``analyze_inventory``, and the single path the ``get-nautobot-devices``
+        step uses for a saved inventory, whether it is selected in the workflow
+        builder or chosen from a run parameter.
 
-        Raises ``ValueError`` if the inventory does not exist; ``PermissionError``
-        (from the persistence layer) if it is private to another user.
+        Raises ``ValueError`` if the inventory does not exist or is inactive;
+        ``PermissionError`` (from the persistence layer) if it is private to
+        another user.
         """
         from utils.inventory_converter import convert_saved_inventory_to_operations
 
@@ -136,6 +138,8 @@ class NautobotSourceService:
         inventory = self._persistence_service.get_inventory(inventory_id, username=username)
         if not inventory:
             raise ValueError(f"Inventory with ID {inventory_id} not found")
+        if inventory.get("is_active") is False:
+            raise ValueError(f"Inventory with ID {inventory_id} is inactive")
 
         if inventory.get("inventory_type") == "static":
             device_ids = inventory.get("device_ids") or []

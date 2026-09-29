@@ -12,24 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  treeToOperations,
-} from "@/components/features/workflow-steps/get-nautobot-devices/condition-builder/tree-to-operation";
-import type { FilterTree } from "@/components/features/workflow-steps/get-nautobot-devices/condition-builder/types";
+import { previewRequestFor, type PreviewSelection } from "./utils/inventory-link";
 import { useApi } from "@/hooks/use-api";
 import type { DevicePreview } from "@/hooks/queries/use-get-nautobot-devices-preview-mutation";
 import { queryKeys } from "@/lib/query-keys";
 
-interface PreviewConfig {
-  source_id: string;
-  inventory_type: "filter" | "static";
-  device_filter: FilterTree;
-  device_ids: string[];
-}
-
 interface PreviewDialogProps {
   open: boolean;
-  config: PreviewConfig;
+  config: PreviewSelection;
   inventoryName?: string | null;
   onClose: () => void;
 }
@@ -41,29 +31,17 @@ interface PreviewApiResponse {
 
 async function fetchDevicePreview(
   apiCall: ReturnType<typeof useApi>["apiCall"],
-  config: PreviewConfig,
+  config: PreviewSelection,
 ): Promise<{ devices: DevicePreview[]; total: number }> {
-  if (config.inventory_type === "static") {
-    const response = await apiCall<PreviewApiResponse>("sources/nautobot/preview-device-ids", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source_id: config.source_id,
-        device_ids: config.device_ids,
-      }),
-    });
-    return { devices: response.devices, total: response.total_count };
-  }
-
-  const operations = treeToOperations(config.device_filter);
-  const response = await apiCall<PreviewApiResponse>("sources/nautobot/preview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source_id: config.source_id,
-      operations,
-    }),
-  });
+  const request = previewRequestFor(config);
+  const response =
+    request.method === "GET"
+      ? await apiCall<PreviewApiResponse>(request.path, { method: "GET" })
+      : await apiCall<PreviewApiResponse>(request.path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.body),
+        });
   return { devices: response.devices, total: response.total_count };
 }
 
@@ -74,16 +52,14 @@ export function DeviceSelectionPreviewDialog({
   onClose,
 }: PreviewDialogProps) {
   const { apiCall } = useApi();
-  const operationsKey = useMemo(
-    () =>
-      config.inventory_type === "static"
-        ? JSON.stringify({ static: config.device_ids })
-        : JSON.stringify(treeToOperations(config.device_filter)),
-    [config.inventory_type, config.device_filter, config.device_ids],
-  );
+  // Cache key: what is being previewed (a linked inventory, or the ad-hoc selection).
+  const selectionKey = useMemo(() => {
+    const request = previewRequestFor(config);
+    return JSON.stringify(request.method === "GET" ? request.path : request.body);
+  }, [config]);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.sourcesNautobot.preview(config.source_id, operationsKey),
+    queryKey: queryKeys.sourcesNautobot.preview(config.source_id, selectionKey),
     queryFn: () => fetchDevicePreview(apiCall, config),
     enabled: open && Boolean(config.source_id),
     staleTime: 0,

@@ -26,7 +26,6 @@ import {
   fanOutFromConfig,
   type FanOutConfig,
 } from "../shared/fan-out-config";
-import { savedConditionsToFilterTree } from "./condition-builder/saved-conditions";
 import {
   countConditions,
   emptyTree,
@@ -36,6 +35,7 @@ import { GetNautobotDevicesHelpPanel } from "./help-panel";
 import { LoadInventoryDialog } from "./load-inventory-dialog";
 import { DeviceSelectionPreviewDialog } from "./preview-dialog";
 import type { SavedInventory } from "./types/saved-inventory";
+import { inventoryLinkPatch } from "./utils/inventory-link";
 
 function filterFromConfig(config: Record<string, unknown>): FilterTree {
   const raw = config.device_filter;
@@ -107,25 +107,7 @@ function DeviceSelectionConfigPanel({
 
   const handleInventorySelect = useCallback(
     (inventory: SavedInventory) => {
-      if (inventory.inventory_type === "static") {
-        onChange({
-          ...config,
-          inventory_id: inventory.id,
-          inventory_name: inventory.name,
-          inventory_type: "static",
-          device_filter: emptyTree(),
-          device_ids: inventory.device_ids ?? [],
-        });
-      } else {
-        onChange({
-          ...config,
-          inventory_id: inventory.id,
-          inventory_name: inventory.name,
-          inventory_type: "filter",
-          device_filter: savedConditionsToFilterTree(inventory.conditions),
-          device_ids: [],
-        });
-      }
+      onChange({ ...config, ...inventoryLinkPatch(inventory) });
     },
     [config, onChange],
   );
@@ -285,6 +267,7 @@ function DeviceSelectionConfigPanel({
         open={previewOpen}
         config={{
           source_id: sourceId,
+          inventory_id: inventoryMeta.id,
           inventory_type: inventoryType,
           device_filter: filterTree,
           device_ids: deviceIds,

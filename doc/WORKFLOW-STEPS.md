@@ -530,7 +530,8 @@ by the frontend to pre-populate a step's config panel.
 def get_config() -> dict:
     return {
         "nautobot_source_id": "",
-        "device_filter": {"logic": "AND", "negate": False, "id": "root", "items": []},
+        "inventory_id": None,  # selected saved inventory, resolved live on every run
+        "device_filter": {"logic": "AND", "negate": False, "id": "root", "items": []},  # ad-hoc
     }
 ```
 
@@ -639,8 +640,10 @@ value baked into the canvas at design time. This is **not** a canvas step:
   - `ref_kind: "inventory"` → value is an **inventory id** (int); resolved via
     the RBAC-checked `InventoryService.get_inventory(id, username=…)`.
     `get-nautobot-devices` reads it when its `inventory_source` config is
-    `"run_param"` (pointing at `inventory_param`), replacing the canvas
-    `device_filter` snapshot for that run.
+    `"run_param"` (pointing at `inventory_param`), in place of the inventory
+    selected in the step for that run. (A selected `inventory_id` is itself
+    resolved live on every run — both go through
+    `NautobotSourceService.resolve_saved_inventory_devices_by_id`.)
   - `ref_kind: "credential"` → value is a **credential vault name** (str);
     late-bound per triggering user (a private credential wins over a global one
     of the same name — see `credential_resolver._resolve_credential`). Every SSH

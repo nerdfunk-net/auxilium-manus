@@ -9,7 +9,7 @@ from sqlalchemy.orm import object_session
 
 import service_factory
 from core.models.runs import WorkflowRun
-from models.sources_nautobot import LogicalCondition, LogicalOperation
+from models.sources_nautobot import DeviceInfo, LogicalCondition, LogicalOperation
 from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from workflow_steps.common.device_builders import device_context_from_nautobot
@@ -77,6 +77,55 @@ def _filter_tree_to_operations(tree: dict[str, Any]) -> list[LogicalOperation]:
     return [op]
 
 
+async def _resolve_saved_inventory(
+    source_service: Any,
+    *,
+    db: Any,
+    run: WorkflowRun,
+    config: dict[str, Any],
+    reference: str,
+    from_run_param: bool,
+    source_id: str,
+) -> list[DeviceInfo]:
+    """Resolve a saved inventory to devices, RBAC-scoped to the triggering user."""
+    origin = "run parameter" if from_run_param else "selected inventory"
+    try:
+        inventory_id = int(reference)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"get-nautobot-devices: {origin} did not resolve to an inventory id (got {reference!r})"
+        ) from exc
+
+    acting_username = _acting_username(db, run.triggered_by_id)
+    logger.info(
+        "get-nautobot-devices run_id=%s source_id=%s inventory_source=%s "
+        "inventory_id=%s acting_user=%s",
+        run.id,
+        source_id,
+        "run_param" if from_run_param else "fixed",
+        inventory_id,
+        acting_username,
+    )
+    try:
+        return await source_service.resolve_saved_inventory_devices_by_id(
+            inventory_id, acting_username
+        )
+    except PermissionError as exc:
+        raise ValueError(
+            f"get-nautobot-devices: inventory {inventory_id} is not accessible to the "
+            f"user that triggered this run"
+        ) from exc
+    except ValueError as exc:
+        # Deleted / inactive / unreadable. Fail loudly: silently falling back to
+        # the step's old copy would run against devices nobody chose any more.
+        name = str(config.get("inventory_name") or "").strip()
+        label = f"{inventory_id} ({name!r})" if name and not from_run_param else str(inventory_id)
+        hint = "" if from_run_param else " Select an inventory again in the step."
+        raise ValueError(
+            f"get-nautobot-devices: saved inventory {label} cannot be used: {exc}.{hint}"
+        ) from exc
+
+
 async def execute(
     *,
     config: dict[str, Any],
@@ -103,40 +152,31 @@ async def execute(
     credentials = resolve_nautobot_credentials(db, source_id, step_id="get-nautobot-devices")
     source_service = service_factory.build_nautobot_source_service(credentials, db)
 
-    if str(config.get("inventory_source") or "fixed").strip() == "run_param":
-        raw_reference = resolve_config_reference(
-            config,
-            source_key="inventory_source",
-            param_key="inventory_param",
-            literal_key="inventory_id",
-            run_inputs=run.run_inputs,
-        )
-        try:
-            inventory_id = int(raw_reference)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"get-nautobot-devices: run parameter did not resolve to an inventory id "
-                f"(got {raw_reference!r})"
-            ) from exc
+    from_run_param = str(config.get("inventory_source") or "fixed").strip() == "run_param"
+    # The inventory id comes either from a run parameter or from the id selected in
+    # the workflow builder (`inventory_id`); the helper raises if a run parameter
+    # is selected but unset, instead of falling back to a stale literal.
+    inventory_reference = resolve_config_reference(
+        config,
+        source_key="inventory_source",
+        param_key="inventory_param",
+        literal_key="inventory_id",
+        run_inputs=run.run_inputs,
+    )
 
-        acting_username = _acting_username(db, run.triggered_by_id)
-        logger.info(
-            "get-nautobot-devices run_id=%s source_id=%s inventory_source=run_param "
-            "inventory_id=%s acting_user=%s",
-            run.id,
-            source_id,
-            inventory_id,
-            acting_username,
+    if from_run_param or inventory_reference:
+        # A saved inventory is always resolved live — through this one path for both
+        # ways of naming it — so editing the inventory changes what the next run
+        # targets. The step's own device_filter / device_ids copy is not consulted.
+        devices = await _resolve_saved_inventory(
+            source_service,
+            db=db,
+            run=run,
+            config=config,
+            reference=inventory_reference,
+            from_run_param=from_run_param,
+            source_id=source_id,
         )
-        try:
-            devices = await source_service.resolve_saved_inventory_devices_by_id(
-                inventory_id, acting_username
-            )
-        except PermissionError as exc:
-            raise ValueError(
-                f"get-nautobot-devices: inventory {inventory_id} is not accessible to the "
-                f"user that triggered this run"
-            ) from exc
     elif inventory_type == "static":
         logger.info(
             "get-nautobot-devices run_id=%s source_id=%s inventory_type=static device_ids=%d",
@@ -146,6 +186,8 @@ async def execute(
         )
         devices = await source_service.resolve_devices_by_ids(device_ids)
     else:
+        # Ad-hoc selection with no saved inventory (imported / AI-written workflows):
+        # the filter stored in the step is the definition.
         operations = _filter_tree_to_operations(device_filter)
         logger.info(
             "get-nautobot-devices run_id=%s source_id=%s inventory_type=filter operations=%d",
