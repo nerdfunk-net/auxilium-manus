@@ -98,8 +98,8 @@ export function AddToNautobotHelpPanel() {
 
       <HelpSection title="Optional fields, custom fields, and rack">
         <p>
-          Platform, software version, serial, asset tag, and tags are only sent to Nautobot
-          when their checkbox is <span className="font-medium text-foreground">enabled</span> —
+          Platform, secrets group, software version, serial, asset tag, and tags are only sent
+          to Nautobot when their checkbox is <span className="font-medium text-foreground">enabled</span> —
           by default on a new node they start enabled with{" "}
           <HelpCode>{"{nautobot.origin}"}</HelpCode>, same as the required fields, but you can
           uncheck any of them. Rack placement (rack, face, position) starts unchecked and is

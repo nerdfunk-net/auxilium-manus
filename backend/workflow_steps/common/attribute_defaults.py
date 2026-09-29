@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-_NAMED_REFERENCE_KEYS = ("role", "status", "location", "platform", "rack")
+_NAMED_REFERENCE_KEYS = ("role", "status", "location", "platform", "secrets_group", "rack")
 _SCALAR_KEYS = ("software_version", "serial", "asset_tag", "face", "position")
 
 

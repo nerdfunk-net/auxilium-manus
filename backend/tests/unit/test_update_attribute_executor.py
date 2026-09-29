@@ -253,6 +253,75 @@ class UpdateAttributeExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("sealed secret", str(ctx.exception))
 
+    async def _run_template(self, device: DeviceContext, template: str, **extra):
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"dev-1": device})
+        outcomes = await execute(
+            config={
+                "attributes": [
+                    {
+                        "mode": "template",
+                        "destination_path": "device.name",
+                        "template": template,
+                        **extra,
+                    }
+                ],
+            },
+            context=context,
+            run=MagicMock(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        return outcomes[0]
+
+    async def test_template_mode_appends_domain_to_device_name(self) -> None:
+        device = _device("dev-1", name="router1").model_copy(
+            update={
+                "parsed": {"cisco_config": {"running": {"identity": {"domain_name": "local.zz"}}}}
+            }
+        )
+
+        outcome = await self._run_template(
+            device, "{device.name}.{parsed.cisco_config.running.identity.domain_name}"
+        )
+
+        updated = outcome.context.devices["dev-1"]
+        self.assertEqual(updated.name, "router1.local.zz")
+        self.assertEqual(outcome.context.metadata["node-1.write_count"], 1)
+
+    async def test_template_mode_reads_attribute_bags_and_keeps_literals(self) -> None:
+        device = _device("dev-1", attribute_bags={"nautobot": {"site": {"name": "dc1"}}})
+
+        outcome = await self._run_template(device, "{nautobot.site.name}-{device.name}")
+
+        self.assertEqual(outcome.context.devices["dev-1"].name, "dc1-dev-1")
+
+    async def test_template_mode_skips_when_placeholder_unresolved(self) -> None:
+        device = _device("dev-1", name="router1")
+
+        outcome = await self._run_template(device, "{device.name}.{parsed.missing.path}")
+
+        self.assertEqual(outcome.context.devices["dev-1"].name, "router1")
+        self.assertEqual(outcome.context.metadata["node-1.write_count"], 0)
+        self.assertEqual(outcome.context.metadata["node-1.skipped_count"], 1)
+
+    async def test_template_mode_requires_template(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            await self._run_template(_device("dev-1"), "   ")
+
+        self.assertIn("template is required", str(ctx.exception))
+
+    async def test_template_mode_cannot_read_a_sealed_secret(self) -> None:
+        device = _device(
+            "dev-1",
+            attribute_bags={"tacacs": {"shared_secret": seal_secret("s3cr3t")}},
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            await self._run_template(device, "x-{tacacs.shared_secret}")
+
+        self.assertIn("sealed secret", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

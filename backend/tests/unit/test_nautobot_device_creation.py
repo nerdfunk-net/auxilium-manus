@@ -37,6 +37,7 @@ def _service(rest_dispatch=None) -> DeviceCreationService:
     common.resolve_status_id = AsyncMock(return_value="status-uuid")
     common.resolve_location_id = AsyncMock(return_value="loc-uuid")
     common.resolve_platform_id = AsyncMock(return_value="plat-uuid")
+    common.resolve_secrets_group_id = AsyncMock(return_value="sg-uuid")
     common.resolve_rack_id = AsyncMock(return_value="rack-uuid")
     svc.common = common
     svc.interface_manager = MagicMock()
@@ -99,6 +100,27 @@ class ResolveNamesTests(unittest.IsolatedAsyncioTestCase):
         resolved = await svc._resolve_request_names_to_ids(_request(platform="ios"))
         self.assertIsNone(resolved.platform)
 
+    async def test_secrets_group_name_resolved_to_uuid(self) -> None:
+        svc = _service()
+        resolved = await svc._resolve_request_names_to_ids(_request(secrets_group="ssh-creds"))
+        self.assertEqual(resolved.secrets_group, "sg-uuid")
+        svc.common.resolve_secrets_group_id.assert_awaited_once_with("ssh-creds")
+
+    async def test_secrets_group_uuid_passes_through(self) -> None:
+        svc = _service()
+        req = _request(
+            role=_UUID, status=_UUID, location=_UUID, device_type=_UUID, secrets_group=_UUID
+        )
+        resolved = await svc._resolve_request_names_to_ids(req)
+        self.assertEqual(resolved.secrets_group, _UUID)
+        svc.common.resolve_secrets_group_id.assert_not_called()
+
+    async def test_missing_secrets_group_raises(self) -> None:
+        svc = _service()
+        svc.common.resolve_secrets_group_id = AsyncMock(return_value=None)
+        with self.assertRaises(ValueError):
+            await svc._resolve_request_names_to_ids(_request(secrets_group="ghost"))
+
 
 class ValidateDryRunTests(unittest.IsolatedAsyncioTestCase):
     async def test_reports_existing_device_and_missing_refs(self) -> None:
@@ -127,6 +149,20 @@ class ValidateDryRunTests(unittest.IsolatedAsyncioTestCase):
         result = await svc._validate_dry_run(req)
         self.assertTrue(result["success"])
         self.assertEqual(result["errors"], [])
+
+    async def test_reports_missing_secrets_group(self) -> None:
+        async def dispatch(endpoint, *a, **k):
+            if endpoint.startswith("extras/secrets-groups/"):
+                return {"count": 0}
+            return {"count": 0 if endpoint.startswith("dcim/devices/?name=") else 1}
+
+        svc = _service(rest_dispatch=dispatch)
+        req = _request(
+            role=_UUID, status=_UUID, location=_UUID, device_type=_UUID, secrets_group=_UUID
+        )
+        result = await svc._validate_dry_run(req)
+        self.assertFalse(result["success"])
+        self.assertTrue(any("Secrets group" in e for e in result["errors"]))
 
 
 class CreateDeviceLowLevelTests(unittest.IsolatedAsyncioTestCase):
@@ -157,6 +193,20 @@ class CreateDeviceLowLevelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["rack"], "rack-uuid")
         self.assertEqual(payload["face"], "front")
         self.assertEqual(payload["position"], 10)
+
+    async def test_secrets_group_in_payload_only_when_set(self) -> None:
+        captured: dict = {}
+
+        async def dispatch(*a, **k):
+            captured.update(k)
+            return {"id": "dev-1"}
+
+        svc = _service(rest_dispatch=dispatch)
+        base = dict(role=_UUID, status=_UUID, location=_UUID, device_type=_UUID)
+        await svc._create_device(_request(**base))
+        self.assertNotIn("secrets_group", captured["data"])
+        await svc._create_device(_request(secrets_group=_UUID, **base))
+        self.assertEqual(captured["data"]["secrets_group"], _UUID)
 
     async def test_rack_not_found_is_skipped(self) -> None:
         captured: dict = {}

@@ -30,6 +30,14 @@ class MergeNautobotDefaultsTests(unittest.TestCase):
         merged = merge_nautobot_defaults(existing, {"serial": "ABC123"}, overwrite=False)
         self.assertEqual(merged["serial"], "ABC123")
 
+    def test_secrets_group_skip_and_overwrite(self) -> None:
+        existing = {"secrets_group": {"id": "sg-1", "name": "old"}}
+        defaults = {"secrets_group": {"name": "new"}}
+        skipped = merge_nautobot_defaults(existing, defaults, overwrite=False)
+        self.assertEqual(skipped["secrets_group"], {"id": "sg-1", "name": "old"})
+        replaced = merge_nautobot_defaults(existing, defaults, overwrite=True)
+        self.assertEqual(replaced["secrets_group"], {"id": "sg-1", "name": "new"})
+
     def test_nested_partial_device_type_merge(self) -> None:
         existing = {"device_type": {"model": "virtual", "id": "abc"}}
         defaults = {"device_type": {"manufacturer": {"name": "Cisco"}}}
@@ -80,6 +88,10 @@ class NormalizeDefaultsBlockTests(unittest.TestCase):
     def test_plain_string_named_reference(self) -> None:
         defaults = normalize_defaults_block({"role": "Network"})
         self.assertEqual(defaults["role"], {"name": "Network"})
+
+    def test_secrets_group_named_reference(self) -> None:
+        defaults = normalize_defaults_block({"secrets_group": "ssh-creds"})
+        self.assertEqual(defaults["secrets_group"], {"name": "ssh-creds"})
 
     def test_tags_single_string_becomes_list(self) -> None:
         defaults = normalize_defaults_block({"tags": "production"})

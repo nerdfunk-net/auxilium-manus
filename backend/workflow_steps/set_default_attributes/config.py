@@ -11,6 +11,7 @@ def get_config() -> dict:
             "status": {"enabled": False, "value": ""},
             "location": {"enabled": False, "value": ""},
             "platform": {"enabled": False, "value": ""},
+            "secrets_group": {"enabled": False, "value": ""},
             "software_version": {"enabled": False, "value": ""},
             "serial": {"enabled": False, "value": ""},
             "asset_tag": {"enabled": False, "value": ""},

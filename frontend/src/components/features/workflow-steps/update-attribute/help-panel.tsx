@@ -71,6 +71,12 @@ export function UpdateAttributeHelpPanel() {
             <HelpCode>destination_template</HelpCode> (with backrefs) to{" "}
             <HelpCode>destination_path</HelpCode>.
           </li>
+          <li>
+            <span className="font-medium text-foreground">Template</span> —{" "}
+            <HelpCode>mode: template</HelpCode>. Builds a value from literal text and{" "}
+            <HelpCode>{"{attribute.path}"}</HelpCode> placeholders and writes it to{" "}
+            <HelpCode>destination_path</HelpCode>.
+          </li>
         </ul>
       </HelpSection>
 
@@ -107,6 +113,27 @@ export function UpdateAttributeHelpPanel() {
           destination_path: custom.environment
           <br />
           fixed_value: production
+        </HelpExample>
+      </HelpSection>
+
+      <HelpSection title="Template mode">
+        <p>
+          When mode is <HelpCode>template</HelpCode>, set <HelpCode>template</HelpCode>{" "}
+          to text containing <HelpCode>{"{path}"}</HelpCode> placeholders. Any attribute
+          path works, including <HelpCode>device.*</HelpCode>, <HelpCode>parsed.*</HelpCode>{" "}
+          and attribute bags. If a placeholder cannot be resolved the update is skipped
+          for that device, and sealed secrets cannot be read.
+        </p>
+        <p>
+          Use it to append to an existing value by including the destination itself, e.g.
+          append the parsed domain name to the device name:
+        </p>
+        <HelpExample>
+          mode: template
+          <br />
+          destination_path: device.name
+          <br />
+          template: {"{device.name}.{parsed.cisco_config.running.identity.domain_name}"}
         </HelpExample>
       </HelpSection>
 

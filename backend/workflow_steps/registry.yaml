@@ -1863,7 +1863,7 @@ plugins:
         - name: attributes
           description: >
             Manual-mode default values — role, status, location, platform,
-            software_version, serial, asset_tag, tags, device_type (model +
+            secrets_group (by name), software_version, serial, asset_tag, tags, device_type (model +
             manufacturer), rack/face/position, custom_fields, and interfaces. Used
             only when mode is "manual".
           data_type: object
@@ -2032,7 +2032,10 @@ plugins:
             Attributes, or seeded by Set Default Attributes). platform/
             software_version/serial/asset_tag/tags default to enabled with
             {nautobot.origin} too, but — unlike the required fields — can be
-            unchecked; custom_fields/rack/face/position are optional and start
+            unchecked; secrets_group (name or UUID — a name is resolved to its UUID,
+            and an unknown name fails that device) also defaults to enabled with
+            {nautobot.origin} so Nautobot can reach the device;
+            custom_fields/rack/face/position are optional and start
             unchecked, and are only sent to Nautobot when enabled.
           data_type: object
           required: true
@@ -2043,6 +2046,7 @@ plugins:
             location: "{nautobot.origin}"
             device_type: "{nautobot.origin}"
             platform: "{nautobot.origin}"
+            secrets_group: "{nautobot.origin}"
             software_version: "{nautobot.origin}"
             serial: "{nautobot.origin}"
             asset_tag: "{nautobot.origin}"
@@ -3226,7 +3230,8 @@ plugins:
     overview: Set or transform device attributes in the workflow.
     description: >
       Set or transform one or more in-workflow device attributes using a fixed
-      value or a regular expression with capture groups.
+      value, a regular expression with capture groups, or a template that
+      combines several attributes.
     artifact_type: control_flow
     palette_category: attributes
     directory: update_attribute
@@ -3239,9 +3244,11 @@ plugins:
       configuration_input:
         - name: attributes
           description: >
-            Ordered list of attribute updates. Each entry has a mode (fixed or
-            regex), destination_path, and mode-specific fields (fixed_value, or
-            source_path / pattern / destination_template / regex_flags). Updates
+            Ordered list of attribute updates. Each entry has a mode (fixed,
+            regex or template), destination_path, and mode-specific fields
+            (fixed_value; source_path / pattern / destination_template /
+            regex_flags; or template with {attribute.path} placeholders, skipped
+            for a device when any placeholder is unresolved). Updates
             run in list order for every device. source_path may read a scalar
             leaf from a step's parsed output (e.g.
             parsed.cisco_config.running.hostname), but destination_path may not target
@@ -3262,6 +3269,9 @@ plugins:
                 case_insensitive: false
                 multiline: false
                 dotall: false
+            - mode: template
+              destination_path: device.name
+              template: "{device.name}.{parsed.cisco_config.running.identity.domain_name}"
 
   - id: encrypt-attribute
     name: Encrypt Attribute

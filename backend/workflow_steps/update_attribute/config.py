@@ -13,6 +13,7 @@ def get_default_attribute() -> dict:
         "source_path": "device.name",
         "pattern": r"^([^-]+)-",
         "destination_template": r"DC-\1",
+        "template": "",
         "regex_flags": {
             "case_insensitive": False,
             "multiline": False,

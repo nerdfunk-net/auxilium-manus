@@ -5,6 +5,7 @@ export type DeviceFieldKey =
   | "location"
   | "device_type"
   | "platform"
+  | "secrets_group"
   | "software_version"
   | "serial"
   | "asset_tag"
@@ -84,6 +85,7 @@ export const REQUIRED_DEVICE_FIELD_DEFINITIONS = [
 /** Optional device attributes — checkbox + value, same pattern as Update Device. */
 export const OPTIONAL_DEVICE_FIELD_DEFINITIONS = [
   { key: "platform", label: "Platform", placeholder: "{nautobot.origin}" },
+  { key: "secrets_group", label: "Secrets group", placeholder: "{nautobot.origin}" },
   { key: "software_version", label: "Software version", placeholder: "17.9.1" },
   { key: "serial", label: "Serial number", placeholder: "{custom.serial | default('N/A')}" },
   { key: "asset_tag", label: "Asset tag", placeholder: "AST-0001" },

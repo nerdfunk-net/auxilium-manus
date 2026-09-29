@@ -180,6 +180,70 @@ class AddToNautobotExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.location, "dc1")
         self.assertEqual(request.device_type, "C9300-24T")
 
+    async def test_secrets_group_reaches_request_from_config_and_bag(self) -> None:
+        create_device = AsyncMock(
+            return_value={
+                "success": True,
+                "dry_run": False,
+                "device_id": "nb-device-uuid-1",
+                "device_name": "router1",
+                "device": {"id": "nb-device-uuid-1"},
+                "errors": [],
+            }
+        )
+        config = {
+            **_BASE_CONFIG,
+            "device_fields": {
+                **_BASE_CONFIG["device_fields"],
+                "secrets_group": {"enabled": True, "value": "{nautobot.origin}"},
+            },
+        }
+        bag = {"secrets_group": {"id": "sg-1", "name": "ssh-creds"}}
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            await execute(
+                config=config,
+                context=_context({"dev-1": _device("dev-1", name="router1", nautobot_bag=bag)}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        request = create_device.await_args.args[0]
+        self.assertEqual(request.secrets_group, "ssh-creds")
+
+    async def test_unresolved_secrets_group_fails_device(self) -> None:
+        create_device = AsyncMock(
+            side_effect=ValueError("Secrets group 'ghost' not found in Nautobot")
+        )
+        config = {
+            **_BASE_CONFIG,
+            "device_fields": {
+                **_BASE_CONFIG["device_fields"],
+                "secrets_group": {"enabled": True, "value": "ghost"},
+            },
+        }
+        p1, p2, p3, p4, p5 = _patches(
+            setting=_setting(),
+            creation_service_instance=_creation_service(create_device),
+        )
+        with p1, p2, p3, p4, p5:
+            outcomes = await execute(
+                config=config,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        failure = next(o for o in outcomes if o.name == "failure")
+        device = failure.context.devices["dev-1"]
+        self.assertIs(device.status, DeviceStatus.FAILED)
+        self.assertIn("ghost", device.errors[0].message)
+
     async def test_dry_run_success_also_marks_attributes_capability(self) -> None:
         create_device = AsyncMock(return_value={"success": True, "dry_run": True, "errors": []})
         config = {**_BASE_CONFIG, "dry_run": True}

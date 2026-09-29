@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "set-default-attributes"
 _SUPPORTED_TYPES = frozenset({"device"})
-_NAMED_REFERENCE_FIELDS = ("role", "status", "location", "platform", "rack")
+_NAMED_REFERENCE_FIELDS = ("role", "status", "location", "platform", "secrets_group", "rack")
 _SCALAR_FIELDS = ("software_version", "serial", "asset_tag", "face", "position")
 
 

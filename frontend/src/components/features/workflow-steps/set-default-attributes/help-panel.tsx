@@ -43,7 +43,7 @@ export function SetDefaultAttributesHelpPanel() {
           <li>
             <span className="font-medium text-foreground">Manual panel</span> — set
             values directly in the Edit Defaults dialog (role, status, location,
-            platform, device type, tags, custom fields, interfaces).
+            platform, secrets group, device type, tags, custom fields, interfaces).
           </li>
           <li>
             <span className="font-medium text-foreground">Git repo (YAML)</span> —
@@ -59,6 +59,8 @@ export function SetDefaultAttributesHelpPanel() {
           {"  "}status: Active
           <br />
           {"  "}location: City A
+          <br />
+          {"  "}secrets_group: Network Devices SSH
           <br />
           {"  "}tags: production
           <br />
@@ -128,7 +130,7 @@ export function SetDefaultAttributesHelpPanel() {
         <p>
           Add to Nautobot / Update Device resolve{" "}
           <HelpCode>{"{nautobot.origin}"}</HelpCode> only for scalar device fields
-          (name, role, status, location, device_type, platform, tags, custom_fields,
+          (name, role, status, location, device_type, platform, secrets_group, tags, custom_fields,
           etc.) — <span className="font-medium text-foreground">not</span> for
           interfaces, which are a hand-typed list with no expression support. This
           step still writes interface defaults into the bag (inspectable via Log

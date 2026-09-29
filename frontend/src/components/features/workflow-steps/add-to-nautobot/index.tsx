@@ -35,6 +35,7 @@ const DEFAULT_DEVICE_FIELDS: DeviceFieldsConfig = {
   location: { enabled: true, value: "{nautobot.origin}" },
   device_type: { enabled: true, value: "{nautobot.origin}" },
   platform: { enabled: true, value: "{nautobot.origin}" },
+  secrets_group: { enabled: true, value: "{nautobot.origin}" },
   software_version: { enabled: true, value: "{nautobot.origin}" },
   serial: { enabled: true, value: "{nautobot.origin}" },
   asset_tag: { enabled: true, value: "{nautobot.origin}" },

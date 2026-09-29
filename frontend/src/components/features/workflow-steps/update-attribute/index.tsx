@@ -190,7 +190,7 @@ function UpdateAttributeConfigPanel({
                       className="h-4 rounded px-1 text-[10px]"
                       variant={attribute.mode === "fixed" ? "secondary" : "outline"}
                     >
-                      {attribute.mode === "fixed" ? "fixed" : "regex"}
+                      {attribute.mode}
                     </Badge>
                     <span className="truncate font-mono text-[11px] text-foreground">
                       {attribute.destination_path}
@@ -227,7 +227,8 @@ function UpdateAttributeConfigPanel({
 
         <p className="text-[11px] leading-4 text-muted-foreground">
           Updates run in list order for each device — use the arrows to reorder. Regex
-          entries that do not match are skipped; fixed-value entries always write. Put
+          entries that do not match and template entries with an unresolved placeholder are
+          skipped; fixed-value entries always write. Put
           your default first and later, higher-priority overrides last.
         </p>
       </div>

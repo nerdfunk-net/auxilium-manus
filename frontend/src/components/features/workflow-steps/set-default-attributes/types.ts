@@ -26,6 +26,7 @@ export interface AttributesConfig {
   status: AttributeFieldSpec;
   location: AttributeFieldSpec;
   platform: AttributeFieldSpec;
+  secrets_group: AttributeFieldSpec;
   software_version: AttributeFieldSpec;
   serial: AttributeFieldSpec;
   asset_tag: AttributeFieldSpec;
@@ -64,6 +65,7 @@ type ScalarAttributeKey =
   | "status"
   | "location"
   | "platform"
+  | "secrets_group"
   | "software_version"
   | "serial"
   | "asset_tag"
@@ -84,6 +86,7 @@ export const OPTIONAL_ATTRIBUTE_FIELD_DEFINITIONS = [
   { key: "status", label: "Status", placeholder: "Active" },
   { key: "location", label: "Location", placeholder: "City A" },
   { key: "platform", label: "Platform", placeholder: "cisco_ios" },
+  { key: "secrets_group", label: "Secrets group", placeholder: "Network Devices SSH" },
   { key: "software_version", label: "Software version", placeholder: "17.9.1" },
   { key: "serial", label: "Serial number", placeholder: "" },
   { key: "asset_tag", label: "Asset tag", placeholder: "AST-0001" },

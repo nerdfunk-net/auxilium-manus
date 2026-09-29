@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-_NAMED_REFERENCE_FIELDS = frozenset({"location", "role", "status", "platform", "rack"})
+_NAMED_REFERENCE_FIELDS = frozenset(
+    {"location", "role", "status", "platform", "secrets_group", "rack"}
+)
 _DEVICE_TYPE_FIELD = "device_type"
 
 
@@ -99,6 +101,7 @@ def extract_update_fields_from_nautobot_bag(bag: dict[str, Any]) -> dict[str, An
         "status",
         "device_type",
         "platform",
+        "secrets_group",
         "software_version",
         "asset_tag",
         "tags",

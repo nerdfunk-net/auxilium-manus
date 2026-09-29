@@ -242,6 +242,10 @@ class DeviceCommonService:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.resolve_platform_id(platform_name)
 
+    async def resolve_secrets_group_id(self, group_name: str) -> str | None:
+        """Resolve secrets group name to UUID."""
+        return await self.metadata_resolver.resolve_secrets_group_id(group_name)
+
     async def get_platform_name(self, platform_id: str) -> str | None:
         """Delegate to MetadataResolver."""
         return await self.metadata_resolver.get_platform_name(platform_id)

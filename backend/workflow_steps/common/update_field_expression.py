@@ -20,6 +20,7 @@ _DEVICE_FIELD_KEYS = frozenset(
         "status",
         "device_type",
         "platform",
+        "secrets_group",
         "software_version",
         "asset_tag",
         "tags",

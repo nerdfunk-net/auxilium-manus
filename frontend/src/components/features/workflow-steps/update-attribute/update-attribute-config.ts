@@ -1,6 +1,6 @@
 import type { WorkflowOutcomeField } from "@/components/features/workflows/types/workflow-canvas";
 
-export type UpdateAttributeMode = "fixed" | "regex";
+export type UpdateAttributeMode = "fixed" | "regex" | "template";
 
 export interface RegexFlags {
   case_insensitive: boolean;
@@ -16,6 +16,7 @@ export interface AttributeUpdate {
   source_path: string;
   pattern: string;
   destination_template: string;
+  template: string;
   regex_flags: RegexFlags;
 }
 
@@ -36,6 +37,7 @@ export const DEFAULT_ATTRIBUTE_UPDATE_FIELDS: Omit<AttributeUpdate, "id"> = {
   source_path: "device.name",
   pattern: String.raw`^([^-]+)-`,
   destination_template: String.raw`DC-\1`,
+  template: "",
   regex_flags: DEFAULT_REGEX_FLAGS,
 };
 
@@ -58,7 +60,7 @@ function parseRegexFlags(raw: unknown): RegexFlags {
 }
 
 function parseMode(raw: unknown): UpdateAttributeMode {
-  return raw === "regex" ? "regex" : "fixed";
+  return raw === "regex" || raw === "template" ? raw : "fixed";
 }
 
 function newAttributeId(): string {
@@ -110,6 +112,10 @@ function parseAttributeUpdate(raw: unknown): AttributeUpdate | null {
       typeof item.destination_template === "string"
         ? item.destination_template
         : DEFAULT_ATTRIBUTE_UPDATE_FIELDS.destination_template,
+    template:
+      typeof item.template === "string"
+        ? item.template
+        : DEFAULT_ATTRIBUTE_UPDATE_FIELDS.template,
     regex_flags: parseRegexFlags(item.regex_flags),
   };
 }
@@ -147,6 +153,10 @@ function parseLegacyAttribute(config: Record<string, unknown>): AttributeUpdate 
       typeof config.destination_template === "string"
         ? config.destination_template
         : DEFAULT_ATTRIBUTE_UPDATE_FIELDS.destination_template,
+    template:
+      typeof config.template === "string"
+        ? config.template
+        : DEFAULT_ATTRIBUTE_UPDATE_FIELDS.template,
     regex_flags: parseRegexFlags(config.regex_flags),
   };
 }
@@ -184,6 +194,9 @@ export function summarizeAttributeUpdate(attribute: AttributeUpdate): string {
   if (attribute.mode === "fixed") {
     const value = attribute.fixed_value.trim() || "(empty)";
     return `${attribute.destination_path} = ${value}`;
+  }
+  if (attribute.mode === "template") {
+    return `${attribute.destination_path} = ${attribute.template.trim() || "(empty)"}`;
   }
   return `${attribute.source_path} → ${attribute.destination_path}`;
 }

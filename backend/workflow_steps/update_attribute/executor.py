@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from core.models.runs import WorkflowRun
@@ -24,7 +25,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "update-attribute"
-_VALID_MODES = frozenset({"fixed", "regex"})
+_VALID_MODES = frozenset({"fixed", "regex", "template"})
+
+# {attribute.path} placeholder; paths may contain list selectors like field[key=value].
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
 
 
 def _default_attribute() -> dict[str, Any]:
@@ -34,7 +38,7 @@ def _default_attribute() -> dict[str, Any]:
 def _parse_mode(raw: Any) -> str:
     mode = str(raw or _default_attribute()["mode"]).strip().lower()
     if mode not in _VALID_MODES:
-        raise ValueError(f"{_STEP_ID}: mode must be 'fixed' or 'regex'")
+        raise ValueError(f"{_STEP_ID}: mode must be 'fixed', 'regex' or 'template'")
     return mode
 
 
@@ -66,6 +70,7 @@ def _normalize_attribute_entry(raw: Any, *, index: int) -> dict[str, Any]:
         "fixed_value": str(raw.get("fixed_value", defaults["fixed_value"])),
         "source_path": str(raw.get("source_path", defaults["source_path"])),
         "pattern": str(raw.get("pattern", defaults["pattern"])),
+        "template": str(raw.get("template", defaults["template"])),
         "destination_template": str(
             raw.get("destination_template", defaults["destination_template"])
         ),
@@ -84,6 +89,7 @@ def _legacy_attribute_from_config(config: dict[str, Any]) -> dict[str, Any] | No
             "source_path",
             "pattern",
             "destination_template",
+            "template",
             "regex_flags",
         )
     )
@@ -172,6 +178,49 @@ def _apply_regex_update(
     return set_device_attribute(device, destination_path, stored_value)
 
 
+def _render_attribute_template(device: DeviceContext, template: str) -> str | None:
+    """Expand ``{path}`` placeholders from the device; ``None`` if any is unresolved."""
+    unresolved = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal unresolved
+        path = match.group(1).strip()
+        # Same redaction boundary as regex mode: never rehydrate a sealed secret.
+        value = resolve_device_attribute(device, path, reveal_secrets=False)
+        if value == REDACTED_PLACEHOLDER:
+            raise ValueError(
+                f"{_STEP_ID}: template placeholder '{path}' resolves to a sealed secret; "
+                "update-attribute cannot read or copy secret values. Use "
+                "render-jinja-template or the ISE-specific steps instead."
+            )
+        if value is None:
+            unresolved = True
+            return ""
+        return value
+
+    rendered = _PLACEHOLDER_RE.sub(replace, template)
+    return None if unresolved else rendered
+
+
+def _apply_template_update(
+    *,
+    device: DeviceContext,
+    destination_path: str,
+    template: str,
+) -> DeviceContext | None:
+    if not template.strip():
+        raise ValueError(f"{_STEP_ID}: template is required in template mode")
+
+    rendered = _render_attribute_template(device, template)
+    if rendered is None:
+        return None
+
+    stored_value: Any = (
+        seal_secret(rendered) if path_is_known_secret(destination_path) else rendered
+    )
+    return set_device_attribute(device, destination_path, stored_value)
+
+
 def _apply_attribute_update(
     *,
     device: DeviceContext,
@@ -188,6 +237,14 @@ def _apply_attribute_update(
             fixed_value=attribute["fixed_value"],
         )
         return updated, True
+
+    if mode == "template":
+        updated = _apply_template_update(
+            device=device,
+            destination_path=destination_path,
+            template=attribute["template"],
+        )
+        return (device, False) if updated is None else (updated, True)
 
     updated = _apply_regex_update(
         device=device,

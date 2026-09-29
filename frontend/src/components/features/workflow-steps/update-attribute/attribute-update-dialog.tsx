@@ -115,6 +115,8 @@ export interface AttributeUpdateEditorProps {
   onBrowseDestination?: () => void;
   /** Renders a "Browse attributes" icon button next to source_path when provided. */
   onBrowseSource?: () => void;
+  /** Renders a "Browse attributes" icon button next to template that inserts a placeholder. */
+  onBrowseTemplate?: () => void;
 }
 
 export function AttributeUpdateEditor({
@@ -123,6 +125,7 @@ export function AttributeUpdateEditor({
   fieldId = "attribute-editor",
   onBrowseDestination,
   onBrowseSource,
+  onBrowseTemplate,
 }: AttributeUpdateEditorProps) {
   const handleModeChange = useCallback(
     (mode: UpdateAttributeMode) => {
@@ -163,11 +166,13 @@ export function AttributeUpdateEditor({
           <SelectContent>
             <SelectItem value="fixed">Fixed value</SelectItem>
             <SelectItem value="regex">Regular expression</SelectItem>
+            <SelectItem value="template">Template</SelectItem>
           </SelectContent>
         </Select>
         <p className="text-[11px] leading-4 text-muted-foreground">
           Fixed value writes a literal to the destination path. Regular expression reads a
-          source attribute, matches a pattern, and writes an expanded destination value.
+          source attribute, matches a pattern, and writes an expanded destination value. Template
+          combines any number of attributes and literal text into one value.
         </p>
       </div>
 
@@ -220,6 +225,41 @@ export function AttributeUpdateEditor({
           <p className="text-[11px] leading-4 text-muted-foreground">
             The value is written to the destination path, creating or overwriting the attribute
             in the workflow context.
+          </p>
+        </div>
+      ) : value.mode === "template" ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs font-medium">template</span>
+            <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+              string
+            </Badge>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={value.template}
+              onChange={(event) => onChange({ ...value, template: event.target.value })}
+              placeholder="{device.name}.{parsed.cisco_config.running.identity.domain_name}"
+              className="h-8 font-mono text-xs"
+            />
+            {onBrowseTemplate ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={onBrowseTemplate}
+                title="Insert attribute placeholder"
+              >
+                <Search className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Wrap an attribute path in braces, e.g.{" "}
+            <span className="font-mono">{"{device.name}"}</span>, to insert its value. Everything
+            else is written literally. The update is skipped for a device when any placeholder
+            cannot be resolved.
           </p>
         </div>
       ) : (
@@ -311,6 +351,9 @@ function validateAttributeDraft(draft: AttributeUpdate): string | null {
     }
     return null;
   }
+  if (draft.mode === "template") {
+    return draft.template.trim() ? null : "template is required in template mode.";
+  }
   if (!draft.source_path.trim()) {
     return "source_path is required in regex mode.";
   }
@@ -347,7 +390,7 @@ function AttributeUpdateDialogForm({
     () => initialValue ?? createAttributeUpdate(),
   );
   const [error, setError] = useState<string | null>(null);
-  const [pickerTarget, setPickerTarget] = useState<"destination" | "source" | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<"destination" | "source" | "template" | null>(null);
 
   const handleSave = useCallback(() => {
     const validationError = validateAttributeDraft(draft);
@@ -361,6 +404,7 @@ function AttributeUpdateDialogForm({
       source_path: draft.source_path.trim(),
       pattern: draft.pattern,
       destination_template: draft.destination_template,
+      template: draft.template,
       fixed_value: draft.fixed_value,
     });
     setError(null);
@@ -389,6 +433,9 @@ function AttributeUpdateDialogForm({
             fieldId="attribute-dialog"
             onBrowseDestination={() => setPickerTarget("destination")}
             onBrowseSource={draft.mode === "regex" ? () => setPickerTarget("source") : undefined}
+            onBrowseTemplate={
+              draft.mode === "template" ? () => setPickerTarget("template") : undefined
+            }
           />
           {error ? (
             <p className="mt-3 rounded-lg border border-warning-border bg-warning px-3 py-2 text-xs text-warning-foreground">
@@ -420,7 +467,9 @@ function AttributeUpdateDialogForm({
             ...current,
             ...(pickerTarget === "source"
               ? { source_path: path }
-              : { destination_path: path }),
+              : pickerTarget === "template"
+                ? { template: `${current.template}{${path}}` }
+                : { destination_path: path }),
           }));
           setError(null);
         }}

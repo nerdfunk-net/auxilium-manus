@@ -57,6 +57,46 @@ class SetDefaultAttributesManualModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device.attribute_bags["nautobot"]["status"], {"name": "Active"})
         self.assertIn(Capability.ATTRIBUTES, device.capabilities)
 
+    async def test_seeds_secrets_group(self) -> None:
+        config = {
+            **get_config(),
+            "attributes": {
+                **get_config()["attributes"],
+                "secrets_group": {"enabled": True, "value": "ssh-creds"},
+            },
+        }
+        outcomes = await execute(
+            config=config,
+            context=_context({"dev-1": _device("dev-1")}),
+            run=_run(),
+            artifact_service=MagicMock(),
+            node_id="node-1",
+            device_sessions=MagicMock(),
+        )
+        bag = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]
+        self.assertEqual(bag["secrets_group"], {"name": "ssh-creds"})
+
+    async def test_git_mode_seeds_secrets_group(self) -> None:
+        config = {
+            **get_config(),
+            "mode": "git",
+            "git": {"git_repository_id": 1, "filename_pattern": "*.yaml"},
+        }
+        with patch(
+            "workflow_steps.set_default_attributes.executor.load_yaml_from_git_source",
+            return_value={"devices": {"secrets_group": "ssh-creds"}},
+        ):
+            outcomes = await execute(
+                config=config,
+                context=_context({"dev-1": _device("dev-1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        bag = outcomes[0].context.devices["dev-1"].attribute_bags["nautobot"]
+        self.assertEqual(bag["secrets_group"], {"name": "ssh-creds"})
+
     async def test_overwrite_false_skips_existing_value(self) -> None:
         config = {
             **get_config(),

@@ -150,6 +150,7 @@ class AddDeviceRequest(BaseModel):
     device_type: str = Field(..., description="Device type model or UUID")
 
     platform: str | None = Field(None, description="Platform name or UUID")
+    secrets_group: str | None = Field(None, description="Secrets group name or UUID")
     software_version: str | None = Field(None, description="Software version")
     serial: str | None = Field(None, description="Serial number")
     asset_tag: str | None = Field(None, description="Asset tag")

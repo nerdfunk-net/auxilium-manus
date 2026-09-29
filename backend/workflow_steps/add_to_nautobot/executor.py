@@ -97,6 +97,7 @@ def _build_request(
         location=resolved["location"],
         device_type=resolved["device_type"],
         platform=resolved.get("platform"),
+        secrets_group=resolved.get("secrets_group"),
         software_version=resolved.get("software_version"),
         serial=resolved.get("serial"),
         asset_tag=resolved.get("asset_tag"),

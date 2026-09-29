@@ -11,6 +11,7 @@ def get_config() -> dict:
             "location": {"enabled": True, "value": "{nautobot.origin}"},
             "device_type": {"enabled": True, "value": "{nautobot.origin}"},
             "platform": {"enabled": True, "value": "{nautobot.origin}"},
+            "secrets_group": {"enabled": True, "value": "{nautobot.origin}"},
             "software_version": {"enabled": True, "value": "{nautobot.origin}"},
             "serial": {"enabled": True, "value": "{nautobot.origin}"},
             "asset_tag": {"enabled": True, "value": "{nautobot.origin}"},

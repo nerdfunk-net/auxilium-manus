@@ -126,6 +126,14 @@ class DeviceCreationService:
                 logger.warning("Platform '%s' not found in Nautobot — skipping", request.platform)
                 updates["platform"] = None
 
+        if request.secrets_group and not is_valid_uuid(request.secrets_group):
+            # Unlike platform, an unknown secrets group fails the device: without it
+            # Nautobot cannot reach the device, so silently skipping would hide the gap.
+            secrets_group_id = await self.common.resolve_secrets_group_id(request.secrets_group)
+            if not secrets_group_id:
+                raise ValueError(f"Secrets group '{request.secrets_group}' not found in Nautobot")
+            updates["secrets_group"] = secrets_group_id
+
         if updates:
             return request.model_copy(update=updates)
         return request
@@ -171,6 +179,18 @@ class DeviceCreationService:
             except Exception as exc:
                 logger.warning("Dry run: could not validate platform: %s", exc)
 
+        if request.secrets_group:
+            try:
+                result = await self.nautobot.rest_request(
+                    f"extras/secrets-groups/?id={request.secrets_group}&limit=1"
+                )
+                if result.get("count", 0) == 0:
+                    errors.append(
+                        f"Secrets group ID '{request.secrets_group}' not found in Nautobot"
+                    )
+            except Exception as exc:
+                logger.warning("Dry run: could not validate secrets group: %s", exc)
+
         success = len(errors) == 0
         return {
             "success": success,
@@ -196,6 +216,8 @@ class DeviceCreationService:
 
         if request.platform:
             device_payload["platform"] = request.platform
+        if request.secrets_group:
+            device_payload["secrets_group"] = request.secrets_group
         if request.software_version:
             device_payload["software_version"] = request.software_version
         if request.serial:
