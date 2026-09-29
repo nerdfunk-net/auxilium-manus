@@ -50,6 +50,27 @@ class InventoryReferenceResolverTests(unittest.TestCase):
         with self.assertRaises(ReferenceValidationError):
             validate_reference_inputs(self._attrs(), {"inv": 5}, db=MagicMock(), acting_user_id=1)
 
+    def test_each_failure_carries_a_machine_readable_code(self) -> None:
+        from services.execution.reference_resolver import REF_RESOLVERS
+
+        resolver = REF_RESOLVERS["inventory"]
+        cases = [
+            ("abc", None, None, "invalid_id"),
+            (9, None, None, "not_found"),
+            (9, PermissionError("denied"), None, "not_accessible"),
+            (5, None, {"id": 5, "is_active": False}, "inactive"),
+        ]
+        for reference, error, inventory, expected in cases:
+            with self.subTest(code=expected):
+                self.inv_service.get_inventory.side_effect = error
+                self.inv_service.get_inventory.return_value = inventory
+                with self.assertRaises(ReferenceValidationError) as ctx:
+                    resolver.validate(reference, db=MagicMock(), acting_user_id=1)
+                self.assertEqual(ctx.exception.code, expected)
+
+    def test_a_plain_error_still_defaults_to_an_invalid_code(self) -> None:
+        self.assertEqual(ReferenceValidationError("boom").code, "invalid")
+
 
 class CredentialReferenceResolverTests(unittest.TestCase):
     def setUp(self) -> None:

@@ -24,7 +24,15 @@ logger = logging.getLogger(__name__)
 
 class ReferenceValidationError(ValueError):
     """A ``type == "reference"`` run-input value does not resolve for the acting
-    user — unknown row, no access, wrong type, or expired."""
+    user — unknown row, no access, wrong type, or expired.
+
+    ``code`` is a short machine-readable reason (``invalid_id``, ``not_found``,
+    ``not_accessible``, ``inactive``; ``invalid`` when unspecified) so callers such
+    as the workflow validator can turn a failure into a precise finding."""
+
+    def __init__(self, message: str, *, code: str = "invalid") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class ReferenceResolver(Protocol):
@@ -60,7 +68,9 @@ class _InventoryReferenceResolver:
         try:
             inventory_id = int(reference)
         except (TypeError, ValueError) as exc:
-            raise ReferenceValidationError(f"{reference!r} is not a valid inventory id") from exc
+            raise ReferenceValidationError(
+                f"{reference!r} is not a valid inventory id", code="invalid_id"
+            ) from exc
 
         username = _acting_username(db, acting_user_id)
         service = InventoryService(InventoryRepository(db))
@@ -68,12 +78,14 @@ class _InventoryReferenceResolver:
             inventory = service.get_inventory(inventory_id, username=username)
         except PermissionError as exc:
             raise ReferenceValidationError(
-                f"inventory {inventory_id} is private to another user"
+                f"inventory {inventory_id} is private to another user", code="not_accessible"
             ) from exc
         if inventory is None:
-            raise ReferenceValidationError(f"inventory {inventory_id} does not exist")
+            raise ReferenceValidationError(
+                f"inventory {inventory_id} does not exist", code="not_found"
+            )
         if not inventory.get("is_active", True):
-            raise ReferenceValidationError(f"inventory {inventory_id} is inactive")
+            raise ReferenceValidationError(f"inventory {inventory_id} is inactive", code="inactive")
 
 
 class _CredentialReferenceResolver:

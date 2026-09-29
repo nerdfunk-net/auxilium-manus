@@ -68,12 +68,13 @@ class RunServicePreRunValidationTests(unittest.TestCase):
         self.mock_run_no_wait = run_no_wait_patch.start()
         self.addCleanup(run_no_wait_patch.stop)
 
-    def _make_workflow(self) -> Workflow:
+    def _make_workflow(self, nodes: list | None = None) -> Workflow:
         workflow = Workflow(
             name="wf-1",
             creator_id=USER_ID,
             visibility="public",
-            canvas_nodes=[{"id": "n1", "data": {"kind": "run-command", "pluginConfig": {}}}],
+            canvas_nodes=nodes
+            or [{"id": "n1", "data": {"kind": "run-command", "pluginConfig": {}}}],
             canvas_edges=[],
         )
         self.db.add(workflow)
@@ -180,6 +181,72 @@ class RunServicePreRunValidationTests(unittest.TestCase):
 
         mock_registry_cls.assert_not_called()
         mock_validator.assert_called_once_with(self.db, injected_registry)
+
+
+class RunServiceLinkedInventoryGateTests(unittest.TestCase):
+    """End to end through the *real* validator and step registry (only the
+    inventory lookup is faked): a workflow whose "Get from Nautobot" step links
+    a saved inventory that no longer exists must be refused before any run row
+    is created."""
+
+    def setUp(self) -> None:
+        RunServicePreRunValidationTests.setUp(self)  # same DB + Hatchet stubs
+
+        inventory_patches = [
+            patch("services.sources.nautobot.persistence_service.InventoryService"),
+            patch("repositories.inventory_repository.InventoryRepository"),
+            patch("repositories.user_repository.UserRepository"),
+            patch("repositories.settings_repository.SettingsRepository.get_by_key"),
+        ]
+        started = [p.start() for p in inventory_patches]
+        for p in inventory_patches:
+            self.addCleanup(p.stop)
+        self.inventories = started[0].return_value
+        started[2].return_value.get_by_id.return_value = MagicMock(username="alice")
+        started[3].return_value = MagicMock()  # the Nautobot source exists
+
+    _make_workflow = RunServicePreRunValidationTests._make_workflow
+
+    def _workflow_linking(self, **config) -> Workflow:
+        config = {"nautobot_source_id": "nautobot", **config}
+        return self._make_workflow(
+            [{"id": "n1", "data": {"kind": "get-nautobot-devices", "pluginConfig": config}}]
+        )
+
+    def _trigger(self, workflow: Workflow):
+        return self.service.trigger_run(
+            workflow_id=workflow.id, data=WorkflowRunCreate(), user_id=USER_ID
+        )
+
+    def test_a_deleted_inventory_refuses_the_run_before_any_row_is_created(self) -> None:
+        self.inventories.get_inventory.return_value = None
+        workflow = self._workflow_linking(inventory_id=2, inventory_name="Full lab env")
+
+        with self.assertRaises(ValidationFailedError) as ctx:
+            self._trigger(workflow)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("inventory_not_found", ctx.exception.detail)
+        self.assertIn("Full lab env", ctx.exception.detail)
+        self.assertIn("does not exist", ctx.exception.detail)
+        self.mock_run_no_wait.assert_not_called()
+        self.assertEqual(self.db.query(WorkflowRun).count(), 0)
+
+    def test_an_existing_inventory_lets_the_run_dispatch(self) -> None:
+        self.inventories.get_inventory.return_value = {"id": 1, "is_active": True}
+
+        response = self._trigger(self._workflow_linking(inventory_id=1, inventory_name="LAB"))
+
+        self.mock_run_no_wait.assert_called_once()
+        self.assertIsNotNone(response.id)
+
+    def test_a_step_with_no_inventory_is_not_blocked_by_this_check(self) -> None:
+        self.inventories.get_inventory.return_value = None
+
+        self._trigger(self._workflow_linking())
+
+        self.inventories.get_inventory.assert_not_called()
+        self.mock_run_no_wait.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -104,6 +104,18 @@ side effects, no secret decryption):
 "exists but not visible to this user" (the last one matters for private credentials —
 same distinction `workflow-import.ts`'s remap logic already makes).
 
+**Linked inventories — ✅ built 2026-09-29.** A `get-nautobot-devices` step that links a
+saved inventory (`inventory_id`, `inventory_source: "fixed"`) resolves it *live on every
+run*, so `WorkflowValidationService._check_inventory` reports a broken link up front
+instead of mid-run. It reuses `reference_resolver`'s inventory resolver (whose
+`ReferenceValidationError` now carries a machine-readable `code`), so both agree on what
+"exists / accessible / active" means, and emits one Tier 2 **error** per broken step:
+`inventory_not_found`, `inventory_not_accessible` (private to another user),
+`inventory_inactive`, or `inventory_id_invalid`. Skipped when `inventory_source` is
+`"run_param"` (the run parameter is what counts) or `inventory_id` is blank/0 (an ad-hoc
+step). Because the pre-run gate and the scheduled trigger both call the validator, a run
+with a deleted inventory is refused before a run row is created.
+
 ---
 
 ## Tier 3 — Capability flow (the good news) — ✅ built 2026-09-23

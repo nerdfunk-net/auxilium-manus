@@ -422,6 +422,131 @@ class Tier2ReferenceTests(unittest.TestCase):
         self.assertEqual(result.findings, [])
 
 
+class Tier2InventoryReferenceTests(unittest.TestCase):
+    """A get-nautobot-devices step that links a saved inventory (`inventory_id`)
+    resolves it live on every run, so a deleted / inactive / inaccessible
+    inventory must be reported up front instead of failing mid-run."""
+
+    def setUp(self) -> None:
+        patches = {
+            "service": patch("services.sources.nautobot.persistence_service.InventoryService"),
+            "repo": patch("repositories.inventory_repository.InventoryRepository"),
+            "users": patch("repositories.user_repository.UserRepository"),
+        }
+        started = {name: p.start() for name, p in patches.items()}
+        for p in patches.values():
+            self.addCleanup(p.stop)
+        self.inventories = started["service"].return_value
+        started["users"].return_value.get_by_id.return_value = MagicMock(username="alice")
+        self.svc = _service(_registry(_plugin("get-nautobot-devices", required_fields=[])))
+
+    def _validate(self, config: dict, *, user: int | None = 1, node_id: str = "n1"):
+        return self.svc.validate(
+            [_node(node_id, "get-nautobot-devices", config)], acting_user_id=user
+        )
+
+    def test_missing_inventory_is_an_error_naming_it(self) -> None:
+        self.inventories.get_inventory.return_value = None
+
+        result = self._validate({"inventory_id": 2, "inventory_name": "Full lab env"})
+
+        self.assertTrue(result.has_errors)
+        (finding,) = result.findings
+        self.assertEqual(finding.code, "inventory_not_found")
+        self.assertEqual((finding.tier, finding.severity, finding.node_id), (2, "error", "n1"))
+        self.assertIn("2", finding.message)
+        self.assertIn("Full lab env", finding.message)
+        self.assertIn("does not exist", finding.message)
+        self.assertIn("Select an inventory again", finding.message)
+
+    def test_existing_accessible_inventory_produces_no_findings(self) -> None:
+        self.inventories.get_inventory.return_value = {"id": 1, "is_active": True}
+
+        result = self._validate({"inventory_id": 1, "inventory_name": "LAB"})
+
+        self.assertEqual(result.findings, [])
+        self.assertFalse(result.has_errors)
+        self.inventories.get_inventory.assert_called_once_with(1, username="alice")
+
+    def test_a_numeric_string_id_is_accepted(self) -> None:
+        self.inventories.get_inventory.return_value = {"id": 5, "is_active": True}
+
+        self.assertEqual(self._validate({"inventory_id": "5"}).findings, [])
+        self.inventories.get_inventory.assert_called_once_with(5, username="alice")
+
+    def test_private_inventory_of_another_user_is_an_error(self) -> None:
+        self.inventories.get_inventory.side_effect = PermissionError("denied")
+
+        (finding,) = self._validate({"inventory_id": 3}).findings
+
+        self.assertEqual(finding.code, "inventory_not_accessible")
+        self.assertIn("private", finding.message)
+
+    def test_inactive_inventory_is_an_error(self) -> None:
+        self.inventories.get_inventory.return_value = {"id": 3, "is_active": False}
+
+        (finding,) = self._validate({"inventory_id": 3}).findings
+
+        self.assertEqual(finding.code, "inventory_inactive")
+
+    def test_a_non_numeric_id_is_an_error(self) -> None:
+        (finding,) = self._validate({"inventory_id": "abc"}).findings
+
+        self.assertEqual(finding.code, "inventory_id_invalid")
+        self.inventories.get_inventory.assert_not_called()
+
+    def test_static_inventories_are_checked_too(self) -> None:
+        self.inventories.get_inventory.return_value = None
+
+        result = self._validate({"inventory_id": 9, "inventory_type": "static"})
+
+        self.assertEqual([f.code for f in result.findings], ["inventory_not_found"])
+
+    def test_run_parameter_mode_ignores_a_stale_literal_id(self) -> None:
+        # In run_param mode the literal id is unused; the run parameter is what counts.
+        self.inventories.get_inventory.return_value = None
+
+        result = self._validate(
+            {"inventory_source": "run_param", "inventory_param": "target", "inventory_id": 2}
+        )
+
+        self.assertEqual(result.findings, [])
+        self.inventories.get_inventory.assert_not_called()
+
+    def test_a_step_without_an_inventory_is_not_checked(self) -> None:
+        for empty in (None, "", 0):
+            with self.subTest(inventory_id=empty):
+                self.inventories.get_inventory.reset_mock()
+
+                result = self._validate({"inventory_id": empty})
+
+                self.assertEqual(result.findings, [])
+                self.inventories.get_inventory.assert_not_called()
+        no_config = self.svc.validate([_node("n1", "get-nautobot-devices", {})], acting_user_id=1)
+        self.assertEqual(no_config.findings, [])
+
+    def test_every_broken_step_is_reported_against_its_own_node(self) -> None:
+        self.inventories.get_inventory.return_value = None
+
+        result = self.svc.validate(
+            [
+                _node("a", "get-nautobot-devices", {"inventory_id": 1}),
+                _node("b", "get-nautobot-devices", {"inventory_id": 2}),
+            ],
+            acting_user_id=1,
+        )
+
+        self.assertEqual(sorted(f.node_id for f in result.findings), ["a", "b"])
+
+    def test_a_system_run_without_a_user_still_checks_existence(self) -> None:
+        self.inventories.get_inventory.return_value = None
+
+        (finding,) = self._validate({"inventory_id": 2}, user=None).findings
+
+        self.assertEqual(finding.code, "inventory_not_found")
+        self.inventories.get_inventory.assert_called_once_with(2, username=None)
+
+
 class Tier3CapabilityFlowTests(unittest.TestCase):
     def test_missing_capability_with_no_upstream_is_an_error(self) -> None:
         registry = _registry(_plugin("run-command", requires=["identity"], outcomes=["success"]))

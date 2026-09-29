@@ -7,9 +7,10 @@ doc/ai_collaboration/VALIDATION_PLAN.md. Tiers 1-4 in this pass:
   `default:`, or the step's own `config.py::get_config()`), in which case
   leaving it blank is not an error: the step falls back to that default at
   save/run time. Never re-declares those defaults a third time here.
-- Tier 2 (reference existence): credential_reference/git_repository_id/*_source_id
-  values resolve for the acting user. Existing resolvers are reused, never
-  re-implemented — CredentialsService, git_repository_loader, SettingsRepository.
+- Tier 2 (reference existence): credential_reference/git_repository_id/*_source_id/
+  inventory_id values resolve for the acting user. Existing resolvers are reused,
+  never re-implemented — CredentialsService, git_repository_loader,
+  SettingsRepository, reference_resolver's inventory resolver.
 - Tier 3 (capability flow): a static DAG walk checking every step's declared
   `requires`/`requires_parsed` is satisfiable from some upstream path, reusing
   the same rules the runtime guards enforce (services/workflow_context/guards.py)
@@ -41,6 +42,7 @@ from models.workflow_validation import ValidationFinding, WorkflowValidationResu
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
 from services.execution.graph import GraphCycleError, downstream_node_ids, topological_order
+from services.execution.reference_resolver import REF_RESOLVERS, ReferenceValidationError
 from services.execution.step_runner import graph_resolution as _gr
 from services.git.repository_service import GitRepositoryService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
@@ -301,7 +303,54 @@ class WorkflowValidationService:
             if isinstance(source_id, str) and source_id.strip():
                 findings.extend(self._check_source_id(node_id, source_type, source_id))
 
+        # A step that links a saved inventory resolves it live on every run, so a
+        # deleted / inactive / inaccessible inventory must fail here, not mid-run.
+        # In run_param mode the literal id is unused (the run parameter is), and a
+        # blank/0 id means "no inventory selected" — same as the executor.
+        inventory_id = plugin_config.get("inventory_id")
+        if plugin_config.get("inventory_source") != "run_param" and inventory_id not in (
+            None,
+            "",
+            0,
+        ):
+            findings.extend(
+                self._check_inventory(
+                    node_id, inventory_id, plugin_config.get("inventory_name"), acting_user_id
+                )
+            )
+
         return findings
+
+    def _check_inventory(
+        self,
+        node_id: str | None,
+        inventory_id: Any,
+        inventory_name: Any,
+        acting_user_id: int | None,
+    ) -> list[ValidationFinding]:
+        # Reuses the same resolver that validates run-parameter inventories
+        # (services/execution/reference_resolver.py), so both agree on what
+        # "exists / is accessible / is active" means.
+        try:
+            REF_RESOLVERS["inventory"].validate(
+                inventory_id, db=self.db, acting_user_id=acting_user_id
+            )
+        except ReferenceValidationError as exc:
+            name = inventory_name.strip() if isinstance(inventory_name, str) else ""
+            selected = f" (selected as '{name}')" if name else ""
+            return [
+                ValidationFinding(
+                    node_id=node_id,
+                    tier=2,
+                    severity="error",
+                    code=f"inventory_{'id_invalid' if exc.code == 'invalid_id' else exc.code}",
+                    message=(
+                        f"Saved inventory{selected}: {exc}. "
+                        f"Select an inventory again in the step."
+                    ),
+                )
+            ]
+        return []
 
     def _check_credential_reference(
         self,
