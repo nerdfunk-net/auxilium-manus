@@ -145,6 +145,25 @@ export function AddToIseHelpPanel() {
         </HelpWarning>
       </HelpSection>
 
+      <HelpSection title="Debugging: request and response">
+        <p>
+          After a run, open the run&apos;s device detail view and check the{" "}
+          <span className="font-medium text-foreground">Attribute bags</span> tab
+          for <HelpCode>add_to_ise</HelpCode>. It holds the exact{" "}
+          <HelpCode>request</HelpCode> body sent to ISE (after{" "}
+          <HelpCode>{"{path}"}</HelpCode> resolution) and ISE&apos;s{" "}
+          <HelpCode>response</HelpCode> — the new device id on success, or the
+          error ISE returned. It is recorded for created, already-existing
+          (<HelpCode>exists</HelpCode>) and rejected devices. Devices that
+          failed before a request was built (for example an unresolved
+          expression) have no entry.
+        </p>
+        <p>
+          The TACACS+ shared secret in the request is shown as{" "}
+          <HelpCode>***REDACTED***</HelpCode>.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Outcomes">
         <ul className="list-disc space-y-1 pl-4">
           <li>

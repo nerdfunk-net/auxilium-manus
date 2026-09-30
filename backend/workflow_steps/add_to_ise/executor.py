@@ -21,6 +21,14 @@ Outcomes: devices are routed per outcome handle.
   bare ``ISEAPIError`` raised mid-run). This affects every device equally, so
   the whole input context is carried on this outcome.
 
+Debugging: every device for which a create request was actually sent gets
+``attribute_bags["add_to_ise"] = {"request": ..., "response": ...}`` — the
+exact ``NetworkDevice`` body posted to ISE (after ``{path}`` resolution) and
+ISE's response (or the error ISE returned). It is recorded for created,
+already-existing and rejected devices alike, with the TACACS+ shared secret
+redacted. Devices that failed before a request was built (unresolved
+expressions) have none.
+
 ``connectModeOptions`` is hardcoded to ``"OFF"`` (matching
 ``backend/scripts/ise_test.py``'s default) rather than exposed as
 configuration, keeping the config surface to the fields the user asked for.
@@ -65,7 +73,7 @@ from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
 from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.attribute_path import resolve_device_value
-from services.workflow_context.secret_fields import seal_secret
+from services.workflow_context.secret_fields import redact_secrets_in_data, seal_secret
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
@@ -307,30 +315,60 @@ def _build_create_payload(
     return device_payload
 
 
-def _enrich_device_after_create(
-    device: DeviceContext,
-    device_payload: dict[str, Any],
-    created: dict[str, Any],
-    resolved_key: str,
-) -> DeviceContext:
-    sealed_ise_payload = {
+def _sealed_payload(device_payload: dict[str, Any], resolved_key: str) -> dict[str, Any]:
+    return {
         **device_payload,
         "tacacsSettings": {
             **device_payload["tacacsSettings"],
             "sharedSecret": seal_secret(resolved_key),
         },
     }
+
+
+def _with_exchange(
+    device: DeviceContext,
+    device_payload: dict[str, Any],
+    resolved_key: str,
+    response: dict[str, Any],
+) -> DeviceContext:
+    """Record the request sent to ISE and ISE's response in ``add_to_ise``.
+
+    Redaction is marker-based, so the shared secret is sealed first and then
+    replaced with the redaction placeholder — no key material is stored.
+    """
+    bag = redact_secrets_in_data(
+        {
+            "request": {"NetworkDevice": _sealed_payload(device_payload, resolved_key)},
+            "response": response,
+        }
+    )
+    return device.model_copy(
+        update={
+            "attribute_bags": {**device.attribute_bags, "add_to_ise": bag},
+            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
+        }
+    )
+
+
+def _enrich_device_after_create(
+    device: DeviceContext,
+    device_payload: dict[str, Any],
+    created: dict[str, Any],
+    resolved_key: str,
+) -> DeviceContext:
+    sealed_ise_payload = _sealed_payload(device_payload, resolved_key)
     attribute_bags = {
         **device.attribute_bags,
         "ise": {**sealed_ise_payload, "id": created.get("id"), "is_group_or_prefix": False},
         "tacacs": {"shared_secret": seal_secret(resolved_key)},
     }
-    return device.model_copy(
+    enriched = device.model_copy(
         update={
             "attribute_bags": attribute_bags,
             "capabilities": device.capabilities | {Capability.ATTRIBUTES},
         }
     )
+    return _with_exchange(enriched, device_payload, resolved_key, created)
 
 
 async def _create_one_device(
@@ -372,15 +410,19 @@ async def _create_one_device(
                 source_id,
                 exc,
             )
-            return _CreateOneResult(kind="exists", device=device)
+            exists_device = _with_exchange(
+                device, device_payload, resolved.key, {"error": str(exc)}
+            )
+            return _CreateOneResult(kind="exists", device=exists_device)
+        rejected = _mark_failed(
+            device,
+            node_id=node_id,
+            code="ise_device_create_rejected",
+            message=f"ISE rejected creating device '{resolved.name}': {exc}",
+        )
         return _CreateOneResult(
             kind="failed",
-            device=_mark_failed(
-                device,
-                node_id=node_id,
-                code="ise_device_create_rejected",
-                message=f"ISE rejected creating device '{resolved.name}': {exc}",
-            ),
+            device=_with_exchange(rejected, device_payload, resolved.key, {"error": str(exc)}),
         )
     except ISEAPIError as exc:
         logger.warning(

@@ -453,6 +453,46 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_name["success"].context.metadata["node-1.exists_count"], 1)
         self.assertEqual(by_name["success"].context.metadata["node-1.created_count"], 1)
 
+    async def test_request_and_response_recorded_in_add_to_ise_bag(self) -> None:
+        device_service = _device_service()
+        device_service.create_device = AsyncMock(
+            side_effect=[
+                {"id": "ise-1", "location": "https://ise/x"},
+                ISEValidationError("Device Name Already Exists"),
+                ISEValidationError("Illegal IP Address"),
+            ]
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context(
+                    {
+                        "a": _device("a", name="r1"),
+                        "b": _device("b", name="r2"),
+                        "c": _device("c", name="r3"),
+                    }
+                ),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        by_name = {o.name: o for o in outcomes}
+        created = by_name["success"].context.devices["a"].attribute_bags["add_to_ise"]
+        self.assertEqual(created["response"]["id"], "ise-1")
+        body = created["request"]["NetworkDevice"]
+        self.assertEqual(body["name"], "router1")
+        self.assertEqual(body["tacacsSettings"]["sharedSecret"], "***REDACTED***")
+
+        exists = by_name["exists"].context.devices["b"].attribute_bags["add_to_ise"]
+        self.assertEqual(exists["response"], {"error": "Device Name Already Exists"})
+
+        rejected = by_name["success"].context.devices["c"].attribute_bags["add_to_ise"]
+        self.assertEqual(rejected["response"], {"error": "Illegal IP Address"})
+        self.assertNotIn("s3cr3t", repr([created, exists, rejected]))
+
     async def test_bare_api_error_mid_run_aborts_with_failure_outcome(self) -> None:
         device_service = _device_service()
         device_service.create_device = AsyncMock(
