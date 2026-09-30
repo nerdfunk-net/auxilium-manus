@@ -77,9 +77,17 @@ export function AddToIseHelpPanel() {
       <HelpSection title="IP address">
         <p>
           <HelpCode>ip_address</HelpCode> is the host address ISE uses for the
-          device. Registered as a single host — a netmask suffix (e.g.{" "}
-          <HelpCode>/24</HelpCode>) is stripped automatically; ISE has no
-          separate netmask field, so the device is always stored as{" "}
+          device. ISE takes the address and the netmask separately, so a suffix
+          such as <HelpCode>/24</HelpCode> is split off the address and sent as
+          the mask. Without a suffix the mask is <HelpCode>/32</HelpCode> (a
+          single host).
+        </p>
+        <p>
+          <HelpCode>netmask_override</HelpCode> (optional) forces a mask
+          regardless of the address: enter <HelpCode>32</HelpCode> or{" "}
+          <HelpCode>/32</HelpCode> to always register a single host, even when
+          the address carries <HelpCode>/24</HelpCode>. Leave it blank to use
+          the mask from <HelpCode>ip_address</HelpCode>, falling back to{" "}
           <HelpCode>/32</HelpCode>.
         </p>
         <HelpExample>
@@ -91,8 +99,10 @@ export function AddToIseHelpPanel() {
         </HelpExample>
         <HelpWarning title="Host only">
           <p>
-            Do not pass a subnet CIDR expecting ISE to expand it — use Get from
-            ISE with resolve_to_devices, or register individual hosts.
+            ISE stores the address and mask as a single network device entry; it
+            does not expand a subnet into individual devices. A mask shorter
+            than <HelpCode>/32</HelpCode> makes the entry cover that whole
+            range, so use it only when that is what you want.
           </p>
         </HelpWarning>
       </HelpSection>

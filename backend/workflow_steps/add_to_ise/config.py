@@ -7,6 +7,7 @@ def get_config() -> dict:
         "device_name": "{name}",
         "description": "",
         "ip_address": "{primary_ip4}",
+        "netmask_override": "",
         "new_key": "",
         "device_groups": [],
     }

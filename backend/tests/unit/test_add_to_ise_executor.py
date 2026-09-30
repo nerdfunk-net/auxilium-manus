@@ -349,7 +349,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         (payload,), _ = device_service.create_device.call_args
         self.assertEqual(payload["NetworkDeviceIPList"][0]["ipaddress"], "10.10.10.9")
-        self.assertEqual(payload["NetworkDeviceIPList"][0]["mask"], 32)
+        self.assertEqual(payload["NetworkDeviceIPList"][0]["mask"], 24)
         self.assertEqual(outcomes[0].context.metadata["node-1.created_count"], 1)
 
     async def test_unresolved_new_key_marks_device_failed(self) -> None:
@@ -420,6 +420,73 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payloads[0]["description"], "Lab router")
         # Unresolvable optional description: device is still created, without one.
         self.assertNotIn("description", payloads[1])
+
+    async def _created_mask(self, *, ip: str, netmask_override: str | None = None) -> int:
+        device_service = _device_service()
+        config = {**_BASE_CONFIG, "ip_address": ip}
+        if netmask_override is not None:
+            config["netmask_override"] = netmask_override
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            await execute(
+                config=config,
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        entry = device_service.create_device.call_args.args[0]["NetworkDeviceIPList"][0]
+        self.assertEqual(entry["ipaddress"], ip.split("/")[0])
+        return entry["mask"]
+
+    async def test_mask_taken_from_ip_address_suffix(self) -> None:
+        self.assertEqual(await self._created_mask(ip="192.168.178.240/24"), 24)
+
+    async def test_mask_defaults_to_32_without_suffix(self) -> None:
+        self.assertEqual(await self._created_mask(ip="192.168.178.240"), 32)
+
+    async def test_netmask_override_wins_over_suffix(self) -> None:
+        self.assertEqual(
+            await self._created_mask(ip="192.168.178.240/24", netmask_override="32"), 32
+        )
+        self.assertEqual(
+            await self._created_mask(ip="192.168.178.240", netmask_override="/28"), 28
+        )
+
+    async def test_blank_netmask_override_falls_back_to_suffix(self) -> None:
+        self.assertEqual(
+            await self._created_mask(ip="192.168.178.240/24", netmask_override="  "), 24
+        )
+
+    async def test_invalid_netmask_override_raises(self) -> None:
+        for bad in ("abc", "-1", "129"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    await execute(
+                        config={**_BASE_CONFIG, "netmask_override": bad},
+                        context=_context({"dev-1": _device("dev-1", name="router1")}),
+                        run=_run(),
+                        artifact_service=MagicMock(),
+                        node_id="node-1",
+                        device_sessions=MagicMock(),
+                    )
+
+    async def test_mask_too_long_for_ipv4_fails_device(self) -> None:
+        device_service = _device_service()
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config={**_BASE_CONFIG, "netmask_override": "64"},
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        device_service.create_device.assert_not_called()
+        failed = {o.name: o for o in outcomes}["success"].context.devices["dev-1"]
+        self.assertEqual(failed.errors[-1].code, "netmask_invalid")
 
     async def test_duplicate_name_routes_device_to_exists_outcome(self) -> None:
         device_service = _device_service()
@@ -535,7 +602,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-    async def test_cidr_suffixed_ip_address_is_normalized_to_bare_host(self) -> None:
+    async def test_cidr_suffixed_ip_address_is_split_into_host_and_mask(self) -> None:
         device_service = _device_service()
         config = {**_BASE_CONFIG, "ip_address": "10.10.10.5/24"}
         p1, p2, p3 = _patches(device_service)
@@ -551,7 +618,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         (payload,), _ = device_service.create_device.call_args
         self.assertEqual(payload["NetworkDeviceIPList"][0]["ipaddress"], "10.10.10.5")
-        self.assertEqual(payload["NetworkDeviceIPList"][0]["mask"], 32)
+        self.assertEqual(payload["NetworkDeviceIPList"][0]["mask"], 24)
 
     async def test_invalid_ip_address_marks_device_failed_but_step_succeeds(self) -> None:
         device_service = _device_service()

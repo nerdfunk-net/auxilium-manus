@@ -38,10 +38,11 @@ configuration, keeping the config surface to the fields the user asked for.
 ``ip_address`` may resolve to a CIDR-suffixed value (e.g. ``10.0.0.1/24``,
 the format Nautobot's ``primary_ip4`` is commonly stored/templated in) —
 ISE's ``NetworkDeviceIPList.ipaddress`` field rejects a CIDR suffix outright
-with a ``400 Illegal IP Address`` error. The resolved value is normalized to
-its bare host address before being sent, and the netmask is always sent as
-``/32`` (a single host entry, matching ``backend/scripts/ise_test.py``'s
-default) — there is no separate netmask configuration field.
+with a ``400 Illegal IP Address`` error. The resolved value is therefore split
+into the bare host address (``ipaddress``) and a separate ``mask``. The mask
+is, in order of precedence: the optional ``netmask_override`` config value
+(e.g. ``32`` or ``/32``), the suffix of the resolved ``ip_address``, else
+``/32`` (a single host entry, matching ``backend/scripts/ise_test.py``).
 
 When the default ``{primary_ip4}`` expression is used, ``device.primary_ip4``
 is only populated by inventory steps that fetch full device records (Get from
@@ -102,12 +103,14 @@ class _ParsedConfig:
     raw_new_key: str
     description: str
     device_groups: list[str]
+    netmask_override: int | None = None
 
 
 @dataclass(frozen=True)
 class _ResolvedFields:
     name: str
     ip_host: str
+    mask: int
     key: str
     description: str
 
@@ -128,6 +131,7 @@ def _mark_failed(device: DeviceContext, *, node_id: str, code: str, message: str
 
 
 _HOST_MASK = 32
+_MAX_MASK_BY_VERSION = {4: 32, 6: 128}
 
 
 def _parse_device_groups(raw: Any) -> list[str]:
@@ -136,6 +140,40 @@ def _parse_device_groups(raw: Any) -> list[str]:
     if not isinstance(raw, list):
         raise ValueError(f"{_STEP_ID}: device_groups must be a list")
     return [str(item).strip() for item in raw if str(item).strip()]
+
+
+def _parse_netmask_override(raw: Any) -> int | None:
+    """Parse the optional ``netmask_override`` config value (``"32"``, ``"/32"``, ``32``)."""
+    if raw is None:
+        return None
+    text = str(raw).strip().lstrip("/").strip()
+    if not text:
+        return None
+    if not text.isdigit() or int(text) > _MAX_MASK_BY_VERSION[6]:
+        raise ValueError(
+            f"{_STEP_ID}: netmask_override must be a prefix length such as 32 or /24, got '{raw}'"
+        )
+    return int(text)
+
+
+def _extract_ip_mask(raw: str, ip_host: str, override: int | None) -> int | None:
+    """Pick the mask for *ip_host*: override, else the ``/nn`` suffix of *raw*, else /32.
+
+    Returns ``None`` when the chosen mask is not valid for the address family.
+    """
+    mask = override
+    if mask is None:
+        _, _, suffix = raw.partition("/")
+        suffix = suffix.strip()
+        if suffix:
+            if not suffix.isdigit():
+                return None
+            mask = int(suffix)
+    if mask is None:
+        mask = _HOST_MASK
+    if mask > _MAX_MASK_BY_VERSION[ipaddress.ip_address(ip_host).version]:
+        return None
+    return mask
 
 
 def _extract_ip_host(raw: str) -> str | None:
@@ -187,6 +225,8 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     description = str(config.get("description") or "").strip()
     device_groups = _parse_device_groups(config.get("device_groups"))
 
+    netmask_override = _parse_netmask_override(config.get("netmask_override"))
+
     return _ParsedConfig(
         source_id=source_id,
         raw_device_name=raw_device_name,
@@ -194,6 +234,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         raw_new_key=raw_new_key,
         description=description,
         device_groups=device_groups,
+        netmask_override=netmask_override,
     )
 
 
@@ -263,6 +304,16 @@ def _resolve_device_fields(
             ),
         )
 
+    mask = _extract_ip_mask(resolved_ip, ip_host, cfg.netmask_override)
+    if mask is None:
+        return (
+            "netmask_invalid",
+            (
+                f"netmask for '{resolved_ip}' on '{device.name}' is not a valid prefix length "
+                f"(netmask_override={cfg.netmask_override!r})"
+            ),
+        )
+
     resolved_key = resolve_update_field_expression(
         device=device,
         field_key="new_key",
@@ -297,6 +348,7 @@ def _resolve_device_fields(
     return _ResolvedFields(
         name=resolved_name,
         ip_host=ip_host,
+        mask=mask,
         key=resolved_key,
         description=resolved_description or "",
     )
@@ -309,7 +361,7 @@ def _build_create_payload(
 ) -> dict[str, Any]:
     device_payload: dict[str, Any] = {
         "name": resolved.name,
-        "NetworkDeviceIPList": [{"ipaddress": resolved.ip_host, "mask": _HOST_MASK}],
+        "NetworkDeviceIPList": [{"ipaddress": resolved.ip_host, "mask": resolved.mask}],
         "tacacsSettings": {"sharedSecret": resolved.key, "connectModeOptions": "OFF"},
     }
     if resolved.description:

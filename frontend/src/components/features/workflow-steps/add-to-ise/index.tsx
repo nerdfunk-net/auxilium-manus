@@ -26,6 +26,7 @@ const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 const DEVICE_NAME_KEY = "device_name";
 const DESCRIPTION_KEY = "description";
 const IP_ADDRESS_KEY = "ip_address";
+const NETMASK_OVERRIDE_KEY = "netmask_override";
 const NEW_KEY_KEY = "new_key";
 const DEVICE_GROUPS_KEY = "device_groups";
 
@@ -63,6 +64,7 @@ function AddToIseConfigPanel({
   const deviceName = useMemo(() => stringFromConfig(config, DEVICE_NAME_KEY), [config]);
   const description = useMemo(() => stringFromConfig(config, DESCRIPTION_KEY), [config]);
   const ipAddress = useMemo(() => stringFromConfig(config, IP_ADDRESS_KEY), [config]);
+  const netmaskOverride = useMemo(() => stringFromConfig(config, NETMASK_OVERRIDE_KEY), [config]);
   const newKey = useMemo(() => stringFromConfig(config, NEW_KEY_KEY), [config]);
   const deviceGroups = useMemo(() => deviceGroupsFromConfig(config), [config]);
 
@@ -92,6 +94,13 @@ function AddToIseConfigPanel({
   const handleIpAddressChange = useCallback(
     (next: string) => {
       onChange({ ...config, [IP_ADDRESS_KEY]: next });
+    },
+    [config, onChange],
+  );
+
+  const handleNetmaskOverrideChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      onChange({ ...config, [NETMASK_OVERRIDE_KEY]: event.target.value });
     },
     [config, onChange],
   );
@@ -195,12 +204,30 @@ function AddToIseConfigPanel({
       >
         <ExpressionHint example="{primary_ip4}" />
         <p className="text-[11px] leading-4 text-muted-foreground">
-          Registered as a single host in ISE. A netmask suffix (e.g.{" "}
-          <span className="font-mono">/24</span>) is stripped automatically — there is no
-          separate netmask field.
+          A netmask suffix (e.g. <span className="font-mono">/24</span>) is sent to ISE as the
+          mask; without one the mask is <span className="font-mono">/32</span>. Use{" "}
+          <span className="font-mono">{NETMASK_OVERRIDE_KEY}</span> below to force a mask.
         </p>
         {!ipAddress && <p className="text-[11px] text-warning-foreground">Not configured</p>}
       </ExpressionField>
+
+      {/* netmask_override */}
+      <div className="space-y-1.5">
+        <span className="font-mono text-xs font-medium">{NETMASK_OVERRIDE_KEY}</span>
+        <Input
+          className="h-9 font-mono text-xs"
+          placeholder="Optional, e.g. 32"
+          inputMode="numeric"
+          value={netmaskOverride}
+          onChange={handleNetmaskOverrideChange}
+        />
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Optional prefix length (<span className="font-mono">32</span> or{" "}
+          <span className="font-mono">/32</span>) that overrides the mask. Blank: use the mask
+          from <span className="font-mono">{IP_ADDRESS_KEY}</span>, or{" "}
+          <span className="font-mono">/32</span> if it has none.
+        </p>
+      </div>
 
       {/* new_key */}
       <div className="space-y-1.5">

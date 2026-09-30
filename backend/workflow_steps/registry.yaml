@@ -320,9 +320,9 @@ plugins:
             The device's IP address to register in ISE. Use a fixed value, or a
             {path.to.value} expression with the same convention as device_name, e.g.
             {primary_ip4}. Nautobot's primary_ip4 is commonly stored with a netmask
-            suffix (e.g. 10.0.0.1/24) — any /nn suffix is stripped automatically and
-            the device is registered as a single host (mask 32); there is no separate
-            netmask field. If {primary_ip4} doesn't resolve (the device's own
+            suffix (e.g. 10.0.0.1/24) — the /nn suffix is split off the address and used
+            as the ISE netmask unless netmask_override is set (see that field);
+            with no suffix the mask is 32. If {primary_ip4} doesn't resolve (the device's own
             primary_ip4 field is only set by inventory steps that fetch full device
             records, e.g. Get from Nautobot), it automatically falls back to the
             nautobot.primary_ip4.address attribute bag path, which is where the IP
@@ -331,6 +331,14 @@ plugins:
           data_type: string
           required: true
           example: "{primary_ip4}"
+        - name: netmask_override
+          description: >
+            Optional prefix length (e.g. 32 or /32) that overrides the netmask sent
+            to ISE. Leave blank to use the /nn suffix of the resolved ip_address;
+            if that has no suffix either, the mask is 32.
+          data_type: string
+          required: false
+          example: "32"
         - name: new_key
           description: >
             The TACACS+ shared secret to set on the created device. Use a fixed value,
