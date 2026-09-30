@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 import { MultiSelectPanel } from "./multi-select-panel";
 import { SelectedEdgePanel } from "./selected-edge-panel";
+import type { MoveTargetGroup } from "./move-to-group-control";
 import { SelectedStepPanel } from "./selected-step-panel";
 import { StepCatalog } from "./step-catalog";
 import { WorkflowAiSessionPanel } from "./workflow-ai-session-panel";
@@ -31,6 +32,7 @@ import type { AutoLayoutDirection } from "../utils/auto-layout";
 import type { NodeAlignment } from "../utils/node-alignment";
 
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
+const EMPTY_MOVE_TARGETS: MoveTargetGroup[] = [];
 
 interface WorkflowPropertiesPanelProps {
   nodes: ProjectedCanvasNode[];
@@ -39,6 +41,9 @@ interface WorkflowPropertiesPanelProps {
   isPluginsLoading: boolean;
   pluginErrorMessage?: string;
   isInsideGroup?: boolean;
+  groups?: MoveTargetGroup[];
+  onMoveToGroup?: (nodeIds: string[], groupId: string) => void;
+  onMoveOutOfGroup?: (nodeIds: string[]) => void;
   onAddStep: (step: StepPayload) => void;
   onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
   onEdgeLabelChange?: (edgeId: string, label: string) => void;
@@ -71,6 +76,9 @@ export function WorkflowPropertiesPanel({
   isPluginsLoading,
   pluginErrorMessage,
   isInsideGroup = false,
+  groups = EMPTY_MOVE_TARGETS,
+  onMoveToGroup,
+  onMoveOutOfGroup,
   onAddStep,
   onEdgeStyleChange,
   onEdgeLabelChange,
@@ -226,6 +234,9 @@ export function WorkflowPropertiesPanel({
             <MultiSelectPanel
               nodes={selectedCanvasNodes}
               isInsideGroup={isInsideGroup}
+              groups={groups}
+              onMoveToGroup={onMoveToGroup}
+              onMoveOutOfGroup={onMoveOutOfGroup}
               autoLayoutDirection={autoLayoutDirection}
               isAutoLayoutRunning={isAutoLayoutRunning}
               onAlignNodes={onAlignNodes}
@@ -237,6 +248,10 @@ export function WorkflowPropertiesPanel({
           ) : singleNode ? (
             <SelectedStepPanel
               node={singleNode}
+              isInsideGroup={isInsideGroup}
+              groups={groups}
+              onMoveToGroup={onMoveToGroup}
+              onMoveOutOfGroup={onMoveOutOfGroup}
               onOpenConfig={() => openConfigModal(singleNode.id)}
               onNodeTitleChange={onNodeTitleChange}
               onNodeDisabledChange={onNodeDisabledChange}

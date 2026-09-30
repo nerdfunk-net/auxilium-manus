@@ -81,7 +81,7 @@ function group(id: string, position = { x: 0, y: 0 }): GroupCanvasNode {
     width: 320,
     height: 128,
     measured: { width: 320, height: 128 },
-    data: { kind: "__canvas-group__", title: id, memberCount: 2, groupId: id },
+    data: { kind: "__canvas-group__", title: id, memberCount: 2, groupId: id, inputPorts: [], outputPorts: [] },
   };
 }
 

@@ -23,22 +23,24 @@ const HANDLE_SIDE_TO_POSITION: Record<HandleSide, Position> = {
   right: Position.Right,
 };
 
-/** Centers a handle along the axis perpendicular to the side it attaches to. */
-function centeringStyle(side: HandleSide) {
-  return side === "top" || side === "bottom" ? { left: "50%" } : { top: "50%" };
+/** Places handle `index` of `count` evenly along the axis of the side it attaches to. */
+function portStyle(side: HandleSide, index: number, count: number) {
+  const pct = `${((index + 1) / (count + 1)) * 100}%`;
+  return side === "top" || side === "bottom" ? { left: pct } : { top: pct };
 }
 
 export function GroupNode({ id, data, selected }: NodeProps<GroupCanvasNode>) {
   const enterGroup = useWorkflowBuilderStore((state) => state.enterGroup);
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
-  const hasTargetHandle = (data.requires?.length ?? 0) > 0 || (data.requiresParsed?.length ?? 0) > 0;
   const incomeSide = data.incomeHandleSide ?? "left";
   const outcomeSide = data.outcomeHandleSide ?? "right";
+  const inputPorts = data.inputPorts;
+  const outputPorts = data.outputPorts;
 
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => {
     updateNodeInternals(id);
-  }, [id, updateNodeInternals, incomeSide, outcomeSide, hasTargetHandle]);
+  }, [id, updateNodeInternals, incomeSide, outcomeSide, inputPorts.length, outputPorts.length]);
 
   return (
     <div
@@ -47,18 +49,31 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupCanvasNode>) {
         NODE_WIDTH_CLASS,
         NODE_HEIGHT_CLASS,
         selected && "border-ring shadow-lg ring-2 ring-ring/20",
+        data.isDropTarget && "border-ring bg-accent shadow-lg ring-2 ring-ring",
       )}
       onDoubleClick={() => enterGroup(data.groupId)}
     >
-      {hasTargetHandle ? (
+      {inputPorts.length > 0 ? (
+        inputPorts.map((port, index) => (
+          <Handle
+            className={TARGET_HANDLE_CLASS}
+            id={port.handleId}
+            key={port.handleId}
+            position={HANDLE_SIDE_TO_POSITION[incomeSide]}
+            style={portStyle(incomeSide, index, inputPorts.length)}
+            title={port.label}
+            type="target"
+          />
+        ))
+      ) : (
         <Handle
           className={TARGET_HANDLE_CLASS}
           id="input"
           position={HANDLE_SIDE_TO_POSITION[incomeSide]}
-          style={centeringStyle(incomeSide)}
+          style={portStyle(incomeSide, 0, 1)}
           type="target"
         />
-      ) : null}
+      )}
       <Button
         aria-label="Open configuration"
         className="absolute right-1.5 top-1.5 size-6 opacity-0 transition-opacity group-hover:opacity-100"
@@ -78,20 +93,36 @@ export function GroupNode({ id, data, selected }: NodeProps<GroupCanvasNode>) {
         <div className="min-w-0 flex-1">
           <p className="min-w-0 text-sm font-semibold leading-snug">{data.title}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {data.memberCount} step{data.memberCount === 1 ? "" : "s"}
+            {data.memberCount === 0
+              ? "Empty group"
+              : `${data.memberCount} step${data.memberCount === 1 ? "" : "s"}`}
           </p>
           <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-            Double-click to open
+            {data.isDropTarget ? "Drop to add to group" : "Double-click to open"}
           </p>
         </div>
       </div>
-      <Handle
-        className={SOURCE_HANDLE_CLASS}
-        id="success"
-        position={HANDLE_SIDE_TO_POSITION[outcomeSide]}
-        style={centeringStyle(outcomeSide)}
-        type="source"
-      />
+      {outputPorts.length > 0 ? (
+        outputPorts.map((port, index) => (
+          <Handle
+            className={SOURCE_HANDLE_CLASS}
+            id={port.handleId}
+            key={port.handleId}
+            position={HANDLE_SIDE_TO_POSITION[outcomeSide]}
+            style={portStyle(outcomeSide, index, outputPorts.length)}
+            title={port.label}
+            type="source"
+          />
+        ))
+      ) : (
+        <Handle
+          className={SOURCE_HANDLE_CLASS}
+          id="success"
+          position={HANDLE_SIDE_TO_POSITION[outcomeSide]}
+          style={portStyle(outcomeSide, 0, 1)}
+          type="source"
+        />
+      )}
     </div>
   );
 }

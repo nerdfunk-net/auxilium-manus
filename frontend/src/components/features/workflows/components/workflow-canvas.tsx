@@ -12,24 +12,31 @@ import {
   type FinalConnectionState,
   type NodeTypes,
   type OnEdgesChange,
+  type OnNodeDrag,
   type OnMoveEnd,
   type OnNodesChange,
   type OnSelectionChangeFunc,
   type Viewport,
 } from "@xyflow/react";
 import type { DragEvent, MouseEvent } from "react";
-import { useCallback, useEffect, useMemo } from "react";
+import { FolderOutput } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { isCompatible } from "@/lib/capability-types";
 
 import "@xyflow/react/dist/style.css";
 
+import type { GroupConnectionEnds } from "../hooks/use-workflow-canvas-core";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
+import { getOutcomeProvides, type OutcomeProvides } from "../utils/capability-graph";
+import { isGroupCanvasNode } from "../utils/canvas-group-projection";
 import {
-  computeOutcomeProvides,
-  getOutcomeProvides,
-} from "../utils/capability-graph";
+  draggableStepIds,
+  findGroupNodeAtPoint,
+  isPointInClientRect,
+} from "../utils/canvas-group-dnd";
 import { findPluginByKind, STEP_DRAG_MIME_TYPE, toStepPayload } from "../utils/step-catalog";
 import type { PluginDefinition } from "../types/plugin-registry";
 import {
@@ -84,6 +91,25 @@ const DELETE_KEY_CODES = ["Backspace", "Delete"];
 
 const EMPTY_VALIDATION_BY_NODE_ID: Record<string, NodeValidationSummary> = {};
 
+interface DragTargetState {
+  dropTargetGroupId: string | null;
+  overDropZone: boolean;
+}
+
+/** Client coordinates of a mouse or touch drag event, or null if unavailable. */
+function clientPoint(event: unknown): { x: number; y: number } | null {
+  const e = event as {
+    clientX?: number;
+    clientY?: number;
+    changedTouches?: ArrayLike<{ clientX: number; clientY: number }>;
+  };
+  if (typeof e.clientX === "number" && typeof e.clientY === "number") {
+    return { x: e.clientX, y: e.clientY };
+  }
+  const touch = e.changedTouches?.[0];
+  return touch ? { x: touch.clientX, y: touch.clientY } : null;
+}
+
 interface WorkflowCanvasProps {
   nodes: ProjectedCanvasNode[];
   edges: WorkflowCanvasEdge[];
@@ -92,12 +118,30 @@ interface WorkflowCanvasProps {
   onEdgesChange: OnEdgesChange<WorkflowCanvasEdge>;
   onConnect: (connection: Connection) => void;
   onAddStepAtPosition: (step: StepPayload, position: { x: number; y: number }) => void;
+  /** Member steps that can take/provide a connection touching a collapsed group (flat-graph aware). */
+  /**
+   * Capability guarantees per step outcome, computed on the FLAT graph. The
+   * rendered `nodes`/`edges` are a view (an open group shows only its own
+   * members), so they can't be used to judge what an upstream step provides.
+   */
+  outcomeProvides: Map<string, OutcomeProvides>;
+  getGroupConnectionEnds: (connection: Connection | WorkflowCanvasEdge) => GroupConnectionEnds;
+  /** True while an opened group is shown instead of the root canvas. */
+  isInsideGroup?: boolean;
+  /** Fired when real steps are dropped onto a collapsed group node. */
+  onMoveNodesToGroup?: (nodeIds: string[], groupId: string) => void;
+  /** Fired when steps are dropped on the "move out of group" strip. */
+  onMoveNodesOutOfGroup?: (nodeIds: string[]) => void;
   /** Pan/zoom to restore on initial mount, e.g. from a pre-navigation draft. Omit (or null) to fit-to-content instead. */
   initialViewport?: Viewport | null;
   /** Fired once per pan/zoom gesture (not per frame) so the caller can remember it for the next mount. */
   onViewportChange?: (viewport: Viewport) => void;
   /** Error/warning counts from the last Validate run, keyed by node id — merged into each node's `data.validation` as a view-only annotation (see WorkflowNodeData). */
   validationByNodeId?: Record<string, NodeValidationSummary>;
+}
+
+function isDropTargetGroup(node: ProjectedCanvasNode, groupId: string | null): boolean {
+  return groupId !== null && node.type === "groupNode" && node.data.groupId === groupId;
 }
 
 function WorkflowCanvasInner({
@@ -108,6 +152,11 @@ function WorkflowCanvasInner({
   onEdgesChange,
   onConnect,
   onAddStepAtPosition,
+  outcomeProvides,
+  getGroupConnectionEnds,
+  isInsideGroup = false,
+  onMoveNodesToGroup,
+  onMoveNodesOutOfGroup,
   initialViewport,
   onViewportChange,
   validationByNodeId = EMPTY_VALIDATION_BY_NODE_ID,
@@ -122,6 +171,66 @@ function WorkflowCanvasInner({
   const showGrid = useWorkflowBuilderStore((state) => state.showGrid);
   const { toast } = useToast();
   const { screenToFlowPosition, fitView } = useReactFlow();
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+  // Non-null only while a node drag is in progress; updated only when a value
+  // actually changes so a drag doesn't re-render the canvas on every mousemove.
+  const [dragTarget, setDragTarget] = useState<DragTargetState | null>(null);
+
+  const resolveDragTarget = useCallback(
+    (event: unknown, draggedNodes: ProjectedCanvasNode[]): DragTargetState => {
+      const point = clientPoint(event);
+      if (!point || draggableStepIds(draggedNodes).length === 0) {
+        return { dropTargetGroupId: null, overDropZone: false };
+      }
+      if (isInsideGroup) {
+        const rect = dropZoneRef.current?.getBoundingClientRect();
+        return {
+          dropTargetGroupId: null,
+          overDropZone: rect ? isPointInClientRect(point.x, point.y, rect) : false,
+        };
+      }
+      const flowPoint = screenToFlowPosition(point);
+      const draggedIds = new Set(draggedNodes.map((n) => n.id));
+      return {
+        dropTargetGroupId: findGroupNodeAtPoint(flowPoint, nodes, draggedIds),
+        overDropZone: false,
+      };
+    },
+    [isInsideGroup, nodes, screenToFlowPosition],
+  );
+
+  const handleNodeDragStart = useCallback<OnNodeDrag<ProjectedCanvasNode>>(() => {
+    setDragTarget({ dropTargetGroupId: null, overDropZone: false });
+  }, []);
+
+  const handleNodeDrag = useCallback<OnNodeDrag<ProjectedCanvasNode>>(
+    (event, _node, draggedNodes) => {
+      const next = resolveDragTarget(event, draggedNodes);
+      setDragTarget((current) =>
+        current &&
+        current.dropTargetGroupId === next.dropTargetGroupId &&
+        current.overDropZone === next.overDropZone
+          ? current
+          : next,
+      );
+    },
+    [resolveDragTarget],
+  );
+
+  const handleNodeDragStop = useCallback<OnNodeDrag<ProjectedCanvasNode>>(
+    (event, _node, draggedNodes) => {
+      const target = resolveDragTarget(event, draggedNodes);
+      setDragTarget(null);
+      const stepIds = draggableStepIds(draggedNodes);
+      if (stepIds.length === 0) return;
+      if (target.dropTargetGroupId) {
+        onMoveNodesToGroup?.(stepIds, target.dropTargetGroupId);
+      } else if (target.overDropZone) {
+        onMoveNodesOutOfGroup?.(stepIds);
+      }
+    },
+    [resolveDragTarget, onMoveNodesToGroup, onMoveNodesOutOfGroup],
+  );
 
   // Auto-layout is the only canvas operation that deliberately moves the
   // camera (see LAYOUT.md "Viewport after layout") — alignment/drag never do.
@@ -134,11 +243,6 @@ function WorkflowCanvasInner({
     });
     clearFitViewRequest();
   }, [pendingFitViewNodeIds, fitView, clearFitViewRequest]);
-
-  const outcomeProvides = useMemo(
-    () => computeOutcomeProvides(nodes, edges),
-    [nodes, edges],
-  );
 
   const isValidConnection = useCallback(
     (connection: Connection | WorkflowCanvasEdge): boolean => {
@@ -177,6 +281,15 @@ function WorkflowCanvasInner({
         return true;
       }
 
+      // A collapsed group has no fixed step: the connection is valid when at
+      // least one member can take (or provide) it. The group node's own
+      // requires/produces only reflect existing boundary ports, so they can't
+      // be used here.
+      if (isGroupCanvasNode(sourceNode) || isGroupCanvasNode(targetNode)) {
+        const ends = getGroupConnectionEnds(connection);
+        return (ends.source?.length ?? 1) > 0 && (ends.target?.length ?? 1) > 0;
+      }
+
       const provided = getOutcomeProvides(
         outcomeProvides,
         connection.source ?? "",
@@ -208,7 +321,7 @@ function WorkflowCanvasInner({
         },
       );
     },
-    [nodes, edges, outcomeProvides],
+    [nodes, edges, outcomeProvides, getGroupConnectionEnds],
   );
   const handleConnectEnd = useCallback(
     (_: unknown, connectionState: FinalConnectionState) => {
@@ -294,6 +407,11 @@ function WorkflowCanvasInner({
   const layeredNodes = useMemo(
     () =>
       sortNodesForContainment(nodes).map((node) => {
+        if (
+          isDropTargetGroup(node, dragTarget?.dropTargetGroupId ?? null)
+        ) {
+          return { ...node, data: { ...node.data, isDropTarget: true } } as ProjectedCanvasNode;
+        }
         const withValidation: ProjectedCanvasNode =
           node.type === "workflowNode" && validationByNodeId[node.id]
             ? { ...node, data: { ...node.data, validation: validationByNodeId[node.id] } }
@@ -310,7 +428,7 @@ function WorkflowCanvasInner({
         }
         return withValidation;
       }),
-    [nodes, validationByNodeId],
+    [nodes, validationByNodeId, dragTarget?.dropTargetGroupId],
   );
 
   const handleMoveEnd: OnMoveEnd = useCallback(
@@ -344,6 +462,9 @@ function WorkflowCanvasInner({
         onPaneClick={handlePaneClick}
         onSelectionChange={handleSelectionChange}
         onMoveEnd={handleMoveEnd}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragStop={handleNodeDragStop}
         snapToGrid={snapToGrid}
         snapGrid={SNAP_GRID}
         deleteKeyCode={DELETE_KEY_CODES}
@@ -362,6 +483,18 @@ function WorkflowCanvasInner({
         <Controls />
         <CollapsibleMiniMap />
       </ReactFlow>
+      {isInsideGroup && dragTarget ? (
+        <div
+          ref={dropZoneRef}
+          className={cn(
+            "pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border-2 border-dashed bg-card/95 px-5 py-3 text-sm font-medium text-muted-foreground shadow-sm transition-colors",
+            dragTarget.overDropZone && "border-ring bg-accent text-foreground",
+          )}
+        >
+          <FolderOutput className="size-4" aria-hidden />
+          Drop here to move out of group
+        </div>
+      ) : null}
       {nodes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="max-w-sm rounded-2xl border bg-card/95 p-6 text-center shadow-sm">

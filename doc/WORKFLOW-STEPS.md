@@ -129,17 +129,18 @@ plugins:
 
 ## Canvas decorations
 
-Some Debug-palette entries are **canvas decorations** — visual annotations that make
+Some **Visuals**-palette entries are **canvas decorations** — visual annotations that make
 a workflow easier to read. They are **not** executable steps.
 
 | Step id | Purpose |
 |---------|---------|
 | `label` | Configurable text (size, font, color) on the canvas |
 | `background` | Colored rectangle always drawn **behind** other nodes |
+| `step-group` | Container you open like a folder (see below) |
 
 Contract:
 
-- Registry: `artifact_type: canvas_decoration`, `palette_category: debug`,
+- Registry: `artifact_type: canvas_decoration`, `palette_category: visuals`,
   **`executable: false`**, empty `requires` / `produces` / `outcomes`
 - **No `executor.py`** and **no** entry in `step_registry.py`
 - Frontend uses dedicated React Flow node types (`labelNode`, `backgroundNode`)
@@ -151,6 +152,23 @@ Contract:
 
 `config.py` still provides defaults for the ConfigPanel. Decorations persist in
 `canvas_nodes` with the rest of the layout.
+
+### Containers — `step-group`
+
+`step-group` is **not a canvas node**. Dragging it from the palette creates an
+empty `CanvasGroup` (`isContainer: true`) in `canvas_groups`; the registry entry only
+makes it appear in the palette. Double-click the collapsed group to open it; steps added
+inside become members. Purely organisational — execution stays flat and the backend
+ignores `canvas_groups`.
+
+- Boundary ports are derived from membership + edges (`utils/canvas-group-ports.ts`);
+  moving steps in/out never rewires edges.
+- Container groups survive at any size; groups made with "Group selected steps" dissolve
+  below two members.
+- Step Groups cannot be nested yet (dropping one while inside a group is rejected).
+- Steps move in/out by drag-and-drop or the side panel, and connections to a
+  collapsed group are resolved to a member step (picker when ambiguous). See
+  [`doc/FEATURE-GROUPING.md`](./FEATURE-GROUPING.md).
 
 ### Pass-through decorations — `funnel`
 
@@ -168,7 +186,7 @@ the canvas only ever draws one line into the shared destination.
 Contract:
 
 - Registry: same as other decorations (`artifact_type: canvas_decoration`,
-  `palette_category: debug`, `executable: false`, empty `requires` /
+  `palette_category: visuals`, `executable: false`, empty `requires` /
   `produces` / `outcomes`) — no `executor.py`, no `step_registry.py` entry
 - Frontend uses a dedicated small React Flow node type (`funnelNode`,
   `frontend/.../workflows/components/nodes/funnel-node.tsx`) rather than the

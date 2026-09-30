@@ -446,6 +446,15 @@ already did. It's still good practice to update `canvas_groups` explicitly
 in the same patch when you know a group is affected, rather than relying on
 this as a silent safety net.
 
+**Update 2026-09-30 (groups redesigned — supersedes parts of the entry above):**
+canvas groups are now arbitrary subgraphs with boundary ports *derived* from
+edges, so `CanvasGroup` no longer has `entryNodeId`/`exitNodeId`; an AI-authored
+group only needs `id`, `title`, `nodeIds`, `position` and `parentGroupId: null`.
+A new optional `isContainer: true` marks a palette "Step Group": it may be empty
+and `_repair_orphan_groups` no longer dissolves it (selection groups still
+dissolve below two members). Groups remain execution-neutral. See
+`doc/FEATURE-GROUPING.md`.
+
 ---
 
 ## Goal

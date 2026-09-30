@@ -3452,7 +3452,7 @@ plugins:
       Canvas decoration — configurable text with size, font, and color.
       Not executed at runtime and cannot be connected to other steps.
     artifact_type: canvas_decoration
-    palette_category: debug
+    palette_category: visuals
     directory: label
     enabled: true
     executable: false
@@ -3510,7 +3510,7 @@ plugins:
       steps. Configure size and color. Not executed at runtime and cannot
       be connected to other steps.
     artifact_type: canvas_decoration
-    palette_category: debug
+    palette_category: visuals
     directory: background
     enabled: true
     executable: false
@@ -3548,8 +3548,25 @@ plugins:
       each incoming edge is resolved directly between its real source and
       the funnel's one destination before execution.
     artifact_type: canvas_decoration
-    palette_category: debug
+    palette_category: visuals
     directory: funnel
+    enabled: true
+    executable: false
+    requires: []
+    produces: []
+    outcomes: []
+
+  - id: step-group
+    name: Step Group
+    overview: Organise steps into a container you can open like a folder.
+    description: >
+      Canvas container — drag it onto the canvas, double-click to open it, and
+      build steps inside. Purely organisational: it is not a workflow step, is
+      stored with the canvas layout (canvas_groups), and never appears in the
+      execution plan or run results.
+    artifact_type: canvas_decoration
+    palette_category: visuals
+    directory: step_group
     enabled: true
     executable: false
     requires: []

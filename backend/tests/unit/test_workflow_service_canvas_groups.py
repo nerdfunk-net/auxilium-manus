@@ -92,12 +92,23 @@ class TestRepairOrphanGroupsPure:
         result = _repair_orphan_groups(_NODES, [group])
         assert result == []
 
-    def test_does_not_repair_entry_or_exit_node_id(self) -> None:
-        # Deliberate — matches CanvasGroup's own documented contract: a
-        # best-effort cache, re-checked strictly at save/run time, not here.
-        group = {**_GROUP, "nodeIds": ["a", "b"], "entryNodeId": "deleted-node"}
+    def test_keeps_an_empty_container_group(self) -> None:
+        # Palette "Step Group": starts empty and must survive a save.
+        group = {**_GROUP, "nodeIds": [], "isContainer": True}
+        assert _repair_orphan_groups(_NODES, [group]) == [group]
+
+    def test_keeps_a_container_group_reduced_to_one_member(self) -> None:
+        group = {**_GROUP, "nodeIds": ["a", "deleted-node"], "isContainer": True}
         result = _repair_orphan_groups(_NODES, [group])
-        assert result[0]["entryNodeId"] == "deleted-node"
+        assert result == [{**group, "nodeIds": ["a"]}]
+
+    def test_still_drops_dangling_members_of_a_container_group(self) -> None:
+        group = {**_GROUP, "nodeIds": ["deleted-1", "deleted-2"], "isContainer": True}
+        assert _repair_orphan_groups(_NODES, [group])[0]["nodeIds"] == []
+
+    def test_non_container_flag_values_still_dissolve(self) -> None:
+        group = {**_GROUP, "nodeIds": ["a"], "isContainer": False}
+        assert _repair_orphan_groups(_NODES, [group]) == []
 
     def test_empty_groups_list_stays_empty(self) -> None:
         assert _repair_orphan_groups(_NODES, []) == []

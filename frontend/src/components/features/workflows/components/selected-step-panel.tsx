@@ -4,6 +4,7 @@ import { Ban, Copy, FolderOpen, Play, Settings2, Trash2 } from "lucide-react";
 import { createElement } from "react";
 
 import { Button } from "@/components/ui/button";
+import { MoveToGroupControl, type MoveTargetGroup } from "./move-to-group-control";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -44,8 +45,14 @@ function DataContractChips({
   );
 }
 
+const EMPTY_MOVE_TARGETS: MoveTargetGroup[] = [];
+
 interface SelectedStepPanelProps {
   node: ProjectedCanvasNode;
+  isInsideGroup?: boolean;
+  groups?: MoveTargetGroup[];
+  onMoveToGroup?: (nodeIds: string[], groupId: string) => void;
+  onMoveOutOfGroup?: (nodeIds: string[]) => void;
   onOpenConfig: () => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
   onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
@@ -58,6 +65,10 @@ interface SelectedStepPanelProps {
 
 export function SelectedStepPanel({
   node,
+  isInsideGroup = false,
+  groups = EMPTY_MOVE_TARGETS,
+  onMoveToGroup,
+  onMoveOutOfGroup,
   onOpenConfig,
   onNodeTitleChange,
   onNodeDisabledChange,
@@ -223,6 +234,15 @@ export function SelectedStepPanel({
           Delete
         </Button>
       </div>
+      {node.data.kind !== "background" ? (
+        <MoveToGroupControl
+          nodeIds={[node.id]}
+          groups={groups}
+          isInsideGroup={isInsideGroup}
+          onMoveToGroup={onMoveToGroup}
+          onMoveOutOfGroup={onMoveOutOfGroup}
+        />
+      ) : null}
     </div>
   );
 }

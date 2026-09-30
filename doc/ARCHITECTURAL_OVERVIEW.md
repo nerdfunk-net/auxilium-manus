@@ -668,6 +668,24 @@ existing and being visible to whoever runs it.
 
 ---
 
+## Canvas groups: a view over the flat graph, not an execution unit
+
+**Question:** Does putting steps into a group (or a "Step Group") change how the
+workflow runs?
+
+**Answer:** No. A group is frontend-only organisation. `canvas_nodes` and
+`canvas_edges` always hold the complete flat graph, and `StepRunner` executes
+that graph exactly as if no groups existed — same layers, same concurrency, same
+per-node results. `canvas_groups` only records *membership* (which node ids belong
+to which group); a group's input/output ports are derived from the edges that
+cross its boundary in the browser and are never persisted. The one backend touch
+is `WorkflowService._repair_orphan_groups`, which drops dangling member ids on
+save and dissolves selection groups left with fewer than two members (palette
+"Step Group" containers are exempt). Full design:
+[`doc/FEATURE-GROUPING.md`](./FEATURE-GROUPING.md).
+
+---
+
 ## Change requests: a review gate as two decoupled runs
 
 A config change that must be reviewed before it reaches devices is **not** a

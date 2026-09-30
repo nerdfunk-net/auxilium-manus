@@ -20,6 +20,7 @@ import {
   FOREGROUND_Z_INDEX,
   isCanvasDecorationKind,
   reactFlowTypeForKind,
+  STEP_GROUP_KIND,
   type PersistedCanvasNode,
   type StepPayload,
 } from "../types/workflow-canvas";
@@ -46,7 +47,7 @@ export function useCanvasSteps(
     selectNode,
     markDirty,
   } = core;
-  const { appendToActiveGroup } = groups;
+  const { appendToActiveGroup, handleAddContainerGroup } = groups;
 
   const handleNodeConfigChange = useCallback(
     (nodeId: string, config: Record<string, unknown>) => {
@@ -162,6 +163,10 @@ export function useCanvasSteps(
   const handleAddStep = useCallback(
     (step: StepPayload) => {
       const nextIndex = allNodes.length + 1;
+      if (step.kind === STEP_GROUP_KIND) {
+        handleAddContainerGroup({ x: 160 + nextIndex * 44, y: 460 });
+        return;
+      }
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, { x: 160 + nextIndex * 44, y: 460 });
       setAllNodes((currentNodes) => [...currentNodes, node]);
@@ -172,11 +177,15 @@ export function useCanvasSteps(
       selectNode(id);
       markDirty();
     },
-    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, selectNode, markDirty],
+    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, handleAddContainerGroup, selectNode, markDirty],
   );
 
   const handleAddStepAtPosition = useCallback(
     (step: StepPayload, position: { x: number; y: number }) => {
+      if (step.kind === STEP_GROUP_KIND) {
+        handleAddContainerGroup(position);
+        return;
+      }
       const nextIndex = allNodes.length + 1;
       const id = `${step.kind}-${nextIndex}`;
       const node = buildStepNode(step, id, position);
@@ -188,7 +197,7 @@ export function useCanvasSteps(
       selectNode(id);
       markDirty();
     },
-    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, selectNode, markDirty],
+    [allNodes.length, buildStepNode, setAllNodes, setStaticAttributes, appendToActiveGroup, handleAddContainerGroup, selectNode, markDirty],
   );
 
   const handleDeleteNodes = useCallback(

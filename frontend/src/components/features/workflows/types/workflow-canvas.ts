@@ -49,8 +49,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
    */
   isGroupEntryPoint?: boolean;
   isGroupExitPoint?: boolean;
-  /** The outcome handle name of the exit step's edge that leaves the group. */
-  groupExitHandle?: string;
+  /** Outcome handle names of this step whose edges leave the group. */
+  groupExitHandles?: string[];
   /**
    * View-only annotation merged in by WorkflowCanvas from the last Validate
    * run's findings, keyed by node id — never present on allNodes/persisted
@@ -127,17 +127,16 @@ export type WorkflowCanvasEdge = Edge<WorkflowEdgeData, "waypoint">;
 export interface CanvasGroup {
   /** Stable id, e.g. "group-1". Never reuse after delete. */
   id: string;
+  /**
+   * True for groups dragged from the palette ("Step Group"): they start empty
+   * and are never auto-dissolved when they shrink. Groups made with "Group
+   * selected steps" leave this unset and dissolve below two members.
+   */
+  isContainer?: boolean;
   /** Display title on the collapsed Group node. */
   title: string;
   /** Member step node ids (must all exist in canvas_nodes). */
   nodeIds: string[];
-  /**
-   * Cached boundary ids, validated strictly at group creation. NOT re-validated
-   * synchronously on every member change — best-effort cache, re-checked strictly
-   * at save/run time (see workflow-validation.ts).
-   */
-  entryNodeId: string;
-  exitNodeId: string;
   /** Position of the collapsed Group node on the root canvas. */
   position: { x: number; y: number };
   /** Reserved for v2 nested groups. Always null in v1. */
@@ -156,6 +155,14 @@ export interface CanvasGroup {
   outcomeHandleSide?: HandleSide;
 }
 
+/** Render-ready boundary port: handle id plus the inner step's title. */
+export interface GroupPortView {
+  /** React Flow handle id on the collapsed group node, e.g. "in:<edgeId>". */
+  handleId: string;
+  edgeId: string;
+  label: string;
+}
+
 export interface GroupNodeData extends Record<string, unknown> {
   kind: "__canvas-group__";
   title: string;
@@ -167,6 +174,11 @@ export interface GroupNodeData extends Record<string, unknown> {
   produces?: Capability[];
   producesParsed?: string[];
   consumes?: Capability[];
+  /** View-only: true while a dragged step hovers this group (see WorkflowCanvas). */
+  isDropTarget?: boolean;
+  /** Boundary ports derived from membership + edges (see canvas-group-ports.ts). */
+  inputPorts: GroupPortView[];
+  outputPorts: GroupPortView[];
   /** Mirrors CanvasGroup.incomeHandleSide — see there. */
   incomeHandleSide?: HandleSide;
   /** Mirrors CanvasGroup.outcomeHandleSide — see there. */
@@ -177,6 +189,9 @@ export type GroupCanvasNode = Node<GroupNodeData, "groupNode">;
 
 /** Nodes flowing through the canvas after group projection: real steps, decorations, or synthetic groups. */
 export type ProjectedCanvasNode = PersistedCanvasNode | GroupCanvasNode;
+
+/** Registry id of the palette entry that creates a container group. */
+export const STEP_GROUP_KIND = "step-group";
 
 export const GROUP_NODE_ID_PREFIX = "__group__";
 export const GROUP_EDGE_ID_PREFIX = "__group-edge__";

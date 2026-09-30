@@ -23,6 +23,7 @@ import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel"
 import { WorkflowRunControls } from "./components/workflow-run-controls";
 import { WorkflowTopbar } from "./components/workflow-topbar";
 import { EMPTY_PLUGINS } from "./constants/empty-canvas";
+import { GroupConnectionDialog } from "./dialogs/group-connection-dialog";
 import { WorkflowHistoryDialog } from "./dialogs/workflow-history-dialog";
 import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
 import { WorkflowOpenDialog } from "./dialogs/workflow-open-dialog";
@@ -57,6 +58,10 @@ export function WorkflowBuilderPage() {
 
   const requestRunRef = useRef<(id: number) => void>(() => {});
   const canvas = useWorkflowCanvas();
+  const moveTargetGroups = useMemo(
+    () => canvas.groups.map((group) => ({ id: group.id, title: group.title })),
+    [canvas.groups],
+  );
   const deviceParamConfigs = useMemo(
     () => computeDeviceParamConfigs(canvas.allNodes),
     [canvas.allNodes],
@@ -165,6 +170,11 @@ export function WorkflowBuilderPage() {
                 onNodesChange={canvas.handleNodesChange}
                 onConnect={canvas.handleConnect}
                 onAddStepAtPosition={canvas.handleAddStepAtPosition}
+                outcomeProvides={canvas.outcomeProvides}
+                getGroupConnectionEnds={canvas.getGroupConnectionEnds}
+                isInsideGroup={canvas.activeGroupId !== null}
+                onMoveNodesToGroup={canvas.handleMoveToGroup}
+                onMoveNodesOutOfGroup={canvas.handleMoveOutOfGroup}
                 plugins={plugins}
                 initialViewport={canvas.initialCanvasDraft?.viewport}
                 onViewportChange={canvas.handleViewportChange}
@@ -201,6 +211,9 @@ export function WorkflowBuilderPage() {
           pluginErrorMessage={pluginError?.message}
           plugins={plugins}
           isInsideGroup={canvas.activeGroupId !== null}
+          groups={moveTargetGroups}
+          onMoveToGroup={canvas.handleMoveToGroup}
+          onMoveOutOfGroup={canvas.handleMoveOutOfGroup}
           staticAttributes={canvas.staticAttributes}
           onStaticAttributesChange={canvas.handleStaticAttributesChange}
         />
@@ -217,6 +230,10 @@ export function WorkflowBuilderPage() {
           workflowNodes={canvas.allNodes}
         />
       </main>
+      <GroupConnectionDialog
+        pending={canvas.pendingGroupConnection}
+        onResolve={canvas.resolvePendingGroupConnection}
+      />
       <WorkflowRunControls
         isAutoLayoutRunning={canvas.isAutoLayoutRunning}
         onAutoLayout={() => canvas.handleAutoLayout(null, autoLayoutDirection)}

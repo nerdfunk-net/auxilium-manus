@@ -104,16 +104,17 @@ export function validateCanvasWorkflow(
 
   const groupIssues = groups
     .filter((group) => {
-      // Re-run the linear-chain boundary check against the group's *current*
-      // membership. Interactive edits (add/remove members) don't block on this
-      // — this is the single checkpoint where group integrity is enforced.
+      // Re-run the membership check against the group's *current* members.
+      // Interactive edits (add/remove members) don't block on this — this is
+      // the single checkpoint where group integrity is enforced.
+      if (group.isContainer && group.nodeIds.length < 2) return false;
       const otherGroups = groups.filter((g) => g.id !== group.id);
-      const result = validateGroupBoundary(group.nodeIds, edges, otherGroups, nodes);
+      const result = validateGroupBoundary(group.nodeIds, otherGroups, nodes);
       return !result.valid;
     })
     .map(
       (group) =>
-        `Group "${group.title}" no longer has a single entry and exit — fix connections or ungroup before saving.`,
+        `Group "${group.title}" is no longer a valid group (members missing or shared with another group) — ungroup it before saving.`,
     );
 
   const staticAttributeIssues = validateStaticAttributes(staticAttributes, nodes);

@@ -17,10 +17,16 @@ import {
 import type { StaticAttributeDef } from "../types/workflow-persistence";
 import {
   DEFAULT_EDGE_STYLE,
+  isFunnelKind,
   type CanvasGroup,
   type PersistedCanvasNode,
   type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
+import { computeOutcomeProvides } from "../utils/capability-graph";
+import {
+  listGroupConnectionCandidates,
+  type GroupConnectionCandidate,
+} from "../utils/group-connection-candidates";
 import {
   findGroupContainingNode,
   groupIdFromNodeId,
@@ -32,6 +38,20 @@ import { useWorkflowBuilderStore } from "./use-workflow-builder-store";
 
 const EMPTY_GROUPS: CanvasGroup[] = [];
 const EMPTY_STATIC_ATTRIBUTES: StaticAttributeDef[] = [];
+
+/** Candidate member steps per group endpoint of a connection (`null` = endpoint isn't a group). */
+export interface GroupConnectionEnds {
+  source: GroupConnectionCandidate[] | null;
+  target: GroupConnectionCandidate[] | null;
+}
+
+/** A connection to/from a group that is waiting for the user to pick the member step. */
+export interface PendingGroupConnection {
+  connection: Connection;
+  /** "input": the group is the target. "output": it is the source. */
+  side: "input" | "output";
+  candidates: GroupConnectionCandidate[];
+}
 
 export interface LoadedCanvasState {
   nodes: PersistedCanvasNode[];
@@ -239,26 +259,64 @@ export function useWorkflowCanvasCore() {
     [projected.edges, allEdges, markDirty],
   );
 
-  const handleConnect = useCallback(
-    (connection: Connection) => {
+  // Capability provision must be judged on the FLAT graph: the collapsed
+  // projection hides everything flowing through a group.
+  const flatProvides = useMemo(
+    () => computeOutcomeProvides(allNodes, allEdges),
+    [allNodes, allEdges],
+  );
+
+  /**
+   * For a connection touching a collapsed group, which member steps can take
+   * (target) / provide (source) it. `null` for an endpoint that isn't a group.
+   */
+  const getGroupConnectionEnds = useCallback(
+    (connection: Connection | WorkflowCanvasEdge): GroupConnectionEnds => {
       const sourceGroupId = groupIdFromNodeId(connection.source ?? "");
       const targetGroupId = groupIdFromNodeId(connection.target ?? "");
-
       const sourceGroup = sourceGroupId ? groups.find((g) => g.id === sourceGroupId) : undefined;
       const targetGroup = targetGroupId ? groups.find((g) => g.id === targetGroupId) : undefined;
+      const nodeById = (id: string | null | undefined) => allNodes.find((n) => n.id === id);
 
-      const resolvedConnection: Connection = {
-        ...connection,
-        source: sourceGroup?.exitNodeId ?? connection.source,
-        sourceHandle: sourceGroup ? "success" : connection.sourceHandle,
-        target: targetGroup?.entryNodeId ?? connection.target,
-        targetHandle: targetGroup ? "input" : connection.targetHandle,
+      // A funnel end is a pass-through with no requires/produces of its own,
+      // and a group end has no fixed step — neither can filter by capability.
+      const realEnd = (id: string, handle: string | null | undefined) =>
+        isFunnelKind(nodeById(id)?.data.kind) ? null : { nodeId: id, handle };
+
+      return {
+        source: sourceGroup
+          ? listGroupConnectionCandidates({
+              side: "output",
+              group: sourceGroup,
+              groupHandleId: connection.sourceHandle,
+              otherEnd: targetGroup ? null : realEnd(connection.target, connection.targetHandle),
+              allNodes,
+              allEdges,
+              flatProvides,
+            })
+          : null,
+        target: targetGroup
+          ? listGroupConnectionCandidates({
+              side: "input",
+              group: targetGroup,
+              groupHandleId: connection.targetHandle,
+              otherEnd: sourceGroup ? null : realEnd(connection.source, connection.sourceHandle),
+              allNodes,
+              allEdges,
+              flatProvides,
+            })
+          : null,
       };
+    },
+    [groups, allNodes, allEdges, flatProvides],
+  );
 
+  const addResolvedEdge = useCallback(
+    (connection: Connection) => {
       setAllEdges((current) =>
         addEdge(
           {
-            ...resolvedConnection,
+            ...connection,
             type: "waypoint",
             data: { edgeStyle: DEFAULT_EDGE_STYLE },
           },
@@ -267,7 +325,66 @@ export function useWorkflowCanvasCore() {
       );
       markDirty();
     },
-    [groups, markDirty],
+    [markDirty],
+  );
+
+  const [pendingGroupConnection, setPendingGroupConnection] =
+    useState<PendingGroupConnection | null>(null);
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      const ends = getGroupConnectionEnds(connection);
+      if (!ends.source && !ends.target) {
+        addResolvedEdge(connection);
+        return;
+      }
+      if (ends.source?.length === 0 || ends.target?.length === 0) {
+        markError("No step in this group can take this connection.");
+        return;
+      }
+
+      const sourceCandidates = ends.source ?? [];
+      const targetCandidates = ends.target ?? [];
+      const needsChoice = sourceCandidates.length > 1 || targetCandidates.length > 1;
+
+      if (needsChoice && ends.source && ends.target) {
+        markError("Open a group and connect to a step inside it.");
+        return;
+      }
+      if (needsChoice) {
+        setPendingGroupConnection({
+          connection,
+          side: ends.source ? "output" : "input",
+          candidates: ends.source ? sourceCandidates : targetCandidates,
+        });
+        return;
+      }
+
+      addResolvedEdge({
+        ...connection,
+        source: sourceCandidates[0]?.nodeId ?? connection.source,
+        sourceHandle: sourceCandidates[0]?.handle ?? connection.sourceHandle,
+        target: targetCandidates[0]?.nodeId ?? connection.target,
+        targetHandle: targetCandidates[0]?.handle ?? connection.targetHandle,
+      });
+    },
+    [getGroupConnectionEnds, addResolvedEdge, markError],
+  );
+
+  /** Completes (or cancels, with null) a connection awaiting a member-step choice. */
+  const resolvePendingGroupConnection = useCallback(
+    (candidate: GroupConnectionCandidate | null) => {
+      const pending = pendingGroupConnection;
+      setPendingGroupConnection(null);
+      if (!pending || !candidate) return;
+      const { connection, side } = pending;
+      addResolvedEdge(
+        side === "output"
+          ? { ...connection, source: candidate.nodeId, sourceHandle: candidate.handle }
+          : { ...connection, target: candidate.nodeId, targetHandle: candidate.handle },
+      );
+    },
+    [pendingGroupConnection, addResolvedEdge],
   );
 
   return useMemo(
@@ -296,6 +413,10 @@ export function useWorkflowCanvasCore() {
       handleNodesChange,
       handleEdgesChange,
       handleConnect,
+      flatProvides,
+      getGroupConnectionEnds,
+      pendingGroupConnection,
+      resolvePendingGroupConnection,
     }),
     [
       allNodes,
@@ -318,6 +439,10 @@ export function useWorkflowCanvasCore() {
       handleNodesChange,
       handleEdgesChange,
       handleConnect,
+      flatProvides,
+      getGroupConnectionEnds,
+      pendingGroupConnection,
+      resolvePendingGroupConnection,
     ],
   );
 }

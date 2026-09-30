@@ -9,6 +9,12 @@ import {
   type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 import { toAbsolutePosition } from "./canvas-containment";
+import {
+  deriveGroupPorts,
+  GROUP_INPUT_HANDLE_PREFIX,
+  GROUP_OUTPUT_HANDLE_PREFIX,
+  type GroupPort,
+} from "./canvas-group-ports";
 
 export function groupNodeId(groupId: string): string {
   return `${GROUP_NODE_ID_PREFIX}${groupId}`;
@@ -28,6 +34,11 @@ export function isGroupCanvasNode(
   node: ProjectedCanvasNode,
 ): node is GroupCanvasNode {
   return node.data.kind === "__canvas-group__";
+}
+
+/** Container groups persist at any size; selection groups dissolve below two members. */
+export function groupSurvivesMembership(group: CanvasGroup): boolean {
+  return group.isContainer === true || group.nodeIds.length >= 2;
 }
 
 export function findGroupContainingNode(
@@ -53,16 +64,20 @@ export interface ProjectedCanvas {
 const GROUP_NODE_WIDTH = 320;
 const GROUP_NODE_HEIGHT = 128;
 
+function portLabel(port: GroupPort, allNodes: PersistedCanvasNode[], withHandle: boolean) {
+  const title = allNodes.find((n) => n.id === port.innerNodeId)?.data.title ?? port.innerNodeId;
+  return withHandle ? `${title} · ${port.innerHandle}` : title;
+}
+
 function synthesizeGroupNode(
   group: CanvasGroup,
   allNodes: PersistedCanvasNode[],
+  allEdges: WorkflowCanvasEdge[],
 ): GroupCanvasNode {
-  const entryNode = allNodes.find(
-    (n) => n.id === group.entryNodeId && group.nodeIds.includes(n.id),
-  );
-  const exitNode = allNodes.find(
-    (n) => n.id === group.exitNodeId && group.nodeIds.includes(n.id),
-  );
+  const ports = deriveGroupPorts(group.nodeIds, allEdges);
+  const nodeById = new Map(allNodes.map((n) => [n.id, n]));
+  const inputNodes = ports.inputs.flatMap((p) => nodeById.get(p.innerNodeId) ?? []);
+  const outputNodes = ports.outputs.flatMap((p) => nodeById.get(p.innerNodeId) ?? []);
 
   return {
     id: groupNodeId(group.id),
@@ -77,11 +92,21 @@ function synthesizeGroupNode(
       title: group.title,
       memberCount: group.nodeIds.length,
       groupId: group.id,
-      requires: entryNode?.data.requires,
-      requiresParsed: entryNode?.data.requiresParsed,
+      requires: inputNodes.flatMap((n) => n.data.requires ?? []),
+      requiresParsed: inputNodes.flatMap((n) => n.data.requiresParsed ?? []),
       outcomes: [{ name: "success" }],
-      produces: exitNode?.data.produces,
-      producesParsed: exitNode?.data.producesParsed,
+      produces: outputNodes.flatMap((n) => n.data.produces ?? []),
+      producesParsed: outputNodes.flatMap((n) => n.data.producesParsed ?? []),
+      inputPorts: ports.inputs.map((p) => ({
+        handleId: `${GROUP_INPUT_HANDLE_PREFIX}${p.edgeId}`,
+        edgeId: p.edgeId,
+        label: portLabel(p, allNodes, false),
+      })),
+      outputPorts: ports.outputs.map((p) => ({
+        handleId: `${GROUP_OUTPUT_HANDLE_PREFIX}${p.edgeId}`,
+        edgeId: p.edgeId,
+        label: portLabel(p, allNodes, true),
+      })),
       incomeHandleSide: group.incomeHandleSide,
       outcomeHandleSide: group.outcomeHandleSide,
     },
@@ -107,30 +132,33 @@ export function projectCanvasView(
     }
     const memberIds = new Set(group.nodeIds);
 
-    // Presentation-only: the exit step's handle that actually leaves the
-    // group, so its color can mark it as the group's output. Stale cached
-    // exitNodeId (Hard Part 1 addendum) simply yields no highlight.
-    const exitEdge = allEdges.find(
-      (e) => e.source === group.exitNodeId && !memberIds.has(e.target),
-    );
+    // Presentation-only: mark the member steps that own a boundary port.
+    const ports = deriveGroupPorts(group.nodeIds, allEdges);
+    const entryIds = new Set(ports.inputs.map((p) => p.innerNodeId));
+    const exitHandlesByNode = new Map<string, string[]>();
+    for (const port of ports.outputs) {
+      exitHandlesByNode.set(port.innerNodeId, [
+        ...(exitHandlesByNode.get(port.innerNodeId) ?? []),
+        port.innerHandle,
+      ]);
+    }
 
     const nodes = allNodes
       .filter((n) => memberIds.has(n.id))
       .map((n) => {
-        if (n.id === group.entryNodeId) {
-          return { ...n, data: { ...n.data, isGroupEntryPoint: true } };
-        }
-        if (n.id === group.exitNodeId) {
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              isGroupExitPoint: true,
-              groupExitHandle: exitEdge?.sourceHandle ?? "success",
-            },
-          };
-        }
-        return n;
+        const isEntry = entryIds.has(n.id);
+        const exitHandles = exitHandlesByNode.get(n.id);
+        if (!isEntry && !exitHandles) return n;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            ...(isEntry ? { isGroupEntryPoint: true } : {}),
+            ...(exitHandles
+              ? { isGroupExitPoint: true, groupExitHandles: exitHandles }
+              : {}),
+          },
+        };
       });
     const edges = allEdges.filter(
       (e) => memberIds.has(e.source) && memberIds.has(e.target),
@@ -148,7 +176,7 @@ export function projectCanvasView(
   const visibleStepNodes = allNodes.filter((n) => !groupedNodeIds.has(n.id));
   const groupNodeIds = new Map<string, string>();
   const groupNodes: GroupCanvasNode[] = groups.map((group) => {
-    const synthetic = synthesizeGroupNode(group, allNodes);
+    const synthetic = synthesizeGroupNode(group, allNodes, allEdges);
     groupNodeIds.set(synthetic.id, group.id);
     return synthetic;
   });
@@ -166,8 +194,16 @@ export function projectCanvasView(
     const targetGroupId = groupIdByNodeId.get(edge.target);
 
     if (sourceGroupId && targetGroupId) {
-      // Internal to the same group: omitted. Crossing two different groups is
-      // rejected at group-creation time, so this case should not arise in v1.
+      if (sourceGroupId === targetGroupId) continue; // internal to one group
+      edges.push({
+        ...edge,
+        id: groupEdgeId(edge.id),
+        source: groupNodeId(sourceGroupId),
+        sourceHandle: `${GROUP_OUTPUT_HANDLE_PREFIX}${edge.id}`,
+        target: groupNodeId(targetGroupId),
+        targetHandle: `${GROUP_INPUT_HANDLE_PREFIX}${edge.id}`,
+        data: { ...edge.data, realEdgeId: edge.id },
+      });
       continue;
     }
 
@@ -176,7 +212,7 @@ export function projectCanvasView(
         ...edge,
         id: groupEdgeId(edge.id),
         target: groupNodeId(targetGroupId),
-        targetHandle: "input",
+        targetHandle: `${GROUP_INPUT_HANDLE_PREFIX}${edge.id}`,
         data: { ...edge.data, realEdgeId: edge.id },
       });
       continue;
@@ -187,7 +223,7 @@ export function projectCanvasView(
         ...edge,
         id: groupEdgeId(edge.id),
         source: groupNodeId(sourceGroupId),
-        sourceHandle: "success",
+        sourceHandle: `${GROUP_OUTPUT_HANDLE_PREFIX}${edge.id}`,
         data: { ...edge.data, realEdgeId: edge.id },
       });
       continue;
@@ -246,9 +282,64 @@ export function removeRealNodes(
       ...group,
       nodeIds: group.nodeIds.filter((id) => !idSet.has(id)),
     }))
-    .filter((group) => group.nodeIds.length >= 2);
+    .filter(groupSurvivesMembership);
 
   return { nodes, edges, groups: nextGroups };
+}
+
+export type AddToGroupResult =
+  | { ok: true; groups: CanvasGroup[] }
+  | { ok: false; reason: string };
+
+/**
+ * Moves real steps into an existing group. Only membership changes — edges are
+ * untouched, so boundary ports re-derive on their own. Steps already in another
+ * group are moved (removed from it first; a group left with < 2 members is
+ * dissolved).
+ */
+export function addNodesToGroup(
+  groups: CanvasGroup[],
+  allNodes: PersistedCanvasNode[],
+  groupId: string,
+  nodeIds: string[],
+): AddToGroupResult {
+  if (!groups.some((g) => g.id === groupId)) {
+    return { ok: false, reason: "The target group no longer exists." };
+  }
+  const idSet = new Set(nodeIds);
+  if (allNodes.some((n) => idSet.has(n.id) && !!n.parentId)) {
+    return { ok: false, reason: "Steps inside a background can't be added to a group yet." };
+  }
+
+  const stripped = removeNodesFromGroups(
+    groups.map((g) =>
+      g.id === groupId ? { ...g, nodeIds: g.nodeIds.filter((id) => !idSet.has(id)) } : g,
+    ),
+    nodeIds,
+    groupId,
+  );
+  return {
+    ok: true,
+    groups: stripped.map((g) =>
+      g.id === groupId ? { ...g, nodeIds: [...g.nodeIds, ...nodeIds] } : g,
+    ),
+  };
+}
+
+/**
+ * Drops steps from whichever group holds them (they return to the root canvas).
+ * Groups left with fewer than two members are dissolved. `keepGroupId` exempts
+ * one group from dissolution while it is mid-update.
+ */
+export function removeNodesFromGroups(
+  groups: CanvasGroup[],
+  nodeIds: string[],
+  keepGroupId?: string,
+): CanvasGroup[] {
+  const idSet = new Set(nodeIds);
+  return groups
+    .map((g) => ({ ...g, nodeIds: g.nodeIds.filter((id) => !idSet.has(id)) }))
+    .filter((g) => g.id === keepGroupId || groupSurvivesMembership(g));
 }
 
 /**
@@ -276,5 +367,5 @@ export function repairOrphanGroups(
       ...group,
       nodeIds: group.nodeIds.filter((id) => nodeIdSet.has(id)),
     }))
-    .filter((group) => group.nodeIds.length >= 2);
+    .filter(groupSurvivesMembership);
 }

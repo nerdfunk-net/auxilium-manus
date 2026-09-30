@@ -272,7 +272,7 @@ export function WorkflowNode({ id, data, selected }: NodeProps<WorkflowCanvasNod
                   className={cn(
                     "!size-3 !border-2",
                     outcomeHandleClasses(outcome.name),
-                    data.groupExitHandle === outcome.name && GROUP_EXIT_HANDLE_RING_CLASS,
+                    data.groupExitHandles?.includes(outcome.name) && GROUP_EXIT_HANDLE_RING_CLASS,
                   )}
                   id={outcome.name}
                   position={HANDLE_SIDE_TO_POSITION[outcomeSide]}

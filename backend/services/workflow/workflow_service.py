@@ -127,7 +127,10 @@ def _validate_static_attributes(static_attributes: list[dict] | list[StaticAttri
 def _repair_orphan_groups(
     canvas_nodes: list[dict], canvas_groups: list[dict]
 ) -> list[dict]:
-    """Drop dangling member ids and dissolve groups left with fewer than 2 members.
+    """Drop dangling member ids and dissolve selection groups left with < 2 members.
+
+    Container groups (``isContainer: true``, created from the palette's "Step
+    Group") are never dissolved — they are allowed to be empty.
 
     Mirrors the frontend's client-side repair (frontend/.../utils/
     canvas-group-projection.ts::repairOrphanGroups), which only runs when a
@@ -136,16 +139,15 @@ def _repair_orphan_groups(
     AI-authored patch (backend/scripts/ai_workflow_apply.py) — or any other
     caller writing canvas_nodes/canvas_groups directly — bypasses that path
     entirely, so this backend-side repair is the only thing that catches a
-    group left referencing a node that no longer exists. entryNodeId/
-    exitNodeId are deliberately left unrepaired here too, matching
-    CanvasGroup's own documented contract: a best-effort cache, re-checked
-    strictly at save/run time, not synchronously on every member change.
+    group left referencing a node that no longer exists. Boundary ports are
+    derived from membership and edges on the frontend, so nothing else needs
+    repairing here.
     """
     node_ids = {n["id"] for n in canvas_nodes if "id" in n}
     repaired: list[dict] = []
     for group in canvas_groups:
         surviving_ids = [nid for nid in group.get("nodeIds", []) if nid in node_ids]
-        if len(surviving_ids) < 2:
+        if len(surviving_ids) < 2 and group.get("isContainer") is not True:
             continue
         repaired.append({**group, "nodeIds": surviving_ids})
     return repaired
