@@ -18,9 +18,9 @@ export function StartNautobotJobHelpPanel() {
         <p>
           Starts a Nautobot job once for each device in the workflow context, resolving the
           job&apos;s required and optional parameters per device, and records the returned job
-          result ID, the exact request sent, and Nautobot&apos;s response on each device (
+          result ID and Nautobot&apos;s response on each device (
           <HelpCode>attribute_bags.nautobot_job</HelpCode>) for a downstream status-check step
-          to poll and for debugging in the run&apos;s device detail view.
+          to poll. The exact request sent is shown in the run&apos;s device detail view.
         </p>
       </HelpSection>
 
@@ -115,26 +115,30 @@ export function StartNautobotJobHelpPanel() {
 
       <HelpSection title="Debugging: request and response">
         <p>
-          After a run, open the run&apos;s device detail view and check the{" "}
-          <span className="font-medium text-foreground">Attribute bags</span> tab for{" "}
-          <HelpCode>nautobot_job</HelpCode> — it holds the exact{" "}
-          <HelpCode>request</HelpCode> payload sent to Nautobot (after{" "}
-          <HelpCode>{"{path}"}</HelpCode> resolution and any UUID conversion) and Nautobot&apos;s{" "}
-          <HelpCode>response</HelpCode>. This is recorded on both success and failure, so a
-          failed device still shows exactly what was attempted.
+          <span className="font-medium text-foreground">Request.</span> After a run, open the
+          run&apos;s device detail view and choose the{" "}
+          <span className="font-medium text-foreground">Requests</span> section. It shows the
+          exact payload sent to Nautobot (after <HelpCode>{"{path}"}</HelpCode> resolution and
+          any UUID conversion), on both success and failure, so a failed device still shows
+          what was attempted. It is display-only and is not stored in the attribute bags.
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Response.</span> Nautobot&apos;s
+          response is kept in <HelpCode>attribute_bags.nautobot_job.response</HelpCode> (Attribute
+          bags tab), so later steps can read it with{" "}
+          <HelpCode>{"{nautobot_job.response.…}"}</HelpCode> expressions.
         </p>
         <HelpWarning title="Not populated by Test resolve">
           <p>
             <span className="font-medium text-foreground">Test resolve</span> in the config
-            dialog is a design-time check only — it never runs this step, so it does not write
-            to <HelpCode>attribute_bags.nautobot_job</HelpCode>. You need an actual workflow run
-            to see the request/response here.
+            dialog is a design-time check only — it never runs this step, so nothing is recorded
+            by it. You need an actual workflow run to see the request here.
           </p>
         </HelpWarning>
         <p>
           Values that look like a secret (a field named <HelpCode>password</HelpCode>,{" "}
           <HelpCode>token</HelpCode>, <HelpCode>api_key</HelpCode>, etc.) are replaced with{" "}
-          <HelpCode>***REDACTED***</HelpCode> before this is recorded.
+          <HelpCode>***REDACTED***</HelpCode> before anything is recorded.
         </p>
       </HelpSection>
 

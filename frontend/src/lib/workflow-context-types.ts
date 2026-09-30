@@ -30,6 +30,17 @@ export interface CommandResult {
   summary: string | null;
 }
 
+/** One outbound API call a step made for a device (detail view only). */
+export interface RequestRecord {
+  target: string;
+  method: string;
+  endpoint: string;
+  request: Record<string, unknown> | null;
+  response: Record<string, unknown> | null;
+  ok: boolean;
+  sent_at: string;
+}
+
 export interface DeviceContext {
   id: string;
   name: string;
@@ -45,6 +56,8 @@ export interface DeviceContext {
   parsed: Record<string, unknown>;
   command_results: Record<string, CommandResult[]>;
   dry_run_results: Record<string, Record<string, unknown>>;
+  /** Keyed by the node id of the step that made the calls. */
+  requests?: Record<string, RequestRecord[]>;
   capabilities: Capability[];
   status: DeviceStatus;
   errors: DeviceError[];

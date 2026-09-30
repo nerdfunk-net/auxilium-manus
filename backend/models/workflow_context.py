@@ -71,6 +71,24 @@ class CommandResult(BaseModel):
     summary: str | None = None
 
 
+class RequestRecord(BaseModel):
+    """One outbound API call a step made for a device, kept only so the run's
+    device detail view can show what the app did. Not part of the attribute
+    bags: it is not addressable by ``{path}`` expressions and is never read by
+    other steps. Secrets must be redacted before a record is stored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    target: str
+    method: str
+    endpoint: str
+    request: dict[str, Any] | None = None
+    response: dict[str, Any] | None = None
+    ok: bool = True
+    sent_at: str = Field(default_factory=now_iso)
+
+
 class DeviceError(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -101,6 +119,8 @@ class DeviceContext(BaseModel):
     parsed: dict[str, Any] = Field(default_factory=dict)
     command_results: dict[str, list[CommandResult]] = Field(default_factory=dict)
     dry_run_results: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # Keyed by the node_id of the step that made the calls (like command_results).
+    requests: dict[str, list[RequestRecord]] = Field(default_factory=dict)
 
     capabilities: set[Capability] = Field(default_factory=set)
     status: DeviceStatus = DeviceStatus.PENDING

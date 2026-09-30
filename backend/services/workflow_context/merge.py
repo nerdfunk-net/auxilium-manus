@@ -9,6 +9,7 @@ from models.workflow_context import (
     CommandResult,
     DeviceContext,
     DeviceError,
+    RequestRecord,
     WorkflowContext,
     worst_device_status,
 )
@@ -123,6 +124,7 @@ def _merge_two_devices(left: DeviceContext, right: DeviceContext) -> DeviceConte
         right.startup_config_ref,
     )
     updates["command_results"] = _merge_command_results(left.command_results, right.command_results)
+    updates["requests"] = _merge_requests(left.requests, right.requests)
     updates["capabilities"] = left.capabilities | right.capabilities
     updates["status"] = worst_device_status(left.status, right.status)
     updates["errors"] = _merge_errors(left.errors, [*right.errors, *extra_errors])
@@ -196,6 +198,18 @@ def _merge_command_results(
         if node_id in merged and merged[node_id] != results:
             raise ValueError(f"Conflict merging command_results for node_id {node_id!r}")
         merged[node_id] = results
+    return merged
+
+
+def _merge_requests(
+    left: dict[str, list[RequestRecord]],
+    right: dict[str, list[RequestRecord]],
+) -> dict[str, list[RequestRecord]]:
+    merged = dict(left)
+    for node_id, records in right.items():
+        if node_id in merged and merged[node_id] != records:
+            raise ValueError(f"Conflict merging requests for node_id {node_id!r}")
+        merged[node_id] = records
     return merged
 
 

@@ -12,6 +12,7 @@ import {
   Layers,
   ListChecks,
   Radar,
+  ArrowLeftRight,
   ScrollText,
   Search,
   SquareTerminal,
@@ -92,6 +93,13 @@ export function DeviceDetailDialog({
         (name) => Object.keys(attributeBags[name] ?? {}).length > 0,
       ),
     [attributeBags],
+  );
+  const requestEntries = useMemo(
+    () =>
+      Object.entries(device.requests ?? {}).flatMap(([nodeId, records]) =>
+        records.map((record, index) => ({ key: `${nodeId}-${index}`, nodeId, record })),
+      ),
+    [device.requests],
   );
   const dryRunEntries = useMemo(
     () => getDryRunEntries(device.dry_run_results),
@@ -350,6 +358,32 @@ export function DeviceDetailDialog({
       });
     }
 
+    if (requestEntries.length > 0) {
+      list.push({
+        id: "requests",
+        label: "Requests",
+        icon: ArrowLeftRight,
+        count: requestEntries.length,
+        render: () => (
+          <div className="space-y-4">
+            {requestEntries.map(({ key, nodeId, record }) => (
+              <ContentViewer
+                key={key}
+                label={`${record.target} · ${record.method} ${record.endpoint}${record.ok ? "" : " (rejected)"}`}
+                content={JSON.stringify(
+                  { node_id: nodeId, request: record.request, response: record.response },
+                  null,
+                  2,
+                )}
+                downloadName={`${device.name}-${key}-request`}
+                height="full"
+              />
+            ))}
+          </div>
+        ),
+      });
+    }
+
     if (comparisonResultEntries.length > 0 || comparisonDiffEntries.length > 0) {
       list.push({
         id: "comparisons",
@@ -410,6 +444,7 @@ export function DeviceDetailDialog({
     parsedCommandOutputEntries,
     parsedConfigEntries,
     parsedTemplateEntries,
+    requestEntries,
     runId,
     snapshotEntries,
   ]);

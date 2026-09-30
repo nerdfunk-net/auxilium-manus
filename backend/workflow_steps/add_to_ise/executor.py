@@ -21,13 +21,15 @@ Outcomes: devices are routed per outcome handle.
   bare ``ISEAPIError`` raised mid-run). This affects every device equally, so
   the whole input context is carried on this outcome.
 
-Debugging: every device for which a create request was actually sent gets
-``attribute_bags["add_to_ise"] = {"request": ..., "response": ...}`` — the
-exact ``NetworkDevice`` body posted to ISE (after ``{path}`` resolution) and
-ISE's response (or the error ISE returned). It is recorded for created,
+Debugging: every device for which a create request was actually sent gets a
+``RequestRecord`` in ``DeviceContext.requests[node_id]`` — the exact
+``NetworkDevice`` body posted to ISE (after ``{path}`` resolution) and ISE's
+response (or the error ISE returned). It is recorded for created,
 already-existing and rejected devices alike, with the TACACS+ shared secret
-redacted. Devices that failed before a request was built (unresolved
-expressions) have none.
+redacted, and is shown in the run's device detail view only — it is not an
+attribute bag, so other steps and ``{path}`` expressions never see it.
+Devices that failed before a request was built (unresolved expressions) have
+none.
 
 ``connectModeOptions`` is hardcoded to ``"OFF"`` (matching
 ``backend/scripts/ise_test.py``'s default) rather than exposed as
@@ -73,7 +75,8 @@ from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
 from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.attribute_path import resolve_device_value
-from services.workflow_context.secret_fields import redact_secrets_in_data, seal_secret
+from services.workflow_context.secret_fields import seal_secret
+from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
 
 if TYPE_CHECKING:
@@ -88,6 +91,7 @@ _STEP_ID = "add-to-ise"
 # case-insensitively and loosely so minor wording changes across ISE versions
 # still route to the "exists" outcome.
 _ALREADY_EXISTS_MARKER = "already exist"
+_ISE_CREATE_ENDPOINT = "/ers/config/networkdevice"
 
 
 @dataclass(frozen=True)
@@ -325,28 +329,29 @@ def _sealed_payload(device_payload: dict[str, Any], resolved_key: str) -> dict[s
     }
 
 
-def _with_exchange(
+def _with_request_record(
     device: DeviceContext,
+    *,
+    node_id: str,
     device_payload: dict[str, Any],
     resolved_key: str,
     response: dict[str, Any],
+    ok: bool,
 ) -> DeviceContext:
-    """Record the request sent to ISE and ISE's response in ``add_to_ise``.
+    """Record the create request and ISE's response for the detail view.
 
-    Redaction is marker-based, so the shared secret is sealed first and then
-    replaced with the redaction placeholder — no key material is stored.
+    The shared secret is sealed first so the marker-based redaction in
+    ``append_request_record`` replaces it — no key material is stored.
     """
-    bag = redact_secrets_in_data(
-        {
-            "request": {"NetworkDevice": _sealed_payload(device_payload, resolved_key)},
-            "response": response,
-        }
-    )
-    return device.model_copy(
-        update={
-            "attribute_bags": {**device.attribute_bags, "add_to_ise": bag},
-            "capabilities": device.capabilities | {Capability.ATTRIBUTES},
-        }
+    return append_request_record(
+        device,
+        node_id=node_id,
+        target="Cisco ISE",
+        method="POST",
+        endpoint=_ISE_CREATE_ENDPOINT,
+        request={"NetworkDevice": _sealed_payload(device_payload, resolved_key)},
+        response=response,
+        ok=ok,
     )
 
 
@@ -355,6 +360,7 @@ def _enrich_device_after_create(
     device_payload: dict[str, Any],
     created: dict[str, Any],
     resolved_key: str,
+    node_id: str,
 ) -> DeviceContext:
     sealed_ise_payload = _sealed_payload(device_payload, resolved_key)
     attribute_bags = {
@@ -368,7 +374,14 @@ def _enrich_device_after_create(
             "capabilities": device.capabilities | {Capability.ATTRIBUTES},
         }
     )
-    return _with_exchange(enriched, device_payload, resolved_key, created)
+    return _with_request_record(
+        enriched,
+        node_id=node_id,
+        device_payload=device_payload,
+        resolved_key=resolved_key,
+        response=created,
+        ok=True,
+    )
 
 
 async def _create_one_device(
@@ -410,8 +423,13 @@ async def _create_one_device(
                 source_id,
                 exc,
             )
-            exists_device = _with_exchange(
-                device, device_payload, resolved.key, {"error": str(exc)}
+            exists_device = _with_request_record(
+                device,
+                node_id=node_id,
+                device_payload=device_payload,
+                resolved_key=resolved.key,
+                response={"error": str(exc)},
+                ok=False,
             )
             return _CreateOneResult(kind="exists", device=exists_device)
         rejected = _mark_failed(
@@ -422,7 +440,14 @@ async def _create_one_device(
         )
         return _CreateOneResult(
             kind="failed",
-            device=_with_exchange(rejected, device_payload, resolved.key, {"error": str(exc)}),
+            device=_with_request_record(
+                rejected,
+                node_id=node_id,
+                device_payload=device_payload,
+                resolved_key=resolved.key,
+                response={"error": str(exc)},
+                ok=False,
+            ),
         )
     except ISEAPIError as exc:
         logger.warning(
@@ -441,7 +466,7 @@ async def _create_one_device(
             ),
         )
 
-    updated = _enrich_device_after_create(device, device_payload, created, resolved.key)
+    updated = _enrich_device_after_create(device, device_payload, created, resolved.key, node_id)
     logger.info("%s: created device=%s ise_id=%s", _STEP_ID, resolved.name, created.get("id"))
     return _CreateOneResult(kind="created", device=updated)
 

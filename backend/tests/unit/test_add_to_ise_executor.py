@@ -453,7 +453,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_name["success"].context.metadata["node-1.exists_count"], 1)
         self.assertEqual(by_name["success"].context.metadata["node-1.created_count"], 1)
 
-    async def test_request_and_response_recorded_in_add_to_ise_bag(self) -> None:
+    async def test_request_and_response_recorded_in_requests_not_bags(self) -> None:
         device_service = _device_service()
         device_service.create_device = AsyncMock(
             side_effect=[
@@ -480,18 +480,28 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         by_name = {o.name: o for o in outcomes}
-        created = by_name["success"].context.devices["a"].attribute_bags["add_to_ise"]
-        self.assertEqual(created["response"]["id"], "ise-1")
-        body = created["request"]["NetworkDevice"]
+        created = by_name["success"].context.devices["a"]
+        (record,) = created.requests["node-1"]
+        self.assertEqual((record.method, record.endpoint), ("POST", "/ers/config/networkdevice"))
+        self.assertTrue(record.ok)
+        self.assertEqual(record.response["id"], "ise-1")
+        body = record.request["NetworkDevice"]
         self.assertEqual(body["name"], "router1")
         self.assertEqual(body["tacacsSettings"]["sharedSecret"], "***REDACTED***")
+        self.assertNotIn("add_to_ise", created.attribute_bags)
 
-        exists = by_name["exists"].context.devices["b"].attribute_bags["add_to_ise"]
-        self.assertEqual(exists["response"], {"error": "Device Name Already Exists"})
+        exists = by_name["exists"].context.devices["b"]
+        self.assertEqual(
+            exists.requests["node-1"][0].response, {"error": "Device Name Already Exists"}
+        )
+        self.assertFalse(exists.requests["node-1"][0].ok)
+        self.assertNotIn("ise", exists.attribute_bags)
 
-        rejected = by_name["success"].context.devices["c"].attribute_bags["add_to_ise"]
-        self.assertEqual(rejected["response"], {"error": "Illegal IP Address"})
-        self.assertNotIn("s3cr3t", repr([created, exists, rejected]))
+        rejected = by_name["success"].context.devices["c"]
+        self.assertEqual(rejected.requests["node-1"][0].response, {"error": "Illegal IP Address"})
+
+        dumped_requests = repr([d.model_dump()["requests"] for d in (created, exists, rejected)])
+        self.assertNotIn("s3cr3t", dumped_requests)
 
     async def test_bare_api_error_mid_run_aborts_with_failure_outcome(self) -> None:
         device_service = _device_service()

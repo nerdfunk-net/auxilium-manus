@@ -156,6 +156,29 @@ class WorkflowContextMergeTests(unittest.TestCase):
         merged = merge_workflow_contexts([left, right])
         self.assertEqual(merged.devices["device-1"].command_results, results)
 
+    def test_requests_from_different_nodes_are_combined(self) -> None:
+        from models.workflow_context import RequestRecord
+
+        def record(endpoint: str) -> RequestRecord:
+            return RequestRecord(target="Cisco ISE", method="POST", endpoint=endpoint)
+
+        left = _context(
+            devices={
+                "device-1": _device("device-1").model_copy(
+                    update={"requests": {"node-a": [record("/a")]}}
+                ),
+            }
+        )
+        right = _context(
+            devices={
+                "device-1": _device("device-1").model_copy(
+                    update={"requests": {"node-b": [record("/b")]}}
+                ),
+            }
+        )
+        merged = merge_workflow_contexts([left, right])
+        self.assertEqual(set(merged.devices["device-1"].requests), {"node-a", "node-b"})
+
     def test_attribute_bags_merge_per_namespace(self) -> None:
         left = _context(
             devices={

@@ -40,6 +40,7 @@ from services.nautobot.jobs import NautobotJobsService
 from services.workflow_context.secret_fields import redact_secrets_in_data
 from workflow_steps.common.attribute_expression import resolve_attribute_expression
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
+from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.update_field_expression import normalize_field_spec
 from workflow_steps.start_nautobot_job.config import get_config
 
@@ -287,6 +288,7 @@ def _fail_device(
     node_id: str,
     exc: Exception,
     bag_name: str = "nautobot_job",
+    job_id: str = "",
     request: dict[str, Any] | None = None,
     response: dict[str, Any] | None = None,
 ) -> tuple[str, DeviceContext]:
@@ -297,13 +299,43 @@ def _fail_device(
         message=str(exc),
     )
     update: dict[str, Any] = {"status": DeviceStatus.FAILED, "errors": [*device.errors, err]}
-    if request is not None or response is not None:
-        bag = redact_secrets_in_data(
-            {k: v for k, v in {"request": request, "response": response}.items() if v is not None}
-        )
-        update["attribute_bags"] = {**device.attribute_bags, bag_name: bag}
+    if response is not None:
+        # The response is workflow data (addressable via {bag.response.*}), so
+        # it stays in the bag; the request is display-only (see below).
+        update["attribute_bags"] = {
+            **device.attribute_bags,
+            bag_name: redact_secrets_in_data({"response": response}),
+        }
     failed = device.model_copy(update=update)
+    if request is not None:
+        failed = _with_job_request(
+            failed, node_id=node_id, job_id=job_id, request=request, ok=False
+        )
     return device_key, failed
+
+
+def _with_job_request(
+    device: DeviceContext,
+    *,
+    node_id: str,
+    job_id: str,
+    request: dict[str, Any],
+    ok: bool,
+) -> DeviceContext:
+    """Record the job-run request for the detail view only (``device.requests``).
+
+    The response is deliberately not recorded here: it is kept in the
+    attribute bag because workflows read it.
+    """
+    return append_request_record(
+        device,
+        node_id=node_id,
+        target="Nautobot",
+        method="POST",
+        endpoint=f"/api/extras/jobs/{job_id}/run/",
+        request=request,
+        ok=ok,
+    )
 
 
 def _apply_job_result(
@@ -313,6 +345,7 @@ def _apply_job_result(
     job_id: str,
     source_id: str,
     job_name: str,
+    node_id: str,
     request: dict[str, Any],
     response: dict[str, Any] | None,
     bag_name: str = "nautobot_job",
@@ -323,17 +356,17 @@ def _apply_job_result(
             "job_id": job_id,
             "nautobot_source_id": source_id,
             "job_name": job_name,
-            "request": request,
             "response": response,
         }
     )
-    return device.model_copy(
+    updated = device.model_copy(
         update={
             "attribute_bags": {**device.attribute_bags, bag_name: bag},
             "capabilities": device.capabilities | {Capability.NAUTOBOT_JOB},
             "status": DeviceStatus.OK,
         }
     )
+    return _with_job_request(updated, node_id=node_id, job_id=job_id, request=request, ok=True)
 
 
 async def _start_job_for_device(
@@ -347,7 +380,7 @@ async def _start_job_for_device(
     device_common: DeviceCommonService,
     run_id: str | None,
 ) -> tuple[str, DeviceContext, bool]:
-    data: dict[str, Any] | None = None
+    request_body: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     try:
         data = await _resolve_device_params(
@@ -358,6 +391,10 @@ async def _start_job_for_device(
             device_common=device_common,
             run_id=run_id,
         )
+        # Mirror NautobotJobsService.run_job's POST body for the detail view.
+        request_body = {"data": data}
+        if parsed.task_queue:
+            request_body["task_queue"] = parsed.task_queue
         result = await jobs_service.run_job(
             parsed.job_id, data=data, task_queue=parsed.task_queue
         )
@@ -372,7 +409,8 @@ async def _start_job_for_device(
             job_id=parsed.job_id,
             source_id=parsed.source_id,
             job_name=parsed.job_name,
-            request=data,
+            node_id=node_id,
+            request=request_body,
             response=result,
             bag_name=parsed.bag_name,
         )
@@ -384,7 +422,8 @@ async def _start_job_for_device(
             node_id=node_id,
             exc=exc,
             bag_name=parsed.bag_name,
-            request=data,
+            job_id=parsed.job_id,
+            request=request_body,
             response=result,
         )
         return key, failed, False
