@@ -177,7 +177,8 @@ plugins:
     overview: Look up a device's TACACS+ shared secret in Cisco ISE.
     description: >
       Resolve each device's TACACS+ key from Cisco ISE using a configurable priority
-      of name, location-group, and IP-based lookups.
+      of name, location-group, and IP-based lookups. The strategy that found the key
+      is recorded per device as tacacs.key_strategy.
     artifact_type: configuration_management
     palette_category: cisco
     directory: get_ise_tacacs_key
@@ -284,6 +285,7 @@ plugins:
     produces: [attributes]
     outcomes:
       - name: success
+      - name: exists
       - name: failure
     metadata:
       configuration_input:
@@ -307,7 +309,10 @@ plugins:
           required: true
           example: "{name}"
         - name: description
-          description: Fixed description text set on the created ISE device. Optional.
+          description: >
+            Description set on the created ISE device. Fixed text or a
+            {path.to.value} expression resolved per device. Optional; if the
+            expression resolves to nothing the device is created without one.
           data_type: string
           required: false
         - name: ip_address

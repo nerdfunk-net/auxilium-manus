@@ -18,7 +18,12 @@ export function GetIseTacacsKeyHelpPanel() {
         <p>
           Looks up each workflow device&apos;s TACACS+ shared secret in Cisco
           ISE and stores it in the device context as{" "}
-          <HelpCode>tacacs.shared_secret</HelpCode>. Devices that already carry
+          <HelpCode>tacacs.shared_secret</HelpCode>. The lookup strategy that
+          found the key (<HelpCode>name_exact_32</HelpCode>,{" "}
+          <HelpCode>name_any</HelpCode>, <HelpCode>location_group</HelpCode>,{" "}
+          <HelpCode>ip_prefix_scan</HelpCode> or{" "}
+          <HelpCode>ip_range_scan</HelpCode>) is stored alongside it as{" "}
+          <HelpCode>tacacs.key_strategy</HelpCode>. Devices that already carry
           the key (e.g. from Get from ISE) are left untouched.
         </p>
         <p>

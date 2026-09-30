@@ -226,6 +226,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         device_service.get_device_by_name.assert_called_once_with("router1")
         updated = outcomes[0].context.devices["dev-1"]
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
+        self.assertEqual(resolve_device_attribute(updated, "tacacs.key_strategy"), "name_exact_32")
         self.assertIn(Capability.ATTRIBUTES, updated.capabilities)
         self.assertEqual(outcomes[0].context.metadata["node-1.found_count"], 1)
 
@@ -254,6 +255,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         device_service.get_device_by_name.assert_called_once_with("router1")
         updated = outcomes[0].context.devices["dev-1"]
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
+        self.assertEqual(resolve_device_attribute(updated, "tacacs.key_strategy"), "name_any")
 
     async def test_location_group_tier_skipped_without_nautobot_location(self) -> None:
         device_service = _device_service()
@@ -333,6 +335,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_args, "Location#All Locations#Building1")
         updated = outcomes[0].context.devices["dev-1"]
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
+        self.assertEqual(resolve_device_attribute(updated, "tacacs.key_strategy"), "location_group")
 
     async def test_ip_prefix_scan_matches_wide_prefix(self) -> None:
         device_service = _device_service()
@@ -376,6 +379,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         updated = outcomes[0].context.devices["dev-1"]
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
+        self.assertEqual(resolve_device_attribute(updated, "tacacs.key_strategy"), "ip_prefix_scan")
 
     async def test_ip_prefix_scan_falls_back_to_nautobot_attribute_bag(self) -> None:
         """Regression test: a device from Get from List has no top-level
@@ -543,6 +547,7 @@ class GetIseTacacsKeyExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         updated = outcomes[0].context.devices["dev-1"]
         self.assertEqual(resolve_device_attribute(updated, "tacacs.shared_secret"), "s3cr3t")
+        self.assertEqual(resolve_device_attribute(updated, "tacacs.key_strategy"), "ip_range_scan")
 
     async def test_ip_range_scan_matches_wildcard(self) -> None:
         device_service = _device_service()

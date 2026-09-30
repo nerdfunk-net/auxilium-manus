@@ -144,8 +144,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        self.assertEqual(len(outcomes), 1)
-        self.assertEqual(outcomes[0].name, "success")
+        self.assertEqual([o.name for o in outcomes], ["success", "exists"])
         device_service.test_connection.assert_not_called()
 
     async def test_unreachable_ise_returns_failure_outcome(self) -> None:
@@ -375,7 +374,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_create_rejected_marks_device_failed_but_step_succeeds(self) -> None:
         device_service = _device_service()
         device_service.create_device = AsyncMock(
-            side_effect=ISEValidationError("device already exists")
+            side_effect=ISEValidationError("Illegal IP Address")
         )
         p1, p2, p3 = _patches(device_service)
         with p1, p2, p3:
@@ -393,6 +392,66 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "ise_device_create_rejected")
         self.assertEqual(outcomes[0].context.metadata["node-1.failed_count"], 1)
+
+    async def test_description_resolves_attribute_expression(self) -> None:
+        device_service = _device_service()
+        config = {**_BASE_CONFIG, "description": "{custom.note}"}
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            await execute(
+                config=config,
+                context=_context(
+                    {
+                        "dev-1": _device(
+                            "dev-1",
+                            name="router1",
+                            attribute_bags={"custom": {"note": "Lab router"}},
+                        ),
+                        "dev-2": _device("dev-2", name="router2"),
+                    }
+                ),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        payloads = [call.args[0] for call in device_service.create_device.call_args_list]
+        self.assertEqual(payloads[0]["description"], "Lab router")
+        # Unresolvable optional description: device is still created, without one.
+        self.assertNotIn("description", payloads[1])
+
+    async def test_duplicate_name_routes_device_to_exists_outcome(self) -> None:
+        device_service = _device_service()
+        device_service.create_device = AsyncMock(
+            side_effect=[
+                ISEValidationError("Network Device Create failed: Device Name Already Exists"),
+                {"id": "ise-2"},
+            ]
+        )
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config=_BASE_CONFIG,
+                context=_context(
+                    {
+                        "dev-1": _device("dev-1", name="router1"),
+                        "dev-2": _device("dev-2", name="router2"),
+                    }
+                ),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(set(by_name), {"success", "exists"})
+        self.assertEqual(list(by_name["exists"].context.devices), ["dev-1"])
+        self.assertEqual(list(by_name["success"].context.devices), ["dev-2"])
+        self.assertIs(by_name["exists"].context.devices["dev-1"].status, DeviceStatus.OK)
+        self.assertEqual(by_name["success"].context.metadata["node-1.exists_count"], 1)
+        self.assertEqual(by_name["success"].context.metadata["node-1.created_count"], 1)
 
     async def test_bare_api_error_mid_run_aborts_with_failure_outcome(self) -> None:
         device_service = _device_service()

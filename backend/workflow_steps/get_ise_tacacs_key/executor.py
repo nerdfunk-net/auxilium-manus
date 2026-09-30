@@ -5,6 +5,9 @@ already have it (e.g. selected via Get from Nautobot / Get from Git), by
 looking the key up in Cisco ISE. Devices already carrying the key (e.g.
 selected via Get from ISE) are left untouched.
 
+On a hit, the tier that found the key is written next to it as
+``attribute_bags["tacacs"]["key_strategy"]`` (one of the tier ids below).
+
 Outcomes: a per-device miss (no enabled tier found a key) marks that device
 ``DeviceStatus.FAILED`` but the step itself still emits ``"success"`` — this
 is a "proceed with survivors" step. The step emits ``"failure"`` instead only
@@ -75,6 +78,7 @@ _TIER_TYPES = (
     "ip_prefix_scan",
     "ip_range_scan",
 )
+_KEY_STRATEGY_PATH = "tacacs.key_strategy"
 _LIST_PAGE_SIZE = 100
 _MIN_PREFIX_LEN = 8
 
@@ -380,8 +384,11 @@ async def _process_devices_for_tacacs_key(
             raise RuntimeError(f"{_STEP_ID}: failed for device '{device.name}': {exc}") from exc
 
         if secret:
+            with_secret = set_device_attribute(device, "tacacs.shared_secret", seal_secret(secret))
+            # Record which lookup tier succeeded (one of _TIER_TYPES) so
+            # downstream steps and run output can tell how the key was found.
             updated_devices[device_id] = set_device_attribute(
-                device, "tacacs.shared_secret", seal_secret(secret)
+                with_secret, _KEY_STRATEGY_PATH, matched_tier
             )
             found_count += 1
             logger.info(

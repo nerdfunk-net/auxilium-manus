@@ -61,11 +61,16 @@ export function AddToIseHelpPanel() {
 
       <HelpSection title="Description">
         <p>
-          <HelpCode>description</HelpCode> is optional free text stored on the
-          ISE network device record. Leave blank for none.
+          <HelpCode>description</HelpCode> is optional text stored on the ISE
+          network device record. Use fixed text, or an attribute expression
+          resolved per device (use the search button to browse attributes). If
+          the expression resolves to nothing, the device is created without a
+          description. Leave blank for none.
         </p>
         <HelpExample>
           description: Lab edge router — onboarded by Auxilium Manus
+          <br />
+          description: {"{nautobot.location.name}"}
         </HelpExample>
       </HelpSection>
 
@@ -144,13 +149,19 @@ export function AddToIseHelpPanel() {
         <ul className="list-disc space-y-1 pl-4">
           <li>
             <span className="font-medium text-foreground">success</span> — ISE
-            accepted the create for the device (or the device already existed and
-            was updated, depending on ISE behaviour).
+            accepted the create for the device. A device whose fields could not
+            be resolved, or that ISE rejected for another reason, is marked
+            failed on that device but still leaves through this handle.
           </li>
           <li>
-            <span className="font-medium text-foreground">failure</span> — ISE
-            could not be reached, authentication failed, or required fields
-            could not be resolved.
+            <span className="font-medium text-foreground">exists</span> — ISE
+            refused the create because a network device with that name already
+            exists. These devices are passed through unchanged.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">failure</span> — the
+            step itself failed: ISE could not be reached or authentication
+            failed. All devices leave through this handle.
           </li>
         </ul>
       </HelpSection>

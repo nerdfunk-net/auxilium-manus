@@ -7,13 +7,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type {
+  PersistedCanvasNode,
+  WorkflowCanvasEdge,
+} from "@/components/features/workflows/types/workflow-canvas";
+import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
+import { ExpressionField } from "./expression-field";
 import { AddToIseHelpPanel } from "./help-panel";
+
+const EMPTY_NODES: PersistedCanvasNode[] = [];
+const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 const DEVICE_NAME_KEY = "device_name";
 const DESCRIPTION_KEY = "description";
@@ -44,7 +52,13 @@ function ExpressionHint({ example }: { example: string }) {
   );
 }
 
-function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+function AddToIseConfigPanel({
+  nodeId,
+  config,
+  onChange,
+  workflowNodes = EMPTY_NODES,
+  workflowEdges = EMPTY_EDGES,
+}: PluginConfigPanelProps) {
   const sourceId = useMemo(() => iseSourceIdFromConfig(config), [config]);
   const deviceName = useMemo(() => stringFromConfig(config, DEVICE_NAME_KEY), [config]);
   const description = useMemo(() => stringFromConfig(config, DESCRIPTION_KEY), [config]);
@@ -62,22 +76,22 @@ function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   );
 
   const handleDeviceNameChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onChange({ ...config, [DEVICE_NAME_KEY]: event.target.value });
+    (next: string) => {
+      onChange({ ...config, [DEVICE_NAME_KEY]: next });
     },
     [config, onChange],
   );
 
   const handleDescriptionChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onChange({ ...config, [DESCRIPTION_KEY]: event.target.value });
+    (next: string) => {
+      onChange({ ...config, [DESCRIPTION_KEY]: next });
     },
     [config, onChange],
   );
 
   const handleIpAddressChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onChange({ ...config, [IP_ADDRESS_KEY]: event.target.value });
+    (next: string) => {
+      onChange({ ...config, [IP_ADDRESS_KEY]: next });
     },
     [config, onChange],
   );
@@ -139,38 +153,46 @@ function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       </div>
 
       {/* device_name */}
-      <div className="space-y-1.5">
-        <span className="font-mono text-xs font-medium">{DEVICE_NAME_KEY}</span>
-        <Input
-          className="h-9 font-mono text-xs"
-          placeholder="{name} or router1"
-          value={deviceName}
-          onChange={handleDeviceNameChange}
-        />
+      <ExpressionField
+        configKey={DEVICE_NAME_KEY}
+        value={deviceName}
+        placeholder="{name} or router1"
+        onValueChange={handleDeviceNameChange}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+      >
         <ExpressionHint example="{name}" />
         {!deviceName && <p className="text-[11px] text-warning-foreground">Not configured</p>}
-      </div>
+      </ExpressionField>
 
       {/* description */}
-      <div className="space-y-1.5">
-        <span className="font-mono text-xs font-medium">{DESCRIPTION_KEY}</span>
-        <Input
-          className="h-9 font-mono text-xs"
-          placeholder="Optional description"
-          value={description}
-          onChange={handleDescriptionChange}
-        />
-      </div>
+      <ExpressionField
+        configKey={DESCRIPTION_KEY}
+        value={description}
+        placeholder="Optional description or {path.to.value}"
+        onValueChange={handleDescriptionChange}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+      >
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Optional. Fixed text, or <span className="font-mono">{"{path.to.value}"}</span>{" "}
+          resolved per device. If it resolves to nothing, the device is created without a
+          description.
+        </p>
+      </ExpressionField>
 
       {/* ip_address */}
-      <div className="space-y-1.5">
-        <span className="font-mono text-xs font-medium">{IP_ADDRESS_KEY}</span>
-        <Input
-          className="h-9 font-mono text-xs"
-          placeholder="{primary_ip4} or 10.0.0.1"
-          value={ipAddress}
-          onChange={handleIpAddressChange}
-        />
+      <ExpressionField
+        configKey={IP_ADDRESS_KEY}
+        value={ipAddress}
+        placeholder="{primary_ip4} or 10.0.0.1"
+        onValueChange={handleIpAddressChange}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+      >
         <ExpressionHint example="{primary_ip4}" />
         <p className="text-[11px] leading-4 text-muted-foreground">
           Registered as a single host in ISE. A netmask suffix (e.g.{" "}
@@ -178,7 +200,7 @@ function AddToIseConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           separate netmask field.
         </p>
         {!ipAddress && <p className="text-[11px] text-warning-foreground">Not configured</p>}
-      </div>
+      </ExpressionField>
 
       {/* new_key */}
       <div className="space-y-1.5">
