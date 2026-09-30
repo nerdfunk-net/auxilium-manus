@@ -128,6 +128,46 @@ class WorkflowContextGuardTests(unittest.TestCase):
                 frozenset(),
             )
 
+    def test_effective_produces_relaxes_per_device_ise_steps(self) -> None:
+        spec = StepCapabilitySpec(
+            step_id="get-ise-tacacs-key",
+            requires=frozenset({Capability.IDENTITY}),
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        for step_type in ("get-ise-tacacs-key", "update-ise-tacacs-key", "add-to-ise"):
+            self.assertEqual(
+                effective_produces(spec=spec, step_type=step_type, config={}),
+                frozenset(),
+            )
+
+    def test_unfound_device_passes_relaxed_post_step_guard(self) -> None:
+        """A Get from List device (IDENTITY only) that ISE has no key for."""
+        spec = StepCapabilitySpec(
+            step_id="get-ise-tacacs-key",
+            requires=frozenset({Capability.IDENTITY}),
+            produces=frozenset({Capability.ATTRIBUTES}),
+        )
+        device = DeviceContext(
+            id="list-1",
+            name="r1",
+            hostname="r1",
+            source="list",
+            capabilities={Capability.IDENTITY},
+        )
+        context = WorkflowContext(run_id="run-1", workflow_id="wf-1", devices={"list-1": device})
+        outcomes = [StepOutcome(name="success", context=context)]
+
+        with self.assertRaises(RuntimeError):
+            post_step_guard(spec=spec, input_context=context, outcomes=outcomes)
+        post_step_guard(
+            spec=spec,
+            input_context=context,
+            outcomes=outcomes,
+            expected_produces=effective_produces(
+                spec=spec, step_type="get-ise-tacacs-key", config={}
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

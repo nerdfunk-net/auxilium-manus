@@ -67,6 +67,11 @@ def _update_attribute_has_guaranteed_write(config: dict) -> bool:
     )
 
 
+_PER_DEVICE_ATTRIBUTE_STEPS = frozenset(
+    {"get-ise-tacacs-key", "update-ise-tacacs-key", "add-to-ise"}
+)
+
+
 def effective_produces(
     *,
     spec: StepCapabilitySpec,
@@ -92,6 +97,14 @@ def effective_produces(
         # these steps can add an attribute, but a device whose ``source_path``
         # resolves to nothing is passed through untouched — so the capability
         # can't be promised on every device.
+        return frozenset()
+    if step_type in _PER_DEVICE_ATTRIBUTE_STEPS:
+        # The registry lists ``produces: [attributes]`` for canvas wiring, but
+        # these ISE steps only write an attribute for devices they succeed on.
+        # A per-device miss (key not found in ISE, unresolved expression, ISE
+        # rejecting the change) marks that device FAILED and routes it through
+        # "success" untouched, and a device already carrying the key is passed
+        # through as-is — so the capability can't be promised on every device.
         return frozenset()
     if step_type == "run-command":
         # The registry lists ``produces: [parsed]``, but the executor only
