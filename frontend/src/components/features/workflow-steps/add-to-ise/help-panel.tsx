@@ -22,8 +22,8 @@ export function AddToIseHelpPanel() {
         </p>
         <p>
           Each field can be a fixed value or a per-device expression resolved
-          from the workflow context (e.g. <HelpCode>{"{name}"}</HelpCode> from
-          a Nautobot inventory step).
+          from the workflow context (e.g. <HelpCode>{"{name}"}</HelpCode> from a
+          Nautobot inventory step).
         </p>
       </HelpSection>
 
@@ -35,20 +35,16 @@ export function AddToIseHelpPanel() {
           → Cisco ISE. The step stores that source&apos;s ID as{" "}
           <HelpCode>ise_source_id</HelpCode>.
         </p>
-        <HelpExample>
-          ise_source_id: prod-ise
-        </HelpExample>
+        <HelpExample>ise_source_id: prod-ise</HelpExample>
         <HelpWarning title="Source required">
-          <p>
-            Without a valid source the step cannot create devices in ISE.
-          </p>
+          <p>Without a valid source the step cannot create devices in ISE.</p>
         </HelpWarning>
       </HelpSection>
 
       <HelpSection title="Device name">
         <p>
-          <HelpCode>device_name</HelpCode> is the ISE network device name. Use
-          a fixed string or an expression from context.
+          <HelpCode>device_name</HelpCode> is the ISE network device name. Use a
+          fixed string or an expression from context.
         </p>
         <HelpExample>
           device_name: router1
@@ -125,8 +121,52 @@ export function AddToIseHelpPanel() {
         <p>
           <HelpCode>device_groups</HelpCode> is a list of full hierarchical ISE
           network device group (NDG) strings. Click the plus button to add a
-          row; leave the list empty for no group membership.
+          row, or <strong>Get List</strong> to pick a group loaded from ISE;
+          leave the list empty for no group membership.
         </p>
+        <p>
+          An entry may also be a <HelpCode>{"{path.to.value}"}</HelpCode>{" "}
+          expression, e.g. <HelpCode>{"{custom.group}"}</HelpCode>, resolved per
+          device. Each entry is resolved with these rules:
+        </p>
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>
+            <span className="font-medium text-foreground">Plain text</span> is
+            sent to ISE exactly as typed.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">
+              A path that exists
+            </span>{" "}
+            uses the attribute&apos;s value as the group name.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">
+              A path that exists but is blank
+            </span>{" "}
+            (<HelpCode>{'""'}</HelpCode>) adds no group for that entry. The
+            device is still created and ISE places it in its default root group.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">
+              A path that does not exist
+            </span>{" "}
+            fails the device with <HelpCode>device_group_unresolved</HelpCode>{" "}
+            and routes it to <HelpCode>failure</HelpCode>. No request is sent to
+            ISE. A <HelpCode>null</HelpCode> value, or a value that is an object
+            or list, counts as not existing.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">
+              A fallback with <HelpCode>{"| default('…')"}</HelpCode>
+            </span>{" "}
+            is used when the path does not exist, e.g.{" "}
+            <HelpCode>
+              {"{custom.group | default('Location#All Locations')}"}
+            </HelpCode>
+            .
+          </li>
+        </ul>
         <p>
           Each entry must be the complete <HelpCode>#</HelpCode>-delimited path,
           not just the leaf name — same rules as Get from ISE group mode.

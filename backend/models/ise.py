@@ -195,3 +195,15 @@ class ISEDeviceGroupListResponse(BaseModel):
     total: int
     resources: list[dict[str, Any]]
     next_page: str | None = None
+
+
+class ISEDeviceGroupSummary(BaseModel):
+    id: str | None = None
+    name: str
+    description: str | None = None
+
+
+class ISEDeviceGroupAllResponse(BaseModel):
+    total: int
+    groups: list[ISEDeviceGroupSummary]
+    truncated: bool = False

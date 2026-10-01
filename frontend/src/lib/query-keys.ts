@@ -119,6 +119,8 @@ export const queryKeys = {
   sourcesIse: {
     all: ["sources-ise"] as const,
     list: () => [...queryKeys.sourcesIse.all, "list"] as const,
+    networkDeviceGroups: (sourceId: string) =>
+      [...queryKeys.sourcesIse.all, "network-device-groups", sourceId] as const,
   },
   sourcesPyats: {
     all: ["sources-pyats"] as const,

@@ -13,10 +13,12 @@ from core.safe_http_errors import raise_internal_server_error
 from core.safe_urls import UnsafeURLError
 from dependencies import get_ise_source_config_service
 from models.ise import (
+    ISEDeviceGroupAllResponse,
     ISEDeviceGroupChildCreateRequest,
     ISEDeviceGroupListResponse,
     ISEDeviceGroupResponse,
     ISEDeviceGroupRootCreateRequest,
+    ISEDeviceGroupSummary,
     ISEDeviceGroupUpdateRequest,
     ISELocationCreateRequest,
     ISELocationResponse,
@@ -332,6 +334,36 @@ async def list_network_device_groups(
         raise
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to list ISE device groups: ", exc)
+
+
+@router.get("/network-device-groups/all", response_model=ISEDeviceGroupAllResponse)
+async def list_all_network_device_groups(
+    source_id: str,
+    filter: str | None = Query(default=None, max_length=255),  # noqa: A002
+    _: User = Depends(get_current_user),
+    config: ISESourceConfigService = Depends(get_ise_source_config_service),
+) -> ISEDeviceGroupAllResponse:
+    group_service = _resolve_group_service(source_id, config)
+    try:
+        groups, truncated = await group_service.list_all_groups(filter_=filter)
+        return ISEDeviceGroupAllResponse(
+            total=len(groups),
+            groups=[ISEDeviceGroupSummary(**group) for group in groups],
+            truncated=truncated,
+        )
+    except ISEValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ISEAPIError as exc:
+        raise_internal_server_error(
+            logger,
+            "ISE list all device groups failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Failed to list all ISE device groups: ", exc)
 
 
 @router.post(

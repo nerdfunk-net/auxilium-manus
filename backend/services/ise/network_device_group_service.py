@@ -22,6 +22,9 @@ from services.ise.common.exceptions import ISENotFoundError, ISEValidationError
 from services.ise.credentials import ISECredentials
 
 _ENDPOINT = "networkdevicegroup"
+# ERS caps ``size`` at 100; the page cap bounds a runaway loop on a huge ISE.
+_ERS_MAX_PAGE_SIZE = 100
+_DEFAULT_MAX_PAGES = 50
 LOCATION_GROUP_TYPE = "Location"
 
 
@@ -43,6 +46,37 @@ class ISENetworkDeviceGroupService:
         return await self._ise.ers_request(
             _ENDPOINT, self._credentials, method="GET", params=params
         )
+
+    async def list_all_groups(
+        self,
+        *,
+        filter_: str | None = None,
+        max_pages: int = _DEFAULT_MAX_PAGES,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Follow ERS pagination and return every group as ``{id, name, description}``.
+
+        Sorted by full ``name``. The second element is ``True`` when *max_pages*
+        was reached while ISE still reported another page (result is incomplete).
+        """
+        groups: list[dict[str, Any]] = []
+        truncated = False
+        for page in range(1, max_pages + 1):
+            result = await self.list_groups(page=page, size=_ERS_MAX_PAGE_SIZE, filter_=filter_)
+            search_result = result.get("SearchResult", {})
+            groups.extend(
+                {
+                    "id": resource.get("id"),
+                    "name": resource.get("name"),
+                    "description": resource.get("description"),
+                }
+                for resource in search_result.get("resources", [])
+                if resource.get("name")
+            )
+            if not (search_result.get("nextPage") or {}).get("href"):
+                break
+            if page == max_pages:
+                truncated = True
+        return sorted(groups, key=lambda group: group["name"]), truncated
 
     async def get_group_by_name(self, name: str) -> dict[str, Any] | None:
         try:

@@ -144,7 +144,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        self.assertEqual([o.name for o in outcomes], ["success", "exists"])
+        self.assertEqual([o.name for o in outcomes], ["success", "exists", "failure"])
         device_service.test_connection.assert_not_called()
 
     async def test_unreachable_ise_returns_failure_outcome(self) -> None:
@@ -274,7 +274,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["tacacsSettings"]["sharedSecret"], "from-path")
         self.assertEqual(outcomes[0].context.metadata["node-1.created_count"], 1)
 
-    async def test_unresolved_device_name_marks_device_failed_but_step_succeeds(self) -> None:
+    async def test_unresolved_device_name_marks_device_failed_and_routes_to_failure(self) -> None:
         device_service = _device_service()
         config = {**_BASE_CONFIG, "device_name": "{missing.path}"}
         p1, p2, p3 = _patches(device_service)
@@ -289,11 +289,11 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         device_service.create_device.assert_not_called()
-        self.assertEqual(outcomes[0].name, "success")
-        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(outcomes[2].name, "failure")
+        updated = outcomes[2].context.devices["dev-1"]
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "device_name_unresolved")
-        self.assertEqual(outcomes[0].context.metadata["node-1.failed_count"], 1)
+        self.assertEqual(outcomes[2].context.metadata["node-1.failed_count"], 1)
 
     async def test_unresolved_ip_address_marks_device_failed(self) -> None:
         device_service = _device_service()
@@ -310,7 +310,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         device_service.create_device.assert_not_called()
-        updated = outcomes[0].context.devices["dev-1"]
+        updated = outcomes[2].context.devices["dev-1"]
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "ip_address_unresolved")
 
@@ -367,11 +367,11 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         device_service.create_device.assert_not_called()
-        updated = outcomes[0].context.devices["dev-1"]
+        updated = outcomes[2].context.devices["dev-1"]
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "tacacs_key_unresolved")
 
-    async def test_create_rejected_marks_device_failed_but_step_succeeds(self) -> None:
+    async def test_create_rejected_marks_device_failed_and_routes_to_failure(self) -> None:
         device_service = _device_service()
         device_service.create_device = AsyncMock(
             side_effect=ISEValidationError("Illegal IP Address")
@@ -387,11 +387,73 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
 
-        self.assertEqual(outcomes[0].name, "success")
-        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(outcomes[2].name, "failure")
+        updated = outcomes[2].context.devices["dev-1"]
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "ise_device_create_rejected")
-        self.assertEqual(outcomes[0].context.metadata["node-1.failed_count"], 1)
+        self.assertEqual(outcomes[2].context.metadata["node-1.failed_count"], 1)
+
+    async def _run_with_groups(self, groups: list[str], bags: dict | None) -> tuple:
+        device_service = _device_service()
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            outcomes = await execute(
+                config={**_BASE_CONFIG, "device_groups": groups},
+                context=_context(
+                    {"dev-1": _device("dev-1", name="router1", attribute_bags=bags)}
+                ),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        return outcomes, device_service
+
+    async def test_device_groups_expression_resolves_per_device(self) -> None:
+        outcomes, device_service = await self._run_with_groups(
+            ["Device Type#All Device Types", "{custom.group}"],
+            {"custom": {"group": "Location#All Locations#Test"}},
+        )
+        (payload,), _ = device_service.create_device.call_args
+        self.assertEqual(
+            payload["NetworkDeviceGroupList"],
+            ["Device Type#All Device Types", "Location#All Locations#Test"],
+        )
+        self.assertEqual(outcomes[0].name, "success")
+        self.assertIn("dev-1", outcomes[0].context.devices)
+
+    async def test_device_groups_missing_attribute_fails_device(self) -> None:
+        outcomes, device_service = await self._run_with_groups(["{custom.group}"], {"custom": {}})
+        device_service.create_device.assert_not_called()
+        self.assertEqual(outcomes[2].name, "failure")
+        updated = outcomes[2].context.devices["dev-1"]
+        self.assertEqual(updated.status, DeviceStatus.FAILED)
+        self.assertEqual(updated.errors[-1].code, "device_group_unresolved")
+        self.assertNotIn("dev-1", outcomes[0].context.devices)
+
+    async def test_device_groups_empty_attribute_is_skipped_not_failed(self) -> None:
+        outcomes, device_service = await self._run_with_groups(
+            ["Device Type#All Device Types", "{custom.group}"],
+            {"custom": {"group": ""}},
+        )
+        (payload,), _ = device_service.create_device.call_args
+        self.assertEqual(payload["NetworkDeviceGroupList"], ["Device Type#All Device Types"])
+        self.assertEqual(outcomes[0].name, "success")
+        self.assertIn("dev-1", outcomes[0].context.devices)
+
+    async def test_device_groups_only_empty_attribute_sends_no_group_list(self) -> None:
+        _, device_service = await self._run_with_groups(
+            ["{custom.group}"], {"custom": {"group": ""}}
+        )
+        (payload,), _ = device_service.create_device.call_args
+        self.assertNotIn("NetworkDeviceGroupList", payload)
+
+    async def test_device_groups_missing_attribute_uses_default(self) -> None:
+        _, device_service = await self._run_with_groups(
+            ["{custom.group | default('Location#All Locations')}"], {"custom": {}}
+        )
+        (payload,), _ = device_service.create_device.call_args
+        self.assertEqual(payload["NetworkDeviceGroupList"], ["Location#All Locations"])
 
     async def test_description_resolves_attribute_expression(self) -> None:
         device_service = _device_service()
@@ -485,7 +547,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 device_sessions=MagicMock(),
             )
         device_service.create_device.assert_not_called()
-        failed = {o.name: o for o in outcomes}["success"].context.devices["dev-1"]
+        failed = {o.name: o for o in outcomes}["failure"].context.devices["dev-1"]
         self.assertEqual(failed.errors[-1].code, "netmask_invalid")
 
     async def test_duplicate_name_routes_device_to_exists_outcome(self) -> None:
@@ -513,7 +575,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         by_name = {o.name: o for o in outcomes}
-        self.assertEqual(set(by_name), {"success", "exists"})
+        self.assertEqual(set(by_name), {"success", "exists", "failure"})
         self.assertEqual(list(by_name["exists"].context.devices), ["dev-1"])
         self.assertEqual(list(by_name["success"].context.devices), ["dev-2"])
         self.assertIs(by_name["exists"].context.devices["dev-1"].status, DeviceStatus.OK)
@@ -564,7 +626,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(exists.requests["node-1"][0].ok)
         self.assertNotIn("ise", exists.attribute_bags)
 
-        rejected = by_name["success"].context.devices["c"]
+        rejected = by_name["failure"].context.devices["c"]
         self.assertEqual(rejected.requests["node-1"][0].response, {"error": "Illegal IP Address"})
 
         dumped_requests = repr([d.model_dump()["requests"] for d in (created, exists, rejected)])
@@ -620,7 +682,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["NetworkDeviceIPList"][0]["ipaddress"], "10.10.10.5")
         self.assertEqual(payload["NetworkDeviceIPList"][0]["mask"], 24)
 
-    async def test_invalid_ip_address_marks_device_failed_but_step_succeeds(self) -> None:
+    async def test_invalid_ip_address_marks_device_failed_and_routes_to_failure(self) -> None:
         device_service = _device_service()
         config = {**_BASE_CONFIG, "ip_address": "not-an-ip"}
         p1, p2, p3 = _patches(device_service)
@@ -635,11 +697,11 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         device_service.create_device.assert_not_called()
-        self.assertEqual(outcomes[0].name, "success")
-        updated = outcomes[0].context.devices["dev-1"]
+        self.assertEqual(outcomes[2].name, "failure")
+        updated = outcomes[2].context.devices["dev-1"]
         self.assertEqual(updated.status, DeviceStatus.FAILED)
         self.assertEqual(updated.errors[-1].code, "ip_address_invalid")
-        self.assertEqual(outcomes[0].context.metadata["node-1.failed_count"], 1)
+        self.assertEqual(outcomes[2].context.metadata["node-1.failed_count"], 1)
 
 
 if __name__ == "__main__":

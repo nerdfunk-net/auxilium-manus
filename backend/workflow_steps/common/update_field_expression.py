@@ -6,7 +6,12 @@ import re
 from typing import Any
 
 from models.workflow_context import DeviceContext
-from services.workflow_context.attribute_path import resolve_device_attribute, resolve_device_value
+from services.workflow_context.attribute_path import (
+    AttributeState,
+    resolve_device_attribute,
+    resolve_device_attribute_state,
+    resolve_device_value,
+)
 from workflow_steps.common.nautobot_update_fields import (
     extract_update_fields_from_nautobot_bag,
 )
@@ -170,6 +175,36 @@ def resolve_update_field_expression(
     if default_value is not None:
         return default_value
     return None
+
+
+def resolve_expression_if_present(
+    *,
+    device: DeviceContext,
+    raw_value: str,
+) -> tuple[bool, str]:
+    """Resolve a fixed value or ``{path}`` expression, telling "empty" from "missing".
+
+    Returns ``(found, value)``. A fixed value is always found. For a ``{path}``
+    expression the attribute must *exist*: a key holding an empty string is
+    found with ``value == ""`` (a deliberate blank), whereas a missing key, a
+    ``null`` value or a non-scalar value is not found — unless the expression
+    carries ``| default('...')``, which is then used.
+    """
+    expression = raw_value.strip()
+    match = _BRACE_EXPRESSION.match(expression)
+    if not match:
+        return True, expression
+
+    path = match.group("path").strip()
+    state, text = resolve_device_attribute_state(device, path)
+    if state is AttributeState.EMPTY:
+        return True, ""
+    if state is AttributeState.PRESENT and text is not None:
+        return True, text
+    default_value = match.group("default")
+    if default_value is not None:
+        return True, default_value
+    return False, ""
 
 
 def _parse_tags_value(raw: str) -> list[str] | str | None:

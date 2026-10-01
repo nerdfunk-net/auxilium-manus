@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, Plus } from "lucide-react";
+import { Minus, Plus, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +16,11 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
+import { AttributePathPicker } from "../shared/attribute-path-picker";
 import { ExpressionField } from "../shared/expression-field";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
 import { AddToIseHelpPanel } from "./help-panel";
+import { IseDeviceGroupPickerDialog } from "./ise-device-group-picker-dialog";
 
 const EMPTY_NODES: PersistedCanvasNode[] = [];
 const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
@@ -69,6 +71,9 @@ function AddToIseConfigPanel({
   const deviceGroups = useMemo(() => deviceGroupsFromConfig(config), [config]);
 
   const [sourceOpen, setSourceOpen] = useState(false);
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
+  // Index of the device_groups row the attribute browser is editing (null = closed).
+  const [attributePickerRow, setAttributePickerRow] = useState<number | null>(null);
 
   const handleSourceIdChange = useCallback(
     (newSourceId: string) => {
@@ -124,6 +129,34 @@ function AddToIseConfigPanel({
   const handleAddGroup = useCallback(() => {
     onChange({ ...config, [DEVICE_GROUPS_KEY]: [...deviceGroups, ""] });
   }, [config, deviceGroups, onChange]);
+
+  const handleOpenGroupPicker = useCallback(() => setGroupPickerOpen(true), []);
+  const handleCloseGroupPicker = useCallback(() => setGroupPickerOpen(false), []);
+
+  // Fills a trailing empty row if there is one, otherwise appends a new row.
+  const handlePickGroup = useCallback(
+    (name: string) => {
+      const lastIndex = deviceGroups.length - 1;
+      const next =
+        lastIndex >= 0 && deviceGroups[lastIndex].trim() === ""
+          ? [...deviceGroups.slice(0, lastIndex), name]
+          : [...deviceGroups, name];
+      onChange({ ...config, [DEVICE_GROUPS_KEY]: next });
+    },
+    [config, deviceGroups, onChange],
+  );
+
+  const handleCloseAttributePicker = useCallback(() => setAttributePickerRow(null), []);
+
+  const handleAttributePicked = useCallback(
+    (path: string) => {
+      if (attributePickerRow !== null) {
+        handleGroupChange(attributePickerRow, `{${path}}`);
+      }
+      setAttributePickerRow(null);
+    },
+    [attributePickerRow, handleGroupChange],
+  );
 
   const handleRemoveGroup = useCallback(
     (index: number) => {
@@ -253,16 +286,29 @@ function AddToIseConfigPanel({
               string_list
             </Badge>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="size-7"
-            onClick={handleAddGroup}
-            title="Add group"
-          >
-            <Plus className="size-3.5" />
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={!sourceId}
+              onClick={handleOpenGroupPicker}
+              title={sourceId ? "Load groups from ISE" : "Configure an ISE source first"}
+            >
+              Get List
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-7"
+              onClick={handleAddGroup}
+              title="Add group"
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -271,9 +317,20 @@ function AddToIseConfigPanel({
               <Input
                 value={group}
                 onChange={(event) => handleGroupChange(index, event.target.value)}
-                placeholder="Location#All Locations"
+                placeholder="Location#All Locations or {custom.group}"
                 className="h-8 font-mono text-xs"
               />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={() => setAttributePickerRow(index)}
+                title="Browse attributes"
+                aria-label={`Browse attributes for group ${index + 1}`}
+              >
+                <Search className="size-3.5" aria-hidden />
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -289,9 +346,28 @@ function AddToIseConfigPanel({
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Full hierarchical ISE group names. Leave empty for none.
+          Full hierarchical ISE group names, or <span className="font-mono">{"{path.to.value}"}</span>{" "}
+          resolved per device. A path that does not exist fails the device; one that exists but is
+          blank adds no group. Click Get List to pick from ISE. Leave empty for none.
         </p>
       </div>
+
+      <AttributePathPicker
+        open={attributePickerRow !== null}
+        onClose={handleCloseAttributePicker}
+        onSelect={handleAttributePicked}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+      />
+
+      <IseDeviceGroupPickerDialog
+        open={groupPickerOpen}
+        sourceId={sourceId}
+        selectedGroups={deviceGroups}
+        onClose={handleCloseGroupPicker}
+        onSelect={handlePickGroup}
+      />
 
       <ISESourceSelectDialog
         open={sourceOpen}

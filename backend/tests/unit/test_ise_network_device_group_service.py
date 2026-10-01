@@ -39,6 +39,51 @@ class ISENetworkDeviceGroupServiceTests(unittest.IsolatedAsyncioTestCase):
             params={"page": 1, "size": 20},
         )
 
+    async def test_list_all_groups_aggregates_pages_sorted_by_name(self) -> None:
+        self.ise.ers_request.side_effect = [
+            {
+                "SearchResult": {
+                    "total": 3,
+                    "resources": [
+                        {"id": "2", "name": "Location#All Locations#B", "link": {}},
+                        {"id": "1", "name": "Location#All Locations", "description": "root"},
+                    ],
+                    "nextPage": {"href": "https://ise/next"},
+                }
+            },
+            {
+                "SearchResult": {
+                    "total": 3,
+                    "resources": [{"id": "3", "name": "Device Type#All Device Types"}],
+                }
+            },
+        ]
+        groups, truncated = await self.service.list_all_groups()
+        self.assertFalse(truncated)
+        self.assertEqual(
+            groups,
+            [
+                {"id": "3", "name": "Device Type#All Device Types", "description": None},
+                {"id": "1", "name": "Location#All Locations", "description": "root"},
+                {"id": "2", "name": "Location#All Locations#B", "description": None},
+            ],
+        )
+        pages = [c.kwargs["params"]["page"] for c in self.ise.ers_request.call_args_list]
+        self.assertEqual(pages, [1, 2])
+
+    async def test_list_all_groups_stops_at_page_cap_and_reports_truncated(self) -> None:
+        self.ise.ers_request.return_value = {
+            "SearchResult": {
+                "total": 99,
+                "resources": [{"id": "1", "name": "Location#X"}],
+                "nextPage": {"href": "https://ise/next"},
+            }
+        }
+        groups, truncated = await self.service.list_all_groups(max_pages=2)
+        self.assertTrue(truncated)
+        self.assertEqual(self.ise.ers_request.call_count, 2)
+        self.assertEqual(len(groups), 2)
+
     async def test_get_group_by_name_returns_none_on_404(self) -> None:
         self.ise.ers_request.side_effect = ISENotFoundError("not found")
         result = await self.service.get_group_by_name("Location#Missing")

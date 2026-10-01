@@ -293,8 +293,8 @@ plugins:
           description: >
             ID of a Cisco ISE source configured under Settings → Sources. If ISE
             cannot be reached or authentication fails, the step routes to the
-            failure outcome instead of raising (a per-device create failure still
-            routes to success — see the failure outcome description).
+            failure outcome instead of raising. A per-device create failure (rejected
+            by ISE, unresolved field) also routes that device to failure.
           data_type: string
           required: true
           example: lab-ise
@@ -304,7 +304,7 @@ plugins:
             in braces to resolve it per device from the device's attribute bags, e.g.
             {name} or {nautobot.custom_fields.device_name}, optionally with a
             fallback: {name | default('fallback-name')}. A device whose expression
-            resolves to nothing is marked failed but does not stop the step.
+            resolves to nothing is marked failed and routed to the failure outcome; other devices continue.
           data_type: string
           required: true
           example: "{name}"
@@ -351,6 +351,10 @@ plugins:
             Full hierarchical ISE network device group (NDG) names the new device
             should belong to, e.g. "Location#All Locations" or
             "Device Type#All Device Types". Leave empty for no group memberships.
+            In the UI, Get List loads the groups configured on the ISE source.
+            Each entry may also be a {path.to.value} expression (e.g. {custom.group})
+            resolved per device. If the attribute does not exist the device fails;
+            if it exists but is blank, no group is added for that entry.
           data_type: array
           required: false
           example:

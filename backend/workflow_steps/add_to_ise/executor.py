@@ -3,23 +3,28 @@
 Creates a new ``NetworkDevice`` entry in Cisco ISE for each device in the
 workflow context, with an IPv4 address, an optional set of network device
 group memberships, and a TACACS+ shared secret. ``device_name``,
-``description``, ``ip_address``, and ``new_key`` each accept either a fixed value or a
-``{path.to.value}`` expression resolved per device against the device's
-attribute bags (see ``workflow_steps.common.update_field_expression``), the
-same convention ``update-ise-tacacs-key`` uses for ``new_key``.
+``description``, ``ip_address``, ``new_key`` and each ``device_groups`` entry
+accept either a fixed value or a ``{path.to.value}`` expression resolved per
+device against the device's attribute bags (see
+``workflow_steps.common.update_field_expression``), the same convention
+``update-ise-tacacs-key`` uses for ``new_key``.
+
+A ``device_groups`` expression must resolve to an *existing* attribute: a
+missing/null one fails the device (``device_group_unresolved``), while one that
+exists but is blank adds no group for that entry.
 
 Outcomes: devices are routed per outcome handle.
 
-* ``"success"`` — devices that were created. A per-device miss (an unresolved
-  expression, or ISE rejecting the create for any reason other than a
-  duplicate name) also lands here with ``DeviceStatus.FAILED`` — a "proceed
-  with survivors" step, mirroring ``update-ise-tacacs-key``.
+* ``"success"`` — devices that were created.
 * ``"exists"`` — devices ISE refused to create because a network device with
   that name already exists. They are passed through unchanged (not failed).
-* ``"failure"`` — the step itself broke: ISE couldn't be reached or
-  authentication failed (a pre-flight ``test_connection()`` check, and any
-  bare ``ISEAPIError`` raised mid-run). This affects every device equally, so
-  the whole input context is carried on this outcome.
+* ``"failure"`` — devices that could not be created, each marked
+  ``DeviceStatus.FAILED`` with a ``DeviceError``: an unresolved expression, or
+  ISE rejecting the create for any reason other than a duplicate name. It also
+  carries the whole input context when the step itself broke: ISE couldn't be
+  reached or authentication failed (a pre-flight ``test_connection()`` check,
+  and any bare ``ISEAPIError`` raised mid-run), which affects every device
+  equally.
 
 Debugging: every device for which a create request was actually sent gets a
 ``RequestRecord`` in ``DeviceContext.requests[node_id]`` — the exact
@@ -78,7 +83,10 @@ from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.request_record import append_request_record
-from workflow_steps.common.update_field_expression import resolve_update_field_expression
+from workflow_steps.common.update_field_expression import (
+    resolve_expression_if_present,
+    resolve_update_field_expression,
+)
 
 if TYPE_CHECKING:
     from services.ise.network_device_service import ISENetworkDeviceService
@@ -113,6 +121,7 @@ class _ResolvedFields:
     mask: int
     key: str
     description: str
+    device_groups: list[str]
 
 
 @dataclass(frozen=True)
@@ -254,6 +263,30 @@ def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDev
     return service_factory.build_ise_network_device_service(credentials)
 
 
+def _resolve_device_groups(
+    device: DeviceContext, raw_groups: list[str]
+) -> list[str] | tuple[str, str]:
+    """Resolve each ``device_groups`` entry, or return ``(failure_code, message)``.
+
+    An entry whose ``{path}`` does not exist for the device fails it; one that
+    exists but is blank contributes no group (ISE then applies its default root).
+    """
+    resolved: list[str] = []
+    for raw in raw_groups:
+        found, value = resolve_expression_if_present(device=device, raw_value=raw)
+        if not found:
+            return (
+                "device_group_unresolved",
+                (
+                    f"device_groups entry '{raw}' did not resolve for '{device.name}' "
+                    f"(available attribute bags: {sorted(device.attribute_bags)})"
+                ),
+            )
+        if value:
+            resolved.append(value)
+    return resolved
+
+
 def _resolve_device_fields(
     device: DeviceContext,
     cfg: _ParsedConfig,
@@ -345,20 +378,21 @@ def _resolve_device_fields(
             device.name,
         )
 
+    resolved_groups = _resolve_device_groups(device, cfg.device_groups)
+    if isinstance(resolved_groups, tuple):
+        return resolved_groups
+
     return _ResolvedFields(
         name=resolved_name,
         ip_host=ip_host,
         mask=mask,
         key=resolved_key,
         description=resolved_description or "",
+        device_groups=resolved_groups,
     )
 
 
-def _build_create_payload(
-    resolved: _ResolvedFields,
-    *,
-    device_groups: list[str],
-) -> dict[str, Any]:
+def _build_create_payload(resolved: _ResolvedFields) -> dict[str, Any]:
     device_payload: dict[str, Any] = {
         "name": resolved.name,
         "NetworkDeviceIPList": [{"ipaddress": resolved.ip_host, "mask": resolved.mask}],
@@ -366,8 +400,8 @@ def _build_create_payload(
     }
     if resolved.description:
         device_payload["description"] = resolved.description
-    if device_groups:
-        device_payload["NetworkDeviceGroupList"] = device_groups
+    if resolved.device_groups:
+        device_payload["NetworkDeviceGroupList"] = resolved.device_groups
     return device_payload
 
 
@@ -459,10 +493,7 @@ async def _create_one_device(
             ),
         )
 
-    device_payload = _build_create_payload(
-        resolved,
-        device_groups=cfg.device_groups,
-    )
+    device_payload = _build_create_payload(resolved)
 
     try:
         created = await device_service.create_device(device_payload)
@@ -528,11 +559,12 @@ def _build_outcomes(
     context: WorkflowContext,
     success_devices: dict[str, DeviceContext],
     exists_devices: dict[str, DeviceContext],
+    failed_devices: dict[str, DeviceContext],
     node_id: str,
-    created_count: int,
-    failed_count: int,
 ) -> list[StepOutcome]:
+    created_count = len(success_devices)
     exists_count = len(exists_devices)
+    failed_count = len(failed_devices)
     metadata = {
         **context.metadata,
         f"{node_id}.total": len(context.devices),
@@ -565,12 +597,17 @@ def _build_outcomes(
         StepOutcome(
             name="success",
             context=context.model_copy(update={"devices": success_devices, "metadata": metadata}),
-            summary=f"created {created_count}, failed {failed_count}",
+            summary=f"created {created_count}",
         ),
         StepOutcome(
             name="exists",
             context=context.model_copy(update={"devices": exists_devices, "metadata": metadata}),
             summary=f"already exists {exists_count}",
+        ),
+        StepOutcome(
+            name="failure",
+            context=context.model_copy(update={"devices": failed_devices, "metadata": metadata}),
+            summary=f"failed {failed_count}",
         ),
     ]
 
@@ -592,6 +629,7 @@ async def execute(
         return [
             StepOutcome(name="success", context=context),
             StepOutcome(name="exists", context=context),
+            StepOutcome(name="failure", context=context),
         ]
 
     device_service = _build_ise_device_service(run, parsed.source_id)
@@ -618,8 +656,7 @@ async def execute(
 
     success_devices: dict[str, DeviceContext] = {}
     exists_devices: dict[str, DeviceContext] = {}
-    created_count = 0
-    failed_count = 0
+    failed_devices: dict[str, DeviceContext] = {}
 
     for device_id, device in context.devices.items():
         result = await _create_one_device(
@@ -641,17 +678,15 @@ async def execute(
             exists_devices[device_id] = result.device
             continue
 
-        success_devices[device_id] = result.device
         if result.kind == "failed":
-            failed_count += 1
+            failed_devices[device_id] = result.device
         else:
-            created_count += 1
+            success_devices[device_id] = result.device
 
     return _build_outcomes(
         context=context,
         success_devices=success_devices,
         exists_devices=exists_devices,
+        failed_devices=failed_devices,
         node_id=node_id,
-        created_count=created_count,
-        failed_count=failed_count,
     )
