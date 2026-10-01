@@ -5,7 +5,15 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type {
   PersistedCanvasNode,
   WorkflowCanvasEdge,
@@ -31,6 +39,14 @@ const IP_ADDRESS_KEY = "ip_address";
 const NETMASK_OVERRIDE_KEY = "netmask_override";
 const NEW_KEY_KEY = "new_key";
 const DEVICE_GROUPS_KEY = "device_groups";
+const CREATE_MISSING_GROUPS_KEY = "create_missing_groups";
+const SINGLE_CONNECT_MODE_KEY = "single_connect_mode";
+const DEFAULT_SINGLE_CONNECT_MODE = "OFF";
+const SINGLE_CONNECT_MODES = [
+  { value: "OFF", label: "Off" },
+  { value: "ON_LEGACY", label: "Legacy Cisco Device" },
+  { value: "ON_DRAFT_COMPLIANT", label: "TACACS Draft Compliance Single Connect Support" },
+] as const;
 
 function stringFromConfig(config: Record<string, unknown>, key: string): string {
   const raw = config[key];
@@ -69,6 +85,11 @@ function AddToIseConfigPanel({
   const netmaskOverride = useMemo(() => stringFromConfig(config, NETMASK_OVERRIDE_KEY), [config]);
   const newKey = useMemo(() => stringFromConfig(config, NEW_KEY_KEY), [config]);
   const deviceGroups = useMemo(() => deviceGroupsFromConfig(config), [config]);
+  const createMissingGroups = config[CREATE_MISSING_GROUPS_KEY] === true;
+  const singleConnectMode = useMemo(
+    () => stringFromConfig(config, SINGLE_CONNECT_MODE_KEY) || DEFAULT_SINGLE_CONNECT_MODE,
+    [config],
+  );
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
@@ -156,6 +177,20 @@ function AddToIseConfigPanel({
       setAttributePickerRow(null);
     },
     [attributePickerRow, handleGroupChange],
+  );
+
+  const handleSingleConnectModeChange = useCallback(
+    (next: string) => {
+      onChange({ ...config, [SINGLE_CONNECT_MODE_KEY]: next });
+    },
+    [config, onChange],
+  );
+
+  const handleCreateMissingGroupsChange = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, [CREATE_MISSING_GROUPS_KEY]: checked });
+    },
+    [config, onChange],
   );
 
   const handleRemoveGroup = useCallback(
@@ -277,6 +312,26 @@ function AddToIseConfigPanel({
         {!newKey && <p className="text-[11px] text-warning-foreground">Not configured</p>}
       </ExpressionField>
 
+      {/* single_connect_mode */}
+      <div className="space-y-1.5">
+        <span className="font-mono text-xs font-medium">{SINGLE_CONNECT_MODE_KEY}</span>
+        <Select value={singleConnectMode} onValueChange={handleSingleConnectModeChange}>
+          <SelectTrigger className="h-9 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SINGLE_CONNECT_MODES.map((mode) => (
+              <SelectItem key={mode.value} value={mode.value}>
+                {mode.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          ISE&apos;s &quot;Enable Single Connect Mode&quot; for TACACS+. Off leaves it unchecked.
+        </p>
+      </div>
+
       {/* device_groups */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
@@ -350,6 +405,21 @@ function AddToIseConfigPanel({
           resolved per device. A path that does not exist fails the device; one that exists but is
           blank adds no group. Click Get List to pick from ISE. Leave empty for none.
         </p>
+
+        <label className="flex items-start gap-1.5 pt-1 text-xs font-medium">
+          <Checkbox
+            className="mt-0.5"
+            checked={createMissingGroups}
+            onCheckedChange={(checked) => handleCreateMissingGroupsChange(checked === true)}
+          />
+          <span>
+            Add group if it does not exist
+            <span className="block text-[11px] font-normal leading-4 text-muted-foreground">
+              Creates each missing group (and missing parents) in ISE before adding the device.
+              If off, ISE rejects a device whose group does not exist and the device fails.
+            </span>
+          </span>
+        </label>
       </div>
 
       <AttributePathPicker

@@ -360,6 +360,27 @@ plugins:
           example:
             - "Location#All Locations"
             - "Device Type#All Device Types"
+        - name: create_missing_groups
+          description: >
+            When true, any device_groups entry that does not exist in ISE is created
+            (including missing parent groups) before the device is added. When false
+            (default), ISE rejects the device with a "NDG cannot be found" error and
+            the device routes to failure. A new top-level group must be named
+            like "foo#foo"; creating groups needs ISE write rights for the source user.
+          data_type: boolean
+          required: false
+          default: false
+          example: true
+        - name: single_connect_mode
+          description: >
+            ISE's "Enable Single Connect Mode" for the TACACS+ settings
+            (tacacsSettings.connectModeOptions). One of OFF (unchecked, default),
+            ON_LEGACY (Legacy Cisco Device) or ON_DRAFT_COMPLIANT (TACACS Draft
+            Compliance Single Connect Support). A fixed choice, not an expression.
+          data_type: string
+          required: false
+          default: OFF
+          example: ON_LEGACY
 
   - id: parse-cisco-config
     name: Parse Cisco Config

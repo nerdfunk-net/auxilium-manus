@@ -117,6 +117,27 @@ export function AddToIseHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="Single connect mode">
+        <p>
+          <HelpCode>single_connect_mode</HelpCode> sets ISE&apos;s &quot;Enable
+          Single Connect Mode&quot; checkbox for the device&apos;s TACACS+
+          settings. It is a fixed choice, not a <HelpCode>{"{path}"}</HelpCode>{" "}
+          expression.
+        </p>
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>
+            <strong>Off</strong> (default) — checkbox unchecked.
+          </li>
+          <li>
+            <strong>Legacy Cisco Device</strong> — checked, legacy mode.
+          </li>
+          <li>
+            <strong>TACACS Draft Compliance Single Connect Support</strong> —
+            checked, draft-compliant mode.
+          </li>
+        </ul>
+      </HelpSection>
+
       <HelpSection title="Device groups">
         <p>
           <HelpCode>device_groups</HelpCode> is a list of full hierarchical ISE
@@ -170,6 +191,18 @@ export function AddToIseHelpPanel() {
         <p>
           Each entry must be the complete <HelpCode>#</HelpCode>-delimited path,
           not just the leaf name — same rules as Get from ISE group mode.
+        </p>
+        <p>
+          <HelpCode>create_missing_groups</HelpCode> (checkbox{" "}
+          <strong>Add group if it does not exist</strong>) controls what happens
+          when a group is not yet in ISE. <strong>Enabled</strong>: each missing
+          group and any missing parents are created first, then the device is
+          added. <strong>Disabled</strong> (default): ISE rejects the device
+          with an &quot;NDG cannot be found&quot; error and it routes to{" "}
+          <HelpCode>failure</HelpCode>. A new top-level group must be named like{" "}
+          <HelpCode>foo#foo</HelpCode>, and the ISE user needs rights to create
+          groups. A group that cannot be created fails the device with{" "}
+          <HelpCode>ise_device_group_create_failed</HelpCode>.
         </p>
         <HelpExample>
           device_groups:

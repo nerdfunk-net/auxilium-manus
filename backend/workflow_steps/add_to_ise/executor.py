@@ -13,6 +13,12 @@ A ``device_groups`` expression must resolve to an *existing* attribute: a
 missing/null one fails the device (``device_group_unresolved``), while one that
 exists but is blank adds no group for that entry.
 
+``create_missing_groups`` (default off): when enabled, every resolved
+``device_groups`` entry that does not yet exist in ISE is created (with any
+missing ancestors, see ``group_ensure``) before the device is created; a group
+that cannot be created fails the device (``ise_device_group_create_failed``).
+When off, ISE's own "NDG cannot be found" rejection fails the device.
+
 Outcomes: devices are routed per outcome handle.
 
 * ``"success"`` — devices that were created.
@@ -36,9 +42,11 @@ attribute bag, so other steps and ``{path}`` expressions never see it.
 Devices that failed before a request was built (unresolved expressions) have
 none.
 
-``connectModeOptions`` is hardcoded to ``"OFF"`` (matching
-``backend/scripts/ise_test.py``'s default) rather than exposed as
-configuration, keeping the config surface to the fields the user asked for.
+``single_connect_mode`` sets ISE's ``tacacsSettings.connectModeOptions`` (the
+"Enable Single Connect Mode" checkbox): ``OFF`` (default, unchecked),
+``ON_LEGACY`` (Legacy Cisco Device) or ``ON_DRAFT_COMPLIANT`` (TACACS Draft
+Compliance Single Connect Support). It is a fixed choice, not a ``{path}``
+expression; any other value raises ``ValueError``.
 
 ``ip_address`` may resolve to a CIDR-suffixed value (e.g. ``10.0.0.1/24``,
 the format Nautobot's ``primary_ip4`` is commonly stored/templated in) —
@@ -79,9 +87,11 @@ from models.workflow_context import (
 )
 from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISEValidationError
+from services.ise.credentials import ISECredentials
 from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.attribute_path import resolve_device_value
 from services.workflow_context.secret_fields import seal_secret
+from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.update_field_expression import (
     resolve_expression_if_present,
@@ -101,6 +111,8 @@ _STEP_ID = "add-to-ise"
 # still route to the "exists" outcome.
 _ALREADY_EXISTS_MARKER = "already exist"
 _ISE_CREATE_ENDPOINT = "/ers/config/networkdevice"
+_CONNECT_MODE_OFF = "OFF"
+_CONNECT_MODES = frozenset({_CONNECT_MODE_OFF, "ON_LEGACY", "ON_DRAFT_COMPLIANT"})
 
 
 @dataclass(frozen=True)
@@ -112,6 +124,8 @@ class _ParsedConfig:
     description: str
     device_groups: list[str]
     netmask_override: int | None = None
+    create_missing_groups: bool = False
+    single_connect_mode: str = _CONNECT_MODE_OFF
 
 
 @dataclass(frozen=True)
@@ -122,6 +136,7 @@ class _ResolvedFields:
     key: str
     description: str
     device_groups: list[str]
+    single_connect_mode: str = _CONNECT_MODE_OFF
 
 
 @dataclass(frozen=True)
@@ -149,6 +164,16 @@ def _parse_device_groups(raw: Any) -> list[str]:
     if not isinstance(raw, list):
         raise ValueError(f"{_STEP_ID}: device_groups must be a list")
     return [str(item).strip() for item in raw if str(item).strip()]
+
+
+def _parse_single_connect_mode(raw: Any) -> str:
+    """Validate the ``single_connect_mode`` config value; blank means ``OFF``."""
+    mode = str(raw or "").strip() or _CONNECT_MODE_OFF
+    if mode not in _CONNECT_MODES:
+        raise ValueError(
+            f"{_STEP_ID}: single_connect_mode must be one of {sorted(_CONNECT_MODES)}, got '{raw}'"
+        )
+    return mode
 
 
 def _parse_netmask_override(raw: Any) -> int | None:
@@ -244,23 +269,36 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         description=description,
         device_groups=device_groups,
         netmask_override=netmask_override,
+        create_missing_groups=config.get("create_missing_groups") is True,
+        single_connect_mode=_parse_single_connect_mode(config.get("single_connect_mode")),
     )
 
 
-def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
+def _resolve_source_credentials(run: WorkflowRun, source_id: str) -> ISECredentials:
     db = object_session(run)
     if db is None:
         raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
 
     source_config_service = service_factory.build_ise_source_config_service(db)
     try:
-        credentials = source_config_service.resolve_credentials(source_id)
+        return source_config_service.resolve_credentials(source_id)
     except ISESourceNotFoundError as exc:
         raise ValueError(f"{_STEP_ID}: ISE source '{source_id}' not found") from exc
     except ISEValidationError as exc:
         raise ValueError(f"{_STEP_ID}: {exc}") from exc
 
-    return service_factory.build_ise_network_device_service(credentials)
+
+def _build_ise_device_service(run: WorkflowRun, source_id: str) -> ISENetworkDeviceService:
+    return service_factory.build_ise_network_device_service(
+        _resolve_source_credentials(run, source_id)
+    )
+
+
+def _build_group_ensurer(run: WorkflowRun, source_id: str) -> DeviceGroupEnsurer:
+    group_service = service_factory.build_ise_network_device_group_service(
+        _resolve_source_credentials(run, source_id)
+    )
+    return DeviceGroupEnsurer(group_service)
 
 
 def _resolve_device_groups(
@@ -389,6 +427,7 @@ def _resolve_device_fields(
         key=resolved_key,
         description=resolved_description or "",
         device_groups=resolved_groups,
+        single_connect_mode=cfg.single_connect_mode,
     )
 
 
@@ -396,7 +435,10 @@ def _build_create_payload(resolved: _ResolvedFields) -> dict[str, Any]:
     device_payload: dict[str, Any] = {
         "name": resolved.name,
         "NetworkDeviceIPList": [{"ipaddress": resolved.ip_host, "mask": resolved.mask}],
-        "tacacsSettings": {"sharedSecret": resolved.key, "connectModeOptions": "OFF"},
+        "tacacsSettings": {
+            "sharedSecret": resolved.key,
+            "connectModeOptions": resolved.single_connect_mode,
+        },
     }
     if resolved.description:
         device_payload["description"] = resolved.description
@@ -479,6 +521,7 @@ async def _create_one_device(
     source_id: str,
     node_id: str,
     context: WorkflowContext,
+    group_ensurer: DeviceGroupEnsurer | None = None,
 ) -> _CreateOneResult:
     resolved = _resolve_device_fields(device, cfg, context.run_id)
     if isinstance(resolved, tuple):
@@ -494,6 +537,30 @@ async def _create_one_device(
         )
 
     device_payload = _build_create_payload(resolved)
+
+    try:
+        if group_ensurer is not None:
+            for group_name in resolved.device_groups:
+                await group_ensurer.ensure(group_name)
+    except ISEValidationError as exc:
+        return _CreateOneResult(
+            kind="failed",
+            device=_mark_failed(
+                device,
+                node_id=node_id,
+                code="ise_device_group_create_failed",
+                message=f"could not create missing device group for '{resolved.name}': {exc}",
+            ),
+        )
+    except ISEAPIError as exc:
+        return _CreateOneResult(
+            kind="abort",
+            abort_outcome=StepOutcome(
+                name="failure",
+                context=context,
+                summary=f"lost connection to ISE source '{source_id}': {exc}",
+            ),
+        )
 
     try:
         created = await device_service.create_device(device_payload)
@@ -654,6 +721,10 @@ async def execute(
             )
         ]
 
+    group_ensurer = (
+        _build_group_ensurer(run, parsed.source_id) if parsed.create_missing_groups else None
+    )
+
     success_devices: dict[str, DeviceContext] = {}
     exists_devices: dict[str, DeviceContext] = {}
     failed_devices: dict[str, DeviceContext] = {}
@@ -667,6 +738,7 @@ async def execute(
             source_id=parsed.source_id,
             node_id=node_id,
             context=context,
+            group_ensurer=group_ensurer,
         )
 
         if result.kind == "abort":

@@ -10,4 +10,6 @@ def get_config() -> dict:
         "netmask_override": "",
         "new_key": "",
         "device_groups": [],
+        "create_missing_groups": False,
+        "single_connect_mode": "OFF",
     }

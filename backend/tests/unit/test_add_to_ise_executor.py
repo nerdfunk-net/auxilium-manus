@@ -399,9 +399,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         with p1, p2, p3:
             outcomes = await execute(
                 config={**_BASE_CONFIG, "device_groups": groups},
-                context=_context(
-                    {"dev-1": _device("dev-1", name="router1", attribute_bags=bags)}
-                ),
+                context=_context({"dev-1": _device("dev-1", name="router1", attribute_bags=bags)}),
                 run=_run(),
                 artifact_service=MagicMock(),
                 node_id="node-1",
@@ -454,6 +452,107 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         (payload,), _ = device_service.create_device.call_args
         self.assertEqual(payload["NetworkDeviceGroupList"], ["Location#All Locations"])
+
+    async def _run_create_missing(
+        self, groups: list[str], group_service: MagicMock, *, enabled: bool = True
+    ) -> tuple:
+        device_service = _device_service()
+        p1, p2, p3 = _patches(device_service)
+        with (
+            p1,
+            p2,
+            p3,
+            patch(
+                "service_factory.build_ise_network_device_group_service",
+                return_value=group_service,
+            ),
+        ):
+            outcomes = await execute(
+                config={**_BASE_CONFIG, "device_groups": groups, "create_missing_groups": enabled},
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        return outcomes, device_service
+
+    async def test_create_missing_groups_creates_group_then_device(self) -> None:
+        group_service = MagicMock()
+        existing = {"Location#All Locations": {"NetworkDeviceGroup": {}}}
+        group_service.get_group_by_name = AsyncMock(side_effect=lambda n: existing.get(n))
+        group_service.create_child_group = AsyncMock(return_value={})
+        outcomes, device_service = await self._run_create_missing(
+            ["Location#All Locations#Test"], group_service
+        )
+        group_service.create_child_group.assert_awaited_once_with(
+            name="Test", description=None, parent_group="Location#All Locations"
+        )
+        device_service.create_device.assert_awaited_once()
+        self.assertEqual(outcomes[0].name, "success")
+        self.assertIn("dev-1", outcomes[0].context.devices)
+
+    async def test_create_missing_groups_skips_existing_group(self) -> None:
+        group_service = MagicMock()
+        group_service.get_group_by_name = AsyncMock(return_value={"NetworkDeviceGroup": {}})
+        group_service.create_child_group = AsyncMock()
+        _, device_service = await self._run_create_missing(
+            ["Location#All Locations#Test"], group_service
+        )
+        group_service.create_child_group.assert_not_called()
+        device_service.create_device.assert_awaited_once()
+
+    async def test_create_missing_groups_disabled_does_not_touch_groups(self) -> None:
+        group_service = MagicMock()
+        group_service.get_group_by_name = AsyncMock()
+        _, device_service = await self._run_create_missing(
+            ["Location#All Locations#Test"], group_service, enabled=False
+        )
+        group_service.get_group_by_name.assert_not_called()
+        device_service.create_device.assert_awaited_once()
+
+    async def test_create_missing_groups_failure_routes_device_to_failure(self) -> None:
+        group_service = MagicMock()
+        group_service.get_group_by_name = AsyncMock(return_value=None)
+        outcomes, device_service = await self._run_create_missing(
+            ["Locations#All Locations"], group_service
+        )
+        device_service.create_device.assert_not_called()
+        self.assertEqual(outcomes[2].name, "failure")
+        updated = outcomes[2].context.devices["dev-1"]
+        self.assertEqual(updated.errors[-1].code, "ise_device_group_create_failed")
+
+    async def _create_with_config(self, extra: dict) -> dict:
+        device_service = _device_service()
+        p1, p2, p3 = _patches(device_service)
+        with p1, p2, p3:
+            await execute(
+                config={**_BASE_CONFIG, **extra},
+                context=_context({"dev-1": _device("dev-1", name="router1")}),
+                run=_run(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        (payload,), _ = device_service.create_device.call_args
+        return payload
+
+    async def test_single_connect_mode_defaults_to_off(self) -> None:
+        payload = await self._create_with_config({})
+        self.assertEqual(payload["tacacsSettings"]["connectModeOptions"], "OFF")
+
+    async def test_single_connect_mode_blank_is_off(self) -> None:
+        payload = await self._create_with_config({"single_connect_mode": ""})
+        self.assertEqual(payload["tacacsSettings"]["connectModeOptions"], "OFF")
+
+    async def test_single_connect_mode_legacy_and_draft_are_sent(self) -> None:
+        for mode in ("ON_LEGACY", "ON_DRAFT_COMPLIANT"):
+            payload = await self._create_with_config({"single_connect_mode": mode})
+            self.assertEqual(payload["tacacsSettings"]["connectModeOptions"], mode)
+
+    async def test_invalid_single_connect_mode_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            await self._create_with_config({"single_connect_mode": "ON"})
 
     async def test_description_resolves_attribute_expression(self) -> None:
         device_service = _device_service()
@@ -512,9 +611,7 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             await self._created_mask(ip="192.168.178.240/24", netmask_override="32"), 32
         )
-        self.assertEqual(
-            await self._created_mask(ip="192.168.178.240", netmask_override="/28"), 28
-        )
+        self.assertEqual(await self._created_mask(ip="192.168.178.240", netmask_override="/28"), 28)
 
     async def test_blank_netmask_override_falls_back_to_suffix(self) -> None:
         self.assertEqual(
