@@ -1,7 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import type {
   WorkflowCanvasEdge,
 } from "@/components/features/workflows/types/workflow-canvas";
 
-import { AttributePathPicker } from "../shared/attribute-path-picker";
+import { AttributePathPicker } from "./attribute-path-picker";
 
 interface ExpressionFieldProps {
   configKey: string;
@@ -20,8 +20,12 @@ interface ExpressionFieldProps {
   nodeId: string;
   workflowNodes: PersistedCanvasNode[];
   workflowEdges: WorkflowCanvasEdge[];
+  /** Mask fixed values (e.g. keys). `{path}` expressions stay readable. */
+  secret?: boolean;
   children?: React.ReactNode;
 }
+
+const EXPRESSION_PATTERN = /^\s*\{.*\}\s*$/;
 
 /**
  * Text input for a fixed value or a `{path.to.value}` expression, with a
@@ -36,9 +40,14 @@ export function ExpressionField({
   nodeId,
   workflowNodes,
   workflowEdges,
+  secret = false,
   children,
 }: ExpressionFieldProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const inputType = useMemo(
+    () => (secret && !EXPRESSION_PATTERN.test(value) ? "password" : "text"),
+    [secret, value],
+  );
 
   const handleInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => onValueChange(event.target.value),
@@ -60,6 +69,7 @@ export function ExpressionField({
         <Input
           className="h-9 font-mono text-xs"
           placeholder={placeholder}
+          type={inputType}
           value={value}
           onChange={handleInputChange}
         />

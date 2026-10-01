@@ -1,4 +1,5 @@
 import type { ProjectedCanvasNode } from "../types/workflow-canvas";
+import { parentOffset } from "./canvas-coordinates";
 import { isGroupCanvasNode } from "./canvas-group-projection";
 
 interface Point {
@@ -25,16 +26,21 @@ export function findGroupNodeAtPoint(
   nodes: readonly ProjectedCanvasNode[],
   excludeNodeIds: ReadonlySet<string> = EMPTY_IDS,
 ): string | null {
+  const nodesById = new Map(nodes.map((n) => [n.id, n]));
   let hit: string | null = null;
   for (const node of nodes) {
     if (!isGroupCanvasNode(node) || excludeNodeIds.has(node.id)) continue;
     const width = node.width ?? node.measured?.width ?? 0;
     const height = node.height ?? node.measured?.height ?? 0;
+    // A group attached to a background stores a parent-relative position.
+    const offset = parentOffset(node, nodesById);
+    const left = node.position.x + offset.x;
+    const top = node.position.y + offset.y;
     if (
-      point.x >= node.position.x &&
-      point.x <= node.position.x + width &&
-      point.y >= node.position.y &&
-      point.y <= node.position.y + height
+      point.x >= left &&
+      point.x <= left + width &&
+      point.y >= top &&
+      point.y <= top + height
     ) {
       hit = node.data.groupId;
     }

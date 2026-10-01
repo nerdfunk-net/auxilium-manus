@@ -43,6 +43,20 @@ _MERGE_MAX_PROMPT_ANSWERS = 5
 _COPY_ERROR_MARKERS = ("%error", "invalid input", "%warning")
 
 
+def _is_awaiting_answer(output: str) -> bool:
+    """True when *output* ends on an unanswered interactive prompt.
+
+    ``[confirm]`` is matched anywhere in the output (long explanatory text
+    usually precedes it on earlier lines). The "Destination filename" prompt is
+    only honoured on the last line, so the phrase appearing in earlier output
+    (e.g. a log) is never mistaken for a pending prompt.
+    """
+    if _CONFIRMATION_CUE in output.lower():
+        return True
+    last_line = output.rstrip("\r\n").rsplit("\n", 1)[-1]
+    return _MERGE_DESTINATION_CUE in last_line.lower()
+
+
 @dataclass
 class CommandResult:
     success: bool
@@ -426,15 +440,17 @@ class NetmikoDeviceSession:
         return rf"(?:{'|'.join(alternatives)})"
 
     def _send_command_confirming(self, command: str, *, read_timeout: int) -> tuple[str, bool]:
-        """Send one command; if it raises a Cisco-style '[confirm]' prompt,
-        answer it with Enter (the IOS default/yes response) and keep reading
-        until the real prompt returns. Returns (output, was_confirmed)."""
+        """Send one command; if it raises a Cisco-style '[confirm]' prompt or a
+        'Destination filename [...]?' prompt (``copy running-config
+        startup-config``), answer it with Enter (the IOS default/yes response)
+        and keep reading until the real prompt returns.
+        Returns (output, was_confirmed)."""
         output = self.connection.send_command(
             command,
-            expect_string=self._confirm_prompt_pattern(),
+            expect_string=self._confirm_prompt_pattern(extra_cues=(_MERGE_DESTINATION_CUE,)),
             read_timeout=read_timeout,
         )
-        if _CONFIRMATION_CUE not in output.lower():
+        if not _is_awaiting_answer(output):
             return output, False
         self.connection.write_channel(self.connection.RETURN)
         output += self.connection.read_until_prompt(

@@ -148,6 +148,25 @@ class NetmikoDeployConfigTests(unittest.TestCase):
         self.assertEqual(result.confirmed_prompts, ["reload"])
         self.assertTrue(result.success)
 
+    def test_auto_confirm_prompts_exec_mode_answers_destination_filename(self) -> None:
+        session = _session()
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
+            connection = connect_handler_cls.return_value
+            connection.base_prompt = "LAB"
+            connection.RETURN = "\n"
+            connection.send_command.return_value = "Destination filename [startup-config]? "
+            connection.read_until_prompt.return_value = "\n[OK]\nLAB#"
+
+            result = session.deploy_config(
+                ["copy running-config startup-config"],
+                mode="exec_mode",
+                auto_confirm_prompts=True,
+            )
+
+        connection.write_channel.assert_called_once_with("\n")
+        self.assertEqual(result.confirmed_prompts, ["copy running-config startup-config"])
+        self.assertTrue(result.success)
+
 
 if __name__ == "__main__":
     unittest.main()

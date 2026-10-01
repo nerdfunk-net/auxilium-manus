@@ -17,6 +17,7 @@ import logging
 from typing import Any
 
 from services.nautobot import NautobotService
+from services.nautobot.devices.attribute_bag import DEVICE_ATTRIBUTES_QUERY
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.interface_workflow import InterfaceManagerService
 
@@ -724,6 +725,20 @@ class DeviceUpdateService:
             method="GET",
         )
         return result.get("local_config_context_data") or {}
+
+    async def get_config_context(self, device_id: str) -> dict[str, Any]:
+        """Fetch a device's rendered (merged) ``config_context`` (``{}`` if unset).
+
+        This is what Nautobot computes from every assigned config context plus
+        the device's local one — read-only. Fetched via GraphQL, the same way the
+        ``nautobot`` attribute bag gets it; REST only returns it on request.
+        """
+        result = await self.nautobot.graphql_query(
+            DEVICE_ATTRIBUTES_QUERY,
+            {"deviceId": device_id, "get_config_context": True},
+        )
+        device = (result.get("data") or {}).get("device") or {}
+        return device.get("config_context") or {}
 
     async def set_local_config_context(
         self, device_id: str, value: dict[str, Any]

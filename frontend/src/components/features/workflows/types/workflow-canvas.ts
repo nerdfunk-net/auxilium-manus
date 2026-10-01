@@ -142,6 +142,13 @@ export interface CanvasGroup {
   /** Reserved for v2 nested groups. Always null in v1. */
   parentGroupId: string | null;
   /**
+   * Id of the background node this group is attached to (same single-level
+   * containment as steps, see canvas-containment.ts). When set, `position` is
+   * relative to that background; otherwise it is absolute. Not to be confused
+   * with `parentGroupId`, which is for nested groups.
+   */
+  parentId?: string;
+  /**
    * Mirrors the synthetic Group node's React Flow `selected` state. The
    * synthetic node is rebuilt from scratch on every projection (see
    * `synthesizeGroupNode`), so without this it can never carry a "select"

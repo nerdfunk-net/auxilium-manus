@@ -61,8 +61,8 @@ export interface ProjectedCanvas {
 // briefly looks "unmeasured" and disappears until the next measurement pass —
 // visible as a flicker whenever allNodes/groups changes (e.g. while dragging).
 // Declaring the size up front skips that measure-then-reveal cycle entirely.
-const GROUP_NODE_WIDTH = 320;
-const GROUP_NODE_HEIGHT = 128;
+export const GROUP_NODE_WIDTH = 320;
+export const GROUP_NODE_HEIGHT = 128;
 
 function portLabel(port: GroupPort, allNodes: PersistedCanvasNode[], withHandle: boolean) {
   const title = allNodes.find((n) => n.id === port.innerNodeId)?.data.title ?? port.innerNodeId;
@@ -79,10 +79,17 @@ function synthesizeGroupNode(
   const inputNodes = ports.inputs.flatMap((p) => nodeById.get(p.innerNodeId) ?? []);
   const outputNodes = ports.outputs.flatMap((p) => nodeById.get(p.innerNodeId) ?? []);
 
+  // React Flow needs the parent to exist (and precede the child), otherwise it
+  // warns; a dangling reference is simply dropped here and repaired on load.
+  const hasParent =
+    group.parentId !== undefined &&
+    allNodes.some((n) => n.id === group.parentId && n.type === "backgroundNode");
+
   return {
     id: groupNodeId(group.id),
     type: "groupNode",
     position: group.position,
+    ...(hasParent ? { parentId: group.parentId } : {}),
     width: GROUP_NODE_WIDTH,
     height: GROUP_NODE_HEIGHT,
     measured: { width: GROUP_NODE_WIDTH, height: GROUP_NODE_HEIGHT },
@@ -278,10 +285,20 @@ export function removeRealNodes(
     (e) => !idSet.has(e.source) && !idSet.has(e.target),
   );
   const nextGroups = groups
-    .map((group) => ({
-      ...group,
-      nodeIds: group.nodeIds.filter((id) => !idSet.has(id)),
-    }))
+    .map((group) => {
+      const detached =
+        group.parentId !== undefined && idSet.has(group.parentId)
+          ? {
+              ...group,
+              parentId: undefined,
+              position: toAbsolutePosition(
+                group.position,
+                removedPositionById.get(group.parentId) ?? { x: 0, y: 0 },
+              ),
+            }
+          : group;
+      return { ...detached, nodeIds: detached.nodeIds.filter((id) => !idSet.has(id)) };
+    })
     .filter(groupSurvivesMembership);
 
   return { nodes, edges, groups: nextGroups };
@@ -366,6 +383,15 @@ export function repairOrphanGroups(
     .map((group) => ({
       ...group,
       nodeIds: group.nodeIds.filter((id) => nodeIdSet.has(id)),
+      // A vanished background can't be converted back to absolute coordinates;
+      // keep the position as-is so the group stays on canvas, just unattached.
+      // In-app deletes never get here (removeRealNodes converts first); this is
+      // for edits made outside the canvas (AI patch, import, hand-edited JSON),
+      // where the group may land near the origin and need dragging back.
+      parentId:
+        group.parentId !== undefined && nodeIdSet.has(group.parentId)
+          ? group.parentId
+          : undefined,
     }))
     .filter(groupSurvivesMembership);
 }

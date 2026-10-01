@@ -10,7 +10,20 @@ interface Rect extends Point {
   height: number;
 }
 
-function nodeSize(node: PersistedCanvasNode): { width: number; height: number } {
+/**
+ * What containment needs to know about a node: enough for a persisted step or
+ * label, and for the synthetic Step Group node (which is not a persisted node).
+ */
+export interface ContainmentSubject {
+  id: string;
+  position: Point;
+  parentId?: string;
+  width?: number;
+  height?: number;
+  measured?: { width?: number; height?: number };
+}
+
+function nodeSize(node: ContainmentSubject): { width: number; height: number } {
   return {
     width: node.width ?? node.measured?.width ?? 0,
     height: node.height ?? node.measured?.height ?? 0,
@@ -98,7 +111,7 @@ export interface ContainmentResult {
  * center-point overlap check, re-evaluated on every drag-end.
  */
 export function resolveContainment(
-  node: PersistedCanvasNode,
+  node: ContainmentSubject,
   allNodes: PersistedCanvasNode[],
 ): ContainmentResult {
   const previousParentId = node.parentId;

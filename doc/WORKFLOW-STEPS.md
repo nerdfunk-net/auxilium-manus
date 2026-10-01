@@ -159,7 +159,8 @@ Contract:
 empty `CanvasGroup` (`isContainer: true`) in `canvas_groups`; the registry entry only
 makes it appear in the palette. Double-click the collapsed group to open it; steps added
 inside become members. Purely organisational — execution stays flat and the backend
-ignores `canvas_groups`.
+ignores `canvas_groups`. Like a step, a group dropped onto a background attaches to it
+(`CanvasGroup.parentId`, position relative to the background) and moves with it.
 
 - Boundary ports are derived from membership + edges (`utils/canvas-group-ports.ts`);
   moving steps in/out never rewires edges.
@@ -479,6 +480,13 @@ output isn't line-addressable the way exec-mode output is (see
 output isn't guaranteed to be well-formed TextFSM/Genie input either. `parser`
 defaults to `"none"`, and `execution_mode` defaults to `"exec_mode"` — set `parser` to
 a real value only when staying in `exec_mode` with `auto_confirm_prompts` off.
+
+`auto_confirm_prompts` answers two kinds of interactive prompt with Enter: Cisco
+`[confirm]` prompts (`reload`, `no username …`) and the `Destination filename […]?`
+prompt of `copy running-config startup-config`. Both are recognised by
+`NetmikoDeviceSession._send_command_confirming`, and a `Destination filename` text
+earlier in the output is not treated as a pending prompt. A second prompt after that
+answer is not handled — it times out at `read_timeout`.
 
 `parsed_output_key` defaults to `"parsed"`. This is the one deliberate parity point
 between the two parsers: a downstream step (`route-on-attribute`'s `attribute_path`,

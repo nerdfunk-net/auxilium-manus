@@ -4,15 +4,22 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import type {
+  PersistedCanvasNode,
+  WorkflowCanvasEdge,
+} from "@/components/features/workflows/types/workflow-canvas";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 
+import { ExpressionField } from "../shared/expression-field";
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
 import { UpdateIseTacacsKeyHelpPanel } from "./help-panel";
+
+const EMPTY_NODES: PersistedCanvasNode[] = [];
+const EMPTY_EDGES: WorkflowCanvasEdge[] = [];
 
 const NEW_KEY_KEY = "new_key";
 
@@ -21,7 +28,13 @@ function newKeyFromConfig(config: Record<string, unknown>): string {
   return typeof raw === "string" ? raw : "";
 }
 
-function UpdateIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelProps) {
+function UpdateIseTacacsKeyConfigPanel({
+  nodeId,
+  config,
+  onChange,
+  workflowNodes = EMPTY_NODES,
+  workflowEdges = EMPTY_EDGES,
+}: PluginConfigPanelProps) {
   const sourceId = useMemo(() => iseSourceIdFromConfig(config), [config]);
   const newKey = useMemo(() => newKeyFromConfig(config), [config]);
 
@@ -35,8 +48,8 @@ function UpdateIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelPr
   );
 
   const handleNewKeyChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onChange({ ...config, [NEW_KEY_KEY]: event.target.value });
+    (next: string) => {
+      onChange({ ...config, [NEW_KEY_KEY]: next });
     },
     [config, onChange],
   );
@@ -70,15 +83,16 @@ function UpdateIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelPr
       </div>
 
       {/* new_key */}
-      <div className="space-y-1.5">
-        <span className="font-mono text-xs font-medium">{NEW_KEY_KEY}</span>
-        <Input
-          className="h-9 font-mono text-xs"
-          placeholder="MySecretKey123 or {custom.new_tacacs_key}"
-          type="password"
-          value={newKey}
-          onChange={handleNewKeyChange}
-        />
+      <ExpressionField
+        configKey={NEW_KEY_KEY}
+        value={newKey}
+        placeholder="MySecretKey123 or {custom.new_tacacs_key}"
+        onValueChange={handleNewKeyChange}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+        secret
+      >
         <p className="text-[11px] leading-4 text-muted-foreground">
           Fixed value, or <span className="font-mono">{"{path.to.value}"}</span> such as{" "}
           <span className="font-mono">{"{custom.new_tacacs_key}"}</span> or{" "}
@@ -90,7 +104,7 @@ function UpdateIseTacacsKeyConfigPanel({ config, onChange }: PluginConfigPanelPr
           .
         </p>
         {!newKey && <p className="text-[11px] text-warning-foreground">Not configured</p>}
-      </div>
+      </ExpressionField>
 
       <ISESourceSelectDialog
         open={sourceOpen}

@@ -455,6 +455,23 @@ and `_repair_orphan_groups` no longer dissolves it (selection groups still
 dissolve below two members). Groups remain execution-neutral. See
 `doc/FEATURE-GROUPING.md`.
 
+**Update 2026-10-01 (groups can attach to a background; config-context path
+syntax):**
+- A `CanvasGroup` may carry an optional `parentId` — the id of a `backgroundNode`
+  it sits on, the same single-level containment steps use. When set, the group's
+  `position` is **relative to that background** (otherwise absolute), so the group
+  moves with it. An authored patch should normally omit it; if you set it, the
+  background must exist in the same patch's `canvas_nodes` (a dangling `parentId`
+  is dropped on load) and `position` must be relative to it.
+- `update-config-context`'s `path` now accepts `key[field=value]` to pick a list
+  item (`tacacs[address=1.2.3.4].key`), and `{attribute.path}` placeholders filled
+  per device (`tacacs[server={custom.tacacs_server}].key`). `path` is relative to
+  the device's *local* config context, never the workflow attribute path (no
+  `nautobot.config_context.` prefix). The new boolean `create_local_if_missing`
+  (default `false`) copies the path's top-level key from the global config context
+  into the local one when the local context lacks it — the only way to change a
+  value that lives in an assigned (global) context, which this step cannot edit.
+
 ---
 
 ## Goal
@@ -664,7 +681,9 @@ workflow with no groups just has `canvas_groups: []`. A real, working example
   which side of the collapsed box the connecting handles attach to, same as a
   step node's own fields of the same name — omit unless you need a specific layout.
 - `parentGroupId` is reserved for nested groups (always `null` today) and
-  `selected` is UI-only — always `false` in an authored patch.
+  `selected` is UI-only — always `false` in an authored patch. `parentId` is an
+  optional background to attach the group to (see the 2026-10-01 update above);
+  omit it unless you want that.
 - A group needs **at least 2 members** — `WorkflowService._repair_orphan_groups`
   (backend) silently dissolves any group left with fewer than 2 (or referencing a
   node that doesn't exist in the same patch's `canvas_nodes`) before persisting,

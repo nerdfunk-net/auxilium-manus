@@ -678,7 +678,9 @@ workflow runs?
 that graph exactly as if no groups existed — same layers, same concurrency, same
 per-node results. `canvas_groups` only records *membership* (which node ids belong
 to which group); a group's input/output ports are derived from the edges that
-cross its boundary in the browser and are never persisted. The one backend touch
+cross its boundary in the browser and are never persisted. (A group may also record
+the background it sits on — `CanvasGroup.parentId` — purely so it moves with that
+background; it has no effect on execution.) The one backend touch
 is `WorkflowService._repair_orphan_groups`, which drops dangling member ids on
 save and dissolves selection groups left with fewer than two members (palette
 "Step Group" containers are exempt). Full design:

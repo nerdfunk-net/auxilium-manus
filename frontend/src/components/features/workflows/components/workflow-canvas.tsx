@@ -407,21 +407,31 @@ function WorkflowCanvasInner({
   const layeredNodes = useMemo(
     () =>
       sortNodesForContainment(nodes).map((node) => {
-        if (
-          isDropTargetGroup(node, dragTarget?.dropTargetGroupId ?? null)
-        ) {
-          return { ...node, data: { ...node.data, isDropTarget: true } } as ProjectedCanvasNode;
-        }
+        const withFlags: ProjectedCanvasNode = isDropTargetGroup(
+          node,
+          dragTarget?.dropTargetGroupId ?? null,
+        )
+          ? ({ ...node, data: { ...node.data, isDropTarget: true } } as ProjectedCanvasNode)
+          : node;
         const withValidation: ProjectedCanvasNode =
-          node.type === "workflowNode" && validationByNodeId[node.id]
-            ? { ...node, data: { ...node.data, validation: validationByNodeId[node.id] } }
-            : node;
+          withFlags.type === "workflowNode" && validationByNodeId[withFlags.id]
+            ? {
+                ...withFlags,
+                data: { ...withFlags.data, validation: validationByNodeId[withFlags.id] },
+              }
+            : withFlags;
         if (withValidation.type === "backgroundNode") {
           return withValidation.zIndex === BACKGROUND_Z_INDEX
             ? withValidation
             : { ...withValidation, zIndex: BACKGROUND_Z_INDEX };
         }
-        if (withValidation.type === "labelNode" || withValidation.type === "workflowNode") {
+        // Step Groups are layered with steps and labels: a group dropped onto
+        // a background must never end up beneath it.
+        if (
+          withValidation.type === "labelNode" ||
+          withValidation.type === "workflowNode" ||
+          withValidation.type === "groupNode"
+        ) {
           return withValidation.zIndex === FOREGROUND_Z_INDEX
             ? withValidation
             : { ...withValidation, zIndex: FOREGROUND_Z_INDEX };

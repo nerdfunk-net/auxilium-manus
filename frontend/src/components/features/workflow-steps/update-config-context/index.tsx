@@ -1,5 +1,6 @@
 "use client";
 
+import { Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { TemplateViewDialog } from "@/components/features/templates/components/template-view-dialog";
@@ -12,6 +13,7 @@ import { AttributePathPicker } from "@/components/features/workflow-steps/shared
 import { AttributePathPreview } from "@/components/features/workflow-steps/shared/attribute-path-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -32,13 +34,14 @@ import { UpdateConfigContextHelpPanel } from "./help-panel";
 import {
   buildUpdateConfigContextConfig,
   parseUpdateConfigContextConfig,
+  toLocalConfigContextPath,
   type UpdateConfigContextMode,
   type ValueSourceType,
 } from "./config";
 
 const PATH_PLACEHOLDER_BY_MODE: Record<UpdateConfigContextMode, string> = {
   write: "",
-  update: "credentials.0.password",
+  update: "tacacs[address=1.2.3.4].key",
   append: "tacacs (leave empty to merge into the root)",
 };
 
@@ -55,6 +58,7 @@ function UpdateConfigContextConfigPanel({
 
   const [sourceOpen, setSourceOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pathPickerOpen, setPathPickerOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data: templatesData, isLoading: templatesLoading, isError: templatesError } =
@@ -81,6 +85,20 @@ function UpdateConfigContextConfigPanel({
   const handlePathChange = useCallback(
     (value: string) => {
       onChange(buildUpdateConfigContextConfig(config, { path: value }));
+    },
+    [config, onChange],
+  );
+
+  const handlePathPicked = useCallback(
+    (picked: string) => {
+      onChange(buildUpdateConfigContextConfig(config, { path: toLocalConfigContextPath(picked) }));
+    },
+    [config, onChange],
+  );
+
+  const handleCreateLocalChange = useCallback(
+    (checked: boolean) => {
+      onChange(buildUpdateConfigContextConfig(config, { create_local_if_missing: checked }));
     },
     [config, onChange],
   );
@@ -286,34 +304,86 @@ function UpdateConfigContextConfigPanel({
               string
             </Badge>
           </div>
-          <Input
-            value={parsed.path}
-            onChange={(event) => handlePathChange(event.target.value)}
-            placeholder={PATH_PLACEHOLDER_BY_MODE[parsed.mode]}
-            className="h-8 font-mono text-xs"
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={parsed.path}
+              onChange={(event) => handlePathChange(event.target.value)}
+              placeholder={PATH_PLACEHOLDER_BY_MODE[parsed.mode]}
+              className="h-8 font-mono text-xs"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={() => setPathPickerOpen(true)}
+              title="Browse attributes"
+              aria-label="Browse attributes for path"
+            >
+              <Search className="size-3.5" aria-hidden />
+            </Button>
+          </div>
+          <AttributePathPicker
+            open={pathPickerOpen}
+            onClose={() => setPathPickerOpen(false)}
+            onSelect={handlePathPicked}
+            nodeId={nodeId}
+            workflowNodes={workflowNodes ?? []}
+            workflowEdges={workflowEdges ?? []}
           />
           <p className="text-[11px] leading-4 text-muted-foreground">
             {parsed.mode === "append"
               ? (
                 <>
-                  Dotted path into local_config_context_data. Use a numeric segment
-                  for a list item, e.g.{" "}
-                  <span className="font-mono">credentials.0.password</span>. Leave
-                  empty to merge the resolved value&apos;s own top-level keys
+                  Dotted path <em>inside</em> local_config_context_data (not the
+                  workflow attribute path — no <span className="font-mono">nautobot.config_context.</span>{" "}
+                  prefix; the picker strips it for you). Reach a list item by index, e.g.{" "}
+                  <span className="font-mono">credentials[0].password</span>, or by
+                  field value, e.g.{" "}
+                  <span className="font-mono">tacacs[address=1.2.3.4].key</span>. Use{" "}
+                  <span className="font-mono">{"{attribute.path}"}</span> to take that
+                  value from the device, e.g.{" "}
+                  <span className="font-mono">{"tacacs[server={custom.tacacs_server}].key"}</span>.
+                  Leave empty to merge the resolved value&apos;s own top-level keys
                   directly into the document root instead of nesting them under a
-                  new key. List indices must already exist — lists are never
-                  extended.
+                  new key. Lists are never extended — the item must already exist.
                 </>
               )
               : (
                 <>
-                  Dotted path into local_config_context_data. Use a numeric segment
-                  for a list item, e.g.{" "}
-                  <span className="font-mono">credentials.0.password</span>. List
-                  indices must already exist — lists are never extended.
+                  Dotted path <em>inside</em> local_config_context_data (not the
+                  workflow attribute path — no <span className="font-mono">nautobot.config_context.</span>{" "}
+                  prefix; the picker strips it for you). Reach a list item by index, e.g.{" "}
+                  <span className="font-mono">credentials[0].password</span>, or by
+                  field value, e.g.{" "}
+                  <span className="font-mono">tacacs[address=1.2.3.4].key</span>. Use{" "}
+                  <span className="font-mono">{"{attribute.path}"}</span> to take that
+                  value from the device, e.g.{" "}
+                  <span className="font-mono">{"tacacs[server={custom.tacacs_server}].key"}</span>.
+                  Lists are never extended — the item must already exist.
                 </>
               )}
           </p>
+          {parsed.path.trim() !== "" ? (
+            <div className="space-y-1 pt-1">
+              <label className="flex items-center gap-1.5 text-xs font-medium">
+                <Checkbox
+                  checked={parsed.create_local_if_missing}
+                  onCheckedChange={(checked) => handleCreateLocalChange(checked === true)}
+                />
+                Copy key from global config context if missing locally
+              </label>
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                Nautobot only lets this step change the device&apos;s local config context. If it
+                doesn&apos;t contain the path&apos;s first key (e.g.{" "}
+                <span className="font-mono">tacacs</span>) — or the device has no local context at
+                all — that key is copied from the global config context first, then your change
+                is applied. Other local keys are kept. If the key already exists locally, nothing
+                is copied, and an entry that isn&apos;t in the local list is an error. The device
+                keeps its own copy of the key.
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -350,11 +420,13 @@ function UpdateConfigContextConfigPanel({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="h-8 shrink-0 text-xs"
+                size="icon"
+                className="size-8 shrink-0"
                 onClick={() => setPickerOpen(true)}
+                title="Browse attributes"
+                aria-label="Browse attributes for value_source"
               >
-                Browse attributes
+                <Search className="size-3.5" aria-hidden />
               </Button>
             </div>
             <AttributePathPreview

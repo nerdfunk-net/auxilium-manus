@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 
+import { toAbsolutePosition } from "../utils/canvas-containment";
 import { validateGroupBoundary } from "../utils/canvas-group-boundary";
 import {
   addNodesToGroup,
@@ -73,12 +74,20 @@ export function useCanvasGroups(core: UseWorkflowCanvasCoreResult) {
       // Computed outside the state updater so it stays pure (StrictMode re-runs updaters).
       const newPositionById = new Map<string, { x: number; y: number }>();
       for (const group of groups) {
+        // A group attached to a background stores a parent-relative position.
+        const origin = toAbsolutePosition(
+          group.position,
+          allNodes.find((n) => n.id === group.parentId)?.position ?? {
+            x: 0,
+            y: 0,
+          },
+        );
         group.nodeIds
           .filter((id) => moving.has(id))
           .forEach((id, index) => {
             newPositionById.set(id, {
-              x: group.position.x + GROUP_NODE_SPACING_X,
-              y: group.position.y + index * GROUP_NODE_SPACING_Y,
+              x: origin.x + GROUP_NODE_SPACING_X,
+              y: origin.y + index * GROUP_NODE_SPACING_Y,
             });
           });
       }
@@ -95,7 +104,16 @@ export function useCanvasGroups(core: UseWorkflowCanvasCoreResult) {
       selectNode(null);
       markDirty();
     },
-    [groups, activeGroupId, setAllNodes, setGroups, exitToRoot, selectNode, markDirty],
+    [
+      groups,
+      allNodes,
+      activeGroupId,
+      setAllNodes,
+      setGroups,
+      exitToRoot,
+      selectNode,
+      markDirty,
+    ],
   );
 
   const handleGroupSelectedSteps = useCallback(

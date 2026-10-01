@@ -16,8 +16,8 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 import { ISESourceSelectDialog } from "../shared/ise-source-select-dialog";
+import { ExpressionField } from "../shared/expression-field";
 import { iseSourceIdFromConfig, ISE_SOURCE_ID_KEY } from "../shared/ise-source-config";
-import { ExpressionField } from "./expression-field";
 import { AddToIseHelpPanel } from "./help-panel";
 
 const EMPTY_NODES: PersistedCanvasNode[] = [];
@@ -106,8 +106,8 @@ function AddToIseConfigPanel({
   );
 
   const handleNewKeyChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onChange({ ...config, [NEW_KEY_KEY]: event.target.value });
+    (next: string) => {
+      onChange({ ...config, [NEW_KEY_KEY]: next });
     },
     [config, onChange],
   );
@@ -230,18 +230,19 @@ function AddToIseConfigPanel({
       </div>
 
       {/* new_key */}
-      <div className="space-y-1.5">
-        <span className="font-mono text-xs font-medium">{NEW_KEY_KEY}</span>
-        <Input
-          className="h-9 font-mono text-xs"
-          placeholder="MySecretKey123 or {custom.new_tacacs_key}"
-          type="password"
-          value={newKey}
-          onChange={handleNewKeyChange}
-        />
+      <ExpressionField
+        configKey={NEW_KEY_KEY}
+        value={newKey}
+        placeholder="MySecretKey123 or {custom.new_tacacs_key}"
+        onValueChange={handleNewKeyChange}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes}
+        workflowEdges={workflowEdges}
+        secret
+      >
         <ExpressionHint example="{custom.new_tacacs_key}" />
         {!newKey && <p className="text-[11px] text-warning-foreground">Not configured</p>}
-      </div>
+      </ExpressionField>
 
       {/* device_groups */}
       <div className="space-y-1.5">

@@ -2377,7 +2377,10 @@ plugins:
         - name: path
           description: >
             Dotted path into local_config_context_data, with numeric segments for
-            list items (for example credentials.0.password or tacacs). Required for
+            list items (for example credentials.0.password, credentials[0].password or tacacs), or a
+            [field=value] filter to pick a list item (tacacs[address=1.2.3.4].key).
+            {attribute.path} placeholders are filled per device, for example
+            tacacs[server={custom.tacacs_server}].key. Required for
             update; ignored for write. Optional for append — leave empty to merge the
             resolved value's own top-level keys directly into the document root
             instead of nesting them under a new key. List indices must already
@@ -2385,6 +2388,17 @@ plugins:
           data_type: string
           required: false
           example: credentials.0.password
+        - name: create_local_if_missing
+          description: >
+            For update and append with a path. When the device's local config
+            context does not contain the path's top-level key, copy that key (and
+            its value) from the global config context into the local one first,
+            then apply the change and write both in one request. Existing local keys
+            are kept. The device then keeps its own copy of that key. Off by default.
+          data_type: boolean
+          required: false
+          default: false
+          example: true
         - name: value_source
           description: >
             Where the new value comes from: an existing device attribute (by dotted

@@ -15,7 +15,13 @@ Three arrays are the only stateful canvas data, owned by
   and every real edge, including steps inside groups).
 - `groups` (`CanvasGroup[]`, persisted as `canvas_groups`) — membership only:
   `id`, `title`, `nodeIds`, `position`, optional `isContainer`, `parentGroupId`
-  (reserved; nesting is not implemented).
+  (reserved; nesting is not implemented) and optional `parentId`.
+  `parentId` is the id of the **background** node a group is attached to — the
+  same single-level containment steps use (`utils/canvas-containment.ts`),
+  resolved on drag-end. When set, `position` is relative to that background (so
+  the group moves with it); otherwise it is absolute. Deleting the background
+  detaches the group to absolute coordinates; a dangling `parentId` is dropped
+  on load (`repairOrphanGroups`). Not to be confused with `parentGroupId`.
 
 Everything React Flow renders is a **pure projection** of those arrays
 (`utils/canvas-group-projection.ts::projectCanvasView`) and must never be stored

@@ -98,10 +98,22 @@ export function useCanvasNodeChanges({
             // blocks aligning/auto-laying-out/deleting a group together with
             // other selected steps.
             const selectedChanged = Boolean(currentGroup.selected) !== Boolean(node.selected);
-            if (positionChanged || selectedChanged) {
+            // Same attach/detach rule as steps: on drag-end, a group dropped
+            // onto a background becomes its child (parent-relative position),
+            // and one dragged off it returns to absolute coordinates.
+            const containment = dragEndNodeIds.has(node.id)
+              ? resolveContainment(node, nextAllNodes)
+              : { parentId: currentGroup.parentId, position: node.position };
+            const parentChanged = containment.parentId !== currentGroup.parentId;
+            if (positionChanged || selectedChanged || parentChanged) {
               nextGroups = nextGroups.map((g) =>
                 g.id === groupId
-                  ? { ...g, position: node.position, selected: node.selected }
+                  ? {
+                      ...g,
+                      position: containment.position,
+                      parentId: containment.parentId,
+                      selected: node.selected,
+                    }
                   : g,
               );
             }

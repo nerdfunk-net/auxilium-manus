@@ -43,6 +43,21 @@ describe("findGroupNodeAtPoint", () => {
     expect(findGroupNodeAtPoint({ x: 250, y: 80 }, nodes)).toBe("b");
   });
 
+  it("hit-tests a group parented to a background in absolute coordinates", () => {
+    const bg = {
+      id: "bg",
+      type: "backgroundNode",
+      position: { x: 1000, y: 500 },
+      width: 800,
+      height: 600,
+      data: { kind: "background", title: "bg" },
+    } as unknown as ProjectedCanvasNode;
+    const child = { ...groupNode("c", 100, 100), parentId: "bg" } as ProjectedCanvasNode;
+    // relative (100,100) in a background at (1000,500) => absolute (1100,600)
+    expect(findGroupNodeAtPoint({ x: 1110, y: 610 }, [bg, child])).toBe("c");
+    expect(findGroupNodeAtPoint({ x: 110, y: 110 }, [bg, child])).toBeNull();
+  });
+
   it("treats the rect edge as inside", () => {
     expect(findGroupNodeAtPoint({ x: 320, y: 128 }, [groupNode("a", 0, 0)])).toBe("a");
   });

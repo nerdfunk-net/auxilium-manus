@@ -284,6 +284,35 @@ class PropertyAndInterfaceUpdateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(warnings), 2)
 
 
+class GetConfigContextTests(unittest.IsolatedAsyncioTestCase):
+    async def test_returns_the_merged_context_via_graphql(self) -> None:
+        svc = _service()
+        svc.nautobot.graphql_query = AsyncMock(
+            return_value={
+                "data": {
+                    "device": {
+                        "config_context": {"tacacs": [{"key": "k"}]},
+                        "local_config_context_data": None,
+                    }
+                }
+            }
+        )
+        result = await svc.get_config_context("nb-1")
+        self.assertEqual(result, {"tacacs": [{"key": "k"}]})
+        variables = svc.nautobot.graphql_query.call_args.args[1]
+        self.assertEqual(variables["deviceId"], "nb-1")
+        self.assertTrue(variables["get_config_context"])
+
+    async def test_missing_device_or_context_yields_empty_dict(self) -> None:
+        svc = _service()
+        svc.nautobot.graphql_query = AsyncMock(return_value={"data": {"device": None}})
+        self.assertEqual(await svc.get_config_context("nb-1"), {})
+        svc.nautobot.graphql_query = AsyncMock(
+            return_value={"data": {"device": {"config_context": None}}}
+        )
+        self.assertEqual(await svc.get_config_context("nb-1"), {})
+
+
 class UpdateDeviceOrchestrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_fields_no_interfaces_returns_empty_result(self) -> None:
         svc = _service()

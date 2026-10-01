@@ -5,6 +5,7 @@ import {
   addNodesToGroup,
   projectCanvasView,
   removeNodesFromGroups,
+  removeRealNodes,
   repairOrphanGroups,
 } from "./canvas-group-projection";
 
@@ -83,6 +84,53 @@ describe("projection after moving S3 into the group", () => {
     expect(proxy?.targetHandle).toBe("in:e2");
     expect(edges.find((e) => e.source === "__group__g")?.sourceHandle).toBe("out:e6");
     expect(edges.some((e) => e.id === "__group-edge__e3")).toBe(false);
+  });
+});
+
+describe("groups parented to a background", () => {
+  const bg = {
+    id: "bg",
+    type: "backgroundNode",
+    position: { x: 1000, y: 500 },
+    width: 800,
+    height: 600,
+    data: { kind: "background", title: "bg" },
+  } as unknown as PersistedCanvasNode;
+  const parented: CanvasGroup = { ...group("g", []), isContainer: true, parentId: "bg" };
+
+  it("projects the group node with parentId and its parent-relative position", () => {
+    const { nodes } = projectCanvasView([bg], [], [parented], null);
+    const groupNode = nodes.find((n) => n.type === "groupNode");
+    expect(groupNode?.parentId).toBe("bg");
+    expect(groupNode?.position).toEqual({ x: 100, y: 50 });
+  });
+
+  it("lists the background before its group child", () => {
+    const { nodes } = projectCanvasView([bg], [], [parented], null);
+    expect(nodes.map((n) => n.type)).toEqual(["backgroundNode", "groupNode"]);
+  });
+
+  it("does not set parentId when the background no longer exists", () => {
+    const { nodes } = projectCanvasView([], [], [parented], null);
+    expect(nodes.find((n) => n.type === "groupNode")?.parentId).toBeUndefined();
+  });
+
+  it("detaches the group to absolute coordinates when its background is deleted", () => {
+    const result = removeRealNodes([bg], [], [parented], ["bg"]);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].parentId).toBeUndefined();
+    expect(result.groups[0].position).toEqual({ x: 1100, y: 550 });
+  });
+
+  it("drops a stale parentId on load when the background is gone", () => {
+    const [repaired] = repairOrphanGroups([], [parented]);
+    expect(repaired.parentId).toBeUndefined();
+    expect(repaired.position).toEqual({ x: 100, y: 50 });
+  });
+
+  it("keeps parentId on load when the background exists", () => {
+    const [repaired] = repairOrphanGroups([bg], [parented]);
+    expect(repaired.parentId).toBe("bg");
   });
 });
 

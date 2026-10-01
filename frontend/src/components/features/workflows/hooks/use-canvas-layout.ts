@@ -8,7 +8,12 @@ import {
   type WorkflowEdgeData,
 } from "../types/workflow-canvas";
 import { resolveContainment } from "../utils/canvas-containment";
-import { groupIdFromNodeId, groupNodeId } from "../utils/canvas-group-projection";
+import {
+  GROUP_NODE_HEIGHT,
+  GROUP_NODE_WIDTH,
+  groupIdFromNodeId,
+  groupNodeId,
+} from "../utils/canvas-group-projection";
 import { alignCanvasNodes, type NodeAlignment } from "../utils/node-alignment";
 import { runAutoLayout, type AutoLayoutDirection } from "../utils/auto-layout";
 import type { UseWorkflowCanvasCoreResult } from "./use-workflow-canvas-core";
@@ -21,6 +26,7 @@ import type { UseWorkflowCanvasCoreResult } from "./use-workflow-canvas-core";
 export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
   const {
     projected,
+    allNodes,
     setAllNodes,
     setAllEdges,
     setGroups,
@@ -225,9 +231,16 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
         setGroups((current) =>
           current.map((g) => {
             const syntheticId = groupNodeId(g.id);
-            return positionById.has(syntheticId)
-              ? { ...g, position: positionById.get(syntheticId)! }
-              : g;
+            const position = positionById.get(syntheticId);
+            if (!position) return g;
+            // Same re-resolve as steps above: a group laid out into/out of a
+            // background must not keep a stale parentId. Layout never moves
+            // backgrounds, so the pre-layout `allNodes` is accurate for them.
+            const { parentId, position: resolved } = resolveContainment(
+              { id: syntheticId, position, parentId: g.parentId, width: GROUP_NODE_WIDTH, height: GROUP_NODE_HEIGHT },
+              allNodes,
+            );
+            return { ...g, parentId, position: resolved };
           }),
         );
 
@@ -263,6 +276,7 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
     [
       projected.nodes,
       projected.edges,
+      allNodes,
       setAllNodes,
       setAllEdges,
       setGroups,

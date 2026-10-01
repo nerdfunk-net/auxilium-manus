@@ -11,9 +11,11 @@ value, compute the new document here, then PATCH the whole thing back).
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -32,11 +34,15 @@ from services.nautobot.client import NautobotService
 from services.nautobot.credentials import NautobotCredentials
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.update import DeviceUpdateService
-from services.workflow_context.attribute_path import resolve_device_value
-from services.workflow_context.secret_fields import is_sealed_secret, unwrap_secret
+from services.workflow_context.attribute_path import resolve_device_attribute, resolve_device_value
+from services.workflow_context.secret_fields import (
+    REDACTED_PLACEHOLDER,
+    is_sealed_secret,
+    unwrap_secret,
+)
 from workflow_steps.common.attribute_merge import deep_merge_mapping
 from workflow_steps.common.jinja_render import build_jinja_context, render_jinja_template
-from workflow_steps.common.json_object_path import get_at_path, set_at_path
+from workflow_steps.common.json_object_path import get_at_path, set_at_path, top_level_key
 from workflow_steps.common.nautobot_resolve import resolve_nautobot_device_id
 from workflow_steps.common.nautobot_source import resolve_nautobot_credentials
 from workflow_steps.common.template_content import load_stored_template
@@ -60,6 +66,68 @@ class _ParsedConfig:
     value_source_type: str
     attribute_path: str
     template_id: int | None
+    create_local_if_missing: bool = False
+
+
+# Like placeholder_template's pattern but also allows "-" so attribute names such
+# as ``custom.tacacs-server`` work inside a path.
+_PATH_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.\-]+)\}")
+
+
+def _render_path(path: str, device: DeviceContext | None) -> str:
+    """Resolve ``{attribute.path}`` placeholders in *path* for one device.
+
+    Lets a path pick a list item by a per-device attribute, e.g.
+    ``tacacs[server={custom.tacacs-server}].key``. A placeholder that resolves
+    to nothing fails the device rather than substituting an empty string, which
+    could select the wrong list item (or none). The same goes for a secret: a
+    sealed value resolves to a redaction placeholder, which must never be
+    looked up as if it were data. A resolved value may not contain ``[`` or
+    ``]`` — it would break the ``[field=value]`` filter — and outside a filter
+    it may not contain ``.``, which would silently add a path level.
+    """
+    if not _PATH_PLACEHOLDER.search(path):
+        return path
+    if device is None:
+        raise ValueError(
+            f"{_STEP_ID}: path placeholders need a workflow device "
+            "(use device_identifier.mode = from_context)"
+        )
+
+    def _substitute(match: re.Match[str]) -> str:
+        key = match.group(1)
+        value = resolve_device_attribute(device, key, reveal_secrets=False)
+        text = (value or "").strip()
+        if not text:
+            raise ValueError(
+                f"{_STEP_ID}: path placeholder {{{key}}} did not resolve to a value "
+                f"for '{device.name}'"
+            )
+        if text == REDACTED_PLACEHOLDER:
+            raise ValueError(
+                f"{_STEP_ID}: path placeholder {{{key}}} is a secret for '{device.name}' "
+                "and can't be used in a path"
+            )
+        inside_filter = path[: match.start()].count("[") > path[: match.start()].count("]")
+        if "." in text and not inside_filter:
+            raise ValueError(
+                f"{_STEP_ID}: path placeholder {{{key}}} resolved to a value containing a dot "
+                f"for '{device.name}'; outside a [field=value] filter that would add a path level"
+            )
+        if "[" in text or "]" in text:
+            raise ValueError(
+                f"{_STEP_ID}: path placeholder {{{key}}} resolved to a value containing "
+                f"brackets for '{device.name}', which a path filter can't hold"
+            )
+        return text
+
+    return _PATH_PLACEHOLDER.sub(_substitute, path)
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
@@ -111,6 +179,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         value_source_type=value_source_type,
         attribute_path=attribute_path,
         template_id=template_id,
+        create_local_if_missing=_parse_bool(config.get("create_local_if_missing", False)),
     )
 
 
@@ -185,6 +254,35 @@ def _resolve_value(
         return rendered
 
 
+async def _seed_from_global(
+    *,
+    update_service: DeviceUpdateService,
+    device_id: str,
+    current: dict[str, Any],
+    path: str,
+) -> dict[str, Any]:
+    """Return *current* with the path's top-level key copied in from the device's
+    global (merged) config context, when the local context lacks that key.
+
+    Nautobot only lets us write ``local_config_context_data``; a key that lives
+    only in an assigned context has to be copied into the local one before part
+    of it can be changed. Only that one key is copied, deep so later edits never
+    touch the fetched global data. A key absent from the global context too is
+    left alone — ``update``/``append`` then create it as they always have.
+    """
+    key = top_level_key(path)
+    if key in current:
+        return current
+    merged = await update_service.get_config_context(device_id)
+    if key not in merged:
+        return current
+    # Key name only — the value can hold secrets (e.g. TACACS+ keys).
+    logger.info(
+        "%s: copying %r from the global config context for device %s", _STEP_ID, key, device_id
+    )
+    return {**current, key: copy.deepcopy(merged[key])}
+
+
 async def _apply_mode(
     *,
     update_service: DeviceUpdateService,
@@ -202,6 +300,13 @@ async def _apply_mode(
         return
 
     current = await update_service.get_local_config_context(device_id)
+    if parsed.create_local_if_missing and parsed.path:
+        current = await _seed_from_global(
+            update_service=update_service,
+            device_id=device_id,
+            current=current,
+            path=parsed.path,
+        )
 
     if parsed.mode == "update":
         new_document = set_at_path(current, parsed.path, value)
@@ -284,6 +389,7 @@ async def _update_one_device(
     update_service: DeviceUpdateService,
 ) -> tuple[str, DeviceContext | None, bool]:
     try:
+        parsed = replace(parsed, path=_render_path(parsed.path, device))
         target = (
             device
             if device is not None

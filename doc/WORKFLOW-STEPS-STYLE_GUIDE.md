@@ -292,6 +292,14 @@ Reference implementations: `route-on-attribute/index.tsx`, `update-config-contex
   optional `onBrowse?: () => void` prop (button hidden when omitted) — one dialog instance
   owned by the parent panel serves every row, rather than each row managing its own
   picker state.
+- For a plain "fixed value or `{path}`" text field, use the shared
+  `shared/expression-field.tsx` `ExpressionField` — input + lens button + picker in one.
+  Its `secret` prop masks a fixed value (e.g. a TACACS+ key) but shows a `{path}`
+  expression in the clear. Used by `add-to-ise` and `update-ise-tacacs-key` (`new_key`).
+- A picked path may need translating to the field's own coordinate space:
+  `update-config-context`'s `path` is relative to the device's *local config context*, so
+  its `onSelect` strips the `nautobot.config_context.` attribute prefix
+  (`toLocalConfigContextPath`).
 - You never need to filter what the picker shows for your own step: the backend
   discovery service (`services/workflow_context/attribute_path_discovery.py`) already
   collapses raw, non-browsable blobs (e.g. Genie's raw `show running-config` parse tree,

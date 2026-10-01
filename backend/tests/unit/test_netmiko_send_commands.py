@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from unittest.mock import patch
 
@@ -84,6 +85,68 @@ class NetmikoSendCommandsTests(unittest.TestCase):
 
         connection.write_channel.assert_not_called()
         connection.read_until_prompt.assert_not_called()
+        self.assertEqual(result.confirmed_prompts, [])
+
+    def test_auto_confirm_prompts_answers_destination_filename(self) -> None:
+        # "copy running-config startup-config" asks "Destination filename
+        # [startup-config]?" -- no "[confirm]" in it -- and must be answered with Enter.
+        session = _session()
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
+            connection = connect_handler_cls.return_value
+            connection.base_prompt = "LAB"
+            connection.RETURN = "\n"
+            connection.send_command.return_value = (
+                "Destination filename [startup-config]? "
+            )
+            connection.read_until_prompt.return_value = (
+                "\nBuilding configuration...\n[OK]\nLAB#"
+            )
+
+            result = session.send_commands(
+                ["copy running-config startup-config"], auto_confirm_prompts=True
+            )
+
+        connection.write_channel.assert_called_once_with("\n")
+        self.assertTrue(result.success)
+        self.assertEqual(
+            result.confirmed_prompts, ["copy running-config startup-config"]
+        )
+        self.assertIn(
+            "[OK]", result.command_outputs["copy running-config startup-config"]
+        )
+
+    def test_auto_confirm_expect_pattern_matches_destination_filename(self) -> None:
+        # Without this cue in expect_string, netmiko waits the full read_timeout.
+        session = _session()
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
+            connection = connect_handler_cls.return_value
+            connection.base_prompt = "LAB"
+            connection.RETURN = "\n"
+            connection.send_command.return_value = "LAB#"
+
+            session.send_commands(
+                ["copy running-config startup-config"], auto_confirm_prompts=True
+            )
+
+        pattern = connection.send_command.call_args.kwargs["expect_string"]
+        self.assertIsNotNone(
+            re.search(pattern, "Destination filename [startup-config]? ", flags=re.M)
+        )
+
+    def test_destination_filename_in_earlier_output_is_not_a_prompt(self) -> None:
+        # Only a prompt left pending at the end of the output may be answered.
+        session = _session()
+        with patch("services.network.netmiko.connection.ConnectHandler") as connect_handler_cls:
+            connection = connect_handler_cls.return_value
+            connection.base_prompt = "LAB"
+            connection.RETURN = "\n"
+            connection.send_command.return_value = (
+                "Destination filename [startup-config]? \n[OK]\nLAB#"
+            )
+
+            result = session.send_commands(["show log"], auto_confirm_prompts=True)
+
+        connection.write_channel.assert_not_called()
         self.assertEqual(result.confirmed_prompts, [])
 
     def test_multiple_commands_partial_confirm(self) -> None:
