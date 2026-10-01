@@ -46,7 +46,7 @@ export function OutcomeContextView({
   );
   const metadataCount = Object.keys(remainingMetadata).length;
   const [metadataExpanded, setMetadataExpanded] = useState(false);
-  const [batfishResultExpanded, setBatfishResultExpanded] = useState(true);
+  const [batfishResultExpanded, setBatfishResultExpanded] = useState(false);
 
   return (
     <div className={cn("min-w-0 overflow-hidden", compact ? "space-y-2" : "space-y-4")}>
