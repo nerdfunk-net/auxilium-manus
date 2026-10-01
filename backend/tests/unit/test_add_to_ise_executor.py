@@ -554,6 +554,41 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self._create_with_config({"single_connect_mode": "ON"})
 
+    async def test_device_groups_chain_of_expressions_is_substituted(self) -> None:
+        _, device_service = await self._run_with_groups(
+            ["{custom.one}#{custom.two}", "Location#All Locations#{custom.site}"],
+            {"custom": {"one": "Location", "two": "All Locations", "site": "Berlin"}},
+        )
+        (payload,), _ = device_service.create_device.call_args
+        self.assertEqual(
+            payload["NetworkDeviceGroupList"],
+            ["Location#All Locations", "Location#All Locations#Berlin"],
+        )
+
+    async def test_device_groups_chain_with_missing_part_fails_device(self) -> None:
+        outcomes, device_service = await self._run_with_groups(
+            ["{custom.one}#{custom.two}"], {"custom": {"one": "Location"}}
+        )
+        device_service.create_device.assert_not_called()
+        self.assertEqual(outcomes[2].name, "failure")
+        updated = outcomes[2].context.devices["dev-1"]
+        self.assertEqual(updated.errors[-1].code, "device_group_unresolved")
+        self.assertIn("custom.two", updated.errors[-1].message)
+
+    async def test_device_groups_chain_blank_part_is_substituted(self) -> None:
+        _, device_service = await self._run_with_groups(
+            ["Location#All Locations#{custom.site}"], {"custom": {"site": ""}}
+        )
+        (payload,), _ = device_service.create_device.call_args
+        self.assertEqual(payload["NetworkDeviceGroupList"], ["Location#All Locations#"])
+
+    async def test_device_groups_chain_default_applies_per_part(self) -> None:
+        _, device_service = await self._run_with_groups(
+            ["Location#All Locations#{custom.site | default('HQ')}"], {"custom": {}}
+        )
+        (payload,), _ = device_service.create_device.call_args
+        self.assertEqual(payload["NetworkDeviceGroupList"], ["Location#All Locations#HQ"])
+
     async def test_description_resolves_attribute_expression(self) -> None:
         device_service = _device_service()
         config = {**_BASE_CONFIG, "description": "{custom.note}"}

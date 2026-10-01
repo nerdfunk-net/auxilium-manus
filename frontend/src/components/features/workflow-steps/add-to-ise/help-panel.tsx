@@ -187,6 +187,18 @@ export function AddToIseHelpPanel() {
             </HelpCode>
             .
           </li>
+          <li>
+            <span className="font-medium text-foreground">
+              A chain of expressions and text
+            </span>{" "}
+            such as <HelpCode>{"{custom.one}#{custom.two}"}</HelpCode> or{" "}
+            <HelpCode>{"Location#All Locations#{custom.site}"}</HelpCode> has
+            every <HelpCode>{"{path}"}</HelpCode> substituted in place. A blank
+            value is substituted as an empty string (so a blank last part leaves
+            a trailing <HelpCode>#</HelpCode>); a path that does not exist fails
+            the device. <HelpCode>| default(&apos;…&apos;)</HelpCode> works
+            inside each <HelpCode>{"{…}"}</HelpCode>.
+          </li>
         </ul>
         <p>
           Each entry must be the complete <HelpCode>#</HelpCode>-delimited path,

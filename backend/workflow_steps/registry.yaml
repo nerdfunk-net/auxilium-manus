@@ -355,6 +355,10 @@ plugins:
             Each entry may also be a {path.to.value} expression (e.g. {custom.group})
             resolved per device. If the attribute does not exist the device fails;
             if it exists but is blank, no group is added for that entry.
+            An entry may chain several expressions and text, e.g.
+            {custom.one}#{custom.two} or Location#All Locations#{custom.site}; each
+            {path} is substituted in place (a blank value becomes an empty string,
+            a path that does not exist fails the device).
           data_type: array
           required: false
           example:

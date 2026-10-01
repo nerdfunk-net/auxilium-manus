@@ -94,7 +94,7 @@ from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
 from workflow_steps.common.request_record import append_request_record
 from workflow_steps.common.update_field_expression import (
-    resolve_expression_if_present,
+    resolve_template_if_present,
     resolve_update_field_expression,
 )
 
@@ -306,18 +306,21 @@ def _resolve_device_groups(
 ) -> list[str] | tuple[str, str]:
     """Resolve each ``device_groups`` entry, or return ``(failure_code, message)``.
 
-    An entry whose ``{path}`` does not exist for the device fails it; one that
-    exists but is blank contributes no group (ISE then applies its default root).
+    An entry may mix text and several ``{path}`` tokens (``{a}#{b}``), each
+    substituted in place. A token whose path does not exist for the device fails
+    it; a blank value is substituted as ``""``, and an entry that ends up empty
+    contributes no group (ISE then applies its default root).
     """
     resolved: list[str] = []
     for raw in raw_groups:
-        found, value = resolve_expression_if_present(device=device, raw_value=raw)
-        if not found:
+        value, missing = resolve_template_if_present(device=device, raw_value=raw)
+        if value is None:
             return (
                 "device_group_unresolved",
                 (
-                    f"device_groups entry '{raw}' did not resolve for '{device.name}' "
-                    f"(available attribute bags: {sorted(device.attribute_bags)})"
+                    f"device_groups entry '{raw}' did not resolve for '{device.name}': "
+                    f"{missing} does not exist (available attribute bags: "
+                    f"{sorted(device.attribute_bags)})"
                 ),
             )
         if value:

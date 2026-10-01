@@ -207,6 +207,39 @@ def resolve_expression_if_present(
     return False, ""
 
 
+_TEMPLATE_TOKEN = re.compile(r"\{[^{}]*\}")
+
+
+def resolve_template_if_present(
+    *,
+    device: DeviceContext,
+    raw_value: str,
+) -> tuple[str | None, str | None]:
+    """Resolve every ``{path}`` inside *raw_value* and substitute it in place.
+
+    Supports chains and mixed text such as ``{custom.one}#{custom.two}`` or
+    ``Location#All Locations#{custom.site}``. Each token follows
+    ``resolve_expression_if_present``: a blank value is substituted as ``""``,
+    a missing path (without ``| default('...')``) is not resolvable.
+
+    Returns ``(value, None)`` on success, or ``(None, token)`` naming the first
+    token that did not resolve. A value with no ``{...}`` is returned unchanged.
+    """
+    missing: str | None = None
+
+    def _substitute(token: re.Match[str]) -> str:
+        nonlocal missing
+        found, value = resolve_expression_if_present(device=device, raw_value=token.group(0))
+        if not found and missing is None:
+            missing = token.group(0)
+        return value
+
+    resolved = _TEMPLATE_TOKEN.sub(_substitute, raw_value.strip())
+    if missing is not None:
+        return None, missing
+    return resolved, None
+
+
 def _parse_tags_value(raw: str) -> list[str] | str | None:
     cleaned = raw.strip()
     if not cleaned:

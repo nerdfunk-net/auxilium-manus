@@ -402,7 +402,8 @@ function AddToIseConfigPanel({
 
         <p className="text-[11px] text-muted-foreground">
           Full hierarchical ISE group names, or <span className="font-mono">{"{path.to.value}"}</span>{" "}
-          resolved per device. A path that does not exist fails the device; one that exists but is
+          resolved per device; several can be chained, e.g.{" "}
+          <span className="font-mono">{"{custom.one}#{custom.two}"}</span>. A path that does not exist fails the device; one that exists but is
           blank adds no group. Click Get List to pick from ISE. Leave empty for none.
         </p>
 
