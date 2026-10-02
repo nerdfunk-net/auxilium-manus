@@ -63,7 +63,8 @@ export function UpdateConfigContextHelpPanel() {
           </li>
           <li>
             <span className="font-medium text-foreground">Update</span> — sets the value
-            at <HelpCode>path</HelpCode>, leaving every other key untouched. Example:{" "}
+            at each <HelpCode>path</HelpCode> in <HelpCode>updates</HelpCode>, leaving every
+            other key untouched. Example:{" "}
             <HelpCode>path: credentials.0.password</HelpCode> with a new password value
             changes only that one field, keeping <HelpCode>username</HelpCode> and{" "}
             <HelpCode>privilege</HelpCode> as they were.
@@ -90,6 +91,34 @@ export function UpdateConfigContextHelpPanel() {
 }`}</HelpExample>
       </HelpSection>
 
+      <HelpSection title="updates (Update mode)">
+        <p>
+          Update mode takes a list of path/value pairs. Use{" "}
+          <span className="font-medium text-foreground">Add path</span> for each value to
+          change — for example a TACACS key and its privilege level in one step:
+        </p>
+        <HelpExample>{`updates[0]
+  path:  tacacs[server={custom.tacacs_server}].key
+  value: custom.new_tacacs_key
+updates[1]
+  path:  tacacs[server={custom.tacacs_server}].level
+  value: custom.new_tacacs_level`}</HelpExample>
+        <p>
+          Each pair has its own <HelpCode>path</HelpCode> and its own{" "}
+          <HelpCode>value_source</HelpCode>. Pairs are applied in order to one copy of the
+          device&apos;s local config context, which is written back in a{" "}
+          <span className="font-medium text-foreground">single request</span>, so a later
+          pair can build on an earlier one.
+        </p>
+        <HelpWarning title="All or nothing per device">
+          <p>
+            If any pair fails — an unresolved placeholder, an entry that isn&apos;t in the
+            list, an out-of-range index — that device fails and nothing is written for it,
+            not even the pairs that would have worked. Other devices are unaffected.
+          </p>
+        </HelpWarning>
+      </HelpSection>
+
       <HelpSection title="path">
         <p>
           A dotted path into <HelpCode>local_config_context_data</HelpCode>. A segment is
@@ -101,7 +130,8 @@ export function UpdateConfigContextHelpPanel() {
           must already exist.
         </p>
         <p>
-          Required for Update. Ignored for Write. Optional for Append — an empty path
+          Used by Append (and, per pair, by Update — where it is required). Ignored for
+          Write. Optional for Append — an empty path
           merges the resolved value&apos;s own top-level keys directly into the document
           root (the resolved value must be a JSON object in that case).
         </p>
@@ -149,7 +179,7 @@ device A (custom.tacacs_server = "tacacs-server")
         </p>
         <p>
           With this option on (Update, or Append with a path), the step checks whether the
-          local context contains the first key of <HelpCode>path</HelpCode> (for{" "}
+          local context contains the first key of each <HelpCode>path</HelpCode> (for{" "}
           <HelpCode>tacacs[address=1.2.3.4].key</HelpCode> that is{" "}
           <HelpCode>tacacs</HelpCode>). If not, it copies that key and its whole value from
           the global context into the local one, applies your change, and writes both in a
@@ -167,7 +197,9 @@ device A (custom.tacacs_server = "tacacs-server")
       </HelpSection>
 
       <HelpSection title="value_source">
-        <p>Where the new value comes from:</p>
+        <p>
+          Where the new value comes from (in Update mode each pair has its own):
+        </p>
         <ul className="list-disc space-y-1.5 pl-4">
           <li>
             <span className="font-medium text-foreground">Device attribute</span> — a

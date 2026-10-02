@@ -1,6 +1,5 @@
 "use client";
 
-import { Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { TemplateViewDialog } from "@/components/features/templates/components/template-view-dialog";
@@ -10,7 +9,6 @@ import type {
   PluginUIComponent,
 } from "@/components/features/workflows/types/plugin-ui";
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
-import { AttributePathPreview } from "@/components/features/workflow-steps/shared/attribute-path-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,16 +32,40 @@ import { UpdateConfigContextHelpPanel } from "./help-panel";
 import {
   buildUpdateConfigContextConfig,
   parseUpdateConfigContextConfig,
+  patchUpdateEntry,
   toLocalConfigContextPath,
   type UpdateConfigContextMode,
-  type ValueSourceType,
+  type UpdateEntry,
+  type ValueSourceConfig,
 } from "./config";
+import { PathInput, UpdateEntryRows } from "./update-entry-rows";
+import { ValueSourceFields } from "./value-source-fields";
 
-const PATH_PLACEHOLDER_BY_MODE: Record<UpdateConfigContextMode, string> = {
-  write: "",
-  update: "tacacs[address=1.2.3.4].key",
-  append: "tacacs (leave empty to merge into the root)",
-};
+const APPEND_PATH_PLACEHOLDER = "tacacs (leave empty to merge into the root)";
+
+/** Which field the single shared attribute picker is filling; `index` is null for the top-level (write/append) fields. */
+interface PickerTarget {
+  field: "path" | "value";
+  index: number | null;
+}
+
+function PathHelpText({ mode }: { mode: UpdateConfigContextMode }) {
+  return (
+    <>
+      Dotted path <em>inside</em> local_config_context_data (not the workflow attribute path — no{" "}
+      <span className="font-mono">nautobot.config_context.</span> prefix; the picker strips it for
+      you). Reach a list item by index, e.g.{" "}
+      <span className="font-mono">credentials[0].password</span>, or by field value, e.g.{" "}
+      <span className="font-mono">tacacs[address=1.2.3.4].key</span>. Use{" "}
+      <span className="font-mono">{"{attribute.path}"}</span> to take that value from the device,
+      e.g. <span className="font-mono">{"tacacs[server={custom.tacacs_server}].key"}</span>.
+      {mode === "append"
+        ? " Leave empty to merge the resolved value's own top-level keys directly into the document root instead of nesting them under a new key."
+        : null}{" "}
+      Lists are never extended — the item must already exist.
+    </>
+  );
+}
 
 function UpdateConfigContextConfigPanel({
   config,
@@ -57,9 +79,9 @@ function UpdateConfigContextConfigPanel({
   const parsed = useMemo(() => parseUpdateConfigContextConfig(config), [config]);
 
   const [sourceOpen, setSourceOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pathPickerOpen, setPathPickerOpen] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
+  // Template whose content the read-only preview dialog shows; null = closed.
+  const [previewTemplateId, setPreviewTemplateId] = useState<number | null>(null);
 
   const { data: templatesData, isLoading: templatesLoading, isError: templatesError } =
     useTemplatesQuery();
@@ -89,9 +111,16 @@ function UpdateConfigContextConfigPanel({
     [config, onChange],
   );
 
-  const handlePathPicked = useCallback(
-    (picked: string) => {
-      onChange(buildUpdateConfigContextConfig(config, { path: toLocalConfigContextPath(picked) }));
+  const handleValueSourceChange = useCallback(
+    (value_source: ValueSourceConfig) => {
+      onChange(buildUpdateConfigContextConfig(config, { value_source }));
+    },
+    [config, onChange],
+  );
+
+  const handleUpdatesChange = useCallback(
+    (updates: UpdateEntry[]) => {
+      onChange(buildUpdateConfigContextConfig(config, { updates }));
     },
     [config, onChange],
   );
@@ -103,37 +132,41 @@ function UpdateConfigContextConfigPanel({
     [config, onChange],
   );
 
-  const handleValueSourceTypeChange = useCallback(
-    (value: string) => {
-      onChange(
-        buildUpdateConfigContextConfig(config, {
-          value_source: { ...parsed.value_source, type: value as ValueSourceType },
-        }),
+  const handlePickerClose = useCallback(() => setPickerTarget(null), []);
+
+  const handlePicked = useCallback(
+    (picked: string) => {
+      if (pickerTarget === null) return;
+      const { field, index } = pickerTarget;
+      if (index === null) {
+        onChange(
+          buildUpdateConfigContextConfig(
+            config,
+            field === "path"
+              ? { path: toLocalConfigContextPath(picked) }
+              : { value_source: { ...parsed.value_source, attribute_path: picked } },
+          ),
+        );
+        return;
+      }
+      const entry = parsed.updates[index];
+      if (!entry) return;
+      handleUpdatesChange(
+        patchUpdateEntry(
+          parsed.updates,
+          index,
+          field === "path"
+            ? { path: toLocalConfigContextPath(picked) }
+            : { value_source: { ...entry.value_source, attribute_path: picked } },
+        ),
       );
     },
-    [config, onChange, parsed.value_source],
+    [config, handleUpdatesChange, onChange, parsed.updates, parsed.value_source, pickerTarget],
   );
 
-  const handleAttributePathChange = useCallback(
-    (value: string) => {
-      onChange(
-        buildUpdateConfigContextConfig(config, {
-          value_source: { ...parsed.value_source, attribute_path: value },
-        }),
-      );
-    },
-    [config, onChange, parsed.value_source],
-  );
-
-  const handleTemplateChange = useCallback(
-    (value: string) => {
-      onChange(
-        buildUpdateConfigContextConfig(config, {
-          value_source: { ...parsed.value_source, template_id: Number(value) },
-        }),
-      );
-    },
-    [config, onChange, parsed.value_source],
+  const previewTemplateFor = useCallback(
+    (source: ValueSourceConfig) => setPreviewTemplateId(source.template_id),
+    [],
   );
 
   const handleIdentifierModeChange = useCallback(
@@ -173,18 +206,18 @@ function UpdateConfigContextConfigPanel({
   );
 
   const isSourceConfigured = isNautobotSourceConfigured(config);
-  const isPathVisible = parsed.mode !== "write";
-  const selectedTemplateId = parsed.value_source.template_id !== null
-    ? String(parsed.value_source.template_id)
-    : "";
-  const selectedTemplate = templates.find(
-    (template) => template.id === parsed.value_source.template_id,
-  );
-  const selectedTemplateMissing =
-    parsed.value_source.template_id !== null &&
-    !templatesLoading &&
-    !templatesError &&
-    !templates.some((template) => template.id === parsed.value_source.template_id);
+  const isUpdateMode = parsed.mode === "update";
+  const isPathVisible = parsed.mode === "append";
+  const hasAnyPath = isUpdateMode
+    ? parsed.updates.some((entry) => entry.path.trim() !== "")
+    : parsed.path.trim() !== "";
+  const previewTemplate = templates.find((template) => template.id === previewTemplateId);
+  const valueSourceShared = {
+    templates,
+    templatesLoading,
+    templatesError,
+    graph: { nodeId, workflowNodes, workflowEdges },
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -291,212 +324,108 @@ function UpdateConfigContextConfigPanel({
           {parsed.mode === "write"
             ? "Replaces the entire local config context, regardless of its current content."
             : parsed.mode === "update"
-              ? "Overwrites whatever is at path, leaving every other key untouched."
+              ? "Sets the value at each path, leaving every other key untouched. All pairs are applied together in one request — if any fails, nothing is written for that device."
               : "Merges the new value into whatever is already at path — existing sibling keys are kept. Leave path empty to merge the value's own top-level keys directly into the document root."}
         </p>
       </div>
 
-      {isPathVisible ? (
+      {isUpdateMode ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-medium">path</span>
+            <span className="font-mono text-xs font-medium">updates</span>
             <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-              string
+              array
             </Badge>
           </div>
-          <div className="flex items-center gap-1.5">
-            <Input
-              value={parsed.path}
-              onChange={(event) => handlePathChange(event.target.value)}
-              placeholder={PATH_PLACEHOLDER_BY_MODE[parsed.mode]}
-              className="h-8 font-mono text-xs"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={() => setPathPickerOpen(true)}
-              title="Browse attributes"
-              aria-label="Browse attributes for path"
-            >
-              <Search className="size-3.5" aria-hidden />
-            </Button>
-          </div>
-          <AttributePathPicker
-            open={pathPickerOpen}
-            onClose={() => setPathPickerOpen(false)}
-            onSelect={handlePathPicked}
-            nodeId={nodeId}
-            workflowNodes={workflowNodes ?? []}
-            workflowEdges={workflowEdges ?? []}
+          <UpdateEntryRows
+            {...valueSourceShared}
+            updates={parsed.updates}
+            onChange={handleUpdatesChange}
+            onBrowsePath={(index) => setPickerTarget({ field: "path", index })}
+            onBrowseValue={(index) => setPickerTarget({ field: "value", index })}
+            onPreviewTemplate={(index) => previewTemplateFor(parsed.updates[index].value_source)}
           />
           <p className="text-[11px] leading-4 text-muted-foreground">
-            {parsed.mode === "append"
-              ? (
-                <>
-                  Dotted path <em>inside</em> local_config_context_data (not the
-                  workflow attribute path — no <span className="font-mono">nautobot.config_context.</span>{" "}
-                  prefix; the picker strips it for you). Reach a list item by index, e.g.{" "}
-                  <span className="font-mono">credentials[0].password</span>, or by
-                  field value, e.g.{" "}
-                  <span className="font-mono">tacacs[address=1.2.3.4].key</span>. Use{" "}
-                  <span className="font-mono">{"{attribute.path}"}</span> to take that
-                  value from the device, e.g.{" "}
-                  <span className="font-mono">{"tacacs[server={custom.tacacs_server}].key"}</span>.
-                  Leave empty to merge the resolved value&apos;s own top-level keys
-                  directly into the document root instead of nesting them under a
-                  new key. Lists are never extended — the item must already exist.
-                </>
-              )
-              : (
-                <>
-                  Dotted path <em>inside</em> local_config_context_data (not the
-                  workflow attribute path — no <span className="font-mono">nautobot.config_context.</span>{" "}
-                  prefix; the picker strips it for you). Reach a list item by index, e.g.{" "}
-                  <span className="font-mono">credentials[0].password</span>, or by
-                  field value, e.g.{" "}
-                  <span className="font-mono">tacacs[address=1.2.3.4].key</span>. Use{" "}
-                  <span className="font-mono">{"{attribute.path}"}</span> to take that
-                  value from the device, e.g.{" "}
-                  <span className="font-mono">{"tacacs[server={custom.tacacs_server}].key"}</span>.
-                  Lists are never extended — the item must already exist.
-                </>
-              )}
+            <PathHelpText mode="update" /> A rendered template&apos;s output is parsed as JSON when
+            possible, otherwise used as a plain string.
           </p>
-          {parsed.path.trim() !== "" ? (
-            <div className="space-y-1 pt-1">
-              <label className="flex items-center gap-1.5 text-xs font-medium">
-                <Checkbox
-                  checked={parsed.create_local_if_missing}
-                  onCheckedChange={(checked) => handleCreateLocalChange(checked === true)}
-                />
-                Copy key from global config context if missing locally
-              </label>
+        </div>
+      ) : (
+        <>
+          {isPathVisible ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-xs font-medium">path</span>
+                <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                  string
+                </Badge>
+              </div>
+              <PathInput
+                value={parsed.path}
+                onChange={handlePathChange}
+                onBrowse={() => setPickerTarget({ field: "path", index: null })}
+                placeholder={APPEND_PATH_PLACEHOLDER}
+                ariaLabel="Browse attributes for path"
+              />
               <p className="text-[11px] leading-4 text-muted-foreground">
-                Nautobot only lets this step change the device&apos;s local config context. If it
-                doesn&apos;t contain the path&apos;s first key (e.g.{" "}
-                <span className="font-mono">tacacs</span>) — or the device has no local context at
-                all — that key is copied from the global config context first, then your change
-                is applied. Other local keys are kept. If the key already exists locally, nothing
-                is copied, and an entry that isn&apos;t in the local list is an error. The device
-                keeps its own copy of the key.
+                <PathHelpText mode="append" />
               </p>
             </div>
           ) : null}
+
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-xs font-medium">value_source</span>
+              <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+                object
+              </Badge>
+            </div>
+            <ValueSourceFields
+              {...valueSourceShared}
+              value={parsed.value_source}
+              onChange={handleValueSourceChange}
+              onBrowse={() => setPickerTarget({ field: "value", index: null })}
+              onPreviewTemplate={() => previewTemplateFor(parsed.value_source)}
+              ariaLabel="value_source"
+            />
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {parsed.mode === "write"
+                ? "The resolved value must be a JSON object."
+                : "A rendered template's output is parsed as JSON when possible, otherwise used as a plain string."}
+            </p>
+          </div>
+        </>
+      )}
+
+      {hasAnyPath && parsed.mode !== "write" ? (
+        <div className="space-y-1">
+          <label className="flex items-center gap-1.5 text-xs font-medium">
+            <Checkbox
+              checked={parsed.create_local_if_missing}
+              onCheckedChange={(checked) => handleCreateLocalChange(checked === true)}
+            />
+            Copy key from global config context if missing locally
+          </label>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Nautobot only lets this step change the device&apos;s local config context. If it
+            doesn&apos;t contain a path&apos;s first key (e.g.{" "}
+            <span className="font-mono">tacacs</span>) — or the device has no local context at
+            all — that key is copied from the global config context first, then your change is
+            applied. Other local keys are kept. If the key already exists locally, nothing is
+            copied, and an entry that isn&apos;t in the local list is an error. The device keeps
+            its own copy of the key.
+          </p>
         </div>
       ) : null}
 
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-xs font-medium">value_source</span>
-          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
-            object
-          </Badge>
-        </div>
-        <Select value={parsed.value_source.type} onValueChange={handleValueSourceTypeChange}>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="attribute" className="text-xs">
-              Device attribute
-            </SelectItem>
-            <SelectItem value="template" className="text-xs">
-              Rendered template
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        {parsed.value_source.type === "attribute" ? (
-          <div className="space-y-1.5 pl-1">
-            <div className="flex items-center gap-1.5">
-              <Input
-                value={parsed.value_source.attribute_path}
-                onChange={(event) => handleAttributePathChange(event.target.value)}
-                placeholder="tacacs.shared_secret"
-                className="h-8 font-mono text-xs"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-8 shrink-0"
-                onClick={() => setPickerOpen(true)}
-                title="Browse attributes"
-                aria-label="Browse attributes for value_source"
-              >
-                <Search className="size-3.5" aria-hidden />
-              </Button>
-            </div>
-            <AttributePathPreview
-              path={parsed.value_source.attribute_path}
-              nodeId={nodeId}
-              workflowNodes={workflowNodes ?? []}
-              workflowEdges={workflowEdges ?? []}
-            />
-            <AttributePathPicker
-              open={pickerOpen}
-              onClose={() => setPickerOpen(false)}
-              onSelect={handleAttributePathChange}
-              nodeId={nodeId}
-              workflowNodes={workflowNodes ?? []}
-              workflowEdges={workflowEdges ?? []}
-            />
-          </div>
-        ) : (
-          <div className="space-y-1.5 pl-1">
-            <Select
-              value={selectedTemplateId}
-              onValueChange={handleTemplateChange}
-              disabled={templatesLoading || templates.length === 0}
-            >
-              <SelectTrigger className="h-8 w-full text-xs">
-                <SelectValue
-                  placeholder={templatesLoading ? "Loading templates…" : "Select a stored template"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {templates.map((template) => (
-                  <SelectItem key={template.id} value={String(template.id)} className="text-xs">
-                    {template.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {templatesError ? (
-              <p className="text-[11px] leading-4 text-destructive">
-                Failed to load stored templates.
-              </p>
-            ) : null}
-            {!templatesLoading && !templatesError && templates.length === 0 ? (
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                No stored Jinja2 templates yet. Create one in the Templates section first.
-              </p>
-            ) : null}
-            {selectedTemplateMissing ? (
-              <p className="text-[11px] leading-4 text-destructive">
-                The previously selected template no longer exists. Pick another one.
-              </p>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 w-full text-xs"
-              disabled={parsed.value_source.template_id === null || selectedTemplateMissing}
-              onClick={() => setPreviewOpen(true)}
-            >
-              Preview Template
-            </Button>
-          </div>
-        )}
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          {parsed.mode === "write"
-            ? "The resolved value must be a JSON object."
-            : "A rendered template's output is parsed as JSON when possible, otherwise used as a plain string."}
-        </p>
-      </div>
+      <AttributePathPicker
+        open={pickerTarget !== null}
+        onClose={handlePickerClose}
+        onSelect={handlePicked}
+        nodeId={nodeId}
+        workflowNodes={workflowNodes ?? []}
+        workflowEdges={workflowEdges ?? []}
+      />
 
       <NautobotSourceSelectDialog
         open={sourceOpen}
@@ -506,10 +435,10 @@ function UpdateConfigContextConfigPanel({
       />
 
       <TemplateViewDialog
-        templateId={parsed.value_source.template_id}
-        templateName={selectedTemplate?.name}
-        open={previewOpen}
-        onClose={() => setPreviewOpen(false)}
+        templateId={previewTemplateId}
+        templateName={previewTemplate?.name}
+        open={previewTemplateId !== null}
+        onClose={() => setPreviewTemplateId(null)}
       />
     </div>
   );

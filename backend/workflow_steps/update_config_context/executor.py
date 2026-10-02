@@ -6,16 +6,23 @@ contract and backend/services/nautobot/devices/update.py for the underlying
 REST PATCH semantics (Nautobot replaces this field wholesale — there is no
 server-side partial JSON merge, so ``update``/``append`` GET the current
 value, compute the new document here, then PATCH the whole thing back).
+
+``update`` takes a list of ``updates`` (path + value source pairs) that are all
+applied to one fetched document and written back in a single PATCH, so a device
+is never left with only some of them applied. ``write``/``append`` keep the
+single top-level ``path`` + ``value_source``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import json
 import logging
 import re
-from dataclasses import dataclass, replace
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
@@ -57,15 +64,30 @@ _MODES = ("write", "update", "append")
 
 
 @dataclass(frozen=True)
+class _ValueSource:
+    type: str
+    attribute_path: str
+    template_id: int | None
+
+
+@dataclass(frozen=True)
+class _UpdateEntry:
+    path: str
+    value_source: _ValueSource
+
+
+@dataclass(frozen=True)
 class _ParsedConfig:
     source_id: str
     identifier_mode: str
     device_identifier: dict[str, Any]
     mode: str
+    # write/append: the single path + value source. For update these stay
+    # empty/None — see ``updates``.
     path: str
-    value_source_type: str
-    attribute_path: str
-    template_id: int | None
+    value_source: _ValueSource | None
+    # update: one entry per path/value pair, applied in order in one PATCH.
+    updates: tuple[_UpdateEntry, ...] = ()
     create_local_if_missing: bool = False
 
 
@@ -130,6 +152,59 @@ def _parse_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _parse_value_source(raw: Any, label: str) -> _ValueSource:
+    """Parse one ``value_source`` object; *label* prefixes error messages
+    (``value_source`` or ``updates[2].value_source``)."""
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{_STEP_ID}: {label} must be an object")
+
+    source_type = str(raw.get("type") or "attribute").strip().lower()
+    if source_type not in ("attribute", "template"):
+        raise ValueError(f"{_STEP_ID}: {label}.type must be 'attribute' or 'template'")
+
+    attribute_path = str(raw.get("attribute_path") or "").strip()
+    template_id: int | None = None
+    if source_type == "attribute":
+        if not attribute_path:
+            raise ValueError(f"{_STEP_ID}: {label}.attribute_path is required")
+    else:
+        raw_template_id = raw.get("template_id")
+        if raw_template_id in (None, ""):
+            raise ValueError(f"{_STEP_ID}: {label}.template_id is required")
+        try:
+            template_id = int(raw_template_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{_STEP_ID}: {label}.template_id must be an integer") from exc
+
+    return _ValueSource(type=source_type, attribute_path=attribute_path, template_id=template_id)
+
+
+def _parse_updates(raw: Any) -> tuple[_UpdateEntry, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(
+            f"{_STEP_ID}: updates must list at least one path/value pair for mode 'update'"
+        )
+    entries: list[_UpdateEntry] = []
+    for index, raw_entry in enumerate(raw):
+        label = f"updates[{index}]"
+        if not isinstance(raw_entry, dict):
+            raise ValueError(f"{_STEP_ID}: {label} must be an object")
+        path = str(raw_entry.get("path") or "").strip()
+        if not path:
+            raise ValueError(f"{_STEP_ID}: {label}.path is required")
+        entries.append(
+            _UpdateEntry(
+                path=path,
+                value_source=_parse_value_source(
+                    raw_entry.get("value_source"), f"{label}.value_source"
+                ),
+            )
+        )
+    return tuple(entries)
+
+
 def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     source_id = str(config.get("nautobot_source_id") or "").strip()
     if not source_id:
@@ -144,31 +219,14 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     if mode not in _MODES:
         raise ValueError(f"{_STEP_ID}: mode must be one of {', '.join(_MODES)}")
 
-    path = str(config.get("path") or "").strip()
-    if mode == "update" and not path:
-        raise ValueError(f"{_STEP_ID}: path is required for mode {mode!r}")
-
-    raw_value_source = config.get("value_source") or {}
-    if not isinstance(raw_value_source, dict):
-        raise ValueError(f"{_STEP_ID}: value_source must be an object")
-
-    value_source_type = str(raw_value_source.get("type") or "attribute").strip().lower()
-    if value_source_type not in ("attribute", "template"):
-        raise ValueError(f"{_STEP_ID}: value_source.type must be 'attribute' or 'template'")
-
-    attribute_path = str(raw_value_source.get("attribute_path") or "").strip()
-    template_id: int | None = None
-    if value_source_type == "attribute":
-        if not attribute_path:
-            raise ValueError(f"{_STEP_ID}: value_source.attribute_path is required")
+    path = ""
+    value_source: _ValueSource | None = None
+    updates: tuple[_UpdateEntry, ...] = ()
+    if mode == "update":
+        updates = _parse_updates(config.get("updates"))
     else:
-        raw_template_id = raw_value_source.get("template_id")
-        if raw_template_id in (None, ""):
-            raise ValueError(f"{_STEP_ID}: value_source.template_id is required")
-        try:
-            template_id = int(raw_template_id)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{_STEP_ID}: value_source.template_id must be an integer") from exc
+        path = str(config.get("path") or "").strip()
+        value_source = _parse_value_source(config.get("value_source"), "value_source")
 
     return _ParsedConfig(
         source_id=source_id,
@@ -176,9 +234,8 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
         device_identifier=raw_identifier,
         mode=mode,
         path=path,
-        value_source_type=value_source_type,
-        attribute_path=attribute_path,
-        template_id=template_id,
+        value_source=value_source,
+        updates=updates,
         create_local_if_missing=_parse_bool(config.get("create_local_if_missing", False)),
     )
 
@@ -223,23 +280,23 @@ def _build_update_service(
 
 def _resolve_value(
     *,
-    parsed: _ParsedConfig,
+    value_source: _ValueSource,
     device: DeviceContext | None,
     run_id: str | None,
     workflow_id: str | None,
 ) -> Any:
-    if parsed.value_source_type == "attribute":
+    if value_source.type == "attribute":
         if device is None:
             raise ValueError(
                 f"{_STEP_ID}: an attribute value source requires a workflow device "
                 "(use device_identifier.mode = from_context)"
             )
-        raw = resolve_device_value(device, parsed.attribute_path, run_id=run_id)
+        raw = resolve_device_value(device, value_source.attribute_path, run_id=run_id)
         if is_sealed_secret(raw):
             raw = unwrap_secret(raw)
         return raw
 
-    template_id = parsed.template_id
+    template_id = value_source.template_id
     if template_id is None:
         raise ValueError(f"{_STEP_ID}: value_source.template_id is required")
     template_content = load_stored_template(template_id, step_id=_STEP_ID).strip()
@@ -256,7 +313,7 @@ def _resolve_value(
 
 async def _seed_from_global(
     *,
-    update_service: DeviceUpdateService,
+    load_merged: Callable[[], Awaitable[dict[str, Any]]],
     device_id: str,
     current: dict[str, Any],
     path: str,
@@ -269,11 +326,14 @@ async def _seed_from_global(
     of it can be changed. Only that one key is copied, deep so later edits never
     touch the fetched global data. A key absent from the global context too is
     left alone — ``update``/``append`` then create it as they always have.
+
+    *load_merged* fetches the merged context; it is only awaited when the key is
+    missing locally, so a caller applying several paths can memoise it.
     """
     key = top_level_key(path)
     if key in current:
         return current
-    merged = await update_service.get_config_context(device_id)
+    merged = await load_merged()
     if key not in merged:
         return current
     # Key name only — the value can hold secrets (e.g. TACACS+ keys).
@@ -283,6 +343,37 @@ async def _seed_from_global(
     return {**current, key: copy.deepcopy(merged[key])}
 
 
+async def _apply_updates(
+    *,
+    update_service: DeviceUpdateService,
+    device_id: str,
+    updates: Sequence[tuple[str, Any]],
+    create_local_if_missing: bool,
+) -> None:
+    """Apply every ``(path, value)`` to one fetched document, then PATCH once.
+
+    Entries are folded in order, so a later one sees an earlier one's result.
+    Any failure raises before the PATCH, leaving the device untouched.
+    """
+    document = await update_service.get_local_config_context(device_id)
+
+    merged_cache: dict[str, Any] | None = None
+
+    async def load_merged() -> dict[str, Any]:
+        nonlocal merged_cache
+        if merged_cache is None:
+            merged_cache = await update_service.get_config_context(device_id)
+        return merged_cache
+
+    for path, value in updates:
+        if create_local_if_missing:
+            document = await _seed_from_global(
+                load_merged=load_merged, device_id=device_id, current=document, path=path
+            )
+        document = set_at_path(document, path, value)
+    await update_service.set_local_config_context(device_id, document)
+
+
 async def _apply_mode(
     *,
     update_service: DeviceUpdateService,
@@ -290,6 +381,7 @@ async def _apply_mode(
     parsed: _ParsedConfig,
     value: Any,
 ) -> None:
+    """Apply a ``write`` or ``append`` (``update`` goes through ``_apply_updates``)."""
     if parsed.mode == "write":
         if not isinstance(value, dict):
             raise ValueError(
@@ -299,19 +391,17 @@ async def _apply_mode(
         await update_service.set_local_config_context(device_id, value)
         return
 
+    if parsed.mode != "append":
+        raise ValueError(f"{_STEP_ID}: _apply_mode does not handle mode {parsed.mode!r}")
+
     current = await update_service.get_local_config_context(device_id)
     if parsed.create_local_if_missing and parsed.path:
         current = await _seed_from_global(
-            update_service=update_service,
+            load_merged=lambda: update_service.get_config_context(device_id),
             device_id=device_id,
             current=current,
             path=parsed.path,
         )
-
-    if parsed.mode == "update":
-        new_document = set_at_path(current, parsed.path, value)
-        await update_service.set_local_config_context(device_id, new_document)
-        return
 
     # append with an empty path: merge the value's own top-level keys directly
     # into the document root, never clobber siblings.
@@ -389,7 +479,12 @@ async def _update_one_device(
     update_service: DeviceUpdateService,
 ) -> tuple[str, DeviceContext | None, bool]:
     try:
-        parsed = replace(parsed, path=_render_path(parsed.path, device))
+        # Render every path up front: a bad placeholder must fail the device
+        # before any Nautobot lookup or write.
+        if parsed.mode == "update":
+            rendered_paths = [_render_path(entry.path, device) for entry in parsed.updates]
+        else:
+            rendered_path = _render_path(parsed.path, device)
         target = (
             device
             if device is not None
@@ -410,18 +505,41 @@ async def _update_one_device(
                 f"(name={target.name!r}, ip={target.primary_ip4!r})",
             )
 
-        value = _resolve_value(
-            parsed=parsed,
-            device=device,
-            run_id=str(context.run_id) if context.run_id else None,
-            workflow_id=str(context.workflow_id) if context.workflow_id else None,
-        )
-        await _apply_mode(
-            update_service=update_service,
-            device_id=nautobot_device_id,
-            parsed=parsed,
-            value=value,
-        )
+        run_id = str(context.run_id) if context.run_id else None
+        workflow_id = str(context.workflow_id) if context.workflow_id else None
+
+        if parsed.mode == "update":
+            await _apply_updates(
+                update_service=update_service,
+                device_id=nautobot_device_id,
+                updates=[
+                    (
+                        path,
+                        _resolve_value(
+                            value_source=entry.value_source,
+                            device=device,
+                            run_id=run_id,
+                            workflow_id=workflow_id,
+                        ),
+                    )
+                    for path, entry in zip(rendered_paths, parsed.updates, strict=True)
+                ],
+                create_local_if_missing=parsed.create_local_if_missing,
+            )
+        else:
+            if parsed.value_source is None:
+                raise ValueError(f"{_STEP_ID}: value_source is required for mode {parsed.mode!r}")
+            await _apply_mode(
+                update_service=update_service,
+                device_id=nautobot_device_id,
+                parsed=dataclasses.replace(parsed, path=rendered_path),
+                value=_resolve_value(
+                    value_source=parsed.value_source,
+                    device=device,
+                    run_id=run_id,
+                    workflow_id=workflow_id,
+                ),
+            )
 
         if device is None:
             placeholder = DeviceContext(
@@ -477,13 +595,15 @@ async def execute(
     device_items = _resolve_device_items(parsed.identifier_mode, context)
 
     logger.info(
-        "%s started run_id=%s source_id=%s devices=%d mode=%s path=%s",
+        "%s started run_id=%s source_id=%s devices=%d mode=%s paths=%s",
         _STEP_ID,
         run.id,
         parsed.source_id,
         len(device_items),
         parsed.mode,
-        parsed.path or "-",
+        ", ".join(entry.path for entry in parsed.updates)
+        if parsed.mode == "update"
+        else parsed.path or "-",
     )
 
     results = await asyncio.gather(

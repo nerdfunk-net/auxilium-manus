@@ -471,6 +471,13 @@ syntax):**
   (default `false`) copies the path's top-level key from the global config context
   into the local one when the local context lacks it — the only way to change a
   value that lives in an assigned (global) context, which this step cannot edit.
+- `update-config-context` in `mode: "update"` takes **`updates`**, a list of
+  `{path, value_source}` pairs (at least one), instead of the top-level `path` /
+  `value_source` (which are now `write`/`append` only and ignored for `update`). All
+  pairs are applied in order to one fetched copy of the local context and written in
+  a single PATCH; if any pair fails the device fails and nothing is written. Use it
+  to change e.g. a TACACS key and level together rather than chaining two steps.
+  `create_local_if_missing` applies to every pair.
 
 ---
 
