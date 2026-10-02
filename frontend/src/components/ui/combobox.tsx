@@ -21,6 +21,10 @@ interface ComboboxProps {
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  /** Render the list in normal flow instead of an absolutely positioned
+   * popover — use inside scroll/overflow containers (e.g. dialogs) that
+   * would otherwise clip it. */
+  inline?: boolean;
 }
 
 /**
@@ -38,6 +42,7 @@ export function Combobox({
   emptyText = "No results.",
   disabled = false,
   className,
+  inline = false,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -120,7 +125,12 @@ export function Combobox({
       </Button>
 
       {open ? (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-border bg-popover shadow-lg">
+        <div
+          className={cn(
+            "mt-1 w-full overflow-hidden rounded-md border border-border bg-popover shadow-lg",
+            !inline && "absolute z-50",
+          )}
+        >
           <div className="border-b border-border p-1.5">
             <Input
               className="h-8"

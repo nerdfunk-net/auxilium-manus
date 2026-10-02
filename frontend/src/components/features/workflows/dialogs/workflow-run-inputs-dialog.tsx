@@ -43,6 +43,12 @@ function buildSchema(attrs: StaticAttributeDef[]) {
       shape[attr.name] = attr.required ? number : number.optional();
     } else if (attr.type === "boolean") {
       shape[attr.name] = z.boolean();
+    } else if (attr.type === "reference" && attr.ref_kind === "inventory") {
+      // The picker emits the numeric inventory id; "" means nothing selected.
+      const inventoryId = z.number({ error: "Select an inventory" }).int().positive();
+      shape[attr.name] = attr.required
+        ? inventoryId
+        : z.union([inventoryId, z.literal("")]).optional();
     } else {
       shape[attr.name] = attr.required
         ? z.string().min(1, "Required")

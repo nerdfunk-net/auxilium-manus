@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 import { RunInputDeviceListField } from "../dialogs/run-input-device-list-field";
+import { RunInputReferenceField } from "./run-input-reference-field";
 import type { StaticAttributeDef } from "../types/workflow-persistence";
 import type { DeviceParamConfig } from "../utils/device-param-hints";
 
@@ -29,8 +30,8 @@ function stringValue(value: unknown): string {
 
 /**
  * Renders one workflow static_attribute control for manual Run Inputs or
- * schedule parameter forms. Reference-typed attributes are handled by the
- * caller — this component covers boolean, number, and string only.
+ * schedule parameter forms. Covers boolean, number, inventory references, and
+ * string; other reference kinds are handled by the caller.
  */
 export function RunInputAttributeField({
   id,
@@ -62,6 +63,10 @@ export function RunInputAttributeField({
         }}
       />
     );
+  }
+
+  if (attr.type === "reference" && attr.ref_kind === "inventory") {
+    return <RunInputReferenceField value={value} onChange={onChange} />;
   }
 
   const text = stringValue(value);
