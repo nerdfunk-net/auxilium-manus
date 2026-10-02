@@ -1,23 +1,24 @@
-fastapi==0.141.1
-hatchet-sdk==1.40.3
+fastapi==0.142.2
+hatchet-sdk==1.41.1
 httpx==0.28.1
-certifi==2026.4.22  # explicit: core/ssl_config.py loads this bundle alongside the OS trust store
-pydantic==2.13.4
-pwdlib[argon2]==0.3.0
-PyJWT==2.13.0
-psycopg[binary]==3.3.4
-python-dotenv==1.2.2
+certifi==2026.7.22  # explicit: core/ssl_config.py loads this bundle alongside the OS trust store
+pydantic==2.13.5
+pwdlib[argon2]==0.3.1
+PyJWT==2.15.1
+psycopg[binary]==3.3.6
+python-dotenv==1.2.4
 python-multipart==0.0.32
 PyYAML==6.0.3
 redis==8.1.0
 SQLAlchemy==2.0.51
-cryptography==50.0.0
-netmiko==4.7.0
+cryptography==50.0.2
+netmiko==4.8.0
+paramiko>=4.0,<5.0  # netmiko only requires >=3.5.1; 5.x has breaking changes, keep below 5
 network-secret==0.4.0  # Cisco type 7/8/9 for encrypt/decrypt-attribute (core/cisco_secret.py)
 icmplib==3.0.4
 jinja2==3.1.6
 uvicorn[standard]==0.52.1
-gitpython==3.1.59  # 3.1.58/59 fix PYSEC-2026-3783..3788 + 4 GHSAs (pip-audit)
+gitpython==3.1.60  # 3.1.60 fixes PYSEC-2026-3982/3984 + GHSA-whh4-5q6c-9v3x (pip-audit); 3.1.58/59 fixed PYSEC-2026-3783..3788
 cisco-config-parser==3.0.0
 croniter==6.2.4
-pybatfish==2026.8.19.3660
+pybatfish==2026.9.17.3748
