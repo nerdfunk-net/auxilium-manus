@@ -677,6 +677,13 @@ value baked into the canvas at design time. This is **not** a canvas step:
     at `credential_param`).
   This is how one workflow definition serves many sites/teams: a schedule (or a
   manual run) supplies a different inventory id and credential name each time.
+  Operators never type an id: the manual Run Inputs dialog renders an
+  `ref_kind: "inventory"` attribute with `RunInputReferenceField`
+  (`workflows/components/run-input-reference-field.tsx`) — a searchable list of
+  active saved inventories by name (substring filter) that submits the numeric id
+  (`Combobox` in `inline` mode so the dialog's scroll area doesn't clip it).
+  `ref_kind: "credential"` has no picker there yet and falls back to a text box
+  expecting the exact vault name (the schedule editor has a `Select` for both).
   Adding a new `ref_kind` (e.g. `nautobot_source`, `git_repo`) is one class +
   one `REF_RESOLVERS` entry plus the matching literal in `models/workflows.py`.
 - **Where reference values are validated**: shape only in `resolve_run_inputs`
