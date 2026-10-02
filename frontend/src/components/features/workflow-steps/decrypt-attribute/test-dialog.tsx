@@ -17,27 +17,51 @@ import {
   SharedSecretSourceField,
   type SharedSecretSourceMode,
 } from "@/components/features/workflow-steps/shared/shared-secret-source-field";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useDecryptAttributeTestMutation } from "@/hooks/queries/use-crypto-attribute-mutations";
+import {
+  DECRYPT_STEP_ALGORITHMS,
+  DEFAULT_SHARED_SECRET_ALGORITHM,
+  isKeylessAlgorithm,
+} from "@/lib/shared-secret-algorithms";
 
 interface DecryptAttributeTestDialogProps {
   onClose: () => void;
+  /** The step's algorithm override; blank means "trust the token header" (AES-GCM). */
+  algorithm: string;
 }
 
 /** Mounted only while open (parent gates with `{testOpen && ...}`), so state
  * initializers reset the form on every open without an effect. */
-export function DecryptAttributeTestDialog({ onClose }: DecryptAttributeTestDialogProps) {
+export function DecryptAttributeTestDialog({
+  onClose,
+  algorithm,
+}: DecryptAttributeTestDialogProps) {
   const [ciphertext, setCiphertext] = useState("");
   const [secretMode, setSecretMode] = useState<SharedSecretSourceMode>("credential");
   const [credentialReference, setCredentialReference] = useState("");
   const [manualSecret, setManualSecret] = useState("");
+  const [algo, setAlgo] = useState(algorithm || DEFAULT_SHARED_SECRET_ALGORITHM);
   const mutation = useDecryptAttributeTestMutation();
 
+  const keyless = isKeylessAlgorithm(algo);
   const hasSecret =
-    secretMode === "credential" ? credentialReference.length > 0 : manualSecret.length > 0;
+    keyless ||
+    (secretMode === "credential" ? credentialReference.length > 0 : manualSecret.length > 0);
   const canSubmit = ciphertext.trim().length > 0 && hasSecret && !mutation.isPending;
 
   const handleSubmit = () => {
     if (!canSubmit) {
+      return;
+    }
+    if (keyless) {
+      mutation.mutate({ ciphertext: ciphertext.trim(), algorithm: algo });
       return;
     }
     mutation.mutate(
@@ -72,15 +96,33 @@ export function DecryptAttributeTestDialog({ onClose }: DecryptAttributeTestDial
             />
           </div>
 
-          <SharedSecretSourceField
-            idPrefix="dec-test"
-            mode={secretMode}
-            onModeChange={setSecretMode}
-            credentialReference={credentialReference}
-            onCredentialReferenceChange={setCredentialReference}
-            manualSecret={manualSecret}
-            onManualSecretChange={setManualSecret}
-          />
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">Algorithm</Label>
+            <Select value={algo} onValueChange={setAlgo}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DECRYPT_STEP_ALGORITHMS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {keyless ? null : (
+            <SharedSecretSourceField
+              idPrefix="dec-test"
+              mode={secretMode}
+              onModeChange={setSecretMode}
+              credentialReference={credentialReference}
+              onCredentialReferenceChange={setCredentialReference}
+              manualSecret={manualSecret}
+              onManualSecretChange={setManualSecret}
+            />
+          )}
 
           {mutation.isError ? (
             <p className="text-[11px] text-destructive">{mutation.error.message}</p>

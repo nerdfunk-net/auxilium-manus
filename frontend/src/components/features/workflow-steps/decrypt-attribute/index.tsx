@@ -19,7 +19,7 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { SharedSecretCredentialField } from "@/components/features/workflow-steps/shared/shared-secret-credential-field";
-import { SHARED_SECRET_ALGORITHMS } from "@/lib/shared-secret-algorithms";
+import { DECRYPT_STEP_ALGORITHMS, isKeylessAlgorithm } from "@/lib/shared-secret-algorithms";
 
 import {
   buildDecryptAttributeConfig,
@@ -52,6 +52,7 @@ function DecryptAttributeConfigPanel({
   );
 
   const isListMode = Boolean(parsed.item_field.trim());
+  const keyless = isKeylessAlgorithm(parsed.algorithm);
 
   return (
     <div className="flex flex-col gap-4">
@@ -133,7 +134,7 @@ function DecryptAttributeConfigPanel({
         </p>
       </div>
 
-      <SharedSecretCredentialField config={config} onChange={onChange} />
+      {keyless ? null : <SharedSecretCredentialField config={config} onChange={onChange} />}
 
       <div className="space-y-1.5">
         <Label className="font-mono text-xs font-medium">algorithm</Label>
@@ -147,14 +148,20 @@ function DecryptAttributeConfigPanel({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALGORITHM_DEFAULT_SENTINEL}>Use credential default</SelectItem>
-            {SHARED_SECRET_ALGORITHMS.map((option) => (
+            <SelectItem value={ALGORITHM_DEFAULT_SENTINEL}>Use token header (AES-GCM)</SelectItem>
+            {DECRYPT_STEP_ALGORITHMS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {keyless ? (
+          <p className="text-[11px] text-muted-foreground">
+            Type 7 carries no marker, so it must be selected explicitly. No shared-secret
+            credential is used. Types 8 and 9 are one-way hashes and cannot be decrypted.
+          </p>
+        ) : null}
       </div>
 
       <Button
@@ -168,7 +175,10 @@ function DecryptAttributeConfigPanel({
       </Button>
 
       {testOpen ? (
-        <DecryptAttributeTestDialog onClose={() => setTestOpen(false)} />
+        <DecryptAttributeTestDialog
+          onClose={() => setTestOpen(false)}
+          algorithm={parsed.algorithm}
+        />
       ) : null}
     </div>
   );

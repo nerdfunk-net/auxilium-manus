@@ -224,6 +224,26 @@ def _credential(name: str, cred_type: str, *, visibility: str = "global", status
     return {"name": name, "type": cred_type, "visibility": visibility, "status": status}
 
 
+class SharedSecretCredentialTests(unittest.TestCase):
+    def _svc(self) -> WorkflowValidationService:
+        return _service(
+            _registry(
+                _plugin("encrypt-attribute", optional_fields=["credential_reference", "algorithm"])
+            )
+        )
+
+    def test_aes_without_credential_is_an_error(self) -> None:
+        result = self._svc().validate([_node("n1", "encrypt-attribute", {})], acting_user_id=None)
+        self.assertEqual([f.code for f in result.findings], ["missing_required_field"])
+
+    def test_cisco_algorithm_needs_no_credential(self) -> None:
+        for algo in ("cisco-type7", "cisco-type8", "cisco-type9"):
+            result = self._svc().validate(
+                [_node("n1", "encrypt-attribute", {"algorithm": algo})], acting_user_id=None
+            )
+            self.assertEqual(result.findings, [])
+
+
 class Tier2ReferenceTests(unittest.TestCase):
     def test_credential_reference_not_found_is_an_error(self) -> None:
         registry = _registry(_plugin("run-command", required_fields=[]))

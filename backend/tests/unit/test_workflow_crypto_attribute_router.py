@@ -141,3 +141,38 @@ def test_unknown_credential_reference_is_400(
         json={"plaintext": "x", "credential_reference": "missing"},
     )
     assert resp.status_code == 400
+
+
+def test_cisco_type7_round_trip_needs_no_secret(client: TestClient) -> None:
+    enc = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "tacacs-key", "algorithm": "cisco-type7"},
+    )
+    assert enc.status_code == 200, enc.text
+    assert enc.json()["algorithm"] == "cisco-type7"
+
+    dec = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": enc.json()["ciphertext"], "algorithm": "cisco-type7"},
+    )
+    assert dec.status_code == 200, dec.text
+    assert dec.json()["plaintext"] == "tacacs-key"
+
+
+@pytest.mark.parametrize("algorithm,prefix", [("cisco-type8", "$8$"), ("cisco-type9", "$9$")])
+def test_cisco_hash_types_encrypt(client: TestClient, algorithm: str, prefix: str) -> None:
+    enc = client.post(
+        "/api/workflow-steps/encrypt-attribute/test",
+        json={"plaintext": "S3cret", "algorithm": algorithm},
+    )
+    assert enc.status_code == 200, enc.text
+    assert enc.json()["ciphertext"].startswith(prefix)
+
+
+def test_cisco_hash_types_cannot_decrypt(client: TestClient) -> None:
+    dec = client.post(
+        "/api/workflow-steps/decrypt-attribute/test",
+        json={"ciphertext": "$8$abcdefghijklmn$x", "algorithm": "cisco-type8"},
+    )
+    assert dec.status_code == 400
+    assert "one-way" in dec.json()["detail"]

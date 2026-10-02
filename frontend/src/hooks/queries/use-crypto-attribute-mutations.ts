@@ -4,7 +4,8 @@ import { useMutation } from "@tanstack/react-query";
 
 import { useApi } from "@/hooks/use-api";
 
-/** Exactly one of `shared_secret` / `credential_reference` must be set. */
+/** Exactly one of `shared_secret` / `credential_reference` must be set, except for
+ * the keyless `cisco-type*` algorithms, which need neither. */
 export interface EncryptAttributeTestRequest {
   plaintext: string;
   shared_secret?: string;
@@ -17,7 +18,8 @@ export interface EncryptAttributeTestResponse {
   algorithm: string;
 }
 
-/** Exactly one of `shared_secret` / `credential_reference` must be set. */
+/** Exactly one of `shared_secret` / `credential_reference` must be set, except for
+ * `cisco-type7`, which needs neither. */
 export interface DecryptAttributeTestRequest {
   ciphertext: string;
   shared_secret?: string;

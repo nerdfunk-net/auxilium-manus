@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
 
+from core.cisco_secret import CiscoSecretError, encrypt_cisco, is_cisco_algorithm
 from core.models.runs import WorkflowRun
 from core.passphrase_cipher import (
     PassphraseCipherError,
@@ -46,6 +47,7 @@ _STEP_ID = "encrypt-attribute"
 
 
 def _parse_config(config: dict[str, Any]) -> tuple[str, str, str, str | None]:
+    """Return ``(source_path, destination_path, credential_reference, algorithm)``."""
     source_path = str(config.get("source_path") or "").strip()
     destination_path = str(config.get("destination_path") or "").strip()
     credential_reference = str(config.get("credential_reference") or "").strip()
@@ -55,8 +57,8 @@ def _parse_config(config: dict[str, Any]) -> tuple[str, str, str, str | None]:
         raise ValueError(f"{_STEP_ID}: source_path is required")
     if not destination_path:
         raise ValueError(f"{_STEP_ID}: destination_path is required")
-    if not credential_reference:
-        raise ValueError(f"{_STEP_ID}: credential_reference is required")
+    # credential_reference is only needed for the keyed (AES-GCM) algorithm; the
+    # Cisco formats are keyless, so that check lives in execute().
 
     return source_path, destination_path, credential_reference, algorithm_override
 
@@ -88,15 +90,28 @@ async def execute(
         config
     )
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    if is_cisco_algorithm(algorithm_override):
+        # Keyless Cisco format: no credential, no DB session needed.
+        algorithm = str(algorithm_override).strip().lower()
 
-    cred_algorithm, passphrase = resolve_shared_secret_credential(
-        db, credential_reference, acting_user_id=getattr(run, "triggered_by_id", None)
-    )
-    # An unknown override is a config error; normalize raises here, before the loop.
-    algorithm = normalize_algorithm(algorithm_override or cred_algorithm)
+        def encrypt_one(value: str) -> str:
+            return encrypt_cisco(value, algorithm)
+
+    else:
+        if not credential_reference:
+            raise ValueError(f"{_STEP_ID}: credential_reference is required")
+        db = object_session(run)
+        if db is None:
+            raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+
+        cred_algorithm, passphrase = resolve_shared_secret_credential(
+            db, credential_reference, acting_user_id=getattr(run, "triggered_by_id", None)
+        )
+        # An unknown override is a config error; normalize raises here, before the loop.
+        algorithm = normalize_algorithm(algorithm_override or cred_algorithm)
+
+        def encrypt_one(value: str) -> str:
+            return encrypt_with_passphrase(value, passphrase, algorithm=algorithm)
 
     logger.info(
         "%s started run_id=%s node_id=%s algorithm=%s devices=%d",
@@ -131,8 +146,8 @@ async def execute(
             continue
 
         try:
-            token = encrypt_with_passphrase(source_value, passphrase, algorithm=algorithm)
-        except PassphraseCipherError as exc:
+            token = encrypt_one(source_value)
+        except (PassphraseCipherError, CiscoSecretError) as exc:
             failed_devices[device_id] = _fail_device(
                 device=device,
                 node_id=node_id,

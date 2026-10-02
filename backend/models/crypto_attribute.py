@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
+from core.cisco_secret import is_cisco_algorithm
+
 
 class _SharedSecretSourceMixin(BaseModel):
     shared_secret: str | None = Field(default=None, min_length=1)
@@ -19,6 +21,9 @@ class _SharedSecretSourceMixin(BaseModel):
 
     @model_validator(mode="after")
     def _exactly_one_secret_source(self) -> _SharedSecretSourceMixin:
+        # Cisco type 7/8/9 are keyless: no shared secret is needed (or used).
+        if is_cisco_algorithm(getattr(self, "algorithm", None)):
+            return self
         if bool(self.shared_secret) == bool(self.credential_reference):
             raise ValueError(
                 "exactly one of shared_secret or credential_reference is required"

@@ -3421,14 +3421,17 @@ plugins:
         - name: credential_reference
           description: >
             Name of a shared-secret credential in the vault. The passphrase is
-            never stored in the workflow.
+            never stored in the workflow. Required for aes-256-gcm; not used
+            (and may be blank) for the keyless cisco-type7/8/9 algorithms.
           data_type: credential_ref
-          required: true
+          required: false
           example: config-context-vault
         - name: algorithm
           description: >
             Optional algorithm override. Blank uses the credential's configured
-            algorithm.
+            algorithm. One of aes-256-gcm, cisco-type7 (reversible
+            obfuscation, e.g. tacacs keys), cisco-type8 (PBKDF2-SHA256 hash)
+            or cisco-type9 (scrypt hash) for local-user / enable secrets.
           data_type: string
           required: false
           example: aes-256-gcm
@@ -3476,14 +3479,18 @@ plugins:
         - name: credential_reference
           description: >
             Name of a shared-secret credential in the vault. The passphrase is
-            never stored in the workflow.
+            never stored in the workflow. Required for aes-256-gcm; not used
+            (and may be blank) for cisco-type7.
           data_type: credential_ref
-          required: true
+          required: false
           example: config-context-vault
         - name: algorithm
           description: >
             Optional algorithm override. Blank trusts the token's own
-            algorithm header / the credential's configured algorithm.
+            algorithm header / the credential's configured algorithm. Set
+            cisco-type7 to decode a Cisco type 7 value (it carries no marker,
+            so it must be explicit). Types 8 and 9 are one-way hashes and
+            cannot be decrypted.
           data_type: string
           required: false
           example: aes-256-gcm

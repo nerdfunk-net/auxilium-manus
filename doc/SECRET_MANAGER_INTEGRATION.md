@@ -187,6 +187,13 @@ they now sit in the same canvas palette group as `secret-get`/`secret-set`/
 `secret-generate`. The `secrets` category itself was positioned directly
 below `notify` in `ARTIFACT_TYPE_ORDER` (`step-visuals.ts`).
 
+**Algorithms.** Both steps support the keyed `aes-256-gcm` (shared-secret credential,
+`core/passphrase_cipher.py`) and the keyless Cisco formats in `core/cisco_secret.py`
+(via `network-secret`): `cisco-type7` (reversible obfuscation, encrypt + decrypt),
+`cisco-type8` (PBKDF2-SHA256) and `cisco-type9` (scrypt), both one-way, encrypt only.
+Cisco algorithms need no `credential_reference`, and are deliberately **not** valid
+credential algorithms. Type 7 has no marker, so decrypt needs the explicit override.
+
 ## Data model
 
 ```python

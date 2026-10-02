@@ -36,6 +36,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.cisco_secret import is_cisco_algorithm
 from models.plugins import PluginDefinition
 from models.workflow_context import Capability
 from models.workflow_validation import ValidationFinding, WorkflowValidationResult
@@ -275,7 +276,33 @@ class WorkflowValidationService:
                     ),
                 )
             )
+        findings.extend(self._shared_secret_credential_required(node_id, plugin, plugin_config))
         return findings
+
+    @staticmethod
+    def _shared_secret_credential_required(
+        node_id: str | None, plugin: PluginDefinition, plugin_config: dict[str, Any]
+    ) -> list[ValidationFinding]:
+        """encrypt/decrypt-attribute: ``credential_reference`` is optional in the
+        registry because the Cisco formats are keyless, but AES-GCM needs it."""
+        if plugin.id not in _SHARED_SECRET_STEP_KINDS:
+            return []
+        if not _is_blank(plugin_config.get("credential_reference")):
+            return []
+        if is_cisco_algorithm(plugin_config.get("algorithm")):
+            return []
+        return [
+            ValidationFinding(
+                node_id=node_id,
+                tier=1,
+                severity="error",
+                code="missing_required_field",
+                message=(
+                    f"'credential_reference' is required for step '{plugin.name}' "
+                    "unless a keyless Cisco algorithm (cisco-type7/8/9) is selected."
+                ),
+            )
+        ]
 
     def _tier2_references(
         self,

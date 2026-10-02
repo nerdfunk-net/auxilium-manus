@@ -145,6 +145,12 @@ username {{ c.username }} privilege {{ c.privilege }} secret 9 {{ c.password }}
           Pick a value explicitly only to enforce that the token was produced with
           that algorithm.
         </p>
+        <p>
+          Choose <HelpCode>cisco-type7</HelpCode> to decode a Cisco type 7 value (for
+          example <HelpCode>060506324F41</HelpCode>). It carries no marker, so it must be
+          selected explicitly, and it needs no credential. Cisco types 8 and 9 are
+          one-way hashes and cannot be decrypted.
+        </p>
       </HelpSection>
 
       <HelpSection title="Test Decryption">

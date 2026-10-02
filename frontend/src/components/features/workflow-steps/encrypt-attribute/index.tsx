@@ -19,7 +19,7 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 import { AttributePathPicker } from "@/components/features/workflow-steps/shared/attribute-path-picker";
 import { SharedSecretCredentialField } from "@/components/features/workflow-steps/shared/shared-secret-credential-field";
-import { SHARED_SECRET_ALGORITHMS } from "@/lib/shared-secret-algorithms";
+import { ENCRYPT_STEP_ALGORITHMS, isKeylessAlgorithm } from "@/lib/shared-secret-algorithms";
 
 import {
   buildEncryptAttributeConfig,
@@ -48,10 +48,11 @@ function EncryptAttributeConfigPanel({
     [config, onChange],
   );
 
+  const keyless = isKeylessAlgorithm(parsed.algorithm);
   const isConfigured =
     Boolean(parsed.source_path.trim()) &&
     Boolean(parsed.destination_path.trim()) &&
-    Boolean(parsed.credential_reference.trim());
+    (keyless || Boolean(parsed.credential_reference.trim()));
 
   return (
     <div className="flex flex-col gap-4">
@@ -107,7 +108,7 @@ function EncryptAttributeConfigPanel({
         </p>
       </div>
 
-      <SharedSecretCredentialField config={config} onChange={onChange} />
+      {keyless ? null : <SharedSecretCredentialField config={config} onChange={onChange} />}
 
       <div className="space-y-1.5">
         <Label className="font-mono text-xs font-medium">algorithm</Label>
@@ -122,13 +123,18 @@ function EncryptAttributeConfigPanel({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALGORITHM_DEFAULT_SENTINEL}>Use credential default</SelectItem>
-            {SHARED_SECRET_ALGORITHMS.map((option) => (
+            {ENCRYPT_STEP_ALGORITHMS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {keyless ? (
+          <p className="text-[11px] text-muted-foreground">
+            Keyless Cisco format: no shared-secret credential is used.
+          </p>
+        ) : null}
       </div>
 
       <Button

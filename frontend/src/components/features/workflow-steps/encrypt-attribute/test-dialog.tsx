@@ -27,7 +27,8 @@ import {
 import { useEncryptAttributeTestMutation } from "@/hooks/queries/use-crypto-attribute-mutations";
 import {
   DEFAULT_SHARED_SECRET_ALGORITHM,
-  SHARED_SECRET_ALGORITHMS,
+  ENCRYPT_STEP_ALGORITHMS,
+  isKeylessAlgorithm,
 } from "@/lib/shared-secret-algorithms";
 
 interface EncryptAttributeTestDialogProps {
@@ -49,12 +50,18 @@ export function EncryptAttributeTestDialog({
   const [algo, setAlgo] = useState(algorithm || DEFAULT_SHARED_SECRET_ALGORITHM);
   const mutation = useEncryptAttributeTestMutation();
 
+  const keyless = isKeylessAlgorithm(algo);
   const hasSecret =
-    secretMode === "credential" ? credentialReference.length > 0 : manualSecret.length > 0;
+    keyless ||
+    (secretMode === "credential" ? credentialReference.length > 0 : manualSecret.length > 0);
   const canSubmit = plaintext.length > 0 && hasSecret && !mutation.isPending;
 
   const handleSubmit = () => {
     if (!canSubmit) {
+      return;
+    }
+    if (keyless) {
+      mutation.mutate({ plaintext, algorithm: algo });
       return;
     }
     mutation.mutate(
@@ -70,7 +77,7 @@ export function EncryptAttributeTestDialog({
         <DialogHeader className="sr-only">
           <DialogTitle>Test Encryption</DialogTitle>
           <DialogDescription>
-            Encrypt a sample value with a shared secret to verify the result.
+            Encrypt a sample value to verify the result.
           </DialogDescription>
         </DialogHeader>
 
@@ -89,15 +96,17 @@ export function EncryptAttributeTestDialog({
             />
           </div>
 
-          <SharedSecretSourceField
-            idPrefix="enc-test"
-            mode={secretMode}
-            onModeChange={setSecretMode}
-            credentialReference={credentialReference}
-            onCredentialReferenceChange={setCredentialReference}
-            manualSecret={manualSecret}
-            onManualSecretChange={setManualSecret}
-          />
+          {keyless ? null : (
+            <SharedSecretSourceField
+              idPrefix="enc-test"
+              mode={secretMode}
+              onModeChange={setSecretMode}
+              credentialReference={credentialReference}
+              onCredentialReferenceChange={setCredentialReference}
+              manualSecret={manualSecret}
+              onManualSecretChange={setManualSecret}
+            />
+          )}
 
           <div className="space-y-1.5">
             <Label className="text-[11px] text-muted-foreground">Algorithm</Label>
@@ -106,7 +115,7 @@ export function EncryptAttributeTestDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SHARED_SECRET_ALGORITHMS.map((option) => (
+                {ENCRYPT_STEP_ALGORITHMS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>

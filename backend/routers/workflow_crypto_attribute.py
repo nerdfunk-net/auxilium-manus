@@ -17,6 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.auth import get_current_user, require_permission
+from core.cisco_secret import (
+    CiscoSecretError,
+    decrypt_cisco,
+    encrypt_cisco,
+    is_cisco_algorithm,
+)
 from core.database import get_db
 from core.models.users import User
 from core.passphrase_cipher import (
@@ -87,6 +93,11 @@ def test_encrypt_attribute(
     db: Session = Depends(get_db),
 ) -> EncryptAttributeTestResponse:
     try:
+        if is_cisco_algorithm(request.algorithm):
+            algorithm = str(request.algorithm).strip().lower()
+            return EncryptAttributeTestResponse(
+                ciphertext=encrypt_cisco(request.plaintext, algorithm), algorithm=algorithm
+            )
         passphrase, cred_algorithm = _resolve_passphrase(
             db,
             current_user,
@@ -98,7 +109,7 @@ def test_encrypt_attribute(
         return EncryptAttributeTestResponse(ciphertext=ciphertext, algorithm=algorithm)
     except HTTPException:
         raise
-    except PassphraseCipherError as exc:
+    except (PassphraseCipherError, CiscoSecretError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to test encrypt-attribute: ", exc)
@@ -111,6 +122,11 @@ def test_decrypt_attribute(
     db: Session = Depends(get_db),
 ) -> DecryptAttributeTestResponse:
     try:
+        if is_cisco_algorithm(request.algorithm):
+            algorithm = str(request.algorithm).strip().lower()
+            return DecryptAttributeTestResponse(
+                plaintext=decrypt_cisco(request.ciphertext, algorithm), algorithm=algorithm
+            )
         passphrase, _cred_algorithm = _resolve_passphrase(
             db,
             current_user,
@@ -127,7 +143,7 @@ def test_decrypt_attribute(
         )
     except HTTPException:
         raise
-    except PassphraseCipherError as exc:
+    except (PassphraseCipherError, CiscoSecretError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         raise_internal_server_error(logger, "Failed to test decrypt-attribute: ", exc)

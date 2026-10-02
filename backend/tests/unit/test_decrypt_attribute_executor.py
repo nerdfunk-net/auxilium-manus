@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+from network_secret import cisco_type7
+
 from core.passphrase_cipher import encrypt_with_passphrase
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, WorkflowContext
 from services.workflow_context.secret_fields import is_sealed_secret, unwrap_secret
@@ -289,6 +291,81 @@ class DecryptAttributeListModeTests(unittest.IsolatedAsyncioTestCase):
         outcomes = await _run(dict(_LIST_CONFIG), _context({"good": good, "bad": bad}))
         self.assertEqual(set(outcomes[0].context.devices), {"good"})
         self.assertEqual(set(outcomes[1].context.devices), {"bad"})
+
+
+def _cc(config_context: dict) -> dict:
+    return {"nautobot": {"config_context": config_context}}
+
+
+class DecryptAttributeCiscoTests(unittest.IsolatedAsyncioTestCase):
+    async def _run_keyless(self, config: dict, context: WorkflowContext):
+        with (
+            patch.object(mod, "object_session", return_value=None),
+            patch.object(mod, "resolve_shared_secret_credential") as resolver,
+        ):
+            outcomes = await execute(
+                config=config,
+                context=context,
+                run=MagicMock(),
+                artifact_service=MagicMock(),
+                node_id="node-1",
+                device_sessions=MagicMock(),
+            )
+        resolver.assert_not_called()
+        return outcomes
+
+    async def test_type7_scalar_decrypts_sealed_without_credential(self) -> None:
+        token = cisco_type7.encrypt("tacacs-key")
+        context = _context(
+            {"d1": _device("d1", attribute_bags=_cc({"enable_password": token}))}
+        )
+        cfg = {**BASE_CONFIG, "algorithm": "cisco-type7"}
+        cfg.pop("credential_reference")
+        outcomes = await self._run_keyless(cfg, context)
+
+        value = outcomes[0].context.devices["d1"].attribute_bags["secrets"]["enable_password"]
+        self.assertTrue(is_sealed_secret(value))
+        self.assertEqual(unwrap_secret(value), "tacacs-key")
+        self.assertEqual(outcomes[0].context.metadata["node-1.algorithm"], "cisco-type7")
+
+    async def test_type7_list_mode(self) -> None:
+        creds = [{"username": "a", "password": cisco_type7.encrypt("pw-a")}]
+        context = _context(
+            {"d1": _device("d1", attribute_bags=_cc({"credentials": creds}))}
+        )
+        cfg = {
+            "source_path": "nautobot.config_context.credentials",
+            "item_field": "password",
+            "algorithm": "cisco-type7",
+        }
+        outcomes = await self._run_keyless(cfg, context)
+
+        bags = outcomes[0].context.devices["d1"].attribute_bags
+        out = bags["nautobot"]["config_context"]["credentials"]
+        self.assertEqual(unwrap_secret(out[0]["password"]), "pw-a")
+
+    async def test_malformed_type7_routes_device_to_failure(self) -> None:
+        context = _context(
+            {"d1": _device("d1", attribute_bags=_cc({"enable_password": "zz"}))}
+        )
+        cfg = {**BASE_CONFIG, "algorithm": "cisco-type7"}
+        outcomes = await self._run_keyless(cfg, context)
+
+        self.assertEqual([o.name for o in outcomes], ["success", "failure"])
+        self.assertEqual(outcomes[1].context.devices["d1"].errors[-1].code, "decryption_failed")
+
+    async def test_one_way_types_are_config_errors(self) -> None:
+        context = _context({"d1": _device("d1")})
+        for algo in ("cisco-type8", "cisco-type9"):
+            with self.assertRaises(ValueError) as ctx:
+                await self._run_keyless({**BASE_CONFIG, "algorithm": algo}, context)
+            self.assertIn("one-way", str(ctx.exception))
+
+    async def test_aes_still_requires_credential(self) -> None:
+        context = _context({"d1": _device("d1")})
+        cfg = {"source_path": "a.b", "destination_path": "x.y"}
+        with self.assertRaises(ValueError):
+            await self._run_keyless(cfg, context)
 
 
 if __name__ == "__main__":

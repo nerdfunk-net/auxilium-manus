@@ -27,10 +27,17 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
 
+from core.cisco_secret import (
+    ALGORITHM_CISCO_TYPE7,
+    CiscoSecretError,
+    decrypt_cisco,
+    is_cisco_algorithm,
+)
 from core.models.runs import WorkflowRun
 from core.passphrase_cipher import (
     PassphraseCipherError,
@@ -61,6 +68,10 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "decrypt-attribute"
 _RESERVED_BAG_NAMES = frozenset({"parsed", "run_input"})
+_DECRYPT_ERRORS = (PassphraseCipherError, CiscoSecretError)
+
+# Decrypts one token to cleartext; raises PassphraseCipherError / CiscoSecretError.
+TokenDecryptor = Callable[[str], str]
 
 
 class _DecryptConfig:
@@ -81,8 +92,7 @@ class _DecryptConfig:
 
         if not self.source_path:
             raise ValueError(f"{_STEP_ID}: source_path is required")
-        if not self.credential_reference:
-            raise ValueError(f"{_STEP_ID}: credential_reference is required")
+        # credential_reference is only needed for AES-GCM; checked in execute().
         if not self.item_field and not self.destination_path:
             raise ValueError(f"{_STEP_ID}: destination_path is required")
         if self.item_field and "." not in self.write_path:
@@ -145,8 +155,7 @@ def _decrypt_scalar(
     *,
     device: DeviceContext,
     cfg: _DecryptConfig,
-    passphrase: str,
-    algorithm: str | None,
+    decrypt_token: TokenDecryptor,
     node_id: str,
 ) -> tuple[DeviceContext, str]:
     """Return ``(device, result)`` where result is 'decrypted' | 'skipped' | 'failed'."""
@@ -154,8 +163,8 @@ def _decrypt_scalar(
     if source_value is None:
         return device, "skipped"
     try:
-        cleartext = decrypt_with_passphrase(source_value, passphrase, algorithm=algorithm)
-    except PassphraseCipherError as exc:
+        cleartext = decrypt_token(source_value)
+    except _DECRYPT_ERRORS as exc:
         logger.warning(
             "%s decryption failed node_id=%s device=%s: %s",
             _STEP_ID,
@@ -179,8 +188,7 @@ def _decrypt_list(
     *,
     device: DeviceContext,
     cfg: _DecryptConfig,
-    passphrase: str,
-    algorithm: str | None,
+    decrypt_token: TokenDecryptor,
     node_id: str,
 ) -> tuple[DeviceContext, str]:
     """Decrypt ``cfg.item_field`` on every entry of the list at ``source_path``."""
@@ -212,8 +220,8 @@ def _decrypt_list(
             new_list.append(element)
             continue
         try:
-            cleartext = decrypt_with_passphrase(token, passphrase, algorithm=algorithm)
-        except PassphraseCipherError as exc:
+            cleartext = decrypt_token(token)
+        except _DECRYPT_ERRORS as exc:
             label = element.get("username") or element.get("name") or f"index {index}"
             message = f"{cfg.item_field} for {label}: {exc}"
             logger.warning(
@@ -256,20 +264,42 @@ async def execute(
 
     cfg = _DecryptConfig(config)
 
-    db = object_session(run)
-    if db is None:
-        raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+    if is_cisco_algorithm(cfg.algorithm_override):
+        # Keyless Cisco format: no credential, no DB session needed.
+        effective_algorithm = str(cfg.algorithm_override).strip().lower()
+        if effective_algorithm != ALGORITHM_CISCO_TYPE7:
+            raise ValueError(
+                f"{_STEP_ID}: {effective_algorithm} is a one-way hash and cannot be "
+                "decrypted; only cisco-type7 is reversible"
+            )
 
-    cred_algorithm, passphrase = resolve_shared_secret_credential(
-        db, cfg.credential_reference, acting_user_id=getattr(run, "triggered_by_id", None)
-    )
-    # A blank override means "trust the token's own algorithm header"; an
-    # explicit override is validated here (unknown -> config error) and
-    # cross-checked per token at decrypt time.
-    algorithm = (
-        normalize_algorithm(cfg.algorithm_override) if cfg.algorithm_override else None
-    )
-    effective_algorithm = algorithm or cred_algorithm
+        def _decrypt_cisco_token(token: str) -> str:
+            return decrypt_cisco(token, effective_algorithm)
+
+        decrypt_token: TokenDecryptor = _decrypt_cisco_token
+
+    else:
+        if not cfg.credential_reference:
+            raise ValueError(f"{_STEP_ID}: credential_reference is required")
+        db = object_session(run)
+        if db is None:
+            raise RuntimeError(f"{_STEP_ID}: WorkflowRun has no active DB session")
+
+        cred_algorithm, passphrase = resolve_shared_secret_credential(
+            db, cfg.credential_reference, acting_user_id=getattr(run, "triggered_by_id", None)
+        )
+        # A blank override means "trust the token's own algorithm header"; an
+        # explicit override is validated here (unknown -> config error) and
+        # cross-checked per token at decrypt time.
+        algorithm = (
+            normalize_algorithm(cfg.algorithm_override) if cfg.algorithm_override else None
+        )
+        effective_algorithm = algorithm or cred_algorithm
+
+        def _decrypt_aes_token(token: str) -> str:
+            return decrypt_with_passphrase(token, passphrase, algorithm=algorithm)
+
+        decrypt_token = _decrypt_aes_token
 
     logger.info(
         "%s started run_id=%s node_id=%s mode=%s algorithm=%s devices=%d",
@@ -293,8 +323,7 @@ async def execute(
             updated, result = decrypt_one(
                 device=device,
                 cfg=cfg,
-                passphrase=passphrase,
-                algorithm=algorithm,
+                decrypt_token=decrypt_token,
                 node_id=node_id,
             )
         except ValueError:

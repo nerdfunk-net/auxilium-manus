@@ -242,8 +242,13 @@ export function useWorkflowCanvasCore() {
         if (realEdgeId) {
           const restData = { ...edge.data };
           delete restData.realEdgeId;
+          // `selected` lives on the edge itself, not in `data`; without carrying it
+          // to the real edge the re-projected proxy loses its selection and React
+          // Flow's Delete/Backspace handler sees no selected edge.
           nextAllEdges = nextAllEdges.map((e) =>
-            e.id === realEdgeId ? { ...e, data: { ...e.data, ...restData } } : e,
+            e.id === realEdgeId
+              ? { ...e, selected: edge.selected, data: { ...e.data, ...restData } }
+              : e,
           );
           continue;
         }

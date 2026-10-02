@@ -69,6 +69,16 @@ export function EncryptAttributeHelpPanel() {
           algorithm configured on the credential, or pick one explicitly to
           override it for this node.
         </p>
+        <p>
+          The <HelpCode>cisco-type*</HelpCode> options write device-ready values and
+          need <span className="font-medium text-foreground">no credential</span>:{" "}
+          <HelpCode>cisco-type7</HelpCode> is a reversible obfuscation (tacacs/radius
+          keys; Latin-1 characters only, not real encryption), while{" "}
+          <HelpCode>cisco-type8</HelpCode> (PBKDF2-SHA256) and{" "}
+          <HelpCode>cisco-type9</HelpCode> (scrypt) are salted one-way hashes for
+          local-user and enable secrets (<HelpCode>$8$&hellip;</HelpCode> /{" "}
+          <HelpCode>$9$&hellip;</HelpCode>). Hashes cannot be decrypted later.
+        </p>
       </HelpSection>
 
       <HelpSection title="Test Encryption">
