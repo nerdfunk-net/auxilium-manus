@@ -184,3 +184,67 @@ def test_requires_read_permission(harness):
     monkeypatch.setattr(RBACService, "has_permission", deny)
     assert client.post(URL, json={}).status_code == 403
     assert ("sources.catalyst_center", "read") in seen
+
+
+SITES_URL = "/api/sources/catalyst_center/lab-cc/sites"
+
+
+def _site(i: int, hierarchy: str):
+    from models.catalyst_center import CatalystCenterSite
+
+    return CatalystCenterSite(
+        id=f"site-{i}", name=hierarchy.rsplit("/", 1)[-1], name_hierarchy=hierarchy
+    )
+
+
+def test_lists_sites(harness):
+    client, config, device_service, _ = harness
+    device_service.list_sites = AsyncMock(
+        return_value=(_site(1, "Global"), _site(2, "Global/EMEA/Berlin"))
+    )
+    r = client.get(SITES_URL)
+    assert r.status_code == 200
+    assert r.json() == {
+        "sites": [
+            {"id": "site-1", "name": "Global", "name_hierarchy": "Global"},
+            {"id": "site-2", "name": "Berlin", "name_hierarchy": "Global/EMEA/Berlin"},
+        ],
+        "total": 2,
+    }
+    config.resolve_credentials.assert_called_once_with("lab-cc")
+
+
+def test_sites_sorted_by_hierarchy(harness):
+    client, _, device_service, _ = harness
+    device_service.list_sites = AsyncMock(
+        return_value=(_site(2, "Global/B"), _site(1, "Global"), _site(3, "Global/A"))
+    )
+    names = [s["name_hierarchy"] for s in client.get(SITES_URL).json()["sites"]]
+    assert names == ["Global", "Global/A", "Global/B"]
+
+
+def test_sites_unknown_source_is_404(harness):
+    client, config, _, _ = harness
+    config.resolve_credentials.side_effect = CatalystCenterSourceNotFoundError("lab-cc")
+    assert client.get(SITES_URL).status_code == 404
+
+
+def test_sites_upstream_failure_is_sanitised_502(harness):
+    client, _, device_service, _ = harness
+    device_service.list_sites = AsyncMock(side_effect=CatalystCenterAPIError("controller down"))
+    r = client.get(SITES_URL)
+    assert r.status_code == 502
+    assert set(r.json()["detail"]) == {"message", "error_id"}
+    assert "controller down" not in r.text
+
+
+def test_sites_validation_error_is_400(harness):
+    client, _, device_service, _ = harness
+    device_service.list_sites = AsyncMock(side_effect=CatalystCenterValidationError("bad"))
+    assert client.get(SITES_URL).status_code == 400
+
+
+def test_sites_requires_read_permission(harness):
+    client, _, _, monkeypatch = harness
+    monkeypatch.setattr(RBACService, "has_permission", lambda self, *_a, **_k: False)
+    assert client.get(SITES_URL).status_code == 403

@@ -25,7 +25,7 @@ export interface CatalystCenterPreviewResponse {
 
 export interface CatalystCenterPreviewRequest {
   source_id: string;
-  filters: Record<string, string[] | string>;
+  filters: Record<string, string[] | string | boolean>;
   limit?: number;
 }
 

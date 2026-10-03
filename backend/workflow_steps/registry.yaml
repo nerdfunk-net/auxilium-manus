@@ -198,15 +198,18 @@ plugins:
         - name: filters
           description: >
             Device filters, applied on the Catalyst Center. Keys (each a list of values):
-            hostnames, management_ips, families, roles, software_types, software_versions,
-            platform_ids, serial_numbers, series, device_types, reachability_statuses,
-            collection_statuses; plus a single cidr string. Values within one key are OR-ed,
-            different keys are AND-ed. Matching is case-sensitive and must match the whole
+            sites, hostnames, management_ips, families, roles, software_types,
+            software_versions, platform_ids, serial_numbers, series, device_types,
+            reachability_statuses, collection_statuses; plus a single cidr string and the
+            boolean include_child_sites (default true; also select sub-sites of each listed
+            site). A site is its exact, case-sensitive name path, e.g. "Global/EMEA/Berlin".
+            Values within one key are OR-ed, different keys are AND-ed. Matching is case-sensitive and must match the whole
             value; ".*" is the only wildcard (for example "sw.*" or ".*-core"). A CIDR is
             narrowed on the controller by its shared IP prefix and then checked exactly.
           data_type: object
           required: false
           example:
+            sites: ["Global/EMEA"]
             hostnames: ["sw.*"]
             roles: ["ACCESS"]
             cidr: 10.10.20.0/24
@@ -236,6 +239,191 @@ plugins:
             mode: per_device
             chunk_size: 1
             max_concurrency: 0
+
+  - id: run-catalyst-center-command
+    name: Run Command via Catalyst Center
+    overview: Run read-only CLI commands on devices through Cisco Catalyst Center.
+    description: >
+      Run read-only show commands on devices selected from Cisco Catalyst Center using the
+      controller's command runner, so no SSH access or device credentials are needed. The
+      echoed command and trailing prompt are removed from each output.
+    artifact_type: command_execution
+    palette_category: cisco
+    directory: run_catalyst_center_command
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    primary_output: command_output
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: commands
+          description: >
+            CLI commands to run, in order (1-20, unique). Catalyst Center accepts only
+            read-only show-class commands; anything else is reported as blocklisted and
+            fails the device. Devices must come from a Catalyst Center source (for example
+            Get from Catalyst Center).
+          data_type: string_list
+          required: true
+          example:
+            - show version
+            - show ip interface brief
+        - name: timeout
+          description: >
+            Seconds the controller may spend on the whole request (1-300). Devices are sent
+            to the controller in batches of 20.
+          data_type: integer
+          required: false
+          default: 300
+          example: 120
+        - name: parser
+          description: >
+            "none" (default) keeps raw text only; "textfsm" also parses each command with
+            ntc-templates. The result lands inline at the same place Run Command uses --
+            parsed.<parsed_output_key>.<command> = {parsed, error} -- so downstream steps
+            never need to know which step produced it. Non-fatal per command: a command with
+            no matching template gets {parsed: null, error: ...} and does not fail the device.
+            The template platform is the device's network driver (or network_driver_override).
+          data_type: string
+          required: false
+          default: none
+          example: textfsm
+        - name: parsed_output_key
+          description: >
+            Key for this step's parsed output on each device, read downstream as
+            parsed.<parsed_output_key>.<command>.parsed. Only used when parser is not "none".
+          data_type: string
+          required: false
+          default: parsed
+        - name: network_driver_override
+          description: >
+            Netmiko device type (for example cisco_xe, cisco_nxos) used to pick TextFSM
+            templates when a device has no network driver. Only used when parser is "textfsm".
+          data_type: string
+          required: false
+          example: cisco_xe
+
+  - id: get-catalyst-center-configs
+    name: Get Config from Catalyst Center
+    overview: Fetch each device's running configuration from Cisco Catalyst Center.
+    description: >
+      Retrieve the running configuration of devices selected from Cisco Catalyst Center
+      through the controller, without SSH access to the devices. The configuration is stored
+      as an artifact on the device, like Get Configs does.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: get_catalyst_center_configs
+    enabled: true
+    requires: [identity]
+    produces: [running_config]
+    primary_output: running_config
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input: []
+
+  - id: get-catalyst-center-details
+    name: Get Details from Catalyst Center
+    overview: Read device, software, interface, VLAN and compliance facts from Cisco Catalyst Center.
+    description: >
+      Read structured facts about devices selected from Cisco Catalyst Center, straight from the
+      controller's Intent API, without SSH access. Tick the facts you need; each lands on the
+      device under parsed.<parsed_output_key>.<fact>.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: get_catalyst_center_details
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: facts
+          description: >
+            Facts to read (at least one): device (inventory record: serial, role, reachability,
+            uptime), software (software type/version, platform, series; from the same record as
+            device), interfaces (name, status, speed, duplex, MTU, MAC, IPv4, VLANs), vlans (VLAN
+            interfaces with number, IP, prefix) and compliance (overall status plus one entry per
+            compliance type). Devices must come from a Catalyst Center source.
+          data_type: string_list
+          required: true
+          default: [device, interfaces]
+          example: [device, interfaces, compliance]
+        - name: parsed_output_key
+          description: >
+            Key under which the facts are stored on each device, read downstream as
+            parsed.<parsed_output_key>.<fact>.parsed (each fact is {parsed, error}). A fact that
+            fails is recorded as an error and does not fail the device unless every selected
+            fact failed.
+          data_type: string
+          required: false
+          default: catalyst_details
+
+  - id: get-catalyst-center-topology
+    name: Get Network Topology from CC
+    overview: Read each device's links and neighbours from the Cisco Catalyst Center topology.
+    description: >
+      Read the physical and layer-3 topology from Cisco Catalyst Center and give each device its
+      own links (local/remote port, speed, status) and neighbours. The controller-wide graph is
+      fetched once per controller, not once per device.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: get_catalyst_center_topology
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: topologies
+          description: >
+            Graphs to read (at least one): physical, l3_ospf, l3_isis, l3_eigrp, l3_static. A
+            device missing from a graph gets an empty link list. Devices must come from a
+            Catalyst Center source.
+          data_type: string_list
+          required: true
+          default: [physical]
+          example: [physical, l3_ospf]
+        - name: parsed_output_key
+          description: >
+            Key under which the result is stored on each device, read downstream as
+            parsed.<parsed_output_key>.<topology>.parsed ({node, links}).
+          data_type: string
+          required: false
+          default: catalyst_topology
+
+  - id: get-catalyst-center-health
+    name: Get Health Status from Catalyst Center
+    overview: Read each device's health score and utilisation from Cisco Catalyst Center.
+    description: >
+      Read the device health from Cisco Catalyst Center: overall health, CPU and memory with
+      their scores, communication and collection state, HA/stack status and last boot time.
+    artifact_type: configuration_management
+    palette_category: cisco
+    directory: get_catalyst_center_health
+    enabled: true
+    requires: [identity]
+    produces: [parsed]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: parsed_output_key
+          description: >
+            Key under which the health is stored on each device, read downstream as
+            parsed.<parsed_output_key>.health.parsed. Devices must come from a Catalyst Center
+            source.
+          data_type: string
+          required: false
+          default: catalyst_health
 
   - id: get-ise-tacacs-key
     name: Get TACACS+ Key from ISE

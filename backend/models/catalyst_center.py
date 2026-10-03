@@ -116,6 +116,21 @@ class CatalystCenterDevice(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class CatalystCenterSite(BaseModel):
+    """One site/area/building/floor from ``GET /site`` (version independent)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    name: str
+    name_hierarchy: str
+
+
+class CatalystCenterSiteListResponse(BaseModel):
+    sites: list[CatalystCenterSite]
+    total: int
+
+
 class CatalystCenterCommandStatus(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"

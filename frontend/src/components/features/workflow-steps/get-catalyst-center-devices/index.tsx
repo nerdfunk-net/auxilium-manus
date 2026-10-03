@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,7 @@ import {
   activeFilters,
   FILTER_KINDS,
   filtersFromConfig,
+  INCLUDE_CHILD_SITES_KEY,
   presentKinds,
   type FilterKey,
   type FilterKind,
@@ -46,6 +47,7 @@ import {
 } from "./filter-kinds";
 import { GetCatalystCenterDevicesHelpPanel } from "./help-panel";
 import { CatalystCenterDevicesPreviewDialog } from "./preview-dialog";
+import { CatalystCenterSitesDialog } from "./sites-dialog";
 
 const FILTERS_KEY = "filters";
 const ALLOW_ALL_KEY = "allow_all";
@@ -61,9 +63,23 @@ interface FilterRowProps {
   value: FilterValue;
   onChange: (key: FilterKey, value: FilterValue) => void;
   onRemove: (key: FilterKey) => void;
+  /** Site row only: opens the site picker (disabled until a source is chosen). */
+  onSearchSites?: () => void;
+  canSearchSites?: boolean;
+  includeChildSites?: boolean;
+  onIncludeChildSitesChange?: (checked: boolean) => void;
 }
 
-function FilterRow({ kind, value, onChange, onRemove }: FilterRowProps) {
+function FilterRow({
+  kind,
+  value,
+  onChange,
+  onRemove,
+  onSearchSites,
+  canSearchSites = false,
+  includeChildSites = true,
+  onIncludeChildSitesChange,
+}: FilterRowProps) {
   const handleText = useCallback(
     (text: string) => {
       // Blank lines are kept while typing (stripped only when sent / counted) so the
@@ -105,6 +121,35 @@ function FilterRow({ kind, value, onChange, onRemove }: FilterRowProps) {
         />
       )}
       <p className="text-[11px] text-muted-foreground">{kind.hint}</p>
+      {onSearchSites && (
+        <>
+          <Button
+            className="h-7 w-full gap-1.5 text-xs"
+            size="sm"
+            type="button"
+            variant="outline"
+            disabled={!canSearchSites}
+            title={canSearchSites ? undefined : "Configure a source first"}
+            onClick={onSearchSites}
+          >
+            <Search className="size-3.5" aria-hidden />
+            Search sites…
+          </Button>
+          <div className="flex items-center justify-between pt-1">
+            <span className="font-mono text-xs font-medium">
+              {INCLUDE_CHILD_SITES_KEY}
+            </span>
+            <Switch
+              checked={includeChildSites}
+              onCheckedChange={onIncludeChildSitesChange}
+              aria-label="Include child sites"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Also select devices in the sub-sites of each site.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -127,6 +172,7 @@ function GetCatalystCenterDevicesConfigPanel({
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
 
   const [sourceOpen, setSourceOpen] = useState(false);
+  const [sitesOpen, setSitesOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevices, setPreviewDevices] = useState<CatalystCenterDevicePreview[]>([]);
   const [previewTruncated, setPreviewTruncated] = useState(false);
@@ -167,9 +213,35 @@ function GetCatalystCenterDevicesConfigPanel({
   const handleRemoveFilter = useCallback(
     (key: FilterKey) => {
       const remaining = Object.fromEntries(
-        Object.entries(filters).filter(([existing]) => existing !== key),
+        Object.entries(filters).filter(
+          ([existing]) =>
+            existing !== key &&
+            // the child-sites option belongs to the site filter and goes with it
+            !(key === "sites" && existing === INCLUDE_CHILD_SITES_KEY),
+        ),
       );
       onChange({ ...config, [FILTERS_KEY]: remaining });
+    },
+    [config, filters, onChange],
+  );
+
+  const siteValues = useMemo(() => {
+    const raw = filters.sites;
+    return Array.isArray(raw) ? raw : [];
+  }, [filters.sites]);
+
+  const handleAddSites = useCallback(
+    (hierarchies: string[]) => {
+      const existing = siteValues.map((v) => v.trim()).filter(Boolean);
+      const merged = [...existing, ...hierarchies.filter((h) => !existing.includes(h))];
+      setFilter("sites", merged);
+    },
+    [siteValues, setFilter],
+  );
+
+  const handleIncludeChildSitesChange = useCallback(
+    (checked: boolean) => {
+      onChange({ ...config, [FILTERS_KEY]: { ...filters, [INCLUDE_CHILD_SITES_KEY]: checked } });
     },
     [config, filters, onChange],
   );
@@ -263,6 +335,14 @@ function GetCatalystCenterDevicesConfigPanel({
             value={filters[kind.key] ?? (kind.single ? "" : [])}
             onChange={setFilter}
             onRemove={handleRemoveFilter}
+            {...(kind.key === "sites"
+              ? {
+                  onSearchSites: () => setSitesOpen(true),
+                  canSearchSites: Boolean(sourceId),
+                  includeChildSites: filters.include_child_sites ?? true,
+                  onIncludeChildSitesChange: handleIncludeChildSitesChange,
+                }
+              : {})}
           />
         ))}
 
@@ -352,6 +432,14 @@ function GetCatalystCenterDevicesConfigPanel({
         selectedSourceId={sourceId}
         onClose={() => setSourceOpen(false)}
         onSave={handleSourceIdChange}
+      />
+
+      <CatalystCenterSitesDialog
+        open={sitesOpen}
+        sourceId={sourceId}
+        alreadySelected={siteValues}
+        onClose={() => setSitesOpen(false)}
+        onAdd={handleAddSites}
       />
 
       <CatalystCenterDevicesPreviewDialog

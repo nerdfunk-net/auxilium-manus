@@ -52,8 +52,20 @@ from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.from_change_request.executor import execute as from_change_request
 from workflow_steps.generate_password.executor import execute as generate_password
 from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
+from workflow_steps.get_catalyst_center_configs.executor import (
+    execute as get_catalyst_center_configs,
+)
+from workflow_steps.get_catalyst_center_details.executor import (
+    execute as get_catalyst_center_details,
+)
 from workflow_steps.get_catalyst_center_devices.executor import (
     execute as get_catalyst_center_devices,
+)
+from workflow_steps.get_catalyst_center_health.executor import (
+    execute as get_catalyst_center_health,
+)
+from workflow_steps.get_catalyst_center_topology.executor import (
+    execute as get_catalyst_center_topology,
 )
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_from_config.executor import execute as get_from_config
@@ -86,6 +98,9 @@ from workflow_steps.read_from_file.executor import execute as read_from_file
 from workflow_steps.render_jinja_template.executor import execute as render_jinja_template
 from workflow_steps.route_on_attribute.executor import execute as route_on_attribute
 from workflow_steps.route_on_content.executor import execute as route_on_content
+from workflow_steps.run_catalyst_center_command.executor import (
+    execute as run_catalyst_center_command,
+)
 from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.secret_generate.executor import execute as secret_generate
 from workflow_steps.secret_get.executor import execute as secret_get
@@ -114,6 +129,11 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-git-devices": get_git_devices,
     "from-change-request": from_change_request,
     "get-catalyst-center-devices": get_catalyst_center_devices,
+    "get-catalyst-center-configs": get_catalyst_center_configs,
+    "get-catalyst-center-details": get_catalyst_center_details,
+    "get-catalyst-center-topology": get_catalyst_center_topology,
+    "get-catalyst-center-health": get_catalyst_center_health,
+    "run-catalyst-center-command": run_catalyst_center_command,
     "get-ise-devices": get_ise_devices,
     "get-ise-tacacs-key": get_ise_tacacs_key,
     "add-to-ise": add_to_ise,

@@ -4,8 +4,8 @@ Command runner is asynchronous: submit ``read-request`` -> poll the task until i
 ``progress`` carries a ``fileId`` -> download that file. Catalyst Center only accepts
 read-only (``show``-class) commands here, so this service exposes no write path.
 
-Response shapes are spec-derived and not yet verified against a live controller
-(see doc/CATALYST_CENTER_API_DIFF.md, open items).
+Response shapes were verified against the DevNet sandbox. A controller accepts at most
+5 commands per request, so longer lists are sent as several sequential requests.
 """
 
 from __future__ import annotations
@@ -31,6 +31,9 @@ TASK_PATH = "/dna/intent/api/v1/task"
 FILE_PATH = "/dna/intent/api/v1/file"
 
 DEFAULT_COMMAND_TIMEOUT = 300
+# Verified live (DevNet sandbox): 5 commands per read-request succeed, 6 are rejected with
+# HTTP 400 "Invalid input request" whatever the device count. Longer lists are split.
+MAX_COMMANDS_PER_REQUEST = 5
 _MAX_COMMAND_TIMEOUT = 3600
 _REQUEST_NAME = "auxilium-manus"
 _MAX_FAILURE_REASON_CHARS = 200
@@ -70,6 +73,16 @@ class CatalystCenterCommandService:
         commands: list[str],
         *,
         timeout: int = DEFAULT_COMMAND_TIMEOUT,
+    ) -> tuple[CatalystCenterCommandResult, ...]:
+        self._build_request(device_ids, commands, timeout)  # validate everything up front
+        results: list[CatalystCenterCommandResult] = []
+        for start in range(0, len(commands), MAX_COMMANDS_PER_REQUEST):
+            group = commands[start : start + MAX_COMMANDS_PER_REQUEST]
+            results.extend(await self._run_request(device_ids, group, timeout))
+        return tuple(results)
+
+    async def _run_request(
+        self, device_ids: list[str], commands: list[str], timeout: int
     ) -> tuple[CatalystCenterCommandResult, ...]:
         body = self._build_request(device_ids, commands, timeout)
         submitted = await self._client.request(

@@ -1,5 +1,7 @@
 # Catalyst Center API diff: 2.3.3.x vs 2.3.7.x (in-scope endpoints)
 
+> Overview of the whole integration (design, usage, how to extend): [`CISCO_CATALYST_INTEGRATION.md`](./CISCO_CATALYST_INTEGRATION.md).
+
 Phase 0 research for the Catalyst Center source (device inventory + command runner / config).
 
 ## How this was derived (read the limits first)
@@ -144,8 +146,13 @@ Findings that changed the code:
 - **No CIDR filter.** The step prefilters on the whole octets shared by the CIDR's first/last address
   (`10.10.20.0/24` -> `10.10.20..*`; a /32 -> the exact IP) and checks exact membership client-side.
 - **No usable site filter**: `location` / `locationName` are deprecated and were empty for every sandbox device; the
-  sandbox has only the `Global` site. A site filter would need the site-membership endpoints (not built).
-- `GET /network-device/count` honoured `hostname`, `managementIpAddress` and also `role` on this controller.
+  sandbox has only the `Global` site. Sites are therefore resolved through `GET /site` + `GET /membership/{siteId}`
+  (present in the 2.3.3.0, 2.3.7.9 and 3.2.3 SDKs; `/sites` and `networkDevices/assignedToSite` exist only from 2.3.7.x).
+  Shapes verified live: `/site` -> `{response: [{id, name, siteNameHierarchy, siteHierarchy}]}`; `/membership/{id}` ->
+  `{site: {response: [children]}, device: [{response: [records with instanceUuid]}]}`, paged with `offset`/`limit`;
+  unknown `site?name=` -> HTTP 500; invalid membership id -> HTTP 200 with an `errorCode` body.
+- `GET /network-device/count?hostname=sw1` returned 1 (4 unfiltered), so the hostname filter is honoured. The IP and role
+  count probes were inconclusive: every sandbox device matches them, so a filter that was ignored would look identical.
 
 ## Open items
 - Response bodies on 2.3.3.x (no sandbox for it) and on 3.3.1.
@@ -158,3 +165,22 @@ Findings that changed the code:
 - Whether `location` / `locationName` are still populated on 2.3.7.9.
 - Exact token lifetime and behavior of `X-Auth-Token` expiry (401 vs other).
 - Command-runner limits (commands/devices per request) - not stated on the 2.3.7.9 page.
+
+
+## Facts endpoints verified live (details / topology / health steps)
+
+Run against `https://sandboxdnac2.cisco.com` on 2026-10-03 (read-only GETs; not diffed across releases -- confirm on 2.3.3.x/2.3.7.x/3.x
+controllers before relying on them there).
+
+| Path | Result |
+|---|---|
+| `GET /network-device/{id}` | OK |
+| `GET /interface/network-device/{id}` | OK (13 interfaces) |
+| `GET /network-device/{id}/vlan` | OK (VLAN interfaces: `vlanNumber`, `ipAddress`, `prefix`, `numberOfIPs`) |
+| `GET /compliance/{id}` / `/compliance/{id}/detail` | OK (overall status; one entry per `complianceType`) |
+| `GET /device-detail?identifier=uuid&searchBy=<id>` | OK (`cpu`/`memory` are strings) |
+| `GET /device-health` | OK (bulk, not used) |
+| `GET /topology/physical-topology`, `/topology/l3/{ospf,isis,eigrp,static}` | OK (`{nodes, links}`; link `source`/`target` are node ids = device ids) |
+| `GET /topology/site-topology`, `/topology/vlan/vlan-names` | OK (not used) |
+| `GET /image/importation/device/{id}`, `/compliance/device/{id}`, `/topology/network-topology` | 404 |
+| `GET /topology/l3/bgp`, `/topology/l2/1` | HTTP 400 |

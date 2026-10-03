@@ -144,6 +144,44 @@ class RunCommandsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(results), 1)
 
 
+class CommandBatchingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_more_than_five_commands_are_sent_as_separate_requests(self) -> None:
+        commands = [f"show c{i}" for i in range(7)]
+
+        client = AsyncMock()
+        client.request.side_effect = [
+            {"response": {"taskId": "t1"}},
+            _task(json.dumps({"fileId": "f1"})),
+            _file(
+                {
+                    "deviceUuid": "u1",
+                    "commandResponses": {"SUCCESS": {c: "ok" for c in commands[:5]}},
+                }
+            ),
+            {"response": {"taskId": "t2"}},
+            _task(json.dumps({"fileId": "f2"})),
+            _file(
+                {
+                    "deviceUuid": "u1",
+                    "commandResponses": {"SUCCESS": {c: "ok" for c in commands[5:]}},
+                }
+            ),
+        ]
+        results = await _service(client).run_commands(["u1"], commands, timeout=60)
+
+        submits = [c for c in client.request.await_args_list if c.args[1] == "POST"]
+        self.assertEqual(
+            [s.kwargs["json"]["commands"] for s in submits], [commands[:5], commands[5:]]
+        )
+        self.assertEqual([r.command for r in results], commands)
+
+    async def test_invalid_command_list_is_rejected_before_any_request(self) -> None:
+        client = AsyncMock()
+        with self.assertRaises(CatalystCenterValidationError):
+            await _service(client).run_commands(["u1"], ["show a"] * 5 + [" "])
+        client.request.assert_not_awaited()
+
+
 class InputValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_empty_devices(self) -> None:
         client = AsyncMock()

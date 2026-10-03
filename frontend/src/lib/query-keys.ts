@@ -125,6 +125,8 @@ export const queryKeys = {
   sourcesCatalystCenter: {
     all: ["sources-catalyst-center"] as const,
     list: () => [...queryKeys.sourcesCatalystCenter.all, "list"] as const,
+    sites: (sourceId: string) =>
+      [...queryKeys.sourcesCatalystCenter.all, "sites", sourceId] as const,
   },
   sourcesPyats: {
     all: ["sources-pyats"] as const,

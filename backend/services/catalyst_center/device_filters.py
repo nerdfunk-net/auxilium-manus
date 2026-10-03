@@ -37,6 +37,8 @@ _LIST_FILTERS: dict[str, str] = {
     "collection_statuses": "collectionStatus",
 }
 _CIDR_KEY = "cidr"
+_SITES_KEY = "sites"
+_INCLUDE_CHILDREN_KEY = "include_child_sites"
 _IP_PARAM = "managementIpAddress"
 
 
@@ -74,6 +76,14 @@ def _clean_cidr(raw: Any) -> str | None:
         raise CatalystCenterValidationError(f"Invalid CIDR '{text}'") from exc
 
 
+def _clean_flag(raw: Any, *, default: bool) -> bool:
+    if raw is None:
+        return default
+    if not isinstance(raw, bool):
+        raise CatalystCenterValidationError("Filter 'include_child_sites' must be true or false")
+    return raw
+
+
 @dataclass(frozen=True)
 class CatalystCenterDeviceFilters:
     hostnames: tuple[str, ...] = ()
@@ -89,6 +99,10 @@ class CatalystCenterDeviceFilters:
     reachability_statuses: tuple[str, ...] = ()
     collection_statuses: tuple[str, ...] = ()
     cidr: str | None = None
+    # Site name hierarchies (e.g. "Global/EMEA/Berlin"). Not a device-list query parameter:
+    # resolved to device ids through the site/membership endpoints (see device_service).
+    sites: tuple[str, ...] = ()
+    include_child_sites: bool = True
 
     @classmethod
     def from_config(cls, raw: Mapping[str, Any] | None) -> Self:
@@ -97,15 +111,29 @@ class CatalystCenterDeviceFilters:
             return cls()
         if not isinstance(raw, Mapping):
             raise CatalystCenterValidationError("Filters must be an object")
-        unknown = set(raw) - set(_LIST_FILTERS) - {_CIDR_KEY}
+        unknown = set(raw) - set(_LIST_FILTERS) - {_CIDR_KEY, _SITES_KEY, _INCLUDE_CHILDREN_KEY}
         if unknown:
             raise CatalystCenterValidationError(f"Unknown filter: {sorted(unknown)[0]}")
         values = {key: _clean_values(key, raw.get(key)) for key in _LIST_FILTERS}
-        return cls(**values, cidr=_clean_cidr(raw.get(_CIDR_KEY)))
+        return cls(
+            **values,
+            cidr=_clean_cidr(raw.get(_CIDR_KEY)),
+            sites=_clean_values(_SITES_KEY, raw.get(_SITES_KEY)),
+            include_child_sites=_clean_flag(raw.get(_INCLUDE_CHILDREN_KEY), default=True),
+        )
 
     @property
     def is_empty(self) -> bool:
-        return self.cidr is None and not any(getattr(self, key) for key in _LIST_FILTERS)
+        return (
+            self.cidr is None
+            and not self.sites
+            and not any(getattr(self, key) for key in _LIST_FILTERS)
+        )
+
+    @property
+    def has_server_filters(self) -> bool:
+        """True when the controller can narrow the device list (anything but a lone site filter)."""
+        return bool(self.to_query_params())
 
     def to_query_params(self) -> dict[str, list[str]]:
         """Intent API query parameters (each a list: repeated parameter = OR)."""

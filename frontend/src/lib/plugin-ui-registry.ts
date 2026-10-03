@@ -33,7 +33,12 @@ import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from
 import { GetFromUserPlugin } from "@/components/features/workflow-steps/get-from-user";
 import { GetFromConfigPlugin } from "@/components/features/workflow-steps/get-from-config";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
+import { GetCatalystCenterConfigsPlugin } from "@/components/features/workflow-steps/get-catalyst-center-configs";
+import { GetCatalystCenterDetailsPlugin } from "@/components/features/workflow-steps/get-catalyst-center-details";
 import { GetCatalystCenterDevicesPlugin } from "@/components/features/workflow-steps/get-catalyst-center-devices";
+import { GetCatalystCenterHealthPlugin } from "@/components/features/workflow-steps/get-catalyst-center-health";
+import { GetCatalystCenterTopologyPlugin } from "@/components/features/workflow-steps/get-catalyst-center-topology";
+import { RunCatalystCenterCommandPlugin } from "@/components/features/workflow-steps/run-catalyst-center-command";
 import { GetIseDevicesPlugin } from "@/components/features/workflow-steps/get-ise-devices";
 import { GetIseTacacsKeyPlugin } from "@/components/features/workflow-steps/get-ise-tacacs-key";
 import { GitClonePlugin } from "@/components/features/workflow-steps/git-clone";
@@ -88,6 +93,11 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-git-devices": GetGitDevicesPlugin,
   "from-change-request": FromChangeRequestPlugin,
   "get-catalyst-center-devices": GetCatalystCenterDevicesPlugin,
+  "get-catalyst-center-configs": GetCatalystCenterConfigsPlugin,
+  "get-catalyst-center-details": GetCatalystCenterDetailsPlugin,
+  "get-catalyst-center-topology": GetCatalystCenterTopologyPlugin,
+  "get-catalyst-center-health": GetCatalystCenterHealthPlugin,
+  "run-catalyst-center-command": RunCatalystCenterCommandPlugin,
   "get-ise-devices": GetIseDevicesPlugin,
   "get-ise-tacacs-key": GetIseTacacsKeyPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,

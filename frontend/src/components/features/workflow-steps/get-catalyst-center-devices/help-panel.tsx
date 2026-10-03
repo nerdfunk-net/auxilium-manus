@@ -5,7 +5,6 @@ import {
   HelpCode,
   HelpExample,
   HelpSection,
-  HelpWarning,
 } from "../shared/step-help";
 
 /**
@@ -106,6 +105,11 @@ export function GetCatalystCenterDevicesHelpPanel() {
       <HelpSection title="Available filters">
         <ul className="list-disc space-y-1.5 pl-4">
           <li>
+            <HelpCode>sites</HelpCode> — site name paths, see{" "}
+            <span className="font-medium text-foreground">Site filter</span>{" "}
+            below.
+          </li>
+          <li>
             <HelpCode>hostnames</HelpCode> — device hostname, e.g.{" "}
             <HelpCode>sw.*</HelpCode>.
           </li>
@@ -149,13 +153,51 @@ export function GetCatalystCenterDevicesHelpPanel() {
             <HelpCode>Managed</HelpCode>.
           </li>
         </ul>
-        <HelpWarning title="No site filter yet">
-          <p>
-            Catalyst Center&apos;s device list cannot be filtered by site, and
-            the location fields on the device are deprecated. Select by name,
-            IP/CIDR, or the attributes above. A site filter may be added later.
-          </p>
-        </HelpWarning>
+      </HelpSection>
+
+      <HelpSection title="Site filter">
+        <p>
+          <HelpCode>sites</HelpCode> selects the devices assigned to one or
+          more sites. Click{" "}
+          <span className="font-medium text-foreground">Search sites…</span> in
+          the Site filter to load the sites configured on the Catalyst Center,
+          narrow the list with the search box, tick the ones you want and click{" "}
+          <span className="font-medium text-foreground">Add selected</span>.
+          The button needs a source to be configured first.
+        </p>
+        <ul className="list-disc space-y-1.5 pl-4">
+          <li>
+            Sites are written as their full name path, for example{" "}
+            <HelpCode>Global/EMEA/Berlin</HelpCode>, and must match exactly
+            (case-sensitive). An unknown site makes the step fail with a clear
+            message instead of silently selecting nothing, so a typo cannot
+            turn into an empty target list.
+          </li>
+          <li>
+            <HelpCode>include_child_sites</HelpCode> (default on) also selects
+            the devices of every sub-site: <HelpCode>Global/EMEA</HelpCode>{" "}
+            covers <HelpCode>Global/EMEA/Berlin</HelpCode> but never{" "}
+            <HelpCode>Global/EMEAX</HelpCode>. Turn it off to take only the
+            devices assigned directly to the listed sites. A selection that
+            expands to more than 100 sites is rejected — choose a narrower
+            site.
+          </li>
+          <li>
+            Several sites are OR-ed; the site filter is AND-ed with the other
+            filters. With site and other filters, the other filters narrow the
+            list on the controller first, so adding one (for example a role)
+            keeps large inventories fast.
+          </li>
+        </ul>
+        <HelpExample>
+          sites: Global/EMEA
+          <br />
+          roles: ACCESS
+          <br />
+          <span className="text-muted-foreground">
+            → access devices in EMEA and all its sub-sites
+          </span>
+        </HelpExample>
       </HelpSection>
 
       <HelpSection title="Safety guard for large inventories">

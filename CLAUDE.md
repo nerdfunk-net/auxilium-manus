@@ -18,7 +18,8 @@ Tailwind CSS 4, Shadcn UI, TanStack Query v5, Zustand, React Hook Form, Zod, Luc
 **Backend:** FastAPI, Python 3.14, PostgreSQL, SQLAlchemy, Redis, JWT auth, Hatchet,
 Netmiko, GitPython
 
-**Integrations:** Nautobot API
+**Integrations:** Nautobot API, Cisco Catalyst Center (REST Intent API) — read
+`doc/CISCO_CATALYST_INTEGRATION.md` before changing it or adding Catalyst Center features/steps
 
 ## Architecture
 

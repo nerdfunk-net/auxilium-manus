@@ -7,6 +7,7 @@
  * wildcard — nothing here translates regex syntax.
  */
 export type FilterKey =
+  | "sites"
   | "hostnames"
   | "management_ips"
   | "cidr"
@@ -31,6 +32,13 @@ export interface FilterKind {
 }
 
 export const FILTER_KINDS: readonly FilterKind[] = [
+  {
+    key: "sites",
+    label: "Site",
+    single: false,
+    placeholder: "Global/EMEA/Berlin",
+    hint: "Exact site name path, case-sensitive. Use Search sites to pick.",
+  },
   {
     key: "hostnames",
     label: "Hostname",
@@ -131,7 +139,12 @@ export const FILTER_KIND_BY_KEY: Readonly<Record<FilterKey, FilterKind>> =
   >;
 
 export type FilterValue = string[] | string;
-export type FiltersConfig = Partial<Record<FilterKey, FilterValue>>;
+export type FiltersConfig = Partial<Record<FilterKey, FilterValue>> & {
+  /** Site filter option: also select devices in sub-sites (backend default: true). */
+  include_child_sites?: boolean;
+};
+
+export const INCLUDE_CHILD_SITES_KEY = "include_child_sites";
 
 const FILTER_KEYS: ReadonlySet<string> = new Set(FILTER_KINDS.map((k) => k.key));
 
@@ -143,6 +156,10 @@ export function filtersFromConfig(config: Record<string, unknown>): FiltersConfi
   }
   const result: FiltersConfig = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (key === INCLUDE_CHILD_SITES_KEY) {
+      if (typeof value === "boolean") result.include_child_sites = value;
+      continue;
+    }
     if (!FILTER_KEYS.has(key)) continue;
     const kind = FILTER_KIND_BY_KEY[key as FilterKey];
     if (kind.single) {
@@ -159,8 +176,8 @@ export function filtersFromConfig(config: Record<string, unknown>): FiltersConfi
 /** Trimmed, blank-free filters — what is actually sent to preview and counted as "set". */
 export function activeFilters(
   filters: FiltersConfig,
-): Record<string, string[] | string> {
-  const result: Record<string, string[] | string> = {};
+): Record<string, string[] | string | boolean> {
+  const result: Record<string, string[] | string | boolean> = {};
   for (const kind of FILTER_KINDS) {
     const value = filters[kind.key];
     if (value === undefined) continue;
@@ -170,6 +187,10 @@ export function activeFilters(
       const cleaned = value.map((v) => v.trim()).filter(Boolean);
       if (cleaned.length > 0) result[kind.key] = cleaned;
     }
+  }
+  // Only meaningful (and only sent) together with a site selection.
+  if (result.sites !== undefined && filters.include_child_sites !== undefined) {
+    result[INCLUDE_CHILD_SITES_KEY] = filters.include_child_sites;
   }
   return result;
 }

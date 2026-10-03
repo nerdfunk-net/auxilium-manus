@@ -16,6 +16,7 @@ from models.catalyst_center import (
     CatalystCenterDevicePreviewItem,
     CatalystCenterDevicePreviewRequest,
     CatalystCenterDevicePreviewResponse,
+    CatalystCenterSiteListResponse,
 )
 from services.catalyst_center.common.exceptions import (
     CatalystCenterAPIError,
@@ -98,3 +99,32 @@ async def preview_devices(
         ],
         truncated=truncated,
     )
+
+
+@router.get("/sites", response_model=CatalystCenterSiteListResponse)
+async def list_sites(
+    source_id: str,
+    _: User = Depends(get_current_user),
+    config: CatalystCenterSourceConfigService = Depends(get_catalyst_center_source_config_service),
+) -> CatalystCenterSiteListResponse:
+    """The sites configured on the controller, for the step's site picker."""
+    credentials = _resolve_credentials(source_id, config)
+    device_service = service_factory.build_catalyst_center_device_service(credentials)
+    try:
+        sites = await device_service.list_sites()
+    except CatalystCenterValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except (CatalystCenterAPIError, CatalystCenterAuthError) as exc:
+        raise_internal_server_error(
+            logger,
+            "Catalyst Center site list failed: ",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_internal_server_error(logger, "Catalyst Center site list failed: ", exc)
+
+    ordered = sorted(sites, key=lambda site: site.name_hierarchy)
+    return CatalystCenterSiteListResponse(sites=ordered, total=len(ordered))

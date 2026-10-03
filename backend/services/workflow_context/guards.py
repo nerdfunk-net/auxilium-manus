@@ -106,7 +106,13 @@ def effective_produces(
         # "success" untouched, and a device already carrying the key is passed
         # through as-is — so the capability can't be promised on every device.
         return frozenset()
-    if step_type == "run-command":
+    if step_type in (
+        "run-command",
+        "run-catalyst-center-command",
+        "get-catalyst-center-details",
+        "get-catalyst-center-topology",
+        "get-catalyst-center-health",
+    ):
         # The registry lists ``produces: [parsed]``, but the executor only
         # stamps Capability.PARSED when ``parser`` is "textfsm" or "genie" —
         # and both are documented non-fatal per command (a command with no

@@ -182,3 +182,46 @@ class TestMatchesIp:
     )
     def test_cidr_membership(self, ip, expected):
         assert _filters(cidr="10.10.20.176/31").matches_ip(ip) is expected
+
+
+class TestSiteFilter:
+    def test_sites_are_parsed_trimmed_and_deduped(self):
+        f = _filters(sites=[" Global/EMEA ", "Global/EMEA", "Global/APAC", ""])
+        assert f.sites == ("Global/EMEA", "Global/APAC")
+        assert not f.is_empty
+
+    def test_sites_alone_make_filters_non_empty_but_have_no_server_params(self):
+        f = _filters(sites=["Global/EMEA"])
+        assert not f.is_empty
+        assert f.to_query_params() == {}
+        assert not f.has_server_filters
+
+    def test_has_server_filters(self):
+        assert _filters(sites=["Global"], roles=["ACCESS"]).has_server_filters
+        assert _filters(sites=["Global"], cidr="10.0.0.0/24").has_server_filters
+        assert not _filters().has_server_filters
+
+    def test_child_sites_included_by_default(self):
+        assert _filters(sites=["Global"]).include_child_sites is True
+
+    def test_child_sites_can_be_turned_off(self):
+        assert _filters(sites=["Global"], include_child_sites=False).include_child_sites is False
+
+    @pytest.mark.parametrize("bad", ["yes", 1, None, [True]])
+    def test_include_child_sites_must_be_boolean(self, bad):
+        if bad is None:
+            assert _filters(sites=["Global"], include_child_sites=None).include_child_sites is True
+            return
+        with pytest.raises(CatalystCenterValidationError, match="include_child_sites"):
+            _filters(sites=["Global"], include_child_sites=bad)
+
+    def test_sites_must_be_a_list_of_strings(self):
+        with pytest.raises(CatalystCenterValidationError):
+            _filters(sites="Global")
+
+    def test_too_many_sites_rejected(self):
+        with pytest.raises(CatalystCenterValidationError, match="at most"):
+            _filters(sites=[f"Global/S{i}" for i in range(51)])
+
+    def test_include_child_sites_alone_is_still_empty(self):
+        assert _filters(include_child_sites=False).is_empty
