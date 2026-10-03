@@ -1,9 +1,9 @@
 # Cisco Catalyst Center Integration
 
 Backend, API and UI integration with **Cisco Catalyst Center** (formerly DNA Center) through its
-REST **Intent API**. It lets Auxilium Manus read a Catalyst Center's device inventory (and, in the
-service layer, run read-only CLI commands and fetch device configs) and use those devices as
-workflow targets.
+REST **Intent API**. It lets Auxilium Manus read a Catalyst Center's device inventory, use those
+devices as workflow targets, and then act on them through the controller: run read-only CLI commands
+(optionally TextFSM-parsed), fetch running configs, and read device facts, topology and health.
 
 This document explains **what exists, why it was built this way, how to operate it, and how to extend
 it** (new API calls, new workflow steps, new settings). It is the entry point; the research it rests
@@ -60,7 +60,7 @@ These are the decisions future changes should preserve unless there is a concret
 |---|---|
 | **Talk to the REST API with `httpx`, not the `catalystcentersdk` / `dnacentersdk` Python SDK.** | The SDKs are synchronous (`requests`), while the backend is async FastAPI plus Hatchet workers. We also need controls the SDK does not offer: the SSRF guard, per-source TLS verify/no-verify pools, vault-resolved credentials per request, typed errors that never leak response bodies, and pooled app-scoped clients. We use ~10 endpoints; the SDK carries 1,100–1,900. It stays useful as an **offline reference** for paths and parameters (that is how the version diff was done). |
 | **One shared client and service path, not one adapter per Catalyst Center version.** | For the endpoints we use, 2.3.3.x, 2.3.7.x and 3.1/3.2 expose the **same** set (verified by diffing SDK releases; see the API-diff doc). Per-version adapters would be code with nothing to adapt. Version differences are handled by small capability gates instead (see [Release handling](#release-handling)). |
-| **Normalized domain models between the API and workflow steps.** | `CatalystCenterDevice` and `CatalystCenterCommandResult` (`models/catalyst_center.py`) are the only shapes steps see. Raw Intent API payloads stay inside `services/catalyst_center/`, so a future payload change is fixed in one place. |
+| **Normalized domain models between the API and workflow steps.** | `CatalystCenterDevice` and `CatalystCenterCommandResult` (`models/catalyst_center.py`) and the whitelisted fact models in `models/catalyst_center_facts.py` are the only shapes steps see. Raw Intent API payloads stay inside `services/catalyst_center/`, so a future payload change is fixed in one place. |
 | **Filters run on the controller, with a guard against pulling everything.** | A Catalyst Center can hold thousands of devices. The step requires a filter (or an explicit `allow_all`) and offers a `max_devices` cap that **fails** rather than truncates, because a workflow acting on a silently-incomplete target list is worse than a failed one. |
 | **Site filtering resolves names to device ids with `GET /site` + `GET /membership/{siteId}`.** | The device list has no usable site filter (`location*` are deprecated/empty). This pair exists on **every** supported release line (2.3.3.x, 2.3.7.x, 3.x); the newer `/sites` and `networkDevices/assignedToSite` endpoints only exist from 2.3.7.x, so they are not used. Site names are validated against the real site list because the controller answers an unknown site with a 500 and a bad membership id with **HTTP 200 + an error body**. |
 | **Credentials are a vault reference, not stored on the source.** | Same model as ISE/Nautobot/pyATS/Mattermost: the source stores a `credential_id` pointing at a **global** vault credential. Background (Hatchet) runs have no acting user, so private credentials can never resolve. |
@@ -103,8 +103,9 @@ backend/workflow_steps/get_catalyst_center_{details,topology,health}/  # executo
 backend/workflow_steps/common/catalyst_center_targets.py  # per-source grouping, credentials, outcomes (shared by the command/config steps)
 backend/workflow_steps/common/catalyst_center_facts.py    # run_fact_step(): shared driver of the three fact steps
 backend/workflow_steps/common/device_builders.py     # device_context_from_catalyst_center()
-backend/workflow_steps/registry.yaml                 # entries: get-catalyst-center-devices, run-catalyst-center-command, get-catalyst-center-configs (palette_category: cisco)
-backend/services/execution/step_registry.py          # dispatch table entry
+backend/workflow_steps/common/textfsm_parse.py       # parse_with_textfsm(): ntc-templates -> {parsed, error}
+backend/workflow_steps/registry.yaml                 # six entries, ids starting get-/run-catalyst-center-* (palette_category: cisco)
+backend/services/execution/step_registry.py          # dispatch table entries
 backend/service_factory.py                           # get/set_catalyst_center_app_service, build_catalyst_center_*_service
 backend/dependencies.py                              # get_catalyst_center_source_config_service
 backend/services/settings/source_keys.py             # SourceType "catalyst_center" -> sources.catalyst_center.<id>
@@ -130,7 +131,8 @@ frontend/src/hooks/queries/use-get-catalyst-center-devices-preview-mutation.ts
 frontend/src/lib/{plugin-ui-registry.ts,query-keys.ts}  # registry entry; sourcesCatalystCenter keys
 frontend/src/components/features/workflows/utils/step-visuals.ts  # icon (cisco palette needs one per step)
 
-backend/tests/unit/test_catalyst_center_*.py, test_get_catalyst_center_devices_*.py, test_run_catalyst_center_command_executor.py,
+backend/tests/unit/test_catalyst_center_*.py (client, version, filters, services, output, facts services, fact-step executors,
+  step registration), test_get_catalyst_center_devices_*.py, test_run_catalyst_center_command_executor.py,
   test_get_catalyst_center_configs_executor.py, test_device_builders.py
 ```
 
@@ -153,12 +155,12 @@ API, not a local table):
 
 ```
 CatalystCenterService        low-level HTTP: auth, retries, error mapping       (one per process)
-  └── CatalystCenterDeviceService / CatalystCenterCommandService   per-credentials facades
+  └── per-credentials facades: Device / Site / Command / Details / Topology / Health services
         └── routers (ops.py, crud.py) and workflow-step executors
 ```
 
-`service_factory.build_catalyst_center_device_service(credentials)` /
-`build_catalyst_center_command_service(credentials)` wrap the shared client with one source's credentials.
+`service_factory.build_catalyst_center_{device,command,details,topology,health}_service(credentials)` wrap the shared client with
+one source's credentials.
 
 ---
 
@@ -448,7 +450,13 @@ Permissions are seeded in `services/auth/rbac_seed.py`. `admin` gets all three; 
 - Warning banners: "Add at least one filter, or enable allow_all" and "No filter set: every device … will be selected".
 - **Help tab:** `help-panel.tsx` documents every control (case-sensitivity, `.*`, OR/AND, CIDR, the guard, preview).
 - Server state uses TanStack Query via the `queryKeys.sourcesCatalystCenter` factory; no manual `useState + useEffect`.
-- The cisco palette category has no `artifact_type` icon fallback, so `step-visuals.ts` maps the step to the `Server` icon.
+- The cisco palette category has no `artifact_type` icon fallback, so `step-visuals.ts` maps each Catalyst Center step to an icon
+  (`Server`, `TerminalSquare`, `HardDriveDownload`, `ListTree`, `Network`, `HeartPulse`).
+- **Run Command via Catalyst Center** panel: command list (add/remove, max 20), `timeout`, `parser` select; the TextFSM option reveals
+  `parsed_output_key` and `network_driver_override`.
+- **Details / Topology** panels use the shared `FactCheckboxGroup` (`shared/catalyst-center-fact-fields.tsx`) — checkbox options must
+  match `FACTS` / `TOPOLOGIES` in the executors — plus `ParsedOutputKeyField`; **Health** has only the output key; **Get Config**
+  has no configuration. None of these panels has a source picker (the source comes from the devices).
 
 ---
 
@@ -462,7 +470,9 @@ Permissions are seeded in `services/auth/rbac_seed.py`. `admin` gets all three; 
 - Upstream failures return generic text; 5xx responses use `core.safe_http_errors.raise_internal_server_error`
   (`{message, error_id}`), enforced by `scripts/check_http_500_leaks.py`. Never put `str(exc)` into a 5xx `detail`.
 - The preview response excludes the raw inventory record.
-- Command runner is **read-only** (Catalyst Center accepts only `show`-class commands); the service exposes no write path.
+- Command runner is **read-only** (Catalyst Center accepts only `show`-class commands); the service exposes no write path. The
+  details/topology/health services issue GET requests only.
+- Fact models are whitelisted: fields such as serial numbers of interface modules or raw inventory blobs are not copied through.
 
 ---
 
@@ -491,11 +501,11 @@ Test-connection never returns an upstream failure as a 5xx: it returns `{success
 **Unit tests** (all mocked, no network; run from `backend/` with the project venv):
 
 ```bash
-python -m pytest tests/unit/test_catalyst_center_*.py tests/unit/test_get_catalyst_center_devices_*.py \
-  tests/unit/test_device_builders.py tests/unit/test_sources_crud_routers.py -q
+python -m pytest tests/unit/test_catalyst_center_*.py tests/unit/test_get_catalyst_center_*.py \
+  tests/unit/test_run_catalyst_center_*.py tests/unit/test_device_builders.py tests/unit/test_sources_crud_routers.py -q
 ruff check <touched files>        # scope to touched files; never repo-wide
-pyright services/catalyst_center routers/sources/catalyst_center models/catalyst_center.py \
-  workflow_steps/get_catalyst_center_devices
+pyright services/catalyst_center routers/sources/catalyst_center models/catalyst_center.py models/catalyst_center_facts.py \
+  workflow_steps/get_catalyst_center_* workflow_steps/run_catalyst_center_command workflow_steps/common/catalyst_center_*.py
 python scripts/check_asyncio_run.py && python scripts/check_http_500_leaks.py \
   && python scripts/check_router_repositories.py && python scripts/check_text_sql.py
 ```
@@ -515,10 +525,14 @@ Frontend: `npx tsc --noEmit` and a scoped `npx eslint <files>` from `frontend/`.
 | `test_get_catalyst_center_devices_registration.py` | registry entry ↔ dispatch table ↔ `get_config()` stay in sync |
 | `test_catalyst_center_output.py` | echo/prompt stripping |
 | `test_run_catalyst_center_command_executor.py`, `test_get_catalyst_center_configs_executor.py` | config guard, batching, per-source credentials, failure scoping, artifacts |
-| `test_catalyst_center_command_steps_registration.py` | both steps: registry ↔ dispatch ↔ `get_config()` |
+| `test_catalyst_center_facts_services.py` | details / health / topology services: payload shapes from the sandbox, coercion, whitelisting, topology slicing |
+| `test_catalyst_center_fact_steps_executors.py` | details / topology / health executors: config guard, checkbox selection, shared requests, partial vs total failure, per-source credentials |
+| `test_catalyst_center_command_steps_registration.py` | all five command/config/fact steps: registry ↔ dispatch ↔ `get_config()` |
 
-The command-runner response shapes in the unit tests are labelled spec-derived fixtures; the live `show clock` run is
-what confirmed them.
+(`test_catalyst_center_command_service.py` also covers the 5-commands-per-request split; `test_run_catalyst_center_command_executor.py` the TextFSM parser.)
+
+The command-runner response shapes in the unit tests were first spec-derived fixtures; live runs on the sandbox confirmed them.
+The fact-service fixtures are trimmed copies of real sandbox payloads.
 
 **Live verification** (how this integration was checked): write a throw-away script that instantiates
 `CatalystCenterService` directly and calls the services with in-memory `CatalystCenterCredentials` — no DB rows, no
@@ -544,11 +558,19 @@ instead of claiming the UI was verified.
    inherited.
 3. Validate any id interpolated into a path with `safe_device_id`; validate inputs and raise
    `CatalystCenterValidationError`.
-4. Return a **normalized frozen model** (add it to `models/catalyst_center.py`); keep the raw payload inside the service.
+4. Return a **normalized frozen model** (`models/catalyst_center.py`, or `models/catalyst_center_facts.py` for per-device facts) with a
+   whitelist of fields, using `common/coerce.py` for the loosely typed values; keep the raw payload inside the service.
 5. Tests first (`AsyncMock` for the client; follow `test_catalyst_center_device_service.py`), then a live probe, then
    add the finding to `CATALYST_CENTER_API_DIFF.md`.
 
-### B. Add a new workflow step (e.g. Run Command via Catalyst Center, Get Device Config)
+### B. Add a new workflow step
+
+Three step kinds already exist: an **inventory selector** (`get-catalyst-center-devices`), **command/config** steps (command runner,
+see above) and **fact** steps. A new read-only fact step (another Intent API read per device) should not copy an executor: write a
+`collect(credentials, state, device_id, device)` coroutine returning `{fact: entry}` and hand it to
+`workflow_steps/common/catalyst_center_facts.py::run_fact_step` (optional `prepare` for a once-per-controller fetch). It gives
+the per-source credentials, concurrency limit, `{parsed, error}` shape, partial-failure rule and logging for free. Fact steps write
+`device.parsed[<parsed_output_key>][<fact>]` directly (the `run-command` convention), not through `node_result.set_node_result`.
 
 Read [`WORKFLOW-STEPS.md`](./WORKFLOW-STEPS.md) and [`WORKFLOW-STEPS-STYLE_GUIDE.md`](./WORKFLOW-STEPS-STYLE_GUIDE.md) first, then:
 
