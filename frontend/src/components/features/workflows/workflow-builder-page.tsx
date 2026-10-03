@@ -205,6 +205,7 @@ export function WorkflowBuilderPage() {
           onGroupSelectedSteps={canvas.handleGroupSelectedSteps}
           onNodeTitleChange={canvas.handleNodeTitleChange}
           onNodeDisabledChange={canvas.handleNodeDisabledChange}
+          onNodesDisabledChange={canvas.handleNodesDisabledChange}
           onOpenGroup={canvas.handleOpenGroup}
           onRenameGroup={canvas.handleRenameGroup}
           onUngroupGroup={canvas.handleUngroupGroup}

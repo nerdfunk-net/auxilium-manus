@@ -41,6 +41,7 @@ from routers.sources.batfish import (
     batfish_source_ops_router,
     batfish_source_query_router,
 )
+from routers.sources.catalyst_center import catalyst_center_source_crud_router
 from routers.sources.ise import ise_source_crud_router, ise_source_ops_router
 from routers.sources.mattermost import (
     mattermost_source_crud_router,
@@ -69,6 +70,7 @@ from services.auth.auth_service import AuthService
 from services.auth.rbac_seed import ensure_ai_assistant_user, seed_rbac
 from services.auth.rbac_service import RBACService
 from services.batfish.client import BatfishService
+from services.catalyst_center.client import CatalystCenterService
 from services.health.ready import build_ready_response
 from services.ise.client import ISEService
 from services.logging.logging_settings_service import LoggingSettingsService
@@ -120,6 +122,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await ise_service.startup()
     service_factory.set_ise_app_service(ise_service)
 
+    catalyst_center_service = CatalystCenterService()
+    await catalyst_center_service.startup()
+    service_factory.set_catalyst_center_app_service(catalyst_center_service)
+
     pyats_service = PyATSShimService()
     await pyats_service.startup()
     service_factory.set_pyats_app_service(pyats_service)
@@ -143,6 +149,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await nautobot_service.shutdown()
     await ise_service.shutdown()
+    await catalyst_center_service.shutdown()
     await pyats_service.shutdown()
     await batfish_service.shutdown()
     await mattermost_service.shutdown()
@@ -171,6 +178,7 @@ app.include_router(nautobot_source_ops_router, prefix=settings.api_prefix)
 app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_ops_router, prefix=settings.api_prefix)
+app.include_router(catalyst_center_source_crud_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_crud_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_crud_router, prefix=settings.api_prefix)

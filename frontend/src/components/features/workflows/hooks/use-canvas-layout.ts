@@ -112,6 +112,19 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
     [setAllNodes, markDirty],
   );
 
+  const handleNodesDisabledChange = useCallback(
+    (nodeIds: string[], disabled: boolean) => {
+      const targets = new Set(nodeIds);
+      setAllNodes((current) =>
+        current.map((n) =>
+          targets.has(n.id) ? { ...n, data: { ...n.data, disabled } } : n,
+        ),
+      );
+      markDirty();
+    },
+    [setAllNodes, markDirty],
+  );
+
   const handleIncomeHandleSideChange = useCallback(
     (nodeId: string, side: HandleSide) => {
       // The synthetic Group node isn't in `allNodes` — its handle sides live
@@ -296,6 +309,7 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
       handleEdgeLabelFontSizeChange,
       handleNodeTitleChange,
       handleNodeDisabledChange,
+      handleNodesDisabledChange,
       handleIncomeHandleSideChange,
       handleOutcomeHandleSideChange,
       handleAlignNodes,
@@ -311,6 +325,7 @@ export function useCanvasLayout(core: UseWorkflowCanvasCoreResult) {
       handleEdgeLabelFontSizeChange,
       handleNodeTitleChange,
       handleNodeDisabledChange,
+      handleNodesDisabledChange,
       handleIncomeHandleSideChange,
       handleOutcomeHandleSideChange,
       handleAlignNodes,

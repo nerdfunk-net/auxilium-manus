@@ -22,6 +22,7 @@ interface MultiSelectPanelProps {
   onAutoLayoutDirectionChange: (direction: AutoLayoutDirection) => void;
   onAutoLayoutNodes?: (nodeIds: string[]) => void;
   onDeleteNodes?: (nodeIds: string[]) => void;
+  onNodesDisabledChange?: (nodeIds: string[], disabled: boolean) => void;
   onGroupSelectedSteps?: (nodeIds: string[]) => void;
 }
 
@@ -37,6 +38,7 @@ export function MultiSelectPanel({
   onAutoLayoutDirectionChange,
   onAutoLayoutNodes,
   onDeleteNodes,
+  onNodesDisabledChange,
   onGroupSelectedSteps,
 }: MultiSelectPanelProps) {
   const nodeIds = nodes.map((node) => node.id);
@@ -59,6 +61,7 @@ export function MultiSelectPanel({
         onAutoLayoutDirectionChange={onAutoLayoutDirectionChange}
         onAutoLayout={() => onAutoLayoutNodes?.(nodeIds)}
         onDelete={() => onDeleteNodes?.(nodeIds)}
+        onSetDisabled={(disabled) => onNodesDisabledChange?.(nodeIds, disabled)}
         onGroup={() => onGroupSelectedSteps?.(nodeIds)}
       />
       {canMove ? (

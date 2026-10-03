@@ -61,6 +61,7 @@ interface WorkflowPropertiesPanelProps {
   onDuplicateNode?: (nodeId: string) => void;
   onNodeTitleChange?: (nodeId: string, title: string) => void;
   onNodeDisabledChange?: (nodeId: string, disabled: boolean) => void;
+  onNodesDisabledChange?: (nodeIds: string[], disabled: boolean) => void;
   onGroupSelectedSteps?: (nodeIds: string[]) => void;
   onRenameGroup?: (groupId: string, title: string) => void;
   onUngroupGroup?: (groupId: string) => void;
@@ -96,6 +97,7 @@ export function WorkflowPropertiesPanel({
   onDuplicateNode,
   onNodeTitleChange,
   onNodeDisabledChange,
+  onNodesDisabledChange,
   onGroupSelectedSteps,
   onRenameGroup,
   onUngroupGroup,
@@ -243,6 +245,7 @@ export function WorkflowPropertiesPanel({
               onAutoLayoutDirectionChange={onAutoLayoutDirectionChange}
               onAutoLayoutNodes={onAutoLayoutNodes}
               onDeleteNodes={onDeleteNodes}
+              onNodesDisabledChange={onNodesDisabledChange}
               onGroupSelectedSteps={onGroupSelectedSteps}
             />
           ) : singleNode ? (

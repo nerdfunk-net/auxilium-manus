@@ -11,6 +11,7 @@ from models.sources_nautobot import NautobotSourceRef
 from services.auth.login_rate_limiter import LoginRateLimiter
 from services.batfish.preview_service import BatfishPreviewService
 from services.batfish.source_config_service import BatfishSourceConfigService
+from services.catalyst_center.source_config_service import CatalystCenterSourceConfigService
 from services.ise.source_config_service import ISESourceConfigService
 from services.mattermost.source_config_service import MattermostSourceConfigService
 from services.nautobot.credentials import NautobotCredentials
@@ -29,6 +30,12 @@ def get_ise_source_config_service(
     db: Session = Depends(get_db),
 ) -> ISESourceConfigService:
     return service_factory.build_ise_source_config_service(db)
+
+
+def get_catalyst_center_source_config_service(
+    db: Session = Depends(get_db),
+) -> CatalystCenterSourceConfigService:
+    return service_factory.build_catalyst_center_source_config_service(db)
 
 
 def get_pyats_source_config_service(

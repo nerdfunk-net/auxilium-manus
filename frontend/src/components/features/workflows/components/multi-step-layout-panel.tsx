@@ -9,6 +9,8 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalDistributeCenter,
+  Ban,
+  CircleCheck,
   Group,
   MoveHorizontal,
   MoveVertical,
@@ -32,6 +34,7 @@ interface MultiStepLayoutPanelProps {
   onAutoLayoutDirectionChange: (direction: AutoLayoutDirection) => void;
   onAutoLayout: () => void;
   onDelete: () => void;
+  onSetDisabled?: (disabled: boolean) => void;
   onGroup?: () => void;
 }
 
@@ -85,6 +88,7 @@ export function MultiStepLayoutPanel({
   onAutoLayoutDirectionChange,
   onAutoLayout,
   onDelete,
+  onSetDisabled,
   onGroup,
 }: MultiStepLayoutPanelProps) {
   const canDistribute = nodes.length >= 3;
@@ -191,6 +195,36 @@ export function MultiStepLayoutPanel({
         <Sparkles className="size-3.5" aria-hidden />
         {isAutoLayoutRunning ? "Laying out…" : "Tidy this branch"}
       </Button>
+
+      {onSetDisabled ? (
+        <>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
+            Status
+          </p>
+          <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+            <Button
+              className="h-8 gap-1 px-1.5 text-[11px]"
+              onClick={() => onSetDisabled(true)}
+              size="sm"
+              title="Disable selected steps"
+              variant="outline"
+            >
+              <Ban className="size-3 shrink-0" aria-hidden />
+              Disable
+            </Button>
+            <Button
+              className="h-8 gap-1 px-1.5 text-[11px]"
+              onClick={() => onSetDisabled(false)}
+              size="sm"
+              title="Enable selected steps"
+              variant="outline"
+            >
+              <CircleCheck className="size-3 shrink-0" aria-hidden />
+              Enable
+            </Button>
+          </div>
+        </>
+      ) : null}
 
       {canGroup ? (
         <Button

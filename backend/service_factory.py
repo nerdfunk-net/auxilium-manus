@@ -23,6 +23,11 @@ from services.batfish.client import BatfishService
 from services.batfish.preview_service import BatfishPreviewService
 from services.batfish.source_config_service import BatfishSourceConfigService
 from services.cache.redis_cache_service import RedisCacheService
+from services.catalyst_center.client import CatalystCenterService
+from services.catalyst_center.command_service import CatalystCenterCommandService
+from services.catalyst_center.credentials import CatalystCenterCredentials
+from services.catalyst_center.device_service import CatalystCenterDeviceService
+from services.catalyst_center.source_config_service import CatalystCenterSourceConfigService
 from services.ise.client import ISEService
 from services.ise.credentials import ISECredentials
 from services.ise.network_device_group_service import ISENetworkDeviceGroupService
@@ -41,6 +46,7 @@ from services.sources.nautobot.source_service import NautobotSourceService
 _cache_service: RedisCacheService | None = None
 _nautobot_service: NautobotService | None = None
 _ise_service: ISEService | None = None
+_catalyst_center_service: CatalystCenterService | None = None
 _pyats_service: PyATSShimService | None = None
 _batfish_service: BatfishService | None = None
 _mattermost_service: MattermostService | None = None
@@ -83,6 +89,33 @@ def set_ise_app_service(service: ISEService) -> None:
 
 def build_ise_source_config_service(db: Session) -> ISESourceConfigService:
     return ISESourceConfigService(db)
+
+
+def get_catalyst_center_app_service() -> CatalystCenterService:
+    if _catalyst_center_service is None:
+        raise RuntimeError("CatalystCenterService is not initialized")
+    return _catalyst_center_service
+
+
+def set_catalyst_center_app_service(service: CatalystCenterService) -> None:
+    global _catalyst_center_service
+    _catalyst_center_service = service
+
+
+def build_catalyst_center_source_config_service(db: Session) -> CatalystCenterSourceConfigService:
+    return CatalystCenterSourceConfigService(db)
+
+
+def build_catalyst_center_device_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterDeviceService:
+    return CatalystCenterDeviceService(get_catalyst_center_app_service(), credentials)
+
+
+def build_catalyst_center_command_service(
+    credentials: CatalystCenterCredentials,
+) -> CatalystCenterCommandService:
+    return CatalystCenterCommandService(get_catalyst_center_app_service(), credentials)
 
 
 def get_pyats_app_service() -> PyATSShimService:

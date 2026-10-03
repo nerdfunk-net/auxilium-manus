@@ -14,16 +14,22 @@ from core.auth import get_current_user, verify_token
 from core.database import get_db
 from core.models.users import User
 from dependencies import (
+    get_catalyst_center_source_config_service,
     get_ise_source_config_service,
     get_mattermost_source_config_service,
     get_pyats_source_config_service,
 )
+from routers.sources.catalyst_center import crud as cc_crud
 from routers.sources.ise import crud as ise_crud
 from routers.sources.mattermost import crud as mm_crud
 from routers.sources.mattermost import ops as mm_ops
 from routers.sources.pyats import crud as pyats_crud
 from routers.sources.pyats import ops as pyats_ops
 from services.auth.rbac_service import RBACService
+from services.catalyst_center.source_config_service import (
+    CatalystCenterSourceConflictError,
+    CatalystCenterSourceNotFoundError,
+)
 from services.credentials.source_credentials import SourceCredentialError
 from services.ise.source_config_service import (
     ISESourceConflictError,
@@ -50,6 +56,15 @@ _RESPONSE = {
 _CREATE_BODY = {"source_id": "s1", "url": "https://x", "credential_id": 5}
 
 _VARIANTS = {
+    "catalyst_center": {
+        "module": cc_crud,
+        "ops_module": None,
+        "dep": get_catalyst_center_source_config_service,
+        "prefix": "/sources/catalyst_center",
+        "not_found": CatalystCenterSourceNotFoundError,
+        "conflict": CatalystCenterSourceConflictError,
+        "create_body": _CREATE_BODY,
+    },
     "ise": {
         "module": ise_crud,
         "ops_module": None,
