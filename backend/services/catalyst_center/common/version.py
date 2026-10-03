@@ -15,6 +15,9 @@ from services.catalyst_center.common.exceptions import CatalystCenterValidationE
 
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?")
 _FILTERED_COUNT_SINCE = (2, 3, 7, 0)
+# Real product releases look like 2.3.7.9 / 3.1.6. Some controllers report an internal
+# platform build (e.g. "3.722.75335") in the same field; reject those instead of guessing.
+_MAX_COMPONENT = 99
 
 
 @dataclass(frozen=True, order=False)
@@ -46,21 +49,35 @@ def parse_release(raw: Any) -> CatalystCenterRelease:
     match = _VERSION_RE.match(text)
     if match is None:
         raise CatalystCenterValidationError("Unrecognised Catalyst Center release string")
-    major, minor, patch, build = match.groups()
-    return CatalystCenterRelease(int(major), int(minor), int(patch), int(build or 0), raw=text)
+    major, minor, patch, build = (int(part or 0) for part in match.groups())
+    if max(major, minor, patch, build) > _MAX_COMPONENT:
+        raise CatalystCenterValidationError("Not a Catalyst Center product release string")
+    return CatalystCenterRelease(major, minor, patch, build, raw=text)
 
 
 def release_from_payload(payload: Any) -> CatalystCenterRelease:
     """Extract the release from a ``GET /dnac-release`` response body.
 
-    Field names are tolerant (``installedVersion`` then ``version``) because the exact
-    shape has not yet been verified against a live controller.
+    Raises when the controller reports no version, or reports something that is not a
+    product release (the DevNet sandbox returns the platform build ``3.722.75335``).
+    """
+    label = installed_version_label(payload)
+    if label is None:
+        raise CatalystCenterValidationError("Catalyst Center release response has no version")
+    return parse_release(label)
+
+
+def installed_version_label(payload: Any) -> str | None:
+    """The version string a controller reports in ``GET /dnac-release``, verbatim.
+
+    Display only: it may be a product release (2.3.7.9) or an internal platform build
+    (observed live: ``3.722.75335``); use :func:`release_from_payload` for gating.
     """
     body = payload.get("response") if isinstance(payload, dict) else None
     if not isinstance(body, dict):
-        raise CatalystCenterValidationError("Catalyst Center release response has no body")
+        return None
     for key in ("installedVersion", "version"):
         value = body.get(key)
         if isinstance(value, str) and value.strip():
-            return parse_release(value)
-    raise CatalystCenterValidationError("Catalyst Center release response has no version")
+            return value.strip()
+    return None

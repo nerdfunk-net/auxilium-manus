@@ -29,3 +29,13 @@ class CatalystCenterNotFoundError(CatalystCenterAPIError):
 
 class CatalystCenterTaskError(CatalystCenterAPIError):
     """An asynchronous Catalyst Center task failed or did not finish in time."""
+
+
+class CatalystCenterTooManyDevicesError(CatalystCenterValidationError):
+    """A device search matched more devices than the configured cap allows."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(
+            f"Matched more than {limit} devices; narrow the filters or raise max_devices"
+        )
+        self.limit = limit

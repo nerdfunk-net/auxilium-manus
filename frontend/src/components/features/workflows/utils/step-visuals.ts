@@ -40,6 +40,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Signpost,
+  Server,
   Shapes,
   Square,
   Table2,
@@ -142,6 +143,8 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   background: Square,
   funnel: Funnel,
   "step-group": FolderOpen,
+  // palette_category: cisco disables the artifact_type icon fallback, so each cisco step needs one.
+  "get-catalyst-center-devices": Server,
   "get-ise-devices": ShieldCheck,
   "get-ise-tacacs-key": Key,
   reachable: Wifi,

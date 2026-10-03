@@ -189,9 +189,9 @@ async def test_connection(
     credentials = _resolve_test_credentials(request, config)
     device_service = service_factory.build_catalyst_center_device_service(credentials)
     try:
-        release = await device_service.test_connection()
+        version = await device_service.test_connection()
         return CatalystCenterTestConnectionResponse(
-            success=True, message="Connection successful", release=release.raw
+            success=True, message="Connection successful", release=version
         )
     except CatalystCenterValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

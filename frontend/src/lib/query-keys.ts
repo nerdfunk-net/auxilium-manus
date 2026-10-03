@@ -122,6 +122,10 @@ export const queryKeys = {
     networkDeviceGroups: (sourceId: string) =>
       [...queryKeys.sourcesIse.all, "network-device-groups", sourceId] as const,
   },
+  sourcesCatalystCenter: {
+    all: ["sources-catalyst-center"] as const,
+    list: () => [...queryKeys.sourcesCatalystCenter.all, "list"] as const,
+  },
   sourcesPyats: {
     all: ["sources-pyats"] as const,
     list: () => [...queryKeys.sourcesPyats.all, "list"] as const,

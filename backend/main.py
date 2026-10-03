@@ -41,7 +41,10 @@ from routers.sources.batfish import (
     batfish_source_ops_router,
     batfish_source_query_router,
 )
-from routers.sources.catalyst_center import catalyst_center_source_crud_router
+from routers.sources.catalyst_center import (
+    catalyst_center_source_crud_router,
+    catalyst_center_source_ops_router,
+)
 from routers.sources.ise import ise_source_crud_router, ise_source_ops_router
 from routers.sources.mattermost import (
     mattermost_source_crud_router,
@@ -179,6 +182,7 @@ app.include_router(nautobot_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_crud_router, prefix=settings.api_prefix)
 app.include_router(ise_source_ops_router, prefix=settings.api_prefix)
 app.include_router(catalyst_center_source_crud_router, prefix=settings.api_prefix)
+app.include_router(catalyst_center_source_ops_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_crud_router, prefix=settings.api_prefix)
 app.include_router(pyats_source_ops_router, prefix=settings.api_prefix)
 app.include_router(batfish_source_crud_router, prefix=settings.api_prefix)

@@ -7,6 +7,7 @@ import pytest
 from services.catalyst_center.common.exceptions import CatalystCenterValidationError
 from services.catalyst_center.common.version import (
     CatalystCenterRelease,
+    installed_version_label,
     parse_release,
     release_from_payload,
 )
@@ -29,7 +30,7 @@ class TestParseRelease:
         assert release.as_tuple() == expected
         assert release.raw == raw.strip()
 
-    @pytest.mark.parametrize("raw", ["", "abc", "2.3", "v2", None])
+    @pytest.mark.parametrize("raw", ["", "abc", "2.3", "v2", None, "3.722.75335", "2.722.1095263"])
     def test_rejects_unparseable(self, raw):
         with pytest.raises(CatalystCenterValidationError):
             parse_release(raw)
@@ -65,3 +66,30 @@ class TestReleaseFromPayload:
     def test_missing_version_raises(self, payload):
         with pytest.raises(CatalystCenterValidationError):
             release_from_payload(payload)
+
+
+# Captured from the live DevNet sandbox (sandboxdnac2): ``installedVersion`` is the platform
+# build, NOT a product release such as 2.3.7.x.
+SANDBOX_RELEASE_PAYLOAD = {
+    "version": "2.0",
+    "response": {
+        "name": "uber-dnac",
+        "displayName": "Cisco Catalyst Center",
+        "installedVersion": "3.722.75335",
+        "systemVersion": "2.7.72",
+        "packages": ["sda:2.722.65411"],
+    },
+}
+
+
+class TestSandboxReleasePayload:
+    def test_platform_build_is_not_mistaken_for_a_release(self):
+        with pytest.raises(CatalystCenterValidationError):
+            release_from_payload(SANDBOX_RELEASE_PAYLOAD)
+
+    def test_label_reports_the_controller_string_verbatim(self):
+        assert installed_version_label(SANDBOX_RELEASE_PAYLOAD) == "3.722.75335"
+
+    @pytest.mark.parametrize("payload", [{}, {"response": {}}, {"response": "x"}, [], None])
+    def test_label_is_none_without_a_version(self, payload):
+        assert installed_version_label(payload) is None

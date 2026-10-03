@@ -105,7 +105,55 @@ Result for the same endpoint families (`/network-device*`, `/task*`, `/tasks*`, 
 Conclusion: 2.3.3.x, 2.3.7.x and 3.1/3.2 share one endpoint set for our scope. Response bodies and
 3.3.1 remain unverified.
 
-## Open items (verify when a sandbox exists)
+## Live verification: DevNet sandbox (2026-10-03)
+
+Run against `https://sandboxdnac2.cisco.com` with the real `services/catalyst_center` code
+(read-only calls only). Confirmed working end to end:
+`auth/token`, `dnac-release`, `network-device` (list + `count` + `{id}` + `ip-address/{ip}`),
+`network-device/{id}/config` (returns a text body), and the command runner
+(`read-request` -> `task/{id}` with `progress` carrying `{"fileId": ...}` -> `file/{fileId}`).
+The sandbox has 4 virtual IOS-XE switches. Device payload fields matched the parser as written.
+
+Findings that changed the code:
+- **`dnac-release` does not report a product release here.** `installedVersion` was `3.722.75335`
+  (a platform build; `systemVersion` `2.7.72`, packages `2.722.x`). The earlier parser accepted it as
+  release 3.722.75335. Now rejected as implausible (component > 99); an unknown release means "no optional
+  capabilities" (filtered device count falls back to listing, which works everywhere). The controller-reported
+  string is shown in test-connection as "reported version". We could not confirm from the API whether this
+  sandbox is 2.3.7.x.
+- **TLS verification fails against the sandbox** (self-signed); it works with `verify_ssl=false`.
+  The source dialog's "Verify TLS certificate" toggle covers this.
+- **Command output is raw terminal text**: it includes the echoed command and the trailing prompt
+  (e.g. `show clock\n*15:22:13.553 UTC ...\nsw1#`). Steps that parse output should strip those.
+- The filtered `network-device/count` was not exercised (release unknown -> fallback path used).
+
+## Device-list filter semantics (verified live, 2026-10-03)
+
+`GET /dna/intent/api/v1/network-device` on the DevNet sandbox. These shape the
+`get-catalyst-center-devices` step (`services/catalyst_center/device_filters.py`):
+
+- Filters: `hostname`, `managementIpAddress`, `macAddress`, `serialNumber`, `platformId`, `family`, `series`, `type`,
+  `role`, `softwareType`, `softwareVersion`, `reachabilityStatus`, `collectionStatus`, `id` (comma list),
+  `offset` (1-based) / `limit` (<= 500). Different filters combine with AND.
+- **Case-sensitive, full-string match** (`sw` finds nothing, `sw.*` finds `sw1`..`sw4`, `SW1` does not match `sw1`).
+- **`.*` is the only wildcard.** `.` (single char), `|`, `[..]`, `\d`, `?`, `+`, `^`, `$`, `(?i)` all match nothing;
+  a `.` is literal (`10.10.20.17.*` works because the first dot is a literal dot).
+- **A repeated query parameter is OR** (`hostname=sw1&hostname=sw2`); comma lists only work for `id`.
+  Multiple filter kinds with lists combine as AND-of-ORs (confirmed: hostnames [sw1, sw2] AND roles [ACCESS, CORE] -> 2,
+  AND roles [CORE] -> 0).
+- **No CIDR filter.** The step prefilters on the whole octets shared by the CIDR's first/last address
+  (`10.10.20.0/24` -> `10.10.20..*`; a /32 -> the exact IP) and checks exact membership client-side.
+- **No usable site filter**: `location` / `locationName` are deprecated and were empty for every sandbox device; the
+  sandbox has only the `Global` site. A site filter would need the site-membership endpoints (not built).
+- `GET /network-device/count` honoured `hostname`, `managementIpAddress` and also `role` on this controller.
+
+## Open items
+- Response bodies on 2.3.3.x (no sandbox for it) and on 3.3.1.
+- Whether the filtered `count` endpoint behaves as the SDK suggests on a controller that reports a product release.
+- Command-runner limits (commands/devices per request) - not stated in the docs.
+- Token lifetime and expiry behaviour (401 retry is implemented; lifetime assumed 60 min, refreshed at 50).
+
+## Earlier open items (superseded above)
 - Response body shapes for device list and task/file results on 2.3.3.6 vs 2.3.7.9.
 - Whether `location` / `locationName` are still populated on 2.3.7.9.
 - Exact token lifetime and behavior of `X-Auth-Token` expiry (401 vs other).

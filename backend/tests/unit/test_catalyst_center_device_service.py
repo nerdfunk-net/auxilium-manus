@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 from pydantic import ValidationError
 
 from services.catalyst_center.common.exceptions import (
+    CatalystCenterAuthError,
     CatalystCenterNotFoundError,
     CatalystCenterValidationError,
 )
@@ -220,8 +221,191 @@ class CountAndVersionTests(unittest.IsolatedAsyncioTestCase):
         await service.count_devices(hostname="b")
         client.get_release.assert_awaited_once()
 
-    async def test_test_connection_returns_release(self) -> None:
+    async def test_unknown_release_falls_back_to_listing(self) -> None:
         client = AsyncMock()
-        client.get_release.return_value = parse_release("3.1.6")
-        release = await _service(client).test_connection()
-        self.assertEqual(release.as_tuple(), (3, 1, 6, 0))
+        client.get_release.side_effect = CatalystCenterValidationError("no release")
+        client.request.return_value = {"response": [_raw(1), _raw(2), _raw(3)]}
+        count = await _service(client).count_devices(hostname="sw.*")
+        self.assertEqual(count, 3)
+        self.assertEqual(client.request.await_args.args[2], DEVICES)
+
+    async def test_unknown_release_is_looked_up_once(self) -> None:
+        client = AsyncMock()
+        client.get_release.side_effect = CatalystCenterValidationError("no release")
+        client.request.return_value = {"response": []}
+        service = _service(client)
+        await service.count_devices(hostname="a")
+        await service.count_devices(hostname="b")
+        client.get_release.assert_awaited_once()
+
+    async def test_test_connection_returns_reported_version_label(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": {"installedVersion": "3.722.75335"}}
+        label = await _service(client).test_connection()
+        self.assertEqual(label, "3.722.75335")
+        self.assertEqual(
+            client.request.await_args.args[1:3], ("GET", "/dna/intent/api/v1/dnac-release")
+        )
+
+    async def test_test_connection_without_version_returns_none(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": {}}
+        self.assertIsNone(await _service(client).test_connection())
+
+    async def test_test_connection_propagates_auth_failure(self) -> None:
+        client = AsyncMock()
+        client.request.side_effect = CatalystCenterAuthError("bad credentials")
+        with self.assertRaises(CatalystCenterAuthError):
+            await _service(client).test_connection()
+
+
+from services.catalyst_center.common.exceptions import (  # noqa: E402
+    CatalystCenterTooManyDevicesError,
+)
+from services.catalyst_center.device_filters import CatalystCenterDeviceFilters  # noqa: E402
+
+
+def _filters(**raw) -> CatalystCenterDeviceFilters:
+    return CatalystCenterDeviceFilters.from_config(raw)
+
+
+class ListFilterKwargTests(unittest.IsolatedAsyncioTestCase):
+    async def test_list_values_are_passed_as_repeated_params(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": []}
+        await _service(client).list_devices(hostname=["sw1", "sw2"])
+        self.assertEqual(client.request.await_args.kwargs["params"]["hostname"], ["sw1", "sw2"])
+
+    async def test_extra_filter_kinds_map_to_api_names(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": []}
+        await _service(client).list_devices(
+            platform_id="C9300",
+            series="S",
+            device_type="T",
+            software_version="17.9.*",
+            collection_status="Managed",
+        )
+        params = client.request.await_args.kwargs["params"]
+        self.assertEqual(params["platformId"], "C9300")
+        self.assertEqual(params["series"], "S")
+        self.assertEqual(params["type"], "T")
+        self.assertEqual(params["softwareVersion"], "17.9.*")
+        self.assertEqual(params["collectionStatus"], "Managed")
+
+
+class SearchDevicesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sends_filter_params_and_pagination(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": [_raw(1)]}
+        devices = await _service(client).search_devices(
+            _filters(hostnames=["sw1.*", "sw2.*"], roles=["ACCESS"])
+        )
+        self.assertEqual([d.id for d in devices], ["uuid-1"])
+        params = client.request.await_args.kwargs["params"]
+        self.assertEqual(params["hostname"], ["sw1.*", "sw2.*"])
+        self.assertEqual(params["role"], ["ACCESS"])
+        self.assertEqual(params["offset"], 1)
+        self.assertEqual(params["limit"], DEVICE_PAGE_SIZE)
+
+    async def test_empty_filters_list_everything(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": [_raw(1), _raw(2)]}
+        devices = await _service(client).search_devices(_filters())
+        self.assertEqual(len(devices), 2)
+        self.assertEqual(set(client.request.await_args.kwargs["params"]), {"offset", "limit"})
+
+    async def test_cidr_uses_prefix_prefilter_then_exact_client_check(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {
+            "response": [
+                _raw(1, managementIpAddress="10.10.20.176"),
+                _raw(2, managementIpAddress="10.10.20.177"),
+                _raw(3, managementIpAddress="10.10.20.178"),
+                _raw(4, managementIpAddress=None),
+            ]
+        }
+        devices = await _service(client).search_devices(_filters(cidr="10.10.20.176/31"))
+        self.assertEqual([d.id for d in devices], ["uuid-1", "uuid-2"])
+        self.assertEqual(
+            client.request.await_args.kwargs["params"]["managementIpAddress"], ["10.10.20..*"]
+        )
+
+    async def test_cidr_check_applies_across_pages(self) -> None:
+        full = [_raw(i, managementIpAddress="10.9.9.9") for i in range(DEVICE_PAGE_SIZE)]
+        client = AsyncMock()
+        client.request.side_effect = [
+            {"response": full},
+            {"response": [_raw(9001, managementIpAddress="10.10.20.5")]},
+        ]
+        devices = await _service(client).search_devices(_filters(cidr="10.10.20.0/24"))
+        self.assertEqual([d.id for d in devices], ["uuid-9001"])
+        self.assertEqual(client.request.await_count, 2)
+
+    async def test_max_devices_exactly_met_is_allowed(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": [_raw(1), _raw(2)]}
+        devices = await _service(client).search_devices(_filters(roles=["x"]), max_devices=2)
+        self.assertEqual(len(devices), 2)
+
+    async def test_max_devices_exceeded_raises_instead_of_truncating(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": [_raw(1), _raw(2), _raw(3)]}
+        with self.assertRaises(CatalystCenterTooManyDevicesError) as ctx:
+            await _service(client).search_devices(_filters(roles=["x"]), max_devices=2)
+        self.assertEqual(ctx.exception.limit, 2)
+        self.assertIn("2", str(ctx.exception))
+
+    async def test_too_many_is_a_validation_error(self) -> None:
+        self.assertTrue(
+            issubclass(CatalystCenterTooManyDevicesError, CatalystCenterValidationError)
+        )
+
+    async def test_stops_fetching_once_cap_is_exceeded(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": [_raw(i) for i in range(DEVICE_PAGE_SIZE)]}
+        with self.assertRaises(CatalystCenterTooManyDevicesError):
+            await _service(client).search_devices(_filters(roles=["x"]), max_devices=10)
+        self.assertEqual(client.request.await_count, 1)
+
+    async def test_invalid_max_devices_is_rejected(self) -> None:
+        client = AsyncMock()
+        for bad in (0, -1, True):
+            with self.assertRaises(CatalystCenterValidationError):
+                await _service(client).search_devices(_filters(), max_devices=bad)  # type: ignore[arg-type]
+        client.request.assert_not_called()
+
+
+class PreviewDevicesTests(unittest.IsolatedAsyncioTestCase):
+    async def test_truncated_when_more_than_limit(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": [_raw(i) for i in range(1, 6)]}
+        devices, truncated = await _service(client).preview_devices(_filters(roles=["x"]), limit=3)
+        self.assertEqual([d.id for d in devices], ["uuid-1", "uuid-2", "uuid-3"])
+        self.assertTrue(truncated)
+
+    async def test_not_truncated_at_or_below_limit(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {"response": [_raw(1), _raw(2), _raw(3)]}
+        devices, truncated = await _service(client).preview_devices(_filters(roles=["x"]), limit=3)
+        self.assertEqual(len(devices), 3)
+        self.assertFalse(truncated)
+
+    async def test_preview_applies_cidr_filter(self) -> None:
+        client = AsyncMock()
+        client.request.return_value = {
+            "response": [
+                _raw(1, managementIpAddress="10.10.20.5"),
+                _raw(2, managementIpAddress="10.10.99.5"),
+            ]
+        }
+        devices, truncated = await _service(client).preview_devices(
+            _filters(cidr="10.10.20.0/24"), limit=5
+        )
+        self.assertEqual([d.id for d in devices], ["uuid-1"])
+        self.assertFalse(truncated)
+
+    async def test_invalid_limit_rejected(self) -> None:
+        client = AsyncMock()
+        with self.assertRaises(CatalystCenterValidationError):
+            await _service(client).preview_devices(_filters(), limit=0)

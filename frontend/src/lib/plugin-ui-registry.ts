@@ -33,6 +33,7 @@ import { GetFromListPlugin } from "@/components/features/workflow-steps/get-from
 import { GetFromUserPlugin } from "@/components/features/workflow-steps/get-from-user";
 import { GetFromConfigPlugin } from "@/components/features/workflow-steps/get-from-config";
 import { GetGitDevicesPlugin } from "@/components/features/workflow-steps/get-git-devices";
+import { GetCatalystCenterDevicesPlugin } from "@/components/features/workflow-steps/get-catalyst-center-devices";
 import { GetIseDevicesPlugin } from "@/components/features/workflow-steps/get-ise-devices";
 import { GetIseTacacsKeyPlugin } from "@/components/features/workflow-steps/get-ise-tacacs-key";
 import { GitClonePlugin } from "@/components/features/workflow-steps/git-clone";
@@ -86,6 +87,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "get-from-config": GetFromConfigPlugin,
   "get-git-devices": GetGitDevicesPlugin,
   "from-change-request": FromChangeRequestPlugin,
+  "get-catalyst-center-devices": GetCatalystCenterDevicesPlugin,
   "get-ise-devices": GetIseDevicesPlugin,
   "get-ise-tacacs-key": GetIseTacacsKeyPlugin,
   "get-nautobot-attributes": GetNautobotAttributesPlugin,

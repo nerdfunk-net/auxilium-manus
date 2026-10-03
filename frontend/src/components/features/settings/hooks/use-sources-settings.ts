@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { useBatfishSourcesQuery } from "@/hooks/queries/use-batfish-sources-query";
+import { useCatalystCenterSourcesQuery } from "@/hooks/queries/use-catalyst-center-sources-query";
 import { useISESourcesQuery } from "@/hooks/queries/use-ise-sources-query";
 import { useMattermostSourcesQuery } from "@/hooks/queries/use-mattermost-sources-query";
 import { usePyATSSourcesQuery } from "@/hooks/queries/use-pyats-sources-query";
@@ -34,6 +35,21 @@ export function useSourcesSettings() {
     [ise],
   );
   const existingIseIds = useMemo(() => ise.map((item) => item.source_id), [ise]);
+
+  const { data: catalystCenterData, isLoading: isCatalystCenterLoading } =
+    useCatalystCenterSourcesQuery();
+  const catalystCenter = useMemo(
+    () => catalystCenterData?.sources ?? [],
+    [catalystCenterData],
+  );
+  const catalystCenterById = useMemo(
+    () => new Map(catalystCenter.map((item) => [item.source_id, item])),
+    [catalystCenter],
+  );
+  const existingCatalystCenterIds = useMemo(
+    () => catalystCenter.map((item) => item.source_id),
+    [catalystCenter],
+  );
 
   const { data: pyatsData, isLoading: isPyatsLoading } = usePyATSSourcesQuery();
   const pyats = useMemo(() => pyatsData?.sources ?? [], [pyatsData]);
@@ -96,6 +112,8 @@ export function useSourcesSettings() {
 
   const nautobotDialogOpen = dialog.type === "nautobot" ? dialog : null;
   const iseDialogOpen = dialog.type === "ise" ? dialog : null;
+  const catalystCenterDialogOpen =
+    dialog.type === "catalyst_center" ? dialog : null;
   const pyatsDialogOpen = dialog.type === "pyats" ? dialog : null;
   const mattermostDialogOpen = dialog.type === "mattermost" ? dialog : null;
   const batfishDialogOpen = dialog.type === "batfish" ? dialog : null;
@@ -121,6 +139,26 @@ export function useSourcesSettings() {
       credentialId: editingIse.credential_id,
     };
   }, [iseDialogOpen, iseById]);
+  const editingCatalystCenterValue = useMemo(() => {
+    if (
+      catalystCenterDialogOpen?.mode !== "edit" ||
+      !catalystCenterDialogOpen.sourceId
+    ) {
+      return null;
+    }
+    const editing =
+      catalystCenterById.get(catalystCenterDialogOpen.sourceId) ?? null;
+    if (!editing) {
+      return null;
+    }
+    return {
+      sourceId: editing.source_id,
+      url: editing.url,
+      verifySsl: editing.verify_ssl,
+      timeout: editing.timeout,
+      credentialId: editing.credential_id,
+    };
+  }, [catalystCenterDialogOpen, catalystCenterById]);
   const editingPyatsValue = useMemo(() => {
     if (pyatsDialogOpen?.mode !== "edit" || !pyatsDialogOpen.sourceId) {
       return null;
@@ -171,7 +209,9 @@ export function useSourcesSettings() {
   const isDeletePending =
     deleteDialogOpen?.sourceType === "ise"
       ? saveHandlers.deleteIseSourceIsPending
-      : deleteDialogOpen?.sourceType === "pyats"
+      : deleteDialogOpen?.sourceType === "catalyst_center"
+        ? saveHandlers.deleteCatalystCenterSourceIsPending
+        : deleteDialogOpen?.sourceType === "pyats"
         ? saveHandlers.deletePyatsSourceIsPending
         : deleteDialogOpen?.sourceType === "mattermost"
           ? saveHandlers.deleteMattermostSourceIsPending
@@ -186,21 +226,26 @@ export function useSourcesSettings() {
       isLoading,
       nautobot,
       ise,
+      catalystCenter,
       pyats,
       mattermost,
       batfish,
       isIseLoading,
+      isCatalystCenterLoading,
       isPyatsLoading,
       isMattermostLoading,
       isBatfishLoading,
       existingNautobotIds,
       existingIseIds,
+      existingCatalystCenterIds,
       existingPyatsIds,
       existingMattermostIds,
       existingBatfishIds,
       saveNautobot: saveHandlers.saveNautobot,
       saveIse: saveHandlers.saveIse,
       updateIse: saveHandlers.updateIse,
+      saveCatalystCenter: saveHandlers.saveCatalystCenter,
+      updateCatalystCenter: saveHandlers.updateCatalystCenter,
       savePyats: saveHandlers.savePyats,
       updatePyats: saveHandlers.updatePyats,
       saveMattermost: saveHandlers.saveMattermost,
@@ -210,12 +255,14 @@ export function useSourcesSettings() {
       confirmDelete: saveHandlers.confirmDelete,
       nautobotDialogOpen,
       iseDialogOpen,
+      catalystCenterDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
       batfishDialogOpen,
       deleteDialogOpen,
       editingNautobot,
       editingIseValue,
+      editingCatalystCenterValue,
       editingPyatsValue,
       editingMattermostValue,
       editingBatfishValue,
@@ -223,6 +270,10 @@ export function useSourcesSettings() {
       upsertSettingIsPending: saveHandlers.upsertSettingIsPending,
       createIseSourceIsPending: saveHandlers.createIseSourceIsPending,
       updateIseSourceIsPending: saveHandlers.updateIseSourceIsPending,
+      createCatalystCenterSourceIsPending:
+        saveHandlers.createCatalystCenterSourceIsPending,
+      updateCatalystCenterSourceIsPending:
+        saveHandlers.updateCatalystCenterSourceIsPending,
       createPyatsSourceIsPending: saveHandlers.createPyatsSourceIsPending,
       updatePyatsSourceIsPending: saveHandlers.updatePyatsSourceIsPending,
       createMattermostSourceIsPending: saveHandlers.createMattermostSourceIsPending,
@@ -235,27 +286,32 @@ export function useSourcesSettings() {
       isLoading,
       nautobot,
       ise,
+      catalystCenter,
       pyats,
       mattermost,
       batfish,
       isIseLoading,
+      isCatalystCenterLoading,
       isPyatsLoading,
       isMattermostLoading,
       isBatfishLoading,
       existingNautobotIds,
       existingIseIds,
+      existingCatalystCenterIds,
       existingPyatsIds,
       existingMattermostIds,
       existingBatfishIds,
       saveHandlers,
       nautobotDialogOpen,
       iseDialogOpen,
+      catalystCenterDialogOpen,
       pyatsDialogOpen,
       mattermostDialogOpen,
       batfishDialogOpen,
       deleteDialogOpen,
       editingNautobot,
       editingIseValue,
+      editingCatalystCenterValue,
       editingPyatsValue,
       editingMattermostValue,
       editingBatfishValue,

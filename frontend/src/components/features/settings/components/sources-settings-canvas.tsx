@@ -1,6 +1,13 @@
 "use client";
 
-import { FlaskConical, MessageSquare, Network, Radar, ShieldCheck } from "lucide-react";
+import {
+  FlaskConical,
+  MessageSquare,
+  Network,
+  Radar,
+  Server,
+  ShieldCheck,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +21,7 @@ import {
 
 import { buildSourceSettingKey } from "../constants/setting-keys";
 import { BatfishSourceDialog } from "../dialogs/batfish-source-dialog";
+import { CatalystCenterSourceDialog } from "../dialogs/catalyst-center-source-dialog";
 import { ISESourceDialog } from "../dialogs/ise-source-dialog";
 import { MattermostSourceDialog } from "../dialogs/mattermost-source-dialog";
 import { NautobotSourceDialog } from "../dialogs/nautobot-source-dialog";
@@ -35,7 +43,8 @@ export function SourcesSettingsCanvas() {
             <div>
               <p className="text-sm font-semibold">Sources</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add multiple Nautobot, Cisco ISE, and pyATS connections. Each
+                Add multiple Nautobot, Cisco ISE, Cisco Catalyst Center, and pyATS
+                connections. Each
                 instance needs a unique source ID for workflow step references
                 (e.g.{" "}
                 <code className="rounded bg-muted px-1 text-xs">prod-lab</code>
@@ -55,8 +64,9 @@ export function SourcesSettingsCanvas() {
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 sources.nautobot.&lt;id&gt;
               </code>
-              . Cisco ISE connections are stored the same way, with the
-              password kept in the encrypted credentials store.
+              . Cisco ISE and Cisco Catalyst Center connections are stored the
+              same way, with the password kept in the encrypted credentials
+              store.
             </p>
 
             <SourceListSection
@@ -107,6 +117,38 @@ export function SourcesSettingsCanvas() {
                 sources.setDialog({
                   type: "delete",
                   sourceType: "ise",
+                  sourceId,
+                  key: "",
+                })
+              }
+            />
+
+            <SourceListSection
+              title="Cisco Catalyst Center"
+              description="Network controller device inventory and command runner"
+              icon={Server}
+              isLoading={sources.isCatalystCenterLoading}
+              emptyLabel="No Cisco Catalyst Center sources yet."
+              addLabel="Add Cisco Catalyst Center"
+              items={sources.catalystCenter.map((item) => ({
+                sourceId: item.source_id,
+                summary: item.url,
+                detail: item.verify_ssl ? undefined : "TLS verification disabled",
+              }))}
+              onAdd={() =>
+                sources.setDialog({ type: "catalyst_center", mode: "create" })
+              }
+              onEdit={(sourceId) =>
+                sources.setDialog({
+                  type: "catalyst_center",
+                  mode: "edit",
+                  sourceId,
+                })
+              }
+              onDelete={(sourceId) =>
+                sources.setDialog({
+                  type: "delete",
+                  sourceType: "catalyst_center",
                   sourceId,
                   key: "",
                 })
@@ -212,6 +254,20 @@ export function SourcesSettingsCanvas() {
         onClose={() => sources.setDialog({ type: "closed" })}
         onCreate={sources.saveIse}
         onUpdate={sources.updateIse}
+      />
+
+      <CatalystCenterSourceDialog
+        open={sources.catalystCenterDialogOpen !== null}
+        mode={sources.catalystCenterDialogOpen?.mode ?? "create"}
+        initialValue={sources.editingCatalystCenterValue}
+        existingSourceIds={sources.existingCatalystCenterIds}
+        isSaving={
+          sources.createCatalystCenterSourceIsPending ||
+          sources.updateCatalystCenterSourceIsPending
+        }
+        onClose={() => sources.setDialog({ type: "closed" })}
+        onCreate={sources.saveCatalystCenter}
+        onUpdate={sources.updateCatalystCenter}
       />
 
       <PyATSSourceDialog

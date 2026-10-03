@@ -24,7 +24,6 @@ from services.catalyst_center.common.exceptions import (
     CatalystCenterAuthError,
     CatalystCenterValidationError,
 )
-from services.catalyst_center.common.version import parse_release
 from services.catalyst_center.credentials import CatalystCenterCredentials
 
 CREDS = CatalystCenterCredentials("https://10.10.20.85", "admin", "pw")
@@ -47,7 +46,7 @@ def harness(monkeypatch):
     app.dependency_overrides[get_catalyst_center_source_config_service] = lambda: config
 
     device_service = MagicMock()
-    device_service.test_connection = AsyncMock(return_value=parse_release("2.3.7.9-70050"))
+    device_service.test_connection = AsyncMock(return_value="2.3.7.9-70050")
     monkeypatch.setattr(
         crud.service_factory, "build_catalyst_center_device_service", lambda creds: device_service
     )
@@ -65,6 +64,14 @@ def test_saved_source_success_returns_release(harness):
         "release": "2.3.7.9-70050",
     }
     config.resolve_credentials.assert_called_once_with("lab")
+
+
+def test_missing_version_label_is_returned_as_null(harness):
+    client, _, device_service = harness
+    device_service.test_connection.return_value = None
+    body = client.post(URL, json={"source_id": "lab"}).json()
+    assert body["success"] is True
+    assert body["release"] is None
 
 
 def test_inline_values_use_inline_resolver(harness):

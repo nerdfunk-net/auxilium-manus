@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from models.catalyst_center import CatalystCenterDevice
 from models.sources_nautobot import DeviceInfo
 from models.workflow_context import Capability, DeviceContext, DeviceStatus, bare_hostname
 from services.workflow_context.secret_fields import seal_secret
@@ -29,6 +30,45 @@ def device_context_from_nautobot(
         primary_ip4=device.primary_ip4,
         source="nautobot",
         source_id=source_id,
+        capabilities={Capability.IDENTITY},
+        status=DeviceStatus.OK,
+    )
+
+
+# Catalyst Center ``softwareType`` -> workflow ``network_driver`` (values understood by
+# services/network/netmiko/platform.py). Unknown types leave the driver unset so SSH steps
+# fall back to their own default / override instead of guessing.
+_CATALYST_CENTER_DRIVERS: dict[str, str] = {
+    "ios-xe": "cisco_xe",
+    "ios-xr": "cisco_xr",
+    "nx-os": "cisco_nxos",
+    "ios": "cisco_ios",
+}
+
+
+def device_context_from_catalyst_center(
+    device: CatalystCenterDevice,
+    *,
+    source_id: str,
+) -> DeviceContext:
+    """Build a DeviceContext from a normalized Cisco Catalyst Center device.
+
+    The full raw inventory record is kept (copied) in ``attribute_bags["catalyst_center"]``
+    for downstream steps; the controller's device-list payload carries no secrets.
+    """
+    name = device.hostname or device.management_ip or device.id
+    driver = _CATALYST_CENTER_DRIVERS.get((device.software_type or "").strip().lower())
+
+    return DeviceContext(
+        id=device.id,
+        name=name,
+        hostname=bare_hostname(device.management_ip, name),
+        platform=device.software_type,
+        network_driver=driver,
+        primary_ip4=device.management_ip,
+        source="catalyst_center",
+        source_id=source_id,
+        attribute_bags={"catalyst_center": dict(device.raw)},
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )

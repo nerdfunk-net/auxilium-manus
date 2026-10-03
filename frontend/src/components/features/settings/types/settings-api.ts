@@ -72,6 +72,41 @@ export interface ISETestConnectionResponse {
   message: string;
 }
 
+export interface CatalystCenterSourceResponse {
+  source_id: string;
+  url: string;
+  verify_ssl: boolean;
+  timeout: number;
+  credential_id: number | null;
+  credential_name: string | null;
+}
+
+export interface CatalystCenterSourceListResponse {
+  sources: CatalystCenterSourceResponse[];
+  total: number;
+}
+
+export interface CatalystCenterSourceCreatePayload {
+  source_id: string;
+  url: string;
+  credential_id: number;
+  verify_ssl: boolean;
+  timeout: number;
+}
+
+export interface CatalystCenterSourceUpdatePayload {
+  url?: string;
+  credential_id?: number;
+  verify_ssl?: boolean;
+  timeout?: number;
+}
+
+export interface CatalystCenterTestConnectionResponse {
+  success: boolean;
+  message: string;
+  release?: string | null;
+}
+
 export interface SourceTestConnectionResponse {
   success: boolean;
   message: string;

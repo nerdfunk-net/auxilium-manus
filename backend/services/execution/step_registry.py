@@ -52,6 +52,9 @@ from workflow_steps.filter_output.executor import execute as filter_output
 from workflow_steps.from_change_request.executor import execute as from_change_request
 from workflow_steps.generate_password.executor import execute as generate_password
 from workflow_steps.get_batfish_devices.executor import execute as get_batfish_devices
+from workflow_steps.get_catalyst_center_devices.executor import (
+    execute as get_catalyst_center_devices,
+)
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_from_config.executor import execute as get_from_config
 from workflow_steps.get_from_list.executor import execute as get_from_list
@@ -110,6 +113,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-from-config": get_from_config,
     "get-git-devices": get_git_devices,
     "from-change-request": from_change_request,
+    "get-catalyst-center-devices": get_catalyst_center_devices,
     "get-ise-devices": get_ise_devices,
     "get-ise-tacacs-key": get_ise_tacacs_key,
     "add-to-ise": add_to_ise,

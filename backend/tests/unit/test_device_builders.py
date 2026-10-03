@@ -79,3 +79,98 @@ class DeviceContextFromIseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeviceContextFromCatalystCenterTests(unittest.TestCase):
+    @staticmethod
+    def _device(**overrides):
+        from models.catalyst_center import CatalystCenterDevice
+
+        raw = {
+            "id": "uuid-1",
+            "hostname": "sw1",
+            "managementIpAddress": "10.10.20.175",
+            "softwareType": "IOS-XE",
+            "platformId": "C9KV-UADP-8P",
+            "role": "ACCESS",
+        }
+        raw.update(overrides)
+        return CatalystCenterDevice(
+            id=raw["id"],
+            hostname=raw.get("hostname"),
+            management_ip=raw.get("managementIpAddress"),
+            software_type=raw.get("softwareType"),
+            platform_id=raw.get("platformId"),
+            role=raw.get("role"),
+            raw=raw,
+        )
+
+    def test_maps_identity_fields(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_catalyst_center
+
+        context = device_context_from_catalyst_center(self._device(), source_id="lab-cc")
+
+        self.assertEqual(context.id, "uuid-1")
+        self.assertEqual(context.name, "sw1")
+        self.assertEqual(context.hostname, "10.10.20.175")  # SSH target prefers the IP
+        self.assertEqual(context.primary_ip4, "10.10.20.175")
+        self.assertEqual(context.platform, "IOS-XE")
+        self.assertEqual(context.network_driver, "cisco_xe")
+        self.assertEqual(context.source, "catalyst_center")
+        self.assertEqual(context.source_id, "lab-cc")
+        self.assertEqual(context.capabilities, {Capability.IDENTITY})
+
+    def test_raw_record_is_kept_in_its_own_bag(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_catalyst_center
+
+        context = device_context_from_catalyst_center(self._device(), source_id="lab-cc")
+
+        self.assertEqual(context.attribute_bags["catalyst_center"]["role"], "ACCESS")
+        self.assertEqual(context.attribute_bags["catalyst_center"]["platformId"], "C9KV-UADP-8P")
+
+    def test_bag_is_a_copy_not_the_device_raw_dict(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_catalyst_center
+
+        device = self._device()
+        context = device_context_from_catalyst_center(device, source_id="lab-cc")
+        context.attribute_bags["catalyst_center"]["role"] = "CORE"
+        self.assertEqual(device.raw["role"], "ACCESS")
+
+    def test_network_driver_table(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_catalyst_center
+
+        expected = {
+            "IOS-XE": "cisco_xe",
+            "IOS-XR": "cisco_xr",
+            "NX-OS": "cisco_nxos",
+            "IOS": "cisco_ios",
+            "ios-xe": "cisco_xe",
+            "Unknown-OS": None,
+            None: None,
+        }
+        for software_type, driver in expected.items():
+            context = device_context_from_catalyst_center(
+                self._device(softwareType=software_type), source_id="s"
+            )
+            self.assertEqual(context.network_driver, driver, software_type)
+
+    def test_name_falls_back_to_ip_then_id(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_catalyst_center
+
+        no_host = device_context_from_catalyst_center(self._device(hostname=None), source_id="s")
+        self.assertEqual(no_host.name, "10.10.20.175")
+
+        bare = device_context_from_catalyst_center(
+            self._device(hostname=None, managementIpAddress=None), source_id="s"
+        )
+        self.assertEqual(bare.name, "uuid-1")
+        self.assertEqual(bare.hostname, "uuid-1")
+        self.assertIsNone(bare.primary_ip4)
+
+    def test_platform_is_none_when_software_type_missing(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_catalyst_center
+
+        context = device_context_from_catalyst_center(
+            self._device(softwareType=None), source_id="s"
+        )
+        self.assertIsNone(context.platform)

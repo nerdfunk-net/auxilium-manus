@@ -172,6 +172,71 @@ plugins:
             chunk_size: 1
             max_concurrency: 0
 
+  - id: get-catalyst-center-devices
+    name: Get from Catalyst Center
+    overview: Select devices from Cisco Catalyst Center.
+    description: >
+      Look up network devices in a Cisco Catalyst Center by hostname, IP/CIDR, family, role,
+      software, reachability and more. Filters run on the controller, so large inventories
+      stay manageable.
+    artifact_type: inventory_selector
+    palette_category: cisco
+    directory: get_catalyst_center_devices
+    enabled: true
+    requires: []
+    produces: [identity]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: catalyst_center_source_id
+          description: ID of a Cisco Catalyst Center source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: lab-catalyst
+        - name: filters
+          description: >
+            Device filters, applied on the Catalyst Center. Keys (each a list of values):
+            hostnames, management_ips, families, roles, software_types, software_versions,
+            platform_ids, serial_numbers, series, device_types, reachability_statuses,
+            collection_statuses; plus a single cidr string. Values within one key are OR-ed,
+            different keys are AND-ed. Matching is case-sensitive and must match the whole
+            value; ".*" is the only wildcard (for example "sw.*" or ".*-core"). A CIDR is
+            narrowed on the controller by its shared IP prefix and then checked exactly.
+          data_type: object
+          required: false
+          example:
+            hostnames: ["sw.*"]
+            roles: ["ACCESS"]
+            cidr: 10.10.20.0/24
+        - name: allow_all
+          description: >
+            Safety guard for large inventories. With no filter configured the step fails
+            unless this is enabled, in which case every device is selected.
+          data_type: boolean
+          required: false
+          example: false
+        - name: max_devices
+          description: >
+            Optional cap. If more devices than this match, the step fails instead of
+            silently truncating the result. Empty means no cap.
+          data_type: integer
+          required: false
+          example: 500
+        - name: fan_out
+          description: >
+            Fan-out configuration. When enabled, each device (or chunk) is processed
+            as an independent Hatchet child workflow instead of all devices sharing
+            one workflow run.
+          data_type: object
+          required: false
+          example:
+            enabled: true
+            mode: per_device
+            chunk_size: 1
+            max_concurrency: 0
+
   - id: get-ise-tacacs-key
     name: Get TACACS+ Key from ISE
     overview: Look up a device's TACACS+ shared secret in Cisco ISE.

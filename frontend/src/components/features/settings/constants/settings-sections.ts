@@ -39,6 +39,7 @@ export const SETTINGS_SECTIONS: {
     canShow: (user) =>
       hasPermission(user, "settings", "read") ||
       hasPermission(user, "sources.ise", "read") ||
+      hasPermission(user, "sources.catalyst_center", "read") ||
       hasPermission(user, "sources.pyats", "read") ||
       hasPermission(user, "sources.nautobot", "read") ||
       hasPermission(user, "sources.git", "read"),

@@ -69,6 +69,32 @@ class CatalystCenterTestConnectionResponse(BaseModel):
     release: str | None = None
 
 
+class CatalystCenterDevicePreviewRequest(BaseModel):
+    """Filters are validated by ``CatalystCenterDeviceFilters.from_config`` in the router."""
+
+    filters: dict[str, Any] = Field(default_factory=dict)
+    limit: int = Field(default=25, ge=1, le=100)
+
+
+class CatalystCenterDevicePreviewItem(BaseModel):
+    """Inventory summary shown in the step's preview; deliberately omits the raw record."""
+
+    id: str
+    hostname: str | None = None
+    management_ip: str | None = None
+    family: str | None = None
+    role: str | None = None
+    software_type: str | None = None
+    software_version: str | None = None
+    platform_id: str | None = None
+    reachability_status: str | None = None
+
+
+class CatalystCenterDevicePreviewResponse(BaseModel):
+    devices: list[CatalystCenterDevicePreviewItem]
+    truncated: bool
+
+
 class CatalystCenterDevice(BaseModel):
     """One network device, normalized from ``GET /network-device`` (version independent)."""
 
