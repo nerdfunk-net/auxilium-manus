@@ -1,4 +1,4 @@
-import type { PaletteGroup, PaletteItem } from "./step-catalog";
+import type { PaletteGroup } from "./step-catalog";
 
 /** Pseudo-category that lists every available step. */
 export const ALL_CATEGORY_KEY = "__all__";
@@ -50,9 +50,4 @@ export function filterGroupsByQuery(groups: PaletteGroup[], search: string): Pal
       ),
     }))
     .filter((group) => group.items.length > 0);
-}
-
-export function stepsForCategory(groups: PaletteGroup[], categoryKey: string): PaletteItem[] {
-  if (categoryKey === ALL_CATEGORY_KEY) return groups.flatMap((group) => group.items);
-  return groups.find((group) => group.categoryKey === categoryKey)?.items ?? [];
 }

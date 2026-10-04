@@ -95,6 +95,36 @@ export const CATEGORY_STEP_ORDER: Record<string, string[]> = {
   ],
 };
 
+export interface CategorySubgroup {
+  label: string;
+  kinds: string[];
+}
+
+// Optional sub-groups inside a palette category, shown as labelled sections in
+// the Steps library. Steps of the category that no sub-group lists end up in a
+// trailing "Other" section, so a new step is safe by default.
+export const CATEGORY_SUBGROUPS: Record<string, CategorySubgroup[]> = {
+  cisco: [
+    {
+      label: "ISE",
+      kinds: ["get-ise-devices", "get-ise-tacacs-key", "update-ise-tacacs-key", "add-to-ise"],
+    },
+    {
+      label: "Catalyst Center",
+      kinds: [
+        "get-catalyst-center-devices",
+        "run-catalyst-center-command",
+        "get-catalyst-center-configs",
+        "get-catalyst-center-details",
+        "get-catalyst-center-topology",
+        "get-catalyst-center-health",
+      ],
+    },
+  ],
+};
+
+export const SUBGROUP_OTHER_LABEL = "Other";
+
 export const PALETTE_CATEGORY_LABELS: Record<string, string> = {
   nautobot: "Nautobot",
   cisco: "Cisco",

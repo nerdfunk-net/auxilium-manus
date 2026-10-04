@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import type { PaletteItem } from "../../utils/step-catalog";
+import type { StepSection } from "../../utils/step-library-sections";
 import { CATEGORY_TILE_FALLBACK, categoryTileClasses } from "../../utils/step-visuals";
 
 interface StepLibraryGridProps {
   emptyMessage: string;
   errorMessage?: string;
   isLoading: boolean;
-  items: PaletteItem[];
+  sections: StepSection[];
   onActivate: (item: PaletteItem) => void;
   onSearchChange: (value: string) => void;
   onSelect: (item: PaletteItem) => void;
@@ -57,11 +58,28 @@ function StepTile({
   );
 }
 
+/** Coloured label chip followed by a hairline, grouping the tiles below it. */
+function SectionHeader({ section }: { section: StepSection }) {
+  return (
+    <div className="mb-2 flex items-center gap-2">
+      <span
+        className={cn(
+          "rounded-md px-2 py-0.5 text-[11px] font-semibold",
+          categoryTileClasses[section.categoryKey] ?? CATEGORY_TILE_FALLBACK,
+        )}
+      >
+        {section.label}
+      </span>
+      <span aria-hidden className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
 export function StepLibraryGrid({
   emptyMessage,
   errorMessage,
   isLoading,
-  items,
+  sections,
   onActivate,
   onSearchChange,
   onSelect,
@@ -91,22 +109,29 @@ export function StepLibraryGrid({
           <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-4 text-sm text-destructive">
             {errorMessage}
           </p>
-        ) : items.length === 0 ? (
+        ) : sections.length === 0 ? (
           <p className="px-2 py-8 text-center text-[13px] text-muted-foreground">{emptyMessage}</p>
         ) : (
-          <div
-            aria-label="Steps"
-            className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2"
-            role="group"
-          >
-            {items.map((item) => (
-              <StepTile
-                isSelected={item.kind === selectedKind}
-                item={item}
-                key={item.kind}
-                onActivate={onActivate}
-                onSelect={onSelect}
-              />
+          <div className="space-y-5">
+            {sections.map((section) => (
+              <section key={section.key}>
+                {section.label ? <SectionHeader section={section} /> : null}
+                <div
+                  aria-label={section.label ?? "Steps"}
+                  className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2"
+                  role="group"
+                >
+                  {section.items.map((item) => (
+                    <StepTile
+                      isSelected={item.kind === selectedKind}
+                      item={item}
+                      key={item.kind}
+                      onActivate={onActivate}
+                      onSelect={onSelect}
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         )}

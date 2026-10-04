@@ -16,8 +16,8 @@ import type { PaletteItem } from "../utils/step-catalog";
 import {
   ALL_CATEGORY_KEY,
   filterGroupsByQuery,
-  stepsForCategory,
 } from "../utils/step-library-filter";
+import { buildStepSections } from "../utils/step-library-sections";
 import { toDropPosition } from "../utils/step-drop-offset";
 
 interface StepLibraryDialogProps {
@@ -70,10 +70,11 @@ function StepLibraryBody({
 
   const groups = useStepLibraryGroups(plugins);
   const searchedGroups = useMemo(() => filterGroupsByQuery(groups, search), [groups, search]);
-  const items = useMemo(
-    () => stepsForCategory(searchedGroups, categoryKey),
+  const sections = useMemo(
+    () => buildStepSections(searchedGroups, categoryKey),
     [searchedGroups, categoryKey],
   );
+  const items = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const selectedItem = useMemo(
     () => items.find((item) => item.kind === selectedKind) ?? null,
     [items, selectedKind],
@@ -125,7 +126,7 @@ function StepLibraryBody({
           emptyMessage={search.trim() ? `No steps match "${search}".` : "No steps in this category."}
           errorMessage={errorMessage}
           isLoading={isLoading}
-          items={items}
+          sections={sections}
           onActivate={addItem}
           onSearchChange={handleSearchChange}
           onSelect={handleSelect}

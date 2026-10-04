@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { PaletteGroup, PaletteItem } from "./step-catalog";
 import {
-  ALL_CATEGORY_KEY,
   filterAvailableGroups,
   filterGroupsByQuery,
-  stepsForCategory,
 } from "./step-library-filter";
 
 function item(kind: string, category: string, overview = ""): PaletteItem {
@@ -71,16 +69,5 @@ describe("filterGroupsByQuery", () => {
     expect(filterGroupsByQuery(GROUPS, "INVENTORY").map((g) => g.categoryKey)).toEqual(["nautobot"]);
     expect(filterGroupsByQuery(GROUPS, "batfish-init")[0].items).toHaveLength(1);
     expect(filterGroupsByQuery(GROUPS, "nomatch")).toEqual([]);
-  });
-});
-
-describe("stepsForCategory", () => {
-  it("returns every step for the All category", () => {
-    expect(stepsForCategory(GROUPS, ALL_CATEGORY_KEY)).toHaveLength(5);
-  });
-
-  it("returns only that category's steps, or none for an unknown key", () => {
-    expect(stepsForCategory(GROUPS, "secrets")).toHaveLength(2);
-    expect(stepsForCategory(GROUPS, "missing")).toEqual([]);
   });
 });
