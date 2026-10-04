@@ -4,6 +4,7 @@ import { ChevronsRight, PanelRightOpen } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 import { AddStepButton } from "./add-step-button";
 import { MultiSelectPanel } from "./multi-select-panel";
@@ -128,7 +129,7 @@ export function WorkflowPropertiesPanel({
       ? `${selectedCanvasNodes.length} steps selected on the canvas.`
       : singleNode
         ? "Step settings and configuration."
-        : "Schedule this workflow, or select a step, an edge, or multiple steps. Drag \u201cAdd new Step\u201d onto the canvas to choose where it goes.";
+        : null;
 
   if (isCollapsed) {
     return (
@@ -148,7 +149,7 @@ export function WorkflowPropertiesPanel({
 
   return (
     <aside className="flex w-[344px] shrink-0 flex-col border-l bg-card">
-      <div className="shrink-0 border-b px-3.5 pt-3">
+      <div className={cn("shrink-0 px-3.5 pt-3", subtitle && "border-b")}>
         <div className="flex items-center justify-between gap-2">
           <AddStepButton />
           <Button
@@ -160,9 +161,13 @@ export function WorkflowPropertiesPanel({
             <ChevronsRight className="size-4" />
           </Button>
         </div>
-        <p className="p-[11px_2px_12px] text-xs text-muted-foreground">
-          {subtitle}
+        <p className="px-0.5 pb-3 pt-2 text-xs text-muted-foreground">
+          Click to browse the Steps library, or drag onto the canvas to choose where the step goes.
         </p>
+        <hr className="-mx-3.5 border-border" />
+        {subtitle ? (
+          <p className="p-[11px_2px_12px] text-xs text-muted-foreground">{subtitle}</p>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-[16px_16px_24px]">

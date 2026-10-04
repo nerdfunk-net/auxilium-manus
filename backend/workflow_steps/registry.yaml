@@ -4681,8 +4681,8 @@ plugins:
     description: >
       Store all device data, attribute bags, a single attribute, or a rendered
       template in the application database under a storage key, keyed by device
-      name (table device_data_records). There is no built-in step that reads it
-      back; consume it from the database. Concurrency-safe: rows are keyed by (device_name, storage_key), so
+      name (table device_data_records). Read it back with the Get from DB step.
+      Concurrency-safe: rows are keyed by (device_name, storage_key), so
       fan-out children and independent sibling branches never collide; a
       concurrent writer to the same device+key is resolved via a safe upsert, no
       Fan In node required.
@@ -4699,8 +4699,8 @@ plugins:
         - name: storage_key
           description: >
             Key this device's data is stored under (table device_data_records,
-            unique per device name and key; a second run overwrites). There is no
-            built-in step that reads it back; consume it from the database.
+            unique per device name and key; a second run overwrites). Read it back
+            with the Get from DB step.
           data_type: string
           required: true
           example: site_backup
@@ -4742,6 +4742,41 @@ plugins:
           data_type: string
           required: false
           example: device_config
+
+  - id: get-from-db
+    name: Get from DB
+    overview: Read data stored by Store in DB back into a device attribute.
+    description: >
+      Look up the record stored for each device under a storage key by the
+      Store in DB step (table device_data_records, keyed by device name) and
+      write its data to a device attribute. A device with no stored record
+      under that key is marked failed and routed to the failure outcome.
+    artifact_type: control_flow
+    palette_category: attributes
+    directory: get_from_db
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: storage_key
+          description: >
+            Key the data was stored under by Store in DB (unique per device
+            name and key).
+          data_type: string
+          required: true
+          example: site_backup
+        - name: destination_path
+          description: >
+            Dotted attribute path (bag.field) the stored data is written to.
+            Cannot target parsed.* or run_input.*, which are reserved for the
+            workflow engine.
+          data_type: string
+          required: true
+          example: stored.site_backup
 
   - id: git-clone
     name: Git Clone

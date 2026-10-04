@@ -155,8 +155,7 @@ function StoreInDbConfigPanel({
         />
         <p className="text-[11px] text-muted-foreground">
           Key this device&apos;s data is stored under (unique per device name and key;
-          a second run overwrites). Nothing in the app reads it back — consume it
-          from the database.
+          a second run overwrites). Read it back with the Get from DB step.
         </p>
       </div>
 

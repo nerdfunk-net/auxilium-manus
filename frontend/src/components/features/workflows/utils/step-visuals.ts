@@ -211,6 +211,7 @@ const nodeIconsByKind: Record<string, LucideIcon> = {
   "secret-generate": RefreshCw,
   "generate-password": Dices,
   "store-in-db": Database,
+  "get-from-db": Database,
 };
 
 const nodeIconsByType: Record<string, LucideIcon> = {

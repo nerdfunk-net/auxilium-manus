@@ -17,8 +17,8 @@ export function StoreInDbHelpPanel() {
       <HelpSection title="What this step does">
         <p>
           Persists device data to the application database, keyed by device name and
-          a storage key you choose (table <HelpCode>device_data_records</HelpCode>). There
-          is no built-in step that reads it back; consume it from the database.
+          a storage key you choose (table <HelpCode>device_data_records</HelpCode>). Read
+          it back into a device attribute with the Get from DB step.
         </p>
       </HelpSection>
 

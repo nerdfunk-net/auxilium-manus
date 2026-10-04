@@ -69,6 +69,7 @@ from workflow_steps.get_catalyst_center_topology.executor import (
 )
 from workflow_steps.get_device_configs.executor import execute as get_device_configs
 from workflow_steps.get_from_config.executor import execute as get_from_config
+from workflow_steps.get_from_db.executor import execute as get_from_db
 from workflow_steps.get_from_list.executor import execute as get_from_list
 from workflow_steps.get_from_user.executor import execute as get_from_user
 from workflow_steps.get_git_devices.executor import execute as get_git_devices
@@ -180,6 +181,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "configure-replace-config": configure_replace_config,
     "store-artifact": store_artifact,
     "store-in-db": store_in_db,
+    "get-from-db": get_from_db,
     "open-change-request": open_change_request,
     "git-clone": git_clone,
     "git-pull": git_pull,

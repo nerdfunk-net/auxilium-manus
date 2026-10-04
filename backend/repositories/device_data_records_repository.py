@@ -40,6 +40,9 @@ class DeviceDataRecordRepository:
         self.db.refresh(record)
         return record
 
+    def get(self, *, device_name: str, storage_key: str) -> DeviceDataRecord | None:
+        return self._get(device_name, storage_key)
+
     def _get(self, device_name: str, storage_key: str) -> DeviceDataRecord | None:
         return self.db.scalar(
             select(DeviceDataRecord).where(

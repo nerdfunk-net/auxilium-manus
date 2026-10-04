@@ -23,3 +23,6 @@ class DeviceDataService:
                 f"store-in-db: data for device {device_name!r} is not JSON-serializable"
             ) from exc
         return self.repository.upsert(device_name=device_name, storage_key=storage_key, data=data)
+
+    def get_device_data(self, *, device_name: str, storage_key: str) -> DeviceDataRecord | None:
+        return self.repository.get(device_name=device_name, storage_key=storage_key)
