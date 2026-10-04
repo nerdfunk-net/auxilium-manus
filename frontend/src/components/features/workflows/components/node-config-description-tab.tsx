@@ -122,6 +122,76 @@ export function MockConfigRow({ field }: { field: PluginIOField }) {
   );
 }
 
+/** Capabilities + schema sections of a plugin; shared by the node config modal and the Steps library. */
+export function PluginDetails({ plugin }: { plugin: PluginDefinition | undefined }) {
+  if (!plugin) {
+    return <p className="text-xs text-muted-foreground">Plugin metadata not available.</p>;
+  }
+  return (
+    <div className="space-y-4">
+      {(plugin.produces.length > 0 ||
+        plugin.produces_parsed.length > 0 ||
+        plugin.consumes.length > 0) ? (
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Capabilities
+          </p>
+          <CapabilityList icon={MoveRight} label="Produces" values={plugin.produces} />
+          {plugin.produces_parsed.length > 0 ? (
+            <CapabilityList
+              icon={MoveRight}
+              label="Produces parsed"
+              values={plugin.produces_parsed}
+            />
+          ) : null}
+          <CapabilityList icon={ChevronsRight} label="Consumes" values={plugin.consumes} />
+        </div>
+      ) : null}
+
+      {(plugin.metadata.configuration_input.length > 0 ||
+        plugin.requires.length > 0 ||
+        plugin.requires_parsed.length > 0 ||
+        plugin.outcomes.length > 0) ? (
+        <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Schema
+          </p>
+          {plugin.metadata.configuration_input.length > 0 ? (
+            <div className="space-y-1.5">
+              <SectionHeader icon={Settings2} label="Configuration inputs" />
+              {plugin.metadata.configuration_input.map((field) => (
+                <FieldRow field={field} key={field.name} />
+              ))}
+            </div>
+          ) : null}
+          {plugin.requires.length > 0 ? (
+            <CapabilityList
+              icon={ArrowDownToLine}
+              label="Requires"
+              values={plugin.requires}
+            />
+          ) : null}
+          {plugin.requires_parsed.length > 0 ? (
+            <CapabilityList
+              icon={ArrowDownToLine}
+              label="Requires parsed"
+              values={plugin.requires_parsed}
+            />
+          ) : null}
+          {plugin.outcomes.length > 0 ? (
+            <div className="space-y-1.5">
+              <SectionHeader icon={GitBranch} label="Outcomes" />
+              {plugin.outcomes.map((outcome) => (
+                <OutcomeRow key={outcome.name} outcome={outcome} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 interface NodeConfigDescriptionTabProps {
   activeNode: PersistedCanvasNode;
   plugin: PluginDefinition | undefined;
@@ -138,71 +208,7 @@ export function NodeConfigDescriptionTab({ activeNode, plugin }: NodeConfigDescr
           </p>
         </div>
 
-        {plugin ? (
-          <>
-            {(plugin.produces.length > 0 ||
-              plugin.produces_parsed.length > 0 ||
-              plugin.consumes.length > 0) ? (
-              <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Capabilities
-                </p>
-                <CapabilityList icon={MoveRight} label="Produces" values={plugin.produces} />
-                {plugin.produces_parsed.length > 0 ? (
-                  <CapabilityList
-                    icon={MoveRight}
-                    label="Produces parsed"
-                    values={plugin.produces_parsed}
-                  />
-                ) : null}
-                <CapabilityList icon={ChevronsRight} label="Consumes" values={plugin.consumes} />
-              </div>
-            ) : null}
-
-            {(plugin.metadata.configuration_input.length > 0 ||
-              plugin.requires.length > 0 ||
-              plugin.requires_parsed.length > 0 ||
-              plugin.outcomes.length > 0) ? (
-              <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Schema
-                </p>
-                {plugin.metadata.configuration_input.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <SectionHeader icon={Settings2} label="Configuration inputs" />
-                    {plugin.metadata.configuration_input.map((field) => (
-                      <FieldRow field={field} key={field.name} />
-                    ))}
-                  </div>
-                ) : null}
-                {plugin.requires.length > 0 ? (
-                  <CapabilityList
-                    icon={ArrowDownToLine}
-                    label="Requires"
-                    values={plugin.requires}
-                  />
-                ) : null}
-                {plugin.requires_parsed.length > 0 ? (
-                  <CapabilityList
-                    icon={ArrowDownToLine}
-                    label="Requires parsed"
-                    values={plugin.requires_parsed}
-                  />
-                ) : null}
-                {plugin.outcomes.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <SectionHeader icon={GitBranch} label="Outcomes" />
-                    {plugin.outcomes.map((outcome) => (
-                      <OutcomeRow key={outcome.name} outcome={outcome} />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">Plugin metadata not available.</p>
-        )}
+        <PluginDetails plugin={plugin} />
 
         {activeNode.data.artifactType ? (
           <div className="space-y-1.5">

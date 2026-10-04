@@ -94,12 +94,5 @@ export function groupPaletteItems(plugins: PluginDefinition[]): PaletteGroup[] {
     }));
 }
 
-export function findPluginByKind(
-  plugins: PluginDefinition[],
-  kind: string,
-): PluginDefinition | undefined {
-  return plugins.find((plugin) => plugin.id === kind);
-}
-
-/** dataTransfer MIME type used for HTML5 drag-and-drop of a catalog step onto the canvas. */
-export const STEP_DRAG_MIME_TYPE = "application/x-am-step";
+/** dataTransfer MIME type used when dragging the "Add new Step" button onto the canvas. */
+export const ADD_STEP_BUTTON_DRAG_MIME_TYPE = "application/x-am-add-step";

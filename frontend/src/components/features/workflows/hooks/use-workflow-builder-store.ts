@@ -8,7 +8,17 @@ import type {
   WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 
-type RightPanelTab = "steps" | "properties";
+interface FlowPoint {
+  x: number;
+  y: number;
+}
+
+interface StepLibraryState {
+  open: boolean;
+  dropPosition: FlowPoint | null;
+}
+
+const CLOSED_STEP_LIBRARY: StepLibraryState = { open: false, dropPosition: null };
 
 /**
  * Snapshot of the in-progress (possibly unsaved) canvas, keyed by the
@@ -52,12 +62,12 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   workflowStatus: "Draft" | "Saved" | "Running" | "Error";
   isDirty: boolean;
   activeRunId: number | null;
-  rightPanelTab: RightPanelTab;
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
   configModalNodeId: string | null;
   lastAction: string;
-  stepCatalogExpanded: Record<string, boolean>;
+  /** Steps library modal; `dropPosition` is the flow-space pointer position of an "Add new Step" drop (null for a plain click). */
+  stepLibrary: StepLibraryState;
   overviewPanelOpen: boolean;
   /** null = root canvas view */
   activeGroupId: string | null;
@@ -93,7 +103,6 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   exitToParent: () => void;
   exitToRoot: () => void;
   setActiveRunId: (activeRunId: number | null) => void;
-  setRightPanelTab: (tab: RightPanelTab) => void;
   selectNode: (nodeId: string | null) => void;
   selectEdge: (edgeId: string | null) => void;
   selectCanvasBackground: () => void;
@@ -104,7 +113,8 @@ interface WorkflowBuilderState extends WorkflowMetadata {
   setShowGrid: (showGrid: boolean) => void;
   requestFitView: (nodeIds: string[]) => void;
   clearFitViewRequest: () => void;
-  toggleStepCatalogCategory: (artifactType: string) => void;
+  openStepLibrary: (dropPosition: FlowPoint | null) => void;
+  closeStepLibrary: () => void;
   setOverviewPanelOpen: (open: boolean) => void;
   markSaved: (message?: string) => void;
   markDirty: () => void;
@@ -160,10 +170,10 @@ const RESET_BUILDER_STATE: Partial<WorkflowBuilderState> = {
   activeRunId: null,
   activeGroupId: null,
   groupNavigationStack: [],
-  rightPanelTab: "steps",
   selectedNodeId: null,
   selectedEdgeId: null,
   configModalNodeId: null,
+  stepLibrary: CLOSED_STEP_LIBRARY,
 };
 
 export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
@@ -171,12 +181,11 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   workflowStatus: "Draft",
   isDirty: false,
   activeRunId: null,
-  rightPanelTab: "steps",
   selectedNodeId: null,
   selectedEdgeId: null,
   configModalNodeId: null,
   lastAction: "Ready to design workflow",
-  stepCatalogExpanded: {},
+  stepLibrary: CLOSED_STEP_LIBRARY,
   overviewPanelOpen: true,
   activeGroupId: null,
   groupNavigationStack: [],
@@ -190,7 +199,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   enterGroup: (groupId) =>
     set((state) => {
       const groupNavigationStack = [...state.groupNavigationStack, groupId];
-      return { groupNavigationStack, activeGroupId: groupId };
+      return { groupNavigationStack, activeGroupId: groupId, stepLibrary: CLOSED_STEP_LIBRARY };
     }),
   exitToParent: () =>
     set((state) => {
@@ -198,28 +207,17 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       return {
         groupNavigationStack,
         activeGroupId: groupNavigationStack[groupNavigationStack.length - 1] ?? null,
+        stepLibrary: CLOSED_STEP_LIBRARY,
       };
     }),
-  exitToRoot: () => set({ groupNavigationStack: [], activeGroupId: null }),
+  exitToRoot: () =>
+    set({ groupNavigationStack: [], activeGroupId: null, stepLibrary: CLOSED_STEP_LIBRARY }),
   setActiveRunId: (activeRunId) => set({ activeRunId }),
-  setRightPanelTab: (rightPanelTab) => set({ rightPanelTab }),
   selectNode: (selectedNodeId) =>
-    set({
-      selectedNodeId,
-      selectedEdgeId: null,
-      rightPanelTab: selectedNodeId ? "properties" : "steps",
-    }),
+    set({ selectedNodeId, selectedEdgeId: null }),
   selectEdge: (selectedEdgeId) =>
-    set({
-      selectedEdgeId,
-      selectedNodeId: null,
-      rightPanelTab: selectedEdgeId ? "properties" : "steps",
-    }),
-  // Explicit "user clicked the empty canvas" interaction — unlike selectNode(null)
-  // (also used for rubber-band deselect), this always surfaces the Properties tab
-  // since the nothing-selected state now hosts the workflow's schedule panel.
-  selectCanvasBackground: () =>
-    set({ selectedNodeId: null, selectedEdgeId: null, rightPanelTab: "properties" }),
+    set({ selectedEdgeId, selectedNodeId: null }),
+  selectCanvasBackground: () => set({ selectedNodeId: null, selectedEdgeId: null }),
   openConfigModal: (configModalNodeId) => set({ configModalNodeId }),
   closeConfigModal: () => set({ configModalNodeId: null }),
   setAutoLayoutDirection: (autoLayoutDirection) => set({ autoLayoutDirection }),
@@ -227,13 +225,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
   setShowGrid: (showGrid) => set({ showGrid }),
   requestFitView: (nodeIds) => set({ pendingFitViewNodeIds: nodeIds }),
   clearFitViewRequest: () => set({ pendingFitViewNodeIds: null }),
-  toggleStepCatalogCategory: (artifactType) =>
-    set((state) => ({
-      stepCatalogExpanded: {
-        ...state.stepCatalogExpanded,
-        [artifactType]: !(state.stepCatalogExpanded[artifactType] ?? false),
-      },
-    })),
+  openStepLibrary: (dropPosition) => set({ stepLibrary: { open: true, dropPosition } }),
+  closeStepLibrary: () => set({ stepLibrary: CLOSED_STEP_LIBRARY }),
   setOverviewPanelOpen: (overviewPanelOpen) => set({ overviewPanelOpen }),
   markSaved: (message = "Workflow saved") =>
     set({
@@ -274,6 +267,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set) => ({
       workflowStatus: "Saved",
       isDirty: false,
       activeRunId: null,
+      stepLibrary: CLOSED_STEP_LIBRARY,
       activeGroupId: null,
       groupNavigationStack: [],
       lastAction: `Loaded "${meta.workflowName}"`,

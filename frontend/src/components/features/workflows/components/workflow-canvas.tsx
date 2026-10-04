@@ -15,7 +15,6 @@ import {
   type OnNodeDrag,
   type OnMoveEnd,
   type OnNodesChange,
-  type OnSelectionChangeFunc,
   type Viewport,
 } from "@xyflow/react";
 import type { DragEvent, MouseEvent } from "react";
@@ -37,19 +36,16 @@ import {
   findGroupNodeAtPoint,
   isPointInClientRect,
 } from "../utils/canvas-group-dnd";
-import { findPluginByKind, STEP_DRAG_MIME_TYPE, toStepPayload } from "../utils/step-catalog";
-import type { PluginDefinition } from "../types/plugin-registry";
+import { ADD_STEP_BUTTON_DRAG_MIME_TYPE } from "../utils/step-catalog";
 import {
   BACKGROUND_Z_INDEX,
   DEFAULT_EDGE_STYLE,
   EDGE_Z_INDEX,
   FOREGROUND_Z_INDEX,
-  FUNNEL_KIND,
   isCanvasDecorationKind,
   isFunnelKind,
   sortNodesForContainment,
   type ProjectedCanvasNode,
-  type StepPayload,
   type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 import type { NodeValidationSummary } from "../hooks/use-workflow-validation";
@@ -72,13 +68,6 @@ const nodeTypes: NodeTypes = {
 const edgeTypes: EdgeTypes = {
   waypoint: WaypointEdge,
 };
-
-// Half the fixed node footprint (w-80 h-32), used to center a dropped step on the pointer.
-const NODE_DROP_OFFSET = { x: 160, y: 64 };
-const LABEL_DROP_OFFSET = { x: 100, y: 20 };
-const BACKGROUND_DROP_OFFSET = { x: 240, y: 160 };
-// Half the funnel node's footprint (size-10 = 2.5rem = 40px).
-const FUNNEL_DROP_OFFSET = { x: 20, y: 20 };
 
 // Kept equal to the <Background> dots' `gap={22}` below, so that when the
 // "Show grid" toggle is on a snapped position lands exactly on a grid dot.
@@ -113,11 +102,11 @@ function clientPoint(event: unknown): { x: number; y: number } | null {
 interface WorkflowCanvasProps {
   nodes: ProjectedCanvasNode[];
   edges: WorkflowCanvasEdge[];
-  plugins: PluginDefinition[];
   onNodesChange: OnNodesChange<ProjectedCanvasNode>;
   onEdgesChange: OnEdgesChange<WorkflowCanvasEdge>;
   onConnect: (connection: Connection) => void;
-  onAddStepAtPosition: (step: StepPayload, position: { x: number; y: number }) => void;
+  /** Fired when the "Add new Step" button is dropped; receives the flow-space pointer position. */
+  onRequestStepLibrary: (position: { x: number; y: number }) => void;
   /** Member steps that can take/provide a connection touching a collapsed group (flat-graph aware). */
   /**
    * Capability guarantees per step outcome, computed on the FLAT graph. The
@@ -147,11 +136,10 @@ function isDropTargetGroup(node: ProjectedCanvasNode, groupId: string | null): b
 function WorkflowCanvasInner({
   nodes,
   edges,
-  plugins,
   onNodesChange,
   onEdgesChange,
   onConnect,
-  onAddStepAtPosition,
+  onRequestStepLibrary,
   outcomeProvides,
   getGroupConnectionEnds,
   isInsideGroup = false,
@@ -164,7 +152,6 @@ function WorkflowCanvasInner({
   const selectNode = useWorkflowBuilderStore((state) => state.selectNode);
   const selectEdge = useWorkflowBuilderStore((state) => state.selectEdge);
   const selectCanvasBackground = useWorkflowBuilderStore((state) => state.selectCanvasBackground);
-  const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
   const pendingFitViewNodeIds = useWorkflowBuilderStore((state) => state.pendingFitViewNodeIds);
   const clearFitViewRequest = useWorkflowBuilderStore((state) => state.clearFitViewRequest);
   const snapToGrid = useWorkflowBuilderStore((state) => state.snapToGrid);
@@ -353,21 +340,8 @@ function WorkflowCanvasInner({
     selectCanvasBackground();
   }, [selectCanvasBackground]);
 
-  // Box-select (drag rubber-band) doesn't fire onNodeClick, so multi-select needs its
-  // own hook into the Steps/Properties auto-switch behaviour.
-  const handleSelectionChange = useCallback<OnSelectionChangeFunc>(
-    ({ nodes: selectedNodes, edges: selectedEdges }) => {
-      if (selectedNodes.length > 1) {
-        setRightPanelTab("properties");
-      } else if (selectedNodes.length === 0 && selectedEdges.length === 0) {
-        setRightPanelTab("steps");
-      }
-    },
-    [setRightPanelTab],
-  );
-
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (event.dataTransfer.types.includes(STEP_DRAG_MIME_TYPE)) {
+    if (event.dataTransfer.types.includes(ADD_STEP_BUTTON_DRAG_MIME_TYPE)) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
     }
@@ -375,31 +349,11 @@ function WorkflowCanvasInner({
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
-      const kind = event.dataTransfer.getData(STEP_DRAG_MIME_TYPE);
-      if (!kind) return;
+      if (!event.dataTransfer.types.includes(ADD_STEP_BUTTON_DRAG_MIME_TYPE)) return;
       event.preventDefault();
-
-      const plugin = findPluginByKind(plugins, kind);
-      if (!plugin) return;
-
-      const flowPosition = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-      const offset =
-        kind === "label"
-          ? LABEL_DROP_OFFSET
-          : kind === "background"
-            ? BACKGROUND_DROP_OFFSET
-            : kind === FUNNEL_KIND
-              ? FUNNEL_DROP_OFFSET
-              : NODE_DROP_OFFSET;
-      onAddStepAtPosition(toStepPayload(plugin), {
-        x: flowPosition.x - offset.x,
-        y: flowPosition.y - offset.y,
-      });
+      onRequestStepLibrary(screenToFlowPosition({ x: event.clientX, y: event.clientY }));
     },
-    [plugins, screenToFlowPosition, onAddStepAtPosition],
+    [screenToFlowPosition, onRequestStepLibrary],
   );
 
   // Backgrounds must stay under edges and steps. React Flow renders the edge
@@ -470,7 +424,6 @@ function WorkflowCanvasInner({
         onEdgeClick={handleEdgeClick}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
-        onSelectionChange={handleSelectionChange}
         onMoveEnd={handleMoveEnd}
         onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}

@@ -23,6 +23,7 @@ import { WorkflowPropertiesPanel } from "./components/workflow-properties-panel"
 import { WorkflowRunControls } from "./components/workflow-run-controls";
 import { WorkflowTopbar } from "./components/workflow-topbar";
 import { EMPTY_PLUGINS } from "./constants/empty-canvas";
+import { StepLibraryDialog } from "./dialogs/step-library-dialog";
 import { GroupConnectionDialog } from "./dialogs/group-connection-dialog";
 import { WorkflowHistoryDialog } from "./dialogs/workflow-history-dialog";
 import { WorkflowManageDialog } from "./dialogs/workflow-manage-dialog";
@@ -43,12 +44,16 @@ import { useWorkflowValidation } from "./hooks/use-workflow-validation";
 
 export function WorkflowBuilderPage() {
   const resetToNew = useWorkflowBuilderStore((state) => state.resetToNew);
+  const openStepLibrary = useWorkflowBuilderStore((state) => state.openStepLibrary);
+  const closeStepLibrary = useWorkflowBuilderStore((state) => state.closeStepLibrary);
   const isDirty = useWorkflowBuilderStore((state) => state.isDirty);
   const autoLayoutDirection = useWorkflowBuilderStore((state) => state.autoLayoutDirection);
   const setAutoLayoutDirection = useWorkflowBuilderStore(
     (state) => state.setAutoLayoutDirection,
   );
   useUnsavedChangesWarning(isDirty);
+  // The store outlives this page; never reopen the library on the next visit.
+  useEffect(() => closeStepLibrary, [closeStepLibrary]);
   const {
     data: pluginResponse,
     error: pluginError,
@@ -169,13 +174,12 @@ export function WorkflowBuilderPage() {
                 onEdgesChange={canvas.handleEdgesChange}
                 onNodesChange={canvas.handleNodesChange}
                 onConnect={canvas.handleConnect}
-                onAddStepAtPosition={canvas.handleAddStepAtPosition}
+                onRequestStepLibrary={openStepLibrary}
                 outcomeProvides={canvas.outcomeProvides}
                 getGroupConnectionEnds={canvas.getGroupConnectionEnds}
                 isInsideGroup={canvas.activeGroupId !== null}
                 onMoveNodesToGroup={canvas.handleMoveToGroup}
                 onMoveNodesOutOfGroup={canvas.handleMoveOutOfGroup}
-                plugins={plugins}
                 initialViewport={canvas.initialCanvasDraft?.viewport}
                 onViewportChange={canvas.handleViewportChange}
                 validationByNodeId={validation.validationByNodeId}
@@ -185,9 +189,7 @@ export function WorkflowBuilderPage() {
         </section>
         <WorkflowPropertiesPanel
           edges={canvas.projected.edges}
-          isPluginsLoading={isPluginsLoading}
           nodes={canvas.projected.nodes}
-          onAddStep={canvas.handleAddStep}
           onAlignNodes={canvas.handleAlignNodes}
           autoLayoutDirection={autoLayoutDirection}
           isAutoLayoutRunning={canvas.isAutoLayoutRunning}
@@ -209,8 +211,6 @@ export function WorkflowBuilderPage() {
           onOpenGroup={canvas.handleOpenGroup}
           onRenameGroup={canvas.handleRenameGroup}
           onUngroupGroup={canvas.handleUngroupGroup}
-          pluginErrorMessage={pluginError?.message}
-          plugins={plugins}
           isInsideGroup={canvas.activeGroupId !== null}
           groups={moveTargetGroups}
           onMoveToGroup={canvas.handleMoveToGroup}
@@ -231,6 +231,13 @@ export function WorkflowBuilderPage() {
           workflowNodes={canvas.allNodes}
         />
       </main>
+      <StepLibraryDialog
+        errorMessage={pluginError?.message}
+        isLoading={isPluginsLoading}
+        onAddStep={canvas.handleAddStep}
+        onAddStepAtPosition={canvas.handleAddStepAtPosition}
+        plugins={plugins}
+      />
       <GroupConnectionDialog
         pending={canvas.pendingGroupConnection}
         onResolve={canvas.resolvePendingGroupConnection}

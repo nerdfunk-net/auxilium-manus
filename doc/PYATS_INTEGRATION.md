@@ -275,7 +275,7 @@ section for the log lines to expect on a working call.
 ## Workflow steps: Add Testbed and Get & Parse Config
 
 Two steps, both under the **PyATS** palette category (only shown once a
-pyATS source is configured — a frontend-only filter in `step-catalog.tsx`,
+pyATS source is configured — a frontend-only filter in `utils/step-library-filter.ts`,
 no backend change):
 
 ### Add Testbed (`add-pyats-testbed`)

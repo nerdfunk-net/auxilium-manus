@@ -1,31 +1,23 @@
 "use client";
 
-import {
-  ChevronsRight,
-  Layers,
-  PanelRightOpen,
-  Sliders,
-} from "lucide-react";
+import { ChevronsRight, PanelRightOpen } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
+import { AddStepButton } from "./add-step-button";
 import { MultiSelectPanel } from "./multi-select-panel";
 import { SelectedEdgePanel } from "./selected-edge-panel";
 import type { MoveTargetGroup } from "./move-to-group-control";
 import { SelectedStepPanel } from "./selected-step-panel";
-import { StepCatalog } from "./step-catalog";
 import { WorkflowAiSessionPanel } from "./workflow-ai-session-panel";
 import { WorkflowBackgroundTierPanel } from "./workflow-background-tier-panel";
 import { WorkflowStaticAttributesPanel } from "./workflow-static-attributes-panel";
 import { useWorkflowBuilderStore } from "../hooks/use-workflow-builder-store";
-import type { PluginDefinition } from "../types/plugin-registry";
 import type { StaticAttributeDef } from "../types/workflow-persistence";
 import {
   type EdgeStyle,
   type ProjectedCanvasNode,
-  type StepPayload,
   type WorkflowCanvasEdge,
 } from "../types/workflow-canvas";
 import type { AutoLayoutDirection } from "../utils/auto-layout";
@@ -37,14 +29,10 @@ const EMPTY_MOVE_TARGETS: MoveTargetGroup[] = [];
 interface WorkflowPropertiesPanelProps {
   nodes: ProjectedCanvasNode[];
   edges?: WorkflowCanvasEdge[];
-  plugins: PluginDefinition[];
-  isPluginsLoading: boolean;
-  pluginErrorMessage?: string;
   isInsideGroup?: boolean;
   groups?: MoveTargetGroup[];
   onMoveToGroup?: (nodeIds: string[], groupId: string) => void;
   onMoveOutOfGroup?: (nodeIds: string[]) => void;
-  onAddStep: (step: StepPayload) => void;
   onEdgeStyleChange?: (edgeId: string, style: EdgeStyle) => void;
   onEdgeLabelChange?: (edgeId: string, label: string) => void;
   onEdgeStartLabelChange?: (edgeId: string, label: string) => void;
@@ -73,14 +61,10 @@ interface WorkflowPropertiesPanelProps {
 export function WorkflowPropertiesPanel({
   nodes,
   edges = EMPTY_EDGES,
-  plugins,
-  isPluginsLoading,
-  pluginErrorMessage,
   isInsideGroup = false,
   groups = EMPTY_MOVE_TARGETS,
   onMoveToGroup,
   onMoveOutOfGroup,
-  onAddStep,
   onEdgeStyleChange,
   onEdgeLabelChange,
   onEdgeStartLabelChange,
@@ -105,8 +89,6 @@ export function WorkflowPropertiesPanel({
   staticAttributes,
   onStaticAttributesChange,
 }: WorkflowPropertiesPanelProps) {
-  const rightPanelTab = useWorkflowBuilderStore((state) => state.rightPanelTab);
-  const setRightPanelTab = useWorkflowBuilderStore((state) => state.setRightPanelTab);
   const selectedNodeId = useWorkflowBuilderStore((state) => state.selectedNodeId);
   const selectedEdgeId = useWorkflowBuilderStore((state) => state.selectedEdgeId);
   const openConfigModal = useWorkflowBuilderStore((state) => state.openConfigModal);
@@ -140,20 +122,17 @@ export function WorkflowPropertiesPanel({
     [nodes, selectedEdge],
   );
 
-  const subtitle =
-    rightPanelTab === "steps"
-      ? "Drag onto the canvas, or click to add."
-      : selectedEdge
-        ? "Connection between two steps."
-        : isMultiSelect
-          ? `${selectedCanvasNodes.length} steps selected on the canvas.`
-          : singleNode
-            ? "Step settings and configuration."
-            : "Schedule this workflow, or select a step, an edge, or multiple steps.";
+  const subtitle = selectedEdge
+    ? "Connection between two steps."
+    : isMultiSelect
+      ? `${selectedCanvasNodes.length} steps selected on the canvas.`
+      : singleNode
+        ? "Step settings and configuration."
+        : "Schedule this workflow, or select a step, an edge, or multiple steps. Drag \u201cAdd new Step\u201d onto the canvas to choose where it goes.";
 
   if (isCollapsed) {
     return (
-      <aside className="flex w-11 shrink-0 flex-col items-center border-l bg-card pt-3.5">
+      <aside className="flex w-11 shrink-0 flex-col items-center gap-2 border-l bg-card pt-3.5">
         <Button
           aria-label="Expand panel"
           onClick={() => setIsCollapsed(false)}
@@ -162,6 +141,7 @@ export function WorkflowPropertiesPanel({
         >
           <PanelRightOpen className="size-4" />
         </Button>
+        <AddStepButton compact />
       </aside>
     );
   }
@@ -170,34 +150,7 @@ export function WorkflowPropertiesPanel({
     <aside className="flex w-[344px] shrink-0 flex-col border-l bg-card">
       <div className="shrink-0 border-b px-3.5 pt-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex gap-1 rounded-[10px] border bg-muted p-[3px]">
-            <button
-              className={cn(
-                "flex items-center gap-1.5 rounded-[7px] px-[14px] py-[6px] text-[13px] font-medium transition-colors",
-                rightPanelTab === "steps"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setRightPanelTab("steps")}
-              type="button"
-            >
-              <Layers className="size-3.5" aria-hidden />
-              Steps
-            </button>
-            <button
-              className={cn(
-                "flex items-center gap-1.5 rounded-[7px] px-[14px] py-[6px] text-[13px] font-medium transition-colors",
-                rightPanelTab === "properties"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setRightPanelTab("properties")}
-              type="button"
-            >
-              <Sliders className="size-3.5" aria-hidden />
-              Properties
-            </button>
-          </div>
+          <AddStepButton />
           <Button
             aria-label="Collapse panel"
             onClick={() => setIsCollapsed(true)}
@@ -207,75 +160,68 @@ export function WorkflowPropertiesPanel({
             <ChevronsRight className="size-4" />
           </Button>
         </div>
-        <p className="p-[11px_2px_12px] text-xs text-muted-foreground">{subtitle}</p>
+        <p className="p-[11px_2px_12px] text-xs text-muted-foreground">
+          {subtitle}
+        </p>
       </div>
 
-      {rightPanelTab === "steps" ? (
-        <StepCatalog
-          errorMessage={pluginErrorMessage}
-          isLoading={isPluginsLoading}
-          onAddStep={onAddStep}
-          plugins={plugins}
-        />
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-[16px_16px_24px]">
-          {selectedEdge ? (
-            <SelectedEdgePanel
-              edge={selectedEdge}
-              sourceTitle={sourceNode?.data.title}
-              targetTitle={targetNode?.data.title}
-              onEdgeStyleChange={onEdgeStyleChange}
-              onEdgeLabelChange={onEdgeLabelChange}
-              onEdgeStartLabelChange={onEdgeStartLabelChange}
-              onEdgeEndLabelChange={onEdgeEndLabelChange}
-              onEdgeLabelBoldChange={onEdgeLabelBoldChange}
-              onEdgeLabelFontSizeChange={onEdgeLabelFontSizeChange}
-              onDeleteEdge={onDeleteEdge}
+      <div className="min-h-0 flex-1 overflow-y-auto p-[16px_16px_24px]">
+        {selectedEdge ? (
+          <SelectedEdgePanel
+            edge={selectedEdge}
+            sourceTitle={sourceNode?.data.title}
+            targetTitle={targetNode?.data.title}
+            onEdgeStyleChange={onEdgeStyleChange}
+            onEdgeLabelChange={onEdgeLabelChange}
+            onEdgeStartLabelChange={onEdgeStartLabelChange}
+            onEdgeEndLabelChange={onEdgeEndLabelChange}
+            onEdgeLabelBoldChange={onEdgeLabelBoldChange}
+            onEdgeLabelFontSizeChange={onEdgeLabelFontSizeChange}
+            onDeleteEdge={onDeleteEdge}
+          />
+        ) : isMultiSelect ? (
+          <MultiSelectPanel
+            nodes={selectedCanvasNodes}
+            isInsideGroup={isInsideGroup}
+            groups={groups}
+            onMoveToGroup={onMoveToGroup}
+            onMoveOutOfGroup={onMoveOutOfGroup}
+            autoLayoutDirection={autoLayoutDirection}
+            isAutoLayoutRunning={isAutoLayoutRunning}
+            onAlignNodes={onAlignNodes}
+            onAutoLayoutDirectionChange={onAutoLayoutDirectionChange}
+            onAutoLayoutNodes={onAutoLayoutNodes}
+            onDeleteNodes={onDeleteNodes}
+            onNodesDisabledChange={onNodesDisabledChange}
+            onGroupSelectedSteps={onGroupSelectedSteps}
+          />
+        ) : singleNode ? (
+          <SelectedStepPanel
+            node={singleNode}
+            isInsideGroup={isInsideGroup}
+            groups={groups}
+            onMoveToGroup={onMoveToGroup}
+            onMoveOutOfGroup={onMoveOutOfGroup}
+            onOpenConfig={() => openConfigModal(singleNode.id)}
+            onNodeTitleChange={onNodeTitleChange}
+            onNodeDisabledChange={onNodeDisabledChange}
+            onDuplicateNode={onDuplicateNode}
+            onDeleteNodes={onDeleteNodes}
+            onRenameGroup={onRenameGroup}
+            onUngroupGroup={onUngroupGroup}
+            onOpenGroup={onOpenGroup}
+          />
+        ) : (
+          <div className="space-y-6">
+            <WorkflowStaticAttributesPanel
+              value={staticAttributes}
+              onChange={onStaticAttributesChange}
             />
-          ) : isMultiSelect ? (
-            <MultiSelectPanel
-              nodes={selectedCanvasNodes}
-              isInsideGroup={isInsideGroup}
-              groups={groups}
-              onMoveToGroup={onMoveToGroup}
-              onMoveOutOfGroup={onMoveOutOfGroup}
-              autoLayoutDirection={autoLayoutDirection}
-              isAutoLayoutRunning={isAutoLayoutRunning}
-              onAlignNodes={onAlignNodes}
-              onAutoLayoutDirectionChange={onAutoLayoutDirectionChange}
-              onAutoLayoutNodes={onAutoLayoutNodes}
-              onDeleteNodes={onDeleteNodes}
-              onNodesDisabledChange={onNodesDisabledChange}
-              onGroupSelectedSteps={onGroupSelectedSteps}
-            />
-          ) : singleNode ? (
-            <SelectedStepPanel
-              node={singleNode}
-              isInsideGroup={isInsideGroup}
-              groups={groups}
-              onMoveToGroup={onMoveToGroup}
-              onMoveOutOfGroup={onMoveOutOfGroup}
-              onOpenConfig={() => openConfigModal(singleNode.id)}
-              onNodeTitleChange={onNodeTitleChange}
-              onNodeDisabledChange={onNodeDisabledChange}
-              onDuplicateNode={onDuplicateNode}
-              onDeleteNodes={onDeleteNodes}
-              onRenameGroup={onRenameGroup}
-              onUngroupGroup={onUngroupGroup}
-              onOpenGroup={onOpenGroup}
-            />
-          ) : (
-            <div className="space-y-6">
-              <WorkflowStaticAttributesPanel
-                value={staticAttributes}
-                onChange={onStaticAttributesChange}
-              />
-              <WorkflowBackgroundTierPanel />
-              <WorkflowAiSessionPanel />
-            </div>
-          )}
-        </div>
-      )}
+            <WorkflowBackgroundTierPanel />
+            <WorkflowAiSessionPanel />
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

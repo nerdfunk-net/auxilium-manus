@@ -11,7 +11,7 @@ container is needed here.**
 Optional, like pyATS: nothing in this integration is required for the app to
 function, and the **Batfish** step category is hidden from the canvas
 palette entirely until a Batfish source is configured (mirrors pyATS's
-`hasPyatsSource` gate in `step-catalog.tsx` — see "Frontend: category
+`hasPyatsSource` gate in `utils/step-library-filter.ts` — see "Frontend: category
 gating" below).
 
 ## Contents
@@ -317,7 +317,7 @@ frontend/src/components/features/workflow-steps/batfish-validate-facts/{index.ts
 frontend/src/components/features/workflow-steps/batfish-extract-facts/{index.tsx,help-panel.tsx}
 frontend/src/lib/plugin-ui-registry.ts        # 11 PLUGIN_UI_REGISTRY entries
 frontend/src/components/features/workflows/utils/step-visuals.ts   # "batfish" category label/colors/icons
-frontend/src/components/features/workflows/components/step-catalog.tsx  # hasBatfishSource gate
+frontend/src/components/features/workflows/utils/step-library-filter.ts  # hasBatfishSource gate
 
 frontend/src/components/features/workflows/components/step-result-viewer/batfish-result-panel.tsx  # see "Viewing results" below
 frontend/src/components/features/workflows/components/step-result-viewer/{metadata-panel,outcome-context-view,devices-section,device-card,device-detail-dialog}.tsx  # wiring for the above (edits, not new)
@@ -1563,7 +1563,7 @@ querying a network directly" above.
 ## Frontend: category gating
 
 Exactly mirrors pyATS's existing mechanism in
-`frontend/src/components/features/workflows/components/step-catalog.tsx`
+`frontend/src/components/features/workflows/utils/step-library-filter.ts`
 (lines ~121-130 as of this writing):
 
 ```typescript

@@ -155,7 +155,7 @@ Contract:
 
 ### Containers — `step-group`
 
-`step-group` is **not a canvas node**. Dragging it from the palette creates an
+`step-group` is **not a canvas node**. Adding it from the Steps library (the "Add new Step" modal) creates an
 empty `CanvasGroup` (`isContainer: true`) in `canvas_groups`; the registry entry only
 makes it appear in the palette. Double-click the collapsed group to open it; steps added
 inside become members. Purely organisational — execution stays flat and the backend

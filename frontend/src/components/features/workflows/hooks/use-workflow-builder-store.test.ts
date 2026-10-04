@@ -142,3 +142,50 @@ describe("requestWorkflowLoad / clearPendingWorkflowLoad", () => {
     expect(useWorkflowBuilderStore.getState().pendingWorkflowLoad).toBeNull();
   });
 });
+
+describe("step library", () => {
+  it("is closed with no stored position by default", () => {
+    expect(useWorkflowBuilderStore.getState().stepLibrary).toEqual({ open: false, dropPosition: null });
+  });
+
+  it("stores the drop position when opened and clears it when closed", () => {
+    const store = useWorkflowBuilderStore.getState();
+    store.openStepLibrary({ x: 120, y: 80 });
+    expect(useWorkflowBuilderStore.getState().stepLibrary).toEqual({
+      open: true,
+      dropPosition: { x: 120, y: 80 },
+    });
+    store.closeStepLibrary();
+    expect(useWorkflowBuilderStore.getState().stepLibrary).toEqual({ open: false, dropPosition: null });
+  });
+
+  it("opens without a position for a plain click", () => {
+    useWorkflowBuilderStore.getState().openStepLibrary(null);
+    expect(useWorkflowBuilderStore.getState().stepLibrary).toEqual({ open: true, dropPosition: null });
+  });
+
+  it("is reset by resetToNew", () => {
+    useWorkflowBuilderStore.getState().openStepLibrary({ x: 1, y: 2 });
+    useWorkflowBuilderStore.getState().resetToNew();
+    expect(useWorkflowBuilderStore.getState().stepLibrary.open).toBe(false);
+  });
+
+  it("is closed when entering/leaving a group or loading a workflow", () => {
+    const store = useWorkflowBuilderStore.getState();
+    store.openStepLibrary({ x: 1, y: 2 });
+    store.enterGroup("g1");
+    expect(useWorkflowBuilderStore.getState().stepLibrary.open).toBe(false);
+
+    store.openStepLibrary({ x: 1, y: 2 });
+    store.exitToParent();
+    expect(useWorkflowBuilderStore.getState().stepLibrary.open).toBe(false);
+
+    store.openStepLibrary({ x: 1, y: 2 });
+    store.exitToRoot();
+    expect(useWorkflowBuilderStore.getState().stepLibrary.open).toBe(false);
+
+    store.openStepLibrary({ x: 1, y: 2 });
+    store.loadWorkflow({ ...useWorkflowBuilderStore.getState(), workflowId: 5 });
+    expect(useWorkflowBuilderStore.getState().stepLibrary).toEqual({ open: false, dropPosition: null });
+  });
+});
