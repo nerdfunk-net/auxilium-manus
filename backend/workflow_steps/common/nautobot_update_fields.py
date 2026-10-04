@@ -132,13 +132,3 @@ def extract_update_fields_from_nautobot_bag(bag: dict[str, Any]) -> dict[str, An
             update_data[key] = normalized
 
     return update_data
-
-
-def merge_update_data(
-    config_fields: dict[str, Any],
-    bag_fields: dict[str, Any],
-) -> dict[str, Any]:
-    """Merge config and bag fields; bag values override config for the same key."""
-    merged = dict(config_fields)
-    merged.update(bag_fields)
-    return merged

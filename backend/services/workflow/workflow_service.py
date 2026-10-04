@@ -34,6 +34,7 @@ from services.execution.graph import (
     topological_order,
 )
 from services.execution.schedule_service import ScheduleService
+from services.workflow.ai_write_gate import AiWriteGate
 from services.workflow.workflow_change_service import WorkflowChangeService
 from services.workflow.workflow_git_service import WorkflowGitService, WorkflowGitSyncResult
 
@@ -213,6 +214,7 @@ class WorkflowService:
         self.repo = WorkflowRepository(db)
         self.git = WorkflowGitService(db)
         self.changes = WorkflowChangeService(db)
+        self.ai_gate = AiWriteGate(db)
 
     def list_workflows(self, user_id: int) -> WorkflowListResponse:
         logger.debug("Listing accessible workflows user_id=%s", user_id)
@@ -316,12 +318,14 @@ class WorkflowService:
     ) -> WorkflowResponse:
         """Same as update_workflow but skips the creator_id ownership check.
 
-        Used only by backend/scripts/ai_workflow_apply.py. The caller must have
-        already verified an active workflow_ai_sessions row for this workflow
-        (see doc/ai_collaboration/PROCESS.md) — that time-boxed, human-granted
-        consent row IS the authorization for this path. Ownership isn't checked
-        here because the whole point of the feature is the AI actor editing a
-        workflow it doesn't own, on the human owner's explicit say-so.
+        Used only by backend/scripts/ai_workflow_apply.py. The time-boxed,
+        human-granted workflow_ai_sessions row IS the authorization for this
+        path, and it is verified here (AiWriteGate), not by the caller: the
+        actor must be the active ai-assistant account, the workflow must have an
+        unexpired consent row, and it must not have an enabled schedule.
+        Ownership isn't checked because the whole point of the feature is the AI
+        actor editing a workflow it doesn't own, on the human owner's explicit
+        say-so.
         """
         logger.info("Updating workflow (AI session) id=%s ai_user_id=%s", workflow_id, ai_user_id)
         try:
@@ -329,6 +333,7 @@ class WorkflowService:
             if result is None:
                 raise NotFoundError("Workflow not found")
             workflow, creator_username = result
+            self.ai_gate.assert_may_write(workflow_id, ai_user_id, canvas=True)
             return self._apply_update(
                 workflow,
                 creator_username,
@@ -446,12 +451,13 @@ class WorkflowService:
         """Same as update_notes but skips the creator_id ownership check.
 
         Used only by backend/scripts/ai_workflow_apply.py, under the same active
-        workflow_ai_sessions gate as update_workflow_for_ai_session (see
-        doc/ai_collaboration/PROCESS.md). Unlike a canvas edit, a notes edit has
-        no actor/attribution tracking at all -- update_notes doesn't record one
-        for a human either (no WorkflowChange row, no git-mirror sync; notes are
-        explicitly never synced to git), so ai_user_id exists only for logging
-        symmetry with the canvas path, not because anything downstream reads it.
+        workflow_ai_sessions gate as update_workflow_for_ai_session, enforced
+        here via AiWriteGate (see doc/ai_collaboration/PROCESS.md). Unlike a
+        canvas edit, a notes edit has no actor/attribution tracking at all --
+        update_notes doesn't record one for a human either (no WorkflowChange
+        row, no git-mirror sync; notes are explicitly never synced to git), so
+        ai_user_id exists only for logging symmetry with the canvas path, not
+        because anything downstream reads it.
         """
         logger.info(
             "Updating workflow notes (AI session) id=%s ai_user_id=%s", workflow_id, ai_user_id
@@ -460,6 +466,7 @@ class WorkflowService:
         if result is None:
             raise NotFoundError("Workflow not found")
         workflow, _creator_username = result
+        self.ai_gate.assert_may_write(workflow_id, ai_user_id, canvas=False)
         return self._apply_notes_update(workflow, notes)
 
     def _apply_notes_update(self, workflow: Workflow, notes: str | None) -> WorkflowNotesResponse:

@@ -96,14 +96,6 @@ class ISENetworkDeviceUpdate(BaseModel):
     tacacsSettings: dict[str, Any] | None = None
 
 
-class ISENetworkDeviceResponse(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    id: str | None = None
-    name: str | None = None
-    description: str | None = None
-
-
 class ISENetworkDeviceListResponse(BaseModel):
     total: int
     resources: list[dict[str, Any]]

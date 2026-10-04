@@ -7,10 +7,10 @@ existing device — by default the ``test-001`` device created by
 ``ise_test.py`` in the ``ise-test`` source — then confirms it is gone by
 re-fetching it (expects 404) and re-listing all devices for the source.
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running, e.g. via ``python start.py``)::
 
-    ../.venv/bin/python scripts/ise_test_delete_device.py
+    .venv/bin/python tools/ise/ise_test_delete_device.py
 
 Run with ``--help`` for all options.
 """

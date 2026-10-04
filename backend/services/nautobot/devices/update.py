@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from services.nautobot import NautobotService
+from services.nautobot.api_protocol import NautobotApi
 from services.nautobot.devices.attribute_bag import DEVICE_ATTRIBUTES_QUERY
 from services.nautobot.devices.common import DeviceCommonService
 from services.nautobot.devices.interface_workflow import InterfaceManagerService
@@ -102,7 +102,7 @@ class DeviceUpdateService:
     5. Verify updates applied successfully
     """
 
-    def __init__(self, nautobot_service: NautobotService):
+    def __init__(self, nautobot_service: NautobotApi):
         """
         Initialize the update service.
 

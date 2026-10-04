@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from workflow_steps.common.nautobot_update_fields import (
-    extract_update_fields_from_nautobot_bag,
-    merge_update_data,
-)
+from workflow_steps.common.nautobot_update_fields import extract_update_fields_from_nautobot_bag
 
 
 class NautobotUpdateFieldsTests(unittest.TestCase):
@@ -49,13 +46,6 @@ class NautobotUpdateFieldsTests(unittest.TestCase):
     def test_extracts_secrets_group_plain_string(self) -> None:
         fields = extract_update_fields_from_nautobot_bag({"secrets_group": "ssh-creds"})
         self.assertEqual(fields, {"secrets_group": "ssh-creds"})
-
-    def test_merge_prefers_bag_over_config(self) -> None:
-        merged = merge_update_data(
-            {"location": "static-dc", "serial": "OLD"},
-            {"location": "office-a"},
-        )
-        self.assertEqual(merged, {"location": "office-a", "serial": "OLD"})
 
 
 if __name__ == "__main__":

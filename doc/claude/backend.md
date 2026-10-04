@@ -31,7 +31,7 @@ backend/services/nautobot/
     ├── types.py
     ├── creation.py
     ├── update.py
-    └── interface_workflow.py
+    └── interface_workflow/        # package: service.py + ip_ops / record_ops mixins, payload, state
 ```
 
 ### Usage Pattern

@@ -13,7 +13,9 @@ returns one row per (node, interface) pair, keyed by an `Interface` column
 that -- confirmed empirically, see doc/BATFISH_INTEGRATION.md "Batfish
 Interface Properties" -- serializes to a nested `{"hostname": ...,
 "interface": ...}` dict, not a plain string. This step's `devices` outcome
-therefore dedupes via `devices_from_interface_rows`, not `devices_from_nodes`,
+is built by the shared `workflow_steps.common.batfish_properties` engine, whose node
+key for this question is `Interface.hostname`
+(`services/batfish/interface_properties_spec.py`), not by `devices_from_nodes`,
 and nests each device's own fields under `parsed[...]["parsed"]["Interfaces"]`
 rather than flat -- the one real difference from batfish-node-properties,
 captured as this step's own `PropertyQuestionSpec` passed into the shared

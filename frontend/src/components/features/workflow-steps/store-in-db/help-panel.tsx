@@ -17,10 +17,8 @@ export function StoreInDbHelpPanel() {
       <HelpSection title="What this step does">
         <p>
           Persists device data to the application database, keyed by device name and
-          a storage key you choose. A later{" "}
-          <span className="font-medium text-foreground">Read from DB</span> step
-          retrieves it and overwrites device data with it — this is how you hand data
-          from one run (or workflow) to a future one.
+          a storage key you choose (table <HelpCode>device_data_records</HelpCode>). There
+          is no built-in step that reads it back; consume it from the database.
         </p>
       </HelpSection>
 
@@ -80,12 +78,14 @@ export function StoreInDbHelpPanel() {
 
       <HelpSection title="allow_secret_storage">
         <p>
-          Shown when <HelpCode>content_source</HelpCode> is{" "}
-          <HelpCode>single_attribute</HelpCode>. Off by default. When{" "}
-          <HelpCode>attribute_path</HelpCode> resolves to a secret-valued attribute
-          (e.g. a device password from Nautobot config context, or a TACACS+ key),
-          the step fails that device instead of writing it — unless this checkbox is
-          enabled, in which case the value is decrypted and stored as plain data.
+          Off by default. Sealed secrets in the stored data
+          (<HelpCode>device_data</HelpCode>, <HelpCode>attribute_bags</HelpCode>) are
+          saved as <HelpCode>***REDACTED***</HelpCode>. With{" "}
+          <HelpCode>single_attribute</HelpCode>, a path resolving to a secret-valued
+          attribute (e.g. a device password or a TACACS+ key) fails that device, and a{" "}
+          <HelpCode>rendered_template</HelpCode> is refused for a device that holds
+          sealed secrets (the rendered text may embed them). Enabling this checkbox
+          decrypts secrets and stores them as plain data.
         </p>
         <HelpExample>
           content_source: single_attribute
@@ -125,7 +125,8 @@ export function StoreInDbHelpPanel() {
           If <HelpCode>attribute_path</HelpCode> resolves to a secret-valued attribute
           (e.g. <HelpCode>tacacs.shared_secret</HelpCode>), the step refuses to write
           it and fails that device — the database is not a protected secret store the
-          way sealed in-run attribute bags are. Enable{" "}
+          way sealed in-run attribute bags are. Other content sources store sealed
+          secrets as <HelpCode>***REDACTED***</HelpCode>. Enable{" "}
           <HelpCode>allow_secret_storage</HelpCode> only when you specifically intend
           to persist that secret in plain, queryable form for a later step to reuse.
         </p>
@@ -136,8 +137,8 @@ export function StoreInDbHelpPanel() {
           <li>Run an inventory step, and Get Nautobot Attributes if needed.</li>
           <li>
             Choose <HelpCode>content_source</HelpCode> and set{" "}
-            <HelpCode>storage_key</HelpCode> to something you&apos;ll recognize in a
-            later Read from DB step.
+            <HelpCode>storage_key</HelpCode> to something you&apos;ll recognize when you
+            query the database.
           </li>
           <li>
             Run the workflow once per device you want stored — rows are keyed by

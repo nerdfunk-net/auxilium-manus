@@ -158,16 +158,6 @@ class InventoryPreviewResponse(BaseModel):
     operations_executed: int
 
 
-class FieldValuesRequest(NautobotSourceRef):
-    field: str = Field(..., min_length=1)
-
-
-class FieldValuesResponse(BaseModel):
-    field: str
-    values: list[dict[str, str]] | list[str] = Field(default_factory=list)
-    input_type: str = "text"
-
-
 class RenameGroupRequest(BaseModel):
     old_path: str
     new_name: str

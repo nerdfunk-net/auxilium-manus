@@ -10,7 +10,7 @@ captures several ISE-specific behaviors that were only discovered by
 live-probing a Cisco DevNet ISE sandbox (self-signed cert, no persistent
 test environment). **The sandbox used during development has since been
 torn down**, so treat this document, the unit tests, and the scripts under
-`backend/scripts/ise_test*.py` as the record of verified behavior — there
+`tools/ise/ise_test*.py` as the record of verified behavior — there
 is currently no live ISE instance to re-verify against.
 
 ## Contents
@@ -48,7 +48,7 @@ backend/service_factory.py          # get/set_ise_app_service, build_ise_network
 backend/dependencies.py             # get_ise_source_config_service (FastAPI dependency)
 backend/main.py                     # ISEService lifespan startup/shutdown, router registration
 
-backend/scripts/ise_test*.py        # Executable, live-verified usage examples (see below)
+tools/ise/ise_test*.py              # Executable, live-verified usage examples (see below)
 backend/tests/test_ise_*.py         # Unit tests (all mocked — no network access)
 ```
 
@@ -505,13 +505,14 @@ workflow step built on this integration.
 
 ## Manual test scripts
 
-`backend/scripts/ise_test*.py` are executable, self-contained examples
+`tools/ise/ise_test*.py` are executable, self-contained examples
 that exercise every endpoint above through the real HTTP API (not just the
 service layer) — read them as worked examples if this document is ever
 unclear. They require a running backend and were **last verified against
 a live sandbox that no longer exists**; they will need a fresh ISE
 instance (edit `--ise-url`/`--ise-username`/`--ise-password`, or update the
-defaults) to run again.
+defaults) to run again. They live in `tools/ise/`, outside `backend/`, so they do not ship in
+the Docker image; run them from the repo root (`.venv/bin/python tools/ise/ise_test.py`).
 
 | Script                          | Demonstrates |
 |----------------------------------|--------------|
@@ -523,6 +524,7 @@ defaults) to run again.
 | `ise_test_ndg_list.py`           | Group list, pagination (`--all`), ISE-native `filter` passthrough |
 | `ise_test_ndg_update.py`         | Group `PUT` merge-safety (description-only update) |
 | `ise_test_ndg_delete.py`         | Group delete, children-before-parents, verify-gone |
+| `ise_show_all_devices.py`        | Print every device of a source (same login/source pattern as `ise_test.py`) |
 
 Unit tests (`backend/tests/test_ise_*.py`) are fully mocked (`AsyncMock`
 around `ISEService.ers_request`) and do **not** require any ISE instance,

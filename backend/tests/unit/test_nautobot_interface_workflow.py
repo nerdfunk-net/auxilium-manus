@@ -1,4 +1,4 @@
-"""Unit tests for services/nautobot/devices/interface_workflow.py.
+"""Unit tests for services/nautobot/devices/interface_workflow/.
 
 ``self.common`` (a DeviceCommonService) and ``self.nautobot`` are replaced with
 mocks; no network. REST calls are dispatched by a small fake keyed on
@@ -10,15 +10,25 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-from services.nautobot.devices.interface_workflow import (
-    InterfaceManagerService,
-    _build_interface_payload,
-    _InterfaceUpdateState,
-    _ip_map_key,
-    _normalize_interface_ip_list,
-    _normalize_interface_type,
-    _resolve_tagged_vlan_ids,
-    _resolve_untagged_vlan_id,
+from services.nautobot.devices.interface_workflow import InterfaceManagerService
+from services.nautobot.devices.interface_workflow.payload import (
+    build_interface_payload as _build_interface_payload,
+)
+from services.nautobot.devices.interface_workflow.payload import ip_map_key as _ip_map_key
+from services.nautobot.devices.interface_workflow.payload import (
+    normalize_interface_ip_list as _normalize_interface_ip_list,
+)
+from services.nautobot.devices.interface_workflow.payload import (
+    normalize_interface_type as _normalize_interface_type,
+)
+from services.nautobot.devices.interface_workflow.payload import (
+    resolve_tagged_vlan_ids as _resolve_tagged_vlan_ids,
+)
+from services.nautobot.devices.interface_workflow.payload import (
+    resolve_untagged_vlan_id as _resolve_untagged_vlan_id,
+)
+from services.nautobot.devices.interface_workflow.state import (
+    InterfaceUpdateState as _InterfaceUpdateState,
 )
 
 
@@ -533,9 +543,7 @@ class UpdateDeviceInterfacesTests(unittest.IsolatedAsyncioTestCase):
         svc = _make_service()
         state = _InterfaceUpdateState()
         svc._create_or_update_interface = AsyncMock(side_effect=RuntimeError("boom"))
-        await svc._process_one_interface(
-            device_id="d1", interface={"name": "Gi0/0"}, state=state
-        )
+        await svc._process_one_interface(device_id="d1", interface={"name": "Gi0/0"}, state=state)
         self.assertEqual(state.failed_interfaces, ["Gi0/0"])
         self.assertEqual(len(state.warnings), 1)
 
@@ -543,9 +551,7 @@ class UpdateDeviceInterfacesTests(unittest.IsolatedAsyncioTestCase):
         svc = _make_service()
         state = _InterfaceUpdateState()
         svc._create_or_update_interface = AsyncMock(return_value=("if1", False))
-        await svc._process_one_interface(
-            device_id="d1", interface={"name": "Gi0/0"}, state=state
-        )
+        await svc._process_one_interface(device_id="d1", interface={"name": "Gi0/0"}, state=state)
         self.assertEqual(state.interface_id_map, {"Gi0/0": "if1"})
 
     async def test_two_interface_batch_sets_lag_membership(self) -> None:
@@ -616,9 +622,7 @@ class AssignLagMembershipsTests(unittest.IsolatedAsyncioTestCase):
         state.interface_id_map = {"Ethernet0/2": "eth-id"}
         await svc._assign_lag_memberships(
             device_id="d1",
-            interfaces=[
-                {"name": "Ethernet0/2", "lag": "3542814a-d33f-4cc3-bfdd-eb3a35945b31"}
-            ],
+            interfaces=[{"name": "Ethernet0/2", "lag": "3542814a-d33f-4cc3-bfdd-eb3a35945b31"}],
             state=state,
         )
         svc.common.resolve_interface_by_name.assert_not_awaited()

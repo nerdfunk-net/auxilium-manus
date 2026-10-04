@@ -16,10 +16,10 @@ By default it targets the ISE sandbox at ``https://10.10.20.77`` with
     IPSec device  = No
     TACACS secret = "tacacskey12345"
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running, e.g. via ``python start.py``)::
 
-    ../.venv/bin/python scripts/ise_test.py
+    .venv/bin/python tools/ise/ise_test.py
 
 Run with ``--help`` for all options (backend URL/credentials, ISE
 URL/credentials, source ID, device name/IP/description/tacacs secret).

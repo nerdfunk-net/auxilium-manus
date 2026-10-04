@@ -146,7 +146,7 @@ Spot-checked a representative sample of the findings against the actual code
 |---|---|---|
 | `Column[T]` vs plain `T` (`services/git/repository_service.py`, `repositories/base.py`) | ~7 | **False positive.** `core/models/git.py` (and others) use classic `id = Column(Integer, ...)` instead of SQLAlchemy 2.0's `id: Mapped[int] = mapped_column(...)`. Runtime value is a plain `int`/`bool`/`datetime`; pyright sees the class-level descriptor type. |
 | `str \| None` params annotated as `str` (`services/git/connection.py::_validate_credentials`/`_build_clone_url`) | ~5 | **Stale annotation, not a bug.** Bodies already null-check (`if not resolved_token: ...`). Trivial fix: widen the annotations. |
-| `Argument missing for parameter "credentials"` (`services/nautobot/devices/creation.py`, `interface_workflow.py`) | ~15 | **Real typing gap, not a runtime bug.** `DeviceCreationService.__init__` is typed to take `NautobotService`, but production (`workflow_steps/add_to_nautobot/executor.py:163`) passes a `CredentialsBoundNautobotClient` — an intentional duck-typed adapter (see its own docstring) that injects credentials internally. Works fine at runtime; pyright checks calls against the wrong nominal type because the duck-typing isn't expressed via a `Protocol`. |
+| `Argument missing for parameter "credentials"` (`services/nautobot/devices/*`, managers, resolvers) | ~61 | **Fixed (2026-10).** The resolvers, managers and device services are now typed against the `NautobotApi` protocol (`services/nautobot/api_protocol.py`), which `CredentialsBoundNautobotClient` satisfies; no casts remain. |
 | Everything else (dict-vs-Pydantic-model args in `routers/templates.py`/`credentials.py`, enum-vs-str in `dashboard_service.py`/`schedule_service.py`, `redis_cache_service.py` bytes/str mixing, `services/git/file_service.py` GitPython stub gaps, `services/ise/client.py`) | ~130 | **Not yet individually verified.** Likely mostly the same two flavors (stub gaps + loose dict/str typing that Pydantic coerces at the boundary), but unconfirmed case-by-case. |
 
 ### Original goal
@@ -224,8 +224,8 @@ If/when someone needs mTLS-based (or dev-only static-token) access for a
 Secret Manager OpenBao connection specifically:
 
 1. Add `auth_method` (+ `client_cert`/`client_key`/`ca_cert` for `cert`) to
-   the OpenBao `backend_config` shape (`models/secret_manager.py`'s
-   `OpenBaoConnectionConfig`, and `connection_service.py`'s
+   the OpenBao `backend_config` shape (documented in the
+   `backend_config` field description of `models/secret_manager.py`, and `connection_service.py`'s
    `_REQUIRED_BACKEND_CONFIG_KEYS`/`_validate_backend_config`).
 2. In `_build_vault_config`, read `auth_method` from `backend_config` instead
    of hardcoding `"approle"`, and pass through the cert fields when present —

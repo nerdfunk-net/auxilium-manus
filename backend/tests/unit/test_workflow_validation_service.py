@@ -138,9 +138,7 @@ class Tier1SchemaTests(unittest.TestCase):
         registry = _registry(_plugin("run-command", required_fields=["command"]))
         svc = _service(registry)
 
-        result = svc.validate(
-            [_node("n1", "run-command", {"command": "   "})], acting_user_id=None
-        )
+        result = svc.validate([_node("n1", "run-command", {"command": "   "})], acting_user_id=None)
 
         self.assertTrue(result.has_errors)
 
@@ -242,6 +240,45 @@ class SharedSecretCredentialTests(unittest.TestCase):
                 [_node("n1", "encrypt-attribute", {"algorithm": algo})], acting_user_id=None
             )
             self.assertEqual(result.findings, [])
+
+
+class ExpressionOnlySecretFieldTests(unittest.TestCase):
+    _KINDS = ("add-to-ise", "update-ise-tacacs-key")
+
+    def _validate(self, kind: str, new_key: str):
+        svc = _service(_registry(_plugin(kind, required_fields=["new_key"])))
+        return svc.validate([_node("n1", kind, {"new_key": new_key})], acting_user_id=None)
+
+    def test_literal_new_key_is_a_tier1_error(self) -> None:
+        for kind in self._KINDS:
+            with self.subTest(kind=kind):
+                result = self._validate(kind, "s3cr3t")
+                self.assertEqual([f.code for f in result.findings], ["literal_secret_not_allowed"])
+                self.assertEqual(result.findings[0].tier, 1)
+                self.assertEqual(result.findings[0].severity, "error")
+                self.assertNotIn("s3cr3t", result.findings[0].message)
+
+    def test_default_fallback_is_a_tier1_error(self) -> None:
+        for kind in self._KINDS:
+            with self.subTest(kind=kind):
+                result = self._validate(kind, "{tacacs.new_key | default('x')}")
+                self.assertEqual([f.code for f in result.findings], ["literal_secret_not_allowed"])
+
+    def test_expression_new_key_is_clean(self) -> None:
+        for kind in self._KINDS:
+            with self.subTest(kind=kind):
+                self.assertEqual(self._validate(kind, "{tacacs.new_key}").findings, [])
+
+    def test_blank_new_key_only_reports_missing_required_field(self) -> None:
+        result = self._validate("add-to-ise", "")
+        self.assertEqual([f.code for f in result.findings], ["missing_required_field"])
+
+    def test_other_steps_are_not_affected(self) -> None:
+        svc = _service(_registry(_plugin("run-command", required_fields=["new_key"])))
+        result = svc.validate(
+            [_node("n1", "run-command", {"new_key": "literal"})], acting_user_id=None
+        )
+        self.assertEqual(result.findings, [])
 
 
 class Tier2ReferenceTests(unittest.TestCase):

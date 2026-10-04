@@ -11,8 +11,8 @@ and the banner clears. Two real bugs were found only by testing this live in a
 browser and are fixed — see "Bugs found and fixed during live testing" below, they
 are worth reading before assuming anything else works by inspection alone.
 
-**Nothing is committed.** Everything is on branch `feature/ai-assistent`, uncommitted,
-matching the file inventory in "What's actually been built" below.
+**On `main` since 2026-09-23/25** (see the 2026-09-26 status update near the end). The file
+inventory in "What's actually been built" below matches what is on `main`.
 
 **A follow-up code review found four more real bugs** (not caught by live testing —
 disable-leaves-a-session-active, a plain restore falsely triggering the banner, and
@@ -584,7 +584,13 @@ touches the database. It:
    full replacement of that field, not a diff).
 2. Resolves the `ai-assistant` user; refuses if `is_active` is not `True`.
 3. Resolves the active `workflow_ai_sessions` row for `--workflow-id`; refuses if
-   none/expired.
+   none/expired. A **canvas** patch is additionally refused while the workflow has an
+   enabled `WorkflowSchedule` (a schedule would run the AI's canvas unattended); a
+   notes-only patch is exempt. Steps 2–3 are enforced **inside `WorkflowService`**
+   (`services/workflow/ai_write_gate.py::AiWriteGate`, called by
+   `update_workflow_for_ai_session` and `update_notes_for_ai_session`), so no caller can
+   reach the ownership bypass without them; the script asks the gate early only to return
+   a clean JSON error.
 4. Fetches the workflow fresh via `WorkflowRepository.get_by_id` — **never** trust a
    previous invocation's cached state.
 5. Runs `WorkflowValidationService` (all four tiers — `validate()` always runs
@@ -762,7 +768,10 @@ templates and edit existing ones**. It:
    `category`, `content`, `variables`, `pre_run_commands`, `pre_run_use_textfsm`,
    `nautobot_attributes`, `credential_id`, `batfish_config`.
 2. Resolves the `ai-assistant` user; refuses if `is_active` is not `True` — **the
-   same and only gate**. Unlike `ai_workflow_apply.py`, there is deliberately no
+   same account gate** (enforced in `services/templates/ai_template_service.py::AiTemplateService`;
+   the policy is: a created or renamed template must be named `[AI Draft] …`, and an
+   update may only target a template whose `created_by` is `ai-assistant`; a human
+   promotes a draft by renaming it). Unlike `ai_workflow_apply.py`, there is deliberately no
    second, per-item consent/session row here: a `Template` row has no
    `creator_id`, `folder`, or `visibility` column at all (unlike `Workflow`), so
    there is no single "open canvas" or ownership scope to time-box a session

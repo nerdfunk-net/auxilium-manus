@@ -49,6 +49,7 @@ from services.artifacts import ArtifactService
 from services.ise.common.exceptions import ISEAPIError, ISENotFoundError, ISEValidationError
 from services.ise.network_device_service import ISENetworkDeviceService
 from services.ise.source_config_service import ISESourceNotFoundError
+from services.workflow_context.secret_expression import require_secret_expression
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.common.attribute_write import set_device_attribute
 from workflow_steps.common.update_field_expression import resolve_update_field_expression
@@ -107,6 +108,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     raw_new_key = (config.get("new_key") or "").strip()
     if not raw_new_key:
         raise ValueError(f"{_STEP_ID}: new_key is not configured")
+    raw_new_key = require_secret_expression(raw_new_key, field="new_key", step_id=_STEP_ID)
 
     return _ParsedConfig(source_id=source_id, raw_new_key=raw_new_key)
 
@@ -202,8 +204,7 @@ async def _update_one_device(
                 node_id=node_id,
                 code="ise_device_not_found",
                 message=(
-                    f"could not locate device '{device.name}' in ISE source "
-                    f"'{parsed.source_id}'"
+                    f"could not locate device '{device.name}' in ISE source '{parsed.source_id}'"
                 ),
             ),
         )

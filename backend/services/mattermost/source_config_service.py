@@ -11,12 +11,10 @@ referenced by ``credential_id``. The credential must be global (see
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
-from core.config import settings
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import validate_source_transport
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.source_credentials import (
@@ -39,24 +37,6 @@ class MattermostSourceConflictError(Exception):
     def __init__(self, source_id: str) -> None:
         super().__init__(f"Mattermost source '{source_id}' already exists")
         self.source_id = source_id
-
-
-def _validate_mattermost_url(url: str) -> str:
-    """Validate + normalize a Mattermost URL, enforcing https outside development.
-
-    Layers on top of ``validate_outbound_http_url`` (SSRF/RFC1918/loopback
-    checks shared by every source). ``http://`` is only accepted when
-    ``ENV=development`` (the default) -- matches the policy already used for
-    Git remotes in ``core.safe_urls.validate_git_remote_url``.
-    """
-    safe_url = validate_outbound_http_url(url, resolve_dns=True)
-    scheme = urlparse(safe_url).scheme.lower()
-    if scheme == "http" and settings.environment != "development":
-        raise UnsafeURLError(
-            "Mattermost URL must use https in this environment "
-            "(set ENV=development to allow http)."
-        )
-    return safe_url
 
 
 class MattermostSourceConfigService:
@@ -86,8 +66,8 @@ class MattermostSourceConfigService:
         if self._settings.get_by_key(key) is not None:
             raise MattermostSourceConflictError(source_id)
 
-        safe_url = _validate_mattermost_url(url)
-        assert_global_credential(self._db, credential_id)
+        safe_url = validate_source_transport(url, verify_ssl=verify_ssl, resolve_dns=True)
+        assert_global_credential(self._db, credential_id, source_type="mattermost")
 
         value = ensure_value_source_id(
             {
@@ -116,15 +96,20 @@ class MattermostSourceConfigService:
         setting = self._get_setting_or_raise(source_id)
 
         updated_value = dict(setting.value)
-        if url is not None:
-            updated_value["url"] = _validate_mattermost_url(url)
         if credential_id is not None:
-            assert_global_credential(self._db, credential_id)
+            assert_global_credential(self._db, credential_id, source_type="mattermost")
             updated_value["credential_id"] = credential_id
         if verify_ssl is not None:
             updated_value["verify_ssl"] = verify_ssl
         if timeout is not None:
             updated_value["timeout"] = timeout
+        if url is not None or verify_ssl is not None:
+            # Validate the resulting (url, verify_ssl) pair whichever of the two changed.
+            updated_value["url"] = validate_source_transport(
+                url if url is not None else str(updated_value["url"]),
+                verify_ssl=bool(updated_value.get("verify_ssl", True)),
+                resolve_dns=True,
+            )
 
         updated = self._settings.update(setting, {"value": updated_value})
         return self._to_public(updated.value)
@@ -146,7 +131,14 @@ class MattermostSourceConfigService:
         setting = self._get_setting_or_raise(source_id)
         value = setting.value
 
-        resolved_url = _validate_mattermost_url(url) if url is not None else value["url"]
+        effective_verify_ssl = bool(
+            verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
+        )
+        resolved_url = (
+            validate_source_transport(url, verify_ssl=effective_verify_ssl, resolve_dns=True)
+            if url is not None
+            else value["url"]
+        )
         effective_id = credential_id if credential_id is not None else value.get("credential_id")
         if effective_id is None:
             raise MattermostValidationError(
@@ -158,9 +150,7 @@ class MattermostSourceConfigService:
             base_url=resolved_url,
             token=resolved_token,
             timeout=float(timeout if timeout is not None else value.get("timeout", 30.0)),
-            verify_ssl=bool(
-                verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
-            ),
+            verify_ssl=effective_verify_ssl,
         )
 
     def resolve_inline_credentials(
@@ -172,7 +162,7 @@ class MattermostSourceConfigService:
         timeout: float,
     ) -> MattermostCredentials:
         """Build credentials from unsaved dialog values (no persisted source yet)."""
-        safe_url = _validate_mattermost_url(url)
+        safe_url = validate_source_transport(url, verify_ssl=verify_ssl, resolve_dns=True)
         _, token = self._resolve_secret(credential_id)
         return MattermostCredentials(
             base_url=safe_url, token=token, timeout=float(timeout), verify_ssl=bool(verify_ssl)
@@ -180,7 +170,7 @@ class MattermostSourceConfigService:
 
     def _resolve_secret(self, credential_id: int) -> tuple[str | None, str]:
         try:
-            return resolve_global_secret(self._db, credential_id)
+            return resolve_global_secret(self._db, credential_id, source_type="mattermost")
         except SourceCredentialError as exc:
             raise MattermostValidationError(str(exc)) from exc
 

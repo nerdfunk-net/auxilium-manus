@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-import ipaddress
 from collections.abc import Callable
 from typing import Any
 
-from models.catalyst_center import CatalystCenterDevice
+from models.catalyst_center import CatalystCenterDevice, CatalystCenterSite
 from services.catalyst_center.client import RELEASE_PATH, CatalystCenterService
 from services.catalyst_center.common.exceptions import (
-    CatalystCenterNotFoundError,
     CatalystCenterTooManyDevicesError,
     CatalystCenterValidationError,
 )
 from services.catalyst_center.common.ids import safe_device_id
-from services.catalyst_center.common.version import (
-    CatalystCenterRelease,
-    installed_version_label,
-)
+from services.catalyst_center.common.version import installed_version_label
 from services.catalyst_center.credentials import CatalystCenterCredentials
 from services.catalyst_center.device_filters import CatalystCenterDeviceFilters
 from services.catalyst_center.site_service import CatalystCenterSiteService
@@ -27,25 +22,6 @@ DEVICES_PATH = "/dna/intent/api/v1/network-device"
 DEVICE_PAGE_SIZE = 500
 _MAX_PAGES = 200
 _ID_CHUNK = 50  # ids per `GET /network-device?id=a,b,c` request (keeps the URL short)
-
-# keyword -> Intent API query parameter
-_FILTER_PARAMS: dict[str, str] = {
-    "hostname": "hostname",
-    "management_ip": "managementIpAddress",
-    "mac_address": "macAddress",
-    "family": "family",
-    "role": "role",
-    "software_type": "softwareType",
-    "serial_number": "serialNumber",
-    "reachability_status": "reachabilityStatus",
-    "platform_id": "platformId",
-    "series": "series",
-    "device_type": "type",
-    "software_version": "softwareVersion",
-    "collection_status": "collectionStatus",
-}
-# Filters that /network-device/count only honours from 2.3.7 on.
-_COUNT_FILTERS = frozenset({"hostname", "management_ip", "mac_address"})
 
 
 def normalize_device(raw: Any) -> CatalystCenterDevice:
@@ -69,19 +45,12 @@ def normalize_device(raw: Any) -> CatalystCenterDevice:
     )
 
 
-def _query_params(filters: dict[str, Any]) -> dict[str, Any]:
-    unknown = set(filters) - set(_FILTER_PARAMS)
-    if unknown:
-        raise CatalystCenterValidationError(f"Unsupported device filter: {sorted(unknown)[0]}")
-    return {_FILTER_PARAMS[key]: value for key, value in filters.items() if value}
-
-
 def _response_body(payload: Any) -> Any:
     return payload.get("response") if isinstance(payload, dict) else None
 
 
 class CatalystCenterDeviceService:
-    """Device lookups against one Catalyst Center, hiding release differences."""
+    """Device lookups against one Catalyst Center."""
 
     def __init__(
         self, client: CatalystCenterService, credentials: CatalystCenterCredentials
@@ -89,8 +58,6 @@ class CatalystCenterDeviceService:
         self._client = client
         self._credentials = credentials
         self._sites = CatalystCenterSiteService(client, credentials)
-        self._release: CatalystCenterRelease | None = None
-        self._release_checked = False
 
     async def test_connection(self) -> str | None:
         """Authenticate and read ``/dnac-release``; proves URL, TLS and credentials work.
@@ -106,40 +73,6 @@ class CatalystCenterDeviceService:
             self._credentials, "GET", f"{DEVICES_PATH}/{safe_device_id(device_id)}"
         )
         return normalize_device(_response_body(payload))
-
-    async def find_by_ip(self, ip_address: str) -> CatalystCenterDevice | None:
-        try:
-            address = str(ipaddress.ip_address(ip_address.strip()))
-        except ValueError as exc:
-            raise CatalystCenterValidationError("Invalid IP address") from exc
-        try:
-            payload = await self._client.request(
-                self._credentials, "GET", f"{DEVICES_PATH}/ip-address/{address}"
-            )
-        except CatalystCenterNotFoundError:
-            return None
-        return normalize_device(_response_body(payload))
-
-    async def find_by_names(self, names: list[str]) -> tuple[CatalystCenterDevice, ...]:
-        """Exact hostname match. The API filter is a case-sensitive full match where ``.*`` is
-        a wildcard, so a name containing ``.*`` is first narrowed server-side; the exact
-        comparison here guards against any such wildcard in the name."""
-        seen_names: set[str] = set()
-        found: dict[str, CatalystCenterDevice] = {}
-        for raw_name in names:
-            name = raw_name.strip()
-            if not name or name.lower() in seen_names:
-                continue
-            seen_names.add(name.lower())
-            for device in await self.list_devices(hostname=name):
-                if (device.hostname or "").lower() == name.lower():
-                    found.setdefault(device.id, device)
-        return tuple(found.values())
-
-    async def list_devices(
-        self, *, max_devices: int | None = None, **filters: Any
-    ) -> tuple[CatalystCenterDevice, ...]:
-        return await self._collect(_query_params(filters), limit=max_devices)
 
     async def search_devices(
         self, filters: CatalystCenterDeviceFilters, *, max_devices: int | None = None
@@ -167,7 +100,7 @@ class CatalystCenterDeviceService:
         found = await self._select(filters, limit=limit + 1)
         return found[:limit], len(found) > limit
 
-    async def list_sites(self):
+    async def list_sites(self) -> tuple[CatalystCenterSite, ...]:
         """The controller's configured sites (for the site picker)."""
         return await self._sites.list_sites()
 
@@ -272,37 +205,3 @@ class CatalystCenterDeviceService:
             if len(body) < DEVICE_PAGE_SIZE:
                 return tuple(kept)
         raise CatalystCenterValidationError("Catalyst Center device list exceeded page bound")
-
-    async def count_devices(self, **filters: Any) -> int:
-        params = _query_params(filters)
-        if params and not await self._count_endpoint_supports(filters):
-            # Older releases only return the unfiltered total: count by listing instead.
-            return len(await self.list_devices(**filters))
-        payload = await self._client.request(
-            self._credentials, "GET", f"{DEVICES_PATH}/count", params=params or None
-        )
-        count = _response_body(payload)
-        if not isinstance(count, int):
-            raise CatalystCenterValidationError("Catalyst Center device count was not a number")
-        return count
-
-    async def _count_endpoint_supports(self, filters: dict[str, Any]) -> bool:
-        active = {key for key, value in filters.items() if value}
-        if not active <= _COUNT_FILTERS:
-            return False
-        release = await self._get_release()
-        return release is not None and release.supports_filtered_device_count
-
-    async def _get_release(self) -> CatalystCenterRelease | None:
-        """The product release, or None when the controller does not report a usable one.
-
-        An unknown release is treated as "no optional capabilities": callers fall back to
-        behaviour that works on every release.
-        """
-        if not self._release_checked:
-            try:
-                self._release = await self._client.get_release(self._credentials)
-            except CatalystCenterValidationError:
-                self._release = None
-            self._release_checked = True
-        return self._release

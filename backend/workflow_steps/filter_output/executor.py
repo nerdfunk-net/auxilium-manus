@@ -172,7 +172,7 @@ async def _filter_and_store(
     device_id: str,
     device: DeviceContext,
     node_id: str,
-    run_id: str | None,
+    run_id: str,
     parsed: _ParsedFilterConfig,
     artifact_service: ArtifactService,
 ) -> DeviceContext:
@@ -229,7 +229,7 @@ async def _filter_device(
     device: DeviceContext,
     parsed: _ParsedFilterConfig,
     node_id: str,
-    run_id: str | None,
+    run_id: str,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, bool]:
     try:

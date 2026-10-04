@@ -49,6 +49,7 @@ from services.git.repository_service import GitRepositoryService
 from services.plugin_registry.plugin_registry_service import PluginRegistryService
 from services.workflow_context.guards import StepCapabilitySpec, effective_produces
 from services.workflow_context.registry import capability_spec_from_plugin
+from services.workflow_context.secret_expression import secret_expression_problem
 
 # Outcome names whose branch only ever carries devices a step could NOT
 # process — mirrors frontend/.../utils/capability-graph.ts's
@@ -147,6 +148,12 @@ def _iter_config_strings(value: Any) -> Iterator[str]:
 # kinds default to "ssh", matching that module's documented default.
 _SHARED_SECRET_STEP_KINDS = frozenset({"encrypt-attribute", "decrypt-attribute"})
 _GENERIC_STEP_KINDS = frozenset({"add-pyats-testbed"})
+# Config fields that carry a secret and therefore must be {path} references, never literals
+# (see services/workflow_context/secret_expression.py).
+_EXPRESSION_ONLY_SECRET_FIELDS: dict[str, tuple[str, ...]] = {
+    "add-to-ise": ("new_key",),
+    "update-ise-tacacs-key": ("new_key",),
+}
 
 # Credential.type values each inferred credential_type accepts — mirrors
 # services/credentials/manager.py's _SSH_TYPES/_GENERIC_TYPES/_SHARED_SECRET_TYPES.
@@ -240,9 +247,7 @@ class WorkflowValidationService:
             plugin_config = plugin_config if isinstance(plugin_config, dict) else {}
 
             findings.extend(self._tier1_schema(node_id, plugin, plugin_config))
-            findings.extend(
-                self._tier2_references(node_id, kind, plugin_config, acting_user_id)
-            )
+            findings.extend(self._tier2_references(node_id, kind, plugin_config, acting_user_id))
 
         findings.extend(self._tier3_capability_flow(canvas_nodes, canvas_edges or []))
         findings.extend(self._tier4_attribute_path_wiring(canvas_nodes, canvas_edges or []))
@@ -277,6 +282,34 @@ class WorkflowValidationService:
                 )
             )
         findings.extend(self._shared_secret_credential_required(node_id, plugin, plugin_config))
+        findings.extend(self._expression_only_secret_fields(node_id, plugin, plugin_config))
+        return findings
+
+    @staticmethod
+    def _expression_only_secret_fields(
+        node_id: str | None, plugin: PluginDefinition, plugin_config: dict[str, Any]
+    ) -> list[ValidationFinding]:
+        """A literal secret in step config would be persisted in cleartext, and mirrored to git."""
+        findings: list[ValidationFinding] = []
+        for field_name in _EXPRESSION_ONLY_SECRET_FIELDS.get(plugin.id, ()):
+            raw = plugin_config.get(field_name)
+            if _is_blank(raw):
+                continue  # a missing required field is reported by the required-field check
+            problem = secret_expression_problem(str(raw))
+            if problem is None:
+                continue
+            findings.append(
+                ValidationFinding(
+                    node_id=node_id,
+                    tier=1,
+                    severity="error",
+                    code="literal_secret_not_allowed",
+                    message=(
+                        f"'{field_name}' of step '{plugin.name}' {problem}. Reference an attribute "
+                        "filled by Secret Get / Secret Generate / Generate Password instead."
+                    ),
+                )
+            )
         return findings
 
     @staticmethod
@@ -372,8 +405,7 @@ class WorkflowValidationService:
                     severity="error",
                     code=f"inventory_{'id_invalid' if exc.code == 'invalid_id' else exc.code}",
                     message=(
-                        f"Saved inventory{selected}: {exc}. "
-                        f"Select an inventory again in the step."
+                        f"Saved inventory{selected}: {exc}. Select an inventory again in the step."
                     ),
                 )
             ]
@@ -449,7 +481,7 @@ class WorkflowValidationService:
 
         try:
             repository_id = int(git_repository_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return _finding(f"Git repository id {git_repository_id!r} is not a valid integer.")
 
         repository = GitRepositoryService(self.db).get_repository(repository_id)
@@ -504,7 +536,10 @@ class WorkflowValidationService:
             # one; report it rather than silently dropping Tier 3 entirely.
             return [
                 ValidationFinding(
-                    node_id=None, tier=3, severity="error", code="graph_resolution_failed",
+                    node_id=None,
+                    tier=3,
+                    severity="error",
+                    code="graph_resolution_failed",
                     message=str(exc),
                 )
             ]
@@ -527,7 +562,10 @@ class WorkflowValidationService:
             # attempting a walk that can't terminate meaningfully.
             return [
                 ValidationFinding(
-                    node_id=None, tier=3, severity="error", code="graph_cycle",
+                    node_id=None,
+                    tier=3,
+                    severity="error",
+                    code="graph_cycle",
                     message="Workflow graph contains a cycle — capability-flow validation skipped.",
                 )
             ]

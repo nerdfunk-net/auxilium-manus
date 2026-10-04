@@ -55,7 +55,7 @@ See `backend/services/auth/rbac_service.py::RBACService.has_permission`.
 |---|---|
 | P1 | An actor may never change their own roles/overrides, or delete/deactivate themselves. |
 | P2 | An actor may grant only permissions they currently hold. `admin` bypasses. |
-| P3 | Any change touching `rbac.*`, `users`, `system.*`, or `secret_manager.*` requires `admin`. |
+| P3 | Any change touching `rbac.*`, `users`, `system.*`, `secret_manager.*`, or `sources.*:write` / `sources.*:delete` requires `admin`. |
 | P4 | Any change to a user who currently holds `admin` requires `admin`. |
 | P5 | System roles (`is_system=True`) cannot be renamed, deleted, or have `is_system` changed. |
 | P6 | The last **active** user holding `admin` cannot lose it (role removal, deactivation, deletion). Deactivated admins do not count. |

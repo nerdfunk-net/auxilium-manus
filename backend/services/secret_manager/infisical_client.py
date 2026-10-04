@@ -239,14 +239,6 @@ class InfisicalSecretManagerClient:
         version = secret.get("version")
         return int(version) if isinstance(version, int) else None
 
-    def delete_field(self, path: str, field: str) -> None:
-        body = {
-            "projectId": self._project_id,
-            "environment": self._environment,
-            "secretPath": path,
-        }
-        self._request("DELETE", f"/api/v4/secrets/{field}", json=body)
-
     def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]:
         del path
         # Not implemented pending live verification of version-pinned reads

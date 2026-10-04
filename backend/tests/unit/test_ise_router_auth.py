@@ -311,3 +311,44 @@ def test_list_all_network_device_groups_allowed_with_permission(
         "groups": [{"id": "1", "name": "Location#All Locations#Test", "description": None}],
         "truncated": False,
     }
+
+
+def test_read_only_user_gets_device_without_shared_secrets(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        RBACService,
+        "has_permission",
+        lambda self, _user_id, resource, action: (resource, action) == ("sources.ise", "read"),
+    )
+    app.dependency_overrides[verify_token] = lambda: {"sub": "tester", "user_id": 1}
+    app.dependency_overrides[get_current_user] = _make_user
+    app.dependency_overrides[get_db] = _override_db
+    config = MagicMock()
+    config.resolve_credentials.return_value = MagicMock()
+    app.dependency_overrides[get_ise_source_config_service] = lambda: config
+
+    import service_factory
+
+    mock_device_service = MagicMock()
+
+    async def _get_device(_device_id: str):
+        return {
+            "NetworkDevice": {
+                "id": "d1",
+                "tacacsSettings": {"sharedSecret": "tacacs-key"},
+            }
+        }
+
+    mock_device_service.get_device = _get_device
+    monkeypatch.setattr(
+        service_factory,
+        "build_ise_network_device_service",
+        lambda credentials: mock_device_service,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/sources/ise/lab/devices/d1")
+
+    assert response.status_code == 200
+    assert "tacacs-key" not in response.text

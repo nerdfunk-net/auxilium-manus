@@ -106,24 +106,6 @@ class OpenBaoSecretManagerClient:
         except VaultError as exc:
             raise SecretManagerUnavailableError(str(exc)) from exc
 
-    def delete_field(self, path: str, field: str) -> None:
-        try:
-            current = self._service.read_kv(path)
-        except VaultSecretNotFoundError:
-            return
-        except VaultError as exc:
-            raise SecretManagerUnavailableError(str(exc)) from exc
-        if field not in current:
-            return
-        remaining = {key: val for key, val in current.items() if key != field}
-        try:
-            if remaining:
-                self._service.write_kv(path, remaining)
-            else:
-                self._service.delete_kv(path)
-        except VaultError as exc:
-            raise SecretManagerUnavailableError(str(exc)) from exc
-
     def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]:
         del field  # OpenBao KV v2 versions the whole dict at `path`, not per field.
         try:

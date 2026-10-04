@@ -513,16 +513,16 @@ plugins:
           example: lab-ise
         - name: new_key
           description: >
-            The TACACS+ shared secret to set on every device. Use a fixed value, or
-            wrap a dot path in braces to resolve it per device from the device's
-            attribute bags, e.g. {custom.new_tacacs_key} or
-            {nautobot.custom_fields.tacacs_key}, optionally with a fallback:
-            {custom.new_tacacs_key | default('fallback-value')}. A device whose
-            expression resolves to nothing, or whose device can't be located or
-            updated in ISE, is marked failed but does not stop the step.
+            The TACACS+ shared secret to set on every device, as a {path} expression
+            resolved per device from the device's attribute bags, e.g.
+            {tacacs.new_key} (filled by Secret Get, Secret Generate or Generate
+            Password). A literal value or a `| default(...)` fallback is rejected:
+            step config is stored in the workflow definition and mirrored to git.
+            A device whose expression resolves to nothing, or whose device can't be
+            located or updated in ISE, is marked failed but does not stop the step.
           data_type: string
           required: true
-          example: "{custom.new_tacacs_key}"
+          example: "{tacacs.new_key}"
 
   - id: add-to-ise
     name: Add to ISE
@@ -594,11 +594,13 @@ plugins:
           example: "32"
         - name: new_key
           description: >
-            The TACACS+ shared secret to set on the created device. Use a fixed value,
-            or a {path.to.value} expression with the same convention as device_name.
+            The TACACS+ shared secret to set on the created device, as a {path.to.value}
+            expression (e.g. {tacacs.new_key}, filled by Secret Get, Secret Generate or
+            Generate Password). A literal value or a `| default(...)` fallback is
+            rejected: step config is stored in the workflow definition and mirrored to git.
           data_type: string
           required: true
-          example: "{custom.new_tacacs_key}"
+          example: "{tacacs.new_key}"
         - name: device_groups
           description: >
             Full hierarchical ISE network device group (NDG) names the new device
@@ -4679,8 +4681,8 @@ plugins:
     description: >
       Store all device data, attribute bags, a single attribute, or a rendered
       template in the application database under a storage key, keyed by device
-      name. A later "Read from DB" step retrieves it and overwrites device data
-      with it. Concurrency-safe: rows are keyed by (device_name, storage_key), so
+      name (table device_data_records). There is no built-in step that reads it
+      back; consume it from the database. Concurrency-safe: rows are keyed by (device_name, storage_key), so
       fan-out children and independent sibling branches never collide; a
       concurrent writer to the same device+key is resolved via a safe upsert, no
       Fan In node required.
@@ -4696,8 +4698,9 @@ plugins:
       configuration_input:
         - name: storage_key
           description: >
-            Key this device's data is stored under. A later "Read from DB" step
-            reads by this key.
+            Key this device's data is stored under (table device_data_records,
+            unique per device name and key; a second run overwrites). There is no
+            built-in step that reads it back; consume it from the database.
           data_type: string
           required: true
           example: site_backup
@@ -4716,11 +4719,12 @@ plugins:
           example: nautobot.role.name
         - name: allow_secret_storage
           description: >
-            When true, a single_attribute path resolving to a secret-valued
-            attribute (e.g. a device password) is decrypted and stored instead
-            of failing the device. Off by default -- the database is not a
-            protected secret store the way sealed in-run attribute bags are;
-            enabling this is an explicit, operator-accepted risk.
+            Off by default: sealed secrets in the stored data are replaced by
+            ***REDACTED***, a single_attribute path resolving to a secret fails the
+            device, and a rendered_template is refused for a device that holds
+            sealed secrets (the rendered text may embed them). When true, secrets
+            are decrypted and stored in clear text -- the database is not a
+            protected secret store, so this is an explicit, operator-accepted risk.
           data_type: boolean
           required: false
           default: false

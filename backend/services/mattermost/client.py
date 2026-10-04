@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
+from core.safe_urls import UnsafeURLError, validate_source_transport_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.mattermost.common.exceptions import MattermostAPIError, MattermostValidationError
 from services.mattermost.credentials import MattermostCredentials
@@ -187,7 +187,9 @@ class MattermostService:
         if not credentials.base_url:
             raise MattermostValidationError("Mattermost URL is required")
         try:
-            return await validate_outbound_http_url_async(credentials.base_url)
+            return await validate_source_transport_async(
+                credentials.base_url, verify_ssl=credentials.verify_ssl
+            )
         except UnsafeURLError as exc:
             raise MattermostValidationError(str(exc)) from exc
 

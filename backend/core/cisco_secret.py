@@ -24,11 +24,6 @@ ALGORITHM_CISCO_TYPE9 = "cisco-type9"
 CISCO_ALGORITHMS: frozenset[str] = frozenset(
     {ALGORITHM_CISCO_TYPE7, ALGORITHM_CISCO_TYPE8, ALGORITHM_CISCO_TYPE9}
 )
-CISCO_ALGORITHM_LABELS: dict[str, str] = {
-    ALGORITHM_CISCO_TYPE7: "Cisco type 7 (reversible obfuscation)",
-    ALGORITHM_CISCO_TYPE8: "Cisco type 8 (PBKDF2-SHA256, one-way)",
-    ALGORITHM_CISCO_TYPE9: "Cisco type 9 (scrypt, one-way)",
-}
 
 _ENCRYPTORS = {
     ALGORITHM_CISCO_TYPE7: cisco_type7.encrypt,

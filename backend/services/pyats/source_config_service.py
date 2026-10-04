@@ -68,7 +68,7 @@ class PyATSSourceConfigService:
             raise PyATSSourceConflictError(source_id)
 
         safe_url = validate_outbound_http_url(url, resolve_dns=True)
-        assert_global_credential(self._db, credential_id)
+        assert_global_credential(self._db, credential_id, source_type="pyats")
 
         value = ensure_value_source_id(
             {
@@ -100,7 +100,7 @@ class PyATSSourceConfigService:
         if url is not None:
             updated_value["url"] = validate_outbound_http_url(url, resolve_dns=True)
         if credential_id is not None:
-            assert_global_credential(self._db, credential_id)
+            assert_global_credential(self._db, credential_id, source_type="pyats")
             updated_value["credential_id"] = credential_id
         if verify_ssl is not None:
             updated_value["verify_ssl"] = verify_ssl
@@ -165,7 +165,7 @@ class PyATSSourceConfigService:
 
     def _resolve_secret(self, credential_id: int) -> tuple[str | None, str]:
         try:
-            return resolve_global_secret(self._db, credential_id)
+            return resolve_global_secret(self._db, credential_id, source_type="pyats")
         except SourceCredentialError as exc:
             raise PyATSValidationError(str(exc)) from exc
 

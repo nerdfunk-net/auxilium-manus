@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 from services.nautobot.devices.uuid_resolver import (
     OBJECTVAR_MODEL_TO_RESOURCE_TYPE,
     UUID_RESOURCE_TYPES,
-    content_type_required,
     resolve_nautobot_uuid,
 )
 
@@ -46,9 +45,7 @@ class ResolveNautobotUuidTests(unittest.IsolatedAsyncioTestCase):
     async def test_role_dispatch_passes_explicit_content_type(self) -> None:
         common = _common()
         await resolve_nautobot_uuid(common, "role", "edge", content_type="dcim.interface")
-        common.resolve_role_id_for_content_type.assert_awaited_once_with(
-            "edge", "dcim.interface"
-        )
+        common.resolve_role_id_for_content_type.assert_awaited_once_with("edge", "dcim.interface")
 
     async def test_status_dispatch_defaults_content_type_to_device(self) -> None:
         common = _common()
@@ -84,16 +81,6 @@ class ResolveNautobotUuidTests(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_resource_type_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
             await resolve_nautobot_uuid(_common(), "vlan", "100")
-
-
-class ContentTypeRequiredTests(unittest.TestCase):
-    def test_role_and_status_require_content_type(self) -> None:
-        self.assertTrue(content_type_required("role"))
-        self.assertTrue(content_type_required("status"))
-
-    def test_other_resource_types_do_not(self) -> None:
-        for resource_type in UUID_RESOURCE_TYPES - {"role", "status"}:
-            self.assertFalse(content_type_required(resource_type))
 
 
 class ObjectVarModelMapTests(unittest.TestCase):

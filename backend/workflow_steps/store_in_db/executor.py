@@ -24,7 +24,13 @@ from models.workflow_context import (
 from services.artifacts import ArtifactService
 from services.device_data.device_data_service import DeviceDataService
 from services.workflow_context.attribute_path import resolve_device_value
-from services.workflow_context.secret_fields import is_sealed_secret, unwrap_secret
+from services.workflow_context.secret_fields import (
+    contains_sealed_secret,
+    is_sealed_secret,
+    redact_secrets_in_data,
+    unwrap_all_secrets,
+    unwrap_secret,
+)
 from workflow_steps.common.content_resolver import list_exportable_content
 
 if TYPE_CHECKING:
@@ -47,9 +53,7 @@ def _parse_storage_key(config: dict[str, Any]) -> str:
 def _parse_content_source(config: dict[str, Any]) -> str:
     content_source = str(config.get("content_source") or "").strip().lower()
     if content_source not in _CONTENT_SOURCES:
-        raise ValueError(
-            f"store-in-db: content_source must be one of {sorted(_CONTENT_SOURCES)}"
-        )
+        raise ValueError(f"store-in-db: content_source must be one of {sorted(_CONTENT_SOURCES)}")
     return content_source
 
 
@@ -94,6 +98,18 @@ async def _resolve_rendered_template(
     return rendered
 
 
+def _guard_secrets(data: Any, *, allow_secret_storage: bool) -> Any:
+    """The database is not a protected secret store: sealed envelopes and known secret leaves
+    are stored as ``***REDACTED***`` unless the operator explicitly accepted cleartext storage."""
+    if allow_secret_storage:
+        return unwrap_all_secrets(data)
+    return redact_secrets_in_data(data)
+
+
+def _device_holds_sealed_secret(device: DeviceContext) -> bool:
+    return contains_sealed_secret(device.attribute_bags) or contains_sealed_secret(device.parsed)
+
+
 async def _resolve_device_data(
     device: DeviceContext,
     *,
@@ -101,11 +117,20 @@ async def _resolve_device_data(
     config: dict[str, Any],
     artifact_service: ArtifactService,
 ) -> Any:
+    allow_secret_storage = _parse_bool(config, "allow_secret_storage")
+
     if content_source == "device_data":
-        return {"attribute_bags": device.attribute_bags, "parsed": device.parsed}
+        return _guard_secrets(
+            {"attribute_bags": device.attribute_bags, "parsed": device.parsed},
+            allow_secret_storage=allow_secret_storage,
+        )
 
     if content_source == "attribute_bags":
-        return dict(device.attribute_bags)
+        guarded = _guard_secrets(
+            {"attribute_bags": dict(device.attribute_bags)},
+            allow_secret_storage=allow_secret_storage,
+        )
+        return guarded["attribute_bags"]
 
     if content_source == "single_attribute":
         attribute_path = str(config.get("attribute_path") or "").strip()
@@ -115,7 +140,7 @@ async def _resolve_device_data(
             )
         value = resolve_device_value(device, attribute_path)
         if is_sealed_secret(value):
-            if not _parse_bool(config, "allow_secret_storage"):
+            if not allow_secret_storage:
                 raise ValueError(
                     f"store-in-db: attribute_path {attribute_path!r} resolves to a "
                     "secret-valued attribute, which cannot be stored in the database "
@@ -128,6 +153,12 @@ async def _resolve_device_data(
         return value
 
     if content_source == "rendered_template":
+        if not allow_secret_storage and _device_holds_sealed_secret(device):
+            raise ValueError(
+                "store-in-db: this device holds sealed secrets and the rendered template may "
+                "embed them in clear text; enable allow_secret_storage to store it anyway, or "
+                "drop the secret attributes before this step"
+            )
         return await _resolve_rendered_template(
             device, config=config, artifact_service=artifact_service
         )

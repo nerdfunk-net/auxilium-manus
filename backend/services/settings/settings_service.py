@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.domain_exceptions import ConflictError, DomainError, NotFoundError, ValidationFailedError
 from core.models.settings import Setting
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url
+from core.safe_urls import UnsafeURLError, validate_source_transport
 from models.settings import (
     SettingCreate,
     SettingListResponse,
@@ -129,9 +129,9 @@ class SettingsService:
 
     # -- write ----------------------------------------------------------------
 
-    def _assert_global_credential(self, credential_id: int) -> None:
+    def _assert_global_credential(self, credential_id: int, source_type: SourceType) -> None:
         try:
-            assert_global_credential(self._db, credential_id)
+            assert_global_credential(self._db, credential_id, source_type=source_type)
         except SourceCredentialError as exc:
             raise ValidationFailedError(str(exc)) from exc
 
@@ -144,7 +144,7 @@ class SettingsService:
         if parsed is not None and parsed[0] in _TOKEN_SOURCE_TYPES:
             if not isinstance(credential_id, int) or isinstance(credential_id, bool):
                 raise ValidationFailedError("credential_id is required")
-            self._assert_global_credential(credential_id)
+            self._assert_global_credential(credential_id, parsed[0])
             value["credential_id"] = credential_id
 
         logger.info("Creating setting key=%s", data.key)
@@ -167,7 +167,7 @@ class SettingsService:
             if parsed is not None and parsed[0] in _TOKEN_SOURCE_TYPES:
                 existing_credential_id = (setting.value or {}).get("credential_id")
                 if isinstance(credential_id, int) and not isinstance(credential_id, bool):
-                    self._assert_global_credential(credential_id)
+                    self._assert_global_credential(credential_id, parsed[0])
                     value["credential_id"] = credential_id
                 elif existing_credential_id is not None:
                     value["credential_id"] = existing_credential_id
@@ -236,7 +236,9 @@ class SettingsService:
         if raw_url is None:
             return value
         try:
-            safe_url = validate_outbound_http_url(str(raw_url), resolve_dns=True)
+            safe_url = validate_source_transport(
+                str(raw_url), verify_ssl=bool(value.get("verify_ssl", True)), resolve_dns=True
+            )
         except UnsafeURLError as exc:
             raise ValidationFailedError(str(exc)) from exc
         return {**value, "url": safe_url}

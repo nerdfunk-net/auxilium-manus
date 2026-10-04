@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core.safe_urls import validate_outbound_http_url
+from core.safe_urls import validate_source_transport
 from repositories.settings_repository import SettingsRepository
 from services.catalyst_center.common.exceptions import CatalystCenterValidationError
 from services.catalyst_center.credentials import CatalystCenterCredentials
@@ -69,7 +69,7 @@ class CatalystCenterSourceConfigService:
         if self._settings.get_by_key(key) is not None:
             raise CatalystCenterSourceConflictError(source_id)
 
-        safe_url = validate_outbound_http_url(url, resolve_dns=True)
+        safe_url = validate_source_transport(url, verify_ssl=verify_ssl, resolve_dns=True)
         self._assert_usable_credential(credential_id)
 
         value = ensure_value_source_id(
@@ -98,8 +98,6 @@ class CatalystCenterSourceConfigService:
     ) -> dict[str, Any]:
         setting = self._get_setting_or_raise(source_id)
         changes: dict[str, Any] = {}
-        if url is not None:
-            changes["url"] = validate_outbound_http_url(url, resolve_dns=True)
         if credential_id is not None:
             self._assert_usable_credential(credential_id)
             changes["credential_id"] = credential_id
@@ -107,8 +105,16 @@ class CatalystCenterSourceConfigService:
             changes["verify_ssl"] = verify_ssl
         if timeout is not None:
             changes["timeout"] = timeout
+        merged = {**setting.value, **changes}
+        if url is not None or verify_ssl is not None:
+            # Validate the resulting (url, verify_ssl) pair whichever of the two changed.
+            merged["url"] = validate_source_transport(
+                url if url is not None else str(merged["url"]),
+                verify_ssl=bool(merged.get("verify_ssl", True)),
+                resolve_dns=True,
+            )
 
-        updated = self._settings.update(setting, {"value": {**setting.value, **changes}})
+        updated = self._settings.update(setting, {"value": merged})
         return self._to_public(updated.value)
 
     def delete_source(self, source_id: str) -> None:
@@ -131,18 +137,19 @@ class CatalystCenterSourceConfigService:
                 f"Catalyst Center source '{source_id}' has no linked credential"
             )
         username, password = self._resolve_secret(effective_id)
+        effective_verify_ssl = bool(
+            verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
+        )
         return CatalystCenterCredentials(
             base_url=(
-                validate_outbound_http_url(url, resolve_dns=True)
+                validate_source_transport(url, verify_ssl=effective_verify_ssl, resolve_dns=True)
                 if url is not None
                 else value["url"]
             ),
             username=username,
             password=password,
             timeout=float(timeout if timeout is not None else value.get("timeout", 30.0)),
-            verify_ssl=bool(
-                verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
-            ),
+            verify_ssl=effective_verify_ssl,
         )
 
     def resolve_inline_credentials(
@@ -156,7 +163,7 @@ class CatalystCenterSourceConfigService:
         """Build credentials from unsaved dialog values (no persisted source yet)."""
         username, password = self._resolve_secret(credential_id)
         return CatalystCenterCredentials(
-            base_url=validate_outbound_http_url(url, resolve_dns=True),
+            base_url=validate_source_transport(url, verify_ssl=verify_ssl, resolve_dns=True),
             username=username,
             password=password,
             timeout=float(timeout),
@@ -165,7 +172,9 @@ class CatalystCenterSourceConfigService:
 
     def _assert_usable_credential(self, credential_id: int) -> None:
         try:
-            credential = assert_global_credential(self._db, credential_id)
+            credential = assert_global_credential(
+                self._db, credential_id, source_type="catalyst_center"
+            )
         except SourceCredentialError as exc:
             raise CatalystCenterValidationError(str(exc)) from exc
         if not credential.get("username"):
@@ -173,7 +182,9 @@ class CatalystCenterSourceConfigService:
 
     def _resolve_secret(self, credential_id: int) -> tuple[str, str]:
         try:
-            username, password = resolve_global_secret(self._db, credential_id)
+            username, password = resolve_global_secret(
+                self._db, credential_id, source_type="catalyst_center"
+            )
         except SourceCredentialError as exc:
             raise CatalystCenterValidationError(str(exc)) from exc
         if not username:

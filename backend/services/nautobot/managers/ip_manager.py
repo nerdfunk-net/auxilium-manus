@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from ..common.exceptions import NautobotAPIError
 
 if TYPE_CHECKING:
-    from services.nautobot import NautobotService
+    from services.nautobot.api_protocol import NautobotApi
 
     from ..resolvers.metadata_resolver import MetadataResolver
     from ..resolvers.network_resolver import NetworkResolver
@@ -32,7 +32,7 @@ class IPManager:
 
     def __init__(
         self,
-        nautobot_service: NautobotService,
+        nautobot_service: NautobotApi,
         network_resolver: NetworkResolver,
         metadata_resolver: MetadataResolver,
     ):

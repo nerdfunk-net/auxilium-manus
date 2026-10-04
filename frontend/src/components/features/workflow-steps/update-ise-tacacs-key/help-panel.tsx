@@ -18,8 +18,8 @@ export function UpdateIseTacacsKeyHelpPanel() {
         <p>
           Sets <HelpCode>tacacsSettings.sharedSecret</HelpCode> on each workflow
           device in Cisco ISE. The new key comes from{" "}
-          <HelpCode>new_key</HelpCode> — either a fixed value or a per-device
-          expression resolved against the device&apos;s attribute bags.
+          <HelpCode>new_key</HelpCode> — a per-device expression resolved
+          against the device&apos;s attribute bags.
         </p>
         <p>
           Use after Get ISE TACACS Key (to read the current key) or Add to ISE
@@ -51,27 +51,15 @@ export function UpdateIseTacacsKeyHelpPanel() {
       <HelpSection title="New key">
         <p>
           <HelpCode>new_key</HelpCode> is the TACACS+ shared secret to write in
-          ISE. Enter a fixed string, or a{" "}
-          <HelpCode>{"{path.to.value}"}</HelpCode> expression resolved per
-          device. Optionally add a Jinja-style fallback with{" "}
-          <HelpCode>| default(&apos;…&apos;)</HelpCode>.
+          ISE. It must be a <HelpCode>{"{path.to.value}"}</HelpCode> expression
+          resolved per device, filled by Secret Get, Secret Generate or Generate
+          Password. Literal values and <HelpCode>| default(&apos;…&apos;)</HelpCode>{" "}
+          fallbacks are rejected because step config is stored in the workflow
+          definition and mirrored to git.
         </p>
 
-        <p className="font-medium text-foreground">Fixed value:</p>
         <HelpExample>
-          new_key: MySecretKey123
-        </HelpExample>
-
-        <p className="font-medium text-foreground">Expression from context:</p>
-        <HelpExample>
-          new_key: {"{custom.new_tacacs_key}"}
-          <br />
-          new_key: {"{nautobot.custom_fields.tacacs_key}"}
-        </HelpExample>
-
-        <p className="font-medium text-foreground">With fallback:</p>
-        <HelpExample>
-          new_key: {"{custom.new_tacacs_key | default('MySecretKey123')}"}
+          new_key: {"{tacacs.new_key}"}
         </HelpExample>
 
         <HelpWarning title="Key required">
@@ -104,8 +92,9 @@ export function UpdateIseTacacsKeyHelpPanel() {
         <ol className="list-decimal space-y-1.5 pl-4">
           <li>Configure a Cisco ISE source.</li>
           <li>
-            Set <HelpCode>new_key</HelpCode> to a fixed secret or an expression
-            from an upstream step (e.g. a generated key in custom fields).
+            Set <HelpCode>new_key</HelpCode> to an expression referencing an
+            attribute filled by an upstream Secret Get, Secret Generate or
+            Generate Password step.
           </li>
           <li>
             Place after inventory and optional Get ISE TACACS Key; verify ISE

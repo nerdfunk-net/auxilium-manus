@@ -16,10 +16,10 @@ Idempotent: if a group already exists (by name), it is reused rather than
 re-created. Use ``ise_test_ndg_update.py`` to update their descriptions and
 ``ise_test_ndg_delete.py`` to remove them again.
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running, e.g. via ``python start.py``)::
 
-    ../.venv/bin/python scripts/ise_test_ndg_add.py
+    .venv/bin/python tools/ise/ise_test_ndg_add.py
 
 Run with ``--help`` for all options.
 """

@@ -21,24 +21,6 @@ class SecretManagerBackend(StrEnum):
     INFISICAL = "infisical"
 
 
-class OpenBaoConnectionConfig(BaseModel):
-    """``backend_config`` shape for ``backend == "openbao"``."""
-
-    addr: str = Field(..., description="OpenBao/Vault base URL, e.g. https://vault.internal:8200")
-    mount: str = Field(..., description="KV v2 mount for this connection, e.g. manus-network")
-    namespace: str | None = Field(None, description="OpenBao Enterprise namespace, if any")
-
-
-class InfisicalConnectionConfig(BaseModel):
-    """``backend_config`` shape for ``backend == "infisical"``."""
-
-    site_url: str = Field(
-        default="https://app.infisical.com", description="Infisical instance base URL"
-    )
-    project_id: str = Field(..., description="Infisical project (workspace) id")
-    environment: str = Field(..., description="Infisical environment slug, e.g. prod")
-
-
 class SecretManagerConnectionRequest(BaseModel):
     name: str = Field(..., description="Unique connection name")
     backend: SecretManagerBackend = Field(..., description="Which secret manager this connects to")
@@ -60,7 +42,8 @@ class SecretManagerConnectionRequest(BaseModel):
     backend_config: dict[str, Any] = Field(
         ...,
         description=(
-            "Backend-specific config — see OpenBaoConnectionConfig / InfisicalConnectionConfig"
+            "Backend-specific config: openbao {addr, mount, namespace}; "
+            "infisical {site_url, project_id, environment}"
         ),
     )
 

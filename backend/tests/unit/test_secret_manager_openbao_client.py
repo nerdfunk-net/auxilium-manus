@@ -90,12 +90,6 @@ class OpenBaoSecretManagerClientTests(unittest.IsolatedAsyncioTestCase):
         self.svc.write_kv.assert_called_once_with("p", {"key": "new", "rotated_at": "t0"})
         self.assertEqual(version, 3)
 
-    def test_delete_last_field_deletes_path(self) -> None:
-        self.svc.read_kv.return_value = {"key": "v"}
-        self.cls(_cfg()).delete_field("p", "key")
-        self.svc.delete_kv.assert_called_once_with("p")
-        self.svc.write_kv.assert_not_called()
-
     def test_vault_unavailable_maps_to_unavailable(self) -> None:
         self.svc.read_kv.side_effect = VaultUnavailableError("down")
         with self.assertRaises(SecretManagerUnavailableError):
@@ -103,8 +97,11 @@ class OpenBaoSecretManagerClientTests(unittest.IsolatedAsyncioTestCase):
 
     def test_history_skips_destroyed_and_sorts_desc(self) -> None:
         self.svc.metadata_kv.return_value = {
-            "versions": {"1": {"created_time": "a"}, "2": {"created_time": "b", "destroyed": True},
-                         "3": {"created_time": "c"}}
+            "versions": {
+                "1": {"created_time": "a"},
+                "2": {"created_time": "b", "destroyed": True},
+                "3": {"created_time": "c"},
+            }
         }
         history = self.cls(_cfg()).get_field_history("p", "key")
         self.assertEqual([h.version for h in history], [3, 1])

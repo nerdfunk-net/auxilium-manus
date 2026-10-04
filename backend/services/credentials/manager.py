@@ -78,17 +78,13 @@ class CredentialManager:
     def ssh(self, name: str) -> SshSecret:
         """Resolve an ``ssh`` credential name to ``(username, password)``."""
         match = self._match_by_name(name, _SSH_TYPES, "'ssh'")
-        username, password = self._decrypt_password(
-            match, name, "has no decryptable password"
-        )
+        username, password = self._decrypt_password(match, name, "has no decryptable password")
         return SshSecret(username=username, password=password)
 
     def generic(self, name: str) -> GenericSecret:
         """Resolve an ``ssh`` or ``generic`` credential for a non-SSH transport."""
         match = self._match_by_name(name, _GENERIC_TYPES, "'ssh' or 'generic'")
-        username, password = self._decrypt_password(
-            match, name, "has no decryptable password"
-        )
+        username, password = self._decrypt_password(match, name, "has no decryptable password")
         return GenericSecret(username=username, password=password)
 
     def secret_manager_auth(self, name: str) -> GenericSecret:
@@ -99,39 +95,46 @@ class CredentialManager:
         device password can never be sent to a connection's ``addr``/``site_url``.
         """
         match = self._match_by_name(name, _SECRET_MANAGER_AUTH_TYPES, "'generic'")
-        username, password = self._decrypt_password(
-            match, name, "has no decryptable password"
-        )
+        username, password = self._decrypt_password(match, name, "has no decryptable password")
         return GenericSecret(username=username, password=password)
 
     def shared_secret(self, name: str) -> SharedSecret:
         """Resolve a ``shared_secret`` credential to ``(algorithm, passphrase)``."""
         match = self._match_by_name(name, _SHARED_SECRET_TYPES, "'shared_secret'")
-        _, passphrase = self._decrypt_password(
-            match, name, "has no stored shared secret"
-        )
+        _, passphrase = self._decrypt_password(match, name, "has no stored shared secret")
         return SharedSecret(
             algorithm=normalize_algorithm(match.get("algorithm")),
             passphrase=passphrase,
         )
 
     # -------------------------------------------------------- id-keyed (global-only)
-    def source_credential(self, credential_id: int) -> dict[str, Any]:
-        """Return the credential dict for ``credential_id`` or raise if not global."""
+    def source_credential(
+        self, credential_id: int, *, allowed_types: frozenset[str] | None = None
+    ) -> dict[str, Any]:
+        """Return the credential dict for ``credential_id`` or raise if not global.
+
+        ``allowed_types`` limits which ``Credential.type`` may be bound to a source, so a device
+        SSH password or a secret-manager ``generic`` credential cannot be sent to a source URL.
+        """
         credential = self._svc.get_credential_by_id(credential_id)
         if credential is None or credential.get("visibility") != "global":
             raise CredentialLookupError(_NOT_GLOBAL)
+        if allowed_types is not None and credential.get("type") not in allowed_types:
+            raise CredentialUnusableError(
+                "Selected credential has the wrong type for this source; expected "
+                f"{' or '.join(sorted(allowed_types))}."
+            )
         return credential
 
-    def source_secret(self, credential_id: int) -> SourceSecret:
+    def source_secret(
+        self, credential_id: int, *, allowed_types: frozenset[str] | None = None
+    ) -> SourceSecret:
         """Return ``(username, password)`` for a global credential, or raise."""
-        credential = self.source_credential(credential_id)
+        credential = self.source_credential(credential_id, allowed_types=allowed_types)
         try:
             password = self._svc.get_decrypted_password(credential_id)
         except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
-            raise CredentialUnusableError(
-                "Selected credential has no secret set."
-            ) from exc
+            raise CredentialUnusableError("Selected credential has no secret set.") from exc
         return SourceSecret(username=credential.get("username"), password=password)
 
     # ---------------------------------------------------------- git (global-only)
@@ -174,12 +177,10 @@ class CredentialManager:
 
         try:
             token = self._svc.get_decrypted_password(match["id"], acting_user_id=None)
-        except (CredentialVaultUnavailableError, CredentialVaultNotConfiguredError):
+        except CredentialVaultUnavailableError, CredentialVaultNotConfiguredError:
             raise
         except Exception:
-            logger.error(
-                "Failed to decrypt git credential '%s'", credential_name, exc_info=True
-            )
+            logger.error("Failed to decrypt git credential '%s'", credential_name, exc_info=True)
             return GitSecret(None, None, None)
         return GitSecret(username=username, token=token, ssh_key_path=None)
 
@@ -198,14 +199,10 @@ class CredentialManager:
         )
         matches = [item for item in credentials if item["name"] == reference]
         if not matches:
-            raise CredentialLookupError(
-                f"Credential {reference!r} not found in credential vault"
-            )
+            raise CredentialLookupError(f"Credential {reference!r} not found in credential vault")
         # A private credential wins over a global one of the same name,
         # mirroring RBAC user-override precedence.
-        match = next(
-            (item for item in matches if item.get("visibility") == "private"), matches[0]
-        )
+        match = next((item for item in matches if item.get("visibility") == "private"), matches[0])
         if match["type"] not in allowed_types:
             raise CredentialUnusableError(
                 f"Credential {reference!r} must be type {type_label}, got {match['type']!r}"
@@ -222,7 +219,5 @@ class CredentialManager:
                 int(match["id"]), acting_user_id=self._acting_user_id
             )
         except (CredentialNotFoundError, CredentialMissingFieldError) as exc:
-            raise CredentialUnusableError(
-                f"Credential {name.strip()!r} {failure_reason}"
-            ) from exc
+            raise CredentialUnusableError(f"Credential {name.strip()!r} {failure_reason}") from exc
         return str(match["username"]), password

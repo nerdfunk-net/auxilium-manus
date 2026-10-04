@@ -29,8 +29,10 @@ class CatalystCenterSourceConfigServiceTests(unittest.TestCase):
             "settings": patch(f"{module}.SettingsRepository"),
             "credentials": patch(f"{module}.CredentialsService"),
             "validate": patch(
-                f"{module}.validate_outbound_http_url",
-                side_effect=lambda url, resolve_dns=True: (url or "").rstrip("/"),
+                f"{module}.validate_source_transport",
+                side_effect=lambda url, *, verify_ssl=True, resolve_dns=True: (url or "").rstrip(
+                    "/"
+                ),
             ),
             "assert_global": patch(f"{module}.assert_global_credential"),
             "resolve_secret": patch(f"{module}.resolve_global_secret"),
@@ -41,6 +43,7 @@ class CatalystCenterSourceConfigServiceTests(unittest.TestCase):
         self.settings = mocks["settings"].return_value
         self.credentials = mocks["credentials"].return_value
         self.credentials.get_credential_by_id.return_value = {"id": 7, "name": "cc-cred"}
+        self.validate = mocks["validate"]
         self.assert_global = mocks["assert_global"]
         self.assert_global.return_value = dict(_GLOBAL_CRED)
         self.resolve_secret = mocks["resolve_secret"]
@@ -160,3 +163,72 @@ class CatalystCenterSourceConfigServiceTests(unittest.TestCase):
             (creds.base_url, creds.username, creds.timeout),
             ("https://10.10.20.85", "admin", 20.0),
         )
+
+    def test_create_source_passes_verify_ssl_to_transport_policy(self) -> None:
+        self.settings.get_by_key.return_value = None
+        self.settings.create.side_effect = lambda key, value, description: _setting(value)
+
+        self.service.create_source(
+            source_id="lab", url="https://x.example.com", credential_id=7, verify_ssl=False
+        )
+
+        self.validate.assert_called_once_with(
+            "https://x.example.com", verify_ssl=False, resolve_dns=True
+        )
+
+    def test_update_source_revalidates_url_when_only_verify_ssl_changes(self) -> None:
+        self.settings.get_by_key.return_value = _setting(
+            {"url": "http://x", "verify_ssl": True, "credential_id": 7}
+        )
+        self.settings.update.side_effect = lambda setting, fields: _setting(fields["value"])
+
+        self.service.update_source("lab", verify_ssl=False)
+
+        self.validate.assert_called_once_with("http://x", verify_ssl=False, resolve_dns=True)
+
+    def test_update_source_validates_new_url_against_stored_verify_ssl(self) -> None:
+        self.settings.get_by_key.return_value = _setting(
+            {"url": "https://old", "verify_ssl": False, "credential_id": 7}
+        )
+        self.settings.update.side_effect = lambda setting, fields: _setting(fields["value"])
+
+        self.service.update_source("lab", url="https://new")
+
+        self.validate.assert_called_once_with("https://new", verify_ssl=False, resolve_dns=True)
+
+    def test_update_source_without_url_or_verify_ssl_skips_transport_check(self) -> None:
+        self.settings.get_by_key.return_value = _setting({"url": "http://x", "credential_id": 7})
+        self.settings.update.side_effect = lambda setting, fields: _setting(fields["value"])
+
+        self.service.update_source("lab", timeout=5.0)
+
+        self.validate.assert_not_called()
+
+    def test_credential_is_bound_to_the_catalyst_center_type(self) -> None:
+        self.settings.get_by_key.return_value = None
+        self.settings.create.side_effect = lambda key, value, description: _setting(value)
+
+        self.service.create_source(source_id="lab", url="https://x.example.com", credential_id=7)
+
+        self.assertEqual(self.assert_global.call_args.kwargs["source_type"], "catalyst_center")
+
+    def test_create_source_rejects_credential_of_wrong_type(self) -> None:
+        self.settings.get_by_key.return_value = None
+        self.assert_global.side_effect = SourceCredentialError("wrong type")
+
+        with self.assertRaises(CatalystCenterValidationError):
+            self.service.create_source(
+                source_id="lab", url="https://x.example.com", credential_id=9
+            )
+
+        self.settings.create.assert_not_called()
+
+    def test_resolve_credentials_validates_override_url_with_effective_verify_ssl(self) -> None:
+        self.settings.get_by_key.return_value = _setting(
+            {"url": "https://old", "verify_ssl": True, "credential_id": 7}
+        )
+
+        creds = self.service.resolve_credentials("lab", url="https://new", verify_ssl=False)
+
+        self.validate.assert_called_once_with("https://new", verify_ssl=False, resolve_dns=True)
+        self.assertFalse(creds.verify_ssl)

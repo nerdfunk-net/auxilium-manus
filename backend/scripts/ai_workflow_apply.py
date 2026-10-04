@@ -25,14 +25,18 @@ update entirely — there is nothing to validate and nothing would actually
 change, so this deliberately avoids a spurious git-mirror commit/WorkflowChange
 row for a patch that only touched the wiki.
 
-Two gates must both pass before anything is written:
+Gates that must pass before anything is written (enforced inside
+WorkflowService via services/workflow/ai_write_gate.py; this script asks early
+only to return a clean JSON error):
 1. The ai-assistant user must be active (an admin flips this on in
    Settings -> Users — the global kill-switch).
 2. An active (non-expired) workflow_ai_sessions row must exist for this
    workflow (the human enables this from the canvas toolbar — the
    per-workflow, time-boxed consent flag).
+3. For a canvas patch (not notes), the workflow must have no enabled schedule:
+   a schedule would run the AI's canvas unattended.
 
-A third gate runs after those two: the merged canvas is validated
+A further check runs after those: the merged canvas is validated
 (WorkflowValidationService, Tiers 1-4) and if any Tier 2 reference-existence
 finding comes back (a credential_reference/git_repository_id/*_source_id that
 doesn't resolve — see scripts/ai_defaults.py's REFERENCE_DRIFT_CODES), the
@@ -93,14 +97,15 @@ def main() -> int:
 
     from core.config import settings
     from core.database import SessionLocal
+    from core.domain_exceptions import DomainError
     from models.workflows import WorkflowUpdate
     from repositories.plugin_repository import PluginRepository
     from repositories.user_repository import UserRepository
-    from repositories.workflow_ai_session_repository import WorkflowAiSessionRepository
     from repositories.workflow_repository import WorkflowRepository
     from scripts.ai_defaults import REFERENCE_DRIFT_CODES
     from services.auth.rbac_seed import AI_ASSISTANT_USERNAME
     from services.plugin_registry.plugin_registry_service import PluginRegistryService
+    from services.workflow.ai_write_gate import AiWriteGate
     from services.workflow.workflow_service import WorkflowService
     from services.workflow.workflow_validation_service import WorkflowValidationService
 
@@ -110,19 +115,6 @@ def main() -> int:
             return _fail(
                 f"'{AI_ASSISTANT_USERNAME}' user does not exist — has the app been started "
                 f"at least once since this feature was deployed?"
-            )
-        if not ai_user.is_active:
-            return _fail(
-                f"'{AI_ASSISTANT_USERNAME}' is disabled — an admin must activate it in "
-                f"Settings -> Users before this script can run."
-            )
-
-        session_repo = WorkflowAiSessionRepository(db)
-        active_session = session_repo.get_active_for_workflow(args.workflow_id)
-        if active_session is None:
-            return _fail(
-                f"No active AI-updates session for workflow {args.workflow_id} — enable it "
-                f"from the canvas toolbar first."
             )
 
         wf_result = WorkflowRepository(db).get_by_id(args.workflow_id)
@@ -134,18 +126,36 @@ def main() -> int:
         notes_value = patch.pop("notes", None)
         canvas_patch = patch  # whatever's left after popping notes
 
+        # Same gate the service methods enforce; asked early for a clean JSON error before any
+        # validation work (active account, active consent row, no enabled schedule for canvas).
+        try:
+            AiWriteGate(db).assert_may_write(
+                args.workflow_id, ai_user.id, canvas=bool(canvas_patch)
+            )
+        except DomainError as exc:
+            return _fail(exc.detail)
+
         report: dict[str, Any] = {"workflow_id": args.workflow_id}
 
         if canvas_patch:
-            plugin_service = PluginRegistryService(
-                PluginRepository(plugins_file=settings.plugins_file)
-            )
-            merged_canvas_nodes = canvas_patch.get("canvas_nodes", current_workflow.canvas_nodes)
-            merged_canvas_edges = canvas_patch.get("canvas_edges", current_workflow.canvas_edges)
-            validator = WorkflowValidationService(db, plugin_service)
-            validation = validator.validate(
-                merged_canvas_nodes, merged_canvas_edges, acting_user_id=ai_user.id
-            )
+            # Build the model first so a malformed node fails here, not inside the validator.
+            try:
+                data = WorkflowUpdate(**canvas_patch)
+                plugin_service = PluginRegistryService(
+                    PluginRepository(plugins_file=settings.plugins_file)
+                )
+                merged_canvas_nodes = canvas_patch.get(
+                    "canvas_nodes", current_workflow.canvas_nodes
+                )
+                merged_canvas_edges = canvas_patch.get(
+                    "canvas_edges", current_workflow.canvas_edges
+                )
+                validator = WorkflowValidationService(db, plugin_service)
+                validation = validator.validate(
+                    merged_canvas_nodes, merged_canvas_edges, acting_user_id=ai_user.id
+                )
+            except Exception as exc:
+                return _fail(f"Failed to apply patch: {exc}")
 
             drift_findings = [f for f in validation.findings if f.code in REFERENCE_DRIFT_CODES]
             if drift_findings:
@@ -158,13 +168,14 @@ def main() -> int:
                 )
 
             try:
-                data = WorkflowUpdate(**canvas_patch)
                 updated = WorkflowService(db).update_workflow_for_ai_session(
                     args.workflow_id,
                     data,
                     ai_user_id=ai_user.id,
                     actor_username=AI_ASSISTANT_USERNAME,
                 )
+            except DomainError as exc:
+                return _fail(exc.detail)
             except Exception as exc:
                 return _fail(f"Failed to apply patch: {exc}")
 
@@ -181,6 +192,8 @@ def main() -> int:
                 notes_result = WorkflowService(db).update_notes_for_ai_session(
                     args.workflow_id, notes=notes_value, ai_user_id=ai_user.id
                 )
+            except DomainError as exc:
+                return _fail(exc.detail)
             except Exception as exc:
                 return _fail(f"Failed to apply notes: {exc}")
 

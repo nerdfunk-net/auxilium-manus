@@ -14,7 +14,7 @@ import logging
 import re
 from typing import Any
 
-from services.nautobot import NautobotService
+from services.nautobot.api_protocol import NautobotApi
 from services.nautobot.common.exceptions import NautobotAPIError
 from services.nautobot.common.validators import is_valid_uuid
 from services.nautobot.devices.common import DeviceCommonService
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class DeviceCreationService:
     """Service for creating devices in Nautobot."""
 
-    def __init__(self, nautobot_service: NautobotService):
+    def __init__(self, nautobot_service: NautobotApi):
         self.nautobot = nautobot_service
         self.common = DeviceCommonService(nautobot_service)
         self.interface_manager = InterfaceManagerService(nautobot_service)

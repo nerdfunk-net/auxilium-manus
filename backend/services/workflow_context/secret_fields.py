@@ -132,6 +132,35 @@ def redact_secrets_in_data(data: Any) -> Any:
     return cloned
 
 
+def contains_sealed_secret(data: Any) -> bool:
+    """True when a sealed envelope occurs anywhere inside *data* (dicts and lists are walked)."""
+    if is_sealed_secret(data):
+        return True
+    if isinstance(data, dict):
+        return any(contains_sealed_secret(value) for value in data.values())
+    if isinstance(data, list):
+        return any(contains_sealed_secret(item) for item in data)
+    return False
+
+
+def unwrap_all_secrets(data: Any, *, encryption: EncryptionService | None = None) -> Any:
+    """Deep copy of *data* with every sealed envelope replaced by its cleartext.
+
+    Only for sinks that the operator explicitly accepted as secret stores
+    (``store-in-db`` with ``allow_secret_storage``). Raises ``ValueError`` when an envelope
+    cannot be decrypted, like :func:`unwrap_secret`.
+    """
+    if is_sealed_secret(data):
+        return unwrap_secret(data, encryption=encryption)
+    if isinstance(data, dict):
+        return {
+            key: unwrap_all_secrets(value, encryption=encryption) for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [unwrap_all_secrets(item, encryption=encryption) for item in data]
+    return data
+
+
 def _redact_inplace(node: Any) -> None:
     if isinstance(node, dict):
         bags = node.get("attribute_bags")

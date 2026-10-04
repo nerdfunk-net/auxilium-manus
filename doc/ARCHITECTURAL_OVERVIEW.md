@@ -197,7 +197,7 @@ it.
 ### Per-device processing is immutable, not shared-mutable
 
 Steps that operate on multiple devices (e.g. `run-command`,
-`backend/workflow_steps/run_command/executor.py`) loop/gather over
+`backend/workflow_steps/run_command/exec_mode.py`) loop/gather over
 `context.devices` and call a per-device helper (`_run_on_device(device_id,
 device, ...)`) that returns an **updated copy**:
 

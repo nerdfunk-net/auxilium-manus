@@ -17,7 +17,7 @@ fine-grained control, you can import resolvers/managers directly.
 import logging
 from typing import Any
 
-from services.nautobot import NautobotService
+from services.nautobot.api_protocol import NautobotApi
 from services.nautobot.common.exceptions import (
     handle_already_exists_error,
     is_duplicate_error,
@@ -74,7 +74,7 @@ class DeviceCommonService:
         ip_id = await service.ensure_ip_address_exists("10.0.0.1/24", namespace_id)
     """
 
-    def __init__(self, nautobot_service: NautobotService):
+    def __init__(self, nautobot_service: NautobotApi):
         """
         Initialize the common service with lazy-loaded components.
 

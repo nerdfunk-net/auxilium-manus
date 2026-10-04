@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Index, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from core.models.base import Base
@@ -20,24 +23,26 @@ class SecretManagerConnection(Base):
 
     __tablename__ = "secret_manager_connections"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), unique=True, nullable=False)
-    backend = Column(String(50), nullable=False)  # "openbao" | "infisical"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    backend: Mapped[str] = mapped_column(String(50), nullable=False)  # "openbao" | "infisical"
     # This connection's OWN auth material (AppRole secret_id / Infisical
     # client_secret), resolved via the existing CredentialManager facade —
     # a "generic" credential whose username/password hold role_id/secret_id
     # or client_id/client_secret respectively.
-    credential_name = Column(String(255))
-    verify_ssl = Column(Boolean, nullable=False, default=True)
-    is_active = Column(Boolean, nullable=False, default=True)
+    credential_name: Mapped[str | None] = mapped_column(String(255))
+    verify_ssl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Backend-specific fields (not flat columns — variance is too wide to
     # share a column set without most columns being NULL for one backend):
     #   openbao:   {"addr": "...", "mount": "manus-network", "namespace": "..."}
     #   infisical: {"site_url": "...", "project_id": "...", "environment": "prod"}
-    backend_config = Column(JSON, nullable=False, default=dict)
-    description = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(
+    backend_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),

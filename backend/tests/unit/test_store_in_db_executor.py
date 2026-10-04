@@ -114,9 +114,7 @@ class StoreInDbExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self._rows(), [])
 
     async def test_single_attribute_secret_value_fails_device(self) -> None:
-        device = _device(
-            attribute_bags={"tacacs": {"shared_secret": seal_secret("s3cr3t")}}
-        )
+        device = _device(attribute_bags={"tacacs": {"shared_secret": seal_secret("s3cr3t")}})
         outcomes = await self._run(
             config={
                 "storage_key": "secret",
@@ -131,9 +129,7 @@ class StoreInDbExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self._rows(), [])
 
     async def test_single_attribute_secret_value_stored_when_allowed(self) -> None:
-        device = _device(
-            attribute_bags={"tacacs": {"shared_secret": seal_secret("s3cr3t")}}
-        )
+        device = _device(attribute_bags={"tacacs": {"shared_secret": seal_secret("s3cr3t")}})
         outcomes = await self._run(
             config={
                 "storage_key": "secret",
@@ -145,6 +141,85 @@ class StoreInDbExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([o.name for o in outcomes], ["success"])
         self.assertEqual(self._rows()[0].data, "s3cr3t")
+
+    async def test_attribute_bags_redacts_sealed_secret_by_default(self) -> None:
+        device = _device(attribute_bags={"tacacs": {"shared_secret": seal_secret("s3")}})
+        outcomes = await self._run(
+            config={"storage_key": "bags", "content_source": "attribute_bags"}, device=device
+        )
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        self.assertEqual(self._rows()[0].data["tacacs"]["shared_secret"], "***REDACTED***")
+
+    async def test_attribute_bags_stores_cleartext_when_allowed(self) -> None:
+        device = _device(attribute_bags={"tacacs": {"shared_secret": seal_secret("s3")}})
+        await self._run(
+            config={
+                "storage_key": "bags",
+                "content_source": "attribute_bags",
+                "allow_secret_storage": True,
+            },
+            device=device,
+        )
+        self.assertEqual(self._rows()[0].data["tacacs"]["shared_secret"], "s3")
+
+    async def test_device_data_redacts_sealed_secret_in_parsed(self) -> None:
+        device = _device(parsed={"step": {"key": seal_secret("p4ss")}})
+        await self._run(
+            config={"storage_key": "all", "content_source": "device_data"}, device=device
+        )
+        data = self._rows()[0].data
+        self.assertEqual(data["parsed"]["step"]["key"], "***REDACTED***")
+        self.assertNotIn("p4ss", repr(data))
+
+    async def test_redaction_does_not_mutate_the_device(self) -> None:
+        device = _device(attribute_bags={"tacacs": {"shared_secret": seal_secret("s3")}})
+        await self._run(
+            config={"storage_key": "bags", "content_source": "attribute_bags"}, device=device
+        )
+        self.assertNotEqual(device.attribute_bags["tacacs"]["shared_secret"], "***REDACTED***")
+
+    async def test_rendered_template_refused_when_device_holds_sealed_secret(self) -> None:
+        device = _device(attribute_bags={"tacacs": {"shared_secret": seal_secret("s3")}})
+        outcomes = await self._run(
+            config={
+                "storage_key": "template",
+                "content_source": "rendered_template",
+                "source_step_node_id": "render-1",
+            },
+            device=device,
+        )
+        failure = next(o for o in outcomes if o.name == "failure")
+        self.assertIn("sealed secrets", failure.context.devices["device-1"].errors[-1].message)
+        self.assertEqual(self._rows(), [])
+
+    async def test_rendered_template_allowed_with_flag(self) -> None:
+        artifact_ref = ArtifactRef(artifact_id="artifact-1", kind="rendered_template", size_bytes=5)
+        device = _device(
+            attribute_bags={"tacacs": {"shared_secret": seal_secret("s3")}},
+            parsed={
+                "device_config": {
+                    "artifact_ref": artifact_ref.model_dump(mode="json"),
+                    "step_node_id": "render-1",
+                    "output_key": "device_config",
+                    "kind": "rendered_template",
+                }
+            },
+        )
+        artifact_service = InMemoryArtifactService()
+        with patch.object(artifact_service, "resolve", new=AsyncMock(return_value="hostname lab")):
+            outcomes = await self._run(
+                config={
+                    "storage_key": "template",
+                    "content_source": "rendered_template",
+                    "source_step_node_id": "render-1",
+                    "parsed_output_key": "device_config",
+                    "allow_secret_storage": True,
+                },
+                device=device,
+                artifact_service=artifact_service,
+            )
+        self.assertEqual([o.name for o in outcomes], ["success"])
+        self.assertEqual(self._rows()[0].data, "hostname lab")
 
     async def test_rendered_template_stores_resolved_content(self) -> None:
         artifact_ref = ArtifactRef(artifact_id="artifact-1", kind="rendered_template", size_bytes=5)

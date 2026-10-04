@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from ..common.exceptions import NautobotAPIError
 
 if TYPE_CHECKING:
-    from services.nautobot import NautobotService
+    from services.nautobot.api_protocol import NautobotApi
 
     from ..resolvers.metadata_resolver import MetadataResolver
 
@@ -39,7 +39,7 @@ async def _query_vlans(nautobot, vid: int, location_id: str | None) -> list[dict
 class VLANManager:
     """Manager for VLAN lookup/creation."""
 
-    def __init__(self, nautobot_service: NautobotService, metadata_resolver: MetadataResolver):
+    def __init__(self, nautobot_service: NautobotApi, metadata_resolver: MetadataResolver):
         """
         Initialize the VLAN manager.
 

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from ..common.exceptions import NautobotAPIError
 
 if TYPE_CHECKING:
-    from services.nautobot import NautobotService
+    from services.nautobot.api_protocol import NautobotApi
 
     from ..resolvers.device_resolver import DeviceResolver
     from ..resolvers.network_resolver import NetworkResolver
@@ -23,7 +23,7 @@ class DeviceManager:
 
     def __init__(
         self,
-        nautobot_service: NautobotService,
+        nautobot_service: NautobotApi,
         device_resolver: DeviceResolver,
         network_resolver: NetworkResolver,
     ):

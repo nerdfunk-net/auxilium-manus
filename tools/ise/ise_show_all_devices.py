@@ -13,10 +13,10 @@ value, typically ``32``) rather than a clean CIDR network address.
 By default it targets the ISE sandbox at ``https://10.10.20.77`` with
 ``admin`` / ``C1sco12345!``.
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running, e.g. via ``python start.py``)::
 
-    ../.venv/bin/python scripts/ise_show_all_devices.py
+    .venv/bin/python tools/ise/ise_show_all_devices.py
 
 Run with ``--help`` for all options (backend URL/credentials, ISE
 URL/credentials, source ID).

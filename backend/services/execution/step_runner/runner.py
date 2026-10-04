@@ -280,19 +280,13 @@ class StepRunner:
     # Graph-resolution primitives live in ``graph_resolution.py`` (pure, no
     # StepRunner state). These thin wrappers are kept so external and test
     # callers of ``StepRunner._resolve_funnels`` / ``._resolve_disabled_steps``
-    # / ``._is_executable_node`` / ``._filter_executable_graph`` keep working
-    # unchanged — pure delegation, no behaviour change.
+    # / ``._is_executable_node`` keep working unchanged — pure delegation.
     _resolve_disabled_steps = staticmethod(_gr.resolve_disabled_steps)
     _resolve_funnels = staticmethod(_gr.resolve_funnels)
     _resolve_stop_here = staticmethod(_gr.resolve_stop_here)
 
     def _is_executable_node(self, node: dict[str, Any]) -> bool:
         return _gr.is_executable_node(node, self.plugin_registry)
-
-    def _filter_executable_graph(
-        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        return _gr.filter_executable_graph(nodes, edges, self.plugin_registry)
 
     def create_pending_step_results(
         self, *, run_id: int, ordered_nodes: list[dict[str, Any]]

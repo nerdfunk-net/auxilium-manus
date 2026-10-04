@@ -333,9 +333,9 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
             patch(
-                "workflow_steps.run_command.executor.PyATSSourceConfigService"
+                "workflow_steps.run_command.enrichment.PyATSSourceConfigService"
             ) as source_service_cls,
-            patch("workflow_steps.run_command.executor.service_factory") as service_factory_mock,
+            patch("workflow_steps.run_command.enrichment.service_factory") as service_factory_mock,
         ):
             netmiko = netmiko_cls.return_value
             netmiko.send_commands = AsyncMock(
@@ -401,9 +401,9 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
             patch(
-                "workflow_steps.run_command.executor.PyATSSourceConfigService"
+                "workflow_steps.run_command.enrichment.PyATSSourceConfigService"
             ) as source_service_cls,
-            patch("workflow_steps.run_command.executor.service_factory") as service_factory_mock,
+            patch("workflow_steps.run_command.enrichment.service_factory") as service_factory_mock,
         ):
             netmiko = netmiko_cls.return_value
             netmiko.send_commands = AsyncMock(
@@ -467,9 +467,9 @@ class RunCommandExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("workflow_steps.run_command.executor.NetmikoService") as netmiko_cls,
             patch(
-                "workflow_steps.run_command.executor.PyATSSourceConfigService"
+                "workflow_steps.run_command.enrichment.PyATSSourceConfigService"
             ) as source_service_cls,
-            patch("workflow_steps.run_command.executor.service_factory") as service_factory_mock,
+            patch("workflow_steps.run_command.enrichment.service_factory") as service_factory_mock,
         ):
             netmiko = netmiko_cls.return_value
             netmiko.send_commands = AsyncMock(

@@ -1168,7 +1168,8 @@ string — so a row looks like `{"Interface": {"hostname": "lab", "interface":
 "GigabitEthernet0/1"}, "Description": "uplink", ...}`. This means
 `workflow_steps.common.batfish_context.devices_from_nodes` (which reads a
 plain `row["Node"]`) does not work for this question's rows; this step uses
-a dedicated `devices_from_interface_rows` helper (same file) that reads
+the shared `batfish_properties` engine, whose node key for this question
+(`services/batfish/interface_properties_spec.py`) reads
 `row["Interface"]["hostname"]` instead, with the same dedup-into-one-
 `DeviceContext`-per-node behavior.
 
@@ -1217,7 +1218,7 @@ straight through unchanged otherwise.
 
 **`devices` outcome: per-device enrichment, not identity-only.** Each
 `DeviceContext` in `devices` is built by `_enrich_devices` (layered on top
-of `devices_from_interface_rows` via `device.model_copy`) and carries **only
+of the identity-only devices via `device.model_copy`) and carries **only
 that node's own matching interfaces**, grouped under
 `device.parsed[node_id][output_key]["parsed"]["Interfaces"][<interface
 name>]` — the same `"Interfaces"` nesting `pybatfish.client._facts.

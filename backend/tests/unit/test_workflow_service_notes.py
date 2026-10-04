@@ -16,6 +16,7 @@ import pytest
 
 from core.domain_exceptions import AccessDeniedError, NotFoundError
 from core.models.workflows import Workflow
+from services.workflow.ai_write_gate import AiWriteGate
 from services.workflow.workflow_service import WorkflowService
 
 
@@ -53,6 +54,7 @@ def _service_with_mocked_repo(workflow: Workflow) -> WorkflowService:
     service.repo = MagicMock()
     service.repo.get_by_id.return_value = (workflow, "creator")
     service.repo.update.side_effect = _apply_update
+    service.ai_gate = MagicMock(spec=AiWriteGate)
     return service
 
 
@@ -102,3 +104,21 @@ def test_update_notes_for_ai_session_raises_not_found_for_missing_workflow() -> 
 
     with pytest.raises(NotFoundError):
         service.update_notes_for_ai_session(999, notes="x", ai_user_id=42)
+
+
+def test_update_notes_for_ai_session_consults_the_gate() -> None:
+    service = _service_with_mocked_repo(_persisted_workflow(creator_id=1))
+
+    service.update_notes_for_ai_session(1, notes="x", ai_user_id=42)
+
+    service.ai_gate.assert_may_write.assert_called_once_with(1, 42, canvas=False)
+
+
+def test_update_notes_for_ai_session_propagates_gate_denial() -> None:
+    service = _service_with_mocked_repo(_persisted_workflow(creator_id=1))
+    service.ai_gate.assert_may_write.side_effect = AccessDeniedError("no session")
+
+    with pytest.raises(AccessDeniedError):
+        service.update_notes_for_ai_session(1, notes="x", ai_user_id=42)
+
+    service.repo.update.assert_not_called()

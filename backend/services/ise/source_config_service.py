@@ -14,7 +14,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core.safe_urls import validate_outbound_http_url
+from core.safe_urls import validate_source_transport
 from repositories.settings_repository import SettingsRepository
 from services.credentials.credentials_service import CredentialsService
 from services.credentials.source_credentials import (
@@ -66,8 +66,8 @@ class ISESourceConfigService:
         if self._settings.get_by_key(key) is not None:
             raise ISESourceConflictError(source_id)
 
-        safe_url = validate_outbound_http_url(url, resolve_dns=True)
-        credential = assert_global_credential(self._db, credential_id)
+        safe_url = validate_source_transport(url, verify_ssl=verify_ssl, resolve_dns=True)
+        credential = assert_global_credential(self._db, credential_id, source_type="ise")
         if not credential.get("username"):
             raise ISEValidationError(
                 "Selected credential has no username; ISE requires a username + secret."
@@ -100,10 +100,8 @@ class ISESourceConfigService:
         setting = self._get_setting_or_raise(source_id)
 
         updated_value = dict(setting.value)
-        if url is not None:
-            updated_value["url"] = validate_outbound_http_url(url, resolve_dns=True)
         if credential_id is not None:
-            credential = assert_global_credential(self._db, credential_id)
+            credential = assert_global_credential(self._db, credential_id, source_type="ise")
             if not credential.get("username"):
                 raise ISEValidationError(
                     "Selected credential has no username; ISE requires a username + secret."
@@ -113,6 +111,13 @@ class ISESourceConfigService:
             updated_value["verify_ssl"] = verify_ssl
         if timeout is not None:
             updated_value["timeout"] = timeout
+        if url is not None or verify_ssl is not None:
+            # Validate the resulting (url, verify_ssl) pair whichever of the two changed.
+            updated_value["url"] = validate_source_transport(
+                url if url is not None else str(updated_value["url"]),
+                verify_ssl=bool(updated_value.get("verify_ssl", True)),
+                resolve_dns=True,
+            )
 
         updated = self._settings.update(setting, {"value": updated_value})
         return self._to_public(updated.value)
@@ -134,8 +139,13 @@ class ISESourceConfigService:
         setting = self._get_setting_or_raise(source_id)
         value = setting.value
 
+        effective_verify_ssl = bool(
+            verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
+        )
         resolved_url = (
-            validate_outbound_http_url(url, resolve_dns=True) if url is not None else value["url"]
+            validate_source_transport(url, verify_ssl=effective_verify_ssl, resolve_dns=True)
+            if url is not None
+            else value["url"]
         )
         effective_id = credential_id if credential_id is not None else value.get("credential_id")
         if effective_id is None:
@@ -151,9 +161,7 @@ class ISESourceConfigService:
             username=username,
             password=password,
             timeout=float(timeout if timeout is not None else value.get("timeout", 30.0)),
-            verify_ssl=bool(
-                verify_ssl if verify_ssl is not None else value.get("verify_ssl", True)
-            ),
+            verify_ssl=effective_verify_ssl,
         )
 
     def resolve_inline_credentials(
@@ -165,7 +173,7 @@ class ISESourceConfigService:
         timeout: float,
     ) -> ISECredentials:
         """Build credentials from unsaved dialog values (no persisted source yet)."""
-        safe_url = validate_outbound_http_url(url, resolve_dns=True)
+        safe_url = validate_source_transport(url, verify_ssl=verify_ssl, resolve_dns=True)
         username, password = self._resolve_secret(credential_id)
         if not username:
             raise ISEValidationError(
@@ -181,7 +189,7 @@ class ISESourceConfigService:
 
     def _resolve_secret(self, credential_id: int) -> tuple[str | None, str]:
         try:
-            return resolve_global_secret(self._db, credential_id)
+            return resolve_global_secret(self._db, credential_id, source_type="ise")
         except SourceCredentialError as exc:
             raise ISEValidationError(str(exc)) from exc
 

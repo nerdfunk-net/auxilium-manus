@@ -19,8 +19,15 @@ _BASE_CONFIG = {
     "ise_source_id": "lab-ise",
     "device_name": "router1",
     "ip_address": "10.10.10.1",
-    "new_key": "s3cr3t",
+    "new_key": "{custom.new_tacacs_key}",
 }
+
+
+def _with_default_key(attribute_bags: dict | None) -> dict:
+    """Every test device carries the key the ``{custom.new_tacacs_key}`` expression resolves to."""
+    bags = dict(attribute_bags or {})
+    bags["custom"] = {"new_tacacs_key": "s3cr3t", **(bags.get("custom") or {})}
+    return bags
 
 
 def _device(
@@ -35,7 +42,7 @@ def _device(
         name=resolved_name,
         hostname=resolved_name,
         source="nautobot",
-        attribute_bags=attribute_bags or {},
+        attribute_bags=_with_default_key(attribute_bags),
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )
@@ -118,6 +125,19 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                 node_id="node-1",
                 device_sessions=MagicMock(),
             )
+
+    async def test_literal_new_key_is_rejected(self) -> None:
+        for literal in ("s3cr3t", "{custom.k | default('s3cr3t')}"):
+            config = {**_BASE_CONFIG, "new_key": literal}
+            with self.subTest(literal=literal), self.assertRaisesRegex(ValueError, "new_key"):
+                await execute(
+                    config=config,
+                    context=_context({"dev-1": _device("dev-1", name="router1")}),
+                    run=_run(),
+                    artifact_service=MagicMock(),
+                    node_id="node-1",
+                    device_sessions=MagicMock(),
+                )
 
     async def test_requires_new_key(self) -> None:
         config = {**_BASE_CONFIG, "new_key": ""}
@@ -334,7 +354,8 @@ class AddToIseExecutorTests(unittest.IsolatedAsyncioTestCase):
                             primary_ip4=None,
                             source="",
                             attribute_bags={
-                                "nautobot": {"primary_ip4": {"address": "10.10.10.9/24"}}
+                                "custom": {"new_tacacs_key": "s3cr3t"},
+                                "nautobot": {"primary_ip4": {"address": "10.10.10.9/24"}},
                             },
                             capabilities={Capability.IDENTITY},
                             status=DeviceStatus.OK,

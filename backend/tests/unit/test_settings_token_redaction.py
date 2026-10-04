@@ -64,7 +64,7 @@ class TestSettingsTokenRedaction:
     def _stub_global_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.global_calls: list[int] = []
 
-        def _assert(db, credential_id):  # noqa: ANN001
+        def _assert(db, credential_id, *, source_type):  # noqa: ANN001
             self.global_calls.append(credential_id)
             return {"id": credential_id, "name": "vault", "visibility": "global"}
 
@@ -150,7 +150,7 @@ class TestSettingsTokenRedaction:
         service = _service()
         service.repo.get_by_key.return_value = None
 
-        def _boom(db, credential_id):  # noqa: ANN001
+        def _boom(db, credential_id, *, source_type):  # noqa: ANN001
             raise SourceCredentialError("must be global")
 
         monkeypatch.setattr("services.settings.settings_service.assert_global_credential", _boom)

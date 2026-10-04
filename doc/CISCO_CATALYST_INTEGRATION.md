@@ -59,12 +59,11 @@ These are the decisions future changes should preserve unless there is a concret
 | Decision | Reason |
 |---|---|
 | **Talk to the REST API with `httpx`, not the `catalystcentersdk` / `dnacentersdk` Python SDK.** | The SDKs are synchronous (`requests`), while the backend is async FastAPI plus Hatchet workers. We also need controls the SDK does not offer: the SSRF guard, per-source TLS verify/no-verify pools, vault-resolved credentials per request, typed errors that never leak response bodies, and pooled app-scoped clients. We use ~10 endpoints; the SDK carries 1,100–1,900. It stays useful as an **offline reference** for paths and parameters (that is how the version diff was done). |
-| **One shared client and service path, not one adapter per Catalyst Center version.** | For the endpoints we use, 2.3.3.x, 2.3.7.x and 3.1/3.2 expose the **same** set (verified by diffing SDK releases; see the API-diff doc). Per-version adapters would be code with nothing to adapt. Version differences are handled by small capability gates instead (see [Release handling](#release-handling)). |
+| **One shared client and service path, not one adapter per Catalyst Center version.** | For the endpoints we use, 2.3.3.x, 2.3.7.x and 3.1/3.2 expose the **same** set (verified by diffing SDK releases; see the API-diff doc). Per-version adapters would be code with nothing to adapt. Nothing is gated on the release today (see [Release handling](#release-handling)). |
 | **Normalized domain models between the API and workflow steps.** | `CatalystCenterDevice` and `CatalystCenterCommandResult` (`models/catalyst_center.py`) and the whitelisted fact models in `models/catalyst_center_facts.py` are the only shapes steps see. Raw Intent API payloads stay inside `services/catalyst_center/`, so a future payload change is fixed in one place. |
 | **Filters run on the controller, with a guard against pulling everything.** | A Catalyst Center can hold thousands of devices. The step requires a filter (or an explicit `allow_all`) and offers a `max_devices` cap that **fails** rather than truncates, because a workflow acting on a silently-incomplete target list is worse than a failed one. |
 | **Site filtering resolves names to device ids with `GET /site` + `GET /membership/{siteId}`.** | The device list has no usable site filter (`location*` are deprecated/empty). This pair exists on **every** supported release line (2.3.3.x, 2.3.7.x, 3.x); the newer `/sites` and `networkDevices/assignedToSite` endpoints only exist from 2.3.7.x, so they are not used. Site names are validated against the real site list because the controller answers an unknown site with a 500 and a bad membership id with **HTTP 200 + an error body**. |
 | **Credentials are a vault reference, not stored on the source.** | Same model as ISE/Nautobot/pyATS/Mattermost: the source stores a `credential_id` pointing at a **global** vault credential. Background (Hatchet) runs have no acting user, so private credentials can never resolve. |
-| **An unknown controller release means "no optional capabilities".** | A real controller (the DevNet sandbox) returned a platform build (`3.722.75335`) from `dnac-release`, not a product release. Guessing a release from that is wrong; falling back to behaviour that works everywhere is always safe. |
 | **The client is app-scoped and registered in *both* lifespans.** | `main.py` (API) **and** `hatchet/worker_services.py` (both workers). A step runs in a worker, so a service registered only in the API process would raise "not initialized" at run time. |
 | **Immutable data throughout.** | Filters are a frozen dataclass; models are frozen Pydantic; the executor builds a new `WorkflowContext` with `model_copy` instead of mutating the input. |
 
@@ -81,7 +80,7 @@ backend/services/catalyst_center/
 │   ├── ids.py                 # safe_device_id() — id validation before path interpolation
 │   ├── coerce.py              # lenient text/number/integer/boolean coercion for controller payloads
 │   ├── output.py              # clean_command_output() — strip echoed command + trailing prompt
-│   └── version.py             # release parsing + capability gates + installed_version_label()
+│   └── version.py             # installed_version_label() (display only)
 ├── device_filters.py          # CatalystCenterDeviceFilters — validation, query params, CIDR prefilter/check
 ├── device_service.py          # CatalystCenterDeviceService — search/preview/get/find/count, site-aware selection
 ├── site_service.py            # CatalystCenterSiteService — site list + site -> member device ids
@@ -188,18 +187,11 @@ body (`{}` for an empty body).
 
 ## Release handling
 
-`common/version.py`:
-
-- `parse_release("2.3.7.9-70050")` → `CatalystCenterRelease(2, 3, 7, 9)`; rejects anything with a component > 99.
-- `release_from_payload(payload)` reads `response.installedVersion` (then `response.version`) of
-  `GET /dna/intent/api/v1/dnac-release`.
-- `installed_version_label(payload)` returns that string verbatim for **display only**.
-- Capability gate: `CatalystCenterRelease.supports_filtered_device_count` (≥ 2.3.7).
-
-**Important:** the DevNet sandbox returns the platform build `3.722.75335` here, not a product release. That is
-rejected as implausible, the release is treated as **unknown**, and unknown means "no optional capabilities":
-`CatalystCenterDeviceService.count_devices` then counts by listing instead of using the filtered count endpoint,
-which works on every release. Test connection shows the string as **"reported version"**, not as a verified release.
+`common/version.py` has one function, `installed_version_label(payload)`: it returns the string
+`GET /dna/intent/api/v1/dnac-release` reports (`response.installedVersion`, then `response.version`) **verbatim, for
+display only**. The DevNet sandbox returns the platform build `3.722.75335` there, not a product release, so nothing is
+gated on it; test connection shows it as the "reported version". Release gating (a `CatalystCenterRelease` class and a
+release-gated `/network-device/count`) existed until 2026-10 and was removed because no step used it.
 
 ---
 
@@ -515,9 +507,9 @@ Frontend: `npx tsc --noEmit` and a scoped `npx eslint <files>` from `frontend/`.
 | Test file | Covers |
 |---|---|
 | `test_catalyst_center_client.py` | token auth/cache/expiry, 401 retry, 429 backoff, error mapping, TLS pool choice, SSRF |
-| `test_catalyst_center_version.py` | release parsing, plausibility, capability gates, the real sandbox payload |
+| `test_catalyst_center_version_label.py` | label from the reported payload, incl. the real sandbox payload |
 | `test_catalyst_center_device_filters.py` | parsing, query params, CIDR prefilter/check |
-| `test_catalyst_center_device_service.py` | normalization, pagination, search/preview/cap, count fallback |
+| `test_catalyst_center_device_service.py` | normalization, pagination, search/preview/cap |
 | `test_catalyst_center_command_service.py` | command-runner flow, id validation, config text |
 | `test_catalyst_center_source_config_service.py` | settings + vault credential handling |
 | `test_catalyst_center_router.py`, `…_ops_router.py`, `test_sources_crud_routers.py` | routes, auth, status mapping, preview |
@@ -613,8 +605,8 @@ Notes specific to Catalyst Center steps:
 Do **not** add a per-version adapter unless the endpoint sets truly diverge. Instead:
 
 1. Prove the difference with the SDK diff method in `CATALYST_CENTER_API_DIFF.md` and on a real controller of each line.
-2. Add a property to `CatalystCenterRelease` (as `supports_filtered_device_count` does) and gate on it in the service.
-3. Fail safe: when `_get_release()` returns `None` (unknown), take the path that works on every release.
+2. Re-introduce a small release type in `common/version.py` and gate on it in the service.
+3. Fail safe: when the release is unknown, take the path that works on every release.
 
 ### D. Add a field to the source configuration
 
@@ -651,14 +643,13 @@ gets its own resolution step in a service and a branch in `CatalystCenterDeviceS
 | `network-device?id=<sw1>&hostname=sw4` | Returned nothing (AND) on the sandbox although the docs say `id` ignores other params — not relied on. |
 | Command output | Contains the echoed command and the prompt. |
 | Device config response | `GET /network-device/{id}/config` returns a plain text body in `response`. |
-| Filtered `count` | `count?hostname=sw1` returned 1 (vs 4 unfiltered), so hostname is honoured. IP and role counts were inconclusive (every sandbox device matches them). The release is unknown here, so the code uses the list fallback regardless. |
+| Filtered `count` | `count?hostname=sw1` returned 1 (vs 4 unfiltered), so hostname is honoured. IP and role counts were inconclusive (every sandbox device matches them). The count endpoint is not used by the code any more (removed with the release gating). |
 
 ---
 
 ## Known limits and open items
 
-- **Not verified live:** 2.3.3.x controllers, a controller reporting a real product release (so the filtered-count branch
-  is covered by unit tests only), and 3.3.1. No `catalystcentersdk` exists for 2.3.3.x or 3.3.1, so the SDK diff stops at
+- **Not verified live:** 2.3.3.x controllers, a controller reporting a real product release, and 3.3.1. No `catalystcentersdk` exists for 2.3.3.x or 3.3.1, so the SDK diff stops at
   2.3.7.9 / 3.1.6 / 3.2.3.
 - **Preview with a very wide CIDR** (for example `/1`, no shared octet) can scan every page of devices; the page bound is
   200 × 500 devices. Unbounded in time on a huge controller. Narrow the CIDR or add another filter.

@@ -13,10 +13,10 @@ backend does a read-merge-write against Cisco ISE's ERS API (``PUT`` there
 requires ``name``/``othername`` and would otherwise wipe/reject the group),
 so this also exercises that merge path.
 
-Usage (from ``backend/``, with the project venv active, the backend
+Usage (from the repo root, with the project venv, the backend
 running, and ``ise_test_ndg_add.py`` already run once)::
 
-    ../.venv/bin/python scripts/ise_test_ndg_update.py
+    .venv/bin/python tools/ise/ise_test_ndg_update.py
 
 Run with ``--help`` for all options.
 """

@@ -8,10 +8,10 @@ three groups those scripts create/update
 and ``new-root#new-root``), children before parents, then confirms each is
 gone by re-fetching it (expects 404).
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running)::
 
-    ../.venv/bin/python scripts/ise_test_ndg_delete.py
+    .venv/bin/python tools/ise/ise_test_ndg_delete.py
 
 Run with ``--help`` for all options.
 """

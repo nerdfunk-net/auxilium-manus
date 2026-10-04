@@ -53,17 +53,6 @@ class RunRepository:
             return None
         return (row.WorkflowRun, row.triggered_by_username)
 
-    def get_run_by_uuid(self, run_uuid: str) -> tuple[WorkflowRun, str | None] | None:
-        stmt = (
-            select(WorkflowRun, User.username.label("triggered_by_username"))
-            .outerjoin(User, WorkflowRun.triggered_by_id == User.id)
-            .where(WorkflowRun.uuid == run_uuid)
-        )
-        row = self.db.execute(stmt).first()
-        if row is None:
-            return None
-        return (row.WorkflowRun, row.triggered_by_username)
-
     def list_runs_for_workflow(
         self,
         workflow_id: int,

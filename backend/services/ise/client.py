@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
+from core.safe_urls import UnsafeURLError, validate_source_transport_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.ise.common.exceptions import (
     ISEAPIError,
@@ -64,7 +64,9 @@ class ISEService:
             raise ISEValidationError("ISE base URL, username, and password are required")
 
         try:
-            base = await validate_outbound_http_url_async(credentials.base_url)
+            base = await validate_source_transport_async(
+                credentials.base_url, verify_ssl=credentials.verify_ssl
+            )
         except UnsafeURLError as exc:
             raise ISEValidationError(str(exc)) from exc
 
@@ -126,7 +128,7 @@ class ISEService:
         except ValueError:
             return "ISE rejected the request (400 Bad Request)"
         messages = payload.get("ERSResponse", {}).get("messages", [])
-        texts = [m.get("title") for m in messages if isinstance(m, dict) and m.get("title")]
+        texts = [str(m["title"]) for m in messages if isinstance(m, dict) and m.get("title")]
         return "; ".join(texts) if texts else "ISE rejected the request (400 Bad Request)"
 
     @staticmethod

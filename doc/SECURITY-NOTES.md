@@ -3,16 +3,28 @@
 This file records security-adjacent findings from `doc/FABLE-ANALYSIS.md` §4.7 that were reviewed and
 intentionally left as-is, with the reasoning, so they aren't re-investigated from scratch later.
 
-## `verify_ssl=False` support (Nautobot, ISE clients)
+## `verify_ssl=False` support (Nautobot, ISE, Catalyst Center, Mattermost clients)
 
-`services/nautobot/client.py` and `services/ise/client.py` each keep a second, non-verifying
-`httpx.AsyncClient` pool because on-prem Nautobot/ISE instances in NetDevOps environments commonly
-present self-signed certificates. Every request made with `verify_ssl=False` is logged at `WARNING`
-with the target host (`graphql_query`, `rest_request` in the Nautobot client; `ers_request` in the ISE
-client — all three call sites confirmed present). **Accepted as-is**: there is currently no UI/RBAC gate
-specifically preventing `verify_ssl=False` sources in a production configuration; adding one is worth
-doing if this product is ever deployed against untrusted/adversarial networks rather than a managed
-internal one.
+Each client keeps a second, non-verifying `httpx.AsyncClient` pool because on-prem instances in
+NetDevOps environments commonly present self-signed certificates. Every request made with
+`verify_ssl=False` is logged at `WARNING` with the target host. **Mitigated, not accepted**: the opt-out
+exists for development only. Outside `ENV=development`, `core.safe_urls.validate_source_transport`
+refuses an `http://` URL and `verify_ssl=false`; it runs when a source is saved or tested
+(`*_source_config_service.py`, `SettingsService` for Nautobot) **and on every request** in the
+Nautobot, ISE, Catalyst Center and Mattermost clients (pyATS is exempt, see below), so a row saved before the check existed stops working until its CA is installed
+(`INSTALL_CERTIFICATE_FILES`) or its URL is changed to https.
+
+A source also only accepts a **global** credential of the type it authenticates with
+(`services/credentials/source_credentials.py::SOURCE_CREDENTIAL_TYPES`), so a device SSH password or a
+Secret Manager credential cannot be sent to a source URL:
+
+| Source | Credential type |
+|---|---|
+| Nautobot, Mattermost, pyATS | `token` |
+| ISE, Catalyst Center | `generic` |
+
+Granting `sources.<x>:write` / `sources.<x>:delete` is admin-only (policy P3), because a holder can
+point a source at a URL of their choosing and have the bound credential sent there by test-connection.
 
 ## Netmiko: no SSH host-key verification
 
@@ -45,7 +57,10 @@ reachable from other containers on the internal `backend` Docker network
 `postgres`/`redis`. If the shim is ever exposed outside that network (a
 published host port, a different/wider Docker network, a remote deployment),
 this must move to HTTPS or an equivalent transport fix first — see
-`doc/PYATS_INTEGRATION.md` for the full design.
+`doc/PYATS_INTEGRATION.md` for the full design. The source transport policy above
+(`validate_source_transport`) deliberately does **not** apply to the pyATS source: the shim always
+runs on the internal Docker network over plain `http://`, in production too, so a pyATS source
+keeps only the SSRF/URL checks (`validate_outbound_http_url`) and the `token` credential-type rule.
 
 ## Git debug write endpoints (`test_write`/`test_delete`/`test_push`)
 
@@ -112,3 +127,16 @@ outside development, the credential must be of type `generic` (an `ssh`
 device credential is rejected), and `secret_manager.connections:*` is a
 protected permission only an admin can grant (P3). See
 `doc/SECRET_MANAGER_INTEGRATION.md` → "Transport policy".
+
+## AI collaboration: the `ai-assistant` account
+
+While an admin has activated the seeded `ai-assistant` user (Settings → Users), it is a
+valid principal that can write workflow canvases, workflow notes and templates through
+`backend/scripts/ai_workflow_apply.py` / `ai_template_apply.py`. **Mitigated, not
+accepted**: the checks live in the services, not the scripts —
+`WorkflowService.update_workflow_for_ai_session` / `update_notes_for_ai_session` call
+`AiWriteGate` (caller must be the active `ai-assistant`, the workflow needs an unexpired
+owner-granted `workflow_ai_sessions` row, and a canvas write is refused while the
+workflow has an enabled schedule); `AiTemplateService` confines the AI to templates named
+`[AI Draft] …` that it created itself. Deactivating the account is the global kill-switch.
+See `doc/ai_collaboration/PROCESS.md`.

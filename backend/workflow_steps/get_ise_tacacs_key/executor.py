@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STEP_ID = "get-ise-tacacs-key"
-_TIER_TYPES = (
+_TIER_TYPES: tuple[str, ...] = (
     "name_exact_32",
     "name_any",
     "location_group",

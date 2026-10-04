@@ -209,7 +209,7 @@ Contract:
 - `StepRunner` does **not** simply filter a funnel's edges away like it does
   for `label`/`background`. Instead, `StepRunner._resolve_funnels` (called
   once, at the top of `StepRunner.load_execution_graph`, before
-  `_filter_executable_graph`/`topological_order` ever run) **splices** the
+  `filter_executable_graph`/`topological_order` ever run) **splices** the
   funnel out: every incoming edge is rewired directly to the funnel's one
   downstream target, keeping the original edge's `sourceHandle` (outcome
   name) intact — so a `failure` edge funneled into `notify-on-error` still

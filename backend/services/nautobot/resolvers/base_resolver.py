@@ -7,22 +7,22 @@ This provides shared functionality for all resolver classes.
 import logging
 from typing import Any
 
+from services.nautobot.api_protocol import NautobotApi
+
 logger = logging.getLogger(__name__)
 
 
 class BaseResolver:
     """Base resolver with common GraphQL query logic."""
 
-    def __init__(self, nautobot_service):
+    def __init__(self, nautobot_service: NautobotApi):
         """
         Initialize the base resolver.
 
         Args:
             nautobot_service: NautobotService instance for API calls
         """
-        from services.nautobot import NautobotService
-
-        self.nautobot: NautobotService = nautobot_service
+        self.nautobot: NautobotApi = nautobot_service
 
     async def _resolve_by_field(
         self,

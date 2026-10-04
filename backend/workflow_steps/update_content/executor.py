@@ -138,7 +138,7 @@ async def _update_and_store(
     device_id: str,
     device: DeviceContext,
     node_id: str,
-    run_id: str | None,
+    run_id: str,
     parsed: _ParsedUpdateContentConfig,
     artifact_service: ArtifactService,
 ) -> DeviceContext:
@@ -183,7 +183,7 @@ async def _update_device(
     device: DeviceContext,
     parsed: _ParsedUpdateContentConfig,
     node_id: str,
-    run_id: str | None,
+    run_id: str,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, bool]:
     try:

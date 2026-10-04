@@ -189,14 +189,6 @@ class CatalystCenterClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(AUTH_PATH, verify_calls)
         await other.aclose()
 
-    async def test_get_release_parses_dnac_release(self) -> None:
-        self.controller.api_responses = [
-            httpx.Response(200, json={"response": {"installedVersion": "2.3.7.9-70050"}})
-        ]
-        release = await self.service.get_release(_creds())
-        self.assertEqual(release.as_tuple(), (2, 3, 7, 9))
-        self.assertEqual(self.controller.api_calls[0].url.path, "/dna/intent/api/v1/dnac-release")
-
 
 class CatalystCenterClientEdgeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

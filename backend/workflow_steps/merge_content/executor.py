@@ -194,7 +194,7 @@ async def _merge_device(
     device: DeviceContext,
     parsed: _ParsedMergeConfig,
     node_id: str,
-    run_id: str | None,
+    run_id: str,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, bool]:
     try:

@@ -154,8 +154,9 @@ function StoreInDbConfigPanel({
           className="h-8 font-mono text-xs"
         />
         <p className="text-[11px] text-muted-foreground">
-          Key this device&apos;s data is stored under. A later Read from DB step reads
-          by this key.
+          Key this device&apos;s data is stored under (unique per device name and key;
+          a second run overwrites). Nothing in the app reads it back — consume it
+          from the database.
         </p>
       </div>
 
@@ -214,23 +215,6 @@ function StoreInDbConfigPanel({
             attribute (e.g. a device password) fails the device unless
             allow_secret_storage is enabled below.
           </p>
-
-          <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning px-3 py-2">
-            <input
-              id="store-in-db-allow-secret-storage"
-              type="checkbox"
-              checked={allowSecretStorage}
-              onChange={(event) => handleAllowSecretStorageChange(event.target.checked)}
-              className="mt-0.5 size-4 shrink-0 rounded border"
-            />
-            <Label
-              htmlFor="store-in-db-allow-secret-storage"
-              className="text-[11px] font-medium leading-4 text-warning-foreground"
-            >
-              Write secret-valued attribute to database. I am aware of and accept the
-              risk.
-            </Label>
-          </div>
 
           <AttributePathPicker
             open={pickerOpen}
@@ -306,6 +290,24 @@ function StoreInDbConfigPanel({
           </div>
         </div>
       ) : null}
+
+      <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning px-3 py-2">
+        <input
+          id="store-in-db-allow-secret-storage"
+          type="checkbox"
+          checked={allowSecretStorage}
+          onChange={(event) => handleAllowSecretStorageChange(event.target.checked)}
+          className="mt-0.5 size-4 shrink-0 rounded border"
+        />
+        <Label
+          htmlFor="store-in-db-allow-secret-storage"
+          className="text-[11px] font-medium leading-4 text-warning-foreground"
+        >
+          Store secrets in clear text. By default sealed secrets are saved as
+          ***REDACTED*** (and a rendered template is refused for a device that holds
+          secrets). I am aware of and accept the risk.
+        </Label>
+      </div>
     </div>
   );
 }

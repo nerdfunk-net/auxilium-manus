@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import object_session
 
@@ -31,7 +31,6 @@ from models.workflow_context import (
     WorkflowContext,
 )
 from services.artifacts import ArtifactService
-from services.nautobot.client import NautobotService
 from services.nautobot.common.exceptions import NautobotAPIError, NautobotValidationError
 from services.nautobot.credentials_bound_client import CredentialsBoundNautobotClient
 from services.nautobot.devices.common import DeviceCommonService
@@ -473,9 +472,7 @@ async def execute(
     credentials = resolve_nautobot_credentials(db, parsed.source_id, step_id=_STEP_ID)
     client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
     jobs_service = NautobotJobsService(client)
-    # CredentialsBoundNautobotClient intentionally duck-types NautobotService (see its
-    # docstring) so cockpit-derived resolver code can run unchanged with per-request creds.
-    device_common = DeviceCommonService(cast(NautobotService, client))
+    device_common = DeviceCommonService(client)
     variable_types = {
         str(variable.get("name")): str(variable.get("type") or "")
         for variable in parsed.job_variables_schema

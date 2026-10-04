@@ -32,6 +32,7 @@ from services.ise.common.exceptions import (
     ISEValidationError,
 )
 from services.ise.credentials import ISECredentials
+from services.ise.redaction import redact_ise_secrets
 from services.ise.source_config_service import (
     ISESourceConfigService,
     ISESourceNotFoundError,
@@ -107,7 +108,7 @@ async def get_device_by_name(
 ) -> dict:
     device_service = _resolve_device_service(source_id, config)
     try:
-        return await device_service.get_device_by_name(name)
+        return redact_ise_secrets(await device_service.get_device_by_name(name))
     except ISENotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ISEValidationError as exc:
@@ -164,7 +165,7 @@ async def get_device(
 ) -> dict:
     device_service = _resolve_device_service(source_id, config)
     try:
-        return await device_service.get_device(device_id)
+        return redact_ise_secrets(await device_service.get_device(device_id))
     except ISENotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ISEValidationError as exc:
@@ -193,7 +194,7 @@ async def create_device(
     device_service = _resolve_device_service(source_id, config)
     try:
         payload = request.model_dump(exclude_none=True)
-        return await device_service.create_device(payload)
+        return redact_ise_secrets(await device_service.create_device(payload))
     except ISEValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except ISEAPIError as exc:
@@ -220,7 +221,7 @@ async def update_device(
     device_service = _resolve_device_service(source_id, config)
     try:
         payload = request.model_dump(exclude_none=True)
-        return await device_service.update_device(device_id, payload)
+        return redact_ise_secrets(await device_service.update_device(device_id, payload))
     except ISENotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ISEValidationError as exc:

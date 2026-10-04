@@ -256,7 +256,6 @@ class SecretManagerClient(Protocol):
     async def ensure_started(self) -> None: ...   # OpenBao's token-renew loop; no-op for Infisical
     def get_field(self, path: str, field: str, *, version: int | None = None) -> str | None: ...
     def set_field(self, path: str, field: str, value: str) -> int | None: ...
-    def delete_field(self, path: str, field: str) -> None: ...
     def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]: ...
     async def shutdown(self) -> None: ...
 ```
@@ -296,7 +295,7 @@ callers):
   v2 `versions` map (`created_time`/`destroyed` per version), consumed by
   `get_field_history`.
 
-`get_field`/`set_field`/`delete_field` read-modify-write the whole dict at
+`get_field`/`set_field` read-modify-write the whole dict at
 `path` (get, mutate one key, `write_kv`) since OpenBao KV v2 has no
 per-field write. `get_field_history` ignores its `field` argument — OpenBao
 versions the whole dict at a path, not individual fields.

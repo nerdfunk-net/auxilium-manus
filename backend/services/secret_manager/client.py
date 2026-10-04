@@ -34,8 +34,6 @@ class SecretManagerClient(Protocol):
         """Write *value*; return the new version number when the backend reports one."""
         ...
 
-    def delete_field(self, path: str, field: str) -> None: ...
-
     def get_field_history(self, path: str, field: str) -> list[SecretVersionInfo]:
         """Best-effort version history, newest first. See the Infisical caveat
         in doc/SECRET_MANAGER_INTEGRATION.md — verify against the live

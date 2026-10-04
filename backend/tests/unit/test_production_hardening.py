@@ -81,7 +81,7 @@ class TestR1TokenAtRest(unittest.TestCase):
             ),
             patch(
                 "services.settings.settings_service.assert_global_credential",
-                lambda db, cid: {"id": cid, "visibility": "global"},
+                lambda db, cid, *, source_type: {"id": cid, "visibility": "global"},
             ),
         ):
             response = service.create_setting(

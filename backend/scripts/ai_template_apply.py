@@ -4,9 +4,9 @@ ai-assistant service account touches the `templates` table. See
 doc/ai_collaboration/PROCESS.md.
 
 Deliberately dumb infrastructure: identity, gating, persistence, reporting.
-It does not choose a name prefix, a category, or template content — that
-reasoning belongs to whatever calls this script (see AI_DEFAULTS.md's
-"[AI Draft] " naming convention, which this script has no knowledge of).
+It does not choose a category or template content. The policy itself lives in
+services/templates/ai_template_service.py: the AI may create only templates
+named "[AI Draft] ..." and may update only templates it created itself.
 
 Usage (from backend/, with the project venv)::
 
@@ -21,13 +21,15 @@ present in the patch are changed). patch.json is a JSON object with any of:
 "variables", "pre_run_commands", "pre_run_use_textfsm", "nautobot_attributes",
 "credential_id", "batfish_config".
 
-One gate must pass before anything is written: the ai-assistant user must be
-active (an admin flips this on in Settings -> Users — the global kill-switch,
-shared with backend/scripts/ai_workflow_apply.py). Unlike that script, there
-is no per-item session/consent row here — templates have no ownership,
-folder, or visibility concept to scope a session to (see PROCESS.md's
-"The template apply mechanism" for why this is deliberately simpler than the
-workflow feature's two-gate model).
+Gates (enforced in AiTemplateService, before anything is written): the
+ai-assistant user must be active (an admin flips this on in Settings -> Users —
+the global kill-switch, shared with backend/scripts/ai_workflow_apply.py); a
+created or renamed template must be named "[AI Draft] ..."; an update may only
+target a template whose created_by is the ai-assistant. There is no per-item
+session/consent row — templates have no ownership, folder, or visibility
+concept to scope a session to (see PROCESS.md's "The template apply
+mechanism"), so the AI is confined to its own drafts instead. A human promotes
+a draft by renaming it.
 
 Prints a JSON report to stdout: the resulting template row plus an
 "operation" field ("created" or "updated").
@@ -88,79 +90,25 @@ def main() -> int:
         return _fail(f"Could not read patch file: {exc}")
 
     from core.database import SessionLocal
-    from models.templates import TemplateCreate, TemplateUpdate
-    from repositories.user_repository import UserRepository
-    from services.auth.rbac_seed import AI_ASSISTANT_USERNAME
+    from core.domain_exceptions import DomainError
+    from services.templates.ai_template_service import AiTemplateService
     from services.templates.exceptions import (
         TemplateCredentialNotFoundError,
         TemplateNameConflictError,
         TemplateNotFoundError,
     )
-    from services.templates.templates_service import TemplatesService
 
     with SessionLocal() as db:
-        ai_user = UserRepository(db).get_by_username(AI_ASSISTANT_USERNAME)
-        if ai_user is None:
-            return _fail(
-                f"'{AI_ASSISTANT_USERNAME}' user does not exist — has the app been started "
-                f"at least once since this feature was deployed?"
-            )
-        if not ai_user.is_active:
-            return _fail(
-                f"'{AI_ASSISTANT_USERNAME}' is disabled — an admin must activate it in "
-                f"Settings -> Users before this script can run."
-            )
-
-        service = TemplatesService(db)
-
+        service = AiTemplateService(db)
         try:
             if args.template_id is None:
-                data = TemplateCreate(**patch)
-                result = service.create_template(
-                    name=data.name,
-                    description=data.description,
-                    notes=data.notes,
-                    template_type=data.template_type,
-                    category=data.category,
-                    content=data.content,
-                    variables={k: v.model_dump() for k, v in data.variables.items()},
-                    pre_run_commands=data.pre_run_commands,
-                    pre_run_use_textfsm=data.pre_run_use_textfsm,
-                    nautobot_attributes=data.nautobot_attributes,
-                    credential_id=data.credential_id,
-                    batfish_config=(
-                        data.batfish_config.model_dump() if data.batfish_config else None
-                    ),
-                    created_by=AI_ASSISTANT_USERNAME,
-                    acting_user_id=ai_user.id,
-                )
+                result = service.create(patch)
                 operation = "created"
             else:
-                data = TemplateUpdate(**patch)
-                variables = (
-                    {k: v.model_dump() for k, v in data.variables.items()}
-                    if data.variables is not None
-                    else None
-                )
-                result = service.update_template(
-                    args.template_id,
-                    name=data.name,
-                    description=data.description,
-                    notes=data.notes,
-                    template_type=data.template_type,
-                    category=data.category,
-                    content=data.content,
-                    variables=variables,
-                    pre_run_commands=data.pre_run_commands,
-                    pre_run_use_textfsm=data.pre_run_use_textfsm,
-                    nautobot_attributes=data.nautobot_attributes,
-                    credential_id=data.credential_id,
-                    batfish_config=(
-                        data.batfish_config.model_dump() if data.batfish_config else None
-                    ),
-                    acting_user_id=ai_user.id,
-                )
+                result = service.update(args.template_id, patch)
                 operation = "updated"
+        except DomainError as exc:
+            return _fail(exc.detail)
         except (
             TemplateNotFoundError,
             TemplateNameConflictError,

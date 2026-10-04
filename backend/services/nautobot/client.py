@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
+from core.safe_urls import UnsafeURLError, validate_source_transport_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.nautobot.common.exceptions import (
     NautobotAPIError,
@@ -77,7 +77,9 @@ class NautobotService:
             raise NautobotValidationError("Nautobot URL and token are required")
 
         try:
-            base = await validate_outbound_http_url_async(credentials.url)
+            base = await validate_source_transport_async(
+                credentials.url, verify_ssl=credentials.verify_ssl
+            )
         except UnsafeURLError as exc:
             raise NautobotValidationError(str(exc)) from exc
 
@@ -127,7 +129,9 @@ class NautobotService:
             raise NautobotValidationError("Nautobot URL and token are required")
 
         try:
-            base = await validate_outbound_http_url_async(credentials.url)
+            base = await validate_source_transport_async(
+                credentials.url, verify_ssl=credentials.verify_ssl
+            )
         except UnsafeURLError as exc:
             raise NautobotValidationError(str(exc)) from exc
 

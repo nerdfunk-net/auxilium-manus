@@ -55,7 +55,7 @@ with a ``400 Illegal IP Address`` error. The resolved value is therefore split
 into the bare host address (``ipaddress``) and a separate ``mask``. The mask
 is, in order of precedence: the optional ``netmask_override`` config value
 (e.g. ``32`` or ``/32``), the suffix of the resolved ``ip_address``, else
-``/32`` (a single host entry, matching ``backend/scripts/ise_test.py``).
+``/32`` (a single host entry, matching ``tools/ise/ise_test.py``).
 
 When the default ``{primary_ip4}`` expression is used, ``device.primary_ip4``
 is only populated by inventory steps that fetch full device records (Get from
@@ -90,6 +90,7 @@ from services.ise.common.exceptions import ISEAPIError, ISEValidationError
 from services.ise.credentials import ISECredentials
 from services.ise.source_config_service import ISESourceNotFoundError
 from services.workflow_context.attribute_path import resolve_device_value
+from services.workflow_context.secret_expression import require_secret_expression
 from services.workflow_context.secret_fields import seal_secret
 from workflow_steps.add_to_ise.group_ensure import DeviceGroupEnsurer
 from workflow_steps.common.request_record import append_request_record
@@ -255,6 +256,7 @@ def _parse_config(config: dict[str, Any]) -> _ParsedConfig:
     raw_new_key = (config.get("new_key") or "").strip()
     if not raw_new_key:
         raise ValueError(f"{_STEP_ID}: new_key is not configured")
+    raw_new_key = require_secret_expression(raw_new_key, field="new_key", step_id=_STEP_ID)
 
     description = str(config.get("description") or "").strip()
     device_groups = _parse_device_groups(config.get("device_groups"))

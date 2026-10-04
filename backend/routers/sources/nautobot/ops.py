@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -41,7 +40,6 @@ from models.sources_nautobot import (
     RenameGroupRequest,
     RenameGroupResponse,
 )
-from services.nautobot.client import NautobotService
 from services.nautobot.common.exceptions import (
     NautobotAPIError,
     NautobotValidationError,
@@ -82,9 +80,7 @@ def _build_jobs_service(credentials: NautobotCredentials) -> NautobotJobsService
 
 def _build_device_common_service(credentials: NautobotCredentials) -> DeviceCommonService:
     client = CredentialsBoundNautobotClient(service_factory.get_nautobot_app_service(), credentials)
-    # CredentialsBoundNautobotClient intentionally duck-types NautobotService (see its
-    # docstring) so cockpit-derived resolver code can run unchanged with per-request creds.
-    return DeviceCommonService(cast(NautobotService, client))
+    return DeviceCommonService(client)
 
 
 @router.post(

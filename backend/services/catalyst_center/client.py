@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from core.safe_urls import UnsafeURLError, validate_outbound_http_url_async
+from core.safe_urls import UnsafeURLError, validate_source_transport_async
 from core.ssl_config import create_verified_ssl_context, verify_option
 from services.catalyst_center.common.exceptions import (
     CatalystCenterAPIError,
@@ -28,7 +28,6 @@ from services.catalyst_center.common.exceptions import (
     CatalystCenterRateLimitError,
     CatalystCenterValidationError,
 )
-from services.catalyst_center.common.version import CatalystCenterRelease, release_from_payload
 from services.catalyst_center.credentials import CatalystCenterCredentials
 
 logger = logging.getLogger(__name__)
@@ -101,18 +100,15 @@ class CatalystCenterService:
             return self._handle_response(response, path)
         raise CatalystCenterAPIError("Catalyst Center request failed")  # pragma: no cover
 
-    async def get_release(self, credentials: CatalystCenterCredentials) -> CatalystCenterRelease:
-        """Detect the controller release via ``GET /dnac-release``."""
-        payload = await self.request(credentials, "GET", RELEASE_PATH)
-        return release_from_payload(payload)
-
     async def _validated_base(self, credentials: CatalystCenterCredentials) -> str:
         if not credentials.base_url or not credentials.username or not credentials.password:
             raise CatalystCenterValidationError(
                 "Catalyst Center base URL, username, and password are required"
             )
         try:
-            base = await validate_outbound_http_url_async(credentials.base_url)
+            base = await validate_source_transport_async(
+                credentials.base_url, verify_ssl=credentials.verify_ssl
+            )
         except UnsafeURLError as exc:
             raise CatalystCenterValidationError(str(exc)) from exc
         if not credentials.verify_ssl:

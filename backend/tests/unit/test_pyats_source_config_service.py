@@ -35,7 +35,7 @@ class PyATSSourceConfigServiceTests(unittest.TestCase):
         resolve_secret_patcher = patch("services.pyats.source_config_service.resolve_global_secret")
         self.mock_settings_cls = settings_patcher.start()
         self.mock_credentials_cls = credentials_patcher.start()
-        validate_patcher.start()
+        self.mock_validate = validate_patcher.start()
         self.mock_assert_global = assert_global_patcher.start()
         self.mock_resolve_secret = resolve_secret_patcher.start()
         self.addCleanup(settings_patcher.stop)
@@ -211,6 +211,54 @@ class PyATSSourceConfigServiceTests(unittest.TestCase):
         result = self.service.list_sources()
         self.assertEqual(result[0]["credential_id"], 7)
         self.assertEqual(result[0]["credential_name"], "vault-tok")
+
+    def test_http_and_unverified_tls_are_allowed_for_the_shim(self) -> None:
+        # The shim always runs on the internal Docker network over plain http, in production
+        # too, so the https/verify_ssl source transport policy deliberately does not apply.
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_settings.create.side_effect = lambda key, value, description: _setting(
+            "sources.pyats.lab", value
+        )
+
+        with patch("core.safe_urls.settings", SimpleNamespace(environment="production")):
+            self.service.create_source(
+                source_id="lab", url="http://pyats-shim:8100", credential_id=7, verify_ssl=False
+            )
+
+        self.mock_validate.assert_called_once_with("http://pyats-shim:8100", resolve_dns=True)
+
+    def test_update_url_only_runs_the_outbound_url_check(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.pyats.lab", {"url": "http://old", "verify_ssl": False, "credential_id": 7}
+        )
+        self.mock_settings.update.side_effect = lambda setting, fields: _setting(
+            "sources.pyats.lab", fields["value"]
+        )
+
+        self.service.update_source("lab", url="http://pyats-shim:8100")
+
+        self.mock_validate.assert_called_once_with("http://pyats-shim:8100", resolve_dns=True)
+
+    def test_create_source_binds_credential_to_the_source_type(self) -> None:
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_settings.create.side_effect = lambda key, value, description: _setting(
+            "sources.pyats.lab", value
+        )
+
+        self.service.create_source(source_id="lab", url="https://x.example.com", credential_id=7)
+
+        self.assertEqual(self.mock_assert_global.call_args.kwargs["source_type"], "pyats")
+
+    def test_create_source_rejects_credential_of_wrong_type(self) -> None:
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_assert_global.side_effect = SourceCredentialError("wrong type")
+
+        with self.assertRaises(SourceCredentialError):
+            self.service.create_source(
+                source_id="lab", url="https://x.example.com", credential_id=9
+            )
+
+        self.mock_settings.create.assert_not_called()
 
 
 if __name__ == "__main__":

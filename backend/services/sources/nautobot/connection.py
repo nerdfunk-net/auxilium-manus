@@ -29,7 +29,9 @@ async def test_nautobot_connection(
         )
     else:
         try:
-            _, token = resolve_global_secret(db, int(request.credential_id or 0))
+            _, token = resolve_global_secret(
+                db, int(request.credential_id or 0), source_type="nautobot"
+            )
         except SourceCredentialError as exc:
             raise NautobotValidationError(str(exc)) from exc
         credentials = service_factory.credentials_from_connection(

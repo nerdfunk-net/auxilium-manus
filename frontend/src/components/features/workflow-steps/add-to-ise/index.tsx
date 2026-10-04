@@ -301,14 +301,18 @@ function AddToIseConfigPanel({
       <ExpressionField
         configKey={NEW_KEY_KEY}
         value={newKey}
-        placeholder="MySecretKey123 or {custom.new_tacacs_key}"
+        placeholder="{tacacs.new_key}"
         onValueChange={handleNewKeyChange}
         nodeId={nodeId}
         workflowNodes={workflowNodes}
         workflowEdges={workflowEdges}
         secret
       >
-        <ExpressionHint example="{custom.new_tacacs_key}" />
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Reference an attribute, e.g.{" "}
+          <span className="font-mono">{"{tacacs.new_key}"}</span>, filled by Secret Get,
+          Secret Generate or Generate Password. Literal keys are rejected.
+        </p>
         {!newKey && <p className="text-[11px] text-warning-foreground">Not configured</p>}
       </ExpressionField>
 

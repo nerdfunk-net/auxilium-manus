@@ -12,13 +12,13 @@ despite its name — matches against ANY entry in a device's
 ``doc/ISE-REST-API.md``, ISE quirk 8). The default ``--group-name`` below
 is a custom, non-Location group used to verify exactly that.
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running, e.g. via ``python start.py``)::
 
-    ../.venv/bin/python scripts/ise_test_devices_by_ndg.py
+    .venv/bin/python tools/ise/ise_test_devices_by_ndg.py
 
     # Any full hierarchical NDG name works, not just custom ones
-    ../.venv/bin/python scripts/ise_test_devices_by_ndg.py \\
+    .venv/bin/python tools/ise/ise_test_devices_by_ndg.py \\
         --group-name "Location#All Locations"
 
 Run with ``--help`` for all options.

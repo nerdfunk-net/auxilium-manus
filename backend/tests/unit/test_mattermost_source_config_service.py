@@ -8,7 +8,6 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from core.safe_urls import UnsafeURLError
 from services.credentials.source_credentials import SourceCredentialError
 from services.mattermost.common.exceptions import MattermostValidationError
 from services.mattermost.source_config_service import (
@@ -27,8 +26,8 @@ class MattermostSourceConfigServiceTests(unittest.TestCase):
         settings_patcher = patch("services.mattermost.source_config_service.SettingsRepository")
         credentials_patcher = patch("services.mattermost.source_config_service.CredentialsService")
         validate_patcher = patch(
-            "services.mattermost.source_config_service.validate_outbound_http_url",
-            side_effect=lambda url, resolve_dns=True: (url or "").rstrip("/"),
+            "services.mattermost.source_config_service.validate_source_transport",
+            side_effect=lambda url, *, verify_ssl=True, resolve_dns=True: (url or "").rstrip("/"),
         )
         assert_global_patcher = patch(
             "services.mattermost.source_config_service.assert_global_credential"
@@ -38,7 +37,7 @@ class MattermostSourceConfigServiceTests(unittest.TestCase):
         )
         self.mock_settings_cls = settings_patcher.start()
         self.mock_credentials_cls = credentials_patcher.start()
-        validate_patcher.start()
+        self.mock_validate = validate_patcher.start()
         self.mock_assert_global = assert_global_patcher.start()
         self.mock_resolve_secret = resolve_secret_patcher.start()
         self.addCleanup(settings_patcher.stop)
@@ -92,47 +91,6 @@ class MattermostSourceConfigServiceTests(unittest.TestCase):
         with self.assertRaises(MattermostSourceConflictError):
             self.service.create_source(source_id="lab", url="http://x", credential_id=7)
         self.mock_assert_global.assert_not_called()
-
-    def test_create_source_rejects_http_outside_development(self) -> None:
-        self.mock_settings.get_by_key.return_value = None
-        with patch(
-            "services.mattermost.source_config_service.settings",
-            SimpleNamespace(environment="production"),
-        ):
-            with self.assertRaises(UnsafeURLError):
-                self.service.create_source(
-                    source_id="lab", url="http://mattermost.example.com", credential_id=7
-                )
-        self.mock_settings.create.assert_not_called()
-
-    def test_create_source_allows_http_in_development(self) -> None:
-        self.mock_settings.get_by_key.return_value = None
-        self.mock_settings.create.return_value = _setting(
-            "sources.mattermost.lab", {"url": "http://localhost:8065", "credential_id": 7}
-        )
-        with patch(
-            "services.mattermost.source_config_service.settings",
-            SimpleNamespace(environment="development"),
-        ):
-            self.service.create_source(
-                source_id="lab", url="http://localhost:8065", credential_id=7
-            )
-        self.mock_settings.create.assert_called_once()
-
-    def test_create_source_allows_https_outside_development(self) -> None:
-        self.mock_settings.get_by_key.return_value = None
-        self.mock_settings.create.return_value = _setting(
-            "sources.mattermost.lab",
-            {"url": "https://mattermost.example.com", "credential_id": 7},
-        )
-        with patch(
-            "services.mattermost.source_config_service.settings",
-            SimpleNamespace(environment="production"),
-        ):
-            self.service.create_source(
-                source_id="lab", url="https://mattermost.example.com", credential_id=7
-            )
-        self.mock_settings.create.assert_called_once()
 
     def test_update_source_without_credential_id_keeps_existing(self) -> None:
         self.mock_settings.get_by_key.return_value = _setting(
@@ -226,6 +184,77 @@ class MattermostSourceConfigServiceTests(unittest.TestCase):
         result = self.service.list_sources()
         self.assertEqual(result[0]["credential_id"], 7)
         self.assertEqual(result[0]["credential_name"], "vault-tok")
+
+    def test_create_source_passes_verify_ssl_to_transport_policy(self) -> None:
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_settings.create.side_effect = lambda key, value, description: _setting(
+            "sources.mattermost.lab", value
+        )
+
+        self.service.create_source(
+            source_id="lab", url="https://x.example.com", credential_id=7, verify_ssl=False
+        )
+
+        self.mock_validate.assert_called_once_with(
+            "https://x.example.com", verify_ssl=False, resolve_dns=True
+        )
+
+    def test_update_source_revalidates_url_when_only_verify_ssl_changes(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.mattermost.lab", {"url": "http://x", "verify_ssl": True, "credential_id": 7}
+        )
+        self.mock_settings.update.side_effect = lambda setting, fields: _setting(
+            "sources.mattermost.lab", fields["value"]
+        )
+
+        self.service.update_source("lab", verify_ssl=False)
+
+        self.mock_validate.assert_called_once_with("http://x", verify_ssl=False, resolve_dns=True)
+
+    def test_update_source_validates_new_url_against_stored_verify_ssl(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.mattermost.lab", {"url": "https://old", "verify_ssl": True, "credential_id": 7}
+        )
+        self.mock_settings.update.side_effect = lambda setting, fields: _setting(
+            "sources.mattermost.lab", fields["value"]
+        )
+
+        self.service.update_source("lab", url="https://new")
+
+        self.mock_validate.assert_called_once_with("https://new", verify_ssl=True, resolve_dns=True)
+
+    def test_update_source_without_url_or_verify_ssl_skips_transport_check(self) -> None:
+        self.mock_settings.get_by_key.return_value = _setting(
+            "sources.mattermost.lab", {"url": "http://x", "credential_id": 7}
+        )
+        self.mock_settings.update.side_effect = lambda setting, fields: _setting(
+            "sources.mattermost.lab", fields["value"]
+        )
+
+        self.service.update_source("lab", timeout=5.0)
+
+        self.mock_validate.assert_not_called()
+
+    def test_create_source_binds_credential_to_the_source_type(self) -> None:
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_settings.create.side_effect = lambda key, value, description: _setting(
+            "sources.mattermost.lab", value
+        )
+
+        self.service.create_source(source_id="lab", url="https://x.example.com", credential_id=7)
+
+        self.assertEqual(self.mock_assert_global.call_args.kwargs["source_type"], "mattermost")
+
+    def test_create_source_rejects_credential_of_wrong_type(self) -> None:
+        self.mock_settings.get_by_key.return_value = None
+        self.mock_assert_global.side_effect = SourceCredentialError("wrong type")
+
+        with self.assertRaises(SourceCredentialError):
+            self.service.create_source(
+                source_id="lab", url="https://x.example.com", credential_id=9
+            )
+
+        self.mock_settings.create.assert_not_called()
 
 
 if __name__ == "__main__":

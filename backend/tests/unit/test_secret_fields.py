@@ -7,11 +7,13 @@ import unittest
 from core.crypto import EncryptionService
 from services.workflow_context.secret_fields import (
     REDACTED_PLACEHOLDER,
+    contains_sealed_secret,
     is_sealed_secret,
     path_is_known_secret,
     redact_secrets_in_data,
     seal_secret,
     secret_is_present,
+    unwrap_all_secrets,
     unwrap_secret,
 )
 
@@ -141,3 +143,43 @@ class RedactSecretsInDataTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContainsSealedSecretTests(unittest.TestCase):
+    def test_finds_envelope_in_nested_dict_and_list(self) -> None:
+        sealed = seal_secret("x", encryption=_ENC)
+        self.assertTrue(contains_sealed_secret(sealed))
+        self.assertTrue(contains_sealed_secret({"a": {"b": [1, {"c": sealed}]}}))
+
+    def test_false_for_plain_data(self) -> None:
+        self.assertFalse(contains_sealed_secret({"a": [1, "two", None], "b": {"c": "d"}}))
+        self.assertFalse(contains_sealed_secret(None))
+        self.assertFalse(contains_sealed_secret("plain"))
+
+
+class UnwrapAllSecretsTests(unittest.TestCase):
+    def test_replaces_envelopes_at_the_same_places(self) -> None:
+        data = {
+            "a": seal_secret("one", encryption=_ENC),
+            "b": [
+                seal_secret("two", encryption=_ENC),
+                {"c": seal_secret("three", encryption=_ENC)},
+            ],
+            "d": "plain",
+        }
+
+        result = unwrap_all_secrets(data, encryption=_ENC)
+
+        self.assertEqual(result, {"a": "one", "b": ["two", {"c": "three"}], "d": "plain"})
+
+    def test_does_not_mutate_input(self) -> None:
+        sealed = seal_secret("one", encryption=_ENC)
+        data = {"a": sealed}
+        unwrap_all_secrets(data, encryption=_ENC)
+        self.assertEqual(data["a"], sealed)
+
+    def test_undecryptable_envelope_raises(self) -> None:
+        sealed = seal_secret("one", encryption=_ENC)
+        other = EncryptionService("a-completely-different-key")
+        with self.assertRaises(ValueError):
+            unwrap_all_secrets({"a": sealed}, encryption=other)

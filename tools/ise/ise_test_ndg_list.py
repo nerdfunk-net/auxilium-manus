@@ -7,14 +7,14 @@ ISE ERS API directly) to list network device groups via
 ``GET /sources/ise/{source_id}/network-device-groups/``, with optional
 pagination and ISE-native ``filter`` passthrough.
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running, e.g. via ``python start.py``)::
 
-    ../.venv/bin/python scripts/ise_test_ndg_list.py
+    .venv/bin/python tools/ise/ise_test_ndg_list.py
 
     # Filter and page through results
-    ../.venv/bin/python scripts/ise_test_ndg_list.py --filter "name.CONTAINS.Location"
-    ../.venv/bin/python scripts/ise_test_ndg_list.py --size 2 --all
+    .venv/bin/python tools/ise/ise_test_ndg_list.py --filter "name.CONTAINS.Location"
+    .venv/bin/python tools/ise/ise_test_ndg_list.py --size 2 --all
 
 Run with ``--help`` for all options.
 """

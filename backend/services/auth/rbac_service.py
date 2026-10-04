@@ -12,9 +12,15 @@ ADMIN_ROLE_NAME = "admin"
 # point a connection's auth credential at an arbitrary host -- SM2); only
 # admins may hand them out or take them away (policy P3).
 PROTECTED_RESOURCES: tuple[str, ...] = ("rbac.", "users", "system.", "secret_manager.")
+# Write/delete on a source lets the holder bind a global credential to a URL they choose and
+# have it sent there (test-connection), so only admins may grant or revoke these (policy P3).
+# ``sources.*:read`` and ``sources.batfish:query`` stay delegable.
+PROTECTED_SOURCE_ACTIONS: frozenset[str] = frozenset({"write", "delete"})
 
 
 def _is_protected(permission: Permission) -> bool:
+    if permission.resource.startswith("sources.") and permission.action in PROTECTED_SOURCE_ACTIONS:
+        return True
     return any(
         permission.resource == prefix.rstrip(".") or permission.resource.startswith(prefix)
         for prefix in PROTECTED_RESOURCES

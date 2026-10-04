@@ -151,7 +151,7 @@ async def _build_device_result(
     feature_results: list[_FeatureResult],
     reference_path: str,
     reference_location: str,
-    context_run_id: str | None,
+    context_run_id: str,
     artifact_service: ArtifactService,
 ) -> tuple[str, DeviceContext, str, dict[str, Any] | None]:
     """Fold per-feature diff results into one device outcome.
@@ -286,7 +286,7 @@ async def _compare_one_device(
     parsed_output_key: str | None,
     config: dict[str, Any],
     exclude_keys: list[str],
-    context_run_id: str | None,
+    context_run_id: str,
     source_credentials: dict[str, PyATSCredentials],
     source_errors: dict[str, str],
     artifact_service: ArtifactService,

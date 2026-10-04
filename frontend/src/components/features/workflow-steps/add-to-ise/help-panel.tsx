@@ -106,14 +106,13 @@ export function AddToIseHelpPanel() {
       <HelpSection title="New key">
         <p>
           <HelpCode>new_key</HelpCode> is the initial TACACS+ shared secret for
-          the new ISE entry. Fixed value or expression, with optional fallback.
+          the new ISE entry. It must be a <HelpCode>{"{path.to.value}"}</HelpCode>{" "}
+          expression filled by Secret Get, Secret Generate or Generate Password;
+          literal values and <HelpCode>| default(&apos;…&apos;)</HelpCode> fallbacks
+          are rejected because step config is stored in the workflow definition.
         </p>
         <HelpExample>
-          new_key: MySecretKey123
-          <br />
-          new_key: {"{custom.new_tacacs_key}"}
-          <br />
-          new_key: {"{custom.new_tacacs_key | default('MySecretKey123')}"}
+          new_key: {"{tacacs.new_key}"}
         </HelpExample>
       </HelpSection>
 

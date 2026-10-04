@@ -13,10 +13,10 @@ backend does a read-merge-write against Cisco ISE's ERS API, so this also
 exercises that merge path (ISE itself would otherwise wipe untouched fields
 on a raw ``PUT``).
 
-Usage (from ``backend/``, with the project venv active and the backend
+Usage (from the repo root, with the project venv and the backend
 running, e.g. via ``python start.py``)::
 
-    ../.venv/bin/python scripts/ise_test_update_tacacs.py
+    .venv/bin/python tools/ise/ise_test_update_tacacs.py
 
 Run with ``--help`` for all options.
 """

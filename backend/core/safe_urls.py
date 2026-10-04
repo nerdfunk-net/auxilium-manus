@@ -70,6 +70,34 @@ async def validate_outbound_http_url_async(url: str) -> str:
     return await asyncio.to_thread(validate_outbound_http_url, url, resolve_dns=True)
 
 
+def validate_source_transport(url: str, *, verify_ssl: bool, resolve_dns: bool = True) -> str:
+    """``validate_outbound_http_url`` plus the transport rules for credential-bearing sources.
+
+    Outside ``ENV=development`` the URL must be ``https`` and ``verify_ssl`` must be ``True``:
+    a source sends its credential (HTTP Basic / bearer token) on every request, so a downgraded
+    transport hands it to anybody on the path. Mirrors ``core.production_guards`` (vault, V1) and
+    ``services.secret_manager.transport_policy`` (SM2), per source row instead of per env var.
+    """
+    safe_url = validate_outbound_http_url(url, resolve_dns=resolve_dns)
+    if settings.environment == "development":
+        return safe_url
+    if urlparse(safe_url).scheme.lower() != "https":
+        raise UnsafeURLError("Source URL must use https outside development")
+    if not verify_ssl:
+        raise UnsafeURLError(
+            "verify_ssl=false is not allowed outside development; install the CA certificate "
+            "(INSTALL_CERTIFICATE_FILES) or use the development environment"
+        )
+    return safe_url
+
+
+async def validate_source_transport_async(url: str, *, verify_ssl: bool) -> str:
+    """``validate_source_transport`` with DNS resolution, off the event loop."""
+    return await asyncio.to_thread(
+        validate_source_transport, url, verify_ssl=verify_ssl, resolve_dns=True
+    )
+
+
 def validate_git_remote_url(url: str, *, resolve_dns: bool = True) -> str:
     """Return a normalized git remote or raise ``UnsafeURLError``.
 

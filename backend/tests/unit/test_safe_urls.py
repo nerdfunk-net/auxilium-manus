@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from core.safe_urls import (
@@ -11,6 +12,8 @@ from core.safe_urls import (
     validate_git_remote_url,
     validate_outbound_http_url,
     validate_outbound_http_url_async,
+    validate_source_transport,
+    validate_source_transport_async,
 )
 
 
@@ -68,6 +71,58 @@ class SafeUrlsTests(unittest.TestCase):
                 validate_outbound_http_url("https://evil.example.com")
 
 
+def _env(environment: str) -> SimpleNamespace:
+    return SimpleNamespace(environment=environment, allow_loopback_source_urls=False)
+
+
+class ValidateSourceTransportTests(unittest.TestCase):
+    """Credential-bearing sources: https + verified TLS outside development."""
+
+    def _validate(self, url: str, *, verify_ssl: bool, environment: str) -> str:
+        with (
+            patch("core.safe_urls.settings", _env(environment)),
+            patch("core.safe_urls.socket.getaddrinfo", return_value=_addrinfo("203.0.113.10")),
+        ):
+            return validate_source_transport(url, verify_ssl=verify_ssl)
+
+    def test_development_allows_http_and_unverified_tls(self) -> None:
+        result = self._validate(
+            "http://x.example.com/", verify_ssl=False, environment="development"
+        )
+        self.assertEqual(result, "http://x.example.com")
+
+    def test_production_rejects_http(self) -> None:
+        with self.assertRaisesRegex(UnsafeURLError, "https"):
+            self._validate("http://x.example.com", verify_ssl=True, environment="production")
+
+    def test_production_rejects_unverified_tls(self) -> None:
+        with self.assertRaisesRegex(UnsafeURLError, "verify_ssl"):
+            self._validate("https://x.example.com", verify_ssl=False, environment="production")
+
+    def test_production_allows_https_with_verification(self) -> None:
+        result = self._validate("https://x.example.com/", verify_ssl=True, environment="production")
+        self.assertEqual(result, "https://x.example.com")
+
+    def test_ssrf_rules_still_apply_in_development(self) -> None:
+        with patch("core.safe_urls.settings", _env("development")):
+            with self.assertRaises(UnsafeURLError):
+                validate_source_transport(
+                    "http://169.254.169.254/", verify_ssl=True, resolve_dns=False
+                )
+
+
+class ValidateSourceTransportAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_async_variant_applies_the_same_policy(self) -> None:
+        with (
+            patch("core.safe_urls.settings", _env("production")),
+            patch("core.safe_urls.socket.getaddrinfo", return_value=_addrinfo("203.0.113.10")),
+        ):
+            with self.assertRaises(UnsafeURLError):
+                await validate_source_transport_async("https://x.example.com", verify_ssl=False)
+            result = await validate_source_transport_async("https://x.example.com", verify_ssl=True)
+        self.assertEqual(result, "https://x.example.com")
+
+
 class GitRemoteUrlSshPolicyTests(unittest.TestCase):
     """SSH/scp-like git remotes must go through the same IP policy as https (H2)."""
 
@@ -78,9 +133,7 @@ class GitRemoteUrlSshPolicyTests(unittest.TestCase):
 
     def test_ssh_url_literal_link_local_blocked(self) -> None:
         with self.assertRaises(UnsafeURLError):
-            validate_git_remote_url(
-                "ssh://git@169.254.169.254/org/repo.git", resolve_dns=False
-            )
+            validate_git_remote_url("ssh://git@169.254.169.254/org/repo.git", resolve_dns=False)
 
     def test_ssh_url_loopback_blocked_by_default(self) -> None:
         with patch("core.safe_urls.settings") as settings_mock:
@@ -124,7 +177,7 @@ class ClientUrlValidationTests(unittest.IsolatedAsyncioTestCase):
         service = ISEService()
         service._client_verify = MagicMock()
         with patch(
-            "services.ise.client.validate_outbound_http_url_async",
+            "services.ise.client.validate_source_transport_async",
             side_effect=UnsafeURLError("blocked"),
         ) as validate_mock:
             with self.assertRaises(ISEValidationError):
@@ -147,7 +200,7 @@ class ClientUrlValidationTests(unittest.IsolatedAsyncioTestCase):
         service = NautobotService()
         service._client_verify = MagicMock()
         with patch(
-            "services.nautobot.client.validate_outbound_http_url_async",
+            "services.nautobot.client.validate_source_transport_async",
             side_effect=UnsafeURLError("blocked"),
         ) as validate_mock:
             with self.assertRaises(NautobotValidationError):

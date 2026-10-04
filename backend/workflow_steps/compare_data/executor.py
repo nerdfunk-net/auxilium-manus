@@ -222,7 +222,7 @@ async def _load_compare_texts(
     device: DeviceContext,
     item: ExportableContent,
     config: dict[str, Any],
-    run_id: str | None,
+    run_id: str,
     artifact_service: ArtifactService,
 ) -> tuple[str, str, str]:
     source_content = await artifact_service.resolve(item.artifact_ref)
@@ -291,7 +291,7 @@ async def _build_compare_mismatch_result(
     reference_path: str,
     normalized_source: str,
     normalized_reference: str,
-    context_run_id: str | None,
+    context_run_id: str,
     artifact_service: ArtifactService,
     diff_service: GitDiffService,
 ) -> tuple[str, DeviceContext, str, dict[str, Any]]:
@@ -370,7 +370,7 @@ async def _compare_for_device(
     device: DeviceContext,
     node_id: str,
     config: dict[str, Any],
-    context_run_id: str | None,
+    context_run_id: str,
     parsed: _ParsedCompareConfig,
     artifact_service: ArtifactService,
     diff_service: GitDiffService,

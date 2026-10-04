@@ -18,8 +18,6 @@ UUID_RESOURCE_TYPES = frozenset(
     {"location", "role", "status", "platform", "device", "device_type", "namespace", "rack"}
 )
 
-_CONTENT_TYPE_SCOPED = frozenset({"role", "status"})
-
 # Maps a Nautobot job ObjectVar/MultiObjectVar's declared `model` (Django
 # app_label.model_name) to the resource-type keys above. Mirrored on the frontend in
 # start-nautobot-job/uuid-resolution.ts.
@@ -76,7 +74,3 @@ async def resolve_nautobot_uuid(
     if not resolved:
         raise ValueError(f"could not resolve {resource_type} {name!r} to a UUID")
     return resolved
-
-
-def content_type_required(resource_type: str) -> bool:
-    return resource_type in _CONTENT_TYPE_SCOPED
