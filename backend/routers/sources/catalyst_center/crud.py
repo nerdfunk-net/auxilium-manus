@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status
 
 import service_factory
 from core.auth import get_current_user, require_permission
@@ -21,6 +21,7 @@ from models.catalyst_center import (
     CatalystCenterTestConnectionRequest,
     CatalystCenterTestConnectionResponse,
 )
+from routers.source_crud_factory import build_source_crud_router
 from services.catalyst_center.common.exceptions import (
     CatalystCenterAPIError,
     CatalystCenterAuthError,
@@ -36,124 +37,35 @@ from services.credentials.source_credentials import SourceCredentialError
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    prefix="/sources/catalyst_center",
-    tags=["sources-catalyst-center"],
-    dependencies=[Depends(require_permission("sources.catalyst_center", "read"))],
-)
-
 _ConfigService = Depends(get_catalyst_center_source_config_service)
 
-
-@router.get("", response_model=CatalystCenterSourceListResponse)
-async def list_catalyst_center_sources(
-    _: User = Depends(get_current_user),
-    service: CatalystCenterSourceConfigService = _ConfigService,
-) -> CatalystCenterSourceListResponse:
-    try:
-        sources = service.list_sources()
-        return CatalystCenterSourceListResponse(
-            sources=[CatalystCenterSourceResponse(**s) for s in sources],
-            total=len(sources),
-        )
-    except Exception as exc:
-        raise_internal_server_error(logger, "Failed to list Catalyst Center sources: ", exc)
-
-
-@router.get("/{source_id}", response_model=CatalystCenterSourceResponse)
-async def get_catalyst_center_source(
-    source_id: str,
-    _: User = Depends(get_current_user),
-    service: CatalystCenterSourceConfigService = _ConfigService,
-) -> CatalystCenterSourceResponse:
-    try:
-        return CatalystCenterSourceResponse(**service.get_source(source_id))
-    except CatalystCenterSourceNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise_internal_server_error(logger, "Failed to get Catalyst Center source: ", exc)
-
-
-@router.post(
-    "",
+router = build_source_crud_router(
+    source_type="catalyst_center",
+    display_name="Catalyst Center",
+    permission_resource="sources.catalyst_center",
+    tag="sources-catalyst-center",
+    service_dependency=get_catalyst_center_source_config_service,
+    create_model=CatalystCenterSourceCreateRequest,
+    update_model=CatalystCenterSourceUpdateRequest,
     response_model=CatalystCenterSourceResponse,
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("sources.catalyst_center", "write"))],
+    list_response_model=CatalystCenterSourceListResponse,
+    not_found_error=CatalystCenterSourceNotFoundError,
+    conflict_error=CatalystCenterSourceConflictError,
+    validation_errors=(CatalystCenterValidationError,),
+    create_kwargs=lambda r: {
+        "source_id": r.source_id,
+        "url": r.url,
+        "credential_id": r.credential_id,
+        "verify_ssl": r.verify_ssl,
+        "timeout": r.timeout,
+    },
+    update_kwargs=lambda r: {
+        "url": r.url,
+        "credential_id": r.credential_id,
+        "verify_ssl": r.verify_ssl,
+        "timeout": r.timeout,
+    },
 )
-async def create_catalyst_center_source(
-    request: CatalystCenterSourceCreateRequest,
-    _: User = Depends(get_current_user),
-    service: CatalystCenterSourceConfigService = _ConfigService,
-) -> CatalystCenterSourceResponse:
-    try:
-        result = service.create_source(
-            source_id=request.source_id,
-            url=request.url,
-            credential_id=request.credential_id,
-            verify_ssl=request.verify_ssl,
-            timeout=request.timeout,
-        )
-        return CatalystCenterSourceResponse(**result)
-    except CatalystCenterSourceConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except (CatalystCenterValidationError, UnsafeURLError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise_internal_server_error(logger, "Failed to create Catalyst Center source: ", exc)
-
-
-@router.put(
-    "/{source_id}",
-    response_model=CatalystCenterSourceResponse,
-    dependencies=[Depends(require_permission("sources.catalyst_center", "write"))],
-)
-async def update_catalyst_center_source(
-    source_id: str,
-    request: CatalystCenterSourceUpdateRequest,
-    _: User = Depends(get_current_user),
-    service: CatalystCenterSourceConfigService = _ConfigService,
-) -> CatalystCenterSourceResponse:
-    try:
-        result = service.update_source(
-            source_id,
-            url=request.url,
-            credential_id=request.credential_id,
-            verify_ssl=request.verify_ssl,
-            timeout=request.timeout,
-        )
-        return CatalystCenterSourceResponse(**result)
-    except CatalystCenterSourceNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except (CatalystCenterValidationError, UnsafeURLError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise_internal_server_error(logger, "Failed to update Catalyst Center source: ", exc)
-
-
-@router.delete(
-    "/{source_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission("sources.catalyst_center", "delete"))],
-)
-async def delete_catalyst_center_source(
-    source_id: str,
-    _: User = Depends(get_current_user),
-    service: CatalystCenterSourceConfigService = _ConfigService,
-) -> None:
-    try:
-        service.delete_source(source_id)
-    except CatalystCenterSourceNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise_internal_server_error(logger, "Failed to delete Catalyst Center source: ", exc)
 
 
 def _resolve_test_credentials(

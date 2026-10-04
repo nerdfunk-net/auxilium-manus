@@ -20,7 +20,7 @@ def _setting(key: str, value: dict) -> SimpleNamespace:
 
 class BatfishSourceConfigServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        settings_patcher = patch("services.batfish.source_config_service.SettingsRepository")
+        settings_patcher = patch("services.settings.source_config_base.SettingsRepository")
         self.mock_settings_cls = settings_patcher.start()
         self.addCleanup(settings_patcher.stop)
         self.mock_settings = self.mock_settings_cls.return_value

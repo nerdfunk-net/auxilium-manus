@@ -23,14 +23,16 @@ def _setting(key: str, value: dict) -> SimpleNamespace:
 
 class ISESourceConfigServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        settings_patcher = patch("services.ise.source_config_service.SettingsRepository")
-        credentials_patcher = patch("services.ise.source_config_service.CredentialsService")
+        settings_patcher = patch("services.settings.source_config_base.SettingsRepository")
+        credentials_patcher = patch("services.settings.source_config_base.CredentialsService")
         validate_patcher = patch(
-            "services.ise.source_config_service.validate_source_transport",
+            "services.settings.source_config_base.validate_source_transport",
             side_effect=lambda url, *, verify_ssl=True, resolve_dns=True: (url or "").rstrip("/"),
         )
-        assert_global_patcher = patch("services.ise.source_config_service.assert_global_credential")
-        resolve_secret_patcher = patch("services.ise.source_config_service.resolve_global_secret")
+        assert_global_patcher = patch(
+            "services.settings.source_config_base.assert_global_credential"
+        )
+        resolve_secret_patcher = patch("services.settings.source_config_base.resolve_global_secret")
         self.mock_settings_cls = settings_patcher.start()
         self.mock_credentials_cls = credentials_patcher.start()
         self.mock_validate = validate_patcher.start()
@@ -250,7 +252,7 @@ class ISESourceConfigServiceTests(unittest.TestCase):
         self.mock_settings.get_by_key.return_value = None
         self.mock_assert_global.side_effect = SourceCredentialError("wrong type")
 
-        with self.assertRaises(SourceCredentialError):
+        with self.assertRaises(ISEValidationError):
             self.service.create_source(
                 source_id="lab", url="https://x.example.com", credential_id=9
             )

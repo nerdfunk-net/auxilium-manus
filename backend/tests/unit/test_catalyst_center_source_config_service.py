@@ -24,7 +24,7 @@ def _setting(value: dict) -> SimpleNamespace:
 
 class CatalystCenterSourceConfigServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        module = "services.catalyst_center.source_config_service"
+        module = "services.settings.source_config_base"
         patchers = {
             "settings": patch(f"{module}.SettingsRepository"),
             "credentials": patch(f"{module}.CredentialsService"),

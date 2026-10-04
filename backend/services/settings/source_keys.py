@@ -26,6 +26,11 @@ _TYPE_BY_PREFIX: dict[str, SourceType] = {
 }
 
 
+def source_key_prefix(source_type: SourceType) -> str:
+    """Settings-key prefix of every source of *source_type*, e.g. ``sources.ise.``."""
+    return _PREFIX_BY_TYPE[source_type]
+
+
 def build_source_key(source_type: SourceType, source_id: str) -> str:
     normalized = source_id.strip().lower()
     if not SOURCE_ID_PATTERN.fullmatch(normalized):

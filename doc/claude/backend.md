@@ -129,6 +129,19 @@ the only picker workflow steps use.
 
 ---
 
+## Source Configuration Services and Routers
+
+ISE, Catalyst Center, pyATS and Mattermost share `services/settings/source_config_base.py`
+(`CredentialedHttpSourceService`: create/update/resolve, credential-type and transport checks);
+Batfish uses `SourceConfigStore` from the same module. A concrete service only declares
+`source_type`, `display_name`, `description_label`, its error classes, `validation_error`,
+`default_verify_ssl`/`requires_username` and `_build_credentials`. The five `/sources/<type>`
+CRUD routers come from `routers/source_crud_factory.py::build_source_crud_router`; each
+`crud.py` keeps only its factory call plus its own `test-connection` route. To add a source,
+declare a subclass and one factory call — do not copy the CRUD ladder.
+
+---
+
 ## Backend INCORRECT Practices
 
 - ❌ Creating SQLite databases for production (unit test in-memory SQLite is OK when not using PG-only features)
