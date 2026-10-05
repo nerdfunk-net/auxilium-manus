@@ -1,6 +1,12 @@
 export const ATTRIBUTE_GROUPS = [
   { key: "interfaces", label: "Add Interfaces" },
+  { key: "device", label: "Add Device Fields (serial, software, platform, device type)" },
 ] as const;
+
+/** Attribute groups only some source formats can supply. */
+export const FORMAT_RESTRICTED_GROUPS: Readonly<Record<string, readonly string[]>> = {
+  device: ["catalyst_details"],
+};
 
 export type AttributeGroupKey = (typeof ATTRIBUTE_GROUPS)[number]["key"];
 
@@ -8,6 +14,10 @@ export const SOURCE_FORMAT_OPTIONS = [
   { value: "cisco_config_parser", label: "Cisco Config Parser (Parse Cisco Config)" },
   { value: "genie", label: "Genie (pyATS Get & Parse Config)" },
   { value: "batfish", label: "Batfish (Extract Facts)" },
+  {
+    value: "catalyst_details",
+    label: "Cisco Catalyst Details (Get Details from Catalyst Center)",
+  },
 ] as const;
 
 export type SourceFormat = (typeof SOURCE_FORMAT_OPTIONS)[number]["value"];

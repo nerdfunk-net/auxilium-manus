@@ -24,6 +24,10 @@ from workflow_steps.common.nautobot_interfaces import (
 from workflow_steps.config_to_attributes.batfish_facts import (
     build_interfaces_from_batfish_facts,
 )
+from workflow_steps.config_to_attributes.catalyst_details import (
+    build_device_fields_from_catalyst_details,
+    build_interfaces_from_catalyst_details,
+)
 from workflow_steps.config_to_attributes.config import get_config
 from workflow_steps.config_to_attributes.genie_running_config import (
     build_interfaces_from_genie_running_config,
@@ -43,15 +47,18 @@ logger = logging.getLogger(__name__)
 
 _STEP_ID = "config-to-attributes"
 _CONFIG_SOURCES = frozenset({"running", "startup"})
-_SUPPORTED_ATTRIBUTES = frozenset({"interfaces"})
+_SUPPORTED_ATTRIBUTES = frozenset({"interfaces", "device"})
 _VLAN_RANGE_RE = re.compile(r"^(\d+)-(\d+)$")
-_SOURCE_FORMATS = frozenset({"cisco_config_parser", "genie", "batfish"})
+_SOURCE_FORMATS = frozenset({"cisco_config_parser", "genie", "batfish", "catalyst_details"})
 _UPSTREAM_STEP_NAME = {
     "cisco_config_parser": "Parse Cisco Config",
     "genie": "Get & Parse Config",
     "batfish": "Extract Facts",
+    "catalyst_details": "Get Details from Catalyst Center",
 }
-_STARTUP_UNSUPPORTED_FORMATS = frozenset({"genie", "batfish"})
+_STARTUP_UNSUPPORTED_FORMATS = frozenset({"genie", "batfish", "catalyst_details"})
+# Attribute groups that only one source format can supply.
+_DEVICE_FIELDS_FORMATS = frozenset({"catalyst_details"})
 
 
 def _parse_config_source(config: dict[str, Any]) -> str:
@@ -132,11 +139,15 @@ def _select_parsed_entry(
     extract-facts`` writes a different, non-fatal shape instead — ``{"parsed":
     <node's facts or None>, "error": str | None}`` — with no running/startup
     distinction, so for that format read ``"parsed"`` regardless of
-    ``config_source``.
+    ``config_source``. ``get-catalyst-center-details`` writes one ``{"parsed", "error"}``
+    entry per fact (``device``/``software``/``interfaces``), so for that format the whole
+    fact dict is returned and the builders read each fact themselves.
     """
     entry = device.parsed.get(parsed_key)
     if not isinstance(entry, dict):
         return None
+    if source_format == "catalyst_details":
+        return entry
     if source_format == "batfish":
         nested = entry.get("parsed")
     else:
@@ -234,7 +245,7 @@ def _build_l2_access_interface(raw: dict[str, Any]) -> dict[str, Any] | None:
         data_vlan = raw.get("data_vlan")
         if data_vlan not in (None, ""):
             iface["untagged_vlan"] = int(data_vlan)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pass
 
     return iface
@@ -364,7 +375,16 @@ def _build_interfaces(parsed_entry: dict[str, Any], source_format: str) -> list[
         return build_interfaces_from_genie_running_config(parsed_entry)
     if source_format == "batfish":
         return build_interfaces_from_batfish_facts(parsed_entry)
+    if source_format == "catalyst_details":
+        return build_interfaces_from_catalyst_details(parsed_entry)
     return _build_interfaces_cisco_config_parser(parsed_entry)
+
+
+def _catalyst_vendor(device: DeviceContext) -> str | None:
+    """Vendor recorded in the raw Catalyst Center inventory bag, if any."""
+    bag = device.attribute_bags.get("catalyst_center")
+    vendor = bag.get("vendor") if isinstance(bag, dict) else None
+    return vendor if isinstance(vendor, str) else None
 
 
 def _resolve_primary_ipv4(
@@ -435,6 +455,12 @@ async def execute(
             f"'running' — {upstream_step} never captures show startup-config"
         )
 
+    if "device" in attributes and source_format not in _DEVICE_FIELDS_FORMATS:
+        raise ValueError(
+            f"{_STEP_ID}: the 'device' attribute group is only available for source_format "
+            f"{sorted(_DEVICE_FIELDS_FORMATS)}, got {source_format!r}"
+        )
+
     logger.info(
         "%s started run_id=%s node_id=%s source_format=%s config_source=%s parsed_key=%s "
         "attributes=%s update_primary_ipv4=%s devices=%d",
@@ -449,7 +475,7 @@ async def execute(
         len(context.devices),
     )
 
-    if "interfaces" not in attributes or not context.devices:
+    if not attributes or not context.devices:
         logger.info("%s finished (no-op) run_id=%s", _STEP_ID, run.id)
         return [StepOutcome(name="success", context=context)]
 
@@ -464,25 +490,33 @@ async def execute(
         if parsed_entry is None:
             continue
 
-        interfaces = _build_interfaces(parsed_entry, source_format)
-        if not interfaces:
+        interfaces = (
+            _build_interfaces(parsed_entry, source_format) if "interfaces" in attributes else []
+        )
+        device_fields = (
+            build_device_fields_from_catalyst_details(parsed_entry, _catalyst_vendor(device))
+            if "device" in attributes
+            else {}
+        )
+        if not interfaces and not device_fields:
             continue
 
         devices_with_data += 1
         interfaces_written += len(interfaces)
 
-        primary_ok, failure_message = _resolve_primary_ipv4(
-            device=device,
-            interfaces=interfaces,
-            update_primary_ipv4=update_primary_ipv4,
-            priority=primary_ipv4_priority,
-            custom_pattern=primary_ipv4_custom_pattern,
-        )
+        primary_ok, failure_message = True, ""
+        if interfaces:
+            primary_ok, failure_message = _resolve_primary_ipv4(
+                device=device,
+                interfaces=interfaces,
+                update_primary_ipv4=update_primary_ipv4,
+                priority=primary_ipv4_priority,
+                custom_pattern=primary_ipv4_custom_pattern,
+            )
 
+        defaults = {**device_fields, **({"interfaces": interfaces} if interfaces else {})}
         existing_bag = device.attribute_bags.get("nautobot")
-        merged_bag = merge_nautobot_defaults(
-            existing_bag, {"interfaces": interfaces}, overwrite=True
-        )
+        merged_bag = merge_nautobot_defaults(existing_bag, defaults, overwrite=True)
         enriched = device.model_copy(
             update={
                 "attribute_bags": {**device.attribute_bags, "nautobot": merged_bag},
@@ -512,7 +546,7 @@ async def execute(
     if devices_with_data == 0:
         upstream_step = _UPSTREAM_STEP_NAME[source_format]
         raise ValueError(
-            f"{_STEP_ID}: no parsed config with interfaces found at "
+            f"{_STEP_ID}: no parsed config with usable data found at "
             f"parsed.{parsed_key}.{config_source} on any device — add a '{upstream_step}' "
             "step upstream with a matching output_key"
         )
@@ -522,8 +556,7 @@ async def execute(
             success_devices[device_id] = device
 
     logger.info(
-        "%s finished run_id=%s devices_updated=%d interfaces_written=%d "
-        "primary_ipv4_failures=%d",
+        "%s finished run_id=%s devices_updated=%d interfaces_written=%d primary_ipv4_failures=%d",
         _STEP_ID,
         run.id,
         devices_with_data,

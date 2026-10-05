@@ -380,8 +380,10 @@ device.parsed[<parsed_output_key>][<fact>] = {"parsed": data | None, "error": st
 ```
 
 the same shape `run-command` (TextFSM/Genie) uses. A fact that fails is recorded as an error and **does not fail the device**; a device
-fails (`catalyst_center_error`) only when *every* requested fact failed. Capability `parsed` is added, but, as for `run-command`, the
-steps promise nothing (`guards.effective_produces`); downstream steps use `requires_parsed`. Facts are normalized, whitelisted models
+fails (`catalyst_center_error`) only when *every* requested fact failed. Capability `parsed` is added to every device on the `success`
+outcome (a device with no successful fact goes to `failure`), so these steps **do** guarantee `parsed` (`guards.effective_produces`
+keeps their registry `produces: [parsed]`) and steps that `require` it, such as Config to Attributes, can follow them. Unlike
+them, `run-command` and `run-catalyst-center-command` promise nothing, because their parsers are non-fatal. Facts are normalized, whitelisted models
 (`models/catalyst_center_facts.py`) — never the raw record.
 
 | Step (id · name) | Config | Endpoints |
@@ -404,6 +406,15 @@ The topology is a **controller-wide graph**, fetched once per controller per ste
 | `/topology/network-topology` | **404** | `/topology/physical-topology`, `/topology/l3/{protocol}` |
 | `/topology/l3/bgp` | HTTP 400 | not offered |
 | `/topology/l2/{vlanId}` | HTTP 400 for vlan 1 | not offered (not investigated) |
+
+**Feeding Nautobot.** `config-to-attributes` has a `source_format: catalyst_details` ("Cisco Catalyst Details") that turns the
+`device`, `software` and `interfaces` facts into the device's `nautobot` attribute bag, for Add to Nautobot / Update Device
+(`workflow_steps/config_to_attributes/catalyst_details.py`). Set its `parsed_key` to this step's `parsed_output_key`. Groups:
+`interfaces` (name, `enabled` from `admin_status`, description, MAC, MTU, IPv4 as CIDR; access port -> `untagged_vlan = vlan_id`,
+trunk -> `untagged_vlan = native_vlan_id`, VLAN 0 ignored, never `tagged_vlans` because the controller has no allowed-VLAN list)
+and `device` (only for this format: `serial`, `software_version`, `platform.name = softwareType`, `device_type.model = platformId`
+falling back to the long type string, manufacturer = the raw record's `vendor`, default Cisco). Role, status and location are not
+derivable; use Set Default Attributes. The Nautobot platform must exist under the `softwareType` name (for example `IOS-XE`).
 
 Notes: `/device-health` is a bulk alternative to `/device-detail` (one call for all devices) and is not used yet. The image catalog was
 not built because the sandbox has no images to verify a shape against.

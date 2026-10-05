@@ -120,6 +120,33 @@ class EffectiveProducesTests(unittest.TestCase):
                 )
                 self.assertEqual(result, frozenset())
 
+    def test_catalyst_center_fact_steps_guarantee_parsed(self) -> None:
+        # Every device on the success outcome has at least one fact (a device whose
+        # facts all failed goes to "failure"), and run_fact_step stamps PARSED on it.
+        # Downstream steps such as config-to-attributes require [parsed] and must be
+        # wireable after these steps.
+        for step_id in (
+            "get-catalyst-center-details",
+            "get-catalyst-center-topology",
+            "get-catalyst-center-health",
+        ):
+            with self.subTest(step_id=step_id):
+                spec = StepCapabilitySpec(
+                    step_id=step_id, produces=frozenset({Capability.PARSED})
+                )
+                result = effective_produces(spec=spec, step_type=step_id, config={})
+                self.assertEqual(result, frozenset({Capability.PARSED}))
+
+    def test_run_catalyst_center_command_never_guarantees_parsed(self) -> None:
+        # PARSED is only stamped with parser == "textfsm", and that is non-fatal per command.
+        spec = StepCapabilitySpec(
+            step_id="run-catalyst-center-command", produces=frozenset({Capability.PARSED})
+        )
+        result = effective_produces(
+            spec=spec, step_type="run-catalyst-center-command", config={}
+        )
+        self.assertEqual(result, frozenset())
+
 
 if __name__ == "__main__":
     unittest.main()

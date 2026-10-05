@@ -2194,8 +2194,10 @@ plugins:
     overview: Turn parsed device config into Nautobot attributes.
     description: >
       Read a device's parsed config — from Parse Cisco Config, Get & Parse
-      Config (pyATS/Genie), or Extract Facts (Batfish) — and populate its
-      Nautobot attribute bag with its interfaces, for later use by Add to
+      Config (pyATS/Genie), Extract Facts (Batfish), or Get Details from
+      Catalyst Center — and populate its Nautobot attribute bag with its
+      interfaces (and, for Catalyst Center, serial, software version,
+      platform and device type), for later use by Add to
       Nautobot or Update Device (interfaces_source: nautobot_origin). Does
       not distinguish Layer 2 from Layer 3 interfaces — an interface is
       built whether it carries an IP address, a switchport VLAN, or is a
@@ -2220,15 +2222,16 @@ plugins:
           description: >
             Which parser produced the config at parsed.<parsed_key> —
             cisco_config_parser (from Parse Cisco Config), genie (from
-            Get & Parse Config), or batfish (from Extract Facts).
+            Get & Parse Config), batfish (from Extract Facts), or
+            catalyst_details (from Get Details from Catalyst Center).
           data_type: string
           required: true
           example: cisco_config_parser
         - name: config_source
           description: >
             Which parsed config to read for attribute values — running or
-            startup (exactly one). genie and batfish only ever populate
-            running.
+            startup (exactly one). genie, batfish and catalyst_details
+            only ever populate running.
           data_type: string
           required: true
           example: running
@@ -2236,15 +2239,24 @@ plugins:
           description: >
             The output_key used by the matching upstream step
             (parsed.<parsed_key>) — Parse Cisco Config, Get & Parse
-            Config, or Extract Facts. Must match that step's own
+            Config, Extract Facts, or Get Details from Catalyst Center
+            (default catalyst_details). Must match that step's own
             "output_key" configuration value.
           data_type: string
           required: true
           example: cisco_config
         - name: attributes
           description: >
-            Which attribute groups to populate. Currently only
-            "interfaces" is implemented; more groups will be added later.
+            Which attribute groups to populate: "interfaces" and "device".
+            "device" (only with source_format catalyst_details) writes
+            serial, software_version, platform (software type) and
+            device_type (model from the platform id, manufacturer from the
+            controller's vendor, default Cisco) from the device and
+            software facts; role, status and location are never derived.
+            With catalyst_details, "interfaces" reads the interfaces fact:
+            access ports get untagged_vlan = vlan_id, trunks get
+            untagged_vlan = native_vlan_id (no allowed-VLAN list exists, so
+            no tagged_vlans), enabled follows admin_status.
             For cisco_config_parser, this merges the library's
             l3_interfaces, l2_access_interfaces, l2_trunk_interfaces, and
             port_channels sections into one interface list, keyed by
@@ -2259,6 +2271,7 @@ plugins:
           required: true
           example:
             - interfaces
+            - device
         - name: update_primary_ipv4
           description: >
             When enabled, select one interface's address (by

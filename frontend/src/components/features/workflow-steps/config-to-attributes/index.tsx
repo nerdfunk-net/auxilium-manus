@@ -25,6 +25,7 @@ import { ConfigToAttributesHelpPanel } from "./help-panel";
 import {
   ATTRIBUTE_GROUPS,
   DEFAULT_PRIMARY_IPV4_PRIORITY,
+  FORMAT_RESTRICTED_GROUPS,
   PRIMARY_IPV4_STRATEGIES,
   SOURCE_FORMAT_OPTIONS,
   type AttributeGroupKey,
@@ -53,6 +54,11 @@ function parseSourceFormat(config: Record<string, unknown>): SourceFormat {
   return SOURCE_FORMAT_OPTIONS.some((option) => option.value === raw)
     ? (raw as SourceFormat)
     : "cisco_config_parser";
+}
+
+function isGroupAvailable(key: AttributeGroupKey, format: string): boolean {
+  const formats = FORMAT_RESTRICTED_GROUPS[key];
+  return formats === undefined || formats.includes(format);
 }
 
 function parseParsedKey(config: Record<string, unknown>): string {
@@ -117,11 +123,18 @@ function ConfigToAttributesConfigPanel({
   const primaryIpv4CustomPattern = parsePrimaryIpv4CustomPattern(config);
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  const availableGroups = useMemo(
+    () => ATTRIBUTE_GROUPS.filter((group) => isGroupAvailable(group.key, sourceFormat)),
+    [sourceFormat],
+  );
+
   const handleSourceFormatChange = useCallback(
     (value: string) => {
-      onChange({ ...config, source_format: value });
+      // Drop groups the new format cannot supply so the backend never rejects the config.
+      const attributes = selected.filter((key) => isGroupAvailable(key, value));
+      onChange({ ...config, source_format: value, attributes });
     },
-    [config, onChange],
+    [config, onChange, selected],
   );
 
   const handleSourceChange = useCallback(
@@ -260,8 +273,8 @@ function ConfigToAttributesConfigPanel({
         <p className="text-[11px] leading-4 text-muted-foreground">
           Must match the matching upstream step&apos;s{" "}
           <span className="font-mono">output_key</span> — Parse Cisco Config for
-          cisco_config_parser, Get &amp; Parse Config for genie, or Extract Facts
-          for batfish.
+          cisco_config_parser, Get &amp; Parse Config for genie, Extract Facts
+          for batfish, or Get Details from Catalyst Center for catalyst_details.
         </p>
         <AttributePathPicker
           open={pickerOpen}
@@ -281,7 +294,7 @@ function ConfigToAttributesConfigPanel({
           </Badge>
         </div>
         <div className="space-y-1 rounded-lg border border-border bg-card p-2">
-          {ATTRIBUTE_GROUPS.map(({ key, label }) => (
+          {availableGroups.map(({ key, label }) => (
             <label
               key={key}
               className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 hover:bg-muted/50"

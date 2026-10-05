@@ -60,6 +60,24 @@ export function ConfigToAttributesHelpPanel() {
             is supported for this format too — Batfish facts have no
             running/startup distinction.
           </li>
+          <li>
+            <span className="font-medium text-foreground">Cisco Catalyst Details</span>{" "}
+            — output from an upstream <span className="font-medium text-foreground">
+            Get Details from Catalyst Center</span> step (its{" "}
+            <HelpCode>device</HelpCode>, <HelpCode>software</HelpCode> and{" "}
+            <HelpCode>interfaces</HelpCode> facts; set <HelpCode>parsed_key</HelpCode>{" "}
+            to that step&apos;s output key, default <HelpCode>catalyst_details</HelpCode>).
+            Only <HelpCode>config_source: running</HelpCode> applies.
+            <HelpCode>Add Interfaces</HelpCode> maps name, admin status, description,
+            MAC, MTU and the IPv4 address; an access port gets its{" "}
+            <HelpCode>vlan_id</HelpCode> as untagged VLAN, a trunk its native VLAN
+            (Catalyst Center gives no allowed-VLAN list, so no tagged VLANs; VLAN 0 is
+            ignored). <HelpCode>Add Device Fields</HelpCode> (this format only) writes
+            serial, software version, platform (the software type, e.g. IOS-XE — it
+            must exist in Nautobot under that name) and device type (model = platform
+            id, manufacturer = the controller&apos;s vendor, default Cisco). Role,
+            status and location are never derived — use Set Default Attributes.
+          </li>
         </ul>
       </HelpSection>
 
@@ -84,8 +102,9 @@ export function ConfigToAttributesHelpPanel() {
         <p>
           <HelpCode>parsed_key</HelpCode> must match the matching upstream step&apos;s
           own <HelpCode>output_key</HelpCode> — Parse Cisco Config for
-          cisco_config_parser, Get &amp; Parse Config for genie — that is where its
-          parsed model was written on each device.
+          cisco_config_parser, Get &amp; Parse Config for genie, Get Details from
+          Catalyst Center for catalyst_details — that is where its parsed model was
+          written on each device.
         </p>
         <p>
           Click the search icon next to the field to browse real attribute paths
