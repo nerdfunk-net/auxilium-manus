@@ -102,6 +102,7 @@ backend/workflow_steps/get_catalyst_center_{details,topology,health}/  # executo
 backend/workflow_steps/common/catalyst_center_targets.py  # per-source grouping, credentials, outcomes (shared by the command/config steps)
 backend/workflow_steps/common/catalyst_center_facts.py    # run_fact_step(): shared driver of the three fact steps
 backend/workflow_steps/common/device_builders.py     # device_context_from_catalyst_center()
+backend/workflow_steps/config_to_attributes/catalyst_details.py  # facts -> Nautobot interfaces + device fields (source_format catalyst_details)
 backend/workflow_steps/common/textfsm_parse.py       # parse_with_textfsm(): ntc-templates -> {parsed, error}
 backend/workflow_steps/registry.yaml                 # six entries, ids starting get-/run-catalyst-center-* (palette_category: cisco)
 backend/services/execution/step_registry.py          # dispatch table entries
@@ -531,6 +532,8 @@ Frontend: `npx tsc --noEmit` and a scoped `npx eslint <files>` from `frontend/`.
 | `test_catalyst_center_facts_services.py` | details / health / topology services: payload shapes from the sandbox, coercion, whitelisting, topology slicing |
 | `test_catalyst_center_fact_steps_executors.py` | details / topology / health executors: config guard, checkbox selection, shared requests, partial vs total failure, per-source credentials |
 | `test_catalyst_center_command_steps_registration.py` | all five command/config/fact steps: registry ↔ dispatch ↔ `get_config()` |
+| `test_config_to_attributes_catalyst_details.py` | facts -> Nautobot interfaces/device fields, VLAN rules, primary IPv4, rejected combinations |
+| `test_effective_produces.py` | the fact steps guarantee `parsed`; the command steps do not |
 
 (`test_catalyst_center_command_service.py` also covers the 5-commands-per-request split; `test_run_catalyst_center_command_executor.py` the TextFSM parser.)
 
