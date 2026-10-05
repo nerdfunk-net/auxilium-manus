@@ -8,7 +8,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 import redis
 
@@ -118,6 +119,131 @@ class RedisCacheService:
             return False
         except Exception as e:
             logger.error("Cache set_if_absent error for key '%s': %s", key, e)
+            return False
+
+    # ------------------------------------------------------------------
+    # Hash helpers — one Redis HASH per logical collection (field -> JSON value).
+    # Lets callers read a subset of a large collection (HMGET) without
+    # deserialising all of it, while keeping the key count constant.
+    # ------------------------------------------------------------------
+
+    def _loads_field(self, key: str, raw: str | bytes | None) -> Any | None:
+        if raw is None:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error("Failed to deserialize a field of cache hash: %s", key)
+            return None
+
+    def replace_hashes(self, hashes: dict[str, dict[str, Any]], ttl_seconds: int) -> bool:
+        """Atomically replace whole hashes (``key -> {field: json-able value}``).
+
+        Each hash is built under a temporary key and renamed over the live key inside
+        one MULTI/EXEC, so readers see either the old or the new set of hashes — never a
+        mix. An empty mapping deletes the live key. Returns False (old data untouched)
+        on serialization or Redis errors.
+        """
+        try:
+            serialized = {
+                key: {field: json.dumps(value) for field, value in fields.items()}
+                for key, fields in hashes.items()
+            }
+        except (TypeError, ValueError) as e:
+            logger.error("Failed to serialize cache hash data: %s", e)
+            return False
+
+        try:
+            pipe = self._redis.pipeline(transaction=True)
+            for key, fields in serialized.items():
+                live_key = self._make_key(key)
+                if not fields:
+                    pipe.delete(live_key)
+                    continue
+                tmp_key = f"{live_key}:tmp"
+                pipe.delete(tmp_key)
+                pipe.hset(tmp_key, mapping=cast("Mapping[Any, Any]", fields))
+                pipe.expire(tmp_key, ttl_seconds)
+                pipe.rename(tmp_key, live_key)
+            pipe.execute()
+            self._incr_stat("created", len(serialized))
+            return True
+        except Exception as e:
+            logger.error("Cache replace_hashes error: %s", e)
+            return False
+
+    def hget_json(self, key: str, field: str) -> Any | None:
+        """One field of a hash, deserialized. None means the field is absent — nothing else.
+
+        Unlike ``get()``, a Redis error or corrupt JSON *raises*: callers use this to decide
+        what a missing value means, and must not mistake a failed read for an absent field.
+        """
+        raw = self._redis.hget(self._make_key(key), field)
+        self._incr_stat("hits" if raw is not None else "misses")
+        if raw is None:
+            return None
+        return json.loads(raw)
+
+    def hmget_json(self, key: str, fields: list[str]) -> list[Any | None] | None:
+        """Several fields at once, aligned with ``fields`` (None for a missing/corrupt
+        field). Returns None when Redis fails, so callers can fall back."""
+        if not fields:
+            return []
+        try:
+            raws = self._redis.hmget(self._make_key(key), fields)
+        except Exception as e:
+            logger.error("Cache hmget error for key '%s': %s", key, e)
+            self._incr_stat("misses")
+            return None
+        self._incr_stat("hits")
+        return [self._loads_field(key, raw) for raw in raws]
+
+    def hvals_json(self, key: str) -> list[Any] | None:
+        """Every value of a hash, deserialized (corrupt entries skipped). None when
+        the hash is absent/empty or Redis fails (treated as a cache miss)."""
+        try:
+            raws = self._redis.hvals(self._make_key(key))
+        except Exception as e:
+            logger.error("Cache hvals error for key '%s': %s", key, e)
+            self._incr_stat("misses")
+            return None
+        if not raws:
+            self._incr_stat("misses")
+            return None
+        self._incr_stat("hits")
+        try:
+            # One json.loads over a joined array is markedly faster than one per entry.
+            return json.loads("[" + ",".join(cast("list[str]", raws)) + "]")
+        except TypeError, json.JSONDecodeError:
+            values = (self._loads_field(key, raw) for raw in raws)
+            return [value for value in values if value is not None]
+
+    def hgetall_json(self, key: str) -> dict[str, Any] | None:
+        """The whole hash as ``{field: value}``. None when absent/empty or on error."""
+        try:
+            raws = self._redis.hgetall(self._make_key(key))
+        except Exception as e:
+            logger.error("Cache hgetall error for key '%s': %s", key, e)
+            return None
+        if not raws:
+            return None
+        parsed = {str(field): self._loads_field(key, raw) for field, raw in raws.items()}
+        return {field: value for field, value in parsed.items() if value is not None}
+
+    def hkeys(self, key: str) -> list[str]:
+        """Field names of a hash ([] if absent or on error)."""
+        try:
+            return [str(field) for field in self._redis.hkeys(self._make_key(key))]
+        except Exception as e:
+            logger.error("Cache hkeys error for key '%s': %s", key, e)
+            return []
+
+    def hash_exists(self, key: str) -> bool:
+        """Whether the hash key exists (False on error)."""
+        try:
+            return bool(self._redis.exists(self._make_key(key)))
+        except Exception as e:
+            logger.error("Cache exists error for key '%s': %s", key, e)
             return False
 
     def delete(self, key: str) -> bool:

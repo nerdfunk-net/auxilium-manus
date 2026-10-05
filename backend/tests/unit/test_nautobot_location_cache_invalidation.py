@@ -152,7 +152,9 @@ class BulkRefreshInvalidationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_malformed_previous_entry_is_treated_as_changed(self) -> None:
         svc = await self._prime()
-        self.cache.set(svc._bulk_cache_key, [{"no": "id"}, "garbage"], ttl_seconds=60)
+        self.cache.replace_hashes(
+            {svc._bulk_cache_key: {"x": {"no": "id"}, "y": "garbage"}}, ttl_seconds=60
+        )
 
         count = await self._refresh_with(list(self.devices))
 
@@ -164,18 +166,12 @@ class BulkRefreshInvalidationTests(unittest.IsolatedAsyncioTestCase):
 
         await self._refresh_with([*self.devices, _gql("c", "r3")])
 
-        self.assertEqual(len(self.cache.get(svc._bulk_cache_key)), 3)
+        self.assertEqual(len(self.cache.hvals_json(svc._bulk_cache_key) or []), 3)
 
     async def test_unreadable_previous_entry_still_refreshes_and_invalidates(self) -> None:
-        svc = await self._prime()
-        real_get = self.cache.get
+        await self._prime()
 
-        def flaky_get(key: str):
-            if key == svc._bulk_cache_key:
-                raise RuntimeError("redis hiccup")
-            return real_get(key)
-
-        with patch.object(self.cache, "get", side_effect=flaky_get):
+        with patch.object(self.cache, "hvals_json", side_effect=RuntimeError("redis hiccup")):
             count = await self._refresh_with(list(self.devices))
 
         self.assertEqual(count, 2)

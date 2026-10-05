@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 from models.sources_nautobot import (
@@ -17,6 +18,7 @@ from models.sources_nautobot import (
     LogicalCondition,
     LogicalOperation,
 )
+from services.sources.nautobot.query_service import INDEXED_FIELDS
 
 if TYPE_CHECKING:
     from services.sources.nautobot.query_service import NautobotSourceQueryService
@@ -29,6 +31,17 @@ _NATIVE_NOT_EQUALS_LOG_SUFFIX = {
     "manufacturer": "using GraphQL manufacturer__n",
     "role": "using GraphQL role__n",
 }
+
+
+def _is_indexed_condition(condition: LogicalCondition) -> bool:
+    """Equality / inequality on an indexed attribute with a value: answerable from the
+    Redis index alone. (``contains`` is not supported on these fields and keeps its
+    exact-match fallback in the per-condition path.)"""
+    return (
+        condition.field in INDEXED_FIELDS
+        and condition.operator in ("equals", "not_equals")
+        and bool(condition.value)
+    )
 
 
 def _operator_flags(operator: str) -> tuple[bool, bool]:
@@ -160,6 +173,45 @@ class NautobotSourceEvaluator:
 
         return nested_results, not_results, operations_count, all_devices_data
 
+    async def _narrow_by_index(
+        self, operation: LogicalOperation
+    ) -> tuple[list[DeviceInfo], list[LogicalCondition], int] | None:
+        """For an AND: resolve its indexed equality conditions to device ids straight from
+        the Redis indexes, intersect them, and return ``(devices that survive, the
+        conditions still to run, number of conditions resolved)``. Everything else of the
+        AND then only has to look at those devices. None when there is nothing to narrow
+        on or the lookup failed — the caller then runs every condition as usual."""
+        if operation.operation_type.upper() != "AND":
+            return None
+        indexed = [c for c in operation.conditions if _is_indexed_condition(c)]
+        if not indexed:
+            return None
+        try:
+            id_sets = [
+                await self.query_service._ids_by_attribute(
+                    c.field, c.value, negate=c.operator == "not_equals"
+                )
+                for c in indexed
+            ]
+            candidate_ids = set.intersection(*id_sets)
+            candidates = await self.query_service._devices_by_ids(
+                candidate_ids,
+                [(c.field, c.value, c.operator == "not_equals") for c in indexed],
+            )
+        except Exception:
+            logger.warning(
+                "Index narrowing failed, evaluating conditions one by one", exc_info=True
+            )
+            return None
+        remaining = [c for c in operation.conditions if not _is_indexed_condition(c)]
+        logger.info(
+            "  Index narrowing: %s indexed condition(s) -> %s device(s), %s condition(s) left",
+            len(indexed),
+            len(candidates),
+            len(remaining),
+        )
+        return candidates, remaining, len(indexed)
+
     async def _execute_operation(
         self, operation: LogicalOperation
     ) -> tuple[set[str], int, dict[str, DeviceInfo]]:
@@ -182,18 +234,35 @@ class NautobotSourceEvaluator:
         operations_count = 0
         all_devices_data: dict[str, DeviceInfo] = {}
 
-        condition_results, cond_count, cond_data = await self._execute_operation_conditions(
-            operation.conditions
-        )
-        operations_count += cond_count
-        all_devices_data.update(cond_data)
+        conditions = operation.conditions
+        seed_results: list[set[str]] = []
+        scope = nullcontext()
+        narrowed = await self._narrow_by_index(operation)
+        if narrowed is not None:
+            candidates, conditions, indexed_count = narrowed
+            operations_count += indexed_count
+            if not candidates:
+                return set(), operations_count, {}
+            seed_results = [{device.id for device in candidates}]
+            all_devices_data.update({device.id: device for device in candidates})
+            scope = self.query_service.narrowed_to(candidates)
 
-        nested_results, not_results, nested_count, nested_data = (
-            await self._execute_nested_operations(operation.nested_operations)
-        )
+        with scope:
+            condition_results, cond_count, cond_data = await self._execute_operation_conditions(
+                conditions
+            )
+            operations_count += cond_count
+            all_devices_data.update(cond_data)
+
+            (
+                nested_results,
+                not_results,
+                nested_count,
+                nested_data,
+            ) = await self._execute_nested_operations(operation.nested_operations)
         operations_count += nested_count
         all_devices_data.update(nested_data)
-        condition_results.extend(nested_results)
+        condition_results = [*seed_results, *condition_results, *nested_results]
 
         result = _combine_logical_results(
             operation_type=operation.operation_type,

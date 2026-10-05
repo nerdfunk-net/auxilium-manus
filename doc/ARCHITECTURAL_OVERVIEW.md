@@ -555,24 +555,45 @@ from.
 **Question:** The Redis page shows "Cached items: 1" — is every device cached
 separately, and how does a device added in Nautobot reach a workflow run?
 
-**Answer:** The device list is cached as **one** entry per Nautobot source, and
-a few other entries are derived from it. "Cached items" counts Redis keys, not
-devices.
+**Answer:** The devices of a Nautobot source are cached in a few Redis **hashes**
+(one data hash plus one small index per attribute), and a few other entries are
+derived from them. "Cached items" counts Redis keys, not devices.
 
 | Redis key (under `manus-cache:`) | Holds | Written by | TTL |
 |---|---|---|---|
-| `nautobot:devices:all:<scope>` | every device (one JSON list) | `RefreshNautobotDeviceCache` cron (every 5 min) | `device_ttl_seconds` (default 30 min) |
+| `nautobot:devices:data:<scope>` | hash: device id → JSON of that device | `RefreshNautobotDeviceCache` cron (every 5 min) | `device_ttl_seconds` (default 30 min) |
+| `nautobot:devices:idx:<scope>:<field>` (`role`, `status`, `device_type`, `manufacturer`, `platform`) | hash: attribute value → JSON list of device ids | same cron run, swapped in atomically with the data hash | `device_ttl_seconds` |
 | `nautobot:devices:location:<scope>:<eq\|not>:<location>` | devices of one location filter (equals / not equals), child locations included | first query of that filter | `location_ttl_seconds` (default 10 min) |
 | `nautobot:device_details:<scope>:<id>`, `nautobot:device_attributes:<scope>:<id>:<groups>` | one device's full details / attribute bag | first per-device lookup | `device_ttl_seconds` |
 
 `<scope>` is a hash of the Nautobot URL and token, so several sources never
 share entries.
 
-- **Most inventory filters** (name, role, status, tag, device type, manufacturer,
-  platform, has-primary, custom field) filter the single bulk list in Python.
-- **Location** can't: Nautobot resolves the child-location hierarchy
-  server-side, and the bulk list only carries each device's own location name.
-  It queries Nautobot, and caches each distinct filter's result. Locations are
+- **Indexed filters** (role, status, device type, manufacturer, platform —
+  equals / not equals) read the id list from the index and fetch only those
+  devices (`HMGET`), so `role = server` on a few thousand devices only
+  deserialises the servers. If the cache is cold or an index is missing they fall
+  back to the full list.
+- **AND narrowing:** in an AND, the indexed conditions are resolved to device ids
+  straight from the indexes and intersected; only the survivors are fetched, and
+  the AND's other conditions (name, tag, custom field, nested groups) run over
+  just those devices. `role = server AND status = Active` therefore parses the
+  servers, not the fleet. OR / NOT groups are not narrowed.
+- **Other filters** (name, tag, has-primary, custom field) load the whole data
+  hash (`HVALS`) and filter in Python; `!=` on an indexed field does too (its
+  result is most of the fleet).
+- A filter is several Redis commands, so a cron swap can land between them. The
+  fetched devices are therefore checked against the condition that selected them;
+  a missing id, a body that no longer matches, a Redis error or corrupt index
+  entry all discard the indexed read and fall back to the full list (one
+  snapshot) — never to an empty or partial answer.
+- The cron rewrites the data hash and all indexes in one `MULTI/EXEC` (build under
+  a temp key, `RENAME` over the live key), so a reader never sees a mix of old
+  and new. The read log lines (`Cache index ...`, `Cache fetch ...`,
+  `Cache hit ...`) show Redis vs. parse time in ms, handy for comparing timings.
+- **Location** can't use the cached devices: Nautobot resolves the
+  child-location hierarchy server-side, and the cached devices only carry their
+  own location name. It queries Nautobot, and caches each distinct filter's result. Locations are
   matched exactly — the operators are **equals** and **not equals** only, never
   "contains" ("City" must not match "City A"); the API rejects a location
   `contains`/`not_contains` condition and the UI doesn't offer it. Device names
@@ -595,9 +616,11 @@ share entries.
   never empties the cache first, so runs during a rebuild still hit warm data.
   It needs the worker running; the request itself returns immediately.
 
-Code: `services/sources/nautobot/query_service.py` (`refresh_bulk_cache`),
-`live_query_mixin.py` (location cache), `services/nautobot/devices/query.py`
-(`invalidate_cache`), `hatchet/workflows/cache_devices.py`.
+Code: `services/sources/nautobot/query_service.py` (`refresh_bulk_cache`, the
+index reads), `evaluator.py` (`_narrow_by_index`), `services/cache/redis_cache_service.py`
+(hash helpers, `replace_hashes`), `live_query_mixin.py` (location cache),
+`services/nautobot/devices/query.py` (`invalidate_cache`),
+`hatchet/workflows/cache_devices.py`.
 
 ## Device selection: three representations of "which devices"
 

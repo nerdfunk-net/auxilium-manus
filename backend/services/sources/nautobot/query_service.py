@@ -4,13 +4,19 @@ Inventory query service — Nautobot GraphQL query methods for device lookups.
 Extracted from InventoryService as part of Phase 4 decomposition.
 See: doc/refactoring/REFACTORING_SERVICES.md — Phase 4
 
-Cache strategy (Option A — cache-first):
-  Most filter operations load the full device list once from Redis
-  (key: nautobot:devices:all:<scope>, populated by the "RefreshNautobotDeviceCache"
-  Hatchet cron workflow — see hatchet/workflows/cache_devices.py) and
-  perform in-Python filtering.  The result is held in self._devices_cache
-  for the lifetime of the service instance so that multiple conditions in
-  the same inventory preview only pay the Redis round-trip once.
+Cache layout (per Nautobot instance, scope = ``credentials.cache_scope``), all
+Redis HASHes refreshed atomically by the "RefreshNautobotDeviceCache" Hatchet cron
+workflow (see hatchet/workflows/cache_devices.py):
+    nautobot:devices:data:<scope>            device_id -> JSON of one device
+    nautobot:devices:idx:<scope>:<field>     field value -> JSON list of device ids
+                                             (field in ``INDEXED_FIELDS``)
+  Equality filters on an indexed field (role, status, device_type, manufacturer,
+  platform) read the id list from the index and fetch only those devices (HMGET), so
+  they never deserialise the whole fleet. Every other filter (name, tag, custom
+  field, has_primary, ...) loads the full list (HVALS) and filters in Python. The full
+  list is held in self._devices_cache for the lifetime of the service instance so
+  multiple conditions in the same inventory preview only pay the Redis round-trip once.
+  If the cache is cold/unavailable everything falls back to a live Nautobot query.
 
   Exceptions that still go directly to Nautobot GraphQL:
     • location       — exact match only (equals / not equals, never "contains");
@@ -35,6 +41,9 @@ Cache strategy (Option A — cache-first):
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from models.sources_nautobot import DeviceInfo
@@ -47,7 +56,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_BULK_CACHE_KEY_PREFIX = "nautobot:devices:all"
+_BULK_CACHE_KEY_PREFIX = "nautobot:devices:data"
+_INDEX_CACHE_KEY_PREFIX = "nautobot:devices:idx"
+# Single-valued DeviceInfo attributes that get a value -> device ids index.
+INDEXED_FIELDS = ("role", "status", "device_type", "manufacturer", "platform")
 
 
 def _bulk_payload_changed(
@@ -74,6 +86,14 @@ def _custom_field_value_matches(stored: Any, target: str, use_contains: bool) ->
         needle = target.lower()
         return any(needle in str(value).lower() for value in values)
     return any(str(value) == target for value in values)
+
+
+# (field, value, negate): a device matches when ``(getattr(device, field) == value) != negate``.
+_Predicate = tuple[str, str, bool]
+
+
+def _matches_all(device: DeviceInfo, predicates: Sequence[_Predicate]) -> bool:
+    return all((getattr(device, field) == value) != negate for field, value, negate in predicates)
 
 
 class NautobotSourceQueryService(NautobotLiveQueryMixin):
@@ -132,11 +152,17 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
 
         if self._cache_service is not None:
             try:
-                raw_list = self._cache_service.get(self._bulk_cache_key)
+                started = time.perf_counter()
+                raw_list = self._cache_service.hvals_json(self._bulk_cache_key)
+                fetched = time.perf_counter()
                 if raw_list:
                     devices = [self._parse_device_from_cache(d) for d in raw_list]
                     logger.info(
-                        "Cache hit for '%s': %s devices", self._bulk_cache_key, len(devices)
+                        "Cache hit for '%s': %s devices (redis %.1f ms, parse %.1f ms)",
+                        self._bulk_cache_key,
+                        len(devices),
+                        (fetched - started) * 1000,
+                        (time.perf_counter() - fetched) * 1000,
                     )
                     self._devices_cache = devices
                     return devices
@@ -174,7 +200,17 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         devices = await self._query_all_devices_live()
         payload = [d.model_dump() for d in devices]
         previous = self._read_bulk_payload()
-        self._cache_service.set(self._bulk_cache_key, payload, self._bulk_ttl)
+        if not self._cache_service.replace_hashes(
+            {
+                self._bulk_cache_key: {d["id"]: d for d in payload},
+                **{
+                    self._index_key(field): self._build_index(devices, field)
+                    for field in INDEXED_FIELDS
+                },
+            },
+            self._bulk_ttl,
+        ):
+            logger.warning("Could not write the bulk device cache '%s'", self._bulk_cache_key)
         self._devices_cache = devices
         logger.info(
             "Refreshed bulk cache '%s' with %s devices (ttl=%ss)",
@@ -198,10 +234,139 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
         if self._cache_service is None:
             return None
         try:
-            return self._cache_service.get(self._bulk_cache_key)
+            return self._cache_service.hvals_json(self._bulk_cache_key)
         except Exception as exc:
             logger.warning("Redis read failed for '%s': %s", self._bulk_cache_key, exc)
             return None
+
+    # ------------------------------------------------------------------
+    # Attribute indexes (value -> device ids)
+    # ------------------------------------------------------------------
+
+    def _index_key(self, field: str) -> str:
+        return f"{_INDEX_CACHE_KEY_PREFIX}:{self._credentials.cache_scope}:{field}"
+
+    @staticmethod
+    def _build_index(devices: list[DeviceInfo], field: str) -> dict[str, list[str]]:
+        """``{value: [device ids]}`` for one attribute; devices without a value are
+        left out (a negated filter gets them as "all ids minus the matching ones")."""
+        index: dict[str, list[str]] = {}
+        for device in devices:
+            value = getattr(device, field)
+            if value:
+                index.setdefault(value, []).append(device.id)
+        return index
+
+    def _read_index_ids(self, field: str, value: str, negate: bool) -> set[str] | None:
+        """Ids of the devices whose ``field`` equals (or, ``negate``, differs from)
+        ``value`` — read from the index without touching any device. None when the
+        cache cannot answer (cold, index missing, Redis error)."""
+        cache = self._cache_service
+        if cache is None:
+            return None
+        try:
+            index_key = self._index_key(field)
+            ids = cache.hget_json(index_key, value)
+            if ids is None:
+                if not cache.hash_exists(index_key):
+                    return None  # cold cache, or nobody has any value for this field
+                ids = []  # warm cache, no device has this value
+            if not isinstance(ids, list):
+                return None
+            if not negate:
+                return set(ids)
+            all_ids = cache.hkeys(self._bulk_cache_key)
+            return set(all_ids) - set(ids) if all_ids else None
+        except Exception as exc:
+            logger.warning("Redis index read failed for '%s': %s", self._index_key(field), exc)
+            return None
+
+    def _fetch_devices(
+        self, ids: set[str], predicates: Sequence[_Predicate] = ()
+    ) -> list[DeviceInfo] | None:
+        """Only the devices with these ids from the data hash (HMGET), each checked against
+        the ``predicates`` that selected it. The id list and the bodies come from separate
+        Redis commands, so a cron swap in between can leave them from different snapshots:
+        an id that vanished, or a body that no longer matches, discards the whole read.
+        None then (or when Redis cannot answer) so the caller falls back to the full list,
+        which is a single snapshot."""
+        cache = self._cache_service
+        if cache is None:
+            return None
+        if not ids:
+            return []
+        try:
+            started = time.perf_counter()
+            raws = cache.hmget_json(self._bulk_cache_key, list(ids))
+            if raws is None or not all(isinstance(r, dict) for r in raws):
+                logger.info("Cache index and data disagree, falling back to the full list")
+                return None
+            fetched = time.perf_counter()
+            devices = [self._parse_device_from_cache(r) for r in raws if isinstance(r, dict)]
+        except Exception as exc:
+            logger.warning("Redis read failed for '%s': %s", self._bulk_cache_key, exc)
+            return None
+        if not all(_matches_all(d, predicates) for d in devices):
+            logger.info("Cache index is stale for the fetched devices, falling back")
+            return None
+        logger.info(
+            "Cache fetch of %s devices by id (redis %.1f ms, parse %.1f ms)",
+            len(devices),
+            (fetched - started) * 1000,
+            (time.perf_counter() - fetched) * 1000,
+        )
+        return devices
+
+    async def _ids_by_attribute(self, field: str, value: str, negate: bool = False) -> set[str]:
+        """Ids of the devices matching an indexed attribute, cheapest source first: the
+        in-memory list, then the Redis index (no device is parsed), then the full list."""
+        if self._devices_cache is None:
+            ids = self._read_index_ids(field, value, negate)
+            if ids is not None:
+                return ids
+        all_devices = await self._get_all_devices_cached()
+        return {d.id for d in all_devices if (getattr(d, field) == value) != negate}
+
+    async def _devices_by_ids(
+        self, ids: set[str], predicates: Sequence[_Predicate] = ()
+    ) -> list[DeviceInfo]:
+        """The devices with these ids, fetching only those from Redis when possible.
+        ``predicates`` are what selected the ids; they verify the fetched bodies and, on a
+        fallback, are re-evaluated on the full list instead of trusting the id list."""
+        if self._devices_cache is None:
+            fetched = self._fetch_devices(ids, predicates)
+            if fetched is not None:
+                return fetched
+        all_devices = await self._get_all_devices_cached()
+        if predicates:
+            return [d for d in all_devices if _matches_all(d, predicates)]
+        return [d for d in all_devices if d.id in ids]
+
+    @contextmanager
+    def narrowed_to(self, devices: list[DeviceInfo]) -> Iterator[None]:
+        """Within the block the "full" device list is ``devices``, so scan-style filters
+        (name, tag, custom field, ...) only look at devices an AND has already narrowed
+        down. The previous list is restored on exit, also on errors."""
+        previous = self._devices_cache
+        self._devices_cache = devices
+        try:
+            yield
+        finally:
+            self._devices_cache = previous
+
+    async def _devices_by_attribute(
+        self, field: str, value: str, *, negate: bool = False
+    ) -> list[DeviceInfo]:
+        """Equality (or inequality) filter on an indexed attribute. Equality reads only the
+        matching devices; inequality matches most of the fleet, so it filters the full list."""
+        if not negate and self._devices_cache is None:
+            ids = self._read_index_ids(field, value, negate=False)
+            if ids is not None:
+                fetched = self._fetch_devices(ids, [(field, value, False)])
+                if fetched is not None:
+                    return fetched
+        all_devices = await self._get_all_devices_cached()
+        return [d for d in all_devices if (getattr(d, field) == value) != negate]
 
     # ------------------------------------------------------------------
     # Live Nautobot GraphQL helpers (used as fallback or for uncacheable queries)
@@ -290,12 +455,7 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
             logger.warning("Empty role_filter provided, returning empty result")
             return []
 
-        all_devices = await self._get_all_devices_cached()
-
-        if use_negation:
-            result = [d for d in all_devices if d.role != role_filter]
-        else:
-            result = [d for d in all_devices if d.role == role_filter]
+        result = await self._devices_by_attribute("role", role_filter, negate=use_negation)
 
         logger.info(
             "Cache filter role='%s' (negation=%s): %s devices",
@@ -311,8 +471,7 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
             logger.warning("Empty status_filter provided, returning empty result")
             return []
 
-        all_devices = await self._get_all_devices_cached()
-        result = [d for d in all_devices if d.status == status_filter]
+        result = await self._devices_by_attribute("status", status_filter)
         logger.info("Cache filter status='%s': %s devices", status_filter, len(result))
         return result
 
@@ -335,12 +494,9 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
             logger.warning("Empty devicetype_filter provided, returning empty result")
             return []
 
-        all_devices = await self._get_all_devices_cached()
-
-        if use_negation:
-            result = [d for d in all_devices if d.device_type != devicetype_filter]
-        else:
-            result = [d for d in all_devices if d.device_type == devicetype_filter]
+        result = await self._devices_by_attribute(
+            "device_type", devicetype_filter, negate=use_negation
+        )
 
         logger.info(
             "Cache filter device_type='%s' (negation=%s): %s devices",
@@ -358,12 +514,9 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
             logger.warning("Empty manufacturer_filter provided, returning empty result")
             return []
 
-        all_devices = await self._get_all_devices_cached()
-
-        if use_negation:
-            result = [d for d in all_devices if d.manufacturer != manufacturer_filter]
-        else:
-            result = [d for d in all_devices if d.manufacturer == manufacturer_filter]
+        result = await self._devices_by_attribute(
+            "manufacturer", manufacturer_filter, negate=use_negation
+        )
 
         logger.info(
             "Cache filter manufacturer='%s' (negation=%s): %s devices",
@@ -379,8 +532,7 @@ class NautobotSourceQueryService(NautobotLiveQueryMixin):
             logger.warning("Empty platform_filter provided, returning empty result")
             return []
 
-        all_devices = await self._get_all_devices_cached()
-        result = [d for d in all_devices if d.platform == platform_filter]
+        result = await self._devices_by_attribute("platform", platform_filter)
         logger.info("Cache filter platform='%s': %s devices", platform_filter, len(result))
         return result
 

@@ -83,7 +83,7 @@ class ForcedBulkRefreshTests(unittest.IsolatedAsyncioTestCase):
         count = await svc.refresh_bulk_cache(force_invalidate=True)
 
         self.assertEqual(count, 1)
-        self.assertEqual(len(cache.get(svc._bulk_cache_key)), 1)
+        self.assertEqual(len(cache.hvals_json(svc._bulk_cache_key) or []), 1)
 
 
 class RewarmLocationFiltersTests(unittest.IsolatedAsyncioTestCase):

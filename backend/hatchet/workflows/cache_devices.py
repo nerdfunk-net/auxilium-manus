@@ -2,7 +2,8 @@
 
 The inventory preview path (NautobotSourceQueryService._get_all_devices_cached,
 see services/sources/nautobot/query_service.py) only *reads* the Redis bulk key
-`nautobot:devices:all:<scope>` — something else has to write it. In the original
+`nautobot:devices:data:<scope>` (plus the `nautobot:devices:idx:<scope>:<field>` indexes) —
+something else has to write it. In the original
 cockpit app this was a Celery Beat task (cache_all_devices_task) running every 5
 minutes; auxilium-manus dropped Celery for Hatchet and never got an equivalent
 scheduled job, so the bulk key was never populated and every preview fell back to
