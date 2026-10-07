@@ -52,23 +52,35 @@ async def execute(
     repository = await loop.run_in_executor(None, lambda: load_git_repository(git_repository_id))
 
     service = GitDeviceService()
-    devices, files_read = await loop.run_in_executor(
-        None, lambda: service.fetch_devices(repository, filename_pattern, directory)
-    )
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: service.fetch_records(
+                repository, filename_pattern, directory, config.get("device_mapping")
+            ),
+        )
+    except ValueError as exc:
+        raise ValueError(f"get-git-devices: {exc}") from exc
+    files_read = result.files_read
+
+    if not result.records:
+        detail = "; ".join(result.warnings) or "no device entries found"
+        raise RuntimeError(f"get-git-devices: no devices found ({detail})")
 
     logger.info(
         "get-git-devices returning %d devices from %d file(s) run_id=%s",
-        len(devices),
+        len(result.records),
         files_read,
         run.id,
     )
 
     new_devices: dict[str, DeviceContext] = {}
-    for index, detail in enumerate(devices):
+    for index, record in enumerate(result.records):
         device_ctx = device_context_from_git_detail(
-            detail,
+            record.mapped,
             source_id=str(git_repository_id),
             index=index,
+            raw=record.raw,
         )
         new_devices[device_ctx.id] = device_ctx
 
@@ -79,6 +91,7 @@ async def execute(
         f"{node_id}.git_repository_id": git_repository_id,
         f"{node_id}.total": len(new_devices),
         f"{node_id}.files_read": files_read,
+        f"{node_id}.warnings": result.warnings,
     }
     if fan_out_metadata is not None:
         metadata_update["_fan_out"] = fan_out_metadata

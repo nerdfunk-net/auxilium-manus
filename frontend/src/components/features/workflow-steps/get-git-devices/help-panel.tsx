@@ -73,34 +73,47 @@ export function GetGitDevicesHelpPanel() {
 
       <HelpSection title="Device mapping">
         <p>
-          <HelpCode>device_mapping</HelpCode> controls how YAML keys map to
-          workflow device fields. Click{" "}
-          <span className="font-medium text-foreground">Configure Mapping</span>{" "}
-          to review or customise mappings (UI coming in a future release).
-        </p>
-        <p>
-          Until custom mapping is available, the default reads these keys from
-          each device entry in the YAML file:
+          <HelpCode>device_mapping</HelpCode> maps keys of each device entry in
+          the file to Nautobot attributes. Click{" "}
+          <span className="font-medium text-foreground">Configure Mapping</span>,
+          add a row per key, type the file key (nested keys as{" "}
+          <HelpCode>parent.child</HelpCode>) and pick the Nautobot attribute from
+          the list. <span className="font-medium text-foreground">Load keys from
+          repository</span> suggests the keys found in your files.
         </p>
         <ul className="list-disc space-y-1 pl-4">
           <li>
-            <HelpCode>name</HelpCode> — device hostname
+            A key must be mapped to <HelpCode>Device name</HelpCode>; entries
+            without a value for it are skipped.
           </li>
           <li>
-            <HelpCode>primary_ip4</HelpCode> — management IPv4
+            Mapped values are available downstream as{" "}
+            <HelpCode>{"{nautobot.location.name}"}</HelpCode>,{" "}
+            <HelpCode>{"{nautobot.status.name}"}</HelpCode>, … The raw entry stays
+            available as <HelpCode>{"{git.<key>}"}</HelpCode>.
           </li>
           <li>
-            <HelpCode>network_driver</HelpCode> — Netmiko / platform driver
+            Device name, primary IPv4 address, platform and network driver also
+            set the device itself (used for SSH).
+          </li>
+          <li>
+            Each Nautobot attribute can be mapped once; internal IDs cannot be
+            mapped.
           </li>
         </ul>
+        <p>
+          With no mapping configured, the default reads{" "}
+          <HelpCode>name</HelpCode>, <HelpCode>primary_ip4</HelpCode> and{" "}
+          <HelpCode>network_driver</HelpCode>.
+        </p>
         <HelpExample>
-          # configs/router1.yaml
+          # mapping: device_name → Device name, site → Location
           <br />
-          name: router1
+          devices:
           <br />
-          primary_ip4: 10.0.0.1
+          {"  "}- device_name: router1
           <br />
-          network_driver: cisco_ios
+          {"    "}site: City A
         </HelpExample>
       </HelpSection>
 
@@ -115,7 +128,7 @@ export function GetGitDevicesHelpPanel() {
         </p>
         <p>
           Preview is read-only — it does not change the workflow context. Use it
-          to confirm file paths and field mapping before a long run.
+          to confirm file paths and the mapped fields before a long run.
         </p>
       </HelpSection>
 

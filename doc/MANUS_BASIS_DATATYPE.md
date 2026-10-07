@@ -1073,7 +1073,7 @@ Quick reference for step authors, using real steps.
 | Step                       | Requires            | Reads from context                            | Writes to context                                    |
 |----------------------------|---------------------|-----------------------------------------------|--------------------------------------------------------|
 | `get-nautobot-devices`     | *(source)*          | nothing                                       | `devices[*]` identity fields + `IDENTITY`            |
-| `get-git-devices`          | *(source)*          | nothing                                       | `devices[*]` identity fields + `IDENTITY`            |
+| `get-git-devices`          | *(source)*          | nothing                                       | `devices[*]` identity fields + `IDENTITY`; `attribute_bags["nautobot"]` (values mapped via `device_mapping`) and `attribute_bags["git"]` (raw file entry) |
 | `get-nautobot-attributes`  | `IDENTITY`          | `devices[*].id`                               | `devices[*].attribute_bags["nautobot"]` + `ATTRIBUTES` |
 | `get-device-configs`       | `IDENTITY`          | `devices[*].hostname`, `network_driver`       | `devices[*].running_config_ref` and/or `startup_config_ref` + `RUNNING_CONFIG`/`STARTUP_CONFIG` (per `config_format`) |
 | `parse-cisco-config`       | `IDENTITY`          | `devices[*].running_config_ref` and/or `startup_config_ref` | `devices[*].parsed[output_key]` + `PARSED`   |
@@ -1209,3 +1209,18 @@ WorkflowContext                                           schema_version: int
 Compatibility check:  required_capabilities ⊆ provided_capabilities()
                       provided_capabilities() = ∩ device.capabilities  (full set if devices empty)
 ```
+
+### `get-git-devices` device mapping
+
+`device_mapping` is a list of `{source, target}` rows. `source` is a key (or dot-path such as
+`location.site`) of each file entry; `target` is a Nautobot attribute chosen from the catalog in
+`backend/services/git/device_mapping.py::NAUTOBOT_TARGETS` (mirrored in the frontend by
+`get-git-devices/constants/nautobot-targets.ts`; a vitest guards the two against drift). Internal
+UUIDs are not mappable. Rules: each target at most once, a `name` target is required, entries with an
+empty `name` are skipped, empty/non-scalar values are ignored. An empty mapping uses the default
+(`name`, `primary_ip4`→`primary_ip4.address`, `network_driver`→`platform.network_driver`).
+
+Mapped values are stored nested like a Nautobot device in `attribute_bags["nautobot"]`
+(`{nautobot.location.name}`, `{nautobot.status.name}`); `name`, `primary_ip4.address`,
+`platform.name` and `platform.network_driver` additionally set the `DeviceContext` fields. The
+mapping layer is format-agnostic: a future CSV reader only has to yield one raw row dict per device.

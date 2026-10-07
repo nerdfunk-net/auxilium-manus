@@ -112,6 +112,9 @@ class NautobotSourceMetadataService:
     async def _get_standard_field_values(self, field_name: str) -> list[dict[str, str]]:
         endpoint_map = {
             "location": "dcim/locations/?limit=0",
+            "location_type": "dcim/location-types/?limit=0",
+            # Statuses are scoped per content type; locations use their own set.
+            "location_status": "extras/statuses/?content_types=dcim.location&limit=0",
             "role": "extras/roles/?content_types=dcim.device&limit=0",
             "status": "extras/statuses/?content_types=dcim.device&limit=0",
             "device_type": "dcim/device-types/?limit=0&depth=1",

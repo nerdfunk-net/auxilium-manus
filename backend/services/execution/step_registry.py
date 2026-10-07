@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from models.workflow_context import StepOutcome
+from workflow_steps.add_nautobot_metadata.executor import execute as add_nautobot_metadata
 from workflow_steps.add_pyats_testbed.executor import execute as add_pyats_testbed
 from workflow_steps.add_to_ise.executor import execute as add_to_ise
 from workflow_steps.add_to_nautobot.executor import execute as add_to_nautobot
@@ -139,6 +140,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "get-ise-tacacs-key": get_ise_tacacs_key,
     "add-to-ise": add_to_ise,
     "add-to-nautobot": add_to_nautobot,
+    "add-nautobot-metadata": add_nautobot_metadata,
     "get-nautobot-attributes": get_nautobot_attributes,
     "set-default-attributes": set_default_attributes,
     "config-to-attributes": config_to_attributes,

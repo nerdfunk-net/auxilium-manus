@@ -28,12 +28,15 @@ router = APIRouter(prefix="/git/{repo_id}", tags=["git-devices"])
 class GitDevicePreviewRequest(BaseModel):
     filename_pattern: str
     directory: str = ""
+    device_mapping: list[dict[str, Any]] | None = None
 
 
 class GitDevicePreviewResponse(BaseModel):
     devices: list[dict[str, Any]]
     total_count: int
     files_read: int
+    available_keys: list[str]
+    warnings: list[str]
 
 
 class GitContentSearchPreviewRequest(BaseModel):
@@ -86,11 +89,18 @@ async def preview_git_devices(
     service = GitDeviceService()
     loop = asyncio.get_running_loop()
     try:
-        devices, files_read = await loop.run_in_executor(
-            None, lambda: service.fetch_devices(repository, pattern, request.directory)
+        result = await loop.run_in_executor(
+            None,
+            lambda: service.fetch_records(
+                repository, pattern, request.directory, request.device_mapping
+            ),
         )
         return GitDevicePreviewResponse(
-            devices=devices, total_count=len(devices), files_read=files_read
+            devices=[record.mapped for record in result.records],
+            total_count=len(result.records),
+            files_read=result.files_read,
+            available_keys=result.available_keys,
+            warnings=result.warnings,
         )
     except (HTTPException, DomainError):
         raise

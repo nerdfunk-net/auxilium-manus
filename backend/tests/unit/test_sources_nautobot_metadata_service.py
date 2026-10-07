@@ -67,6 +67,18 @@ class GetFieldValuesTests(unittest.IsolatedAsyncioTestCase):
         vals = await svc.get_field_values("location")
         self.assertEqual([v["value"] for v in vals], ["dc1", "dc2"])  # sorted by label
 
+    async def test_location_type_and_location_status_use_scoped_endpoints(self) -> None:
+        expected = {
+            "location_type": "dcim/location-types/?limit=0",
+            "location_status": "extras/statuses/?content_types=dcim.location&limit=0",
+        }
+        for field, endpoint in expected.items():
+            with self.subTest(field=field):
+                svc = _service(rest_return={"results": [{"name": "Site"}, {"name": "Campus"}]})
+                vals = await svc.get_field_values(field)
+                self.assertEqual([v["value"] for v in vals], ["Campus", "Site"])
+                self.assertEqual(svc._nautobot.rest_request.await_args.args[0], endpoint)
+
     async def test_device_type_field_includes_manufacturer(self) -> None:
         svc = _service(
             rest_return={

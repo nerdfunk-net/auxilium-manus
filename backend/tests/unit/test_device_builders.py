@@ -174,3 +174,34 @@ class DeviceContextFromCatalystCenterTests(unittest.TestCase):
             self._device(softwareType=None), source_id="s"
         )
         self.assertIsNone(context.platform)
+
+
+class DeviceContextFromGitDetailTests(unittest.TestCase):
+    def test_mapped_detail_sets_core_fields_and_bags(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_git_detail
+
+        detail = {
+            "name": "r1",
+            "primary_ip4": {"address": "10.0.0.1/24"},
+            "platform": {"name": "IOS", "network_driver": "cisco_ios"},
+            "location": {"name": "City A"},
+        }
+        raw = {"device_name": "r1", "site": "City A"}
+
+        context = device_context_from_git_detail(detail, source_id="3", index=0, raw=raw)
+
+        self.assertEqual(context.name, "r1")
+        self.assertEqual(context.primary_ip4, "10.0.0.1/24")
+        self.assertEqual(context.hostname, "10.0.0.1")
+        self.assertEqual(context.platform, "IOS")
+        self.assertEqual(context.network_driver, "cisco_ios")
+        self.assertEqual(context.attribute_bags["nautobot"], detail)
+        self.assertEqual(context.attribute_bags["git"], raw)
+
+    def test_nautobot_bag_is_a_copy(self) -> None:
+        from workflow_steps.common.device_builders import device_context_from_git_detail
+
+        detail = {"name": "r1", "location": {"name": "A"}}
+        context = device_context_from_git_detail(detail, source_id="3", index=0)
+        context.attribute_bags["nautobot"]["location"]["name"] = "B"
+        self.assertEqual(detail["location"]["name"], "A")

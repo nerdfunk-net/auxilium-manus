@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from typing import Any
 
@@ -79,7 +80,14 @@ def device_context_from_git_detail(
     *,
     source_id: str,
     index: int,
+    raw: dict[str, Any] | None = None,
 ) -> DeviceContext:
+    """Build a DeviceContext from a Nautobot-shaped, mapped git device entry.
+
+    ``detail`` is the output of ``services.git.device_mapping.apply_device_mapping``; it is
+    stored (copied) in ``attribute_bags["nautobot"]``. ``raw`` is the unmapped file entry,
+    kept in ``attribute_bags["git"]`` (defaults to ``detail``).
+    """
     name = str(detail.get("name") or detail.get("hostname") or f"git-device-{index}")
     primary_ip4 = detail.get("primary_ip4")
     if isinstance(primary_ip4, dict):
@@ -110,7 +118,10 @@ def device_context_from_git_detail(
         primary_ip4=primary_ip4,
         source="git",
         source_id=source_id,
-        attribute_bags={"git": dict(detail)},
+        attribute_bags={
+            "git": dict(detail if raw is None else raw),
+            "nautobot": copy.deepcopy(detail),
+        },
         capabilities={Capability.IDENTITY},
         status=DeviceStatus.OK,
     )

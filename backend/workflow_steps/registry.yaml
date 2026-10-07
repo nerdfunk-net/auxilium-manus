@@ -2012,11 +2012,20 @@ plugins:
           required: false
           example: configs/
         - name: device_mapping
-          description: Mapping that extracts device identifiers from file contents.
-          data_type: object
+          description: >
+            List of {source, target} rows mapping keys of each file entry (dot-paths
+            allowed) to Nautobot attributes such as name, primary_ip4.address,
+            location.name or status.name. Mapped values are stored in the device's
+            nautobot attribute bag; name, primary_ip4.address, platform.name and
+            platform.network_driver also set the core device fields. Empty = default
+            (name, primary_ip4, network_driver). A "name" target is required.
+          data_type: array
           required: false
           example:
-            device_id_field: hostname
+            - source: device_name
+              target: name
+            - source: site
+              target: location.name
         - name: fan_out
           description: >
             Fan-out configuration. When enabled, each device (or chunk) is processed
@@ -2442,6 +2451,76 @@ plugins:
           data_type: boolean
           required: false
           default: true
+
+  - id: add-nautobot-metadata
+    name: Add Metadata
+    overview: Create a Nautobot location or device type if it does not exist yet.
+    description: >
+      Ensure Nautobot reference data exists before devices are added: a Location
+      (location type, name, status, description, optional parent) or a Device Type
+      (manufacturer, model, height). Every value is a fixed value, a pick from a
+      Nautobot list, or an attribute-bag expression such as {custom.location_name}.
+      An object that already exists is reused, so the step can run repeatedly.
+    artifact_type: command_execution
+    palette_category: nautobot
+    directory: add_nautobot_metadata
+    enabled: true
+    requires: [identity]
+    produces: [attributes]
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      # Concurrency: safe under fan-out and sibling branches. Creation is get-or-create
+      # and a duplicate-key error from a concurrent creator is resolved by re-reading the
+      # existing object; devices resolving to the same object share one Nautobot call.
+      configuration_input:
+        - name: nautobot_source_id
+          description: ID of a Nautobot source configured under Settings → Sources.
+          data_type: string
+          required: true
+          example: prod-lab
+        - name: metadata_type
+          description: >
+            Which kind of metadata to ensure: "location" (default) or "device_type".
+            Both configurations are stored, only the selected one runs.
+          data_type: string
+          required: true
+          default: location
+        - name: location
+          description: >
+            Used when metadata_type is "location". location_type (a Nautobot location
+            type name), name and status (default Active) are required; description and
+            parent (a location name) are optional. Each accepts a fixed value, a
+            {path.to.value} attribute-bag expression, or text mixing both. A path that
+            does not exist on a device fails that device (add | default('') to allow
+            it) — except description, where a missing path is treated as empty.
+          data_type: object
+          required: false
+          example:
+            location_type: "{custom.location_type}"
+            name: "{custom.location_name}"
+            status: Active
+            description: "{custom.description}"
+            parent: ""
+        - name: device_type
+          description: >
+            Used when metadata_type is "device_type". manufacturer, role, model and
+            height (positive integer, default 1) are required; platform is optional.
+            Nautobot device types only hold manufacturer, model and height — role and
+            platform are validated against Nautobot (unknown names fail the device) and
+            written, together with the model, into the device's nautobot attribute bag
+            (device_type / role / platform) so a later Add to Nautobot step with
+            {nautobot.origin} can use them. Platform is what lets Nautobot log in to
+            the device. Each accepts a fixed value, a {path} expression, or mixed text.
+          data_type: object
+          required: false
+          example:
+            manufacturer: "{custom.manufacturer}"
+            role: "{custom.role}"
+            model: "{custom.model}"
+            height: "1"
+            platform: "{custom.platform}"
 
   - id: update-nautobot-device
     name: Update Device

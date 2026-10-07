@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import glob
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from services.git.device_mapping import (
+    MappingRule,
+    apply_device_mapping,
+    collect_available_keys,
+    validate_device_mapping,
+)
 from services.git.sync import clone_or_pull
 
 logger = logging.getLogger(__name__)
@@ -25,50 +32,56 @@ def _find_files(repo_dir: Path, directory: str, pattern: str) -> list[Path]:
     return [Path(m) for m in sorted(matches)]
 
 
-def _parse_device_entry(entry: Any) -> dict[str, Any] | None:
-    if not isinstance(entry, dict):
-        return None
-    name = entry.get("name", "")
-    if not name:
-        return None
-    primary_ip4_raw = entry.get("primary_ip4", "")
-    network_driver = entry.get("network_driver", "")
-    return {
-        "id": None,
-        "name": str(name),
-        "primary_ip4": {"address": str(primary_ip4_raw)} if primary_ip4_raw else None,
-        "platform": {
-            "name": None,
-            "manufacturer": None,
-            "network_driver": str(network_driver) if network_driver else None,
-        },
-    }
+def _read_yaml_entries(path: Path) -> tuple[list[dict[str, Any]], str | None]:
+    """Read a YAML file; return its raw device entries and a problem description (or None).
 
-
-def _parse_yaml_file(path: Path) -> list[dict[str, Any]]:
-    """Read a YAML file and return a list of device detail dicts."""
+    Accepted shapes: a root list of device dicts, or a root mapping whose ``devices`` key
+    holds a list (or a single dict).
+    """
     try:
         with path.open("r", encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
     except Exception as exc:
         logger.warning("Cannot parse YAML file %s: %s", path, exc)
-        return []
+        return [], f"{path.name}: not valid YAML ({type(exc).__name__})"
 
-    if not isinstance(data, dict):
-        return []
-
-    raw_devices = data.get("devices", [])
-    if isinstance(raw_devices, dict):
-        raw_devices = [raw_devices]
+    raw_devices: Any = data
+    if isinstance(data, dict):
+        raw_devices = data.get("devices")
+        if isinstance(raw_devices, dict):
+            raw_devices = [raw_devices]
     if not isinstance(raw_devices, list):
-        return []
+        return [], (
+            f"{path.name}: expected a list of devices (at the top level or under a 'devices' key)"
+        )
 
-    results = []
-    for entry in raw_devices:
-        parsed = _parse_device_entry(entry)
-        if parsed is not None:
-            results.append(parsed)
-    return results
+    entries = [entry for entry in raw_devices if isinstance(entry, dict)]
+    skipped = len(raw_devices) - len(entries)
+    if skipped:
+        return entries, f"{path.name}: {skipped} entr{'y' if skipped == 1 else 'ies'} not a mapping"
+    return entries, None
+
+
+def _parse_yaml_file(path: Path) -> list[dict[str, Any]]:
+    """Read a YAML file and return its raw device entries (dicts only)."""
+    return _read_yaml_entries(path)[0]
+
+
+@dataclass(frozen=True)
+class GitDeviceRecord:
+    """One device: the raw file entry and its Nautobot-shaped mapped form."""
+
+    raw: dict[str, Any]
+    mapped: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class GitDeviceFetchResult:
+    records: list[GitDeviceRecord]
+    files_read: int
+    available_keys: list[str]
+    # Human-readable problems (unparseable files, wrong shape, unmapped entries).
+    warnings: list[str]
 
 
 class GitDeviceService:
@@ -79,18 +92,36 @@ class GitDeviceService:
     """
 
     def fetch_devices(
-        self, repository: dict[str, Any], filename_pattern: str, directory: str = ""
+        self,
+        repository: dict[str, Any],
+        filename_pattern: str,
+        directory: str = "",
+        device_mapping: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """Clone/pull the repo, find matching files, and parse device entries.
+        """Return ``(mapped devices, files_read)``; see :meth:`fetch_records`."""
+        result = self.fetch_records(repository, filename_pattern, directory, device_mapping)
+        return [record.mapped for record in result.records], result.files_read
+
+    def fetch_records(
+        self,
+        repository: dict[str, Any],
+        filename_pattern: str,
+        directory: str = "",
+        device_mapping: list[dict[str, Any]] | None = None,
+    ) -> GitDeviceFetchResult:
+        """Clone/pull the repo, find matching files, and map device entries.
 
         Args:
             repository: A ``GitRepository``-shaped dict (see
                 ``GitRepositoryService._to_dict``).
             filename_pattern: Glob pattern for files to search (e.g. ``*.yaml``).
             directory: Subdirectory within the repository to search.
+            device_mapping: ``[{source, target}]`` rows (see
+                ``services.git.device_mapping``); empty/None uses the default mapping.
 
-        Returns a tuple of (devices, files_read).
+        Raises ``ValueError`` for an invalid mapping (before any git work).
         """
+        rules: list[MappingRule] = validate_device_mapping(device_mapping)
         name = repository.get("name") or repository.get("id")
         logger.info("fetch_devices START — repo=%s pattern=%s", name, filename_pattern)
 
@@ -112,11 +143,38 @@ class GitDeviceService:
             filename_pattern,
         )
 
-        devices: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        if not files:
+            warnings.append(f"No file matching '{filename_pattern}' found")
+
+        raw_entries: list[dict[str, Any]] = []
         for file_path in files:
-            devices.extend(_parse_yaml_file(file_path))
+            entries, problem = _read_yaml_entries(file_path)
+            raw_entries.extend(entries)
+            if problem:
+                warnings.append(problem)
+
+        records: list[GitDeviceRecord] = []
+        for entry in raw_entries:
+            mapped = apply_device_mapping(entry, rules)
+            if mapped is not None:
+                records.append(GitDeviceRecord(raw=entry, mapped=mapped))
+        unmapped = len(raw_entries) - len(records)
+        if unmapped:
+            name_source = next((r.source for r in rules if r.target == "name"), "name")
+            warnings.append(
+                f"{unmapped} entr{'y' if unmapped == 1 else 'ies'} skipped: "
+                f"no value for the key mapped to Device name ('{name_source}')"
+            )
+        for warning in warnings:
+            logger.warning("Git repository '%s': %s", name, warning)
 
         logger.info(
-            "fetch_devices DONE — repo=%s devices=%d files=%d", name, len(devices), len(files)
+            "fetch_devices DONE — repo=%s devices=%d files=%d", name, len(records), len(files)
         )
-        return devices, len(files)
+        return GitDeviceFetchResult(
+            records=records,
+            files_read=len(files),
+            available_keys=collect_available_keys(raw_entries),
+            warnings=warnings,
+        )

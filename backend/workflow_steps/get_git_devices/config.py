@@ -6,7 +6,7 @@ def get_config() -> dict:
         "git_repository_id": None,
         "filename_pattern": "*.yaml",
         "directory": "",
-        "device_mapping": {},
+        "device_mapping": [],
         "fan_out": {
             "enabled": False,
             "mode": "per_device",

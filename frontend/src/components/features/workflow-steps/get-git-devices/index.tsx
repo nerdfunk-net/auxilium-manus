@@ -4,13 +4,6 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type {
@@ -27,13 +20,17 @@ import {
 } from "../shared/fan-out-config";
 import { GitRepositorySelectDialog } from "@/components/features/workflow-steps/shared/git-repository-select-dialog";
 import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/git-repository-value";
+import { DeviceMappingDialog } from "./device-mapping-dialog";
 import { GitDevicesPreviewDialog } from "./preview-dialog";
+import { mappingFromConfig, type DeviceMappingRule } from "./utils/device-mapping";
 import { GetGitDevicesHelpPanel } from "./help-panel";
 
 const GIT_REPOSITORY_ID_KEY = "git_repository_id";
 const FILENAME_PATTERN_KEY = "filename_pattern";
 const DIRECTORY_KEY = "directory";
 const DEVICE_MAPPING_KEY = "device_mapping";
+
+const EMPTY_KEYS: string[] = [];
 
 function gitRepositoryIdFromConfig(config: Record<string, unknown>): number | null {
   const raw = config[GIT_REPOSITORY_ID_KEY];
@@ -58,11 +55,14 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   );
   const directory = useMemo(() => directoryFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
+  const mapping = useMemo(() => mappingFromConfig(config), [config]);
 
   const [repositoryOpen, setRepositoryOpen] = useState(false);
   const [mappingOpen, setMappingOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevices, setPreviewDevices] = useState<GitDevicePreview[]>([]);
+  const [availableKeys, setAvailableKeys] = useState<string[]>(EMPTY_KEYS);
+  const [previewWarnings, setPreviewWarnings] = useState<string[]>(EMPTY_KEYS);
 
   const {
     mutateAsync: runPreview,
@@ -99,22 +99,47 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     [config, fanOut, onChange],
   );
 
-  const handleShowPreview = useCallback(async () => {
+  const loadPreview = useCallback(async () => {
     if (repositoryId === null) {
-      return;
+      return null;
     }
     try {
       const result = await runPreview({
         git_repository_id: repositoryId,
         filename_pattern: filenamePattern,
         directory,
+        device_mapping: mapping,
       });
-      setPreviewDevices(result.devices);
-      setPreviewOpen(true);
+      setAvailableKeys(result.available_keys);
+      setPreviewWarnings(result.warnings);
+      return result;
     } catch {
       // error state is surfaced via previewIsError / previewError below
+      return null;
     }
-  }, [runPreview, repositoryId, filenamePattern, directory]);
+  }, [runPreview, repositoryId, filenamePattern, directory, mapping]);
+
+  const handleShowPreview = useCallback(async () => {
+    const result = await loadPreview();
+    if (result) {
+      setPreviewDevices(result.devices);
+      setPreviewOpen(true);
+    }
+  }, [loadPreview]);
+
+  const handleLoadKeys = useCallback(() => {
+    void loadPreview();
+  }, [loadPreview]);
+
+  const handleMappingSave = useCallback(
+    (rules: DeviceMappingRule[]) => {
+      onChange({ ...config, [DEVICE_MAPPING_KEY]: rules });
+      setMappingOpen(false);
+    },
+    [config, onChange],
+  );
+
+  const handleMappingClose = useCallback(() => setMappingOpen(false), []);
 
   const isConfigured = repositoryId !== null && Boolean(filenamePattern.trim());
 
@@ -198,7 +223,9 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
           </Badge>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Custom field mapping for YAML keys.
+          {mapping.length > 0
+            ? `${mapping.length} mapping${mapping.length === 1 ? "" : "s"} configured.`
+            : "Default: name, primary_ip4, network_driver."}
         </p>
         <Button
           className="h-7 w-full text-xs"
@@ -242,43 +269,22 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         onSave={handleRepositoryIdChange}
       />
 
-      <Dialog open={mappingOpen} onOpenChange={(isOpen) => !isOpen && setMappingOpen(false)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Device Mapping</DialogTitle>
-            <DialogDescription>
-              Device mapping configuration will be implemented in a future
-              release. The default mapping reads{" "}
-              <code className="rounded bg-muted px-1 font-mono text-xs">
-                name
-              </code>
-              ,{" "}
-              <code className="rounded bg-muted px-1 font-mono text-xs">
-                primary_ip4
-              </code>
-              , and{" "}
-              <code className="rounded bg-muted px-1 font-mono text-xs">
-                network_driver
-              </code>{" "}
-              fields from each device entry in the YAML file.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setMappingOpen(false)}
-            >
-              Close
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeviceMappingDialog
+        open={mappingOpen}
+        rules={mapping}
+        availableKeys={availableKeys}
+        loadingKeys={previewPending}
+        canLoadKeys={isConfigured}
+        onLoadKeys={handleLoadKeys}
+        onClose={handleMappingClose}
+        onSave={handleMappingSave}
+      />
 
       <GitDevicesPreviewDialog
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         devices={previewDevices}
+        warnings={previewWarnings}
         repositoryId={repositoryId}
       />
     </div>

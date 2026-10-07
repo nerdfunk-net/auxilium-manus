@@ -1,5 +1,6 @@
 import type { PluginUIComponent } from "@/components/features/workflows/types/plugin-ui";
 import { AddToIsePlugin } from "@/components/features/workflow-steps/add-to-ise";
+import { AddNautobotMetadataPlugin } from "@/components/features/workflow-steps/add-nautobot-metadata";
 import { AddToNautobotPlugin } from "@/components/features/workflow-steps/add-to-nautobot";
 import { CollectStatisticsPlugin } from "@/components/features/workflow-steps/collect-statistics";
 import { CompareDataPlugin } from "@/components/features/workflow-steps/compare-data";
@@ -160,6 +161,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "upload-config": UploadConfigPlugin,
   "add-to-ise": AddToIsePlugin,
   "add-to-nautobot": AddToNautobotPlugin,
+  "add-nautobot-metadata": AddNautobotMetadataPlugin,
   "log-message": LogMessagePlugin,
   "log-attributes": LogAttributesPlugin,
   "show-summary": ShowSummaryPlugin,
