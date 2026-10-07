@@ -4,7 +4,6 @@ import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -14,33 +13,62 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-import { NAUTOBOT_TARGETS, targetLabel } from "./constants/nautobot-targets";
+import {
+  CUSTOM_FIELD_OPTION,
+  CUSTOM_FIELD_PREFIX,
+  customFieldName,
+  IGNORE_TARGET,
+  isCustomFieldTarget,
+  NAUTOBOT_TARGETS,
+  targetLabel,
+  type NautobotTarget,
+} from "./constants/nautobot-targets";
+import type { FileFormat } from "./utils/file-options";
 import {
   cleanMapping,
   DEFAULT_MAPPING,
   hasMappingErrors,
+  mappingFromKeys,
   validateMapping,
   type DeviceMappingRule,
 } from "./utils/device-mapping";
 
 const EMPTY_KEYS: readonly string[] = [];
 
-const TARGET_OPTIONS: ComboboxOption[] = NAUTOBOT_TARGETS.map((target) => ({
-  value: target.value,
-  label: targetLabel(target.value),
-}));
+/** Attribute groups in catalog order (Device, Network, Role, ...). */
+const TARGET_GROUPS: { group: string; targets: NautobotTarget[] }[] = NAUTOBOT_TARGETS.reduce<
+  { group: string; targets: NautobotTarget[] }[]
+>((groups, target) => {
+  const existing = groups.find((entry) => entry.group === target.group);
+  if (existing) {
+    existing.targets.push(target);
+    return groups;
+  }
+  return [...groups, { group: target.group, targets: [target] }];
+}, []);
 
 const NEW_ROW: DeviceMappingRule = { source: "", target: "" };
 
 interface DeviceMappingDialogProps {
   open: boolean;
   rules: readonly DeviceMappingRule[];
+  fileFormat: FileFormat;
   /** File keys discovered by the last preview; used as suggestions. */
   availableKeys?: readonly string[];
   loadingKeys: boolean;
   canLoadKeys: boolean;
-  onLoadKeys: () => void;
+  /** Fetches the keys/columns of the matching files; null when loading failed. */
+  onLoadKeys: () => Promise<string[] | null>;
   onClose: () => void;
   onSave: (rules: DeviceMappingRule[]) => void;
 }
@@ -49,6 +77,7 @@ type EditorProps = Omit<DeviceMappingDialogProps, "open">;
 
 function DeviceMappingEditor({
   rules,
+  fileFormat,
   availableKeys = EMPTY_KEYS,
   loadingKeys,
   canLoadKeys,
@@ -73,6 +102,12 @@ function DeviceMappingEditor({
   }, []);
 
   const addRow = useCallback(() => setDraft((rows) => [...rows, NEW_ROW]), []);
+  const handleLoadKeys = useCallback(async () => {
+    const keys = await onLoadKeys();
+    if (keys) {
+      setDraft((rows) => mappingFromKeys(rows, keys));
+    }
+  }, [onLoadKeys]);
   const resetToDefault = useCallback(() => setDraft([...DEFAULT_MAPPING]), []);
 
   const handleSave = useCallback(() => {
@@ -84,14 +119,29 @@ function DeviceMappingEditor({
   }, [draft, errors, onSave]);
 
   const usedTargets = useMemo(() => new Set(draft.map((row) => row.target)), [draft]);
+  const keyLabel = fileFormat === "csv" ? "Column" : "File key";
+  const implicitCustomFields = useMemo(
+    () =>
+      availableKeys.filter(
+        (key) =>
+          key.startsWith("cf_") &&
+          key.length > 3 &&
+          !draft.some((row) => row.source === key),
+      ),
+    [availableKeys, draft],
+  );
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Device Mapping</DialogTitle>
         <DialogDescription>
-          Map keys of each device entry in the file to Nautobot attributes. Nested keys can be
-          written as <code className="font-mono text-xs">parent.child</code>.
+          {fileFormat === "csv"
+            ? "Map the columns of the CSV file to Nautobot attributes."
+            : "Map keys of each device entry in the file to Nautobot attributes. Nested keys can be written as parent.child."}{" "}
+          Columns or keys named{" "}
+          <code className="font-mono text-xs">cf_&lt;name&gt;</code> are mapped to the custom
+          field <code className="font-mono text-xs">&lt;name&gt;</code> automatically.
         </DialogDescription>
       </DialogHeader>
 
@@ -103,7 +153,7 @@ function DeviceMappingEditor({
 
       <div className="flex flex-col gap-2">
         <div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs font-medium text-muted-foreground">
-          <span>File key</span>
+          <span>{keyLabel}</span>
           <span>Nautobot attribute</span>
           <span className="w-8" />
         </div>
@@ -113,24 +163,70 @@ function DeviceMappingEditor({
             <div key={index} className="flex flex-col gap-1">
               <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-2">
                 <Input
-                  aria-label={`File key ${index + 1}`}
+                  aria-label={`${keyLabel} ${index + 1}`}
                   className="h-8 font-mono text-xs"
                   list={listId}
                   placeholder="device_name"
                   value={row.source}
                   onChange={(e) => updateRow(index, { source: e.target.value })}
                 />
-                <Combobox
-                  className="h-8 text-xs"
-                  options={TARGET_OPTIONS.filter(
-                    (option) => option.value === row.target || !usedTargets.has(option.value),
+                <div className="flex flex-col gap-1">
+                  <Select
+                    value={
+                      (isCustomFieldTarget(row.target) ? CUSTOM_FIELD_OPTION : row.target) ||
+                      undefined
+                    }
+                    onValueChange={(target) =>
+                      updateRow(index, {
+                        target:
+                          target === CUSTOM_FIELD_OPTION && !isCustomFieldTarget(row.target)
+                            ? CUSTOM_FIELD_PREFIX
+                            : target,
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label={`Nautobot attribute ${index + 1}`}
+                      className="h-8 text-xs"
+                    >
+                      <SelectValue placeholder="Select attribute…">
+                        {row.target ? targetLabel(row.target) : undefined}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      <SelectItem value={IGNORE_TARGET}>{targetLabel(IGNORE_TARGET)}</SelectItem>
+                      {TARGET_GROUPS.map(({ group, targets }) => (
+                        <SelectGroup key={group}>
+                          <SelectLabel>{group}</SelectLabel>
+                          {targets.map((target) => (
+                            <SelectItem
+                              key={target.value}
+                              disabled={usedTargets.has(target.value) && target.value !== row.target}
+                              value={target.value}
+                            >
+                              {target.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                      <SelectGroup>
+                        <SelectLabel>Custom</SelectLabel>
+                        <SelectItem value={CUSTOM_FIELD_OPTION}>Custom field…</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {isCustomFieldTarget(row.target) && (
+                    <Input
+                      aria-label={`Custom field name ${index + 1}`}
+                      className="h-8 font-mono text-xs"
+                      placeholder="snmp_credentials"
+                      value={customFieldName(row.target)}
+                      onChange={(e) =>
+                        updateRow(index, { target: `${CUSTOM_FIELD_PREFIX}${e.target.value.trim()}` })
+                      }
+                    />
                   )}
-                  placeholder="Select attribute…"
-                  searchPlaceholder="Search attributes…"
-                  value={row.target}
-                  onValueChange={(target) => updateRow(index, { target })}
-                  inline
-                />
+                </div>
                 <Button
                   aria-label={`Remove mapping ${index + 1}`}
                   className="h-8 w-8"
@@ -151,6 +247,14 @@ function DeviceMappingEditor({
             No rows. Saving an empty mapping uses the default (name, primary_ip4, network_driver).
           </p>
         )}
+        {implicitCustomFields.length > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            Custom fields mapped automatically:{" "}
+            {implicitCustomFields
+              .map((key) => `${key} → ${key.slice(3)}`)
+              .join(", ")}
+          </p>
+        )}
         {showErrors && errors.form && <p className="text-[11px] text-destructive">{errors.form}</p>}
       </div>
 
@@ -165,9 +269,9 @@ function DeviceMappingEditor({
           type="button"
           variant="outline"
           disabled={!canLoadKeys || loadingKeys}
-          onClick={onLoadKeys}
+          onClick={handleLoadKeys}
         >
-          {loadingKeys ? "Loading keys…" : `Load keys from repository (${availableKeys.length})`}
+          {loadingKeys ? "Loading keys…" : "Load keys from repository"}
         </Button>
         <Button
           className="h-7 text-xs"

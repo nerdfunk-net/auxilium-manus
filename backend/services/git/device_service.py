@@ -1,4 +1,4 @@
-"""Fetch device data (YAML inventory files) from a git repository."""
+"""Fetch device data (YAML or CSV inventory files) from a git repository."""
 
 from __future__ import annotations
 
@@ -10,15 +10,20 @@ from typing import Any
 
 import yaml
 
+from services.git.csv_device_reader import ALLOWED_DELIMITERS, read_csv_rows
+from services.git.device_grouping import map_single_row, merge_device_rows
 from services.git.device_mapping import (
+    NAME_TARGET,
     MappingRule,
-    apply_device_mapping,
     collect_available_keys,
     validate_device_mapping,
+    with_implicit_custom_field_rules,
 )
 from services.git.sync import clone_or_pull
 
 logger = logging.getLogger(__name__)
+
+FILE_FORMATS: tuple[str, ...] = ("yaml", "csv")
 
 
 def _find_files(repo_dir: Path, directory: str, pattern: str) -> list[Path]:
@@ -97,9 +102,12 @@ class GitDeviceService:
         filename_pattern: str,
         directory: str = "",
         device_mapping: list[dict[str, Any]] | None = None,
+        **file_options: Any,
     ) -> tuple[list[dict[str, Any]], int]:
         """Return ``(mapped devices, files_read)``; see :meth:`fetch_records`."""
-        result = self.fetch_records(repository, filename_pattern, directory, device_mapping)
+        result = self.fetch_records(
+            repository, filename_pattern, directory, device_mapping, **file_options
+        )
         return [record.mapped for record in result.records], result.files_read
 
     def fetch_records(
@@ -108,6 +116,10 @@ class GitDeviceService:
         filename_pattern: str,
         directory: str = "",
         device_mapping: list[dict[str, Any]] | None = None,
+        *,
+        file_format: str = "yaml",
+        csv_delimiter: str = ";",
+        csv_multiline: bool = False,
     ) -> GitDeviceFetchResult:
         """Clone/pull the repo, find matching files, and map device entries.
 
@@ -118,12 +130,24 @@ class GitDeviceService:
             directory: Subdirectory within the repository to search.
             device_mapping: ``[{source, target}]`` rows (see
                 ``services.git.device_mapping``); empty/None uses the default mapping.
+            file_format: ``"yaml"`` or ``"csv"``.
+            csv_delimiter: Column delimiter of CSV files.
+            csv_multiline: CSV only — merge all lines with the same device name.
 
-        Raises ``ValueError`` for an invalid mapping (before any git work).
+        Raises ``ValueError`` for invalid options or mapping (before any git work).
         """
-        rules: list[MappingRule] = validate_device_mapping(device_mapping)
+        if file_format not in FILE_FORMATS:
+            raise ValueError(f"file_format must be one of {', '.join(FILE_FORMATS)}")
+        if file_format == "csv" and csv_delimiter not in ALLOWED_DELIMITERS:
+            raise ValueError("csv_delimiter must be one of ; , tab |")
+        base_rules = validate_device_mapping(device_mapping)
         name = repository.get("name") or repository.get("id")
-        logger.info("fetch_devices START — repo=%s pattern=%s", name, filename_pattern)
+        logger.info(
+            "fetch_devices START — repo=%s pattern=%s format=%s",
+            name,
+            filename_pattern,
+            file_format,
+        )
 
         repo_dir = clone_or_pull(repository)
 
@@ -149,32 +173,66 @@ class GitDeviceService:
 
         raw_entries: list[dict[str, Any]] = []
         for file_path in files:
-            entries, problem = _read_yaml_entries(file_path)
+            if file_format == "csv":
+                entries, problems = read_csv_rows(file_path, csv_delimiter)
+                warnings.extend(problems)
+            else:
+                entries, problem = _read_yaml_entries(file_path)
+                warnings.extend([problem] if problem else [])
             raw_entries.extend(entries)
-            if problem:
-                warnings.append(problem)
 
-        records: list[GitDeviceRecord] = []
-        for entry in raw_entries:
-            mapped = apply_device_mapping(entry, rules)
-            if mapped is not None:
-                records.append(GitDeviceRecord(raw=entry, mapped=mapped))
-        unmapped = len(raw_entries) - len(records)
-        if unmapped:
-            name_source = next((r.source for r in rules if r.target == "name"), "name")
-            warnings.append(
-                f"{unmapped} entr{'y' if unmapped == 1 else 'ies'} skipped: "
-                f"no value for the key mapped to Device name ('{name_source}')"
-            )
+        top_level_keys = list(dict.fromkeys(key for entry in raw_entries for key in entry))
+        rules = with_implicit_custom_field_rules(base_rules, top_level_keys)
+
+        if file_format == "csv" and csv_multiline:
+            groups, group_warnings = merge_device_rows(raw_entries, rules)
+            records = [GitDeviceRecord(raw=g.raw, mapped=g.mapped) for g in groups]
+            warnings.extend(group_warnings)
+        else:
+            records = []
+            for entry in raw_entries:
+                mapped = map_single_row(entry, rules)
+                if mapped is not None:
+                    records.append(GitDeviceRecord(raw=entry, mapped=mapped))
+            warnings.extend(_single_mode_warnings(records, len(raw_entries), rules, file_format))
+
         for warning in warnings:
             logger.warning("Git repository '%s': %s", name, warning)
-
         logger.info(
             "fetch_devices DONE — repo=%s devices=%d files=%d", name, len(records), len(files)
         )
         return GitDeviceFetchResult(
             records=records,
             files_read=len(files),
-            available_keys=collect_available_keys(raw_entries),
+            available_keys=(
+                sorted(top_level_keys)
+                if file_format == "csv"
+                else collect_available_keys(raw_entries)
+            ),
             warnings=warnings,
         )
+
+
+def _single_mode_warnings(
+    records: list[GitDeviceRecord],
+    entry_count: int,
+    rules: list[MappingRule],
+    file_format: str,
+) -> list[str]:
+    """Warnings for one-entry-per-device reading: skipped entries and repeated names."""
+    warnings: list[str] = []
+    unmapped = entry_count - len(records)
+    if unmapped:
+        name_source = next((r.source for r in rules if r.target == NAME_TARGET), NAME_TARGET)
+        warnings.append(
+            f"{unmapped} entr{'y' if unmapped == 1 else 'ies'} skipped: "
+            f"no value for the key mapped to Device name ('{name_source}')"
+        )
+    names = [record.mapped["name"] for record in records]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates and file_format == "csv":
+        warnings.append(
+            f"Several lines share the same name ({', '.join(duplicates[:3])}): enable "
+            "'Multiple lines per device' to merge them"
+        )
+    return warnings

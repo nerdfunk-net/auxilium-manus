@@ -88,6 +88,40 @@ class GetGitDevicesExecutorTests(unittest.IsolatedAsyncioTestCase):
         device = next(iter(outcomes[0].context.devices.values()))
         self.assertEqual((device.name, device.primary_ip4), ("LAB", "10.0.0.1/24"))
 
+    async def test_csv_multiline_with_interfaces_and_custom_fields(self) -> None:
+        (self.repo / "d.yaml").unlink()
+        (self.repo / "d.csv").write_text(
+            "name;role;interface_name;interface_ip_address;cf_snmp_credentials\n"
+            "LAB;Network;;;secret\n"
+            "LAB;;Ethernet0/0;10.0.0.1/24;\n"
+            "LAB;;Ethernet0/1;10.0.1.1/24;\n"
+        )
+        mapping = [
+            {"source": "name", "target": "name"},
+            {"source": "role", "target": "role.name"},
+            {"source": "interface_name", "target": "interfaces.name"},
+            {"source": "interface_ip_address", "target": "interfaces.ip_addresses.address"},
+        ]
+        outcomes = await _run(
+            {
+                "device_mapping": mapping,
+                "file_format": "csv",
+                "csv_multiline": True,
+                "filename_pattern": "*.csv",
+            },
+            self.repo,
+        )
+        devices = list(outcomes[0].context.devices.values())
+        self.assertEqual(len(devices), 1)
+        bag = devices[0].attribute_bags["nautobot"]
+        self.assertEqual(bag["role"], {"name": "Network"})
+        self.assertEqual([i["name"] for i in bag["interfaces"]], ["Ethernet0/0", "Ethernet0/1"])
+        self.assertEqual(bag["custom_fields"], {"snmp_credentials": "secret"})
+
+    async def test_invalid_file_format_fails_step(self) -> None:
+        with self.assertRaisesRegex(ValueError, "get-git-devices: .*file_format"):
+            await _run({"file_format": "xml"}, self.repo)
+
     async def test_default_mapping_when_unset(self) -> None:
         (self.repo / "d.yaml").write_text("devices:\n  - name: r2\n    network_driver: ios\n")
         outcomes = await _run({}, self.repo)

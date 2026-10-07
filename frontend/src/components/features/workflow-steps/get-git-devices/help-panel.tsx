@@ -79,7 +79,13 @@ export function GetGitDevicesHelpPanel() {
           add a row per key, type the file key (nested keys as{" "}
           <HelpCode>parent.child</HelpCode>) and pick the Nautobot attribute from
           the list. <span className="font-medium text-foreground">Load keys from
-          repository</span> suggests the keys found in your files.
+          repository</span> adds one row per key found in your files, pre-filled
+          with the matching attribute where the name is recognised (e.g.{" "}
+          <HelpCode>ip_address</HelpCode>, <HelpCode>role</HelpCode>) and set to{" "}
+          <HelpCode>Ignore this column</HelpCode> otherwise. Choose{" "}
+          <HelpCode>Ignore this column</HelpCode> in any row to skip that
+          column; an ignored <HelpCode>cf_&lt;name&gt;</HelpCode> column is not
+          turned into a custom field.
         </p>
         <ul className="list-disc space-y-1 pl-4">
           <li>
@@ -117,11 +123,53 @@ export function GetGitDevicesHelpPanel() {
         </HelpExample>
       </HelpSection>
 
+      <HelpSection title="CSV files">
+        <p>
+          Set <HelpCode>file_format</HelpCode> to{" "}
+          <span className="font-medium text-foreground">CSV</span> (and adjust{" "}
+          <HelpCode>filename_pattern</HelpCode>, e.g. <HelpCode>*.csv</HelpCode>).
+          The first line is the header; its column names are the keys you map in{" "}
+          <span className="font-medium text-foreground">Configure Mapping</span>.
+          Pick the delimiter (default <HelpCode>;</HelpCode>).
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Simple</span>: one line
+          per device.
+        </p>
+        <p>
+          <span className="font-medium text-foreground">
+            Multiple lines per device
+          </span>
+          : tick the checkbox and repeat the device name on every line. Lines
+          with the same name are merged in file order — a later non-empty value
+          overwrites an earlier one, an empty cell never erases a value. A line
+          with a value in the column mapped to{" "}
+          <HelpCode>Interface name</HelpCode> adds one entry to{" "}
+          <HelpCode>{"{nautobot.interfaces}"}</HelpCode>.
+        </p>
+        <HelpExample>
+          name;ip_address;role;status;location;network_driver;interface_name;interface_ip_address
+          <br />
+          LAB;192.168.178.240/24;network;Active;CityA;cisco_ios;;
+          <br />
+          LAB;;;;;;Ethernet0/0;192.168.178.240/24
+          <br />
+          LAB;;;;;;Ethernet0/1;192.168.179.240/24
+        </HelpExample>
+        <p>
+          Columns named <HelpCode>cf_&lt;name&gt;</HelpCode> become the custom
+          field <HelpCode>&lt;name&gt;</HelpCode> automatically (for example{" "}
+          <HelpCode>cf_snmp_credentials</HelpCode> →{" "}
+          <HelpCode>{"{nautobot.custom_fields.snmp_credentials}"}</HelpCode>).
+          Lines with the wrong number of fields are reported in the preview.
+        </p>
+      </HelpSection>
+
       <HelpSection title="Show Preview">
         <p>
           <span className="font-medium text-foreground">Show Preview</span>{" "}
           clones or refreshes the repo, applies the filename pattern, parses
-          matching YAML files, and lists discovered devices before you save or
+          matching YAML or CSV files, and lists discovered devices before you save or
           run the workflow. The button stays disabled until both{" "}
           <HelpCode>git_repository_id</HelpCode> and a non-empty{" "}
           <HelpCode>filename_pattern</HelpCode> are set.

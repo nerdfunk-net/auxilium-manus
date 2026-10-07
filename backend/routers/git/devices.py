@@ -29,6 +29,9 @@ class GitDevicePreviewRequest(BaseModel):
     filename_pattern: str
     directory: str = ""
     device_mapping: list[dict[str, Any]] | None = None
+    file_format: str = "yaml"
+    csv_delimiter: str = ";"
+    csv_multiline: bool = False
 
 
 class GitDevicePreviewResponse(BaseModel):
@@ -92,7 +95,13 @@ async def preview_git_devices(
         result = await loop.run_in_executor(
             None,
             lambda: service.fetch_records(
-                repository, pattern, request.directory, request.device_mapping
+                repository,
+                pattern,
+                request.directory,
+                request.device_mapping,
+                file_format=request.file_format,
+                csv_delimiter=request.csv_delimiter,
+                csv_multiline=request.csv_multiline,
             ),
         )
         return GitDevicePreviewResponse(

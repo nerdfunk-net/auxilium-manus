@@ -61,3 +61,32 @@ def test_preview_invalid_mapping_is_400(client) -> None:
         },
     )
     assert resp.status_code == 400
+
+
+def test_preview_csv_multiline(client, tmp_path) -> None:
+    (tmp_path / "d.csv").write_text("name;interface_name\nr1;\nr1;Eth0\nr1;Eth1\n")
+    resp = client.post(
+        "/api/git/1/preview-devices",
+        json={
+            "filename_pattern": "*.csv",
+            "file_format": "csv",
+            "csv_multiline": True,
+            "device_mapping": [
+                {"source": "name", "target": "name"},
+                {"source": "interface_name", "target": "interfaces.name"},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["devices"]) == 1
+    assert [i["name"] for i in body["devices"][0]["interfaces"]] == ["Eth0", "Eth1"]
+    assert body["available_keys"] == ["interface_name", "name"]
+
+
+def test_preview_bad_delimiter_is_400(client) -> None:
+    resp = client.post(
+        "/api/git/1/preview-devices",
+        json={"filename_pattern": "*.csv", "file_format": "csv", "csv_delimiter": "abc"},
+    )
+    assert resp.status_code == 400

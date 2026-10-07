@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { NAUTOBOT_TARGETS, targetLabel } from "./constants/nautobot-targets";
+import { INTERFACE_PREFIX, NAUTOBOT_TARGETS, targetLabel } from "./constants/nautobot-targets";
 import type { GitDevicePreview } from "@/hooks/queries/use-get-git-devices-preview-mutation";
 import { useGitRepositoryLabel } from "@/components/features/workflow-steps/shared/git-repository-value";
 
@@ -25,6 +25,19 @@ function valueAtPath(device: GitDevicePreview, path: string): string | undefined
     current = (current as Record<string, unknown>)[part];
   }
   return typeof current === "string" ? current : undefined;
+}
+
+/** Interfaces as "name (ip)" for a compact cell. */
+function interfacesSummary(device: GitDevicePreview): string | undefined {
+  if (!device.interfaces || device.interfaces.length === 0) {
+    return undefined;
+  }
+  return device.interfaces
+    .map((iface) => {
+      const address = iface.ip_addresses?.[0]?.address;
+      return address ? `${iface.name} (${address})` : (iface.name ?? "?");
+    })
+    .join(", ");
 }
 
 interface GitDevicesPreviewDialogProps {
@@ -47,9 +60,18 @@ export function GitDevicesPreviewDialog({
   // Only show attributes that at least one device actually has a value for.
   const columns = useMemo(
     () =>
-      NAUTOBOT_TARGETS.map((target) => target.value).filter((path) =>
-        devices.some((device) => valueAtPath(device, path) !== undefined),
-      ),
+      NAUTOBOT_TARGETS.map((target) => target.value)
+        .filter((path) => !path.startsWith(INTERFACE_PREFIX))
+        .filter((path) => devices.some((device) => valueAtPath(device, path) !== undefined)),
+    [devices],
+  );
+  const customFieldNames = useMemo(
+    () =>
+      [...new Set(devices.flatMap((device) => Object.keys(device.custom_fields ?? {})))].sort(),
+    [devices],
+  );
+  const hasInterfaces = useMemo(
+    () => devices.some((device) => interfacesSummary(device) !== undefined),
     [devices],
   );
 
@@ -89,6 +111,12 @@ export function GitDevicesPreviewDialog({
                       {targetLabel(path)}
                     </th>
                   ))}
+                  {customFieldNames.map((name) => (
+                    <th key={`cf-${name}`} className="whitespace-nowrap px-3 py-2">
+                      {targetLabel(`custom_fields.${name}`)}
+                    </th>
+                  ))}
+                  {hasInterfaces && <th className="whitespace-nowrap px-3 py-2">Interfaces</th>}
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -99,6 +127,14 @@ export function GitDevicesPreviewDialog({
                         {valueAtPath(device, path) ?? "—"}
                       </td>
                     ))}
+                    {customFieldNames.map((name) => (
+                      <td key={`cf-${name}`} className="px-3 py-2 font-mono">
+                        {device.custom_fields?.[name] ?? "—"}
+                      </td>
+                    ))}
+                    {hasInterfaces && (
+                      <td className="px-3 py-2 font-mono">{interfacesSummary(device) ?? "—"}</td>
+                    )}
                   </tr>
                 ))}
               </tbody>

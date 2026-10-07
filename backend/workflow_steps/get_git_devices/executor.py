@@ -56,7 +56,13 @@ async def execute(
         result = await loop.run_in_executor(
             None,
             lambda: service.fetch_records(
-                repository, filename_pattern, directory, config.get("device_mapping")
+                repository,
+                filename_pattern,
+                directory,
+                config.get("device_mapping"),
+                file_format=str(config.get("file_format") or "yaml"),
+                csv_delimiter=str(config.get("csv_delimiter") or ";"),
+                csv_multiline=bool(config.get("csv_multiline")),
             ),
         )
     except ValueError as exc:

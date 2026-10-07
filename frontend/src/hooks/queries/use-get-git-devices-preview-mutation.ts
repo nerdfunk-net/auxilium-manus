@@ -23,6 +23,16 @@ export interface GitDevicePreview {
   platform?: { name?: string; network_driver?: string };
   location?: { name?: string; description?: string; parent?: { name?: string } };
   status?: { name?: string };
+  interfaces?: {
+    name?: string;
+    description?: string;
+    type?: string;
+    mac_address?: string;
+    mtu?: string;
+    status?: { name?: string };
+    ip_addresses?: { address?: string }[];
+  }[];
+  custom_fields?: Record<string, string>;
 }
 
 export interface GitPreviewResponse {
@@ -40,6 +50,9 @@ interface GitPreviewRequest {
   filename_pattern: string;
   directory: string;
   device_mapping?: { source: string; target: string }[];
+  file_format?: "yaml" | "csv";
+  csv_delimiter?: string;
+  csv_multiline?: boolean;
 }
 
 export function useGetGitDevicesPreviewMutation() {

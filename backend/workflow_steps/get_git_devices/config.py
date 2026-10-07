@@ -6,6 +6,9 @@ def get_config() -> dict:
         "git_repository_id": None,
         "filename_pattern": "*.yaml",
         "directory": "",
+        "file_format": "yaml",
+        "csv_delimiter": ";",
+        "csv_multiline": False,
         "device_mapping": [],
         "fan_out": {
             "enabled": False,

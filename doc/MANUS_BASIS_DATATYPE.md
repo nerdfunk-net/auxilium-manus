@@ -1224,3 +1224,38 @@ Mapped values are stored nested like a Nautobot device in `attribute_bags["nauto
 (`{nautobot.location.name}`, `{nautobot.status.name}`); `name`, `primary_ip4.address`,
 `platform.name` and `platform.network_driver` additionally set the `DeviceContext` fields. The
 mapping layer is format-agnostic: a future CSV reader only has to yield one raw row dict per device.
+
+#### CSV files, interfaces and custom fields
+
+`file_format: csv` reads CSV instead of YAML (`csv_delimiter`: `;` default, `,`, tab or `|`; UTF-8, BOM
+tolerated). The header row gives the keys to map. Two layouts:
+
+- **Simple** — one line per device.
+- **Multiple lines per device** (`csv_multiline: true`) — every line repeats the device name; lines with the
+  same name are merged in file order. A later **non-empty** value overwrites an earlier one; an empty cell never
+  erases a value. Lines are merged across all matched files.
+
+```
+name;ip_address;role;status;location;network_driver;interface_name;interface_ip_address
+LAB;192.168.178.240/24;network;Active;CityA;cisco_ios;;
+LAB;;;;;;Ethernet0/0;192.168.178.240/24
+LAB;;;;;;Ethernet0/1;192.168.179.240/24
+```
+
+Extra mapping targets (all formats):
+
+- `interfaces.name|description|type|mac_address|mtu|status.name|ip_addresses.address` — a line with an
+  `interfaces.name` value adds one object to `attribute_bags["nautobot"]["interfaces"]` (list, same shape as
+  `get-nautobot-attributes`; the IP is `ip_addresses: [{"address": ...}]`). Without the multi-line option a line
+  yields a one-item list.
+- `custom_fields.<name>` (letters, digits, `_`) — stored at `nautobot.custom_fields.<name>`. A key or column named
+  `cf_<name>` is mapped to it **automatically** unless that key or target is mapped explicitly; empty values are ignored.
+
+- `_ignore` — skips that key/column; usable for any number of columns. An ignored `cf_<name>` column is not
+  mapped to a custom field. In the UI, "Load keys from repository" adds one row per column found, pre-filled
+  from a table of common names and set to ignore otherwise.
+
+A line whose field count differs from the header (a missing `;` shifts values into the wrong columns) is still
+read but reported in the step's `<node>.warnings` and in the preview. Mapping, parsing and merging live in
+`services/git/{device_mapping,csv_device_reader,device_grouping,device_service}.py`.
+

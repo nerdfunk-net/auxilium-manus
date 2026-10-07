@@ -2011,14 +2011,38 @@ plugins:
           data_type: string
           required: false
           example: configs/
+        - name: file_format
+          description: File type of the inventory files, yaml or csv.
+          data_type: string
+          required: false
+          default: yaml
+          example: csv
+        - name: csv_delimiter
+          description: Column delimiter of CSV files (one of ; , tab |).
+          data_type: string
+          required: false
+          default: ";"
+          example: ";"
+        - name: csv_multiline
+          description: >
+            CSV only. When true a device may span several lines; lines with the same name
+            are merged in file order (a later non-empty value overwrites an earlier one).
+            Lines carrying an interface name add one entry to nautobot.interfaces.
+          data_type: boolean
+          required: false
+          default: false
+          example: true
         - name: device_mapping
           description: >
-            List of {source, target} rows mapping keys of each file entry (dot-paths
+            List of {source, target} rows mapping keys of each file entry or CSV column (dot-paths
             allowed) to Nautobot attributes such as name, primary_ip4.address,
             location.name or status.name. Mapped values are stored in the device's
             nautobot attribute bag; name, primary_ip4.address, platform.name and
             platform.network_driver also set the core device fields. Empty = default
-            (name, primary_ip4, network_driver). A "name" target is required.
+            (name, primary_ip4, network_driver). A "name" target is required. Targets also
+            include interfaces.* (interface name, IP, ...) and custom_fields.<name>; keys
+            or columns named cf_<name> map to custom_fields.<name> automatically. The
+            target _ignore skips a key/column.
           data_type: array
           required: false
           example:

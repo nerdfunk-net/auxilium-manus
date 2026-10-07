@@ -8,12 +8,15 @@ import unittest
 from services.git.device_mapping import (
     CORE_TARGETS,
     DEFAULT_DEVICE_MAPPING,
+    IGNORE_TARGET,
     NAUTOBOT_TARGETS,
     MappingRule,
     apply_device_mapping,
+    apply_interface_mapping,
     collect_available_keys,
     resolve_source_value,
     validate_device_mapping,
+    with_implicit_custom_field_rules,
 )
 
 
@@ -71,6 +74,146 @@ class ValidateDeviceMappingTests(unittest.TestCase):
     def test_non_dict_row_rejected(self) -> None:
         with self.assertRaises(ValueError):
             validate_device_mapping(["name"])
+
+
+class CustomFieldAndInterfaceTargetTests(unittest.TestCase):
+    NAME = {"source": "name", "target": "name"}
+
+    def test_custom_field_target_accepted(self) -> None:
+        rules = validate_device_mapping(
+            [self.NAME, {"source": "x", "target": "custom_fields.snmp_credentials"}]
+        )
+        self.assertEqual(rules[1].target, "custom_fields.snmp_credentials")
+
+    def test_invalid_custom_field_names_rejected(self) -> None:
+        bad_names = (
+            "custom_fields.",
+            "custom_fields.a b",
+            "custom_fields.a.b",
+            "custom_fields.a-b",
+        )
+        for bad in bad_names:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_device_mapping([self.NAME, {"source": "x", "target": bad}])
+
+    def test_interface_targets_accepted(self) -> None:
+        rules = validate_device_mapping(
+            [
+                self.NAME,
+                {"source": "i", "target": "interfaces.name"},
+                {"source": "ip", "target": "interfaces.ip_addresses.address"},
+            ]
+        )
+        self.assertEqual(len(rules), 3)
+
+    def test_interface_targets_without_interface_name_rejected(self) -> None:
+        for target in ("interfaces.ip_addresses.address", "interfaces.description"):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, "interfaces.name"):
+                validate_device_mapping([self.NAME, {"source": "ip", "target": target}])
+
+    def test_interface_name_alone_is_valid(self) -> None:
+        rules = validate_device_mapping([self.NAME, {"source": "i", "target": "interfaces.name"}])
+        self.assertEqual(len(rules), 2)
+
+    def test_ignored_column_does_not_count_as_interface_name(self) -> None:
+        with self.assertRaisesRegex(ValueError, "interfaces.name"):
+            validate_device_mapping(
+                [
+                    self.NAME,
+                    {"source": "i", "target": IGNORE_TARGET},
+                    {"source": "ip", "target": "interfaces.mtu"},
+                ]
+            )
+
+    def test_device_mapping_ignores_interface_targets(self) -> None:
+        out = apply_device_mapping(
+            {"n": "r1", "i": "Eth0"},
+            [MappingRule("n", "name"), MappingRule("i", "interfaces.name")],
+        )
+        self.assertEqual(out, {"name": "r1"})
+
+    def test_custom_field_value_nested(self) -> None:
+        out = apply_device_mapping(
+            {"n": "r1", "c": "v"},
+            [MappingRule("n", "name"), MappingRule("c", "custom_fields.snmp")],
+        )
+        self.assertEqual(out, {"name": "r1", "custom_fields": {"snmp": "v"}})
+
+    def test_apply_interface_mapping(self) -> None:
+        rules = [
+            MappingRule("i", "interfaces.name"),
+            MappingRule("ip", "interfaces.ip_addresses.address"),
+            MappingRule("st", "interfaces.status.name"),
+            MappingRule("n", "name"),
+        ]
+        entry = {"i": "Eth0", "ip": "1.1.1.1/24", "st": "Active", "n": "r"}
+        out = apply_interface_mapping(entry, rules)
+        self.assertEqual(
+            out,
+            {
+                "name": "Eth0",
+                "status": {"name": "Active"},
+                "ip_addresses": [{"address": "1.1.1.1/24"}],
+            },
+        )
+
+    def test_apply_interface_mapping_requires_name(self) -> None:
+        rules = [MappingRule("ip", "interfaces.ip_addresses.address")]
+        self.assertIsNone(apply_interface_mapping({"ip": "1.1.1.1/24"}, rules))
+        self.assertIsNone(apply_interface_mapping({}, [MappingRule("i", "interfaces.name")]))
+
+
+class ImplicitCustomFieldRuleTests(unittest.TestCase):
+    def test_cf_keys_get_rules(self) -> None:
+        rules = with_implicit_custom_field_rules(
+            [MappingRule("name", "name")], ["name", "cf_snmp_credentials", "cf_net", "other"]
+        )
+        self.assertEqual(
+            rules[1:],
+            [
+                MappingRule("cf_snmp_credentials", "custom_fields.snmp_credentials"),
+                MappingRule("cf_net", "custom_fields.net"),
+            ],
+        )
+
+    def test_explicit_source_not_duplicated(self) -> None:
+        base = [MappingRule("name", "name"), MappingRule("cf_net", "custom_fields.network")]
+        self.assertEqual(with_implicit_custom_field_rules(base, ["cf_net"]), base)
+
+    def test_explicit_target_not_duplicated(self) -> None:
+        base = [MappingRule("name", "name"), MappingRule("net", "custom_fields.net")]
+        self.assertEqual(with_implicit_custom_field_rules(base, ["cf_net"]), base)
+
+    def test_bare_or_invalid_cf_keys_skipped(self) -> None:
+        base = [MappingRule("name", "name")]
+        self.assertEqual(with_implicit_custom_field_rules(base, ["cf_", "cf_a b", "cf_a.b"]), base)
+
+
+class IgnoreTargetTests(unittest.TestCase):
+    NAME = {"source": "name", "target": "name"}
+
+    def test_ignore_target_accepted_and_may_repeat(self) -> None:
+        rules = validate_device_mapping(
+            [
+                self.NAME,
+                {"source": "a", "target": IGNORE_TARGET},
+                {"source": "b", "target": IGNORE_TARGET},
+            ]
+        )
+        self.assertEqual([r.target for r in rules], ["name", IGNORE_TARGET, IGNORE_TARGET])
+
+    def test_ignored_columns_do_not_reach_the_device(self) -> None:
+        rules = [MappingRule("n", "name"), MappingRule("junk", IGNORE_TARGET)]
+        self.assertEqual(apply_device_mapping({"n": "r1", "junk": "x"}, rules), {"name": "r1"})
+        self.assertIsNone(apply_interface_mapping({"n": "r1", "junk": "x"}, rules))
+
+    def test_ignored_cf_column_is_not_mapped_implicitly(self) -> None:
+        base = [MappingRule("name", "name"), MappingRule("cf_net", IGNORE_TARGET)]
+        self.assertEqual(with_implicit_custom_field_rules(base, ["cf_net"]), base)
+
+    def test_ignore_only_mapping_still_needs_a_name(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_device_mapping([{"source": "a", "target": IGNORE_TARGET}])
 
 
 class ResolveSourceValueTests(unittest.TestCase):

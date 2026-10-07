@@ -4,8 +4,16 @@ import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type {
   PluginConfigPanelProps,
   PluginUIComponent,
@@ -23,6 +31,18 @@ import { GitRepositoryValue } from "@/components/features/workflow-steps/shared/
 import { DeviceMappingDialog } from "./device-mapping-dialog";
 import { GitDevicesPreviewDialog } from "./preview-dialog";
 import { mappingFromConfig, type DeviceMappingRule } from "./utils/device-mapping";
+import {
+  CSV_DELIMITER_KEY,
+  CSV_DELIMITERS,
+  CSV_MULTILINE_KEY,
+  DEFAULT_PATTERN,
+  delimiterFromConfig,
+  FILE_FORMAT_KEY,
+  fileFormatFromConfig,
+  multilineFromConfig,
+  patternForFormat,
+  type FileFormat,
+} from "./utils/file-options";
 import { GetGitDevicesHelpPanel } from "./help-panel";
 
 const GIT_REPOSITORY_ID_KEY = "git_repository_id";
@@ -39,7 +59,7 @@ function gitRepositoryIdFromConfig(config: Record<string, unknown>): number | nu
 
 function filenamePatternFromConfig(config: Record<string, unknown>): string {
   const raw = config[FILENAME_PATTERN_KEY];
-  return typeof raw === "string" ? raw : "*.yaml";
+  return typeof raw === "string" ? raw : DEFAULT_PATTERN[fileFormatFromConfig(config)];
 }
 
 function directoryFromConfig(config: Record<string, unknown>): string {
@@ -54,6 +74,9 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     [config],
   );
   const directory = useMemo(() => directoryFromConfig(config), [config]);
+  const fileFormat = useMemo(() => fileFormatFromConfig(config), [config]);
+  const csvDelimiter = useMemo(() => delimiterFromConfig(config), [config]);
+  const csvMultiline = useMemo(() => multilineFromConfig(config), [config]);
   const fanOut = useMemo(() => fanOutFromConfig(config), [config]);
   const mapping = useMemo(() => mappingFromConfig(config), [config]);
 
@@ -85,6 +108,32 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     [config, onChange],
   );
 
+  const handleFileFormatChange = useCallback(
+    (value: string) => {
+      const next: FileFormat = value === "csv" ? "csv" : "yaml";
+      onChange({
+        ...config,
+        [FILE_FORMAT_KEY]: next,
+        [FILENAME_PATTERN_KEY]: patternForFormat(filenamePattern, next),
+      });
+    },
+    [config, filenamePattern, onChange],
+  );
+
+  const handleDelimiterChange = useCallback(
+    (value: string) => {
+      onChange({ ...config, [CSV_DELIMITER_KEY]: value });
+    },
+    [config, onChange],
+  );
+
+  const handleMultilineChange = useCallback(
+    (checked: boolean | "indeterminate") => {
+      onChange({ ...config, [CSV_MULTILINE_KEY]: checked === true });
+    },
+    [config, onChange],
+  );
+
   const handleDirectoryChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       onChange({ ...config, [DIRECTORY_KEY]: e.target.value });
@@ -109,6 +158,9 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         filename_pattern: filenamePattern,
         directory,
         device_mapping: mapping,
+        file_format: fileFormat,
+        csv_delimiter: csvDelimiter,
+        csv_multiline: csvMultiline,
       });
       setAvailableKeys(result.available_keys);
       setPreviewWarnings(result.warnings);
@@ -117,7 +169,16 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       // error state is surfaced via previewIsError / previewError below
       return null;
     }
-  }, [runPreview, repositoryId, filenamePattern, directory, mapping]);
+  }, [
+    runPreview,
+    repositoryId,
+    filenamePattern,
+    directory,
+    mapping,
+    fileFormat,
+    csvDelimiter,
+    csvMultiline,
+  ]);
 
   const handleShowPreview = useCallback(async () => {
     const result = await loadPreview();
@@ -127,8 +188,9 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
     }
   }, [loadPreview]);
 
-  const handleLoadKeys = useCallback(() => {
-    void loadPreview();
+  const handleLoadKeys = useCallback(async () => {
+    const result = await loadPreview();
+    return result ? result.available_keys : null;
   }, [loadPreview]);
 
   const handleMappingSave = useCallback(
@@ -169,6 +231,66 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         </Button>
       </div>
 
+      {/* file_format (+ CSV options) */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <Label className="font-mono text-xs font-medium" htmlFor="git-file-format">
+            {FILE_FORMAT_KEY}
+          </Label>
+          <Badge className="h-4 rounded px-1 text-[10px]" variant="secondary">
+            file type
+          </Badge>
+        </div>
+        <Select value={fileFormat} onValueChange={handleFileFormatChange}>
+          <SelectTrigger className="h-7 text-xs" id="git-file-format">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="yaml">YAML</SelectItem>
+            <SelectItem value="csv">CSV</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {fileFormat === "csv" && (
+          <div className="space-y-2 pt-1">
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground" htmlFor="git-csv-delimiter">
+                Delimiter
+              </Label>
+              <Select value={csvDelimiter} onValueChange={handleDelimiterChange}>
+                <SelectTrigger className="h-7 text-xs" id="git-csv-delimiter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CSV_DELIMITERS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-start gap-2">
+              <Checkbox
+                checked={csvMultiline}
+                className="mt-0.5"
+                id="git-csv-multiline"
+                onCheckedChange={handleMultilineChange}
+              />
+              <div className="space-y-0.5">
+                <Label className="text-xs font-medium" htmlFor="git-csv-multiline">
+                  Multiple lines per device
+                </Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Lines with the same name are merged into one device; later
+                  non-empty values overwrite earlier ones.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* filename_pattern */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5">
@@ -185,7 +307,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
         <Input
           id="git-filename-pattern"
           className="h-7 font-mono text-xs"
-          placeholder="*.yaml"
+          placeholder={DEFAULT_PATTERN[fileFormat]}
           value={filenamePattern}
           onChange={handlePatternChange}
         />
@@ -272,6 +394,7 @@ function GitDevicesConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       <DeviceMappingDialog
         open={mappingOpen}
         rules={mapping}
+        fileFormat={fileFormat}
         availableKeys={availableKeys}
         loadingKeys={previewPending}
         canLoadKeys={isConfigured}

@@ -147,5 +147,84 @@ class FetchDevicesTests(unittest.TestCase):
         clone.assert_not_called()
 
 
+class FetchCsvRecordsTests(unittest.TestCase):
+    HEADER = (
+        "name;ip_address;role;status;location;network_driver;"
+        "interface_name;interface_ip_address;cf_snmp_credentials\n"
+    )
+    MAPPING = [
+        {"source": "name", "target": "name"},
+        {"source": "ip_address", "target": "primary_ip4.address"},
+        {"source": "role", "target": "role.name"},
+        {"source": "status", "target": "status.name"},
+        {"source": "location", "target": "location.name"},
+        {"source": "network_driver", "target": "platform.network_driver"},
+        {"source": "interface_name", "target": "interfaces.name"},
+        {"source": "interface_ip_address", "target": "interfaces.ip_addresses.address"},
+    ]
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo_dir = Path(self._tmp.name)
+
+    def _fetch(self, text: str, **kwargs):
+        (self.repo_dir / "d.csv").write_text(text)
+        options = {"file_format": "csv", "device_mapping": self.MAPPING, **kwargs}
+        with patch("services.git.device_service.clone_or_pull", return_value=self.repo_dir):
+            return GitDeviceService().fetch_records({"name": "r"}, "*.csv", **options)
+
+    def test_simple_csv_one_device_per_line(self) -> None:
+        result = self._fetch(
+            self.HEADER
+            + "r1;10.0.0.1/24;Network;Active;A;cisco_ios;;;secret\n"
+            + "r2;10.0.0.2/24;Edge;Active;B;cisco_ios;;;\n"
+        )
+        self.assertEqual([r.mapped["name"] for r in result.records], ["r1", "r2"])
+        # cf_ columns are mapped implicitly; empty custom fields are ignored.
+        self.assertEqual(result.records[0].mapped["custom_fields"], {"snmp_credentials": "secret"})
+        self.assertNotIn("custom_fields", result.records[1].mapped)
+        self.assertIn("cf_snmp_credentials", result.available_keys)
+        self.assertEqual(result.warnings, [])
+
+    def test_multiline_csv_merges_lines_per_device(self) -> None:
+        result = self._fetch(
+            self.HEADER
+            + "LAB;192.168.178.240/24;network;Active;CityA;cisco_ios;;;\n"
+            + "LAB;;;;;;Ethernet0/0;192.168.178.240/24;\n"
+            + "LAB;;;;;;Ethernet0/1;192.168.179.240/24;\n",
+            csv_multiline=True,
+        )
+        self.assertEqual(len(result.records), 1)
+        mapped = result.records[0].mapped
+        self.assertEqual(mapped["location"], {"name": "CityA"})
+        self.assertEqual([i["name"] for i in mapped["interfaces"]], ["Ethernet0/0", "Ethernet0/1"])
+
+    def test_same_names_without_multiline_stay_separate_and_warn(self) -> None:
+        result = self._fetch(self.HEADER + "A;;;;;;;;\nA;;;;;;;;\n")
+        self.assertEqual(len(result.records), 2)
+        self.assertTrue(any("same name" in w for w in result.warnings))
+
+    def test_ragged_line_is_reported(self) -> None:
+        result = self._fetch(self.HEADER + "LAB;;;;;Ethernet0/0;10.0.0.1/24\n")
+        self.assertTrue(any("line 2" in w for w in result.warnings))
+
+    def test_other_delimiter(self) -> None:
+        result = self._fetch("name,role\nr1,x\n", csv_delimiter=",", device_mapping=None)
+        self.assertEqual(result.records[0].mapped["name"], "r1")
+
+    def test_invalid_format_and_delimiter_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._fetch("name\nr\n", file_format="xml")
+        with self.assertRaises(ValueError):
+            self._fetch("name\nr\n", csv_delimiter="abc")
+
+    def test_yaml_cf_keys_are_mapped_implicitly(self) -> None:
+        (self.repo_dir / "d.yaml").write_text("devices:\n  - name: r1\n    cf_net: lab\n")
+        with patch("services.git.device_service.clone_or_pull", return_value=self.repo_dir):
+            result = GitDeviceService().fetch_records({"name": "r"}, "*.yaml")
+        self.assertEqual(result.records[0].mapped["custom_fields"], {"net": "lab"})
+
+
 if __name__ == "__main__":
     unittest.main()
