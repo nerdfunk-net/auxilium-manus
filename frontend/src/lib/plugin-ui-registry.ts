@@ -45,6 +45,7 @@ import { GetIseTacacsKeyPlugin } from "@/components/features/workflow-steps/get-
 import { GitClonePlugin } from "@/components/features/workflow-steps/git-clone";
 import { GitPullPlugin } from "@/components/features/workflow-steps/git-pull";
 import { GitPushPlugin } from "@/components/features/workflow-steps/git-push";
+import { GitStatusPlugin } from "@/components/features/workflow-steps/git-status";
 import { GetNautobotDevicesPlugin } from "@/components/features/workflow-steps/get-nautobot-devices";
 import { GetNautobotAttributesPlugin } from "@/components/features/workflow-steps/get-nautobot-attributes";
 import { SetDefaultAttributesPlugin } from "@/components/features/workflow-steps/set-default-attributes";
@@ -149,6 +150,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "git-clone": GitClonePlugin,
   "git-pull": GitPullPlugin,
   "git-push": GitPushPlugin,
+  "git-status": GitStatusPlugin,
   "update-nautobot-device": UpdateNautobotDevicePlugin,
   "start-nautobot-job": StartNautobotJobPlugin,
   "check-nautobot-job": CheckNautobotJobPlugin,

@@ -289,13 +289,13 @@ export const CATEGORY_BORDER_FALLBACK = "border-l-border";
 
 export function outcomeClasses(name: string): string {
   const lower = name.toLowerCase();
-  if (lower === "success" || lower === "match" || lower === "pass") {
+  if (lower === "success" || lower === "match" || lower === "pass" || lower === "clean") {
     return "bg-success text-success-foreground border border-success-border";
   }
   if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
     return "bg-error text-error-foreground border border-error-border";
   }
-  if (lower === "default") {
+  if (lower === "default" || lower === "dirty") {
     return "bg-warning text-warning-foreground border border-warning-border";
   }
   return "bg-info text-info-foreground border border-info-border";
@@ -303,13 +303,13 @@ export function outcomeClasses(name: string): string {
 
 export function outcomeHandleClasses(name: string): string {
   const lower = name.toLowerCase();
-  if (lower === "success" || lower === "match" || lower === "pass") {
+  if (lower === "success" || lower === "match" || lower === "pass" || lower === "clean") {
     return "!bg-success-foreground !border-success-foreground";
   }
   if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
     return "!bg-error-foreground !border-error-foreground";
   }
-  if (lower === "default") {
+  if (lower === "default" || lower === "dirty") {
     return "!bg-warning-foreground !border-warning-foreground";
   }
   return "!bg-info-foreground !border-info-foreground";
@@ -317,10 +317,10 @@ export function outcomeHandleClasses(name: string): string {
 
 export function outcomeDotClasses(name: string): string {
   const lower = name.toLowerCase();
-  if (lower === "success" || lower === "match" || lower === "pass") return "bg-success-foreground";
+  if (lower === "success" || lower === "match" || lower === "pass" || lower === "clean") return "bg-success-foreground";
   if (lower === "failure" || lower === "fail" || lower === "error" || lower === "mismatch") {
     return "bg-error-foreground";
   }
-  if (lower === "default") return "bg-warning-foreground";
+  if (lower === "default" || lower === "dirty") return "bg-warning-foreground";
   return "bg-info-foreground";
 }

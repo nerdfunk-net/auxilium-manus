@@ -319,7 +319,7 @@ Rules:
   items processed) by reusing values you already computed — don't add bookkeeping solely
   for the log line.
 - If several steps share one implementation helper (e.g. `git-clone` / `git-pull` /
-  `git-push` all call `run_git_workflow_step` in
+  `git-push` / `git-status` all call `run_git_workflow_step` in
   `workflow_steps/common/git_workflow_step.py`), put the start/finish log lines once in the
   shared helper instead of duplicating them in every thin `execute()` wrapper.
 - Some steps `del run` early because they don't need the ORM row beyond validation — use
@@ -1104,6 +1104,7 @@ A step is concurrency-safe when it:
 | Step kind | Concurrency safe? | Why |
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `run-catalyst-center-command`, `get-catalyst-center-configs`, `get-catalyst-center-details`, `get-catalyst-center-topology`, `get-catalyst-center-health`, `merge-config`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
+| `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
 | `add-nautobot-metadata` | ✅ | Writes shared Nautobot reference data (a Location / Device Type), but as get-or-create: an existing object is reused, a duplicate-key error from a concurrent creator is resolved by re-reading it, and devices resolving to the same object share one call within a step run. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent callers overwrite/race. |
 | `store-artifact` → `destination: git`, `git-clone`, `git-pull`, `git-push`, `open-change-request` | ⚠️ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). A per-repository advisory lock (`services/git/repo_lock.py`, Redis `SET NX EX`, fail-soft if Redis is down) serialises concurrent callers against the *same* `GitRepository` — whether two runs, fan-out children (cross-process), or two independent sibling branches in one run (same process) — so the working tree itself is **not** corrupted. It does **not** make two concurrent callers collapse into one logical operation, though: each still opens its own commit (and, for `open-change-request`, its own branch/change-request row), which is rarely what you want. Place git-touching steps after a **Fan In** node (fan-out) or wire an explicit dependency edge (independent branches) so exactly one export/commit/change-request comes out, not N. |

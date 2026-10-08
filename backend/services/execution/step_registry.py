@@ -83,6 +83,7 @@ from workflow_steps.get_pyats_snapshot.executor import execute as get_pyats_snap
 from workflow_steps.git_clone.executor import execute as git_clone
 from workflow_steps.git_pull.executor import execute as git_pull
 from workflow_steps.git_push.executor import execute as git_push
+from workflow_steps.git_status.executor import execute as git_status
 from workflow_steps.list_contains.executor import execute as list_contains
 from workflow_steps.log_attributes.executor import execute as log_attributes
 from workflow_steps.log_message.executor import execute as log_message
@@ -188,6 +189,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "git-clone": git_clone,
     "git-pull": git_pull,
     "git-push": git_push,
+    "git-status": git_status,
     "update-attribute": update_attribute,
     "encrypt-attribute": encrypt_attribute,
     "decrypt-attribute": decrypt_attribute,

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -71,6 +72,56 @@ def _mark_devices_failed(
     }
 
 
+# Maps an operation result to (outcome name, optional summary). Steps that route
+# on more than success/failure (git-status: clean/dirty) pass one in.
+ResultOutcome = Callable[[dict[str, Any]], tuple[str, str | None]]
+
+_DEFAULT_SUCCESS_OUTCOME = "success"
+_INACTIVE_MARKER_SUFFIX = ".branch_inactive"
+_SKIPPED_MESSAGE = "Skipped: upstream routing step did not select this branch"
+
+# ``scheme://user:token@host`` -> ``scheme://***@host``. Git errors often echo the
+# remote URL, and GitService temporarily injects the token into it for http(s).
+_URL_USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*://)[^/\s@]+@")
+
+
+def scrub_url_credentials(text: str) -> str:
+    """Mask credentials embedded in any URL inside free-text (error messages)."""
+    return _URL_USERINFO.sub(r"\g<scheme>***@", text)
+
+
+def _inactive_marker_key(node_id: str) -> str:
+    return f"{node_id}{_INACTIVE_MARKER_SUFFIX}"
+
+
+def _on_inactive_branch(context: WorkflowContext) -> bool:
+    """True when no device reached this step AND an upstream routing step
+    (git-status) marked this branch as not taken."""
+    return not context.devices and any(
+        key.endswith(_INACTIVE_MARKER_SUFFIX) and value is True
+        for key, value in context.metadata.items()
+    )
+
+
+def _inactive_outcomes(
+    *,
+    context: WorkflowContext,
+    node_id: str,
+    metadata: dict[str, Any],
+    names: tuple[str, ...],
+) -> list[StepOutcome]:
+    """The result outcomes a routing step did not take: no devices, plus a marker
+    so downstream git steps know to stay a no-op instead of running on nothing."""
+    inactive_metadata = {**metadata, _inactive_marker_key(node_id): True}
+    return [
+        StepOutcome(
+            name=name,
+            context=context.model_copy(update={"devices": {}, "metadata": inactive_metadata}),
+        )
+        for name in names
+    ]
+
+
 def _failure_outcomes(
     *,
     context: WorkflowContext,
@@ -79,7 +130,12 @@ def _failure_outcomes(
     operation: str,
     git_repository_id: int | None,
     message: str,
+    result_outcome_names: tuple[str, ...] = (),
 ) -> list[StepOutcome]:
+    """Failure result. A routing step (``result_outcome_names`` = e.g. clean/dirty)
+    emits every result outcome as inactive, so a failed check never reads as a
+    verdict on the repository; other steps emit an empty ``success``."""
+    message = scrub_url_credentials(message)
     metadata = {
         **context.metadata,
         _metadata_key(node_id): {
@@ -89,6 +145,17 @@ def _failure_outcomes(
             "message": message,
         },
     }
+    if result_outcome_names:
+        outcomes = _inactive_outcomes(
+            context=context, node_id=node_id, metadata=metadata, names=result_outcome_names
+        )
+    else:
+        outcomes = [
+            StepOutcome(
+                name=_DEFAULT_SUCCESS_OUTCOME,
+                context=context.model_copy(update={"devices": {}, "metadata": metadata}),
+            )
+        ]
     if context.devices:
         failed_devices = _mark_devices_failed(
             devices=context.devices,
@@ -96,32 +163,14 @@ def _failure_outcomes(
             step_id=step_id,
             message=message,
         )
-        return [
-            StepOutcome(
-                name="success",
-                context=context.model_copy(update={"devices": {}, "metadata": metadata}),
-            ),
-            StepOutcome(
-                name="failure",
-                context=context.model_copy(
-                    update={"devices": failed_devices, "metadata": metadata}
-                ),
-            ),
-        ]
-
-    return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"devices": {}, "metadata": metadata}),
-        ),
-        StepOutcome(
-            name="failure",
-            context=context.model_copy(update={"metadata": metadata}),
-        ),
-    ]
+        failure_update: dict[str, Any] = {"devices": failed_devices, "metadata": metadata}
+    else:
+        failure_update = {"metadata": metadata}
+    outcomes.append(StepOutcome(name="failure", context=context.model_copy(update=failure_update)))
+    return outcomes
 
 
-def _parse_bool(value: Any) -> bool:
+def parse_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -139,7 +188,18 @@ async def run_git_workflow_step(
     step_id: str,
     operation: GitOperation,
     operation_name: str,
+    result_outcome: ResultOutcome | None = None,
+    result_outcome_names: tuple[str, ...] = (),
 ) -> list[StepOutcome]:
+    """Run one git operation under the per-repository lock.
+
+    ``result_outcome`` / ``result_outcome_names`` are for routing steps
+    (git-status: clean/dirty): the first maps the result to the taken outcome
+    name and summary, the second lists every result outcome so the untaken ones
+    are emitted as inactive. Every other git step becomes a no-op when it sits on
+    such an inactive branch (no devices + marker) -- git-push must not commit
+    and push just because the branch it hangs off was not selected.
+    """
     del artifact_service
 
     repository_id = _git_repository_id(config)
@@ -152,7 +212,36 @@ async def run_git_workflow_step(
             operation=operation_name,
             git_repository_id=repository_id,
             message=message,
+            result_outcome_names=result_outcome_names,
         )
+
+    if result_outcome is None and _on_inactive_branch(context):
+        logger.info(
+            "%s skipped (inactive branch) run_id=%s repository_id=%s",
+            step_id,
+            context.run_id,
+            repository_id,
+        )
+        return [
+            StepOutcome(
+                name=_DEFAULT_SUCCESS_OUTCOME,
+                context=context.model_copy(
+                    update={
+                        "metadata": {
+                            **context.metadata,
+                            _metadata_key(node_id): {
+                                "success": True,
+                                "skipped": True,
+                                "operation": operation_name,
+                                "git_repository_id": repository_id,
+                                "message": _SKIPPED_MESSAGE,
+                            },
+                        }
+                    }
+                ),
+                summary=_SKIPPED_MESSAGE.lower(),
+            )
+        ]
 
     logger.info("%s started run_id=%s repository_id=%s", step_id, context.run_id, repository_id)
 
@@ -166,12 +255,13 @@ async def run_git_workflow_step(
             operation=operation_name,
             git_repository_id=repository_id,
             message=str(exc),
+            result_outcome_names=result_outcome_names,
         )
 
     # CI/CD pipeline: when this run deploys a change request and the step opted
     # in, operate on the change request's per-change branch instead of the
     # repository's default branch.
-    if _parse_bool(config.get("use_change_request_branch")):
+    if parse_bool(config.get("use_change_request_branch")):
         from workflow_steps.common.change_request_context import resolve_cr_ref
 
         cr_ref = resolve_cr_ref(run)
@@ -199,7 +289,11 @@ async def run_git_workflow_step(
         result = await asyncio.to_thread(_run_locked)
     except Exception as exc:
         logger.error(
-            "%s failed run_id=%s repository_id=%s: %s", step_id, context.run_id, repository_id, exc
+            "%s failed run_id=%s repository_id=%s: %s",
+            step_id,
+            context.run_id,
+            repository_id,
+            scrub_url_credentials(str(exc)),
         )
         return _failure_outcomes(
             context=context,
@@ -208,6 +302,7 @@ async def run_git_workflow_step(
             operation=operation_name,
             git_repository_id=repository_id,
             message=str(exc),
+            result_outcome_names=result_outcome_names,
         )
 
     metadata = {
@@ -221,9 +316,23 @@ async def run_git_workflow_step(
         repository_id,
         operation_name,
     )
-    return [
-        StepOutcome(
-            name="success",
-            context=context.model_copy(update={"metadata": metadata}),
-        )
-    ]
+    if result_outcome is None:
+        return [
+            StepOutcome(
+                name=_DEFAULT_SUCCESS_OUTCOME,
+                context=context.model_copy(update={"metadata": metadata}),
+            )
+        ]
+    outcome_name, summary = result_outcome(result)
+    taken = StepOutcome(
+        name=outcome_name,
+        context=context.model_copy(update={"metadata": metadata}),
+        summary=summary,
+    )
+    untaken = _inactive_outcomes(
+        context=context,
+        node_id=node_id,
+        metadata=metadata,
+        names=tuple(name for name in result_outcome_names if name != outcome_name),
+    )
+    return [taken, *untaken]

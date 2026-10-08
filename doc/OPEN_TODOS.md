@@ -340,3 +340,50 @@ flags any `GitRepository` id reachable via more than one concurrent
 (non-joined) path — a warning first, since some workflows may intentionally
 want N commits (e.g. distinct branches per caller), not an outright block.
 
+---
+
+## Expose Git Status results as device attributes (for route-on-attribute / templates)
+
+**Added:** 2026-10-07 · **Area:** `backend/workflow_steps/git_status`,
+`backend/workflow_steps/common/git_workflow_step.py`
+
+### What we have
+
+`git-status` routes on three outcomes (`clean` / `dirty` / `failure`) and stores its
+full result (`reasons`, `modified_files`, `untracked_files`, `ahead_count`,
+`behind_count`, …) in run-level `WorkflowContext.metadata["{node_id}.git_operation"]`.
+That location is **not reachable** from `route-on-attribute`, Jinja `{bag.field}`
+placeholders, `update-attribute` or `log-message`: attribute-path resolution
+(`services/workflow_context/attribute_path.py`) only reads
+`DeviceContext.attribute_bags`, never `WorkflowContext.metadata` (see
+`doc/WORKFLOW-STEPS.md` → "Making values usable by steps"). So a workflow can
+only branch on the coarse outcome (tunable via the `check_*` switches), not on one
+specific reason or on a count such as `behind_count > 0`.
+
+### Original goal
+
+Let a workflow route or render on individual Git Status findings, e.g. "behind
+origin but not ahead", or include `reasons` in a notification template.
+
+### Why it's deferred
+
+Undecided whether it is worth it. The idea: also write a compact summary into
+every device's attribute bag (e.g. `git_status.clean`, `git_status.reasons`,
+`git_status.ahead_count`, `git_status.behind_count`). Trade-offs to weigh:
+
+- The result is per repository, not per device, so the same values get copied
+  onto every device (same "one answer, N devices" shape as the Batfish
+  Routing Table entry above).
+- Needs a bag name that does not collide with existing/reserved bags (`parsed`,
+  `run_input` are reserved), and file lists should stay out of the bag (size).
+- `check_*` switches plus the three outcomes may already be enough.
+
+### When we revisit
+
+Only if a real workflow needs to branch or render on a specific reason/count.
+Then: in `workflow_steps/git_status/executor.py`, write the summary via the shared
+attribute-write helper (not a flat dotted key; use
+`services.workflow_context.node_result` conventions for nesting), keep the
+`git_operation` metadata as is, add a `produces`/Help-tab note, and cover it
+with an executor test plus a `route-on-attribute` path-resolution test.
+

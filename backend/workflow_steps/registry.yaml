@@ -4999,6 +4999,63 @@ plugins:
           default: "commit {timestamp}"
           example: "Backup run {run.id}"
 
+  - id: git-status
+    name: Git Status
+    overview: Check a git source for uncommitted changes, untracked files and origin sync.
+    description: >
+      Inspect the local working tree of a configured git source and report whether it is
+      clean or dirty, and why: uncommitted changes, untracked files, local commits not on
+      origin, commits missing from origin, or a branch mismatch. Optionally fetches from
+      origin first. Read-only apart from the fetch.
+      Fan-out note: a per-repo advisory lock (services/git/repo_lock.py) serialises
+      concurrent callers against the same source; the step changes nothing, so it is safe
+      per child, but the result is per repository, not per device.
+    artifact_type: persistent_artifact
+    directory: git_status
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: clean
+      - name: dirty
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: git_repository_id
+          description: ID of a Git repository configured under Settings → Git Repositories.
+          data_type: integer
+          required: true
+          example: 3
+        - name: fetch_remote
+          description: Fetch from origin first so ahead/behind counts are current.
+          data_type: boolean
+          required: false
+          default: true
+        - name: check_uncommitted
+          description: Treat modified or staged tracked files as dirty.
+          data_type: boolean
+          required: false
+          default: true
+        - name: check_untracked
+          description: Treat untracked files as dirty.
+          data_type: boolean
+          required: false
+          default: true
+        - name: check_sync
+          description: >
+            Treat local commits not on origin, commits missing locally, a branch
+            mismatch or a missing origin branch as dirty.
+          data_type: boolean
+          required: false
+          default: true
+        - name: use_change_request_branch
+          description: >
+            When this run deploys an approved change request, inspect the change
+            request's per-change branch (manus/cr-{id}). No effect on ordinary runs.
+          data_type: boolean
+          required: false
+          default: false
+
   - id: open-change-request
     name: Open Change Request
     overview: Stage rendered configs on a branch for review before deploy.
