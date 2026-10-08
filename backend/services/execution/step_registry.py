@@ -108,6 +108,7 @@ from workflow_steps.run_command.executor import execute as run_command
 from workflow_steps.secret_generate.executor import execute as secret_generate
 from workflow_steps.secret_get.executor import execute as secret_get
 from workflow_steps.secret_set.executor import execute as secret_set
+from workflow_steps.send_mail.executor import execute as send_mail
 from workflow_steps.set_default_attributes.executor import execute as set_default_attributes
 from workflow_steps.show_summary.executor import execute as show_summary
 from workflow_steps.start_nautobot_job.executor import execute as start_nautobot_job
@@ -206,6 +207,7 @@ STEP_REGISTRY: dict[str, StepExecutor] = {
     "notify": notify,
     "notify-mattermost": notify_mattermost,
     "notify-on-error": notify_on_error,
+    "send-mail": send_mail,
     "secret-get": secret_get,
     "secret-set": secret_set,
     "secret-generate": secret_generate,

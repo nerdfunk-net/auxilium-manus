@@ -334,6 +334,66 @@ class Tier2ReferenceTests(unittest.TestCase):
         self.assertTrue(result.has_errors)
         self.assertEqual(result.findings[0].code, "credential_reference_wrong_type")
 
+    def test_send_mail_accepts_generic_credential(self) -> None:
+        # send-mail resolves via CredentialManager.generic_only(), so a Basic Auth
+        # ("generic") credential must validate, not fall back to the ssh-only default.
+        registry = _registry(_plugin("send-mail", required_fields=[]))
+        svc = _service(registry)
+
+        with patch(
+            "services.workflow.workflow_validation_service.CredentialsService"
+        ) as mock_service_cls:
+            mock_service_cls.return_value.list_credentials.return_value = [
+                _credential("mail", "generic")
+            ]
+            result = svc.validate(
+                [_node("n1", "send-mail", {"credential_reference": "mail"})],
+                acting_user_id=7,
+            )
+
+        self.assertFalse(result.has_errors)
+
+    def test_send_mail_rejects_ssh_credential(self) -> None:
+        registry = _registry(_plugin("send-mail", required_fields=[]))
+        svc = _service(registry)
+
+        with patch(
+            "services.workflow.workflow_validation_service.CredentialsService"
+        ) as mock_service_cls:
+            mock_service_cls.return_value.list_credentials.return_value = [
+                _credential("mail", "ssh")
+            ]
+            result = svc.validate(
+                [_node("n1", "send-mail", {"credential_reference": "mail"})],
+                acting_user_id=7,
+            )
+
+        self.assertTrue(result.has_errors)
+        self.assertEqual(result.findings[0].code, "credential_reference_wrong_type")
+
+    def test_send_mail_credential_with_plain_security_is_an_error(self) -> None:
+        registry = _registry(_plugin("send-mail", required_fields=[]))
+        svc = _service(registry)
+
+        with patch(
+            "services.workflow.workflow_validation_service.CredentialsService"
+        ) as mock_service_cls:
+            mock_service_cls.return_value.list_credentials.return_value = [
+                _credential("mail", "generic")
+            ]
+            result = svc.validate(
+                [
+                    _node(
+                        "n1",
+                        "send-mail",
+                        {"credential_reference": "mail", "security": "none"},
+                    )
+                ],
+                acting_user_id=7,
+            )
+
+        self.assertEqual([f.code for f in result.findings], ["smtp_credential_without_tls"])
+
     def test_expired_credential_is_an_error(self) -> None:
         registry = _registry(_plugin("run-command", required_fields=[]))
         svc = _service(registry)

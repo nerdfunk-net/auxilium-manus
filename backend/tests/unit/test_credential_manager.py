@@ -179,6 +179,26 @@ class SecretManagerAuthTests(CredentialManagerTestBase):
         self.assertEqual((secret.username, secret.password), ("role-id", "secret-id"))
 
 
+class GenericOnlyTests(CredentialManagerTestBase):
+    """send-mail: the SMTP password goes to a configured host, so no 'ssh' credentials."""
+
+    def test_generic_only_rejects_ssh_credential(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            _credential(name="fleet-ssh", cred_type="ssh")
+        ]
+        with self.assertRaisesRegex(CredentialUnusableError, "must be type 'generic'"):
+            self._manager().generic_only("fleet-ssh")
+        self.mock_service.get_decrypted_password.assert_not_called()
+
+    def test_generic_only_accepts_generic_credential(self) -> None:
+        self.mock_service.list_credentials.return_value = [
+            {**_credential(name="smtp", cred_type="generic"), "username": "mailer"}
+        ]
+        self.mock_service.get_decrypted_password.return_value = "pw"
+        secret = self._manager().generic_only("smtp")
+        self.assertEqual((secret.username, secret.password), ("mailer", "pw"))
+
+
 class SharedSecretTests(CredentialManagerTestBase):
     def test_returns_algorithm_and_passphrase(self) -> None:
         self.mock_service.list_credentials.return_value = [

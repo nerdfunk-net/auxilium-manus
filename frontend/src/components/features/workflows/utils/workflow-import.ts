@@ -26,7 +26,7 @@ export class WorkflowImportParseError extends Error {}
  * per-step executors that call it). Unlisted kinds default to "ssh", which
  * matches every step in this table today except the two exceptions below. */
 const SHARED_SECRET_STEP_KINDS = new Set(["encrypt-attribute", "decrypt-attribute"]);
-const GENERIC_STEP_KINDS = new Set(["add-pyats-testbed"]);
+const GENERIC_STEP_KINDS = new Set(["add-pyats-testbed", "send-mail"]);
 
 export type RequiredCredentialType = "ssh" | "generic" | "shared_secret";
 

@@ -50,6 +50,8 @@ _GENERIC_TYPES = frozenset({"ssh", "generic"})
 # from a device SSH credential, whose password would otherwise be POSTed to
 # whatever addr/site_url the connection points at (SM2).
 _SECRET_MANAGER_AUTH_TYPES = frozenset({"generic"})
+# SMTP AUTH is sent to a host chosen in the step config, so the same rule applies.
+_GENERIC_ONLY_TYPES = frozenset({"generic"})
 _SHARED_SECRET_TYPES = frozenset({"shared_secret"})
 
 _NOT_GLOBAL = (
@@ -84,6 +86,17 @@ class CredentialManager:
     def generic(self, name: str) -> GenericSecret:
         """Resolve an ``ssh`` or ``generic`` credential for a non-SSH transport."""
         match = self._match_by_name(name, _GENERIC_TYPES, "'ssh' or 'generic'")
+        username, password = self._decrypt_password(match, name, "has no decryptable password")
+        return GenericSecret(username=username, password=password)
+
+    def generic_only(self, name: str) -> GenericSecret:
+        """Resolve a ``generic`` credential only, for a host chosen in step config.
+
+        Unlike :meth:`generic`, an ``ssh`` credential is rejected with
+        ``CredentialUnusableError`` so a device password can't be sent to an
+        arbitrary server (e.g. the SMTP host of a ``send-mail`` step).
+        """
+        match = self._match_by_name(name, _GENERIC_ONLY_TYPES, "'generic'")
         username, password = self._decrypt_password(match, name, "has no decryptable password")
         return GenericSecret(username=username, password=password)
 

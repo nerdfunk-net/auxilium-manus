@@ -85,6 +85,7 @@ import { UpdateIseTacacsKeyPlugin } from "@/components/features/workflow-steps/u
 import { UploadConfigPlugin } from "@/components/features/workflow-steps/upload-config";
 import { SecretGetPlugin } from "@/components/features/workflow-steps/secret-get";
 import { SecretSetPlugin } from "@/components/features/workflow-steps/secret-set";
+import { SendMailPlugin } from "@/components/features/workflow-steps/send-mail";
 import { SecretGeneratePlugin } from "@/components/features/workflow-steps/secret-generate";
 import { GeneratePasswordPlugin } from "@/components/features/workflow-steps/generate-password";
 
@@ -172,6 +173,7 @@ const PLUGIN_UI_REGISTRY: Record<string, PluginUIComponent> = {
   "notify-on-error": NotifyOnErrorPlugin,
   "secret-get": SecretGetPlugin,
   "secret-set": SecretSetPlugin,
+  "send-mail": SendMailPlugin,
   "secret-generate": SecretGeneratePlugin,
   "generate-password": GeneratePasswordPlugin,
   label: LabelPlugin,

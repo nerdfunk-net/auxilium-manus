@@ -4312,6 +4312,92 @@ plugins:
           data_type: string
           required: false
 
+  - id: send-mail
+    name: Send Mail
+    overview: Send an email through an SMTP server.
+    description: >
+      Sends one email per step execution through an SMTP server. Supports
+      plain SMTP, STARTTLS and implicit SSL/TLS. The SMTP username and
+      password come from a credential in the vault (Settings → Credentials),
+      never from the step itself; leave the credential empty for a relay
+      that needs no login. Subject, To, From and body support
+      {path.to.value} placeholders (e.g. {device.name}) plus {devices} and
+      {device_count}; subject, To and From resolve against the first device,
+      the body renders once per device. Fan-out note: place after Fan In (or
+      at the end of a non-fanned workflow) for one mail per run; inside
+      fan-out children it sends once per child branch.
+    artifact_type: control_flow
+    palette_category: notify
+    directory: send_mail
+    enabled: true
+    requires: [identity]
+    produces: []
+    outcomes:
+      - name: success
+      - name: failure
+    metadata:
+      configuration_input:
+        - name: smtp_server
+          description: Hostname or IP address of the SMTP server.
+          data_type: string
+          required: true
+          example: smtp.example.com
+        - name: smtp_port
+          description: TCP port of the SMTP server (25 plain, 587 STARTTLS, 465 SSL/TLS).
+          data_type: integer
+          required: true
+          default: 587
+        - name: security
+          description: >
+            Transport security — none (plain SMTP), starttls (upgrade a plain
+            connection to TLS) or ssl (implicit TLS from the first byte).
+          data_type: string
+          required: true
+          default: starttls
+          example: starttls
+        - name: verify_tls
+          description: >
+            Verify the server's TLS certificate (STARTTLS and SSL/TLS only).
+            Turn off only for a server with a self-signed certificate, such
+            as a local Proton Mail Bridge.
+          data_type: boolean
+          required: false
+          default: true
+        - name: credential_reference
+          description: >
+            Name of a Basic Auth (generic) credential in the vault whose
+            username and password are used to authenticate. SSH credentials
+            are rejected and a login requires starttls or ssl. Leave empty
+            to send without login.
+          data_type: string
+          required: false
+        - name: from_address
+          description: Sender address. Supports {path.to.value} placeholders.
+          data_type: string
+          required: true
+          example: manus@example.com
+        - name: to
+          description: >
+            Recipient address(es), separated by commas or semicolons.
+            Supports {path.to.value} placeholders.
+          data_type: string
+          required: true
+          example: "ops@example.com, {custom.owner_email}"
+        - name: subject
+          description: >
+            Subject line. Supports {path.to.value} placeholders resolved
+            against the first device, plus {devices} and {device_count}.
+          data_type: string
+          required: true
+          example: "Config changed on {device.name}"
+        - name: body
+          description: >
+            Plain-text message body. Supports {path.to.value} placeholders
+            (rendered once per device, newline-joined) plus {devices} and
+            {device_count}.
+          data_type: string
+          required: true
+          example: "Workflow finished: {device_count} device(s) ({devices})"
   - id: fan-in
     name: Fan In
     overview: Rejoin fan-out branches into one execution path.

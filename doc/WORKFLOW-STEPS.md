@@ -1105,6 +1105,7 @@ A step is concurrency-safe when it:
 |-----------|---------------|-----|
 | `get-device-configs`, `run-command`, `run-catalyst-center-command`, `get-catalyst-center-configs`, `get-catalyst-center-details`, `get-catalyst-center-topology`, `get-catalyst-center-health`, `merge-config`, `get-nautobot-attributes`, `render-jinja-template`, `log-message`, `route-on-attribute`, `generate-password` | ✅ | Per-device compute, no shared mutable sink. |
 | `git-status` | ✅ | Read-only inspection (plus an optional `git fetch`) under the per-repository lock, so concurrent callers are serialised, not corrupted. Its result is per repository, not per device — inside a fan-out branch it re-checks the same repo once per child, so prefer a single check before the fan-out inventory step's children or after a Fan In. |
+| `send-mail` | ⚠️ | Sends one email per execution and holds no shared state, so concurrent callers never corrupt anything — but inside a fan-out child branch it sends **one mail per child**. Place it after a **Fan In** node (or at the end of a non-fanned workflow) for one mail per run. SMTP username/password come from a vault credential (`credential_reference`, Basic Auth/`generic` type only — an `ssh` device credential is rejected, and a credential with `security: none` is refused at validation and run time), never from step config. TLS certificates are verified unless `verify_tls` is set to `false` (e.g. a local Proton Mail Bridge with a self-signed certificate). |
 | `add-nautobot-metadata` | ✅ | Writes shared Nautobot reference data (a Location / Device Type), but as get-or-create: an existing object is reused, a duplicate-key error from a concurrent creator is resolved by re-reading it, and devices resolving to the same object share one call within a step run. |
 | `store-artifact` → `destination: filesystem` | ⚠️ | Safe **only** if `filename_template` is device-unique. A fixed name or colliding `{run.timestamp}` makes concurrent callers overwrite/race. |
 | `store-artifact` → `destination: git`, `git-clone`, `git-pull`, `git-push`, `open-change-request` | ⚠️ | All open **one shared on-disk working tree per git repository** (`load_git_repository` → single `path`). A per-repository advisory lock (`services/git/repo_lock.py`, Redis `SET NX EX`, fail-soft if Redis is down) serialises concurrent callers against the *same* `GitRepository` — whether two runs, fan-out children (cross-process), or two independent sibling branches in one run (same process) — so the working tree itself is **not** corrupted. It does **not** make two concurrent callers collapse into one logical operation, though: each still opens its own commit (and, for `open-change-request`, its own branch/change-request row), which is rarely what you want. Place git-touching steps after a **Fan In** node (fan-out) or wire an explicit dependency edge (independent branches) so exactly one export/commit/change-request comes out, not N. |
@@ -1174,3 +1175,14 @@ model, webhook, and API: [`doc/CICD_PIPELINE.md`](./CICD_PIPELINE.md).
    `reveal_secrets=False` and fail closed on a redacted read, unless the step is one
    of the documented trusted consumers (see [Secret-valued attributes](#secret-valued-attributes)).
    N/A for decorations.
+
+10. **Credential type registration** — if the step has a `credential_reference` config
+    field, register which vault credential type it resolves, or the pre-run validator
+    assumes `ssh` and rejects a Basic Auth (`generic`) credential with
+    `credential_reference_wrong_type`. Add the step id to `_GENERIC_STEP_KINDS` (or
+    `_SHARED_SECRET_STEP_KINDS`) in `backend/services/workflow/workflow_validation_service.py`
+    **and** the matching set in
+    `frontend/src/components/features/workflows/utils/workflow-import.ts` — the two are
+    hand-mirrored. Leave both alone only for SSH-credential steps (the default). Never put
+    the username/password in the step config; reference the vault credential by name.
+    N/A for decorations.

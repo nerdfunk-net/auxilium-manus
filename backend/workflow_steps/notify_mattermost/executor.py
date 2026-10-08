@@ -39,7 +39,7 @@ from models.workflow_context import StepOutcome, WorkflowContext
 from services.artifacts import ArtifactService
 from services.mattermost.common.exceptions import MattermostAPIError
 from workflow_steps.common.mattermost_source import resolve_mattermost_credentials
-from workflow_steps.common.placeholder_template import render_placeholder_template
+from workflow_steps.common.run_message_template import render_for_all_devices
 from workflow_steps.notify_mattermost.config import get_config
 
 if TYPE_CHECKING:
@@ -52,32 +52,6 @@ _STEP_ID = "notify-mattermost"
 
 def _default_config() -> dict[str, Any]:
     return get_config()
-
-
-def _render_message(message: str, context: WorkflowContext) -> str | None:
-    """Render ``message``, or return ``None`` when there's nothing to post.
-
-    Run-level placeholders (``{devices}``, ``{device_count}``) are resolved
-    first, against every device in context. If nothing ``{...}``-shaped
-    remains after that, the message has no per-device placeholder -- return
-    it as-is regardless of device count. Otherwise it's device-scoped: with
-    no devices to resolve it against, return ``None`` (skip posting);
-    with one or more devices, render once per device and join with
-    newlines so every device gets its own line in the single post.
-    """
-    devices = list(context.devices.values())
-    device_names = ", ".join(device.name for device in devices)
-    aggregated = message.replace("{devices}", device_names).replace(
-        "{device_count}", str(len(devices))
-    )
-
-    if "{" not in aggregated:
-        return aggregated
-
-    if not devices:
-        return None
-
-    return "\n".join(render_placeholder_template(aggregated, device) for device in devices)
 
 
 async def execute(
@@ -108,7 +82,7 @@ async def execute(
     if not message:
         raise ValueError(f"{_STEP_ID}: message is not configured")
 
-    rendered = _render_message(message, context)
+    rendered = render_for_all_devices(message, context)
     if rendered is None:
         logger.info(
             "%s skipped node_id=%s run_id=%s: no devices to report",

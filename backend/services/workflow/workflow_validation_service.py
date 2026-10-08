@@ -148,6 +148,9 @@ def _iter_config_strings(value: Any) -> Iterator[str]:
 # kinds default to "ssh", matching that module's documented default.
 _SHARED_SECRET_STEP_KINDS = frozenset({"encrypt-attribute", "decrypt-attribute"})
 _GENERIC_STEP_KINDS = frozenset({"add-pyats-testbed"})
+# Steps that send the password to a host named in their own config: `generic` only,
+# never a device `ssh` credential (mirrors CredentialManager.generic_only).
+_GENERIC_ONLY_STEP_KINDS = frozenset({"send-mail"})
 # Config fields that carry a secret and therefore must be {path} references, never literals
 # (see services/workflow_context/secret_expression.py).
 _EXPRESSION_ONLY_SECRET_FIELDS: dict[str, tuple[str, ...]] = {
@@ -160,6 +163,7 @@ _EXPRESSION_ONLY_SECRET_FIELDS: dict[str, tuple[str, ...]] = {
 _ACCEPTED_CREDENTIAL_TYPES: dict[str, frozenset[str]] = {
     "ssh": frozenset({"ssh"}),
     "generic": frozenset({"ssh", "generic"}),
+    "generic_only": frozenset({"generic"}),
     "shared_secret": frozenset({"shared_secret"}),
 }
 
@@ -175,9 +179,17 @@ _SOURCE_ID_FIELDS: dict[str, str] = {
 def _infer_credential_type(step_kind: str) -> str:
     if step_kind in _SHARED_SECRET_STEP_KINDS:
         return "shared_secret"
+    if step_kind in _GENERIC_ONLY_STEP_KINDS:
+        return "generic_only"
     if step_kind in _GENERIC_STEP_KINDS:
         return "generic"
     return "ssh"
+
+
+def _smtp_security(plugin_config: dict[str, Any]) -> str:
+    """Effective send-mail ``security``; blank/absent falls back to the step default."""
+    raw = str(plugin_config.get("security") or "").strip().lower()
+    return raw or "starttls"
 
 
 def _is_blank(value: Any) -> bool:
@@ -353,6 +365,19 @@ class WorkflowValidationService:
                     node_id, step_kind, credential_reference, acting_user_id
                 )
             )
+            if step_kind == "send-mail" and _smtp_security(plugin_config) == "none":
+                findings.append(
+                    ValidationFinding(
+                        node_id=node_id,
+                        tier=2,
+                        severity="error",
+                        code="smtp_credential_without_tls",
+                        message=(
+                            "send-mail would send the SMTP password unencrypted. Set security "
+                            "to starttls or ssl, or remove the credential."
+                        ),
+                    )
+                )
 
         git_repository_id = plugin_config.get("git_repository_id")
         if git_repository_id not in (None, ""):

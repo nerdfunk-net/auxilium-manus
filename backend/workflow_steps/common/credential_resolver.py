@@ -73,6 +73,25 @@ def resolve_generic_credential(
     return secret.username, secret.password
 
 
+def resolve_generic_only_credential(
+    db: Session,
+    credential_reference: str,
+    *,
+    acting_user_id: int | None,
+) -> tuple[str, str]:
+    """Like ``resolve_generic_credential``, but accepts ``generic`` credentials only.
+
+    For steps that send the password to a host named in the step config (e.g.
+    ``send-mail``): an ``ssh`` device credential must not be deliverable there.
+    """
+    secret = _translate(
+        lambda: CredentialManager(db, acting_user_id=acting_user_id).generic_only(
+            credential_reference
+        )
+    )
+    return secret.username, secret.password
+
+
 def resolve_shared_secret_credential(
     db: Session,
     credential_reference: str,
