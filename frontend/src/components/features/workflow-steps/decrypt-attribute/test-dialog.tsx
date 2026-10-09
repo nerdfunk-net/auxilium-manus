@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   SharedSecretSourceField,
   type SharedSecretSourceMode,
@@ -88,9 +89,9 @@ export function DecryptAttributeTestDialog({
             <Label className="text-[11px] text-muted-foreground" htmlFor="dec-test-ciphertext">
               Encrypted value (token)
             </Label>
-            <textarea
+            <Textarea
               id="dec-test-ciphertext"
-              className="h-20 w-full resize-none rounded-lg border border-input bg-card px-2 py-1.5 font-mono text-[11px] focus:outline-none focus:ring-2 focus:ring-step/40"
+              className="h-20 resize-none rounded-lg bg-card px-2 py-1.5 font-mono text-[11px]"
               value={ciphertext}
               onChange={(event) => setCiphertext(event.target.value)}
             />

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 
 interface ToastMessage {
@@ -21,6 +21,14 @@ export const useToastStore = create<ToastStore>((set) => ({
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 }));
 
+// getRandomValues (unlike randomUUID) also works in non-secure contexts, e.g.
+// the dev server opened over plain http on a LAN address.
+function createToastId(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function useToast() {
   const { addToast, removeToast, toasts } = useToastStore();
 
@@ -34,7 +42,7 @@ export function useToast() {
       description: string;
       variant?: "default" | "destructive";
     }) => {
-      const id = Math.random().toString(36).substring(2, 11);
+      const id = createToastId();
       addToast({ id, title, description, variant });
       setTimeout(() => removeToast(id), 5000);
     },
@@ -43,5 +51,5 @@ export function useToast() {
 
   const dismiss = useCallback((id: string) => removeToast(id), [removeToast]);
 
-  return { toast, dismiss, toasts };
+  return useMemo(() => ({ toast, dismiss, toasts }), [toast, dismiss, toasts]);
 }

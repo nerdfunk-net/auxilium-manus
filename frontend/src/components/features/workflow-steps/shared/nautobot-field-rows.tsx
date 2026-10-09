@@ -2,6 +2,7 @@
 
 import { Fingerprint, Loader2, Search, Trash2 } from "lucide-react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -310,11 +311,9 @@ export function NautobotOptionalFieldRow({
   return (
     <div className="space-y-1 rounded-lg border border-border bg-muted p-2.5">
       <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={spec.enabled}
-          onChange={(event) => onChange({ enabled: event.target.checked })}
-          className="size-4 rounded border accent-step"
+          onCheckedChange={(checked) => onChange({ enabled: checked === true })}
           aria-label={`Enable ${label}`}
         />
         <Label className="text-[11px] font-medium text-muted-foreground">{label}</Label>
@@ -483,11 +482,9 @@ export function NautobotCustomFieldRow({
     <div className="space-y-2 rounded-lg border border-border bg-muted p-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={row.enabled}
-            onChange={(event) => onChange({ enabled: event.target.checked })}
-            className="size-4 rounded border accent-step"
+            onCheckedChange={(checked) => onChange({ enabled: checked === true })}
             aria-label={`Enable custom field ${row.name || "row"}`}
           />
           <span className="text-xs font-medium text-step-muted-foreground">Custom field</span>

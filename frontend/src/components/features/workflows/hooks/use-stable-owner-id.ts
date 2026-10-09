@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 
 import { useAuthStore } from "@/lib/auth-store";
@@ -37,5 +37,6 @@ export function useStableOwnerId(): StableOwnerId {
       ownerIdRef.current = authUserId;
     }
   }, [authUserId]);
-  return { authUserId, ownerIdRef };
+  // ownerIdRef is a useRef — stable by identity, so only authUserId can change the result.
+  return useMemo(() => ({ authUserId, ownerIdRef }), [authUserId]);
 }

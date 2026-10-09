@@ -7,6 +7,7 @@ import {
   EMPTY_WORKFLOW_EDGES,
   EMPTY_WORKFLOW_NODES,
 } from "@/components/features/workflows/constants/empty-canvas";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -291,12 +292,11 @@ function StoreInDbConfigPanel({
       ) : null}
 
       <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning px-3 py-2">
-        <input
+        <Checkbox
           id="store-in-db-allow-secret-storage"
-          type="checkbox"
           checked={allowSecretStorage}
-          onChange={(event) => handleAllowSecretStorageChange(event.target.checked)}
-          className="mt-0.5 size-4 shrink-0 rounded border"
+          onCheckedChange={(checked) => handleAllowSecretStorageChange(checked === true)}
+          className="mt-0.5 shrink-0"
         />
         <Label
           htmlFor="store-in-db-allow-secret-storage"

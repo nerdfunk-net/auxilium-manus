@@ -1,5 +1,6 @@
 "use client";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,12 +93,11 @@ export function GitDestinationFields({
           Git sync options
         </p>
         <div className="flex items-start gap-2">
-          <input
+          <Checkbox
             id={pullId}
-            type="checkbox"
             checked={values.pull_before_write}
-            onChange={(event) => onChange({ pull_before_write: event.target.checked })}
-            className="mt-0.5 size-4 rounded border"
+            onCheckedChange={(checked) => onChange({ pull_before_write: checked === true })}
+            className="mt-0.5"
           />
           <div className="space-y-0.5">
             <Label htmlFor={pullId} className="font-mono text-xs font-medium">
@@ -109,12 +109,11 @@ export function GitDestinationFields({
           </div>
         </div>
         <div className="flex items-start gap-2">
-          <input
+          <Checkbox
             id={commitId}
-            type="checkbox"
             checked={values.commit_after_write}
-            onChange={(event) => onChange({ commit_after_write: event.target.checked })}
-            className="mt-0.5 size-4 rounded border"
+            onCheckedChange={(checked) => onChange({ commit_after_write: checked === true })}
+            className="mt-0.5"
           />
           <div className="space-y-0.5">
             <Label htmlFor={commitId} className="font-mono text-xs font-medium">
@@ -126,12 +125,11 @@ export function GitDestinationFields({
           </div>
         </div>
         <div className="flex items-start gap-2">
-          <input
+          <Checkbox
             id={pushId}
-            type="checkbox"
             checked={values.push_after_write}
-            onChange={(event) => onChange({ push_after_write: event.target.checked })}
-            className="mt-0.5 size-4 rounded border"
+            onCheckedChange={(checked) => onChange({ push_after_write: checked === true })}
+            className="mt-0.5"
           />
           <div className="space-y-0.5">
             <Label htmlFor={pushId} className="font-mono text-xs font-medium">

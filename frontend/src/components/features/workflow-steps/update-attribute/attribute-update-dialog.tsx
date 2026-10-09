@@ -3,6 +3,7 @@
 import { Search } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,12 +88,11 @@ function RegexFlagsFields({
       <div className="space-y-2 rounded-lg border p-3">
         {items.map((item) => (
           <div key={item.key} className="flex items-start gap-2">
-            <input
+            <Checkbox
               id={`${item.key}-${fieldId}`}
-              type="checkbox"
               checked={flags[item.key]}
-              onChange={(event) => onChange({ [item.key]: event.target.checked })}
-              className="mt-0.5 size-4 rounded border accent-step"
+              onCheckedChange={(checked) => onChange({ [item.key]: checked === true })}
+              className="mt-0.5"
             />
             <div className="space-y-0.5">
               <Label htmlFor={`${item.key}-${fieldId}`} className="font-mono text-xs font-medium">

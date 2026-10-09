@@ -7,6 +7,7 @@ import {
   EMPTY_WORKFLOW_EDGES,
   EMPTY_WORKFLOW_NODES,
 } from "@/components/features/workflows/constants/empty-canvas";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -304,34 +305,25 @@ function CompareDataConfigPanel({
           Comparison options
         </p>
         <Label className="flex cursor-pointer items-center gap-2 text-xs">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={strictTemplates}
-            onChange={(event) => patchConfig({ strict_templates: event.target.checked })}
-            className="accent-step"
-            aria-hidden={false}
+            onCheckedChange={(checked) => patchConfig({ strict_templates: checked === true })}
           />
           <span className="font-mono text-xs font-medium">strict_templates</span>
         </Label>
         <Label className="flex cursor-pointer items-center gap-2 text-xs">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={normalizeLineEndings}
-            onChange={(event) => patchConfig({ normalize_line_endings: event.target.checked })}
-            className="accent-step"
-            aria-hidden={false}
+            onCheckedChange={(checked) => patchConfig({ normalize_line_endings: checked === true })}
           />
           <span className="font-mono text-xs font-medium">normalize_line_endings</span>
         </Label>
         <Label className="flex cursor-pointer items-center gap-2 text-xs">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={config.ignore_trailing_whitespace === true}
-            onChange={(event) =>
-              patchConfig({ ignore_trailing_whitespace: event.target.checked })
+            onCheckedChange={(checked) =>
+              patchConfig({ ignore_trailing_whitespace: checked === true })
             }
-            className="accent-step"
-            aria-hidden={false}
           />
           <span className="font-mono text-xs font-medium">ignore_trailing_whitespace</span>
         </Label>

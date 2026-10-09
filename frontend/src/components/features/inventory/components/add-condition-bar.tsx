@@ -2,6 +2,7 @@
 
 import { Plus, RotateCcw, Settings } from "lucide-react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -203,11 +204,9 @@ export function AddConditionBar({
               </SelectContent>
             </Select>
             <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
+              <Checkbox
                 checked={currentNegate}
-                className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
-                onChange={(e) => setCurrentNegate(e.target.checked)}
-                type="checkbox"
+                onCheckedChange={(checked) => setCurrentNegate(checked === true)}
               />
               <span className="text-foreground">Negate (NOT)</span>
             </label>

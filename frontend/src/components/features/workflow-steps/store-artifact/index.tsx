@@ -7,6 +7,7 @@ import {
   EMPTY_WORKFLOW_EDGES,
   EMPTY_WORKFLOW_NODES,
 } from "@/components/features/workflows/constants/empty-canvas";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -304,14 +305,13 @@ function StoreArtifactConfigPanel({
       </div>
 
       <div className="flex items-start gap-2">
-        <input
+        <Checkbox
           id="strict-templates"
-          type="checkbox"
           checked={strictTemplates}
-          onChange={(event) =>
-            onChange(buildStoreArtifactConfig(config, { strict_templates: event.target.checked }))
+          onCheckedChange={(checked) =>
+            onChange(buildStoreArtifactConfig(config, { strict_templates: checked === true }))
           }
-          className="mt-0.5 size-4 rounded border"
+          className="mt-0.5"
         />
         <div className="space-y-0.5">
           <Label htmlFor="strict-templates" className="font-mono text-xs font-medium">

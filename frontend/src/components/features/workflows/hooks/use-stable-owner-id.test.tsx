@@ -25,6 +25,14 @@ beforeEach(() => {
 });
 
 describe("useStableOwnerId", () => {
+  it("returns a referentially stable object across re-renders", () => {
+    setAuthUser(7);
+    const { result, rerender } = renderHook(() => useStableOwnerId());
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
+  });
+
   it("reports null while auth has not resolved yet", () => {
     const { result } = renderHook(() => useStableOwnerId());
 

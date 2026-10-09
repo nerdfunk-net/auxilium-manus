@@ -22,7 +22,11 @@ const DEFAULT_CONFIG: Required<SessionConfig> = {
 const EMPTY_CONFIG: SessionConfig = {};
 
 export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
-  const finalConfig = { ...DEFAULT_CONFIG, ...config };
+  const {
+    refreshInterval = DEFAULT_CONFIG.refreshInterval,
+    idleLogoutTimeout = DEFAULT_CONFIG.idleLogoutTimeout,
+    checkInterval = DEFAULT_CONFIG.checkInterval,
+  } = config;
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const setUser = useAuthStore((state) => state.setUser);
@@ -68,8 +72,8 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
   }, [updateActivity, activityEvents]);
 
   const isUserActive = useCallback((): boolean => {
-    return Date.now() - lastActivityRef.current < finalConfig.idleLogoutTimeout;
-  }, [finalConfig.idleLogoutTimeout]);
+    return Date.now() - lastActivityRef.current < idleLogoutTimeout;
+  }, [idleLogoutTimeout]);
 
   const forceLogout = useCallback(
     async (reason: "idle" | "expired"): Promise<void> => {
@@ -132,6 +136,20 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
     }
   }, [forceLogout, setUser]);
 
+  // Shared by the interval tick and the visibility handler. Wall-clock based, so
+  // it is correct no matter how long the browser throttled the interval.
+  const runSessionCheck = useCallback(() => {
+    if (!isUserActive()) {
+      void forceLogout("idle");
+      return;
+    }
+
+    const timeSinceRefresh = Date.now() - lastRefreshRef.current;
+    if (timeSinceRefresh >= refreshInterval && !isRefreshingRef.current) {
+      void refreshSession();
+    }
+  }, [isUserActive, forceLogout, refreshSession, refreshInterval]);
+
   useEffect(() => {
     if (!user) {
       if (checkIntervalRef.current) {
@@ -141,32 +159,26 @@ export function useSessionManager(config: SessionConfig = EMPTY_CONFIG) {
       return;
     }
 
-    checkIntervalRef.current = setInterval(() => {
-      if (!isUserActive()) {
-        void forceLogout("idle");
-        return;
-      }
+    checkIntervalRef.current = setInterval(runSessionCheck, checkInterval);
 
-      const timeSinceRefresh = Date.now() - lastRefreshRef.current;
-      if (timeSinceRefresh >= finalConfig.refreshInterval && !isRefreshingRef.current) {
-        void refreshSession();
+    // Background tabs get their timers throttled/suspended. Re-evaluate the
+    // session the moment the tab becomes visible instead of waiting for the next
+    // (possibly stale) tick: idle > timeout logs out now, otherwise keeps going.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        runSessionCheck();
       }
-    }, finalConfig.checkInterval);
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (checkIntervalRef.current) {
         clearInterval(checkIntervalRef.current);
         checkIntervalRef.current = null;
       }
     };
-  }, [
-    user,
-    isUserActive,
-    forceLogout,
-    refreshSession,
-    finalConfig.refreshInterval,
-    finalConfig.checkInterval,
-  ]);
+  }, [user, runSessionCheck, checkInterval]);
 
   useEffect(() => {
     return () => {

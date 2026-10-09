@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -68,11 +69,9 @@ export function AttributesDialog({
               key={key}
               className="flex cursor-pointer items-center gap-3 rounded-lg px-1 py-0.5 hover:bg-muted/50"
             >
-              <input
-                type="checkbox"
-                className="size-4 rounded border"
+              <Checkbox
                 checked={selected.includes(key)}
-                onChange={() => handleToggle(key)}
+                onCheckedChange={() => handleToggle(key)}
               />
               <span className="text-sm">{label}</span>
               <span className="ml-auto font-mono text-[11px] text-muted-foreground">

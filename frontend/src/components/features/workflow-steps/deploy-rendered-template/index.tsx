@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -320,12 +321,11 @@ function DeployRenderedTemplateConfigPanel({
 
       <div className="space-y-1.5">
         <div className="flex items-start gap-2">
-          <input
+          <Checkbox
             id="dry-run"
-            type="checkbox"
             checked={dryRun}
-            onChange={(event) => handleDryRunChange(event.target.checked)}
-            className="mt-0.5 size-4 rounded border"
+            onCheckedChange={(checked) => handleDryRunChange(checked === true)}
+            className="mt-0.5"
           />
           <div className="space-y-0.5">
             <Label htmlFor="dry-run" className="font-mono text-xs font-medium">
@@ -369,12 +369,11 @@ function DeployRenderedTemplateConfigPanel({
       />
 
       <div className="flex items-start gap-2">
-        <input
+        <Checkbox
           id="write-config-after-execution"
-          type="checkbox"
           checked={writeConfigAfterExecution}
-          onChange={(event) => handleWriteConfigChange(event.target.checked)}
-          className="mt-0.5 size-4 rounded border"
+          onCheckedChange={(checked) => handleWriteConfigChange(checked === true)}
+          className="mt-0.5"
         />
         <div className="space-y-0.5">
           <Label
@@ -392,12 +391,11 @@ function DeployRenderedTemplateConfigPanel({
 
       <div className="space-y-1.5">
         <div className="flex items-start gap-2">
-          <input
+          <Checkbox
             id="auto-confirm-prompts"
-            type="checkbox"
             checked={autoConfirmPrompts}
-            onChange={(event) => handleAutoConfirmPromptsChange(event.target.checked)}
-            className="mt-0.5 size-4 rounded border"
+            onCheckedChange={(checked) => handleAutoConfirmPromptsChange(checked === true)}
+            className="mt-0.5"
           />
           <div className="space-y-0.5">
             <Label htmlFor="auto-confirm-prompts" className="font-mono text-xs font-medium">

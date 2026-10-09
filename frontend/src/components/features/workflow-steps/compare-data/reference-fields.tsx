@@ -1,5 +1,6 @@
 "use client";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,12 +135,9 @@ export function CompareDataReferenceFields({
           </div>
 
           <Label className="flex cursor-pointer items-center gap-2 text-xs">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={pullBeforeRead}
-              onChange={(event) => onPullBeforeReadChange(event.target.checked)}
-              className="accent-step"
-              aria-hidden={false}
+              onCheckedChange={(checked) => onPullBeforeReadChange(checked === true)}
             />
             <span className="font-mono text-xs font-medium">pull_before_read</span>
           </Label>

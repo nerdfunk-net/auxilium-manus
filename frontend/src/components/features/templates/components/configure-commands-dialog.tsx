@@ -2,6 +2,7 @@
 
 import { Minus, Play, Plus, RefreshCw } from "lucide-react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -118,12 +119,11 @@ export function ConfigureCommandsDialog({
           </div>
 
           <div className="flex items-start gap-2">
-            <input
+            <Checkbox
               id="template-use-textfsm"
-              type="checkbox"
               checked={useTextfsm}
-              onChange={(event) => onUseTextfsmChange(event.target.checked)}
-              className="mt-0.5 size-4 rounded border"
+              onCheckedChange={(checked) => onUseTextfsmChange(checked === true)}
+              className="mt-0.5"
             />
             <div className="space-y-0.5">
               <Label htmlFor="template-use-textfsm" className="font-mono text-xs font-medium">

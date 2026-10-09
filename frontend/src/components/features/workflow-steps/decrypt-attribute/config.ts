@@ -1,3 +1,5 @@
+import { stringField } from "../shared/config-field-helpers";
+
 export interface DecryptAttributeConfig {
   source_path: string;
   destination_path: string;
@@ -20,11 +22,6 @@ export const DEFAULT_DECRYPT_ATTRIBUTE_CONFIG: DecryptAttributeConfig = {
   algorithm: "",
   item_field: "",
 };
-
-function stringField(config: Record<string, unknown>, key: string): string {
-  const raw = config[key];
-  return typeof raw === "string" ? raw : "";
-}
 
 export function parseDecryptAttributeConfig(
   config: Record<string, unknown>,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import type {
   PluginConfigPanelProps,
@@ -33,12 +34,11 @@ function ToggleRow({
 }) {
   return (
     <div className="flex items-start gap-2">
-      <input
+      <Checkbox
         id={id}
-        type="checkbox"
         checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 size-4 rounded border"
+        onCheckedChange={(next) => onChange(next === true)}
+        className="mt-0.5"
       />
       <div className="space-y-0.5">
         <Label htmlFor={id} className="font-mono text-xs font-medium">

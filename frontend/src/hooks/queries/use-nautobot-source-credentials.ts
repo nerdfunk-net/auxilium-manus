@@ -37,12 +37,17 @@ export function useNautobotSourceCredentials({
 
   const isReady = Boolean(normalizedId && parsed.url && parsed.tokenConfigured);
 
-  return {
-    url: parsed.url,
-    sourceId: normalizedId,
-    tokenConfigured: parsed.tokenConfigured,
-    isLoading: query.isLoading,
-    isError: query.isError,
-    isReady,
-  };
+  const { isLoading, isError } = query;
+
+  return useMemo(
+    () => ({
+      url: parsed.url,
+      sourceId: normalizedId,
+      tokenConfigured: parsed.tokenConfigured,
+      isLoading,
+      isError,
+      isReady,
+    }),
+    [parsed.url, normalizedId, parsed.tokenConfigured, isLoading, isError, isReady],
+  );
 }

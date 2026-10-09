@@ -299,11 +299,9 @@ function ConfigToAttributesConfigPanel({
               key={key}
               className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 hover:bg-muted/50"
             >
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded accent-step focus:ring-2 focus:ring-step/40"
+              <Checkbox
                 checked={selected.includes(key)}
-                onChange={() => handleToggle(key)}
+                onCheckedChange={() => handleToggle(key)}
               />
               <span className="text-xs">{label}</span>
             </label>

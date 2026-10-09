@@ -13,6 +13,7 @@ import type {
   BatfishQueryResult,
 } from "../types";
 import type { useTemplateVariables } from "./use-template-variables";
+import { boolField, stringField } from "@/components/features/workflow-steps/shared/config-field-helpers";
 
 type TemplateVariablesManager = ReturnType<typeof useTemplateVariables>;
 
@@ -54,16 +55,6 @@ export const DEFAULT_OUTPUT_KEY: Record<BatfishFactsQuestion, string> = {
   nodeProperties: "batfish_node_properties",
   interfaceProperties: "batfish_interface_properties",
 };
-
-function stringField(params: Record<string, unknown>, key: string): string {
-  const raw = params[key];
-  return typeof raw === "string" ? raw : "";
-}
-
-function boolField(params: Record<string, unknown>, key: string, fallback: boolean): boolean {
-  const raw = params[key];
-  return typeof raw === "boolean" ? raw : fallback;
-}
 
 function outputKeyFor(question: BatfishFactsQuestion, params: Record<string, unknown>): string {
   return stringField(params, "output_key").trim() || DEFAULT_OUTPUT_KEY[question];

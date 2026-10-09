@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -97,12 +98,11 @@ export function GitSourceConfigPanel({
 
       {showChangeRequestBranchToggle ? (
         <div className="flex items-start gap-2">
-          <input
+          <Checkbox
             id={`${nodeId}-use-cr-branch`}
-            type="checkbox"
             checked={useChangeRequestBranch}
-            onChange={(event) => handleUseChangeRequestBranchChange(event.target.checked)}
-            className="mt-0.5 size-4 rounded border"
+            onCheckedChange={(checked) => handleUseChangeRequestBranchChange(checked === true)}
+            className="mt-0.5"
           />
           <div className="space-y-0.5">
             <Label

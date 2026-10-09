@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EMPTY_WORKFLOW_NODES } from "@/components/features/workflows/constants/empty-canvas";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -179,8 +180,8 @@ function MergeContentConfigPanel({
   );
 
   const handleIncludeHeaderChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onChange(buildMergeContentConfig(config, { include_command_header: e.target.checked }));
+    (checked: boolean) => {
+      onChange(buildMergeContentConfig(config, { include_command_header: checked }));
     },
     [config, onChange],
   );
@@ -260,12 +261,9 @@ function MergeContentConfigPanel({
                   key={node.id}
                   className="flex cursor-pointer items-center gap-2 py-0.5"
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={checked}
-                    onChange={(e) => handleSourceToggle(node.id, e.target.checked)}
-                    className="accent-step"
-                    aria-hidden={false}
+                    onCheckedChange={(next) => handleSourceToggle(node.id, next === true)}
                   />
                   <span className="truncate text-xs">
                     {node.data.title?.trim() || node.id}
@@ -332,12 +330,9 @@ function MergeContentConfigPanel({
       {mergeMode === "text_sectioned" ? (
         <div className="space-y-1.5">
           <Label className="flex cursor-pointer items-center gap-2 text-xs">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={includeCommandHeader}
-              onChange={handleIncludeHeaderChange}
-              className="accent-step"
-              aria-hidden={false}
+              onCheckedChange={(next) => handleIncludeHeaderChange(next === true)}
             />
             <span className="font-mono text-xs font-medium">include_command_header</span>
           </Label>

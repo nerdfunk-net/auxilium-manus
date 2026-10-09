@@ -15,11 +15,7 @@ import { AttributePathPicker } from "@/components/features/workflow-steps/shared
 import { SecretManagerConnectionField } from "@/components/features/workflow-steps/shared/secret-manager-connection-field";
 
 import { SecretSetHelpPanel } from "./help-panel";
-
-function stringField(config: Record<string, unknown>, key: string, fallback = ""): string {
-  const value = config[key];
-  return typeof value === "string" ? value : fallback;
-}
+import { stringField } from "../shared/config-field-helpers";
 
 function SecretSetConfigPanel({
   config,

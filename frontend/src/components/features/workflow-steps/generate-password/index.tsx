@@ -10,16 +10,7 @@ import type {
 } from "@/components/features/workflows/types/plugin-ui";
 
 import { GeneratePasswordHelpPanel } from "./help-panel";
-
-function numberField(config: Record<string, unknown>, key: string, fallback: number): number {
-  const value = config[key];
-  return typeof value === "number" ? value : fallback;
-}
-
-function stringField(config: Record<string, unknown>, key: string, fallback = ""): string {
-  const value = config[key];
-  return typeof value === "string" ? value : fallback;
-}
+import { numberField, stringField } from "../shared/config-field-helpers";
 
 function GeneratePasswordConfigPanel({ config, onChange }: PluginConfigPanelProps) {
   const setField = useCallback(

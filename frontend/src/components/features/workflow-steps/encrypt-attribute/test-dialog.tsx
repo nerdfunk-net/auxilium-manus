@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -131,9 +132,9 @@ export function EncryptAttributeTestDialog({
           {mutation.data ? (
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Ciphertext token</Label>
-              <textarea
+              <Textarea
                 readOnly
-                className="h-24 w-full resize-none rounded-lg border border-input bg-muted/50 px-2 py-1.5 font-mono text-[11px]"
+                className="h-24 resize-none rounded-lg bg-muted/50 px-2 py-1.5 font-mono text-[11px]"
                 value={mutation.data.ciphertext}
                 onFocus={(event) => event.target.select()}
               />

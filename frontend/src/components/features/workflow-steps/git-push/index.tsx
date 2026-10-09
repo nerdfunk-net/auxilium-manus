@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -114,12 +115,11 @@ function GitPushConfigPanel({
       />
 
       <div className="flex items-start gap-2">
-        <input
+        <Checkbox
           id="commit-before-push"
-          type="checkbox"
           checked={commitBeforePush}
-          onChange={(event) => handleCommitBeforePushChange(event.target.checked)}
-          className="mt-0.5 size-4 rounded border"
+          onCheckedChange={(checked) => handleCommitBeforePushChange(checked === true)}
+          className="mt-0.5"
         />
         <div className="space-y-0.5">
           <Label htmlFor="commit-before-push" className="font-mono text-xs font-medium">

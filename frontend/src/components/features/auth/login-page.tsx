@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useOidcProvidersQuery } from "@/hooks/queries/use-oidc-providers-query";
 import { useApi } from "@/hooks/use-api";
 import { useAuthStore } from "@/lib/auth-store";
@@ -163,9 +164,9 @@ export function LoginPage() {
               <label className="text-sm font-medium" htmlFor="username">
                 Username
               </label>
-              <input
+              <Input
                 autoComplete="username"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="h-10"
                 id="username"
                 maxLength={255}
                 onChange={(event) => setUsername(event.target.value)}
@@ -179,9 +180,9 @@ export function LoginPage() {
               <label className="text-sm font-medium" htmlFor="password">
                 Password
               </label>
-              <input
+              <Input
                 autoComplete="current-password"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="h-10"
                 id="password"
                 maxLength={128}
                 onChange={(event) => setPassword(event.target.value)}

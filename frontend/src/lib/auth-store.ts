@@ -16,6 +16,16 @@ interface AuthState {
   markPasswordChangeRequired: () => void;
 }
 
+function loginErrorMessage(status: number): string {
+  if (status === 429) {
+    return "Too many login attempts. Please wait a few minutes and try again.";
+  }
+  if (status >= 500) {
+    return "Authentication service unavailable. Please try again later.";
+  }
+  return "Invalid username or password";
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: false,
@@ -66,12 +76,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       });
 
       if (!response.ok) {
-        set({
-          error: "Invalid username or password",
-          isLoading: false,
-          user: null,
-        });
-        throw new Error("Invalid username or password");
+        const message = loginErrorMessage(response.status);
+        set({ error: message, isLoading: false, user: null });
+        throw new Error(message);
       }
 
       const payload = (await response.json()) as LoginResponse;

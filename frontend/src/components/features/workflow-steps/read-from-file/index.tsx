@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -177,12 +178,11 @@ function ReadFromFileConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       </div>
 
       <div className="flex items-start gap-2">
-        <input
+        <Checkbox
           id="read-from-file-overwrite"
-          type="checkbox"
           checked={overwrite}
-          onChange={(event) => patch({ overwrite: event.target.checked })}
-          className="mt-0.5 size-4 rounded border accent-step"
+          onCheckedChange={(checked) => patch({ overwrite: checked === true })}
+          className="mt-0.5"
         />
         <div className="space-y-0.5">
           <Label htmlFor="read-from-file-overwrite" className="font-mono text-xs font-medium">

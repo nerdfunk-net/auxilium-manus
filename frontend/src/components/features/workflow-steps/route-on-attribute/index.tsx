@@ -3,6 +3,7 @@
 import { Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -284,12 +285,11 @@ function RouteOnAttributeConfigPanel({
       </div>
 
       <div className="flex items-start gap-2">
-        <input
+        <Checkbox
           id={`case-sensitive-${nodeId}`}
-          type="checkbox"
           checked={parsed.case_sensitive}
-          onChange={(event) => handleCaseSensitiveChange(event.target.checked)}
-          className="mt-0.5 size-4 rounded border"
+          onCheckedChange={(checked) => handleCaseSensitiveChange(checked === true)}
+          className="mt-0.5"
         />
         <div className="space-y-0.5">
           <Label htmlFor={`case-sensitive-${nodeId}`} className="font-mono text-xs font-medium">

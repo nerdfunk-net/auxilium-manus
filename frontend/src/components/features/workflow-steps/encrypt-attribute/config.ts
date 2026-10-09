@@ -1,3 +1,5 @@
+import { stringField } from "../shared/config-field-helpers";
+
 export interface EncryptAttributeConfig {
   source_path: string;
   destination_path: string;
@@ -12,11 +14,6 @@ export const DEFAULT_ENCRYPT_ATTRIBUTE_CONFIG: EncryptAttributeConfig = {
   credential_reference: "",
   algorithm: "",
 };
-
-function stringField(config: Record<string, unknown>, key: string): string {
-  const raw = config[key];
-  return typeof raw === "string" ? raw : "";
-}
 
 export function parseEncryptAttributeConfig(
   config: Record<string, unknown>,

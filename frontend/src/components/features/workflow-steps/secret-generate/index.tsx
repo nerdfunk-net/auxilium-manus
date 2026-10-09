@@ -19,11 +19,7 @@ import type {
 import { SecretManagerConnectionField } from "@/components/features/workflow-steps/shared/secret-manager-connection-field";
 
 import { SecretGenerateHelpPanel } from "./help-panel";
-
-function stringField(config: Record<string, unknown>, key: string, fallback = ""): string {
-  const value = config[key];
-  return typeof value === "string" ? value : fallback;
-}
+import { stringField } from "../shared/config-field-helpers";
 
 const CHARSET_OPTIONS = [
   { value: "hex", label: "hex — TACACS+ keys, generic tokens" },

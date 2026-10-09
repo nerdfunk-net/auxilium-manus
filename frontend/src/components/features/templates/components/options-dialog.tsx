@@ -4,6 +4,7 @@ import { Database, RefreshCw, Search, Settings2, Terminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useCredentialsQuery } from "@/components/features/settings/credentials/hooks/use-credentials-query";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -305,12 +306,10 @@ export function OptionsDialog({
                     htmlFor="get-configs"
                     className="flex h-9 flex-1 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs"
                   >
-                    <input
+                    <Checkbox
                       id="get-configs"
-                      type="checkbox"
                       checked={getConfigs}
-                      onChange={(event) => onGetConfigsChange(event.target.checked)}
-                      className="size-4 rounded border"
+                      onCheckedChange={(checked) => onGetConfigsChange(checked === true)}
                     />
                     <span>Parse config</span>
                   </label>

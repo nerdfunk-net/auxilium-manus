@@ -3,6 +3,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -146,11 +147,9 @@ function SetDefaultAttributesDialogForm({
 
         <section className="space-y-2 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={draft.device_type.enabled}
-              onChange={(event) => patchDeviceType({ enabled: event.target.checked })}
-              className="size-4 rounded border accent-step"
+              onCheckedChange={(checked) => patchDeviceType({ enabled: checked === true })}
               aria-label="Enable device_type"
             />
             <span className="font-mono text-xs font-medium">device_type</span>

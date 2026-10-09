@@ -68,12 +68,11 @@ export function UploadConfigTransferFields({
     <>
       <div className="space-y-1.5">
         <div className="flex items-start gap-2">
-          <input
+          <Checkbox
             id="overwrite"
-            type="checkbox"
             checked={overwrite}
-            onChange={(event) => onOverwriteChange(event.target.checked)}
-            className="mt-0.5 size-4 rounded border"
+            onCheckedChange={(checked) => onOverwriteChange(checked === true)}
+            className="mt-0.5"
           />
           <div className="space-y-0.5">
             <Label htmlFor="overwrite" className="font-mono text-xs font-medium">
@@ -92,12 +91,11 @@ export function UploadConfigTransferFields({
       </div>
 
       <div className="flex items-start gap-2">
-        <input
+        <Checkbox
           id="inline-transfer"
-          type="checkbox"
           checked={inlineTransfer}
-          onChange={(event) => onInlineTransferChange(event.target.checked)}
-          className="mt-0.5 size-4 rounded border"
+          onCheckedChange={(checked) => onInlineTransferChange(checked === true)}
+          className="mt-0.5"
         />
         <div className="space-y-0.5">
           <Label htmlFor="inline-transfer" className="font-mono text-xs font-medium">

@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -178,12 +179,11 @@ function ReadConfigConfigPanel({ config, onChange }: PluginConfigPanelProps) {
       </div>
 
       <div className="flex items-start gap-2">
-        <input
+        <Checkbox
           id="overwrite-existing"
-          type="checkbox"
           checked={overwriteExisting}
-          onChange={(event) => handleOverwriteExistingChange(event.target.checked)}
-          className="mt-0.5 size-4 rounded border"
+          onCheckedChange={(checked) => handleOverwriteExistingChange(checked === true)}
+          className="mt-0.5"
         />
         <div className="space-y-0.5">
           <Label htmlFor="overwrite-existing" className="font-mono text-xs font-medium">

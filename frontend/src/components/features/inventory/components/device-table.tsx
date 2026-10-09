@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Database } from "lucide-react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -110,12 +111,10 @@ export function DeviceTable({
                   <tr className="border-b last:border-0" key={device.id}>
                     {enableSelection ? (
                       <td className="p-2">
-                        <input
+                        <Checkbox
                           aria-label={`Select device ${device.name}`}
                           checked={selectedIds.has(device.id)}
-                          className="h-4 w-4 rounded border-input"
-                          onChange={(e) => onSelectDevice(device.id, e.target.checked)}
-                          type="checkbox"
+                          onCheckedChange={(checked) => onSelectDevice(device.id, checked === true)}
                         />
                       </td>
                     ) : null}
@@ -163,14 +162,12 @@ export function DeviceTable({
             <div className="flex items-center space-x-2">
               {enableSelection ? (
                 <label className="mr-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <input
+                  <Checkbox
                     checked={
                       currentPageDevices.length > 0 &&
                       currentPageDevices.every((d) => selectedIds.has(d.id))
                     }
-                    className="h-4 w-4 rounded border-input"
-                    onChange={(e) => onSelectAll(e.target.checked)}
-                    type="checkbox"
+                    onCheckedChange={(checked) => onSelectAll(checked === true)}
                   />
                   Select page
                 </label>

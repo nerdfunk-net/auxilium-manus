@@ -26,10 +26,17 @@ export async function POST(request: Request) {
   });
 
   if (!tokenResponse.ok) {
-    if (tokenResponse.status === 401 || tokenResponse.status === 429) {
+    if (tokenResponse.status === 429) {
+      return NextResponse.json(
+        { message: "Too many login attempts" },
+        { status: 429 },
+      );
+    }
+
+    if (tokenResponse.status === 401) {
       return NextResponse.json(
         { message: "Invalid username or password" },
-        { status: tokenResponse.status },
+        { status: 401 },
       );
     }
 
